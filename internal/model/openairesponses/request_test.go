@@ -496,12 +496,13 @@ func TestPrepareLetsAPIVariantOptionsOverridePromptCacheKey(t *testing.T) {
 	}
 }
 
-func TestPrepareSendsSafetyIdentifierOnlyToOpenAI(t *testing.T) {
+func TestPrepareSendsSafetyIdentifierOnlyToOpenAIAndOpenRouter(t *testing.T) {
 	for _, tc := range []struct {
 		baseURL string
 		want    string
 	}{
 		{baseURL: "", want: "sid"},
+		{baseURL: "https://openrouter.ai/api/v1", want: "sid"},
 		{baseURL: "https://proxy.example.test/v1"},
 	} {
 		client := Client{

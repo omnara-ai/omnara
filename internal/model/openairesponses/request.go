@@ -72,7 +72,8 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	)
 	payload.PromptCacheKey = plan.ConversationKey
 	ownedFields := responsesOwnedFields(supportsReasoning, input.Policy.ReasoningEffort)
-	if input.Context.SafetyIdentifier != "" && model.IsOpenAIHost(c.endpoint().ResolvedBaseURL()) {
+	baseURL := c.endpoint().ResolvedBaseURL()
+	if input.Context.SafetyIdentifier != "" && (model.IsOpenAIHost(baseURL) || model.IsOpenRouterHost(baseURL)) {
 		payload.SafetyIdentifier = input.Context.SafetyIdentifier
 		ownedFields = append(ownedFields, "safety_identifier")
 	}

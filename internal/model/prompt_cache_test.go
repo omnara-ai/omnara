@@ -109,3 +109,24 @@ func TestPlanPromptCache(t *testing.T) {
 		})
 	}
 }
+
+func TestProviderHostsIncludeSubdomains(t *testing.T) {
+	for _, tc := range []struct {
+		match   func(string) bool
+		baseURL string
+		want    bool
+	}{
+		{IsOpenAIHost, "https://api.openai.com/v1", true},
+		{IsOpenAIHost, "https://eu.api.openai.com/v1", true},
+		{IsOpenAIHost, "https://US.API.OPENAI.COM/v1", true},
+		{IsOpenAIHost, "https://api.openai.com.evil.test/v1", false},
+		{IsOpenAIHost, "https://evilapi.openai.com/v1", false},
+		{IsOpenAIHost, "https://proxy.example.test/v1", false},
+		{IsOpenRouterHost, "https://eu.openrouter.ai/api/v1", true},
+		{IsOpenRouterHost, "https://openrouter.ai.evil.test/api/v1", false},
+	} {
+		if got := tc.match(tc.baseURL); got != tc.want {
+			t.Errorf("match(%q) = %v, want %v", tc.baseURL, got, tc.want)
+		}
+	}
+}
