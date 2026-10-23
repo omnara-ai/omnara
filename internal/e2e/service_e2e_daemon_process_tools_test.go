@@ -199,6 +199,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"command": "while IFS= read -r line; do case \"$line\" in CREATE*) printf created > stdin-file.txt; printf C;; DELETE*) rm -f stdin-file.txt; printf D;; esac; done",
 				"shell":   "sh",
 				"cwd":     "/work",
+				"stdin":   true,
 			})
 		case 4:
 			id, ok := fakeModelToolProcessID(w, body, failModelRequest, "call_start")

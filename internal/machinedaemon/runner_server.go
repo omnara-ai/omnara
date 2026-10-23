@@ -1725,6 +1725,8 @@ func prepareLocalRunner(
 	}
 	switch assignment.Process.ExecutionSpec.IOMode() {
 	case processcmd.IOModePipe:
+		runner.noStdin = assignment.Process.ExecutionSpec.Shell != nil &&
+			assignment.Process.ExecutionSpec.Shell.NoStdin
 	case processcmd.IOModePTY:
 		if runtime.GOOS == "windows" {
 			return preparedRunnerWithStartFailure(runner, errPTYUnsupported)
@@ -1787,19 +1789,28 @@ func startPreparedLocalRunner(
 	if err := setupProcessCommand(command); err != nil {
 		return nil, processNotStarted, err
 	}
-	stdin, err := command.StdinPipe()
-	if err != nil {
-		return nil, processNotStarted, err
+	if runner.noStdin {
+		devNull, err := os.Open(os.DevNull)
+		if err != nil {
+			return nil, processNotStarted, err
+		}
+		defer func() { _ = devNull.Close() }()
+		command.Stdin = devNull
+	} else {
+		stdin, err := command.StdinPipe()
+		if err != nil {
+			return nil, processNotStarted, err
+		}
+		stdinFile, ok := stdin.(*os.File)
+		if !ok {
+			_ = stdin.Close()
+			return nil, processNotStarted, errors.New(
+				"process stdin pipe does not support write deadlines",
+			)
+		}
+		runner.stdin = stdinFile
+		runner.stdinOK = true
 	}
-	stdinFile, ok := stdin.(*os.File)
-	if !ok {
-		_ = stdin.Close()
-		return nil, processNotStarted, errors.New(
-			"process stdin pipe does not support write deadlines",
-		)
-	}
-	runner.stdin = stdinFile
-	runner.stdinOK = true
 	command.Stdout = &runner.output
 	command.Stderr = &runner.output
 	if runner.fileTransfer != nil {

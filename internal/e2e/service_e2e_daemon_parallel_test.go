@@ -120,6 +120,7 @@ func TestServiceE2EParallelProcessActionsRecoverFIFOAfterDaemonRestart(t *testin
 						"command": parallelServiceE2ECommand(i),
 						"shell":   "sh",
 						"cwd":     "/work",
+						"stdin":   true,
 					},
 				})
 			}

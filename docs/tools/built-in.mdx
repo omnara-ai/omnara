@@ -71,6 +71,7 @@ Runs a shell command on a [machine attached to the agent](/machines/overview#bin
 | `cwd` | string | Overrides the binding's working directory |
 | `wait_ms` | integer | 1–300000 (default 10000); how long to wait for the command to exit before returning |
 | `io_mode` | enum | `pipe` (default) or `pty` |
+| `stdin` | boolean | Keep stdin open for [`write_process`](#write_process); default false, so a pipe command reads end of input. See [input](#input) |
 | `detach` | boolean | For long-lived processes such as servers; default false. See [background processes](#background-processes) |
 | `notify_match` | string | RE2 regular expression; send the agent output lines that match while the command runs in the background |
 
@@ -89,6 +90,10 @@ Every command returns a `process_id` (`prc_…`). `run_command` waits up to `wai
 Results carry at most 16 KiB of output. Longer output keeps the first 2 KiB in `output` and the rest from the end in `output_tail`; `omitted_offset_byte` and `tail_offset_byte` mark the bytes left out, which [`read_process`](#read_process) can page through.
 
 If the command is still running when `wait_ms` passes, the result has `"state": "running"` and the output so far. The command keeps running; the agent can read its output, send input, or stop it with the process tools below, and receives a message when it ends. Setting `wait_ms` to how long a build or test is expected to take returns its result in one call instead.
+
+#### Input
+
+A `pipe` command gets no input by default: its stdin is `/dev/null`, so a program that prompts, such as a package manager asking for confirmation, reads end of input and fails at once instead of waiting until `wait_ms` passes. Pass `stdin: true` to keep stdin open and send input with `write_process`, or use `io_mode: pty` for an interactive program. Closing stdin needs omnarad 0.2.9 or later.
 
 #### Background processes
 
@@ -134,7 +139,7 @@ Daemons older than omnarad 0.2.9 return as soon as output arrives and do not kee
 
 ### `write_process`
 
-Sends input to a running process or closes its standard input.
+Sends input to a running process or closes its standard input. The process must have been started with `stdin: true` or `io_mode: pty`; otherwise the call fails with `process_stdin_unavailable`.
 
 | Input | Type | Notes |
 | --- | --- | --- |

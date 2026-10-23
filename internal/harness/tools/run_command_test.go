@@ -22,6 +22,7 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 		waitMs      int
 		ioMode      processcmd.IOMode
 		detach      bool
+		stdin       bool
 		notifyMatch string
 	}{
 		{
@@ -99,6 +100,14 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			detach:   true,
 		},
 		{
+			name:     "stdin",
+			input:    json.RawMessage(`{"command":"python3 repl.py","stdin":true}`),
+			command:  "python3 repl.py",
+			selector: "default",
+			ioMode:   "pipe",
+			stdin:    true,
+		},
+		{
 			name:     "max wait",
 			input:    json.RawMessage(`{"command":"make test","wait_ms":300000}`),
 			command:  "make test",
@@ -119,7 +128,7 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			}
 			if resolved.Command != tc.command || resolved.Selector != tc.selector ||
 				resolved.WaitMs != wantWait ||
-				resolved.IOMode != tc.ioMode || resolved.Detach != tc.detach ||
+				resolved.IOMode != tc.ioMode || resolved.Detach != tc.detach || resolved.Stdin != tc.stdin ||
 				resolved.NotifyMatch != tc.notifyMatch {
 				t.Fatalf("unexpected resolution: %+v", resolved)
 			}
@@ -288,5 +297,32 @@ func TestToolCallApprovalPinsResolvedMachineBinding(t *testing.T) {
 		otherBindingInput,
 	) {
 		t.Fatal("expected a different machine binding to reject authorization input")
+	}
+}
+
+func TestRunCommandExecutionSpecClosesPipeStdinByDefault(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		noStdin bool
+	}{
+		{name: "pipe", input: `{"command":"apt-get install jq"}`, noStdin: true},
+		{name: "pipe with stdin", input: `{"command":"python3 repl.py","stdin":true}`, noStdin: false},
+		{name: "pty", input: `{"command":"python3","io_mode":"pty"}`, noStdin: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resolved, err := resolveRunCommandRequest(json.RawMessage(tc.input))
+			if err != nil {
+				t.Fatalf("resolve run_command: %v", err)
+			}
+			spec := resolved.executionSpec()
+			if spec.Shell.NoStdin != tc.noStdin {
+				t.Fatalf("no_stdin = %t, want %t", spec.Shell.NoStdin, tc.noStdin)
+			}
+			if err := spec.ValidateLocal(); err != nil {
+				t.Fatalf("validate spec: %v", err)
+			}
+		})
 	}
 }

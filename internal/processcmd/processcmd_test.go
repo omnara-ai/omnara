@@ -101,3 +101,11 @@ func TestCommandLabelTruncatesAtAUTF8Boundary(t *testing.T) {
 		t.Fatalf("command label is not valid UTF-8: %q", label)
 	}
 }
+
+func TestExecutionSpecRejectsPTYWithoutStdin(t *testing.T) {
+	spec := ForShell("python3", ShellDefault, IOModePTY)
+	spec.Shell.NoStdin = true
+	if err := spec.ValidateLocal(); err == nil {
+		t.Fatal("a pty command without stdin passed validation")
+	}
+}

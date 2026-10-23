@@ -36,6 +36,7 @@ type runCommandAuthorization struct {
 	WaitMS                int                      `json:"wait_ms,omitempty"`
 	IOMode                processcmd.IOMode        `json:"io_mode"`
 	Detach                bool                     `json:"detach,omitempty"`
+	Stdin                 bool                     `json:"stdin,omitempty"`
 	NotifyMatch           string                   `json:"notify_match,omitempty"`
 }
 
@@ -71,6 +72,7 @@ func runCommandAuthorizationInput(
 		WaitMS:                resolved.WaitMs,
 		IOMode:                resolved.IOMode,
 		Detach:                resolved.Detach,
+		Stdin:                 resolved.Stdin,
 		NotifyMatch:           resolved.NotifyMatch,
 	})
 	if err != nil {
@@ -156,7 +158,7 @@ func runCommand(
 		return nil, err
 	}
 	return startProcessTool(ctx, call, binding, authorizationInput, executionstore.CreateProcessInput{
-		ExecutionSpec:  processcmd.ForShell(resolved.Command, resolved.Selector, resolved.IOMode),
+		ExecutionSpec:  resolved.executionSpec(),
 		Cwd:            resolved.Cwd,
 		InitialWaitMS:  resolved.WaitMs,
 		TimeoutSeconds: 0,
@@ -268,6 +270,23 @@ func writeProcess(
 	processID, payload, err := writeProcessPayload(call.Call.Input)
 	if err != nil {
 		return nil, err
+	}
+	if id, err := decodeProcessID(processID); err == nil {
+		spec, found, err := call.Reader.ProcessExecutionSpec(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if found && spec.Shell != nil && spec.Shell.NoStdin {
+			return failProcessTransaction(
+				errors.New("process has no stdin"),
+				processToolErrorNoStdin,
+				"this command has no stdin; run it again with stdin: true (or io_mode: pty) to write to it",
+				false,
+				processID,
+				"",
+				"",
+			)
+		}
 	}
 	authorizationInput, err := processActionAuthorizationRequest(
 		processID,
@@ -583,6 +602,7 @@ const (
 	processToolErrorTerminating                processToolErrorCode = "process_terminating"
 	processToolErrorActionUnavailable          processToolErrorCode = "process_action_unavailable"
 	processToolErrorNotFound                   processToolErrorCode = "process_not_found"
+	processToolErrorNoStdin                    processToolErrorCode = "process_stdin_unavailable"
 	processToolNextActionList                                       = toolcatalog.ToolNameListProcesses
 )
 
