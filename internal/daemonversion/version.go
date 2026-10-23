@@ -53,3 +53,20 @@ func Validate(raw string) error {
 	_, err := ParseRelease(raw)
 	return err
 }
+
+// AtLeast reports whether version is a development build or a release at or
+// after minimum.
+func AtLeast(version, minimum string) bool {
+	if version == Development {
+		return true
+	}
+	release, err := ParseRelease(version)
+	if err != nil {
+		return false
+	}
+	floor, err := ParseRelease(minimum)
+	if err != nil {
+		return false
+	}
+	return Compare(release, floor) >= 0
+}

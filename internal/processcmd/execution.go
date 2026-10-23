@@ -91,15 +91,16 @@ func (s ExecutionSpec) Label() string {
 }
 
 // AgentOutputWait is how agent-facing waits on a shell process behave: they
-// wait for exit, returning early for a pty program that goes quiet at a prompt,
-// and keep the start and end of long output. ok is false for other processes.
+// wait for exit, returning early for a program with stdin (a pty, or a pipe
+// with stdin open) that goes quiet at a prompt, and keep the start and end of
+// long output. ok is false for other processes.
 func (s ExecutionSpec) AgentOutputWait() (processaction.OutputWait, bool) {
 	if s.Kind != KindShell || s.Shell == nil {
 		return processaction.OutputWait{}, false
 	}
 	wait := processaction.OutputWait{WaitForExit: true, HeadBytes: processaction.AgentHeadBytes}
-	if s.Shell.IOMode == IOModePTY {
-		wait.QuietMS = processaction.PTYQuietMilliseconds
+	if s.Shell.IOMode == IOModePTY || !s.Shell.NoStdin {
+		wait.QuietMS = processaction.InteractiveQuietMilliseconds
 	}
 	return wait, true
 }

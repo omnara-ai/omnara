@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -258,6 +259,17 @@ func processToolMachineResolutionError(
 	return failInTransaction(unavailable.Content, unavailable.Cause), nil
 }
 
+// processHasNoStdin reports whether a process was started without stdin.
+// Daemons before processaction.OutputWindowDaemonVersion ignore no_stdin and
+// keep stdin open, so writes to their processes still go through.
+func processHasNoStdin(execution executionstore.ProcessExecution) bool {
+	if execution.Spec.Shell == nil || !execution.Spec.Shell.NoStdin {
+		return false
+	}
+	return execution.DaemonVersion == "" ||
+		daemonversion.AtLeast(execution.DaemonVersion, processaction.OutputWindowDaemonVersion)
+}
+
 func validateRunCommandInput(input json.RawMessage) error {
 	_, err := resolveRunCommandRequest(input)
 	return err
@@ -272,11 +284,11 @@ func writeProcess(
 		return nil, err
 	}
 	if id, err := decodeProcessID(processID); err == nil {
-		spec, found, err := call.Reader.ProcessExecutionSpec(ctx, id)
+		execution, found, err := call.Reader.ProcessExecution(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		if found && spec.Shell != nil && spec.Shell.NoStdin {
+		if found && processHasNoStdin(execution) {
 			return failProcessTransaction(
 				errors.New("process has no stdin"),
 				processToolErrorNoStdin,
@@ -396,19 +408,17 @@ func observeProcess(
 		}
 		return completeInTransaction(content), nil
 	}
+	// An explicit offset pages through output, so it returns one contiguous
+	// page as soon as there is output there instead of waiting for exit.
 	var wait processaction.OutputWait
-	if id, err := decodeProcessID(request.ProcessID); err == nil {
-		spec, found, err := call.Reader.ProcessExecutionSpec(ctx, id)
+	if id, err := decodeProcessID(request.ProcessID); err == nil && request.OffsetByte == nil {
+		execution, found, err := call.Reader.ProcessExecution(ctx, id)
 		if err != nil {
 			return nil, err
 		}
 		if found {
-			wait, _ = spec.AgentOutputWait()
+			wait, _ = execution.Spec.AgentOutputWait()
 		}
-	}
-	if request.OffsetByte != nil {
-		// An explicit offset pages through output, so return one contiguous page.
-		wait.HeadBytes = 0
 	}
 	payload, err := processObservationActionPayload(request, wait)
 	if err != nil {

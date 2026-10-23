@@ -93,7 +93,7 @@ If the command is still running when `wait_ms` passes, the result has `"state": 
 
 #### Input
 
-A `pipe` command gets no input by default: its stdin is `/dev/null`, so a program that prompts, such as a package manager asking for confirmation, reads end of input and fails at once instead of waiting until `wait_ms` passes. Pass `stdin: true` to keep stdin open and send input with `write_process`, or use `io_mode: pty` for an interactive program. Closing stdin needs omnarad 0.2.9 or later.
+A `pipe` command gets no input by default: its stdin is `/dev/null`, so a program that prompts, such as a package manager asking for confirmation, reads end of input and fails at once instead of waiting until `wait_ms` passes. Pass `stdin: true` to keep stdin open and send input with `write_process`, or use `io_mode: pty` for an interactive program. Closing stdin needs omnarad 0.2.9 or later; daemons older than 0.2.11 keep stdin open for every `pipe` command.
 
 #### Background processes
 
@@ -101,7 +101,7 @@ When a command outlives its `run_command` call, Omnara sends the agent a message
 
 There is no message when the agent stopped the process with `stop_process`, when a `read_process` call was waiting on it as it ended (its result reports the exit instead), or when `run_command` was called with `detach: true`. Use `detach` for processes that are meant to keep running, such as development servers.
 
-With `notify_match`, the agent also receives the output lines that match the expression, except lines the `run_command` result already showed in full, so matches in output it left out are still reported. Matches that arrive together are batched into one message of up to 20 lines, messages are at least 10 seconds apart, and a process sends at most 50 of them; the last says no more will follow. For example, `run_command` with `detach: true` and `notify_match: "listening on|error"` starts a development server and tells the agent when it is ready or fails. Matching needs omnarad 0.2.9 or later.
+With `notify_match`, the agent also receives the output lines that match the expression, except lines the `run_command` result already showed in full, so matches in output it left out are still reported. Matches that arrive together are batched into one message of up to 20 lines, messages are at least 10 seconds apart, and a process sends at most 50 of them; the last says no more will follow. For example, `run_command` with `detach: true` and `notify_match: "listening on|error"` starts a development server and tells the agent when it is ready or fails. Matching needs omnarad 0.2.11 or later.
 
 Set `run_command` to `always_ask` to require approval before execution. The prompt shows the command, machine, shell, and working directory.
 
@@ -129,11 +129,11 @@ Reads process output from a byte offset and can wait for the process to end.
 | `offset_byte` | integer | ≥ 0; byte position in the output stream. Omit to continue after the output returned by `run_command` or the last `read_process` call that omitted it |
 | `wait_ms` | integer | 1–300000; wait for the process to end before returning |
 
-Without `wait_ms`, `read_process` returns the retained output immediately. With it, the read returns when the process ends or `wait_ms` passes, so one long wait replaces repeated reads. A `pty` process also returns once its output has been quiet for a second, as an interactive program does at a prompt.
+Without `wait_ms`, `read_process` returns the retained output immediately. With it, the read returns when the process ends or `wait_ms` passes, so one long wait replaces repeated reads. A process with input (`pty`, or `pipe` with `stdin: true`) also returns once its output has been quiet for a second, as an interactive program does at a prompt. A read with `offset_byte` returns as soon as there is output at that position.
 
 Without `offset_byte`, a read returns at most 16 KiB of output, keeping the start and end like `run_command`. With `offset_byte`, it returns one contiguous page of up to 16 KiB from that position; pass `next_offset_byte` to continue, or `omitted_offset_byte` to read output an earlier result left out.
 
-Daemons older than omnarad 0.2.9 return as soon as output arrives and do not keep the end of long output.
+Daemons older than omnarad 0.2.11 return as soon as output arrives and do not keep the end of long output.
 
 `run_command` and `read_process` results include `offset_byte` and `next_offset_byte`. To continue from a specific point, pass `next_offset_byte` as `offset_byte`.
 

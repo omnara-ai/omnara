@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Keep these markers to one byte: daemons before 0.2.9 return a wait on the
+// Keep these markers to one byte: daemons before 0.2.11 return a wait on the
 // first nonempty output snapshot, which need not contain a whole message.
 const (
 	parallelServiceE2EReadyMarker    = "R"
