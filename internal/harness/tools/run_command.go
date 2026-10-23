@@ -129,6 +129,9 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 				"notify_match must be 1 to %d bytes", maxNotifyMatchBytes,
 			)
 		}
+		if strings.Contains(notifyMatch, "\x00") {
+			return resolvedRunCommandRequest{}, errors.New("notify_match cannot contain NUL")
+		}
 		if _, err := regexp.Compile(notifyMatch); err != nil {
 			return resolvedRunCommandRequest{}, fmt.Errorf("notify_match is not a valid regular expression: %w", err)
 		}
