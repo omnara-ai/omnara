@@ -5,14 +5,15 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
-// Credential workflows can return URLs, response bodies or database details containing
+// Integration errors can carry URLs, response bodies or database details containing
 // secrets. Log provider diagnostics and error types without arbitrary error text.
-func logIntegrationCredentialError(ctx context.Context, operation string, err error) {
+func logIntegrationError(ctx context.Context, operation string, err error) {
 	var githubErr *github.APIError
 	var discordErr *discord.APIError
 	var sqlErr interface{ SQLState() string }
@@ -22,14 +23,14 @@ func logIntegrationCredentialError(ctx context.Context, operation string, err er
 		diagnostic = githubErr
 	case errors.As(err, &discordErr):
 		diagnostic = discordErr
-	case errors.Is(err, context.DeadlineExceeded):
+	case errutil.OnlyMatches(err, context.DeadlineExceeded):
 		diagnostic = context.DeadlineExceeded
-	case errors.Is(err, context.Canceled):
+	case errutil.OnlyMatches(err, context.Canceled):
 		diagnostic = context.Canceled
 	case errors.As(err, &sqlErr):
 		diagnostic = fmt.Errorf("database error (SQLSTATE %s)", sqlErr.SQLState())
 	default:
-		diagnostic = fmt.Errorf("credential operation failed (%T)", err)
+		diagnostic = fmt.Errorf("unclassified error (%T)", err)
 	}
 	logpkg.Error(ctx, fmt.Errorf("%s: %w", operation, diagnostic))
 }

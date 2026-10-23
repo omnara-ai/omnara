@@ -119,13 +119,13 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		BeforeRequest: s.githubClientConfig.BeforeRequest,
 	})
 	if err != nil {
-		logIntegrationCredentialError(ctx, "convert GitHub App manifest", err)
+		logIntegrationError(ctx, "convert GitHub App manifest", err)
 		outcome("conversion_failed")
 		return
 	}
 	converted, err := client.ConvertManifest(ctx, query.Get("code"))
 	if err != nil {
-		logIntegrationCredentialError(ctx, "convert GitHub App manifest", err)
+		logIntegrationError(ctx, "convert GitHub App manifest", err)
 		outcome("conversion_failed")
 		return
 	}
@@ -140,7 +140,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		},
 	})
 	if err != nil {
-		logIntegrationCredentialError(ctx, "save GitHub App manifest credentials", err)
+		logIntegrationError(ctx, "save GitHub App manifest credentials", err)
 		outcome("secret_save_failed")
 		return
 	}

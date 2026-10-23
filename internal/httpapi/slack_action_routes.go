@@ -45,7 +45,7 @@ func (s *Server) slackActionsRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	ownerID, err := s.slackCallbackOwner(ctx, envelope)
 	if err != nil {
-		writeIntegrationProviderError(w, err)
+		writeIntegrationProviderError(w, r, err)
 		return
 	}
 	install, ok := s.verifySignedSlackCallback(w, r, raw, ownerID, envelope.APIAppID, envelope.Team.ID)
@@ -54,7 +54,7 @@ func (s *Server) slackActionsRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	installIdentity, err := slack.ParseInstallIdentity(install.ProviderIdentity)
 	if err != nil {
-		writeIntegrationProviderError(w, err)
+		writeIntegrationProviderError(w, r, err)
 		return
 	}
 	if !slack.ValidateActionIdentity(
@@ -78,7 +78,7 @@ func (s *Server) slackActionsRoute(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]string{"ok": "ignored"})
 			return
 		}
-		writeIntegrationProviderError(w, err)
+		writeIntegrationProviderError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -254,7 +254,7 @@ func (s *Server) verifySignedSlackCallback(
 	}
 	install, err := s.store.Integrations().GetIntegrationByID(r.Context(), ownerID)
 	if err != nil {
-		writeIntegrationProviderError(w, err)
+		writeIntegrationProviderError(w, r, err)
 		return integrationstore.IntegrationRecord{}, false
 	}
 	if install.State != integrationstore.IntegrationStateActive ||
@@ -265,7 +265,7 @@ func (s *Server) verifySignedSlackCallback(
 	}
 	credentials, err := s.slackCredentials(r.Context(), install)
 	if err != nil {
-		writeIntegrationProviderError(w, err)
+		writeIntegrationProviderError(w, r, err)
 		return integrationstore.IntegrationRecord{}, false
 	}
 	if !slack.ValidSignature(r.Header, raw, credentials.SigningSecret, time.Now().UTC()) {
