@@ -99,16 +99,19 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 			return nil, err
 		}
 		if thinkingOff {
-			payload.Thinking = &thinkingConfig{Type: "adaptive"}
+			payload.Thinking = map[string]json.RawMessage{"type": json.RawMessage(`"adaptive"`)}
 			ownedFields = append(ownedFields, "thinking")
 		}
 	}
 	if c.firstPartyAnthropic() {
-		thinking, bound, err := dropPrefixMismatchedThinking(payload.Thinking, options["thinking"])
-		if err != nil {
-			return nil, err
+		thinking := payload.Thinking
+		if thinking == nil {
+			thinking, err = decodeThinkingConfig(options["thinking"])
+			if err != nil {
+				return nil, err
+			}
 		}
-		if bound {
+		if dropPrefixMismatchedThinking(thinking) {
 			if payload.Thinking == nil {
 				ownedFields = append(ownedFields, "thinking")
 			}
@@ -167,47 +170,34 @@ type messagesRequest struct {
 	Tools        []toolDefinition           `json:"tools,omitempty"`
 	ToolChoice   map[string]string          `json:"tool_choice,omitempty"`
 	OutputConfig map[string]json.RawMessage `json:"output_config,omitempty"`
-	Thinking     any                        `json:"thinking,omitempty"`
+	Thinking     map[string]json.RawMessage `json:"thinking,omitempty"`
 }
 
-type thinkingConfig struct {
-	Type         string                `json:"type"`
-	BlockBinding *thinkingBlockBinding `json:"block_binding,omitempty"`
-}
+const prefixMismatchDropBlockBinding = `{"prefix_mismatch_behavior":"drop_block"}`
 
-type thinkingBlockBinding struct {
-	PrefixMismatchBehavior string `json:"prefix_mismatch_behavior"`
-}
-
-const prefixMismatchDropBlock = "drop_block"
-
-func dropPrefixMismatchedThinking(current any, configured json.RawMessage) (any, bool, error) {
-	if thinking, ok := current.(*thinkingConfig); ok {
-		thinking.BlockBinding = &thinkingBlockBinding{PrefixMismatchBehavior: prefixMismatchDropBlock}
-		return thinking, true, nil
-	}
-	configured = bytes.TrimSpace(configured)
-	if len(configured) == 0 || bytes.Equal(configured, []byte("null")) {
-		return nil, false, nil
+func decodeThinkingConfig(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil, nil
 	}
 	var thinking map[string]json.RawMessage
-	if err := json.Unmarshal(configured, &thinking); err != nil || thinking == nil {
-		return nil, false, errors.New("api_variant_options.thinking must be a JSON object")
+	if err := json.Unmarshal(raw, &thinking); err != nil || thinking == nil {
+		return nil, errors.New("api_variant_options.thinking must be a JSON object")
 	}
+	return thinking, nil
+}
+
+func dropPrefixMismatchedThinking(thinking map[string]json.RawMessage) bool {
 	var thinkingType string
 	_ = json.Unmarshal(thinking["type"], &thinkingType)
 	if thinkingType != "adaptive" {
-		return nil, false, nil
+		return false
 	}
 	if _, ok := thinking["block_binding"]; ok {
-		return nil, false, nil
+		return false
 	}
-	binding, err := json.Marshal(thinkingBlockBinding{PrefixMismatchBehavior: prefixMismatchDropBlock})
-	if err != nil {
-		return nil, false, err
-	}
-	thinking["block_binding"] = binding
-	return thinking, true, nil
+	thinking["block_binding"] = json.RawMessage(prefixMismatchDropBlockBinding)
+	return true
 }
 
 type anthropicRole string
