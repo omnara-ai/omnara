@@ -1252,3 +1252,69 @@ func TestAgentRuntimeLockReaperSkipsSubagentWithContendedParent(t *testing.T) {
 		t.Fatalf("reaped %d runtime locks after parent contention cleared, want 1", reaped)
 	}
 }
+
+func TestParentWaitsOnChildWhoseSubagentIsWorking(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-grandchild@example.com", "Subagent Grandchild")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t, ctx, store, "subagent-grandchild", "Subagent Grandchild", subagentParentYAML,
+	)
+	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  profile.CurrentConfigID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "subagent-grandchild-parent",
+	})
+	if err != nil {
+		t.Fatalf("launch parent: %v", err)
+	}
+	parent := parentLaunch.Agent
+	child, err := spawnSubagentForTest(
+		t, ctx, store, parent, profile.CurrentConfigID, "child", "subagent-grandchild-child", nil,
+	)
+	if err != nil {
+		t.Fatalf("spawn child: %v", err)
+	}
+	grandchild, err := spawnSubagentForTest(
+		t, ctx, store, child.Agent, profile.CurrentConfigID, "grandchild", "subagent-grandchild-grandchild", nil,
+	)
+	if err != nil {
+		t.Fatalf("spawn grandchild: %v", err)
+	}
+	// Stand in for every agent ending its turn, then give only the grandchild work.
+	agentIDs := []uuid.UUID{parent.ID, child.Agent.ID, grandchild.Agent.ID}
+	if _, err := pool.Exec(ctx, `
+UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = false WHERE agent_id = ANY($1);
+`, agentIDs); err != nil {
+		t.Fatalf("settle agents: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM agent_wakeups WHERE agent_id = ANY($1)`, agentIDs); err != nil {
+		t.Fatalf("clear wakeups: %v", err)
+	}
+	activity, err := store.Execution().GetAgentActivity(ctx, testProjectID, parent.ID)
+	if err != nil {
+		t.Fatalf("get parent activity: %v", err)
+	}
+	if activity.State != executionstore.SubagentStateIdle || !activity.WaitingOn.Empty() {
+		t.Fatalf("settled parent activity = %+v, want idle", activity)
+	}
+
+	if _, err := pool.Exec(ctx, `
+UPDATE agent_execution_state SET incomplete_tools = true WHERE agent_id = $1;
+`, grandchild.Agent.ID); err != nil {
+		t.Fatalf("give grandchild work: %v", err)
+	}
+	activity, err = store.Execution().GetAgentActivity(ctx, testProjectID, parent.ID)
+	if err != nil {
+		t.Fatalf("get parent activity: %v", err)
+	}
+	if activity.State != executionstore.SubagentStateWaitingOnWork ||
+		len(activity.WaitingOn.SubagentIDs) != 1 || activity.WaitingOn.SubagentIDs[0] != child.Agent.ID {
+		t.Fatalf("parent activity = %+v, want waiting_on_work on child %s", activity, child.Agent.ID)
+	}
+}
