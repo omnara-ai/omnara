@@ -195,6 +195,11 @@ func TestResolveRunCommandRequestRejectsInvalidInput(t *testing.T) {
 			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":""}`),
 			want: "notify_match must be 1 to 500 bytes",
 		},
+		{
+			name: "NUL notify_match",
+			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":"listening\u0000"}`),
+			want: "notify_match cannot contain NUL",
+		},
 		{name: "null io mode", raw: json.RawMessage(`{"command":"echo ok","io_mode":null}`), want: "io_mode cannot be null"},
 		{
 			name: "unsupported io mode",
