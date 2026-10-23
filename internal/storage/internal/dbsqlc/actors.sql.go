@@ -87,14 +87,16 @@ JOIN actors a ON a.project_id = i.project_id AND a.id = i.actor_id
 WHERE i.project_id = $1
   AND i.agent_id = $2
   AND i.id = ANY($3::uuid[])
-ORDER BY i.queued_at DESC, i.id DESC
+ORDER BY a.provider = 'omnara' AND starts_with(a.provider_user_id, $4::text),
+  i.queued_at DESC, i.id DESC
 LIMIT 1
 `
 
 type GetLatestInputActorParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	InputIds  []uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	InputIds            []uuid.UUID
+	AgentPublicIDPrefix string
 }
 
 type GetLatestInputActorRow struct {
@@ -105,7 +107,12 @@ type GetLatestInputActorRow struct {
 }
 
 func (q *Queries) GetLatestInputActor(ctx context.Context, arg GetLatestInputActorParams) (GetLatestInputActorRow, error) {
-	row := q.db.QueryRow(ctx, getLatestInputActor, arg.ProjectID, arg.AgentID, arg.InputIds)
+	row := q.db.QueryRow(ctx, getLatestInputActor,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.InputIds,
+		arg.AgentPublicIDPrefix,
+	)
 	var i GetLatestInputActorRow
 	err := row.Scan(
 		&i.ID,

@@ -878,13 +878,18 @@ func TestPrepareBoundsCacheBreakpointsWithCheckpointAndUncacheableTail(t *testin
 
 func TestPrepareSendsSafetyIdentifierAsMetadataUserID(t *testing.T) {
 	for _, tc := range []struct {
+		baseURL string
 		variant modelprotocol.APIVariant
 		want    string
 	}{
-		{variant: modelprotocol.APIVariantDefault, want: "sid"},
-		{variant: modelprotocol.APIVariantBedrock},
+		{want: "sid"},
+		{baseURL: "https://proxy.example.test/v1"},
+		{baseURL: "https://bedrock-runtime.us-east-1.amazonaws.com", variant: modelprotocol.APIVariantBedrock},
 	} {
-		client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test", APIVariant: tc.variant}
+		client := Client{
+			EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test", BaseURL: tc.baseURL,
+			APIVariant: tc.variant, APIVariantOptions: json.RawMessage(`{"metadata":{}}`),
+		}
 		prepared, err := client.Prepare(context.Background(), model.PrepareInput{
 			Context: modelcontext.Bundle{
 				SafetyIdentifier: "sid",
@@ -904,7 +909,7 @@ func TestPrepareSendsSafetyIdentifierAsMetadataUserID(t *testing.T) {
 			t.Fatalf("decode payload: %v", err)
 		}
 		if payload.Metadata.UserID != tc.want {
-			t.Fatalf("%s metadata.user_id = %q, want %q", tc.variant, payload.Metadata.UserID, tc.want)
+			t.Fatalf("base %q metadata.user_id = %q, want %q", tc.baseURL, payload.Metadata.UserID, tc.want)
 		}
 	}
 }

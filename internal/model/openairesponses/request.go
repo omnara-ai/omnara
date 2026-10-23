@@ -71,14 +71,12 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		input.Policy.CacheRetention,
 	)
 	payload.PromptCacheKey = plan.ConversationKey
-	if model.IsOpenAIHost(c.endpoint().ResolvedBaseURL()) {
+	ownedFields := responsesOwnedFields(supportsReasoning, input.Policy.ReasoningEffort)
+	if input.Context.SafetyIdentifier != "" && model.IsOpenAIHost(c.endpoint().ResolvedBaseURL()) {
 		payload.SafetyIdentifier = input.Context.SafetyIdentifier
+		ownedFields = append(ownedFields, "safety_identifier")
 	}
-	return apivariantbody.MarshalWithAPIVariantOptions(
-		c.APIVariantOptions,
-		payload,
-		responsesOwnedFields(supportsReasoning, input.Policy.ReasoningEffort)...,
-	)
+	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
 }
 
 func responsesOwnedFields(supportsReasoning bool, reasoningEffort string) []string {

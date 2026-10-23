@@ -504,7 +504,10 @@ func TestPrepareSendsSafetyIdentifierOnlyToOpenAI(t *testing.T) {
 		{baseURL: "", want: "sid"},
 		{baseURL: "https://proxy.example.test/v1"},
 	} {
-		client := Client{EndpointPath: testEndpointPath, BaseURL: tc.baseURL, ProviderModelSlug: "gpt-test"}
+		client := Client{
+			EndpointPath: testEndpointPath, BaseURL: tc.baseURL, ProviderModelSlug: "gpt-test",
+			APIVariantOptions: json.RawMessage(`{"safety_identifier":null}`),
+		}
 		prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
 			SafetyIdentifier: "sid",
 			Messages: []modelcontext.Message{

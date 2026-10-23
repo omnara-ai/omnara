@@ -22,8 +22,10 @@ func (s *Store) SafetyPrincipal(
 	inputIDs []uuid.UUID,
 ) (SafetyPrincipal, error) {
 	project := SafetyPrincipal{Kind: publicid.KindProject, ID: projectID}
+	agentPrefix, _ := publicid.Prefix(publicid.KindAgent)
+	agentPrefix += "_"
 	row, err := s.q.GetLatestInputActor(ctx, dbsqlc.GetLatestInputActorParams{
-		ProjectID: projectID, AgentID: agentID, InputIds: inputIDs,
+		ProjectID: projectID, AgentID: agentID, InputIds: inputIDs, AgentPublicIDPrefix: agentPrefix,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return project, nil
@@ -35,9 +37,8 @@ func (s *Store) SafetyPrincipal(
 	if principal.Kind != publicid.KindAgent {
 		return principal, nil
 	}
-	agentPrefix, _ := publicid.Prefix(publicid.KindAgent)
 	root, err := s.q.GetLatestRootOpeningActorBefore(ctx, dbsqlc.GetLatestRootOpeningActorBeforeParams{
-		ProjectID: projectID, AgentID: agentID, OpenedBefore: row.QueuedAt, AgentPublicIDPrefix: agentPrefix + "_",
+		ProjectID: projectID, AgentID: agentID, OpenedBefore: row.QueuedAt, AgentPublicIDPrefix: agentPrefix,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return project, nil

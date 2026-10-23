@@ -71,17 +71,18 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		plan.ConversationKey = ""
 	}
 	applyPromptCachePlan(&payload, plan, compat)
-	switch {
-	case c.ModelAPIVariant() == modelprotocol.APIVariantOpenRouter:
-		payload.User = input.Context.SafetyIdentifier
-	case model.IsOpenAIHost(c.endpoint().ResolvedBaseURL()):
-		payload.SafetyIdentifier = input.Context.SafetyIdentifier
+	ownedFields := chatCompletionsOwnedFields(reasoningOwned)
+	baseURL := c.endpoint().ResolvedBaseURL()
+	switch id := input.Context.SafetyIdentifier; {
+	case id == "":
+	case model.IsOpenRouterHost(baseURL):
+		payload.User = id
+		ownedFields = append(ownedFields, "user")
+	case model.IsOpenAIHost(baseURL):
+		payload.SafetyIdentifier = id
+		ownedFields = append(ownedFields, "safety_identifier")
 	}
-	return apivariantbody.MarshalWithAPIVariantOptions(
-		c.APIVariantOptions,
-		payload,
-		chatCompletionsOwnedFields(reasoningOwned)...,
-	)
+	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
 }
 
 func chatCompletionsOwnedFields(reasoningOwned bool) []string {

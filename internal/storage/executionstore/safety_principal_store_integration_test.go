@@ -78,7 +78,24 @@ func TestSafetyPrincipalFollowsSubagentsToTheUser(t *testing.T) {
 		require.Equal(t, want, got)
 	}
 
-	got, err := store.Execution().SafetyPrincipal(ctx, testProjectID, parent.Agent.ID, []uuid.UUID{uuid.New()})
+	bob := mustCreateProjectDeveloperUser(t, ctx, store, "safety-principal-bob@example.com", "Bob")
+	bobInput, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+		ProjectID:      testProjectID,
+		AgentID:        parent.Agent.ID,
+		Actor:          mustOmnaraActorParams(t, bob.ID),
+		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"steer"}]`),
+		DeliveryMode:   executionstore.DeliveryModeSteering,
+		IdempotencyKey: "safety-principal-bob",
+	})
+	require.NoError(t, err)
+	laterReply := sendAs(child.Agent, parent.Agent.ID, 3)
+	got, err := store.Execution().SafetyPrincipal(
+		ctx, testProjectID, parent.Agent.ID, []uuid.UUID{bobInput.ID, laterReply},
+	)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.SafetyPrincipal{Kind: publicid.KindUser, ID: bob.ID}, got)
+
+	got, err = store.Execution().SafetyPrincipal(ctx, testProjectID, parent.Agent.ID, []uuid.UUID{uuid.New()})
 	require.NoError(t, err)
 	require.Equal(t, executionstore.SafetyPrincipal{Kind: publicid.KindProject, ID: testProjectID}, got)
 }

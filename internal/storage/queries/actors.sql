@@ -88,7 +88,8 @@ JOIN actors a ON a.project_id = i.project_id AND a.id = i.actor_id
 WHERE i.project_id = sqlc.arg(project_id)
   AND i.agent_id = sqlc.arg(agent_id)
   AND i.id = ANY(sqlc.arg(input_ids)::uuid[])
-ORDER BY i.queued_at DESC, i.id DESC
+ORDER BY a.provider = 'omnara' AND starts_with(a.provider_user_id, sqlc.arg(agent_public_id_prefix)::text),
+  i.queued_at DESC, i.id DESC
 LIMIT 1;
 
 -- name: GetLatestRootOpeningActorBefore :one

@@ -1439,14 +1439,28 @@ func TestPrepareSendsSafetyIdentifierPerRoute(t *testing.T) {
 			name: "openrouter",
 			client: Client{
 				EndpointPath:      testEndpointPath,
+				BaseURL:           "https://openrouter.ai/api/v1",
 				ProviderModelSlug: "anthropic/claude-sonnet-4",
 				APIVariant:        modelprotocol.APIVariantOpenRouter,
 			},
-			wantUser: "sid",
+			wantUser:   "sid",
+			wantSafety: "shared",
+		},
+		{
+			name: "openrouter variant on another host",
+			client: Client{
+				EndpointPath:      testEndpointPath,
+				BaseURL:           "https://proxy.example.test/v1",
+				ProviderModelSlug: "anthropic/claude-sonnet-4",
+				APIVariant:        modelprotocol.APIVariantOpenRouter,
+			},
+			wantUser:   "shared",
+			wantSafety: "shared",
 		},
 		{
 			name:       "openai",
 			client:     Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"},
+			wantUser:   "shared",
 			wantSafety: "sid",
 		},
 		{
@@ -1456,9 +1470,12 @@ func TestPrepareSendsSafetyIdentifierPerRoute(t *testing.T) {
 				BaseURL:           "https://api.deepseek.com/v1",
 				ProviderModelSlug: "deepseek-chat",
 			},
+			wantUser:   "shared",
+			wantSafety: "shared",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			tc.client.APIVariantOptions = json.RawMessage(`{"user":"shared","safety_identifier":"shared"}`)
 			prepared, err := tc.client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
 				SafetyIdentifier: "sid",
 				Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,

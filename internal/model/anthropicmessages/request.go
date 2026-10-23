@@ -71,9 +71,6 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = map[string]string{"type": "auto"}
 	}
-	if input.Context.SafetyIdentifier != "" && c.ModelAPIVariant() != modelprotocol.APIVariantBedrock {
-		payload.Metadata = map[string]string{"user_id": input.Context.SafetyIdentifier}
-	}
 	supportsReasoning := c.ModelCapabilities.SupportsReasoning
 	if input.Policy.SupportsReasoning != nil {
 		supportsReasoning = *input.Policy.SupportsReasoning
@@ -86,6 +83,10 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		"messages",
 		"tools",
 		"tool_choice",
+	}
+	if input.Context.SafetyIdentifier != "" && model.IsAnthropicHost(c.endpoint().ResolvedBaseURL()) {
+		payload.Metadata = map[string]string{"user_id": input.Context.SafetyIdentifier}
+		ownedFields = append(ownedFields, "metadata")
 	}
 	if supportsReasoning && input.Policy.ReasoningEffort != "" {
 		options, err := decodeAPIVariantOptions(c.APIVariantOptions)
