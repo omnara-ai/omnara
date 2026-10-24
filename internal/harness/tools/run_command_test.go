@@ -336,18 +336,21 @@ func TestProcessHasNoStdinTrustsOnlyDaemonsThatHonorIt(t *testing.T) {
 	noStdin := processcmd.ForShell("apt-get install foo", processcmd.ShellDefault, processcmd.IOModePipe)
 	noStdin.Shell.NoStdin = true
 	withStdin := processcmd.ForShell("python3", processcmd.ShellDefault, processcmd.IOModePipe)
+	current := processaction.OutputWindowDaemonVersion
 	for _, test := range []struct {
-		name      string
-		execution executionstore.ProcessExecution
-		want      bool
+		name          string
+		spec          processcmd.ExecutionSpec
+		daemonVersion string
+		want          bool
 	}{
-		{name: "current daemon", execution: executionstore.ProcessExecution{Spec: noStdin, DaemonVersion: processaction.OutputWindowDaemonVersion}, want: true},
-		{name: "no daemon connected", execution: executionstore.ProcessExecution{Spec: noStdin}, want: true},
-		{name: "old daemon keeps stdin", execution: executionstore.ProcessExecution{Spec: noStdin, DaemonVersion: "0.2.10"}},
-		{name: "stdin requested", execution: executionstore.ProcessExecution{Spec: withStdin, DaemonVersion: processaction.OutputWindowDaemonVersion}},
+		{name: "current daemon", spec: noStdin, daemonVersion: current, want: true},
+		{name: "no daemon connected", spec: noStdin, want: true},
+		{name: "old daemon keeps stdin", spec: noStdin, daemonVersion: "0.2.10"},
+		{name: "stdin requested", spec: withStdin, daemonVersion: current},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := processHasNoStdin(test.execution); got != test.want {
+			execution := executionstore.ProcessExecution{Spec: test.spec, DaemonVersion: test.daemonVersion}
+			if got := processHasNoStdin(execution); got != test.want {
 				t.Fatalf("processHasNoStdin = %t, want %t", got, test.want)
 			}
 		})
