@@ -45,6 +45,8 @@ const (
 	ReportProcessStarted  ReportKind = "process_started"
 	ReportProcessTerminal ReportKind = "process_terminal"
 	ReportActionTerminal  ReportKind = "action_terminal"
+	// ReportProcessOutputMatch repeats per process, numbered by Report.Seq.
+	ReportProcessOutputMatch ReportKind = "process_output_match"
 )
 
 var (
@@ -85,6 +87,8 @@ type Report struct {
 	ProcessID string
 	ActionID  string
 	Kind      ReportKind
+	// Seq numbers output-match reports from 1; it is 0 for other kinds.
+	Seq       int64
 	Body      []byte
 	State     ReportState
 	ErrorCode string

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -378,6 +379,33 @@ func (s *Store) GetProcessByToolCall(
 		return ProcessRecord{}, false, errors.New("project, agent, and tool call are required")
 	}
 	return getProcessByToolCallTx(ctx, s.pool, projectID, agentID, toolCallID)
+}
+
+// ProcessExecution is what one of the agent's processes runs and the version
+// of the daemon currently connected for its machine, empty when none is.
+type ProcessExecution struct {
+	Spec          processcmd.ExecutionSpec
+	DaemonVersion string
+}
+
+// ProcessExecution returns what one of the agent's processes runs.
+func (r *ToolCallReader) ProcessExecution(
+	ctx context.Context,
+	processID uuid.UUID,
+) (ProcessExecution, bool, error) {
+	t := r.transaction
+	row, err := t.q.GetProcessExecutionSpecForAgent(ctx, dbsqlc.GetProcessExecutionSpecForAgentParams{
+		ProjectID: t.input.ProjectID,
+		AgentID:   t.input.AgentID,
+		ID:        processID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProcessExecution{}, false, nil
+	}
+	if err != nil {
+		return ProcessExecution{}, false, fmt.Errorf("get process execution spec: %w", err)
+	}
+	return ProcessExecution{Spec: row.ExecutionSpec, DaemonVersion: row.DaemonVersion}, true, nil
 }
 
 func (r *ToolCallReader) ListActiveProcesses(

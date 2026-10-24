@@ -45,12 +45,15 @@ func IsPlatformManagedToolType(toolType string) bool {
 }
 
 const (
-	runCommandToolDescription = "Run a daemon-backed shell command. Once the machine accepts the command, " +
-		"every result includes a process_id; quick commands also return terminal output. " +
-		"Use the process tools with that ID to inspect or control the process."
-	writeProcessToolDescription   = "Write exact stdin/PTY bytes to a running process, close pipe stdin, or do both."
-	stopProcessToolDescription    = "Interrupt or terminate a running process."
-	readProcessToolDescription    = "Read retained process output, optionally waiting briefly for output or completion."
+	runCommandToolDescription = "Run a shell command on an attached machine. Waits up to wait_ms (default 10 seconds) for it to exit " +
+		"and returns its output, keeping the start and end of long output. If it is still running, it keeps " +
+		"running and you get a message when it ends; use its process_id with the process tools to read " +
+		"output, send input, or stop it."
+	writeProcessToolDescription = "Write exact stdin/PTY bytes to a running process started with stdin: true or " +
+		"io_mode: pty, close pipe stdin, or do both."
+	stopProcessToolDescription = "Interrupt or terminate a running process."
+	readProcessToolDescription = "Read retained process output, optionally waiting for the process to end. " +
+		"Long output keeps the start and end."
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
@@ -153,14 +156,32 @@ func buildDefaultCatalog() (Catalog, error) {
 				"type":    "integer",
 				"minimum": 1,
 				"maximum": processaction.MaxWaitMilliseconds,
-				"description": "Maximum time to wait for initial output or command exit before yielding " +
-					"(up to 300000 ms). This is not a lifetime timeout.",
+				"description": "How long to wait for the command to exit before returning (default 10000, up to 300000 ms). " +
+					"Set it to how long you expect the command to take, so a build or test returns its result in one call. " +
+					"This is not a lifetime timeout: a command still running keeps running.",
 			},
 			"io_mode": map[string]any{
 				"type": "string",
 				"enum": []string{"pipe", "pty"},
 				"description": "Process I/O transport. Omit for pipe. " +
 					"Use pty for interactive terminal programs or persistent shells.",
+			},
+			"stdin": map[string]any{
+				"type": "boolean",
+				"description": "Keep stdin open so write_process can send input. Defaults to false: a pipe command " +
+					"reads end of input, so a prompt fails at once instead of waiting. pty commands always have input.",
+			},
+			"detach": map[string]any{
+				"type": "boolean",
+				"description": "For long-lived processes such as servers: no message when it exits, " +
+					"and the agent is not treated as waiting on it. Defaults to false.",
+			},
+			"notify_match": map[string]any{
+				"type":      "string",
+				"minLength": 1,
+				"maxLength": 500,
+				"description": "Regular expression (RE2). While the command runs after this returns, you get a " +
+					"message with output lines that match and that this result did not show, batched and rate limited.",
 			},
 		},
 	)
@@ -215,26 +236,17 @@ func buildDefaultCatalog() (Catalog, error) {
 		"offset_byte": map[string]any{
 			"type":    "integer",
 			"minimum": 0,
-			"description": "Starting byte position in the process output stream. " +
-				"To continue, use next_offset_byte from the previous run_command or read_process result. " +
-				"Omit to continue after the output returned by run_command or the last read_process call that omitted offset_byte.",
-		},
-		"limit_bytes": map[string]any{
-			"type":    "integer",
-			"minimum": 1,
-			"maximum": processaction.MaxObservationBytes,
-			"description": fmt.Sprintf(
-				"Maximum output bytes to return. Defaults to %d.",
-				processaction.DefaultObservationBytes,
-			),
+			"description": "Byte position to read from: next_offset_byte from an earlier result, or omitted_offset_byte " +
+				"to page through output a long result left out. Omit to continue after your last read.",
 		},
 		"wait_ms": map[string]any{
 			"type":    "integer",
 			"minimum": 1,
 			"maximum": processaction.MaxWaitMilliseconds,
-			"description": "When no output is immediately available, wait up to this long for output or process completion " +
-				"(up to 300000 ms; returns as soon as either arrives). When waiting on a long-running job, prefer one long wait " +
-				"over many short polls.",
+			"description": "Wait up to this long for the process to end before returning (up to 300000 ms). " +
+				"A program with input (pty, or stdin: true) waiting at a prompt returns once its output goes quiet. " +
+				"With offset_byte, returns once output exists there. Omit to return immediately. " +
+				"Prefer one long wait over repeated reads.",
 		},
 	}
 	if entries[ToolNameReadProcess], err = toolEntry(

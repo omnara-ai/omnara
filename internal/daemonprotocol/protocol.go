@@ -365,6 +365,22 @@ type ProcessOffer struct {
 	Env              map[string]string        `json:"env,omitempty"`
 	WaitMs           int                      `json:"wait_ms,omitempty"`
 	TimeoutSeconds   int                      `json:"timeout_seconds"`
+	// OutputBytes and OutputWait shape the started and terminal results.
+	// Zero values keep the original behavior.
+	OutputBytes int `json:"output_bytes,omitempty"`
+	processaction.OutputWait
+	// NotifyMatch is a regular expression; output lines that match it after
+	// the started report are reported as process_output_matched events.
+	NotifyMatch string `json:"notify_match,omitempty"`
+}
+
+// OutputMatchResult is the result of a process_output_matched event.
+type OutputMatchResult struct {
+	Lines []string `json:"lines"`
+	// Dropped counts matching lines left out of this report.
+	Dropped int `json:"dropped,omitempty"`
+	// Final is set on the last report the daemon will send for the process.
+	Final bool `json:"final,omitempty"`
 }
 
 type FileTransferResult struct {
@@ -469,6 +485,7 @@ type ReportedEvent struct {
 	StartedAt          time.Time         `json:"started_at,omitempty"`
 	EndedAt            time.Time         `json:"ended_at,omitempty"`
 	ObservedAt         time.Time         `json:"observed_at,omitempty"`
+	Sequence           int64             `json:"sequence,omitempty"`
 }
 
 type ProcessActionKind = processaction.Kind
@@ -519,6 +536,9 @@ const (
 	EventProcessActionApplied ReportedEventType = "process_action_applied"
 	EventProcessActionFailed  ReportedEventType = "process_action_failed"
 	EventProcessActionUnknown ReportedEventType = "process_action_unknown"
+	// EventProcessOutputMatched reports output lines that matched the
+	// process offer's notify_match, numbered from 1 per process by Sequence.
+	EventProcessOutputMatched ReportedEventType = "process_output_matched"
 )
 
 const (

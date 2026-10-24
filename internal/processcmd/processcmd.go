@@ -33,6 +33,9 @@ type ShellCommand struct {
 	Command string        `json:"command"`
 	Shell   ShellSelector `json:"shell_selector"`
 	IOMode  IOMode        `json:"io_mode"`
+	// NoStdin gives a pipe command /dev/null as stdin, so a read gets EOF
+	// instead of waiting for input that write_process may never send.
+	NoStdin bool `json:"no_stdin,omitempty"`
 }
 
 func NormalizeShellCommand(command string, shell ShellSelector) (ShellCommand, error) {

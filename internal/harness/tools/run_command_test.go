@@ -15,12 +15,15 @@ import (
 
 func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 	cases := []struct {
-		name     string
-		input    json.RawMessage
-		command  string
-		selector processcmd.ShellSelector
-		waitMs   int
-		ioMode   processcmd.IOMode
+		name        string
+		input       json.RawMessage
+		command     string
+		selector    processcmd.ShellSelector
+		waitMs      int
+		ioMode      processcmd.IOMode
+		detach      bool
+		stdin       bool
+		notifyMatch string
 	}{
 		{
 			name:     "default",
@@ -80,9 +83,34 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			ioMode:   "pty",
 		},
 		{
+			name:        "notify match",
+			input:       json.RawMessage(`{"command":"npm run dev","detach":true,"notify_match":"listening|ERROR"}`),
+			command:     "npm run dev",
+			selector:    "default",
+			ioMode:      "pipe",
+			detach:      true,
+			notifyMatch: "listening|ERROR",
+		},
+		{
+			name:     "detach",
+			input:    json.RawMessage(`{"command":"npm run dev","detach":true}`),
+			command:  "npm run dev",
+			selector: "default",
+			ioMode:   "pipe",
+			detach:   true,
+		},
+		{
+			name:     "stdin",
+			input:    json.RawMessage(`{"command":"python3 repl.py","stdin":true}`),
+			command:  "python3 repl.py",
+			selector: "default",
+			ioMode:   "pipe",
+			stdin:    true,
+		},
+		{
 			name:     "max wait",
-			input:    json.RawMessage(`{"command":"echo ok","wait_ms":300000}`),
-			command:  "echo ok",
+			input:    json.RawMessage(`{"command":"make test","wait_ms":300000}`),
+			command:  "make test",
 			selector: "default",
 			waitMs:   processaction.MaxWaitMilliseconds,
 			ioMode:   "pipe",
@@ -94,8 +122,14 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolve run_command: %v", err)
 			}
-			if resolved.Command != tc.command || resolved.Selector != tc.selector || resolved.WaitMs != tc.waitMs ||
-				resolved.IOMode != tc.ioMode {
+			wantWait := tc.waitMs
+			if wantWait == 0 {
+				wantWait = processaction.DefaultCommandWaitMilliseconds
+			}
+			if resolved.Command != tc.command || resolved.Selector != tc.selector ||
+				resolved.WaitMs != wantWait ||
+				resolved.IOMode != tc.ioMode || resolved.Detach != tc.detach || resolved.Stdin != tc.stdin ||
+				resolved.NotifyMatch != tc.notifyMatch {
 				t.Fatalf("unexpected resolution: %+v", resolved)
 			}
 		})
@@ -151,6 +185,21 @@ func TestResolveRunCommandRequestRejectsInvalidInput(t *testing.T) {
 		{name: "negative wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":-1}`), want: "wait_ms must be positive"},
 		{name: "null wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":null}`), want: "wait_ms cannot be null"},
 		{name: "huge wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":300001}`), want: "wait_ms must be at most"},
+		{
+			name: "invalid notify_match",
+			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":"(listening"}`),
+			want: "notify_match is not a valid regular expression",
+		},
+		{
+			name: "empty notify_match",
+			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":""}`),
+			want: "notify_match must be 1 to 500 bytes",
+		},
+		{
+			name: "NUL notify_match",
+			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":"listening\u0000"}`),
+			want: "notify_match cannot contain NUL",
+		},
 		{name: "null io mode", raw: json.RawMessage(`{"command":"echo ok","io_mode":null}`), want: "io_mode cannot be null"},
 		{
 			name: "unsupported io mode",
@@ -253,5 +302,57 @@ func TestToolCallApprovalPinsResolvedMachineBinding(t *testing.T) {
 		otherBindingInput,
 	) {
 		t.Fatal("expected a different machine binding to reject authorization input")
+	}
+}
+
+func TestRunCommandExecutionSpecClosesPipeStdinByDefault(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		noStdin bool
+	}{
+		{name: "pipe", input: `{"command":"apt-get install jq"}`, noStdin: true},
+		{name: "pipe with stdin", input: `{"command":"python3 repl.py","stdin":true}`, noStdin: false},
+		{name: "pty", input: `{"command":"python3","io_mode":"pty"}`, noStdin: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resolved, err := resolveRunCommandRequest(json.RawMessage(tc.input))
+			if err != nil {
+				t.Fatalf("resolve run_command: %v", err)
+			}
+			spec := resolved.executionSpec()
+			if spec.Shell.NoStdin != tc.noStdin {
+				t.Fatalf("no_stdin = %t, want %t", spec.Shell.NoStdin, tc.noStdin)
+			}
+			if err := spec.ValidateLocal(); err != nil {
+				t.Fatalf("validate spec: %v", err)
+			}
+		})
+	}
+}
+
+func TestProcessHasNoStdinTrustsOnlyDaemonsThatHonorIt(t *testing.T) {
+	noStdin := processcmd.ForShell("apt-get install foo", processcmd.ShellDefault, processcmd.IOModePipe)
+	noStdin.Shell.NoStdin = true
+	withStdin := processcmd.ForShell("python3", processcmd.ShellDefault, processcmd.IOModePipe)
+	current := processaction.OutputWindowDaemonVersion
+	for _, test := range []struct {
+		name          string
+		spec          processcmd.ExecutionSpec
+		daemonVersion string
+		want          bool
+	}{
+		{name: "current daemon", spec: noStdin, daemonVersion: current, want: true},
+		{name: "no daemon connected", spec: noStdin, want: true},
+		{name: "old daemon keeps stdin", spec: noStdin, daemonVersion: "0.2.10"},
+		{name: "stdin requested", spec: withStdin, daemonVersion: current},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			execution := executionstore.ProcessExecution{Spec: test.spec, DaemonVersion: test.daemonVersion}
+			if got := processHasNoStdin(execution); got != test.want {
+				t.Fatalf("processHasNoStdin = %t, want %t", got, test.want)
+			}
+		})
 	}
 }

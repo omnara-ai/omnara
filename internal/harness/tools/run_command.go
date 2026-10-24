@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
+
+const maxNotifyMatchBytes = 500
 
 type runCommandRequest struct {
 	Command   string          `json:"command"`
@@ -18,6 +21,10 @@ type runCommandRequest struct {
 	Cwd       json.RawMessage `json:"cwd,omitempty"`
 	WaitMs    json.RawMessage `json:"wait_ms,omitempty"`
 	IOMode    json.RawMessage `json:"io_mode,omitempty"`
+	Detach    *bool           `json:"detach,omitempty"`
+	Stdin     *bool           `json:"stdin,omitempty"`
+	// NotifyMatch is a regular expression for output lines to report.
+	NotifyMatch *string `json:"notify_match,omitempty"`
 }
 
 type resolvedRunCommandRequest struct {
@@ -27,6 +34,18 @@ type resolvedRunCommandRequest struct {
 	Cwd       string
 	WaitMs    int
 	IOMode    processcmd.IOMode
+	Detach    bool
+	// Stdin keeps a pipe command's stdin open for write_process.
+	Stdin bool
+	// NotifyMatch is a regular expression for output lines to report.
+	NotifyMatch string
+}
+
+// executionSpec gives pipe commands no stdin unless the agent asked for it.
+func (r resolvedRunCommandRequest) executionSpec() processcmd.ExecutionSpec {
+	spec := processcmd.ForShell(r.Command, r.Selector, r.IOMode)
+	spec.Shell.NoStdin = r.IOMode == processcmd.IOModePipe && !r.Stdin
+	return spec
 }
 
 func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, error) {
@@ -67,7 +86,7 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 			return resolvedRunCommandRequest{}, errors.New("cwd cannot contain NUL")
 		}
 	}
-	waitMs := 0
+	waitMs := processaction.DefaultCommandWaitMilliseconds
 	if len(input.WaitMs) != 0 {
 		var rawWait *int
 		if err := json.Unmarshal(input.WaitMs, &rawWait); err != nil {
@@ -102,12 +121,30 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 	if err != nil {
 		return resolvedRunCommandRequest{}, err
 	}
+	notifyMatch := ""
+	if input.NotifyMatch != nil {
+		notifyMatch = *input.NotifyMatch
+		if notifyMatch == "" || len(notifyMatch) > maxNotifyMatchBytes {
+			return resolvedRunCommandRequest{}, fmt.Errorf(
+				"notify_match must be 1 to %d bytes", maxNotifyMatchBytes,
+			)
+		}
+		if strings.Contains(notifyMatch, "\x00") {
+			return resolvedRunCommandRequest{}, errors.New("notify_match cannot contain NUL")
+		}
+		if _, err := regexp.Compile(notifyMatch); err != nil {
+			return resolvedRunCommandRequest{}, fmt.Errorf("notify_match is not a valid regular expression: %w", err)
+		}
+	}
 	return resolvedRunCommandRequest{
-		Command:   spec.Command,
-		MachineID: machineID,
-		Selector:  spec.Shell,
-		Cwd:       cwd,
-		WaitMs:    waitMs,
-		IOMode:    ioMode,
+		Command:     spec.Command,
+		MachineID:   machineID,
+		Selector:    spec.Shell,
+		Cwd:         cwd,
+		WaitMs:      waitMs,
+		IOMode:      ioMode,
+		Detach:      input.Detach != nil && *input.Detach,
+		Stdin:       input.Stdin != nil && *input.Stdin,
+		NotifyMatch: notifyMatch,
 	}, nil
 }

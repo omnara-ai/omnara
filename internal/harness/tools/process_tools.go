@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -35,6 +36,9 @@ type runCommandAuthorization struct {
 	Cwd                   string                   `json:"cwd,omitempty"`
 	WaitMS                int                      `json:"wait_ms,omitempty"`
 	IOMode                processcmd.IOMode        `json:"io_mode"`
+	Detach                bool                     `json:"detach,omitempty"`
+	Stdin                 bool                     `json:"stdin,omitempty"`
+	NotifyMatch           string                   `json:"notify_match,omitempty"`
 }
 
 type processActionAuthorization struct {
@@ -54,7 +58,6 @@ type processObservationRequest struct {
 	ProcessID  string                 `json:"process_id,omitempty"`
 	Mode       processObservationMode `json:"mode"`
 	OffsetByte *int64                 `json:"offset_byte,omitempty"`
-	LimitBytes int                    `json:"limit_bytes,omitempty"`
 	WaitMS     int                    `json:"wait_ms,omitempty"`
 }
 
@@ -69,6 +72,9 @@ func runCommandAuthorizationInput(
 		Cwd:                   resolved.Cwd,
 		WaitMS:                resolved.WaitMs,
 		IOMode:                resolved.IOMode,
+		Detach:                resolved.Detach,
+		Stdin:                 resolved.Stdin,
+		NotifyMatch:           resolved.NotifyMatch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal run_command authorization: %w", err)
@@ -153,10 +159,12 @@ func runCommand(
 		return nil, err
 	}
 	return startProcessTool(ctx, call, binding, authorizationInput, executionstore.CreateProcessInput{
-		ExecutionSpec:  processcmd.ForShell(resolved.Command, resolved.Selector, resolved.IOMode),
+		ExecutionSpec:  resolved.executionSpec(),
 		Cwd:            resolved.Cwd,
 		InitialWaitMS:  resolved.WaitMs,
 		TimeoutSeconds: 0,
+		NotifyOnExit:   !resolved.Detach,
+		NotifyMatch:    resolved.NotifyMatch,
 	})
 }
 
@@ -251,6 +259,17 @@ func processToolMachineResolutionError(
 	return failInTransaction(unavailable.Content, unavailable.Cause), nil
 }
 
+// processHasNoStdin reports whether a process was started without stdin.
+// Daemons before processaction.OutputWindowDaemonVersion ignore no_stdin and
+// keep stdin open, so writes to their processes still go through.
+func processHasNoStdin(execution executionstore.ProcessExecution) bool {
+	if execution.Spec.Shell == nil || !execution.Spec.Shell.NoStdin {
+		return false
+	}
+	return execution.DaemonVersion == "" ||
+		daemonversion.AtLeast(execution.DaemonVersion, processaction.OutputWindowDaemonVersion)
+}
+
 func validateRunCommandInput(input json.RawMessage) error {
 	_, err := resolveRunCommandRequest(input)
 	return err
@@ -263,6 +282,23 @@ func writeProcess(
 	processID, payload, err := writeProcessPayload(call.Call.Input)
 	if err != nil {
 		return nil, err
+	}
+	if id, err := decodeProcessID(processID); err == nil {
+		execution, found, err := call.Reader.ProcessExecution(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if found && processHasNoStdin(execution) {
+			return failProcessTransaction(
+				errors.New("process has no stdin"),
+				processToolErrorNoStdin,
+				"this command has no stdin; run it again with stdin: true (or io_mode: pty) to write to it",
+				false,
+				processID,
+				"",
+				"",
+			)
+		}
 	}
 	authorizationInput, err := processActionAuthorizationRequest(
 		processID,
@@ -372,7 +408,19 @@ func observeProcess(
 		}
 		return completeInTransaction(content), nil
 	}
-	payload, err := processObservationActionPayload(request)
+	// An explicit offset pages through output, so it returns one contiguous
+	// page as soon as there is output there instead of waiting for exit.
+	var wait processaction.OutputWait
+	if id, err := decodeProcessID(request.ProcessID); err == nil && request.OffsetByte == nil {
+		execution, found, err := call.Reader.ProcessExecution(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			wait, _ = execution.Spec.AgentOutputWait()
+		}
+	}
+	payload, err := processObservationActionPayload(request, wait)
 	if err != nil {
 		return nil, fmt.Errorf("marshal process observation payload: %w", err)
 	}
@@ -389,11 +437,13 @@ func observeProcess(
 
 func processObservationActionPayload(
 	request processObservationRequest,
+	wait processaction.OutputWait,
 ) (json.RawMessage, error) {
 	return marshalJSON(processaction.ReadPayload{
-		Cursor:   request.OffsetByte,
-		MaxBytes: request.LimitBytes,
-		WaitMS:   request.WaitMS,
+		Cursor:     request.OffsetByte,
+		MaxBytes:   processaction.AgentOutputBytes,
+		WaitMS:     request.WaitMS,
+		OutputWait: wait,
 	})
 }
 
@@ -562,6 +612,7 @@ const (
 	processToolErrorTerminating                processToolErrorCode = "process_terminating"
 	processToolErrorActionUnavailable          processToolErrorCode = "process_action_unavailable"
 	processToolErrorNotFound                   processToolErrorCode = "process_not_found"
+	processToolErrorNoStdin                    processToolErrorCode = "process_stdin_unavailable"
 	processToolNextActionList                                       = toolcatalog.ToolNameListProcesses
 )
 
@@ -731,7 +782,6 @@ func resolveProcessObservationRequest(
 	var parsed struct {
 		ProcessID  string `json:"process_id,omitempty"`
 		OffsetByte *int64 `json:"offset_byte,omitempty"`
-		LimitBytes *int   `json:"limit_bytes,omitempty"`
 		WaitMs     *int   `json:"wait_ms,omitempty"`
 	}
 	if len(raw) != 0 {
@@ -767,18 +817,6 @@ func resolveProcessObservationRequest(
 		}
 		offset := *parsed.OffsetByte
 		input.OffsetByte = &offset
-	}
-	if parsed.LimitBytes != nil {
-		if *parsed.LimitBytes <= 0 {
-			return input, errors.New("limit_bytes must be positive")
-		}
-		if *parsed.LimitBytes > processaction.MaxObservationBytes {
-			return input, fmt.Errorf(
-				"limit_bytes must be <= %d",
-				processaction.MaxObservationBytes,
-			)
-		}
-		input.LimitBytes = *parsed.LimitBytes
 	}
 	if parsed.WaitMs != nil {
 		if *parsed.WaitMs <= 0 {

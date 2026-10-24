@@ -1,6 +1,10 @@
 package processcmd
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/omnara-ai/omnara/internal/processaction"
+)
 
 type ExecutionKind string
 
@@ -51,8 +55,14 @@ func (s ExecutionSpec) ValidateLocal() error {
 		if _, err := NormalizeShellCommand(s.Shell.Command, s.Shell.Shell); err != nil {
 			return err
 		}
-		_, err := NormalizeIOMode(s.Shell.IOMode)
-		return err
+		mode, err := NormalizeIOMode(s.Shell.IOMode)
+		if err != nil {
+			return err
+		}
+		if s.Shell.NoStdin && mode != IOModePipe {
+			return errors.New("only pipe commands can run without stdin")
+		}
+		return nil
 	case KindFileTransfer:
 		if s.FileTransfer == nil || s.Shell != nil {
 			return errors.New("file transfer execution requires only a file transfer payload")
@@ -78,4 +88,19 @@ func (s ExecutionSpec) Label() string {
 		return s.FileTransfer.Label()
 	}
 	return ""
+}
+
+// AgentOutputWait is how agent-facing waits on a shell process behave: they
+// wait for exit, returning early for a program with stdin (a pty, or a pipe
+// with stdin open) that goes quiet at a prompt, and keep the start and end of
+// long output. ok is false for other processes.
+func (s ExecutionSpec) AgentOutputWait() (processaction.OutputWait, bool) {
+	if s.Kind != KindShell || s.Shell == nil {
+		return processaction.OutputWait{}, false
+	}
+	wait := processaction.OutputWait{WaitForExit: true, HeadBytes: processaction.AgentHeadBytes}
+	if s.Shell.IOMode == IOModePTY || !s.Shell.NoStdin {
+		wait.QuietMS = processaction.InteractiveQuietMilliseconds
+	}
+	return wait, true
 }

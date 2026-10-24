@@ -13,6 +13,7 @@ type FrozenReport struct {
 	ProcessID  string
 	ActionID   sql.NullString
 	ReportKind string
+	ReportSeq  int64
 	Body       []byte
 	State      string
 	ErrorCode  string

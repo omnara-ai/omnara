@@ -196,7 +196,7 @@ func TestCancelAgentPreservesProcessAfterRunCommandReturnsHandle(t *testing.T) {
 		fixture.Store,
 		fixture.AgentID,
 		toolCall,
-		"next_action",
+		`"state": "running"`,
 	)
 }
 

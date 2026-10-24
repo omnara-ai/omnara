@@ -60,6 +60,60 @@ func (s *Supervisor) FreezeStartedReport(
 	return frozen, nil
 }
 
+// FreezeOutputMatchReport freezes the next output-match report for a running
+// or just-ended process.
+func (s *Supervisor) FreezeOutputMatchReport(
+	ctx context.Context,
+	report Report,
+) (Report, error) {
+	if report.Kind != ReportProcessOutputMatch ||
+		report.ProcessID != s.processID || report.ActionID != "" {
+		return Report{}, errors.New("invalid process output-match report")
+	}
+	tx, err := beginWrite(ctx, s.store.db)
+	if err != nil {
+		return Report{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := s.store.q.WithTx(tx)
+
+	process, found, err := processTx(ctx, qtx, s.processID)
+	if err != nil {
+		return Report{}, err
+	}
+	if !found || process.SupervisorInstanceID != s.supervisorInstanceID {
+		return Report{}, fmt.Errorf("%w: %s", ErrSupervisorIdentityMismatch, s.processID)
+	}
+	if (process.Phase != ProcessAccepted && process.Phase != ProcessTerminal) || !process.ExecCommitted {
+		return Report{}, fmt.Errorf(
+			"%w: process %s cannot freeze output matches",
+			ErrStateConflict,
+			s.processID,
+		)
+	}
+	frozen, err := freezeReportTx(ctx, qtx, report)
+	if err != nil {
+		return Report{}, err
+	}
+	if err := commitWrite(tx); err != nil {
+		return Report{}, err
+	}
+	return frozen, nil
+}
+
+// LastOutputMatchSeq returns the highest output-match report sequence frozen
+// for the process, or 0.
+func (s *Supervisor) LastOutputMatchSeq(ctx context.Context) (int64, error) {
+	seq, err := s.store.q.GetLastOutputMatchReportSeq(
+		ctx,
+		dbsqlc.GetLastOutputMatchReportSeqParams{ProcessID: s.processID},
+	)
+	if err != nil {
+		return 0, dbError("read last output-match report", err)
+	}
+	return seq, nil
+}
+
 func (s *Supervisor) FreezeTerminalReport(
 	ctx context.Context,
 	report Report,
@@ -145,6 +199,7 @@ func freezeReportTx(
 		report.Kind,
 		report.ProcessID,
 		report.ActionID,
+		report.Seq,
 	)
 	if err != nil {
 		return Report{}, err
@@ -154,11 +209,12 @@ func freezeReportTx(
 			return existing, nil
 		}
 		return Report{}, fmt.Errorf(
-			"%w: report slot %s/%s/%s already contains different evidence",
+			"%w: report slot %s/%s/%s/%d already contains different evidence",
 			ErrStateConflict,
 			report.ProcessID,
 			report.ActionID,
 			report.Kind,
+			report.Seq,
 		)
 	}
 	if report.ID != "" || report.State != "" ||
@@ -188,6 +244,7 @@ func freezeReportTx(
 			ProcessID:  report.ProcessID,
 			ActionID:   actionID,
 			ReportKind: string(report.Kind),
+			ReportSeq:  report.Seq,
 			Body:       report.Body,
 		},
 	); err != nil {
@@ -237,6 +294,9 @@ func validateReport(report Report) error {
 	} else if report.ActionID != "" {
 		return errors.New("process report cannot name an action")
 	}
+	if (report.Kind == ReportProcessOutputMatch) != (report.Seq > 0) || report.Seq < 0 {
+		return errors.New("only output-match reports are numbered, from 1")
+	}
 
 	var event daemonprotocol.ReportedEvent
 	if err := json.Unmarshal(report.Body, &event); err != nil {
@@ -275,6 +335,16 @@ func validateReport(report Report) error {
 				"failed or unknown process report requires a reason",
 			)
 		}
+	case ReportProcessOutputMatch:
+		if event.Type != daemonprotocol.EventProcessOutputMatched ||
+			event.Sequence != report.Seq ||
+			event.ObservedAt.IsZero() ||
+			len(event.Result) == 0 {
+			return errors.New(
+				"output-match report requires its sequence, observed_at, and matched lines",
+			)
+		}
+		return nil
 	case ReportActionTerminal:
 		if !validTerminalActionEvent(event.Type) ||
 			!event.ObservedAt.IsZero() {
@@ -325,6 +395,7 @@ func sameReportContent(left, right Report) bool {
 	return left.ProcessID == right.ProcessID &&
 		left.ActionID == right.ActionID &&
 		left.Kind == right.Kind &&
+		left.Seq == right.Seq &&
 		bytes.Equal(left.Body, right.Body)
 }
 
@@ -339,6 +410,7 @@ func (s *Store) ReportBySlot(
 			dbsqlc.GetFrozenProcessReportBySlotParams{
 				ProcessID:  processID,
 				ReportKind: string(kind),
+				ReportSeq:  0,
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -477,7 +549,7 @@ func (s *Store) AcknowledgeReport(
 		); err != nil {
 			return dbError("compact acknowledged process action", err)
 		}
-	case ReportProcessStarted, ReportProcessTerminal:
+	case ReportProcessStarted, ReportProcessTerminal, ReportProcessOutputMatch:
 		if report.State == ReportPending || report.State == ReportRejected {
 			if err := qtx.AcknowledgeProcessReport(
 				ctx,
@@ -722,6 +794,7 @@ func reportBySlotTx(
 	q *dbsqlc.Queries,
 	kind ReportKind,
 	processID, actionID string,
+	seq int64,
 ) (Report, bool, error) {
 	if actionID == "" {
 		row, err := q.GetFrozenProcessReportBySlot(
@@ -729,6 +802,7 @@ func reportBySlotTx(
 			dbsqlc.GetFrozenProcessReportBySlotParams{
 				ProcessID:  processID,
 				ReportKind: string(kind),
+				ReportSeq:  seq,
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -781,6 +855,7 @@ func reportFromSQLC(row dbsqlc.FrozenReport) Report {
 		ID:        row.ReportID,
 		ProcessID: row.ProcessID,
 		Kind:      ReportKind(row.ReportKind),
+		Seq:       row.ReportSeq,
 		Body:      row.Body,
 		State:     ReportState(row.State),
 		ErrorCode: row.ErrorCode,

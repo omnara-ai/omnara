@@ -4,6 +4,7 @@ INSERT INTO frozen_reports(
     process_id,
     action_id,
     report_kind,
+    report_seq,
     body
 )
 VALUES(
@@ -11,6 +12,7 @@ VALUES(
     sqlc.arg(process_id),
     sqlc.narg(action_id),
     sqlc.arg(report_kind),
+    sqlc.arg(report_seq),
     sqlc.arg(body)
 );
 
@@ -19,6 +21,7 @@ SELECT report_id,
        process_id,
        action_id,
        report_kind,
+       report_seq,
        body,
        state,
        error_code,
@@ -26,13 +29,15 @@ SELECT report_id,
 FROM frozen_reports
 WHERE process_id = sqlc.arg(process_id)
   AND action_id IS NULL
-  AND report_kind = sqlc.arg(report_kind);
+  AND report_kind = sqlc.arg(report_kind)
+  AND report_seq = sqlc.arg(report_seq);
 
 -- name: GetFrozenActionReportBySlot :one
 SELECT report_id,
        process_id,
        action_id,
        report_kind,
+       report_seq,
        body,
        state,
        error_code,
@@ -47,6 +52,7 @@ SELECT report_id,
        process_id,
        action_id,
        report_kind,
+       report_seq,
        body,
        state,
        error_code,
@@ -59,6 +65,7 @@ SELECT report_id,
        process_id,
        action_id,
        report_kind,
+       report_seq,
        body,
        state,
        error_code,
@@ -71,6 +78,7 @@ SELECT report.report_id,
        report.process_id,
        report.action_id,
        report.report_kind,
+       report.report_seq,
        report.body,
        report.state,
        report.error_code,
@@ -79,6 +87,16 @@ FROM frozen_reports report
 LEFT JOIN process_actions action
   ON action.action_id = report.action_id
 WHERE report.state IN ('pending', 'rejected')
+  AND (
+    report.report_kind <> 'process_terminal'
+    OR NOT EXISTS (
+      SELECT 1
+      FROM frozen_reports pending_match
+      WHERE pending_match.process_id = report.process_id
+        AND pending_match.report_kind = 'process_output_match'
+        AND pending_match.state = 'pending'
+    )
+  )
   AND (
     report.report_kind <> 'process_terminal'
     OR NOT EXISTS (
@@ -98,9 +116,11 @@ ORDER BY report.process_id,
          CASE report.report_kind
            WHEN 'process_started' THEN 0
            WHEN 'action_terminal' THEN 1
+           WHEN 'process_output_match' THEN 1
            ELSE 2
          END,
          coalesce(action.seq, 0),
+         report.report_seq,
          report.report_id;
 
 -- name: ListFrozenReportsForProcess :many
@@ -108,6 +128,7 @@ SELECT report.report_id,
        report.process_id,
        report.action_id,
        report.report_kind,
+       report.report_seq,
        report.body,
        report.state,
        report.error_code,
@@ -119,9 +140,11 @@ WHERE report.process_id = sqlc.arg(process_id)
 ORDER BY CASE report.report_kind
            WHEN 'process_started' THEN 0
            WHEN 'action_terminal' THEN 1
+           WHEN 'process_output_match' THEN 1
            ELSE 2
          END,
          coalesce(action.seq, 0),
+         report.report_seq,
          report.report_id;
 
 -- name: ListFrozenReports :many
@@ -129,6 +152,7 @@ SELECT report_id,
        process_id,
        action_id,
        report_kind,
+       report_seq,
        body,
        state,
        error_code,
@@ -150,3 +174,9 @@ SET state = 'rejected',
     error = sqlc.arg(error)
 WHERE report_id = sqlc.arg(report_id)
   AND state = 'pending';
+
+-- name: GetLastOutputMatchReportSeq :one
+SELECT CAST(coalesce(max(report_seq), 0) AS INTEGER) AS last_seq
+FROM frozen_reports
+WHERE process_id = sqlc.arg(process_id)
+  AND report_kind = 'process_output_match';

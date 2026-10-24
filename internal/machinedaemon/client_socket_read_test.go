@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/stretchr/testify/require"
 )
 
@@ -645,5 +646,91 @@ func TestDirectReadWaitYieldsToNewerAcceptedAction(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("terminate stayed queued behind the long read")
+	}
+}
+
+func TestDirectReadWaitForExitKeepsHeadAndTailAtDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client, transport, machine := newDirectReadTestTransport(t)
+	defer client.closeState()
+	defer transport.stopAndWait(func() {})
+
+	const (
+		processID            = "prc_wait_for_exit"
+		actionID             = "act_wait_for_exit"
+		supervisorInstanceID = "supervisor-instance-wait_for_exit"
+	)
+	path, err := machine.OutputBufferPath(processID)
+	require.NoError(t, err)
+	require.NoError(t, writeProcessOutputFile(path, nil, 0))
+	store, err := client.stateStore(ctx)
+	require.NoError(t, err)
+	require.NoError(t, store.ReserveProcess(
+		ctx,
+		statedb.Process{
+			ProcessID:            processID,
+			SupervisorInstanceID: supervisorInstanceID,
+			SupervisorToken:      "supervisor-token-wait_for_exit",
+		}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
+
+	output := processOutput{
+		path:         path,
+		limit:        1024,
+		syncBytes:    1024,
+		syncInterval: time.Hour,
+	}
+	defer output.Close()
+	if _, err := output.Write([]byte("start-")); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	readDone := make(chan error, 1)
+	go func() {
+		readDone <- transport.runAcceptedRead(ctx, pendingAction{
+			processID:    processID,
+			processState: "running",
+			action: ProcessAction{
+				ID:         actionID,
+				ActionKind: "read",
+				Seq:        1,
+				Payload: json.RawMessage(
+					`{"wait_ms":400,"max_bytes":10,"wait_for_exit":true,"head_bytes":4}`,
+				),
+			},
+		})
+	}()
+	select {
+	case message := <-transport.send:
+		t.Fatalf("wait_for_exit read returned on existing output: %+v", message)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, err := output.Write([]byte("middle-end")); err != nil {
+		t.Fatal(err)
+	}
+
+	message := waitForDirectReadReport(t, ctx, transport)
+	if elapsed := time.Since(started); elapsed < 350*time.Millisecond {
+		t.Fatalf("wait_for_exit read returned after %s, before its deadline", elapsed)
+	}
+	var observed processaction.ReadObservation
+	require.NoError(t, json.Unmarshal(message.Event.Result, &observed))
+	require.Equal(t, processaction.ReadObservation{
+		ProcessID:     processID,
+		Output:        "star",
+		Cursor:        0,
+		NextCursor:    16,
+		OutputTail:    "le-end",
+		OmittedCursor: 4,
+		TailCursor:    10,
+	}, observed)
+	ackDirectReadReport(transport, message)
+	select {
+	case err := <-readDone:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
 	}
 }
