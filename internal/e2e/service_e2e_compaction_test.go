@@ -445,7 +445,7 @@ tools:
 `,
 		serviceE2EConfiguredModelOptionsByIdentity{
 			{ProviderConfigName: "openai-prod", ConfiguredModelName: "service-e2e-local"}: {
-				ContextWindowTokens:    2500,
+				ContextWindowTokens:    2700,
 				MaxOutputTokens:        512,
 				DefaultMaxOutputTokens: 64,
 			},
