@@ -142,8 +142,9 @@ func TestBuildKeepsAllMessagesAndCrossTurnToolResultsThroughWatermark(t *testing
 	if err != nil {
 		t.Fatalf("encode agent public id: %v", err)
 	}
-	if !strings.Contains(bundle.SystemPrompt, "Your Omnara agent ID is `"+agentPublicID+"`.") {
-		t.Fatalf("expected system prompt to include agent public id, got %q", bundle.SystemPrompt)
+	// Instances of one agent config share the system prompt so they share its prompt-cache prefix.
+	if strings.Contains(bundle.SystemPrompt, agentPublicID) {
+		t.Fatalf("system prompt must not include the agent public id, got %q", bundle.SystemPrompt)
 	}
 	if string(bundle.ToolResults[0].Input) != `{"command":"echo 750"}` {
 		t.Fatalf("expected tool input to survive context projection, got %+v", bundle.ToolResults[0])
