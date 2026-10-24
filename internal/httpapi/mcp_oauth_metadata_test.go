@@ -6,16 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 )
 
 func TestStartMCPOAuthRejectsInvalidProspectiveSecretName(t *testing.T) {
@@ -31,6 +36,102 @@ func TestStartMCPOAuthRejectsInvalidProspectiveSecretName(t *testing.T) {
 	}
 	if apiErr == nil || apiErr.Code != openapi.ErrorCodeInvalidRequest {
 		t.Fatalf("start MCP OAuth error = %+v, want invalid_request", apiErr)
+	}
+}
+
+// Google's Calendar MCP server answers the auth probe without a challenge,
+// publishes protected resource metadata only at the path-inserted well-known
+// URL, and issues refresh tokens only for offline access.
+func TestStartMCPOAuthAuthorizesGoogleCalendarShapedServer(t *testing.T) {
+	mux := http.NewServeMux()
+	mcpServer := httptest.NewServer(mux)
+	t.Cleanup(mcpServer.Close)
+	mcpURL := mcpServer.URL + "/mcp/v1"
+	mux.HandleFunc("/mcp/v1", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":-1,"result":{"protocolVersion":"2025-06-18"}}`))
+	})
+	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp/v1", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(t, w, map[string]any{
+			"resource":              mcpURL,
+			"authorization_servers": []string{mcpServer.URL + "/"},
+			"scopes_supported":      []string{"https://www.googleapis.com/auth/calendar"},
+		})
+	})
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(t, w, map[string]any{
+			"issuer":                           mcpServer.URL,
+			"authorization_endpoint":           "https://accounts.google.com/o/oauth2/v2/auth",
+			"token_endpoint":                   mcpServer.URL + "/token",
+			"code_challenge_methods_supported": []string{"plain", "S256"},
+		})
+	})
+	keyWrapper, err := secrets.NewLocalKeyWrapper(
+		"test-key",
+		map[string][]byte{"test-key": []byte("0123456789abcdef0123456789abcdef")},
+	)
+	if err != nil {
+		t.Fatalf("new local key wrapper: %v", err)
+	}
+	server := strictOpenAPIServer{server: &Server{
+		publicURL:          "https://app.omnara.com",
+		secretKeyWrapper:   keyWrapper,
+		mcpOAuthHTTPClient: mcpServer.Client(),
+		agentConfigOptions: agentconfig.CompileOptions{AllowInsecureLocalMCPHTTP: true},
+	}}
+	clientID := "client-123.apps.googleusercontent.com"
+	clientSecret := "secret-456"
+	scopes := []string{"https://www.googleapis.com/auth/calendar.events"}
+
+	response, apiErr, err := server.startMCPOAuth(
+		context.Background(),
+		mcpOAuthOwner{OrgID: uuid.New(), OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: uuid.New()},
+		identitystore.PrincipalRecord{ID: uuid.New()},
+		&openapi.MCPOAuthStartRequest{
+			Name:         "gcal-mcp",
+			McpUrl:       mcpURL,
+			ClientId:     &clientID,
+			ClientSecret: &clientSecret,
+			Scopes:       &scopes,
+		},
+	)
+	if err != nil {
+		t.Fatalf("start MCP OAuth: %v", err)
+	}
+	if apiErr != nil {
+		t.Fatalf("start MCP OAuth error = %+v, want an authorization URL", apiErr)
+	}
+	authURL, err := url.Parse(response.AuthorizationUrl)
+	if err != nil {
+		t.Fatalf("parse authorization URL: %v", err)
+	}
+	query := authURL.Query()
+	for key, want := range map[string]string{
+		"access_type":  "offline",
+		"prompt":       "consent",
+		"resource":     mcpURL,
+		"client_id":    clientID,
+		"redirect_uri": "https://app.omnara.com/api/mcp-oauth/callback",
+		"scope":        scopes[0],
+	} {
+		if got := query.Get(key); got != want {
+			t.Fatalf("authorization URL %s = %q, want %q", key, got, want)
+		}
+	}
+	flow, err := mcp.OpenOAuthState(context.Background(), keyWrapper, query.Get("state"))
+	if err != nil {
+		t.Fatalf("open oauth state: %v", err)
+	}
+	if flow.TokenEndpoint != mcpServer.URL+"/token" || flow.Resource != mcpURL || flow.ClientSecret != clientSecret {
+		t.Fatalf("flow = %+v, want token endpoint, resource, and client secret for the refresh grant", flow)
+	}
+}
+
+func writeTestJSON(t *testing.T, w http.ResponseWriter, value any) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		t.Errorf("write test response: %v", err)
 	}
 }
 

@@ -54,6 +54,26 @@ func TestAuthorizationServerMetadataURLs(t *testing.T) {
 	}
 }
 
+func TestIsRootIssuerSlashAlias(t *testing.T) {
+	cases := []struct {
+		metadataIssuer  string
+		requestedIssuer string
+		want            bool
+	}{
+		{metadataIssuer: "https://accounts.google.com", requestedIssuer: "https://accounts.google.com/", want: true},
+		{metadataIssuer: "https://accounts.google.com/", requestedIssuer: "https://accounts.google.com", want: true},
+		{metadataIssuer: "https://issuer.example/tenant", requestedIssuer: "https://issuer.example/tenant/"},
+		{metadataIssuer: "https://issuer.example", requestedIssuer: "https://issuer.example//"},
+		{metadataIssuer: "https://issuer.example?x=", requestedIssuer: "https://issuer.example?x=/"},
+		{metadataIssuer: "https://other.example", requestedIssuer: "https://issuer.example/"},
+	}
+	for _, tc := range cases {
+		if got := isRootIssuerSlashAlias(tc.metadataIssuer, tc.requestedIssuer); got != tc.want {
+			t.Fatalf("isRootIssuerSlashAlias(%q, %q) = %v, want %v", tc.metadataIssuer, tc.requestedIssuer, got, tc.want)
+		}
+	}
+}
+
 func TestParseOAuthTokenResponseValidatesExpiresInDuration(t *testing.T) {
 	for _, expiresIn := range []string{"9223372037", "0", "-1", `""`} {
 		body := []byte(`{"access_token":"token","token_type":"Bearer","expires_in":` + expiresIn + `}`)

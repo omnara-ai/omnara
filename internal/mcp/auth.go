@@ -123,14 +123,34 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 		if response.StatusCode < 200 || response.StatusCode > 299 {
 			return AuthRequirement{}, fmt.Errorf("mcp auth: server probe: %w", &HTTPError{Status: response.StatusCode})
 		}
-		return AuthRequirement{Required: false, EndpointURL: endpoint, Resource: canonicalResourceURI(endpoint)}, nil
+		return advertisedAuthRequirement(ctx, endpoint, client)
 	}
-	authRequirement, err := authRequirementFromChallenge(
+	return requiredAuth(authRequirementFromChallenge(
 		ctx,
 		endpoint,
 		response.Header.Values("WWW-Authenticate"),
 		client,
-	)
+	))
+}
+
+// advertisedAuthRequirement handles a server that answers the probe without a
+// challenge. Some servers only challenge the calls that touch user data yet
+// still publish RFC 9728 protected resource metadata: Google's Calendar MCP
+// server answers initialize and tools/list unauthenticated and returns 401
+// only from tools/call. Metadata that names an authorization server means the
+// server requires OAuth; without it, the server is treated as open.
+func advertisedAuthRequirement(ctx context.Context, endpoint string, client *http.Client) (AuthRequirement, error) {
+	protectedResourceMetadata, err := discoverProtectedResourceMetadata(ctx, endpoint, nil, client)
+	if err != nil {
+		if ctx.Err() != nil || IsRetryableConnectionFailure(err) {
+			return AuthRequirement{}, err
+		}
+		return AuthRequirement{Required: false, EndpointURL: endpoint, Resource: canonicalResourceURI(endpoint)}, nil
+	}
+	return requiredAuth(authRequirementFromMetadata(ctx, endpoint, protectedResourceMetadata, nil, client))
+}
+
+func requiredAuth(authRequirement AuthRequirement, err error) (AuthRequirement, error) {
 	if errors.Is(err, context.Canceled) || IsRetryableConnectionFailure(err) {
 		return AuthRequirement{}, err
 	}
@@ -186,10 +206,31 @@ func StartOAuth(ctx context.Context, input OAuthStartInput) (string, error) {
 		},
 		Scopes: flow.Scopes,
 	}
-	return oauthAuthorizationConfig.AuthCodeURL(state,
+	options := []oauth2.AuthCodeOption{
 		oauth2.S256ChallengeOption(codeVerifier),
 		oauth2.SetAuthURLParam("resource", authMetadata.Resource),
-	), nil
+	}
+	if isGoogleAuthorizationServer(authMetadata.AuthorizationServer) {
+		options = append(options, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+	}
+	return oauthAuthorizationConfig.AuthCodeURL(state, options...), nil
+}
+
+// googleAuthorizationHost serves Google's authorization endpoint, which
+// issues a refresh token only for access_type=offline, and for a user who
+// already granted access only when prompt=consent asks them again. Without
+// both, a Google-backed MCP secret stops working when its one-hour access
+// token expires.
+const googleAuthorizationHost = "accounts.google.com"
+
+func isGoogleAuthorizationServer(metadata *oauthex.AuthServerMeta) bool {
+	for _, rawURL := range []string{metadata.Issuer, metadata.AuthorizationEndpoint} {
+		parsed, err := url.Parse(rawURL)
+		if err == nil && strings.EqualFold(parsed.Hostname(), googleAuthorizationHost) {
+			return true
+		}
+	}
+	return false
 }
 
 func sealOAuthState(ctx context.Context, keyWrapper secrets.KeyWrapper, flow OAuthFlowState) (string, error) {
@@ -408,11 +449,26 @@ func authRequirementFromChallenge(
 	if err != nil {
 		return AuthRequirement{}, err
 	}
+	return authRequirementFromMetadata(
+		ctx,
+		endpoint,
+		protectedResourceMetadata,
+		scopesFromChallenges(challenges),
+		client,
+	)
+}
+
+func authRequirementFromMetadata(
+	ctx context.Context,
+	endpoint string,
+	protectedResourceMetadata *oauthex.ProtectedResourceMetadata,
+	scopes []string,
+	client *http.Client,
+) (AuthRequirement, error) {
 	authorizationServerMetadata, err := discoverAuthorizationServerMetadata(ctx, protectedResourceMetadata, client)
 	if err != nil {
 		return AuthRequirement{}, err
 	}
-	scopes := scopesFromChallenges(challenges)
 	if len(scopes) == 0 {
 		scopes = append([]string(nil), protectedResourceMetadata.ScopesSupported...)
 	}
@@ -583,7 +639,9 @@ func fetchAuthServerMetadata(
 	if err := json.Unmarshal(body, &metadata); err != nil {
 		return nil, fmt.Errorf("decode metadata response: %w", err)
 	}
-	if metadata.Issuer != issuer && !isMultiTenantIssuerAlias(metadata.Issuer, issuer) {
+	if metadata.Issuer != issuer &&
+		!isRootIssuerSlashAlias(metadata.Issuer, issuer) &&
+		!isMultiTenantIssuerAlias(metadata.Issuer, issuer) {
 		return nil, fmt.Errorf("metadata issuer %q does not match issuer URL %q", metadata.Issuer, issuer)
 	}
 	if err := validateAuthServerMetadataURLs(metadata); err != nil {
@@ -622,6 +680,20 @@ func validateAuthServerMetadataURLs(metadata oauthex.AuthServerMeta) error {
 	return nil
 }
 
+// isRootIssuerSlashAlias reports whether two issuers differ only by the "/"
+// of an empty path, which RFC 3986 section 6.2.3 defines as the same URL.
+// Google's Calendar MCP server lists "https://accounts.google.com/" as its
+// authorization server while Google's metadata reports the issuer
+// "https://accounts.google.com".
+func isRootIssuerSlashAlias(metadataIssuer, requestedIssuer string) bool {
+	rootIssuer := strings.TrimSuffix(requestedIssuer, "/")
+	if strings.TrimSuffix(metadataIssuer, "/") != rootIssuer {
+		return false
+	}
+	rootURL, err := url.Parse(rootIssuer)
+	return err == nil && rootURL.Host != "" && rootURL.Path == "" && rootURL.RawQuery == "" && rootURL.Fragment == ""
+}
+
 // multiTenantIssuerAliases are the Microsoft Entra ID (Azure AD) shared
 // tenant path segments whose discovery document reports a tenant-specific
 // issuer instead of echoing the requested issuer verbatim, e.g. requesting
@@ -633,10 +705,11 @@ var multiTenantIssuerAliases = map[string]bool{
 }
 
 // isMultiTenantIssuerAlias reports whether metadataIssuer is a same-origin,
-// tenant-scoped alias of a Microsoft Entra ID multi-tenant issuer. This is
-// the only accepted deviation from an exact RFC 8414 issuer match: every
-// other mismatch, including any other same-origin path difference, is
-// rejected so a client can't be bound to the wrong authorization server.
+// tenant-scoped alias of a Microsoft Entra ID multi-tenant issuer. Apart from
+// the root "/" alias, this is the only accepted deviation from an exact
+// RFC 8414 issuer match: every other mismatch, including any other
+// same-origin path difference, is rejected so a client can't be bound to the
+// wrong authorization server.
 func isMultiTenantIssuerAlias(metadataIssuer, requestedIssuer string) bool {
 	metadataURL, err := url.Parse(metadataIssuer)
 	if err != nil {
