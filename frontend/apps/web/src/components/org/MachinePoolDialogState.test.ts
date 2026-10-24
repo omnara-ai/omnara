@@ -121,6 +121,27 @@ describe('Tenki machine pools', () => {
   })
 })
 
+describe('Agent37 machine pools', () => {
+  it('creates a template pool on the smallest Agent37 shape', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'agent37'),
+      name: 'agent37-pool',
+      image: ' omnara-machine ',
+      maxMachines: '3',
+      secretId: 'sec_agent37',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolCreateRequest(values)).toMatchObject({
+      provider: 'agent37',
+      default_machine_cpu: 2,
+      default_machine_memory_mb: 4096,
+      default_machine_provider_options: { template: 'omnara-machine' },
+      max_total_cpu: 6,
+      max_machine_memory_mb: 4096,
+    })
+  })
+})
+
 describe('boxd machine pools', () => {
   it('creates a base-image pool limited to the default boxd size', () => {
     const values = {
@@ -812,6 +833,7 @@ describe('machine pool connection checks', () => {
 
 it('lists providers alphabetically', () => {
   expect(machinePoolProviders.map((provider) => provider.label)).toEqual([
+    'Agent37',
     'Arker',
     'Blaxel',
     'boxd',
