@@ -418,10 +418,11 @@ func TestAgentExecutorCompactsAndRetriesAfterProviderContextWindow(t *testing.T)
 		t.Fatalf("compaction request exposed tools: %+v", retryModel.responded[1].ToolSpecs)
 	}
 	normalSafetyID := retryModel.responded[0].Bundle.SafetyIdentifier
-	if compactionSafetyID := retryModel.responded[1].Bundle.SafetyIdentifier; normalSafetyID == "" ||
-		compactionSafetyID != normalSafetyID {
-		t.Fatalf("safety identifiers = %q (normal), %q (compaction), want one shared identifier",
-			normalSafetyID, compactionSafetyID)
+	wantSafetyID := executor.safetyIdentifier(kernelTestOrgID)
+	if compactionSafetyID := retryModel.responded[1].Bundle.SafetyIdentifier; normalSafetyID != wantSafetyID ||
+		compactionSafetyID != wantSafetyID {
+		t.Fatalf("safety identifiers = %q (normal), %q (compaction), want org identifier %q",
+			normalSafetyID, compactionSafetyID, wantSafetyID)
 	}
 	var completedCompactionContextID uuid.UUID
 	if err := fixture.Pool.QueryRow(ctx, `

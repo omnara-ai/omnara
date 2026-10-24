@@ -49,9 +49,7 @@ func TestLiveAnthropicReasoningEffort(t *testing.T) {
 	}
 
 	t.Run("effort keeps api variant options", func(t *testing.T) {
-		userID := uuid.NewString()
 		apiVariantOptions := `{
-			"metadata": {"user_id": "` + userID + `"},
 			"output_config": {
 				"effort": "max",
 				"format": {
@@ -67,13 +65,7 @@ func TestLiveAnthropicReasoningEffort(t *testing.T) {
 		}`
 		prepared, response := liveReasoningRespond(t, client(apiVariantOptions), "low",
 			"What is 17 * 23?")
-		body := requireLiveReasoningRequest(t, prepared, "low", `{"type":"adaptive"}`)
-		var metadata struct {
-			UserID string `json:"user_id"`
-		}
-		if err := json.Unmarshal(body["metadata"], &metadata); err != nil || metadata.UserID != userID {
-			t.Fatalf("metadata = %s, want user_id %s", body["metadata"], userID)
-		}
+		requireLiveReasoningRequest(t, prepared, "low", `{"type":"adaptive"}`)
 		// The provider only returns schema-shaped JSON when output_config.format
 		// survived alongside the adapter-owned effort.
 		var answer struct {
@@ -112,9 +104,10 @@ func liveReasoningRespond(
 	supportsReasoning := true
 	prepared, err := client.Prepare(ctx, model.PrepareInput{
 		Context: modelcontext.Bundle{
-			AgentID:      uuid.New(),
-			SystemPrompt: "You are a careful arithmetic assistant.",
-			Messages:     []modelcontext.Message{liveTextMessage(modelprotocol.RoleUser, 10, prompt)},
+			SafetyIdentifier: modeltest.LiveSafetyIdentifier,
+			AgentID:          uuid.New(),
+			SystemPrompt:     "You are a careful arithmetic assistant.",
+			Messages:         []modelcontext.Message{liveTextMessage(modelprotocol.RoleUser, 10, prompt)},
 		},
 		Policy: model.RequestPolicy{
 			MaxOutputTokens:   4096,
@@ -125,6 +118,7 @@ func liveReasoningRespond(
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
+	modeltest.RequireSafetyIdentifier(t, prepared.Body)
 	response, err := client.Respond(ctx, model.Request{ProviderRequest: prepared.Body})
 	if err != nil {
 		t.Fatalf("respond: %v\nrequest: %s", err, prepared.Body)
@@ -137,7 +131,7 @@ func requireLiveReasoningRequest(
 	prepared model.PreparedRequest,
 	effort string,
 	wantThinking string,
-) map[string]json.RawMessage {
+) {
 	t.Helper()
 	var body map[string]json.RawMessage
 	if err := json.Unmarshal(prepared.Body, &body); err != nil {
@@ -152,7 +146,6 @@ func requireLiveReasoningRequest(
 	if got := string(body["thinking"]); got != wantThinking {
 		t.Fatalf("thinking = %s, want %s", got, wantThinking)
 	}
-	return body
 }
 
 func liveReasoningParts(response model.Response) int {

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 )
 
 const scopedAgentRuntimeLockCountSQL = `
@@ -284,6 +285,7 @@ func (e *serviceE2EEnvironment) startWorker(
 		"OMNARA_MEMORY_DIR=" + filepath.Join(e.root, "memory"),
 		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\"}",
 		"OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID=e2e-local",
+		"OMNARA_SAFETY_IDENTIFIER_KEY=" + modeltest.SafetyIdentifierKey,
 		"OMNARA_LOG_LEVEL=" + opts.LogLevel,
 	}
 	workerEnv = append(workerEnv, opts.ExtraEnv...)
