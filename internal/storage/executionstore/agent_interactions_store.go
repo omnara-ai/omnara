@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/interactionform"
+	"github.com/omnara-ai/omnara/internal/mcpauthorization"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -24,8 +25,9 @@ const (
 	AgentInteractionStateResolved AgentInteractionState = "resolved"
 	AgentInteractionStateCanceled AgentInteractionState = "canceled"
 
-	AgentInteractionKindPermission AgentInteractionKind = "permission"
-	AgentInteractionKindQuestion   AgentInteractionKind = "question"
+	AgentInteractionKindPermission    AgentInteractionKind = "permission"
+	AgentInteractionKindQuestion      AgentInteractionKind = "question"
+	AgentInteractionKindAuthorization AgentInteractionKind = "authorization"
 )
 
 type CreatePermissionInteractionInput struct {
@@ -34,6 +36,14 @@ type CreatePermissionInteractionInput struct {
 	ToolCallID    uuid.UUID
 	RuntimeLockID uuid.UUID
 	Request       toolpermission.Request
+}
+
+type CreateAuthorizationInteractionInput struct {
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	ToolCallID    uuid.UUID
+	RuntimeLockID uuid.UUID
+	Request       mcpauthorization.Request
 }
 
 type CreateQuestionInteractionInput struct {
@@ -72,6 +82,13 @@ func (record AgentInteractionRecord) Form() (interactionform.Form, error) {
 	return interactionFormForInteraction(record.InteractionKind, record.Request)
 }
 
+func (record AgentInteractionRecord) AuthorizationRequest() (mcpauthorization.Request, error) {
+	if record.InteractionKind != AgentInteractionKindAuthorization {
+		return mcpauthorization.Request{}, fmt.Errorf("agent interaction %s is not an authorization", record.ID)
+	}
+	return mcpauthorization.ParseRequest(record.Request)
+}
+
 func (s *Store) CreatePermissionInteraction(
 	ctx context.Context,
 	input CreatePermissionInteractionInput,
@@ -103,6 +120,40 @@ func (s *Store) CreatePermissionInteraction(
 				return AgentInteractionRecord{}, err
 			}
 			if err = unit.Commit(ctx, "open permission"); err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			return agentInteractionRecordFromSQLC(row), nil
+		})
+}
+
+// CreateAuthorizationInteraction parks a running MCP tool call on an
+// authorization interaction, releasing it from the runtime until the user
+// grants or declines access.
+func (s *Store) CreateAuthorizationInteraction(
+	ctx context.Context,
+	input CreateAuthorizationInteractionInput,
+) (AgentInteractionRecord, error) {
+	return agentexecution.Retry(ctx,
+		"create_authorization_interaction",
+		func(ctx context.Context) (AgentInteractionRecord, error) {
+			unit, h, err := beginExecution(ctx, s, input.ProjectID, input.AgentID, false, input.RuntimeLockID)
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			result, err := h.OpenInteraction(ctx, agentexecution.OpenInteractionInput{ToolRef: agentexecution.ToolRef{
+				ID:            input.ToolCallID,
+				RuntimeLockID: input.RuntimeLockID},
+				Authorization: &input.Request})
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			row, err := dbsqlc.New(unit.DB()).GetAgentInteraction(ctx, dbsqlc.GetAgentInteractionParams{
+				ProjectID: input.ProjectID, AgentID: input.AgentID, ID: result.ID})
+			if err != nil {
+				return AgentInteractionRecord{}, err
+			}
+			if err = unit.Commit(ctx, "open authorization"); err != nil {
 				return AgentInteractionRecord{}, err
 			}
 			return agentInteractionRecordFromSQLC(row), nil
@@ -220,6 +271,15 @@ func interactionFormForInteraction(
 			)
 		}
 		return permissionRequest.Form, nil
+	case AgentInteractionKindAuthorization:
+		authorizationRequest, err := mcpauthorization.ParseRequest(request)
+		if err != nil {
+			return interactionform.Form{}, fmt.Errorf(
+				"stored authorization request is invalid: %w",
+				err,
+			)
+		}
+		return authorizationRequest.Form, nil
 	case AgentInteractionKindQuestion:
 		value, err := interactionform.Parse(request)
 		if err != nil {
@@ -301,7 +361,8 @@ func (s *Store) GetAgentInteractionByToolCallKind(
 	interactionKind AgentInteractionKind,
 ) (AgentInteractionRecord, bool, error) {
 	if projectID == uuid.Nil || agentID == uuid.Nil || toolCallID == uuid.Nil ||
-		(interactionKind != AgentInteractionKindPermission && interactionKind != AgentInteractionKindQuestion) {
+		(interactionKind != AgentInteractionKindPermission && interactionKind != AgentInteractionKindQuestion &&
+			interactionKind != AgentInteractionKindAuthorization) {
 		return AgentInteractionRecord{}, false, errors.New(
 			"project, agent, tool call id, and interaction kind are required",
 		)

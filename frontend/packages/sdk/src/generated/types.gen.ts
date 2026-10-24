@@ -2930,7 +2930,7 @@ export type InteractionResolution = {
     answers: Array<InteractionAnswer>;
 };
 
-export type AgentInteractionKind = 'permission' | 'question';
+export type AgentInteractionKind = 'permission' | 'question' | 'authorization';
 
 export type AgentInteractionState = 'open' | 'resolved' | 'canceled';
 
@@ -2966,11 +2966,11 @@ export type AgentInteraction = {
     project_id: ProjectId;
     agent_id: AgentId;
     /**
-     * The tool call that is waiting on this interaction — the guarded tool for a permission, or the ask_question call for a question.
+     * The tool call that is waiting on this interaction — the guarded tool for a permission, the ask_question call for a question, or the MCP tool call the server rejected for an authorization.
      */
     tool_call_id: ToolCallId;
     /**
-     * The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
+     * The tool whose invocation a permission or authorization interaction guards. Present only when interaction_kind is permission or authorization.
      */
     tool_name?: string;
     agent_name?: AgentName;
@@ -2983,6 +2983,10 @@ export type AgentInteraction = {
     request: InteractionForm;
     resolution?: InteractionResolution;
     /**
+     * Present only when interaction_kind is authorization.
+     */
+    authorization?: AgentInteractionAuthorization;
+    /**
      * Captured built-in integration destination. Absent for dashboard-only or older interactions; never reconstructed from the current agent selection.
      */
     destination?: AgentInteractionDestination;
@@ -2993,6 +2997,41 @@ export type AgentInteraction = {
     resolved_by_input_id?: AgentInputId;
     created_at: Timestamp;
     resolved_at?: Timestamp;
+};
+
+/**
+ * The MCP server and OAuth access an authorization interaction asks for. Grant access by starting authorization for the interaction and completing the OAuth flow; decline by resolving the interaction with option 1.
+ */
+export type AgentInteractionAuthorization = {
+    mcp_server_key: string;
+    /**
+     * The MCP server's name for the tool the agent called.
+     */
+    mcp_tool_name: string;
+    mcp_url: string;
+    /**
+     * The OAuth secret the server's config already uses. Absent when the server has no credential yet; granting access creates the secret and adds it to the agent's config.
+     */
+    secret_id?: SecretId;
+    /**
+     * The name of the OAuth secret granting access writes.
+     */
+    secret_name: ResourceName;
+    /**
+     * Scopes the MCP server asked for. Empty when the server's challenge named none.
+     */
+    required_scopes: Array<string>;
+    /**
+     * Scopes the existing secret already holds.
+     */
+    granted_scopes: Array<string>;
+};
+
+export type StartAgentInteractionAuthorizationRequest = {
+    /**
+     * Path in the web app to return to after the OAuth flow.
+     */
+    return_to?: string;
 };
 
 /**
@@ -13184,6 +13223,92 @@ export type ResolveAgentInteractionResponses = {
 };
 
 export type ResolveAgentInteractionResponse = ResolveAgentInteractionResponses[keyof ResolveAgentInteractionResponses];
+
+export type StartAgentInteractionAuthorizationData = {
+    body?: StartAgentInteractionAuthorizationRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
+        agentID: string;
+        /**
+         * Interaction ID (int_...).
+         */
+        interactionID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/interactions/{interactionID}/authorize';
+};
+
+export type StartAgentInteractionAuthorizationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * A server the request depends on, such as an MCP server or its authorization server, did not respond or failed. Retry with backoff; the failure persists until that server recovers.
+     */
+    424: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type StartAgentInteractionAuthorizationError = StartAgentInteractionAuthorizationErrors[keyof StartAgentInteractionAuthorizationErrors];
+
+export type StartAgentInteractionAuthorizationResponses = {
+    /**
+     * MCP OAuth flow started.
+     */
+    201: McpoAuthStartResponse;
+};
+
+export type StartAgentInteractionAuthorizationResponse = StartAgentInteractionAuthorizationResponses[keyof StartAgentInteractionAuthorizationResponses];
 
 export type ListQueuedBacklogInputsData = {
     body?: never;

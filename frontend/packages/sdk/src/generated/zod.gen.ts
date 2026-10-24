@@ -2016,7 +2016,11 @@ export const zInteractionResolution = z.object({
     answers: z.array(zInteractionAnswer).min(1)
 });
 
-export const zAgentInteractionKind = z.enum(['permission', 'question']);
+export const zAgentInteractionKind = z.enum([
+    'permission',
+    'question',
+    'authorization'
+]);
 
 export const zAgentInteractionState = z.enum([
     'open',
@@ -2070,6 +2074,23 @@ export const zAgentEventStreamData = z.union([
  * Confirmed provider presentation metadata, when recorded. This is not an execution grant or a delivery guarantee. Absence does not prove a remote send failed. Customer-hosted presenters maintain their own delivery records.
  */
 export const zInteractionPresentationReceipt = z.record(z.string(), z.unknown());
+
+/**
+ * The MCP server and OAuth access an authorization interaction asks for. Grant access by starting authorization for the interaction and completing the OAuth flow; decline by resolving the interaction with option 1.
+ */
+export const zAgentInteractionAuthorization = z.object({
+    mcp_server_key: z.string(),
+    mcp_tool_name: z.string(),
+    mcp_url: z.string(),
+    secret_id: zSecretId.optional(),
+    secret_name: zResourceName,
+    required_scopes: z.array(z.string()),
+    granted_scopes: z.array(z.string())
+});
+
+export const zStartAgentInteractionAuthorizationRequest = z.object({
+    return_to: z.string().optional()
+});
 
 /**
  * omnara for Omnara identities, integration for hosted integration senders, or external for API-managed actors.
@@ -3508,6 +3529,7 @@ export const zAgentInteraction = z.object({
     state: zAgentInteractionState,
     request: zInteractionForm,
     resolution: zInteractionResolution.optional(),
+    authorization: zAgentInteractionAuthorization.optional(),
     destination: zAgentInteractionDestination.optional(),
     presentation_receipt: zInteractionPresentationReceipt.optional(),
     resolved_by_input_id: zAgentInputId.optional(),
@@ -5157,6 +5179,20 @@ export const zResolveAgentInteractionPath = z.object({
  * Agent interaction resolved.
  */
 export const zResolveAgentInteractionResponse = zAgentInteraction;
+
+export const zStartAgentInteractionAuthorizationBody = zStartAgentInteractionAuthorizationRequest;
+
+export const zStartAgentInteractionAuthorizationPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    agentID: z.string().regex(/^agt_[a-z2-7]{26}$/),
+    interactionID: z.string().regex(/^int_[a-z2-7]{26}$/)
+});
+
+/**
+ * MCP OAuth flow started.
+ */
+export const zStartAgentInteractionAuthorizationResponse = zMcpoAuthStartResponse;
 
 export const zListQueuedBacklogInputsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

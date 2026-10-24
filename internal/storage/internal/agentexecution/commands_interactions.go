@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/interactionform"
+	"github.com/omnara-ai/omnara/internal/mcpauthorization"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -17,9 +19,10 @@ import (
 
 type OpenInteractionInput struct {
 	ToolRef
-	Permission  *toolpermission.Request
-	Question    *interactionform.Form
-	Destination json.RawMessage
+	Permission    *toolpermission.Request
+	Question      *interactionform.Form
+	Authorization *mcpauthorization.Request
+	Destination   json.RawMessage
 }
 type Interaction struct {
 	ID         uuid.UUID
@@ -43,8 +46,12 @@ func interactionRecord(row executiondb.ReadExecutionInteractionRow) Interaction 
 }
 
 func interactionForm(kind string, request json.RawMessage) (interactionform.Form, error) {
-	if kind == "permission" {
+	switch kind {
+	case "permission":
 		r, err := toolpermission.ParseRequest(request)
+		return r.Form, err
+	case "authorization":
+		r, err := mcpauthorization.ParseRequest(request)
 		return r.Form, err
 	}
 	return interactionform.Parse(request)
@@ -52,7 +59,13 @@ func interactionForm(kind string, request json.RawMessage) (interactionform.Form
 
 func (h *Handle) OpenInteraction(ctx context.Context, input OpenInteractionInput) (Interaction, error) {
 	return executeCommand(ctx, h, func(m *executionMutation) (Interaction, error) {
-		if (input.Permission == nil) == (input.Question == nil) {
+		kinds := 0
+		for _, set := range []bool{input.Permission != nil, input.Question != nil, input.Authorization != nil} {
+			if set {
+				kinds++
+			}
+		}
+		if kinds != 1 {
 			return Interaction{}, errors.New("exactly one interaction kind is required")
 		}
 		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
@@ -67,6 +80,12 @@ func (h *Handle) OpenInteraction(ctx context.Context, input OpenInteractionInput
 				return Interaction{}, err
 			}
 			request, err = json.Marshal(input.Permission)
+		} else if input.Authorization != nil {
+			kind = "authorization"
+			if err := input.Authorization.Validate(); err != nil {
+				return Interaction{}, err
+			}
+			request, err = json.Marshal(input.Authorization)
 		} else {
 			if err := input.Question.Validate(); err != nil {
 				return Interaction{}, err
@@ -88,6 +107,12 @@ func (h *Handle) OpenInteraction(ctx context.Context, input OpenInteractionInput
 			if err != nil {
 				return Interaction{}, err
 			}
+			if kind == "authorization" {
+				if existing.State != "open" || call.State != "waiting" || !equalJSON(existing.Request, request) {
+					return Interaction{}, storeerr.ErrIdempotencyConflict
+				}
+				return interactionRecord(existing), nil
+			}
 			if kind == "permission" || call.Type != "built_in" ||
 				call.State != "waiting" && call.State != "completed" {
 				return Interaction{}, storeerr.ErrIdempotencyConflict
@@ -102,13 +127,23 @@ func (h *Handle) OpenInteraction(ctx context.Context, input OpenInteractionInput
 			return Interaction{}, err
 		}
 		next := "waiting"
-		if kind == "permission" {
+		switch kind {
+		case "permission":
 			next = "awaiting_permission"
 			if call.State != "awaiting_authorization" {
 				return Interaction{}, storeerr.ErrStateTransitionConflict
 			}
-		} else if call.State != "ready" || call.Type != "built_in" {
-			return Interaction{}, storeerr.ErrStateTransitionConflict
+		case "authorization":
+			// The MCP call already ran and the server asked for authorization;
+			// the runtime releases it to wait for the user.
+			if call.State != "running" || call.Type != "mcp" ||
+				storeutil.ValueOrZero(call.RuntimeLockID) != input.RuntimeLockID {
+				return Interaction{}, storeerr.ErrStateTransitionConflict
+			}
+		default:
+			if call.State != "ready" || call.Type != "built_in" {
+				return Interaction{}, storeerr.ErrStateTransitionConflict
+			}
 		}
 		var destination *json.RawMessage
 		if len(input.Destination) > 0 {
@@ -259,6 +294,9 @@ func (h *Handle) applyInteraction(
 	i Interaction,
 	call executiondb.ReadExecutionToolRow,
 ) error {
+	if i.Kind == "authorization" {
+		return h.applyAuthorizationInteraction(ctx, m, i, call)
+	}
 	outcome := "succeeded"
 	var value any
 	if i.Kind == "permission" {
@@ -335,6 +373,60 @@ func (h *Handle) applyInteraction(
 		return err
 	}
 	return nil
+}
+
+// applyAuthorizationInteraction returns a granted MCP call to ready so the
+// runtime dispatches it again with the new credential; a declined or canceled
+// authorization completes the call with an error the model can explain.
+func (h *Handle) applyAuthorizationInteraction(
+	ctx context.Context,
+	m *executionMutation,
+	i Interaction,
+	call executiondb.ReadExecutionToolRow,
+) error {
+	outcome := "canceled"
+	value := map[string]any{
+		"error_code": "mcp_authorization_required",
+		"error":      "The MCP authorization request was canceled before access was granted.",
+	}
+	if i.State == "resolved" {
+		request, err := mcpauthorization.ParseRequest(i.Request)
+		if err != nil {
+			return err
+		}
+		answers, err := interactionform.ParseResolution(request.Form, i.Resolution)
+		if err != nil {
+			return err
+		}
+		granted, err := mcpauthorization.Granted(request, answers)
+		if err != nil {
+			return err
+		}
+		if granted {
+			if call.State != "waiting" {
+				return storeerr.ErrStateTransitionConflict
+			}
+			if err = h.transitionTool(ctx, m, call, "ready", uuid.Nil, uuid.Nil); err != nil {
+				return err
+			}
+			h.interactionNotification(i, "ready")
+			return nil
+		}
+		outcome = "denied"
+		value = map[string]any{
+			"error_code":     "mcp_authorization_required",
+			"error":          fmt.Sprintf("The user declined to authorize %s, so %s was not run.", request.ServerKey, request.ToolName),
+			"mcp_server_key": request.ServerKey,
+			"mcp_tool_name":  request.ToolName,
+		}
+	}
+	body, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	_, err = h.completeTool(ctx, m, call, outcome, []Content{{Kind: "structured_data", Data: body}}, uuid.Nil,
+		&notifications.AgentInteractionUpdate{ID: i.ID, InteractionKind: i.Kind, State: i.State})
+	return err
 }
 
 func (h *Handle) SupersedeInteractions(ctx context.Context, inputID uuid.UUID) ([]uuid.UUID, error) {

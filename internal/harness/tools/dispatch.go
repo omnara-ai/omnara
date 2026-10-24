@@ -496,6 +496,8 @@ func (e Executor) executeAsyncTool(
 			result.content,
 			result.cause,
 		)
+	case awaitAuthorizationAsync:
+		return e.openMCPAuthorization(completionCtx, call, result.request)
 	case nil:
 		return e.completeAsyncToolFailure(
 			completionCtx,

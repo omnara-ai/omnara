@@ -87,6 +87,41 @@ export function useResolveAgentInteraction(orgID: string, projectID: string, age
   })
 }
 
+/** Starts the MCP OAuth flow that grants an authorization interaction. The
+ * caller redirects to the returned authorization_url; completing the flow
+ * resolves the interaction server-side. */
+export function useStartAgentInteractionAuthorization(
+  orgID: string,
+  projectID: string,
+  agentID: string,
+) {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  const queryKey = openAgentInteractionsQueryKey(client, { orgID, projectID, agentID })
+  return useMutation({
+    mutationFn: async ({
+      interactionID,
+      returnTo,
+      targetAgentID = agentID,
+    }: {
+      interactionID: string
+      returnTo: string
+      targetAgentID?: string
+    }) => {
+      const { data } = await sdk.startAgentInteractionAuthorization({
+        client,
+        path: { orgID, projectID, agentID: targetAgentID, interactionID },
+        body: { return_to: returnTo },
+      })
+      return data
+    },
+    // A failed start can mean the interaction closed meanwhile; refresh the list.
+    onError: async () => {
+      await queryClient.invalidateQueries({ queryKey })
+    },
+  })
+}
+
 export function useCancelAgent(orgID: string, projectID: string, agentID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
