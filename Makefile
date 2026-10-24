@@ -506,6 +506,7 @@ test-live-openai-chat-completions:
 test-live-openrouter:
 	@$(LOAD_DOTENV); \
 	: "$${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required for live OpenRouter tests}"; \
+	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLiveOpenRouterSafetyIdentifiers$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLivePromptCache/openrouter_.*$$' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model -run '^TestLiveDeferredToolsLoadAfterSearch/openrouter_' && \
 	$(GO) test -count=1 -v -tags=live ./internal/model/openaichatcompletions -run '^TestLiveOpenRouterChatCompletions' && \

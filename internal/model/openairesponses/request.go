@@ -71,11 +71,13 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		input.Policy.CacheRetention,
 	)
 	payload.PromptCacheKey = plan.ConversationKey
-	return apivariantbody.MarshalWithAPIVariantOptions(
-		c.APIVariantOptions,
-		payload,
-		responsesOwnedFields(supportsReasoning, input.Policy.ReasoningEffort)...,
-	)
+	ownedFields := responsesOwnedFields(supportsReasoning, input.Policy.ReasoningEffort)
+	baseURL := c.endpoint().ResolvedBaseURL()
+	if input.Context.SafetyIdentifier != "" && (model.IsOpenAIHost(baseURL) || model.IsOpenRouterHost(baseURL)) {
+		payload.SafetyIdentifier = input.Context.SafetyIdentifier
+		ownedFields = append(ownedFields, "safety_identifier")
+	}
+	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
 }
 
 func responsesOwnedFields(supportsReasoning bool, reasoningEffort string) []string {
@@ -117,6 +119,7 @@ type responsesRequest struct {
 	ParallelToolCalls bool                `json:"parallel_tool_calls,omitempty"`
 	MaxOutputTokens   int                 `json:"max_output_tokens,omitempty"`
 	PromptCacheKey    string              `json:"prompt_cache_key,omitempty"`
+	SafetyIdentifier  string              `json:"safety_identifier,omitempty"`
 	Include           []string            `json:"include,omitempty"`
 	Reasoning         *responsesReasoning `json:"reasoning,omitempty"`
 	Store             bool                `json:"store"`

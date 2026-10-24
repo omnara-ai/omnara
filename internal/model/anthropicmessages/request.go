@@ -84,6 +84,16 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		"tools",
 		"tool_choice",
 	}
+	baseURL := c.endpoint().ResolvedBaseURL()
+	switch id := input.Context.SafetyIdentifier; {
+	case id == "":
+	case model.IsAnthropicHost(baseURL):
+		payload.Metadata = map[string]string{"user_id": id}
+		ownedFields = append(ownedFields, "metadata")
+	case model.IsOpenRouterHost(baseURL):
+		payload.User = id
+		ownedFields = append(ownedFields, "user")
+	}
 	if supportsReasoning && input.Policy.ReasoningEffort != "" {
 		options, err := decodeAPIVariantOptions(c.APIVariantOptions)
 		if err != nil {
@@ -154,6 +164,8 @@ type messagesRequest struct {
 	Messages     []message                  `json:"messages"`
 	Tools        []toolDefinition           `json:"tools,omitempty"`
 	ToolChoice   map[string]string          `json:"tool_choice,omitempty"`
+	Metadata     map[string]string          `json:"metadata,omitempty"`
+	User         string                     `json:"user,omitempty"`
 	OutputConfig map[string]json.RawMessage `json:"output_config,omitempty"`
 	Thinking     *thinkingConfig            `json:"thinking,omitempty"`
 }

@@ -875,3 +875,46 @@ func TestPrepareBoundsCacheBreakpointsWithCheckpointAndUncacheableTail(t *testin
 		t.Fatalf("thinking block must not carry a cache breakpoint: %s", body)
 	}
 }
+
+func TestPrepareSendsSafetyIdentifierPerHost(t *testing.T) {
+	for _, tc := range []struct {
+		baseURL                string
+		variant                modelprotocol.APIVariant
+		wantMetadata, wantUser string
+	}{
+		{wantMetadata: "sid", wantUser: "shared"},
+		{baseURL: "https://openrouter.ai/api/v1", wantUser: "sid"},
+		{baseURL: "https://proxy.example.test/v1", wantUser: "shared"},
+		{
+			baseURL: "https://bedrock-runtime.us-east-1.amazonaws.com", variant: modelprotocol.APIVariantBedrock,
+			wantUser: "shared",
+		},
+	} {
+		client := Client{
+			EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test", BaseURL: tc.baseURL,
+			APIVariant: tc.variant, APIVariantOptions: json.RawMessage(`{"metadata":{},"user":"shared"}`),
+		}
+		prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+			Context: modelcontext.Bundle{
+				SafetyIdentifier: "sid",
+				Messages:         []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "hi")},
+			},
+			Policy: model.RequestPolicy{MaxOutputTokens: 64},
+		})
+		if err != nil {
+			t.Fatalf("prepare: %v", err)
+		}
+		var payload struct {
+			Metadata struct {
+				UserID string `json:"user_id"`
+			} `json:"metadata"`
+			User string `json:"user"`
+		}
+		if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.Metadata.UserID != tc.wantMetadata || payload.User != tc.wantUser {
+			t.Fatalf("base %q metadata.user_id = %q, user = %q", tc.baseURL, payload.Metadata.UserID, payload.User)
+		}
+	}
+}

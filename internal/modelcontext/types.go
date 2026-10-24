@@ -31,6 +31,7 @@ type Bundle struct {
 	InputEventSequence        int64                    `json:"-"`
 	AgentConfigID             uuid.UUID                `json:"-"`
 	ConfiguredModelRevisionID uuid.UUID                `json:"-"`
+	SafetyIdentifier          string                   `json:"-"`
 	SystemPrompt              string                   `json:"system_prompt"`
 	Messages                  []Message                `json:"messages"`
 	ToolSpecs                 []ToolSpec               `json:"tool_specs"`

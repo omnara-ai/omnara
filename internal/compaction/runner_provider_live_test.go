@@ -100,7 +100,7 @@ func runLiveCompactionProvider(t *testing.T, client model.Client) {
 		{"truncated_summary", 32, model.StopReasonMaxTokens},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			observed := &liveCompactionClient{Client: client, allowance: tc.allowance, responses: new([]model.Response)}
+			observed := &liveCompactionClient{Client: client, t: t, allowance: tc.allowance, responses: new([]model.Response)}
 			runLiveCompactionSummary(t, observed, tc.stopReason)
 		})
 	}
@@ -124,6 +124,7 @@ func runLiveCompactionSummary(t *testing.T, client *liveCompactionClient, stopRe
 	apiFormat, apiVariant, ok := model.APIIdentityForClient(client)
 	require.True(t, ok)
 	compactionInput := runInput(testPlan(1, 1, 2))
+	compactionInput.SafetyIdentifier = modeltest.LiveSafetyIdentifier
 	result, err := testRunner(store, client).RunClaimed(ctx, compactionInput, store.addStartedClaim(compactionInput))
 	require.NoError(t, err)
 	require.Len(t, *client.responses, 1)
@@ -172,6 +173,7 @@ func runLiveCompactionSummary(t *testing.T, client *liveCompactionClient, stopRe
 
 type liveCompactionClient struct {
 	model.Client
+	t         *testing.T
 	allowance int
 	responses *[]model.Response
 }
@@ -200,6 +202,7 @@ func (c *liveCompactionClient) WithoutManualThinking() (model.Client, error) {
 }
 
 func (c *liveCompactionClient) Respond(ctx context.Context, input model.Request) (model.Response, error) {
+	modeltest.RequireSafetyIdentifier(c.t, input.ProviderRequest)
 	response, err := c.Client.Respond(ctx, input)
 	*c.responses = append(*c.responses, response)
 	return response, err

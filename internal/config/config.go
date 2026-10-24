@@ -102,6 +102,7 @@ type Config struct {
 	SecretEncryptionKeys              string
 	SecretEncryptionActiveKeyID       string
 	SkillDownloadSigningKey           string
+	SafetyIdentifierKey               string
 	MemoryDir                         string
 	BlobS3Bucket                      string
 	BlobS3Region                      string
@@ -328,6 +329,7 @@ func Load() (Config, error) {
 		SecretEncryptionKeys:              getenv("OMNARA_SECRET_ENCRYPTION_KEYS", ""),
 		SecretEncryptionActiveKeyID:       getenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", ""),
 		SkillDownloadSigningKey:           getenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", ""),
+		SafetyIdentifierKey:               getenv("OMNARA_SAFETY_IDENTIFIER_KEY", ""),
 		MemoryDir:                         getenv("OMNARA_MEMORY_DIR", ""),
 		BlobS3Bucket:                      getenv("OMNARA_BLOB_S3_BUCKET", ""),
 		BlobS3Region:                      getenv("OMNARA_BLOB_S3_REGION", ""),
@@ -614,6 +616,17 @@ func (cfg Config) SkillDownloadSigningKeyBytes() ([]byte, error) {
 	}
 	if len(raw) != 32 {
 		return nil, fmt.Errorf("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY must decode to 32 bytes")
+	}
+	return raw, nil
+}
+
+func (cfg Config) SafetyIdentifierKeyBytes() ([]byte, error) {
+	if cfg.SafetyIdentifierKey == "" {
+		return nil, nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(cfg.SafetyIdentifierKey)
+	if err != nil || len(raw) != 32 {
+		return nil, errors.New("OMNARA_SAFETY_IDENTIFIER_KEY must be a base64-encoded 32-byte key")
 	}
 	return raw, nil
 }

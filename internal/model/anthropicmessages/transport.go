@@ -10,15 +10,19 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/route"
 )
 
+func (c Client) endpoint() route.StaticEndpoint {
+	return route.StaticEndpoint{
+		BaseURL:        c.BaseURL,
+		DefaultBaseURL: "https://api.anthropic.com/v1",
+		Path:           c.EndpointPath,
+	}
+}
+
 func (c Client) routeClient() route.Client {
 	return route.Client{
 		ProviderModelSlug: c.RequestedProviderModelSlug(),
 		ModelCapabilities: c.ModelCapabilities,
-		Endpoint: route.StaticEndpoint{
-			BaseURL:        c.BaseURL,
-			DefaultBaseURL: "https://api.anthropic.com/v1",
-			Path:           c.EndpointPath,
-		},
+		Endpoint:          c.endpoint(),
 		Auth: route.Chain{
 			c.Auth,
 			route.Headers{"Anthropic-Version": APIVersion},
