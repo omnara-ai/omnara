@@ -2,13 +2,17 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func readIntegrationCallbackBody(
@@ -22,25 +26,30 @@ func readIntegrationCallbackBody(
 	}
 	controller := http.NewResponseController(w)
 	_ = controller.SetReadDeadline(deadline)
-	defer func() { _ = controller.SetReadDeadline(time.Time{}) }()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
-	if err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
-		} else {
-			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid request body")
-		}
-		return nil, false
+	if err == nil && int64(len(raw)) <= maxBodyBytes {
+		_ = controller.SetReadDeadline(time.Time{})
+		return raw, true
 	}
-	if int64(len(raw)) > maxBodyBytes {
+	_ = controller.SetReadDeadline(time.Now())
+	w.Header().Set("Connection", "close")
+	var tooLarge *http.MaxBytesError
+	var timeout net.Error
+	switch {
+	case err == nil || errors.As(err, &tooLarge):
+		logpkg.Error(r.Context(), errors.New("read integration callback body: request body too large"))
 		apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
 		return nil, false
+	case errors.As(err, &timeout) && timeout.Timeout():
+		logpkg.Error(r.Context(), fmt.Errorf("read integration callback body: %w", os.ErrDeadlineExceeded))
+	default:
+		logpkg.Error(r.Context(), fmt.Errorf("read integration callback body: %T", err))
 	}
-	return raw, true
+	apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid request body")
+	return nil, false
 }
 
-func writeIntegrationProviderError(w http.ResponseWriter, err error) {
+func writeIntegrationProviderError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, storeerr.ErrNotFound):
 		apierror.Write(w, openapi.ErrorCodeNotFound)
@@ -49,6 +58,7 @@ func writeIntegrationProviderError(w http.ResponseWriter, err error) {
 	case errors.Is(err, storeerr.ErrConflict), errors.Is(err, storeerr.ErrIdempotencyConflict):
 		apierror.Write(w, openapi.ErrorCodeConflict)
 	default:
+		logIntegrationError(r.Context(), "integration callback", err)
 		apierror.Write(w, openapi.ErrorCodeInternalError)
 	}
 }

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -10,15 +11,18 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sort"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -383,6 +387,155 @@ func TestGitHubHTTPIntakeRejectsUnverifiedOrUncommitted(t *testing.T) {
 			}
 			if strings.Contains(w.Body.String(), "webhook-secret") || strings.Contains(w.Body.String(), "private-key") {
 				t.Fatalf("credential leak: %s", w.Body.String())
+			}
+		})
+	}
+}
+
+func TestGitHubHTTPIntakeConnectionLifecycle(t *testing.T) {
+	t.Parallel()
+	wire := func(body string) string {
+		var raw strings.Builder
+		if err := githubIntakeRequest(t, newGitHubIntakeFixture(), body).Write(&raw); err != nil {
+			t.Fatal(err)
+		}
+		return raw.String()
+	}
+	oversized := func(extra int) string {
+		return wire(strings.Repeat(" ", integrationstore.IntegrationInboxMaxPayloadBytes+extra))
+	}
+	malformedTrailer := "POST " + GitHubEventsPath + " HTTP/1.1\r\nHost: github.test\r\n" +
+		"X-Github-Hook-Installation-Target-Id: 123\r\nTransfer-Encoding: chunked\r\n\r\n" +
+		"2\r\n{}\r\n0\r\nprivate-trailer-bytes\r\n\r\n"
+	tooLarge := "read integration callback body: request body too large"
+	for _, tc := range []struct {
+		name     string
+		timeout  time.Duration
+		requests []string
+		withheld int
+		statuses []int
+		closed   bool
+		cause    string
+	}{
+		{name: "slow body", timeout: 100 * time.Millisecond, requests: []string{wire(githubIntakeBody)}, withheld: 16,
+			statuses: []int{http.StatusBadRequest}, closed: true, cause: "read integration callback body: i/o timeout"},
+		{name: "oversized body with a stalled remainder", requests: []string{oversized(513)}, withheld: 512,
+			statuses: []int{http.StatusRequestEntityTooLarge}, closed: true, cause: tooLarge},
+		{name: "oversized body", requests: []string{oversized(1)},
+			statuses: []int{http.StatusRequestEntityTooLarge}, closed: true, cause: tooLarge},
+		{name: "malformed trailer", requests: []string{malformedTrailer}, statuses: []int{http.StatusBadRequest},
+			closed: true, cause: "read integration callback body: textproto.ProtocolError"},
+		{name: "complete bodies", requests: []string{wire(githubIntakeBody), wire(githubIntakeBody)},
+			statuses: []int{http.StatusNoContent, http.StatusNoContent}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newGitHubIntakeFixture()
+			events, logger := newRequestEventCapture()
+			intake := chain(&githubIntakeHandler{store: f, secrets: f, credentialIntegrations: f.credentialIntegrations},
+				requestEvents(logger, nil, nil), maxBody(requestBodyLimit))
+			served := make(chan struct{}, len(tc.requests))
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer func() { served <- struct{}{} }()
+				if tc.timeout > 0 {
+					ctx, cancel := context.WithTimeout(r.Context(), tc.timeout)
+					defer cancel()
+					r = r.WithContext(ctx)
+				}
+				intake.ServeHTTP(w, r)
+			}))
+			defer server.Close()
+			conn, err := net.Dial("tcp", server.Listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }()
+			if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			responses := bufio.NewReader(conn)
+			for i, request := range tc.requests {
+				if _, err := io.WriteString(conn, request[:len(request)-tc.withheld]); err != nil {
+					t.Fatal(err)
+				}
+				response, err := http.ReadResponse(responses, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if body, err := io.ReadAll(response.Body); err != nil || response.StatusCode != tc.statuses[i] {
+					t.Fatalf("response %d: %d %s %v", i, response.StatusCode, body, err)
+				}
+			}
+			if !tc.closed {
+				return
+			}
+			if _, err := responses.ReadByte(); !errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
+				t.Fatalf("connection still open after abandoning the body: %v", err)
+			}
+			<-served
+			if event := decodeRequestEvent(t, events); event["level"] != "warn" || event["error.message"] != tc.cause {
+				t.Fatalf("event: %+v", event)
+			}
+		})
+	}
+}
+
+func TestGitHubHTTPIntakeKeepsFailureCausesWhenTheRequestEnds(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		deadline time.Duration
+		commit   func(context.Context, context.CancelFunc) error
+		status   float64
+		level    string
+		cause    any
+	}{
+		{
+			name: "caller cancellation", status: 499, level: "info",
+			commit: func(ctx context.Context, cancel context.CancelFunc) error {
+				cancel()
+				return ctx.Err()
+			},
+		},
+		{
+			name: "storage failure before a caller cancellation", status: http.StatusServiceUnavailable, level: "error",
+			cause: "GitHub intake: database error (SQLSTATE 08006)",
+			commit: func(_ context.Context, cancel context.CancelFunc) error {
+				cancel()
+				return &pgconn.PgError{Code: "08006"}
+			},
+		},
+		{
+			name: "storage failure before the intake deadline", deadline: 50 * time.Millisecond,
+			status: http.StatusServiceUnavailable, level: "error", cause: "GitHub intake: database error (SQLSTATE 08006)",
+			commit: func(ctx context.Context, _ context.CancelFunc) error {
+				<-ctx.Done()
+				return &pgconn.PgError{Code: "08006"}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newGitHubIntakeFixture()
+			second := f.integration
+			second.ID, second.ProjectID = uuid.New(), uuid.New()
+			f.integrations = []integrationstore.IntegrationRecord{f.integration, second}
+			ctx, cancel := context.WithCancel(t.Context())
+			if tc.deadline > 0 {
+				ctx, cancel = context.WithTimeout(t.Context(), tc.deadline)
+			}
+			defer cancel()
+			f.commit = func(commitCtx context.Context) error { return tc.commit(commitCtx, cancel) }
+			events, logger := newRequestEventCapture()
+			handler := requestEvents(logger, nil, nil)(
+				&githubIntakeHandler{store: f, secrets: f, credentialIntegrations: f.credentialIntegrations})
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, githubIntakeRequest(t, f, githubIntakeBody).WithContext(ctx))
+			lines := bytes.Split(bytes.TrimSpace(events.Bytes()), []byte("\n"))
+			event := decodeRequestEvent(t, bytes.NewBuffer(lines[len(lines)-1]))
+			if w.Code != http.StatusServiceUnavailable || event["http.status_code"] != tc.status ||
+				event["level"] != tc.level || event["error.message"] != tc.cause {
+				t.Fatalf("response=%d event=%+v", w.Code, event)
 			}
 		})
 	}

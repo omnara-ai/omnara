@@ -42,21 +42,21 @@ func fanoutIntegrations(
 	after := uuid.Nil
 	for {
 		if err := ctx.Err(); err != nil {
-			return result, err
+			return result, errors.Join(retryErr, err)
 		}
 		page, err := listIntegrations(ctx, provider, tenant, account, after, integrationIngressPageSize)
 		if err != nil {
-			return result, err
+			return result, errors.Join(retryErr, err)
 		}
 		if len(page) > integrationIngressPageSize {
-			return result, fmt.Errorf("integration ingress page exceeds limit")
+			return result, errors.Join(retryErr, fmt.Errorf("integration ingress page exceeds limit"))
 		}
 		for _, integration := range page {
 			if err := ctx.Err(); err != nil {
-				return result, err
+				return result, errors.Join(retryErr, err)
 			}
 			if integration.ID == uuid.Nil || integration.ID.String() <= after.String() {
-				return result, fmt.Errorf("integration ingress cursor did not advance")
+				return result, errors.Join(retryErr, fmt.Errorf("integration ingress cursor did not advance"))
 			}
 			after = integration.ID
 			// Acknowledge disconnected integrations to avoid retries: https://docs.slack.dev/apis/events-api/#responding

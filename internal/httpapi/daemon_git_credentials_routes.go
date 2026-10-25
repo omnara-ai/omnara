@@ -172,6 +172,6 @@ func gitCredentialsError(ctx context.Context, err error, operation, notFound str
 		return apierror.FromCode(openapi.ErrorCodeConflict,
 			"Git credentials are unavailable; check the GitHub App, installation permissions and repositories")
 	}
-	logIntegrationCredentialError(ctx, operation, err)
+	logIntegrationError(ctx, operation, err)
 	return apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "Git credentials are temporarily unavailable")
 }
