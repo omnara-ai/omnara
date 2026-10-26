@@ -61,6 +61,10 @@ func writeOpenAPIRequestError(w http.ResponseWriter, r *http.Request, err error)
 }
 
 func openAPIResponseErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+	var responseErr apierror.ResponseError
+	if errors.As(err, &responseErr) && responseErr.Status >= http.StatusInternalServerError {
+		logpkg.Error(r.Context(), errors.Unwrap(responseErr))
+	}
 	logpkg.Error(r.Context(), err)
 	apierror.WriteError(w, err)
 }

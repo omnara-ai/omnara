@@ -2,6 +2,9 @@ package storeutil
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -23,7 +26,7 @@ func WrapPool(pool *pgxpool.Pool) *Pool {
 func (p *Pool) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
 	tx, err := p.pool.BeginTx(ctx, opts)
 	if err != nil {
-		return nil, storeerr.WrapQuery("begin", err)
+		return nil, wrapQueryError(ctx.Err, "begin", err)
 	}
 	return queryTx{Tx: tx}, nil
 }
@@ -34,16 +37,16 @@ type queryDB struct {
 
 func (db queryDB) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	tag, err := db.db.Exec(ctx, sql, args...)
-	return tag, wrapQueryError(sql, err)
+	return tag, wrapQueryError(ctx.Err, sql, err)
 }
 
 func (db queryDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	rows, err := db.db.Query(ctx, sql, args...)
-	return queryRows{Rows: rows, sql: sql}, wrapQueryError(sql, err)
+	return queryRows{Rows: rows, sql: sql, ctxErr: ctx.Err}, wrapQueryError(ctx.Err, sql, err)
 }
 
 func (db queryDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	return queryRow{Row: db.db.QueryRow(ctx, sql, args...), sql: sql}
+	return queryRow{Row: db.db.QueryRow(ctx, sql, args...), sql: sql, ctxErr: ctx.Err}
 }
 
 type queryTx struct {
@@ -53,7 +56,7 @@ type queryTx struct {
 func (tx queryTx) Begin(ctx context.Context) (pgx.Tx, error) {
 	nested, err := tx.Tx.Begin(ctx)
 	if err != nil {
-		return nil, storeerr.WrapQuery("begin", err)
+		return nil, wrapQueryError(ctx.Err, "begin", err)
 	}
 	return queryTx{Tx: nested}, nil
 }
@@ -80,29 +83,38 @@ func (tx queryTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 
 type queryRow struct {
 	pgx.Row
-	sql string
+	sql    string
+	ctxErr func() error
 }
 
 func (row queryRow) Scan(dest ...any) error {
-	return wrapQueryError(row.sql, row.Row.Scan(dest...))
+	return wrapQueryError(row.ctxErr, row.sql, row.Row.Scan(dest...))
 }
 
 type queryRows struct {
 	pgx.Rows
-	sql string
+	sql    string
+	ctxErr func() error
 }
 
 func (rows queryRows) Scan(dest ...any) error {
-	return wrapQueryError(rows.sql, rows.Rows.Scan(dest...))
+	return wrapQueryError(rows.ctxErr, rows.sql, rows.Rows.Scan(dest...))
 }
 
 func (rows queryRows) Err() error {
-	return wrapQueryError(rows.sql, rows.Rows.Err())
+	return wrapQueryError(rows.ctxErr, rows.sql, rows.Rows.Err())
 }
 
-func wrapQueryError(sql string, err error) error {
+func wrapQueryError(ctxErr func() error, sql string, err error) error {
 	if err == nil {
 		return nil
 	}
-	return storeerr.WrapQuery(log.DBQueryName(sql), err)
+	err = storeerr.WrapQuery(log.DBQueryName(sql), err)
+	var timeout net.Error
+	var connectErr *pgconn.ConnectError
+	if errors.Is(ctxErr(), context.Canceled) && !errors.As(err, &connectErr) &&
+		errors.As(err, &timeout) && timeout.Timeout() {
+		return fmt.Errorf("%s: %w", err.Error(), context.Canceled)
+	}
+	return err
 }

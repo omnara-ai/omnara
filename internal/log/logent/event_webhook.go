@@ -2,6 +2,7 @@ package logent
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"time"
 
@@ -56,7 +57,12 @@ func EventWebhookDeliveryAttemptResult(
 	switch outcome {
 	case "gave_up":
 		log.Attach(ctx, log.Fields{"event_webhook.gave_up": true})
-		log.Level(ctx, log.ErrorLevel)
+		var recipient interface{ EventWebhookRecipientFailure() }
+		if errors.As(err, &recipient) {
+			log.Level(ctx, log.WarnLevel)
+		} else {
+			log.Level(ctx, log.ErrorLevel)
+		}
 	case "retry_scheduled":
 		log.Level(ctx, log.WarnLevel)
 	case "retry_failed", "complete_failed":
