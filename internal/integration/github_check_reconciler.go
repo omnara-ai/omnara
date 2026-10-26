@@ -148,7 +148,7 @@ func githubCheckDue(run integrationstore.GitHubCheckRun, state string, retry git
 func githubCheckCurrent(run integrationstore.GitHubCheckRun, state string) bool {
 	switch state {
 	case executionstore.SubagentStateRunning:
-		return run.Run != 0 && !run.Restart
+		return run.Run != 0 && !run.Waiting && !run.Restart
 	case executionstore.SubagentStateWaitingOnInteraction:
 		return run.Waiting && !run.Restart
 	default:
@@ -173,11 +173,11 @@ func (r *GitHubCheckReconciler) reconcile(
 	if !running && !waiting && tracked.Done && !tracked.Restart && !tracked.Unfinished {
 		return ignoreConflict(r.Store.Integrations().DeleteGitHubCheckRun(ctx, *tracked))
 	}
+	ctx, cancel := context.WithTimeout(ctx, githubCheckClaimDeadline)
+	defer cancel()
 	if err := r.Store.Integrations().ClaimGitHubCheckRun(ctx, tracked, r.claim, githubCheckClaimLease); err != nil {
 		return ignoreConflict(err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, githubCheckClaimDeadline)
-	defer cancel()
 	run := *tracked
 	client, scope, setup, err := r.client(ctx, run)
 	if err != nil {
@@ -196,12 +196,11 @@ func (r *GitHubCheckReconciler) reconcile(
 		}
 		return client.CreateCheckRun(ctx, scope, check(next))
 	}
-	finish := func(next githubCheckOutcome) error {
+	finish := func(next githubCheckOutcome) (int64, error) {
 		if run.Run != 0 && !run.Restart {
-			return client.CompleteCheckRun(ctx, scope, run.Run, check(next))
+			return run.Run, client.CompleteCheckRun(ctx, scope, run.Run, check(next))
 		}
-		_, err := replace(next)
-		return err
+		return replace(next)
 	}
 	switch {
 	case running:
@@ -210,19 +209,20 @@ func (r *GitHubCheckReconciler) reconcile(
 			return err
 		}
 		run.Run, run.Waiting, run.Done = checkRunID, false, false
-		if err := r.Store.Integrations().SaveGitHubCheckRun(ctx, run); err != nil {
-			return errors.Join(ignoreConflict(err),
-				client.CompleteCheckRun(ctx, scope, checkRunID, check(githubCheckSuperseded)))
+		err = r.Store.Integrations().SaveGitHubCheckRun(ctx, run)
+		if errors.Is(err, storeerr.ErrConflict) {
+			return client.CompleteCheckRun(ctx, scope, checkRunID, check(githubCheckSuperseded))
 		}
-		return nil
+		return err
 	case waiting:
-		if err := finish(githubCheckWaiting); err != nil {
+		checkRunID, err := finish(githubCheckWaiting)
+		if err != nil {
 			return err
 		}
-		run.Run, run.Waiting, run.Done = 0, true, false
+		run.Run, run.Waiting, run.Done = checkRunID, true, false
 		return ignoreConflict(r.Store.Integrations().SaveGitHubCheckRun(ctx, run))
 	default:
-		if err := finish(githubCheckFinished); err != nil {
+		if _, err := finish(githubCheckFinished); err != nil {
 			return err
 		}
 		run.Run, run.Waiting, run.Done = 0, false, true

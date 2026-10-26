@@ -47,7 +47,8 @@ func TestGitHubCheckCurrent(t *testing.T) {
 		{"running with open run", integrationstore.GitHubCheckRun{Run: 1}, running, true},
 		{"running after new commit", integrationstore.GitHubCheckRun{Run: 1, Restart: true}, running, false},
 		{"running without run", integrationstore.GitHubCheckRun{}, running, false},
-		{"waiting shown", integrationstore.GitHubCheckRun{Waiting: true}, waiting, true},
+		{"running after waiting", integrationstore.GitHubCheckRun{Run: 1, Waiting: true}, running, false},
+		{"waiting shown", integrationstore.GitHubCheckRun{Run: 1, Waiting: true}, waiting, true},
 		{"waiting after new commit", integrationstore.GitHubCheckRun{Waiting: true, Restart: true}, waiting, false},
 		{"idle", integrationstore.GitHubCheckRun{Run: 1}, executionstore.SubagentStateIdle, false},
 	} {
