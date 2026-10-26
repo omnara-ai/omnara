@@ -87,5 +87,9 @@ updates:
           - version-update:semver-major
           - version-update:semver-minor
           - version-update:semver-patch
+      # @hey-api/openapi-ts supports TypeScript through 6.
+      - dependency-name: typescript
+        versions:
+          - ">=7.0.0"
     cooldown:
       default-days: 7
