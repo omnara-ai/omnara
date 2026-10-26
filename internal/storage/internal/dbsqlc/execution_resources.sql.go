@@ -169,8 +169,14 @@ UPDATE machines machine
 SET lifecycle_state = 'deleting',
     lifecycle_changed_at = statement_timestamp(),
     lifecycle_version = machine.lifecycle_version + 1,
-    lifecycle_reason_code = $1,
-    lifecycle_reason_message = $2,
+    lifecycle_reason_code = CASE
+      WHEN machine.lifecycle_state IN ('deleting', 'delete_failed') THEN machine.lifecycle_reason_code
+      ELSE $1::text
+    END,
+    lifecycle_reason_message = CASE
+      WHEN machine.lifecycle_state IN ('deleting', 'delete_failed') THEN machine.lifecycle_reason_message
+      ELSE $2::text
+    END,
     next_reconcile_after = statement_timestamp() + $3::bigint * interval '1 second',
     delete_attempts = machine.delete_attempts + 1,
     provider_runtime_mismatch_since = CASE
@@ -2153,23 +2159,19 @@ WITH cleanup_candidates AS (
          'offline'::text AS connection_state,
          machine.last_observed_at, machine.cpu, machine.memory_mb, machine.cwd, machine.env, machine.secret_env, machine.provider_options, coalesce(machine.idempotency_key, '') AS idempotency_key, coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code, machine.lifecycle_reason_message, machine.next_reconcile_after, machine.provision_attempts, machine.delete_attempts, machine.metadata, machine.deleted_at, machine.created_at, machine.updated_at, machine.lifecycle_changed_at, machine.lifecycle_version,
          CASE
-           WHEN machine.lifecycle_state = 'delete_failed'
+           WHEN machine.lifecycle_state IN ('deleting', 'delete_failed')
              AND machine.next_reconcile_after <= transaction_timestamp()
-             THEN 'delete_failed_retry'
+             THEN ''
            WHEN machine.lifecycle_state = 'provisioning'
              AND machine.provision_attempts >= $2::integer
              AND machine.next_reconcile_after <= transaction_timestamp()
              THEN 'provisioning_stale_cleanup'
-           WHEN machine.lifecycle_state = 'deleting'
-             AND machine.next_reconcile_after <= transaction_timestamp()
-             THEN 'deleting_retry'
            WHEN machine.lifecycle_state = 'active'
              AND machine.provider_resource_id IS NOT NULL
              AND machine.lifecycle_changed_at <= transaction_timestamp() - $3::bigint * interval '1 second'
              AND machine.current_daemon_runtime_id IS NULL
              THEN 'startup_or_daemon_bootstrap_failed'
-           ELSE ''
-         END AS cleanup_reason_code
+         END::text AS cleanup_reason_code
   FROM machines machine
   WHERE machine.source_kind = 'pool'
     AND machine.deleted_at IS NULL
@@ -2179,7 +2181,7 @@ SELECT id, org_id, machine_pool_id, source_kind, display_name, description, prov
        last_observed_at, cpu, memory_mb, cwd, env, secret_env, provider_options, idempotency_key, lifecycle_reason_code, lifecycle_reason_message, next_reconcile_after, provision_attempts, delete_attempts, metadata, deleted_at, created_at, updated_at, lifecycle_changed_at, lifecycle_version,
        cleanup_reason_code
 FROM cleanup_candidates
-WHERE cleanup_reason_code <> ''
+WHERE cleanup_reason_code IS NOT NULL
 ORDER BY created_at, id
 LIMIT $1::integer
 `

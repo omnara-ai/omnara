@@ -61,26 +61,28 @@ func TestProviderRuntimeReconciliationDeletesConfirmedRunningMismatch(t *testing
 		t.Fatalf("deleted resources = %v, want [%s]", deleted, fixture.resourceID)
 	}
 
-	var lifecycleState, reasonCode string
+	var lifecycleState, reasonCode, deleteReasonCode string
 	var deletedAt, mismatchSince *time.Time
 	if err := fixture.pool.QueryRow(ctx, `
-SELECT lifecycle_state, lifecycle_reason_code, deleted_at, provider_runtime_mismatch_since
+SELECT lifecycle_state, lifecycle_reason_code, delete_reason_code, deleted_at, provider_runtime_mismatch_since
 FROM machines
 WHERE org_id = $1 AND id = $2
 `, fixture.orgID, fixture.machineID).Scan(
 		&lifecycleState,
 		&reasonCode,
+		&deleteReasonCode,
 		&deletedAt,
 		&mismatchSince,
 	); err != nil {
 		t.Fatalf("load reconciled machine: %v", err)
 	}
 	if lifecycleState != string(executionstore.MachineLifecycleStateDeleted) || deletedAt == nil ||
-		reasonCode != "provider_deleted" || mismatchSince == nil {
+		reasonCode != "provider_deleted" || deleteReasonCode != "provider_runtime_mismatch" || mismatchSince == nil {
 		t.Fatalf(
-			"reconciled machine = state %q reason %q deleted %v mismatch %v",
+			"reconciled machine = state %q reason %q delete reason %q deleted %v mismatch %v",
 			lifecycleState,
 			reasonCode,
+			deleteReasonCode,
 			deletedAt,
 			mismatchSince,
 		)

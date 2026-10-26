@@ -1520,7 +1520,7 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 		t.Fatalf("list cleanup: %v", err)
 	}
 	if len(cleanup) != 1 || cleanup[0].Machine.ID != created.Machine.Machine.ID ||
-		cleanup[0].ReasonCode != "deleting_retry" {
+		cleanup[0].ReasonCode != "" {
 		t.Fatalf("cleanup = %+v", cleanup)
 	}
 	replacementTransaction := executionstore.ExecuteToolCallInput{
@@ -1713,7 +1713,7 @@ func TestDeletePoolMachineAllowsFreshProvisioningMachine(t *testing.T) {
 		t.Fatalf("list cleanup after provisioning delete request: %v", err)
 	}
 	if len(cleanup) != 1 || cleanup[0].Machine.ID != created.Machine.Machine.ID ||
-		cleanup[0].ReasonCode != "deleting_retry" {
+		cleanup[0].ReasonCode != "" {
 		t.Fatalf("cleanup after provisioning delete request = %+v", cleanup)
 	}
 }
@@ -1991,7 +1991,7 @@ func TestPoolMachineToolsExcludeExplicitPoolBackedMachineSource(t *testing.T) {
 		t.Fatalf("list generated pool machine cleanup: %v", err)
 	}
 	if len(cleanup) != 1 || cleanup[0].Machine.ID != created.Machine.Machine.ID ||
-		cleanup[0].ReasonCode != "deleting_retry" {
+		cleanup[0].ReasonCode != "" {
 		t.Fatalf("pool-backed machine cleanup = %+v", cleanup)
 	}
 	deleting, ok, err := store.Execution().ClaimPoolMachineDeletion(ctx, executionstore.MachineDeletingInput{

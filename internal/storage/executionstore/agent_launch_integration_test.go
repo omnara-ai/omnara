@@ -1413,6 +1413,13 @@ tools:
 		originalMachine.Machine.ID,
 		future.Machine.Machine.ID,
 	)
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE machines SET lifecycle_reason_code = 'provider_delete_error' WHERE id = $1`,
+		removed.DeleteMachines[0].ID,
+	); err != nil {
+		t.Fatalf("record provider delete error: %v", err)
+	}
 	replayedRemoval, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: changeInputFromRecord(removedConfig),
 		AgentID:                launch.Agent.ID,
@@ -3816,10 +3823,10 @@ func TestPoolLaunchMachineProvisioningActivatesBindingAfterDaemonRuntime(t *test
 	)
 	if err != nil || !ok {
 		t.Fatalf("claim pool machine deletion ok=%v err=%v", ok, err)
-	} else if deleting.Machine.LifecycleReasonCode != "test_cleanup" ||
-		deleting.Machine.LifecycleReasonMessage != "test cleanup" {
+	} else if deleting.Machine.LifecycleReasonCode != current.LifecycleReasonCode ||
+		deleting.Machine.LifecycleReasonMessage != current.LifecycleReasonMessage {
 		t.Fatalf(
-			"deleting reason code=%q message=%q, want test cleanup",
+			"deleting reason code=%q message=%q, want current reason",
 			deleting.Machine.LifecycleReasonCode,
 			deleting.Machine.LifecycleReasonMessage,
 		)
@@ -3975,6 +3982,16 @@ func TestPoolProvisionMaxAttemptsCleanupOnlyClaimsStaleProvisioning(t *testing.T
 	}
 	if len(cleanup) != 1 || cleanup[0].Machine.ID != result.MachineBindings[0].MachineID {
 		t.Fatalf("cleanup for exhausted stale provisioning machines = %+v", cleanup)
+	}
+	if _, _, err := store.Execution().ClaimPoolMachineDeletion(
+		ctx,
+		executionstore.MachineDeletingInput{
+			OrgID:                    testOrgID,
+			MachineID:                result.MachineBindings[0].MachineID,
+			ExpectedLifecycleVersion: cleanup[0].Machine.LifecycleVersion,
+		},
+	); err == nil {
+		t.Fatal("claim exhausted stale provisioning machine deletion without a reason succeeded")
 	}
 	if deleting, ok, err := store.Execution().ClaimPoolMachineDeletion(
 		ctx,
@@ -4352,8 +4369,6 @@ func TestPoolDeleteFailureFenceRejectsStaleFailure(t *testing.T) {
 		executionstore.MachineDeletingInput{
 			OrgID:                    testOrgID,
 			MachineID:                result.MachineBindings[0].MachineID,
-			LifecycleReasonCode:      "deleting_retry",
-			LifecycleReasonMessage:   "retrying machine deletion",
 			ExpectedLifecycleVersion: firstDeleting.Machine.LifecycleVersion,
 		},
 	)
@@ -4378,7 +4393,7 @@ func TestPoolDeleteFailureFenceRejectsStaleFailure(t *testing.T) {
 		t.Fatalf("get current machine: %v", err)
 	}
 	if current.LifecycleState != "deleting" || !current.UpdatedAt.Equal(secondDeleting.Machine.UpdatedAt) ||
-		current.LifecycleReasonCode != "deleting_retry" {
+		current.LifecycleReasonCode != "agent_archived_cleanup" {
 		t.Fatalf("stale delete failure changed machine: %+v", current)
 	}
 	retryDelay := 10 * time.Minute
@@ -4408,8 +4423,6 @@ func TestPoolDeleteFailureFenceRejectsStaleFailure(t *testing.T) {
 		executionstore.MachineDeletingInput{
 			OrgID:                    testOrgID,
 			MachineID:                result.MachineBindings[0].MachineID,
-			LifecycleReasonCode:      "delete_failed_retry",
-			LifecycleReasonMessage:   "retrying failed machine deletion",
 			ExpectedLifecycleVersion: failed.LifecycleVersion,
 		},
 	); err != nil ||
@@ -4428,8 +4441,6 @@ func TestPoolDeleteFailureFenceRejectsStaleFailure(t *testing.T) {
 		executionstore.MachineDeletingInput{
 			OrgID:                    testOrgID,
 			MachineID:                result.MachineBindings[0].MachineID,
-			LifecycleReasonCode:      "delete_failed_retry",
-			LifecycleReasonMessage:   "retrying failed machine deletion",
 			ExpectedLifecycleVersion: failed.LifecycleVersion,
 		},
 	)
@@ -4438,8 +4449,29 @@ func TestPoolDeleteFailureFenceRejectsStaleFailure(t *testing.T) {
 	}
 	if retryDeleting.Machine.LifecycleState != "deleting" ||
 		retryDeleting.Machine.DeleteAttempts != failed.DeleteAttempts+1 ||
-		retryDeleting.Machine.LifecycleReasonCode != "delete_failed_retry" {
+		retryDeleting.Machine.LifecycleReasonCode != "provider_delete_error" {
 		t.Fatalf("retry deleting machine = %+v", retryDeleting)
+	}
+	if err := store.Execution().CompletePoolMachineDeletion(
+		ctx,
+		testOrgID,
+		result.MachineBindings[0].MachineID,
+		retryDeleting.Machine.DeleteAttempts,
+	); err != nil {
+		t.Fatalf("complete pool machine deletion: %v", err)
+	}
+	var lifecycleState, deleteReasonCode, deleteReasonMessage string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT lifecycle_state, delete_reason_code, delete_reason_message FROM machines WHERE id = $1`,
+		result.MachineBindings[0].MachineID,
+	).Scan(&lifecycleState, &deleteReasonCode, &deleteReasonMessage); err != nil {
+		t.Fatalf("load deleted machine: %v", err)
+	}
+	if lifecycleState != "deleted" ||
+		deleteReasonCode != "agent_archived_cleanup" ||
+		deleteReasonMessage != "cleaning up machine after agent archived" {
+		t.Fatalf("deleted machine = %q %q %q", lifecycleState, deleteReasonCode, deleteReasonMessage)
 	}
 }
 
