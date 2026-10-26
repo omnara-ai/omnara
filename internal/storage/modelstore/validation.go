@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -243,9 +244,10 @@ func normalizeModelProviderBaseURL(baseURL string) (string, error) {
 	if parsed.User != nil {
 		return "", fmt.Errorf("base_url cannot include user information: %w", storeerr.ErrInvalidModelProviderConfig)
 	}
-	if parsed.Scheme == "http" && !isLocalModelProviderHTTPHost(parsed.Hostname()) {
+	if parsed.Scheme == "http" && !isLocalModelProviderHTTPHost(parsed.Hostname()) &&
+		!ssrf.HostPermitsPlainHTTP(parsed.Hostname()) {
 		return "", fmt.Errorf(
-			"base_url must use https unless it targets localhost or a loopback IP: %w",
+			"base_url must use https unless it targets localhost, a loopback IP, or an allowlisted private network: %w",
 			storeerr.ErrInvalidModelProviderConfig,
 		)
 	}

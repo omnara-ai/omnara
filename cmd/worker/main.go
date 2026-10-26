@@ -36,6 +36,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/webaccess"
@@ -60,6 +61,18 @@ func main() {
 	if err := cfg.ValidateWorker(); err != nil {
 		log.Error("validate worker config", "error", err)
 		os.Exit(1)
+	}
+	allowedPrefixes, allowlistWarnings, err := cfg.AllowedPrivatePrefixes()
+	if err != nil {
+		log.Error("parse private egress allowlist", "error", err)
+		os.Exit(1)
+	}
+	ssrf.SetAllowedPrefixes(allowedPrefixes)
+	for _, warning := range allowlistWarnings {
+		log.Warn(warning)
+	}
+	if len(allowlistWarnings) > 0 {
+		log.Warn("private network egress is enabled; do not use OMNARA_ALLOWED_PRIVATE_CIDRS on multi-tenant deployments")
 	}
 	if err := tools.ValidateToolImplementationRegistry(); err != nil {
 		log.Error("validate tool implementation registry", "error", err)
