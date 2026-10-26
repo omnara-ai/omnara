@@ -415,7 +415,7 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	buf, log := newRequestEventCapture()
 	handlerErr := apierror.ProjectScoped(context.Canceled)
 	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		openAPIResponseErrorHandler(w, r, handlerErr)
+		writeAPIError(w, r, handlerErr)
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
@@ -441,7 +441,7 @@ func TestRequestLogKeepsClientErrorMessage(t *testing.T) {
 	buf, log := newRequestEventCapture()
 	handlerErr := apierror.FromCode(openapi.ErrorCodeNotFound, "agent not found").WithCause(errors.New("lookup detail"))
 	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		openAPIResponseErrorHandler(w, r, handlerErr)
+		writeAPIError(w, r, handlerErr)
 	}))
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/test", nil))
@@ -462,7 +462,7 @@ func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 	).WithCause(context.Canceled)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/test", func(w http.ResponseWriter, r *http.Request) {
-		openAPIResponseErrorHandler(w, r, handlerErr)
+		writeAPIError(w, r, handlerErr)
 	})
 	handler := requestEvents(log, metrics.NewHTTPRecorder(set, metrics.SubsystemAPI), mux)(mux)
 
@@ -521,7 +521,7 @@ func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
 	).WithCause(errors.New("query agent row: connection refused"))
 	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logpkg.Error(r.Context(), context.Canceled)
-		openAPIResponseErrorHandler(w, r, handlerErr)
+		writeAPIError(w, r, handlerErr)
 	}))
 
 	ctx, cancel := context.WithCancel(context.Background())

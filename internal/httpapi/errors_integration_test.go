@@ -48,7 +48,7 @@ func TestRequestLogPostgresTimeouts(t *testing.T) {
 					t.Error("query succeeded instead of timing out")
 					return
 				}
-				openAPIResponseErrorHandler(w, r, err)
+				writeAPIError(w, r, err)
 			}))
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil))

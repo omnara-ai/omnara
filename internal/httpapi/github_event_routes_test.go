@@ -683,6 +683,51 @@ func TestGitHubHTTPFanoutIsolatesBadIntegrationsAndRetriesTransientFailures(t *t
 	}
 }
 
+func TestGitHubHTTPUnavailableIntakeLogsRedactedCause(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, body, want string
+		edit             func(*githubIntakeFixture, *http.Request)
+	}{
+		{
+			name: "intake", body: githubIntakeBody, want: "accept GitHub webhook: credential operation failed",
+			edit: func(f *githubIntakeFixture, _ *http.Request) {
+				f.secretErr = errors.New("decrypt failed: secret-canary")
+			},
+		},
+		{
+			name: "credential verification", body: `{"zen":"Keep it logically awesome","hook":{"id":123}}`,
+			want: "verify GitHub webhook: credential operation failed",
+			edit: func(f *githubIntakeFixture, r *http.Request) {
+				f.resolverErr = errors.New("resolver failed: secret-canary")
+				r.Header.Set(github.EventHeader, "ping")
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			buf, logger := newRequestEventCapture()
+			f := newGitHubIntakeFixture()
+			r := githubIntakeRequest(t, f, tc.body)
+			tc.edit(f, r)
+			w := httptest.NewRecorder()
+			h := &githubIntakeHandler{store: f, secrets: f, credentialIntegrations: f.credentialIntegrations}
+			requestEvents(logger, nil, nil)(h).ServeHTTP(w, r)
+			lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+			var event struct {
+				Message string `json:"error.message"`
+			}
+			if err := json.Unmarshal([]byte(lines[len(lines)-1]), &event); err != nil {
+				t.Fatalf("decode request event: %v", err)
+			}
+			if w.Code != http.StatusServiceUnavailable || !strings.HasPrefix(event.Message, tc.want) ||
+				strings.Contains(buf.String(), "secret-canary") {
+				t.Fatalf("response=%d error.message=%q", w.Code, event.Message)
+			}
+		})
+	}
+}
+
 func TestGitHubHTTPKnownInstallationNeverBorrowsFallbackCredentials(t *testing.T) {
 	t.Parallel()
 	f := newGitHubIntakeFixture()
