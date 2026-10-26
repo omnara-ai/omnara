@@ -1128,10 +1128,7 @@ func (s *runnerServerState) runApplyOnce(
 	ctx context.Context,
 	action ProcessAction,
 ) error {
-	if preflight := preflightActionResult(
-		action,
-		s.assignment.Process.ExecutionSpec.IOMode(),
-	); preflight != nil {
+	if preflight := preflightActionResult(action); preflight != nil {
 		return s.recordActionWithoutEffect(ctx, action, *preflight)
 	}
 	localAction := s.localAction(action)
@@ -1294,7 +1291,10 @@ func (s *runnerServerState) applyLiveAction(
 			}
 		}
 		if payload.CloseStdin {
-			if err := runner.CloseInput(); err != nil {
+			endCtx, cancel := context.WithTimeout(ctx, processInputWriteTimeout)
+			err := runner.EndInput(endCtx)
+			cancel()
+			if err != nil {
 				return unknownActionResult(daemonprotocol.ProcessActionReasonStdinCloseUnknown, err)
 			}
 		}
@@ -1347,26 +1347,15 @@ func failedActionResult(code string, err error) processActionResult {
 	}
 }
 
-func preflightActionResult(
-	action ProcessAction,
-	ioMode processcmd.IOMode,
-) *processActionResult {
+func preflightActionResult(action ProcessAction) *processActionResult {
 	invalid := func(err error) *processActionResult {
 		result := failedActionResult(daemonprotocol.ProcessActionReasonInvalidPayload, err)
 		return &result
 	}
 	switch action.ActionKind {
 	case daemonprotocol.ProcessActionWrite:
-		payload, err := processaction.DecodeWritePayload(action.Payload)
-		if err != nil {
+		if _, err := processaction.DecodeWritePayload(action.Payload); err != nil {
 			return invalid(err)
-		}
-		if payload.CloseStdin && ioMode == processcmd.IOModePTY {
-			result := failedActionResult(
-				daemonprotocol.ProcessActionReasonNotSupported,
-				errors.New("close_stdin is not supported for PTY-backed processes"),
-			)
-			return &result
 		}
 	case daemonprotocol.ProcessActionInterrupt,
 		daemonprotocol.ProcessActionTerminate:

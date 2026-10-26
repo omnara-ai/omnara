@@ -70,8 +70,7 @@ Runs a shell command on a [machine attached to the agent](/machines/overview#bin
 | `shell` | enum | `default`, `sh`, `bash`, `zsh`, `pwsh`, `powershell`, `cmd` |
 | `cwd` | string | Overrides the binding's working directory |
 | `wait_ms` | integer | 1–300000 (default 10000); how long to wait for the command to exit before returning |
-| `io_mode` | enum | `pipe` (default) or `pty` |
-| `stdin` | boolean | Keep stdin open for [`write_process`](#write_process); default false, so a pipe command reads end of input. See [input](#input) |
+| `io_mode` | enum | `pipe` (default) or `pty`. Only `pty` commands take input. See [input](#input) |
 | `detach` | boolean | For long-lived processes such as servers; default false. See [background processes](#background-processes) |
 | `notify_match` | string | RE2 regular expression; send the agent output lines that match while the command runs in the background |
 
@@ -93,7 +92,7 @@ If the command is still running when `wait_ms` passes, the result has `"state": 
 
 #### Input
 
-A `pipe` command gets no input by default: its stdin is `/dev/null`, so a program that prompts, such as a package manager asking for confirmation, reads end of input and fails at once instead of waiting until `wait_ms` passes. Pass `stdin: true` to keep stdin open and send input with `write_process`, or use `io_mode: pty` for an interactive program. Closing stdin needs omnarad 0.2.9 or later; daemons older than 0.2.11 keep stdin open for every `pipe` command.
+A `pipe` command gets no input: its stdin is `/dev/null`, so a program that prompts, such as a package manager asking for confirmation, reads end of input and fails at once instead of waiting until `wait_ms` passes. To send input with `write_process`, start the command with `io_mode: pty`. Daemons older than 0.2.11 keep stdin open for `pipe` commands, and closing it there needs omnarad 0.2.9 or later.
 
 #### Background processes
 
@@ -129,7 +128,7 @@ Reads process output from a byte offset and can wait for the process to end.
 | `offset_byte` | integer | ≥ 0; byte position in the output stream. Omit to continue after the output returned by `run_command` or the last `read_process` call that omitted it |
 | `wait_ms` | integer | 1–300000; wait for the process to end before returning |
 
-Without `wait_ms`, `read_process` returns the retained output immediately. With it, the read returns when the process ends or `wait_ms` passes, so one long wait replaces repeated reads. A process with input (`pty`, or `pipe` with `stdin: true`) also returns once its output has been quiet for a second, as an interactive program does at a prompt. A read with `offset_byte` returns as soon as there is output at that position.
+Without `wait_ms`, `read_process` returns the retained output immediately. With it, the read returns when the process ends or `wait_ms` passes, so one long wait replaces repeated reads. A `pty` process also returns once its output has been quiet for a second, as an interactive program does at a prompt. A read with `offset_byte` returns as soon as there is output at that position.
 
 Without `offset_byte`, a read returns at most 16 KiB of output, keeping the start and end like `run_command`. With `offset_byte`, it returns one contiguous page of up to 16 KiB from that position; pass `next_offset_byte` to continue, or `omitted_offset_byte` to read output an earlier result left out.
 
@@ -139,13 +138,13 @@ Daemons older than omnarad 0.2.11 return as soon as output arrives and do not ke
 
 ### `write_process`
 
-Sends input to a running process or closes its standard input. The process must have been started with `stdin: true` or `io_mode: pty`; otherwise the call fails with `process_stdin_unavailable`.
+Sends input to a running process or closes its standard input. The process must have been started with `io_mode: pty`; otherwise the call fails with `process_stdin_unavailable`.
 
 | Input | Type | Notes |
 | --- | --- | --- |
 | `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
 | `data` | string | Max 128 KiB per write |
-| `close_stdin` | boolean | Pipe mode only |
+| `close_stdin` | boolean | End input after `data`; a `pty` process gets Ctrl-D, so a program reading to end of input finishes |
 
 ### `stop_process`
 

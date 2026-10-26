@@ -120,7 +120,7 @@ func TestServiceE2EParallelProcessActionsRecoverFIFOAfterDaemonRestart(t *testin
 						"command": parallelServiceE2ECommand(i),
 						"shell":   "sh",
 						"cwd":     "/work",
-						"stdin":   true,
+						"io_mode": "pty",
 					},
 				})
 			}
@@ -367,7 +367,7 @@ func TestServiceE2EParallelProcessActionsRecoverFIFOAfterDaemonRestart(t *testin
 
 func parallelServiceE2ECommand(index int) string {
 	return fmt.Sprintf(
-		"printf x >> /work/parallel-start-%[1]d.txt; "+
+		"stty -echo; printf x >> /work/parallel-start-%[1]d.txt; "+
 			"printf '"+parallelServiceE2EReadyMarker+"'; "+
 			"while [ ! -f /work/parallel-release-%[1]d ]; do sleep 0.05; done; "+
 			"printf '"+parallelServiceE2EReleasedMarker+"'; "+

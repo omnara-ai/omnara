@@ -196,10 +196,10 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				return
 			}
 			writeOpenAIFunctionCall(w, failModelRequest, "resp_start", "call_start", "run_command", map[string]any{
-				"command": "while IFS= read -r line; do case \"$line\" in CREATE*) printf created > stdin-file.txt; printf C;; DELETE*) rm -f stdin-file.txt; printf D;; esac; done",
+				"command": "stty -echo; while IFS= read -r line; do case \"$line\" in CREATE*) printf created > stdin-file.txt; printf C;; DELETE*) rm -f stdin-file.txt; printf D;; esac; done",
 				"shell":   "sh",
 				"cwd":     "/work",
-				"stdin":   true,
+				"io_mode": "pty",
 			})
 		case 4:
 			id, ok := fakeModelToolProcessID(w, body, failModelRequest, "call_start")

@@ -49,8 +49,8 @@ const (
 		"and returns its output, keeping the start and end of long output. If it is still running, it keeps " +
 		"running and you get a message when it ends; use its process_id with the process tools to read " +
 		"output, send input, or stop it."
-	writeProcessToolDescription = "Write exact stdin/PTY bytes to a running process started with stdin: true or " +
-		"io_mode: pty, close pipe stdin, or do both."
+	writeProcessToolDescription = "Write exact bytes to a running process started with io_mode: pty, " +
+		"close its input, or do both."
 	stopProcessToolDescription = "Interrupt or terminate a running process."
 	readProcessToolDescription = "Read retained process output, optionally waiting for the process to end. " +
 		"Long output keeps the start and end."
@@ -163,13 +163,9 @@ func buildDefaultCatalog() (Catalog, error) {
 			"io_mode": map[string]any{
 				"type": "string",
 				"enum": []string{"pipe", "pty"},
-				"description": "Process I/O transport. Omit for pipe. " +
-					"Use pty for interactive terminal programs or persistent shells.",
-			},
-			"stdin": map[string]any{
-				"type": "boolean",
-				"description": "Keep stdin open so write_process can send input. Defaults to false: a pipe command " +
-					"reads end of input, so a prompt fails at once instead of waiting. pty commands always have input.",
+				"description": "Process I/O transport. Omit for pipe, which has no input: a prompt reads end of input " +
+					"and fails at once. Use pty for programs you send input to with write_process, such as REPLs, " +
+					"interactive terminal programs, or persistent shells.",
 			},
 			"detach": map[string]any{
 				"type": "boolean",
@@ -206,8 +202,9 @@ func buildDefaultCatalog() (Catalog, error) {
 						"Include newlines explicitly when the running command expects Enter.",
 				},
 				"close_stdin": map[string]any{
-					"type":        "boolean",
-					"description": "Close pipe stdin after writing data. Not supported for PTY processes.",
+					"type": "boolean",
+					"description": "End input after writing data, so a program reading to end of input finishes. " +
+						"A PTY process gets Ctrl-D.",
 				},
 			},
 		},
@@ -244,7 +241,7 @@ func buildDefaultCatalog() (Catalog, error) {
 			"minimum": 1,
 			"maximum": processaction.MaxWaitMilliseconds,
 			"description": "Wait up to this long for the process to end before returning (up to 300000 ms). " +
-				"A program with input (pty, or stdin: true) waiting at a prompt returns once its output goes quiet. " +
+				"A pty program waiting at a prompt returns once its output goes quiet. " +
 				"With offset_byte, returns once output exists there. Omit to return immediately. " +
 				"Prefer one long wait over repeated reads.",
 		},

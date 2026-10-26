@@ -1176,7 +1176,7 @@ func TestDetachedSupervisorTimeoutClosesWholeProcessTree(t *testing.T) {
 	}
 }
 
-func TestDetachedPTYRoundTripAndWriteCloseRejection(t *testing.T) {
+func TestDetachedPTYRoundTripAndCloseStdinEndsInput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("PTY execution is not yet supported on Windows")
 	}
@@ -1191,93 +1191,48 @@ func TestDetachedPTYRoundTripAndWriteCloseRejection(t *testing.T) {
 			Process: Process{
 				ExecutionSpec: processcmd.ForShell(
 					`printf '\033[31mready\033[0m\n'; `+
-						`IFS= read -r line; printf 'got:%s\n' "$line"; sleep 30`, "default", "pty",
+						`IFS= read -r line; printf 'got:%s\n' "$line"; `+
+						`rest=$(cat); printf 'rest:%s\n' "$rest"`, "default", "pty",
 				),
 				Cwd: t.TempDir(),
 			},
 		},
 	)
 	fixture.acceptAndStart(t, ctx)
-	write := ProcessAction{
-		ID:         "act_pty_write",
-		ActionKind: "write",
-		Seq:        1,
-		Payload:    json.RawMessage(`{"data":"hello\n"}`),
+	// close_stdin after a partial line must still end input, not just submit it.
+	for index, payload := range []string{`{"data":"hello\n"}`, `{"data":"partial"}`, `{"close_stdin":true}`} {
+		action := ProcessAction{
+			ID:         fmt.Sprintf("act_pty_input_%d", index),
+			ActionKind: "write",
+			Seq:        int64(index + 1),
+			Payload:    json.RawMessage(payload),
+		}
+		if err := fixture.runtime.runner.ApplyOnce(ctx, action); err != nil {
+			t.Fatalf("apply %s: %v", payload, err)
+		}
+		report, found, err := fixture.store.ReportBySlot(
+			ctx,
+			statedb.ReportActionTerminal,
+			fixture.runtime.processID,
+			action.ID,
+		)
+		if err != nil || !found {
+			t.Fatalf("read report for %s: found=%t err=%v", payload, found, err)
+		}
+		var event daemonReportedEvent
+		require.NoError(t, json.Unmarshal(report.Body, &event))
+		if event.Type != "process_action_applied" {
+			t.Fatalf("report for %s = %+v", payload, event)
+		}
+		require.NoError(t, fixture.store.AcknowledgeReport(ctx, report.ID))
 	}
-	if err := fixture.runtime.runner.ApplyOnce(ctx, write); err != nil {
-		t.Fatalf("write PTY input: %v", err)
-	}
-	writeReport, found, err := fixture.store.ReportBySlot(
-		ctx,
-		statedb.ReportActionTerminal,
-		fixture.runtime.processID,
-		write.ID,
-	)
-	if err != nil || !found {
-		t.Fatalf("read PTY write report: found=%t err=%v", found, err)
-	}
-	var writeEvent daemonReportedEvent
-	require.NoError(t, json.Unmarshal(writeReport.Body, &writeEvent))
-	if writeEvent.Type != "process_action_applied" {
-		t.Fatalf("PTY write report = %+v", writeEvent)
-	}
-	require.NoError(t, fixture.store.AcknowledgeReport(
-		ctx,
-		writeReport.ID,
-	))
 
-	closeInput := ProcessAction{
-		ID:         "act_pty_close_stdin",
-		ActionKind: "write",
-		Seq:        2,
-		Payload:    json.RawMessage(`{"close_stdin":true}`),
-	}
-	if err := fixture.runtime.runner.ApplyOnce(
-		ctx,
-		closeInput,
-	); err != nil {
-		t.Fatalf("record PTY close-input rejection: %v", err)
-	}
-	closeReport, found, err := fixture.store.ReportBySlot(
-		ctx,
-		statedb.ReportActionTerminal,
-		fixture.runtime.processID,
-		closeInput.ID,
-	)
-	if err != nil || !found {
-		t.Fatalf("read PTY close-input report: found=%t err=%v", found, err)
-	}
-	var closeEvent daemonReportedEvent
-	require.NoError(t, json.Unmarshal(closeReport.Body, &closeEvent))
-	if closeEvent.Type != "process_action_failed" ||
-		closeEvent.StateReasonCode != "not_supported" {
-		t.Fatalf("PTY close-input report = %+v", closeEvent)
-	}
-	closeMarker, found, err := fixture.store.Action(ctx, closeInput.ID)
-	if err != nil || !found {
-		t.Fatalf(
-			"read PTY close-input boundary: found=%t err=%v",
-			found,
-			err,
-		)
-	}
-	if closeMarker.EffectCommitted {
-		t.Fatalf(
-			"PTY close-input rejection crossed its effect boundary: %+v",
-			closeMarker,
-		)
-	}
-	require.NoError(t, fixture.store.AcknowledgeReport(
-		ctx,
-		closeReport.ID,
-	))
-	fixture.waitForOutput(t, ctx, "got:hello")
-	require.NoError(t, fixture.runtime.runner.Terminate(ctx, "test_finished"))
 	fixture.waitClosed(t, 10*time.Second)
 	_, event := fixture.terminalEvent(t)
-	if !strings.Contains(string(event.Result), "ready") ||
-		!strings.Contains(string(event.Result), "got:hello") {
-		t.Fatalf("PTY terminal output = %s", event.Result)
+	for _, want := range []string{"ready", "got:hello", "rest:partial"} {
+		if !strings.Contains(string(event.Result), want) {
+			t.Fatalf("PTY terminal output = %s, want %q", event.Result, want)
+		}
 	}
 }
 

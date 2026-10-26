@@ -37,7 +37,6 @@ type runCommandAuthorization struct {
 	WaitMS                int                      `json:"wait_ms,omitempty"`
 	IOMode                processcmd.IOMode        `json:"io_mode"`
 	Detach                bool                     `json:"detach,omitempty"`
-	Stdin                 bool                     `json:"stdin,omitempty"`
 	NotifyMatch           string                   `json:"notify_match,omitempty"`
 }
 
@@ -73,7 +72,6 @@ func runCommandAuthorizationInput(
 		WaitMS:                resolved.WaitMs,
 		IOMode:                resolved.IOMode,
 		Detach:                resolved.Detach,
-		Stdin:                 resolved.Stdin,
 		NotifyMatch:           resolved.NotifyMatch,
 	})
 	if err != nil {
@@ -292,7 +290,7 @@ func writeProcess(
 			return failProcessTransaction(
 				errors.New("process has no stdin"),
 				processToolErrorNoStdin,
-				"this command has no stdin; run it again with stdin: true (or io_mode: pty) to write to it",
+				"this command has no stdin; run it again with io_mode: pty to write to it",
 				false,
 				processID,
 				"",
