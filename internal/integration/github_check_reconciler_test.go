@@ -62,6 +62,7 @@ func TestGitHubCheckCurrent(t *testing.T) {
 func TestGitHubCheckDue(t *testing.T) {
 	now := time.Now()
 	open := integrationstore.GitHubCheckRun{Run: 1}
+	unfinished := integrationstore.GitHubCheckRun{Run: 1, Unfinished: true}
 	running := executionstore.SubagentStateRunning
 	for _, test := range []struct {
 		name  string
@@ -71,8 +72,9 @@ func TestGitHubCheckDue(t *testing.T) {
 	}{
 		{"current", open, githubCheckRetry{}, false},
 		{"stale", integrationstore.GitHubCheckRun{}, githubCheckRetry{}, true},
-		{"current after a failure", open, githubCheckRetry{attempts: 1, at: now.Add(-time.Second)}, true},
-		{"backing off", open, githubCheckRetry{attempts: 1, at: now.Add(time.Second)}, false},
+		{"current but unfinished", unfinished, githubCheckRetry{attempts: 1, at: now.Add(-time.Second)}, true},
+		{"unfinished after a restart", unfinished, githubCheckRetry{}, true},
+		{"backing off", unfinished, githubCheckRetry{attempts: 1, at: now.Add(time.Second)}, false},
 		{"stale while backing off", integrationstore.GitHubCheckRun{}, githubCheckRetry{at: now.Add(time.Second)}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -12,6 +12,41 @@ import (
 	"github.com/google/uuid"
 )
 
+const claimIntegrationState = `-- name: ClaimIntegrationState :one
+UPDATE integration_states
+SET data = data || jsonb_build_object('claim', $1::text, 'claim_expires_at',
+        statement_timestamp() + $2::bigint * interval '1 millisecond'),
+    revision = revision + 1, updated_at = statement_timestamp()
+WHERE project_id = $3 AND integration_id = $4
+  AND kind = $5 AND id = $6 AND revision = $7
+RETURNING revision
+`
+
+type ClaimIntegrationStateParams struct {
+	Claim             string
+	LeaseMilliseconds int64
+	ProjectID         uuid.UUID
+	IntegrationID     uuid.UUID
+	Kind              string
+	ID                uuid.UUID
+	ExpectedRevision  int64
+}
+
+func (q *Queries) ClaimIntegrationState(ctx context.Context, arg ClaimIntegrationStateParams) (int64, error) {
+	row := q.db.QueryRow(ctx, claimIntegrationState,
+		arg.Claim,
+		arg.LeaseMilliseconds,
+		arg.ProjectID,
+		arg.IntegrationID,
+		arg.Kind,
+		arg.ID,
+		arg.ExpectedRevision,
+	)
+	var revision int64
+	err := row.Scan(&revision)
+	return revision, err
+}
+
 const cleanupDeletedIntegrationStates = `-- name: CleanupDeletedIntegrationStates :execrows
 WITH deleted_integrations AS MATERIALIZED (
     SELECT integration.project_id, integration.id
@@ -256,17 +291,20 @@ FROM integration_states state
 JOIN integrations integration ON integration.project_id = state.project_id AND integration.id = state.integration_id
 WHERE state.kind = 'github_check_run' AND state.id > $1
   AND integration.state = 'active' AND integration.deleted_at IS NULL
+  AND (state.data->>'claim' IS NULL OR state.data->>'claim' = $2::text
+       OR (state.data->>'claim_expires_at')::timestamptz <= statement_timestamp())
 ORDER BY state.id
-LIMIT $2
+LIMIT $3
 `
 
 type ListActiveGitHubCheckRunStatesParams struct {
 	AfterID  uuid.UUID
+	Claim    string
 	RowLimit int32
 }
 
 func (q *Queries) ListActiveGitHubCheckRunStates(ctx context.Context, arg ListActiveGitHubCheckRunStatesParams) ([]IntegrationState, error) {
-	rows, err := q.db.Query(ctx, listActiveGitHubCheckRunStates, arg.AfterID, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listActiveGitHubCheckRunStates, arg.AfterID, arg.Claim, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

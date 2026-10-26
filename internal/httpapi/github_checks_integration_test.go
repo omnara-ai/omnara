@@ -22,9 +22,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGitHubCheckReconcilerTracksAgentActivity(t *testing.T) {
-	t.Parallel()
-	f := newGitHubHTTPJourney(t, "github-checks")
+func newGitHubChecksJourney(t *testing.T, seed string) (githubHTTPJourney, map[string]any) {
+	t.Helper()
+	f := newGitHubHTTPJourney(t, seed)
 	base := map[string]any{
 		"instruction": "Review this pull request.",
 		"model":       map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
@@ -38,7 +38,12 @@ func TestGitHubCheckReconcilerTracksAgentActivity(t *testing.T) {
 		integrationHTTPJSON(t, map[string]any{"settings": map[string]any{"launcher": map[string]any{
 			"trigger": "both", "profile": profile["id"],
 		}}}), "", http.StatusOK, authHeaders(f.project.AdminToken))
+	return f, profile
+}
 
+func TestGitHubCheckReconcilerTracksAgentActivity(t *testing.T) {
+	t.Parallel()
+	f, profile := newGitHubChecksJourney(t, "github-checks")
 	sha := func(c string) string { return strings.Repeat(c, 40) }
 	var mu sync.Mutex
 	var calls []string
@@ -216,7 +221,7 @@ func TestGitHubCheckReconcilerTracksAgentActivity(t *testing.T) {
 	denyChecks.Store(true)
 	makeIdle(agentID)
 	reconcile()
-	runs, err := integrations.ListGitHubCheckRuns(t.Context(), uuid.Nil, 10)
+	runs, err := integrations.ListGitHubCheckRuns(t.Context(), uuid.Nil, uuid.Nil, 10)
 	require.NoError(t, err)
 	require.Empty(t, runs)
 	require.Len(t, calls, 12)
@@ -225,14 +230,85 @@ func TestGitHubCheckReconcilerTracksAgentActivity(t *testing.T) {
 		require.NoError(t, integrations.MarkGitHubCheckRun(
 			t.Context(), f.project.ProjectUUID, f.integration.ID, uuid.New(), address, false))
 	}
-	first, err := integrations.ListGitHubCheckRuns(t.Context(), uuid.Nil, 1)
+	first, err := integrations.ListGitHubCheckRuns(t.Context(), uuid.Nil, uuid.Nil, 1)
 	require.NoError(t, err)
 	require.Len(t, first, 1)
-	second, err := integrations.ListGitHubCheckRuns(t.Context(), first[0].ID, 1)
+	second, err := integrations.ListGitHubCheckRuns(t.Context(), uuid.Nil, first[0].ID, 1)
 	require.NoError(t, err)
 	require.Len(t, second, 1)
 	require.Greater(t, second[0].ID.String(), first[0].ID.String())
-	rest, err := integrations.ListGitHubCheckRuns(t.Context(), second[0].ID, 1)
+	rest, err := integrations.ListGitHubCheckRuns(t.Context(), uuid.Nil, second[0].ID, 1)
 	require.NoError(t, err)
 	require.Empty(t, rest)
+}
+
+func TestGitHubCheckReconcilersShareOneCheck(t *testing.T) {
+	t.Parallel()
+	f, _ := newGitHubChecksJourney(t, "github-check-claims")
+	entered, release := make(chan struct{}), make(chan struct{})
+	var creates, closes atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		repository := github.Repository{ID: 1001, Name: "repository", Owner: github.User{Login: "owner"}}
+		var result any
+		switch {
+		case r.URL.Path == "/app/installations/456/access_tokens":
+			result = map[string]any{"token": "token", "expires_at": "2099-01-01T00:00:00Z"}
+		case r.URL.Path == "/installation/repositories":
+			result = map[string]any{"total_count": 1, "repositories": []github.Repository{repository}}
+		case r.URL.Path == "/repos/owner/repository/pulls/42":
+			result = github.PullRequest{ID: 2042, Number: 42, Base: github.Branch{Repo: &repository},
+				Head: github.Branch{SHA: strings.Repeat("b", 40)}}
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/owner/repository/check-runs":
+			id := creates.Add(1)
+			if id == 1 {
+				close(entered)
+				<-release
+			}
+			result = map[string]any{"id": id}
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/owner/repository/check-runs/1":
+			closes.Add(1)
+			result = map[string]any{"id": 1}
+		default:
+			t.Errorf("unexpected GitHub request: %s %s", r.Method, r.URL.Path)
+		}
+		assert.NoError(t, json.NewEncoder(w).Encode(result))
+	}))
+	t.Cleanup(server.Close)
+	var unblock sync.Once
+	t.Cleanup(func() { unblock.Do(func() { close(release) }) })
+	raw := githubHTTPPullRequest(t, 42, "opened")
+	githubHTTPWebhook(t, f.handler, "pull_request", "opened", githubJourneyWebhookSecret, raw, http.StatusNoContent)
+	require.Len(t, f.consume(t, raw), 1)
+	reconciler := func() *integrationruntime.GitHubCheckReconciler {
+		return &integrationruntime.GitHubCheckReconciler{
+			Store: f.project.Store, GitHub: github.Config{APIURL: server.URL, HTTPClient: server.Client()},
+		}
+	}
+	first, second := reconciler(), reconciler()
+	done := make(chan error, 1)
+	go func() { done <- first.Reconcile(t.Context()) }()
+	select {
+	case <-entered:
+	case err := <-done:
+		t.Fatalf("first reconciler finished without creating a check: %v", err)
+	}
+	require.NoError(t, second.Reconcile(t.Context()))
+	unblock.Do(func() { close(release) })
+	require.NoError(t, <-done)
+	require.NoError(t, second.Reconcile(t.Context()))
+	require.Equal(t, int32(1), creates.Load(), "only the reconciler holding the claim may publish the check")
+
+	integrations := f.project.Store.Integrations()
+	runs, err := integrations.ListGitHubCheckRuns(t.Context(), uuid.Nil, uuid.Nil, 1)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.NoError(t, integrations.ClaimGitHubCheckRun(t.Context(), &runs[0], uuid.New(), 0))
+	require.NoError(t, second.Reconcile(t.Context()))
+	require.Equal(t, int32(1), closes.Load(), "a claim abandoned by a lost owner forces a repair")
+	require.Equal(t, int32(2), creates.Load())
+	runs, err = integrations.ListGitHubCheckRuns(t.Context(), uuid.Nil, uuid.Nil, 1)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.False(t, runs[0].Unfinished)
+	require.Equal(t, int64(2), runs[0].Run)
 }

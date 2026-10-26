@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -24,12 +25,18 @@ const (
 	githubCheckRunBatchSize       = 1000
 	githubCheckRunConcurrency     = 16
 	githubCheckOpenRunRetryWindow = 24 * time.Hour
+	githubCheckClaimLease         = time.Minute
+	githubCheckClaimDeadline      = 45 * time.Second
+	githubCheckRetryForgetAfter   = time.Hour
 )
 
 type GitHubCheckReconciler struct {
 	Store     *storage.Store
 	GitHub    github.Config
 	PublicURL string
+	claim     uuid.UUID
+	after     uuid.UUID
+	pageSize  int32
 	retries   map[uuid.UUID]githubCheckRetry
 }
 
@@ -46,40 +53,42 @@ type githubCheckWork struct {
 }
 
 func (r *GitHubCheckReconciler) Reconcile(ctx context.Context) error {
+	if r.claim == uuid.Nil {
+		r.claim, r.retries = uuid.New(), make(map[uuid.UUID]githubCheckRetry)
+	}
+	pageSize := cmp.Or(r.pageSize, githubCheckRunBatchSize)
+	runs, err := r.Store.Integrations().ListGitHubCheckRuns(ctx, r.claim, r.after, pageSize)
+	if err != nil {
+		return err
+	}
+	if len(runs) == 0 {
+		r.after = uuid.Nil
+		return nil
+	}
+	projectIDs := make([]uuid.UUID, 0, len(runs))
+	agentIDs := make([]uuid.UUID, 0, len(runs))
+	for _, run := range runs {
+		projectIDs = append(projectIDs, run.ProjectID)
+		agentIDs = append(agentIDs, run.AgentID)
+	}
+	activity, err := r.Store.Execution().ListAgentTreeActivity(ctx, projectIDs, agentIDs)
+	if err != nil {
+		return err
+	}
+	r.after = runs[len(runs)-1].ID
+	if len(runs) < int(pageSize) {
+		r.after = uuid.Nil
+	}
 	now := time.Now()
-	retries := make(map[uuid.UUID]githubCheckRetry)
+	maps.DeleteFunc(r.retries, func(_ uuid.UUID, retry githubCheckRetry) bool {
+		return now.Sub(retry.at) > githubCheckRetryForgetAfter
+	})
 	var work []githubCheckWork
-	var after uuid.UUID
-	for {
-		runs, err := r.Store.Integrations().ListGitHubCheckRuns(ctx, after, githubCheckRunBatchSize)
-		if err != nil {
-			return err
+	for _, run := range runs {
+		retry, state := r.retries[run.ID], activity[run.AgentID].State
+		if githubCheckDue(run, state, retry, now) {
+			work = append(work, githubCheckWork{run: run, state: state, retry: retry})
 		}
-		if len(runs) == 0 {
-			break
-		}
-		projectIDs := make([]uuid.UUID, 0, len(runs))
-		agentIDs := make([]uuid.UUID, 0, len(runs))
-		for _, run := range runs {
-			projectIDs = append(projectIDs, run.ProjectID)
-			agentIDs = append(agentIDs, run.AgentID)
-		}
-		activity, err := r.Store.Execution().ListAgentTreeActivity(ctx, projectIDs, agentIDs)
-		if err != nil {
-			return err
-		}
-		for _, run := range runs {
-			retry, state := r.retries[run.ID], activity[run.AgentID].State
-			if githubCheckDue(run, state, retry, now) {
-				work = append(work, githubCheckWork{run: run, state: state, retry: retry})
-			} else if now.Before(retry.at) {
-				retries[run.ID] = retry
-			}
-		}
-		if len(runs) < githubCheckRunBatchSize {
-			break
-		}
-		after = runs[len(runs)-1].ID
 	}
 	var mu sync.Mutex
 	var failures []error
@@ -87,8 +96,11 @@ func (r *GitHubCheckReconciler) Reconcile(ctx context.Context) error {
 	group.SetLimit(githubCheckRunConcurrency)
 	for _, item := range work {
 		group.Go(func() error {
-			err := r.reconcile(ctx, item.run, item.state)
+			err := r.reconcile(ctx, &item.run, item.state)
 			if err == nil {
+				mu.Lock()
+				defer mu.Unlock()
+				delete(r.retries, item.run.ID)
 				return nil
 			}
 			failedAt, retry := time.Now(), item.retry
@@ -102,9 +114,11 @@ func (r *GitHubCheckReconciler) Reconcile(ctx context.Context) error {
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			if !giveUp {
+			if giveUp {
+				delete(r.retries, item.run.ID)
+			} else {
 				retry.at = failedAt.Add(integrationInboxRetryDelay(retry.attempts, err))
-				retries[item.run.ID] = retry
+				r.retries[item.run.ID] = retry
 			}
 			if !errors.Is(err, github.ErrChecksPermissionRequired) {
 				failures = append(failures, fmt.Errorf("github check for agent %s: %w", item.run.AgentID, err))
@@ -113,7 +127,6 @@ func (r *GitHubCheckReconciler) Reconcile(ctx context.Context) error {
 		})
 	}
 	_ = group.Wait()
-	r.retries = retries
 	return errors.Join(failures...)
 }
 
@@ -129,7 +142,7 @@ func githubCheckGiveUp(err error, retry githubCheckRetry, open bool, now time.Ti
 }
 
 func githubCheckDue(run integrationstore.GitHubCheckRun, state string, retry githubCheckRetry, now time.Time) bool {
-	return !now.Before(retry.at) && (retry.attempts > 0 || !githubCheckCurrent(run, state))
+	return !now.Before(retry.at) && (run.Unfinished || !githubCheckCurrent(run, state))
 }
 
 func githubCheckCurrent(run integrationstore.GitHubCheckRun, state string) bool {
@@ -153,13 +166,19 @@ var (
 )
 
 func (r *GitHubCheckReconciler) reconcile(
-	ctx context.Context, run integrationstore.GitHubCheckRun, state string,
+	ctx context.Context, tracked *integrationstore.GitHubCheckRun, state string,
 ) error {
 	running := state == executionstore.SubagentStateRunning
 	waiting := state == executionstore.SubagentStateWaitingOnInteraction
-	if !running && !waiting && run.Done && !run.Restart {
-		return ignoreConflict(r.Store.Integrations().DeleteGitHubCheckRun(ctx, run))
+	if !running && !waiting && tracked.Done && !tracked.Restart && !tracked.Unfinished {
+		return ignoreConflict(r.Store.Integrations().DeleteGitHubCheckRun(ctx, *tracked))
 	}
+	if err := r.Store.Integrations().ClaimGitHubCheckRun(ctx, tracked, r.claim, githubCheckClaimLease); err != nil {
+		return ignoreConflict(err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, githubCheckClaimDeadline)
+	defer cancel()
+	run := *tracked
 	client, scope, setup, err := r.client(ctx, run)
 	if err != nil {
 		return err
