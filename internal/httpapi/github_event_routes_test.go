@@ -123,6 +123,12 @@ func (f *githubIntakeFixture) ReadProjectAvailableSecretPayload(
 	return f.credential, f.secretErr
 }
 
+func (*githubIntakeFixture) RestartGitHubCheckRuns(
+	context.Context, uuid.UUID, uuid.UUID, integrationstore.ConversationAddress,
+) error {
+	return nil
+}
+
 func (f *githubIntakeFixture) AcceptIntegrationReceipt(
 	ctx context.Context, input integrationstore.VerifiedIntegrationReceipt,
 ) (integrationstore.IntegrationInboxRecord, bool, error) {

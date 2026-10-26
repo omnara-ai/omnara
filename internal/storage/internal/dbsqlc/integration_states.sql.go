@@ -51,6 +51,34 @@ func (q *Queries) CleanupDeletedIntegrationStates(ctx context.Context, arg Clean
 	return result.RowsAffected(), nil
 }
 
+const deleteIntegrationState = `-- name: DeleteIntegrationState :execrows
+DELETE FROM integration_states
+WHERE project_id = $1 AND integration_id = $2
+  AND kind = $3 AND id = $4 AND revision = $5
+`
+
+type DeleteIntegrationStateParams struct {
+	ProjectID        uuid.UUID
+	IntegrationID    uuid.UUID
+	Kind             string
+	ID               uuid.UUID
+	ExpectedRevision int64
+}
+
+func (q *Queries) DeleteIntegrationState(ctx context.Context, arg DeleteIntegrationStateParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteIntegrationState,
+		arg.ProjectID,
+		arg.IntegrationID,
+		arg.Kind,
+		arg.ID,
+		arg.ExpectedRevision,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const expireIntegrationState = `-- name: ExpireIntegrationState :exec
 UPDATE integration_states
 SET expires_at = statement_timestamp(), revision = revision + 1, updated_at = statement_timestamp()
@@ -219,6 +247,118 @@ func (q *Queries) InsertIntegrationState(ctx context.Context, arg InsertIntegrat
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listActiveGitHubCheckRunStates = `-- name: ListActiveGitHubCheckRunStates :many
+SELECT state.id, state.project_id, state.integration_id, state.kind, state.key, state.scope_kind, state.scope_ref,
+       state.data, state.revision, state.expires_at, state.created_at, state.updated_at
+FROM integration_states state
+JOIN integrations integration ON integration.project_id = state.project_id AND integration.id = state.integration_id
+WHERE state.kind = 'github_check_run' AND state.id > $1
+  AND integration.state = 'active' AND integration.deleted_at IS NULL
+ORDER BY state.id
+LIMIT $2
+`
+
+type ListActiveGitHubCheckRunStatesParams struct {
+	AfterID  uuid.UUID
+	RowLimit int32
+}
+
+func (q *Queries) ListActiveGitHubCheckRunStates(ctx context.Context, arg ListActiveGitHubCheckRunStatesParams) ([]IntegrationState, error) {
+	rows, err := q.db.Query(ctx, listActiveGitHubCheckRunStates, arg.AfterID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []IntegrationState{}
+	for rows.Next() {
+		var i IntegrationState
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.IntegrationID,
+			&i.Kind,
+			&i.Key,
+			&i.ScopeKind,
+			&i.ScopeRef,
+			&i.Data,
+			&i.Revision,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const mergeIntegrationState = `-- name: MergeIntegrationState :exec
+INSERT INTO integration_states(project_id, integration_id, kind, key, scope_kind, scope_ref, data)
+VALUES ($1, $2, $3, $4,
+        $5, $6, $7)
+ON CONFLICT (project_id, integration_id, kind, key) DO UPDATE
+SET data = integration_states.data || excluded.data,
+    revision = integration_states.revision + 1, updated_at = statement_timestamp()
+WHERE $8::boolean OR NOT integration_states.data @> excluded.data
+`
+
+type MergeIntegrationStateParams struct {
+	ProjectID     uuid.UUID
+	IntegrationID uuid.UUID
+	Kind          string
+	Key           string
+	ScopeKind     *string
+	ScopeRef      *string
+	Data          json.RawMessage
+	Force         bool
+}
+
+func (q *Queries) MergeIntegrationState(ctx context.Context, arg MergeIntegrationStateParams) error {
+	_, err := q.db.Exec(ctx, mergeIntegrationState,
+		arg.ProjectID,
+		arg.IntegrationID,
+		arg.Kind,
+		arg.Key,
+		arg.ScopeKind,
+		arg.ScopeRef,
+		arg.Data,
+		arg.Force,
+	)
+	return err
+}
+
+const mergeIntegrationStatesInScope = `-- name: MergeIntegrationStatesInScope :exec
+UPDATE integration_states
+SET data = data || $1::jsonb, revision = revision + 1, updated_at = statement_timestamp()
+WHERE project_id = $2 AND integration_id = $3
+  AND kind = $4 AND scope_kind = $5 AND scope_ref = $6
+`
+
+type MergeIntegrationStatesInScopeParams struct {
+	Data          json.RawMessage
+	ProjectID     uuid.UUID
+	IntegrationID uuid.UUID
+	Kind          string
+	ScopeKind     *string
+	ScopeRef      *string
+}
+
+func (q *Queries) MergeIntegrationStatesInScope(ctx context.Context, arg MergeIntegrationStatesInScopeParams) error {
+	_, err := q.db.Exec(ctx, mergeIntegrationStatesInScope,
+		arg.Data,
+		arg.ProjectID,
+		arg.IntegrationID,
+		arg.Kind,
+		arg.ScopeKind,
+		arg.ScopeRef,
+	)
+	return err
 }
 
 const replaceIntegrationState = `-- name: ReplaceIntegrationState :one
