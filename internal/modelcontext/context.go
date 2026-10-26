@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -27,10 +26,6 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	}
 	if input.Now.IsZero() {
 		return Bundle{}, fmt.Errorf("modelcontext build time is required")
-	}
-	agentPublicID, err := publicid.Encode(publicid.KindAgent, input.AgentID)
-	if err != nil {
-		return Bundle{}, fmt.Errorf("encode agent public id: %w", err)
 	}
 	var snapshot executionstore.AgentConfigSnapshotRecord
 	if input.AgentConfigSnapshot != nil {
@@ -78,12 +73,13 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 		}
 	}
 	if checkpointRef != nil {
-		checkpointRef.EndsWithOutputLimit, err = b.Store.IsOutputLimitBoundary(
+		endsWithOutputLimit, err := b.Store.IsOutputLimitBoundary(
 			ctx, input.ProjectID, input.AgentID, checkpointRef.SummarizedThroughEventSequence,
 		)
 		if err != nil {
 			return Bundle{}, fmt.Errorf("load checkpoint output boundary: %w", err)
 		}
+		checkpointRef.EndsWithOutputLimit = endsWithOutputLimit
 	}
 	messages, err := loadTranscriptWindow(
 		ctx,
@@ -133,7 +129,7 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 		OpeningInputIDs:    input.OpeningInputIDs,
 		InputEventSequence: watermark,
 		AgentConfigID:      snapshot.AgentConfig.ID,
-		SystemPrompt:       defaultSystemPromptForContract(agentPublicID, contract, toolSpecs, catalogSkills),
+		SystemPrompt:       defaultSystemPromptForContract(contract, toolSpecs, catalogSkills),
 	}
 	bundle.ContextCheckpoint = checkpointRef
 	if len(toolSpecs) > 0 {
@@ -195,12 +191,11 @@ func HasTool(specs []ToolSpec, name string) bool {
 }
 
 func defaultSystemPromptForContract(
-	agentPublicID string,
 	contract agentconfig.RuntimeContract,
 	toolSpecs []ToolSpec,
 	skills []skillstore.SkillRecord,
 ) string {
-	parts := []string{DefaultSystemPrompt(), "Your Omnara agent ID is `" + agentPublicID + "`."}
+	parts := []string{DefaultSystemPrompt()}
 	if guidance := capabilityGuidance(toolSpecs); guidance != "" {
 		parts = append(parts, guidance)
 	}
