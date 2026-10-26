@@ -414,7 +414,7 @@ export type CreateModelProviderConfigRequest = {
     api_format?: ModelApiFormat;
     api_variant?: ModelProviderApiVariant;
     /**
-     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
+     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode, and HTTP endpoints inside OMNARA_ALLOWED_PRIVATE_CIDRS ranges are accepted when configured.
      */
     base_url?: string;
     /**
@@ -458,7 +458,7 @@ export type CreateModelProviderConfigRequest = {
  */
 export type UpdateModelProviderConfigRequest = {
     /**
-     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
+     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode, and HTTP endpoints inside OMNARA_ALLOWED_PRIVATE_CIDRS ranges are accepted when configured.
      */
     base_url?: string;
     /**
@@ -505,7 +505,7 @@ export type ModelProviderConfig = {
     api_format: ModelApiFormat;
     api_variant: ModelProviderApiVariantResponse;
     /**
-     * Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs.
+     * Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs, and HTTP endpoints inside OMNARA_ALLOWED_PRIVATE_CIDRS ranges are accepted when configured.
      */
     base_url: string;
     endpoint_path: string;
@@ -1481,7 +1481,7 @@ export type ListMcpServersResponse = {
 
 export type McpServerToolsRequest = {
     /**
-     * Streamable HTTP MCP endpoint. Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
+     * Streamable HTTP MCP endpoint. Must use HTTPS, except that HTTP is allowed for loopback hosts during local development and for hosts inside OMNARA_ALLOWED_PRIVATE_CIDRS ranges.
      */
     url: string;
     auth: McpServerAuth;
@@ -3096,7 +3096,7 @@ export type GenericSecretMaterial = {
 export type OAuthRefreshSecretMaterial = {
     refresh_token: string;
     /**
-     * Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
+     * Must use HTTPS, except that HTTP is allowed for loopback hosts during local development and for hosts inside OMNARA_ALLOWED_PRIVATE_CIDRS ranges.
      */
     token_endpoint: string;
     client_id: string;

@@ -241,7 +241,7 @@ func validateModelProviderBaseURLNetworkPolicy(baseURL string, allowInsecureDev 
 	}
 	hostname := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
 	if hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") {
-		if allowInsecureDev {
+		if allowInsecureDev || ssrf.IsAllowedPrefix(net.ParseIP("127.0.0.1")) {
 			return nil
 		}
 		return errors.New("base_url cannot target localhost unless insecure dev mode is enabled")
