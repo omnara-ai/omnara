@@ -79,8 +79,19 @@ FROM integration_states state
 JOIN integrations integration ON integration.project_id = state.project_id AND integration.id = state.integration_id
 WHERE state.kind = 'github_check_run' AND state.id > sqlc.arg(after_id)
   AND integration.state = 'active' AND integration.deleted_at IS NULL
+  AND (state.data->>'claim' IS NULL OR state.data->>'claim' = sqlc.arg(claim)::text
+       OR (state.data->>'claim_expires_at')::timestamptz <= statement_timestamp())
 ORDER BY state.id
 LIMIT sqlc.arg(row_limit);
+
+-- name: ClaimIntegrationState :one
+UPDATE integration_states
+SET data = data || jsonb_build_object('claim', sqlc.arg(claim)::text, 'claim_expires_at',
+        statement_timestamp() + sqlc.arg(lease_milliseconds)::bigint * interval '1 millisecond'),
+    revision = revision + 1, updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id)
+  AND kind = sqlc.arg(kind) AND id = sqlc.arg(id) AND revision = sqlc.arg(expected_revision)
+RETURNING revision;
 
 -- name: DeleteIntegrationState :execrows
 DELETE FROM integration_states

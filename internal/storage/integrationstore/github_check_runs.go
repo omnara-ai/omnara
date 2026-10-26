@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -24,6 +25,7 @@ type GitHubCheckRun struct {
 	Waiting       bool
 	Done          bool
 	Restart       bool
+	Unfinished    bool
 	revision      int64
 }
 
@@ -33,6 +35,7 @@ type githubCheckRunData struct {
 	Waiting bool      `json:"waiting,omitempty"`
 	Done    bool      `json:"done"`
 	Restart bool      `json:"restart,omitempty"`
+	Claim   string    `json:"claim,omitempty"`
 }
 
 func (s *Store) MarkGitHubCheckRun(
@@ -75,9 +78,11 @@ func (s *Store) RestartGitHubCheckRuns(
 	return nil
 }
 
-func (s *Store) ListGitHubCheckRuns(ctx context.Context, after uuid.UUID, limit int32) ([]GitHubCheckRun, error) {
+func (s *Store) ListGitHubCheckRuns(
+	ctx context.Context, claim, after uuid.UUID, limit int32,
+) ([]GitHubCheckRun, error) {
 	states, err := s.q.ListActiveGitHubCheckRunStates(ctx, dbsqlc.ListActiveGitHubCheckRunStatesParams{
-		AfterID: after, RowLimit: limit,
+		AfterID: after, Claim: claim.String(), RowLimit: limit,
 	})
 	if err != nil {
 		return nil, err
@@ -93,10 +98,27 @@ func (s *Store) ListGitHubCheckRuns(ctx context.Context, after uuid.UUID, limit 
 			Address: ConversationAddress{
 				Kind: storeutil.TextOrEmpty(state.ScopeKind), Ref: storeutil.TextOrEmpty(state.ScopeRef),
 			},
-			Run: data.Run, Waiting: data.Waiting, Done: data.Done, Restart: data.Restart, revision: state.Revision,
+			Run: data.Run, Waiting: data.Waiting, Done: data.Done, Restart: data.Restart, Unfinished: data.Claim != "",
+			revision: state.Revision,
 		})
 	}
 	return runs, nil
+}
+
+func (s *Store) ClaimGitHubCheckRun(
+	ctx context.Context, run *GitHubCheckRun, claim uuid.UUID, lease time.Duration,
+) error {
+	revision, err := s.q.ClaimIntegrationState(ctx, dbsqlc.ClaimIntegrationStateParams{
+		Claim: claim.String(), LeaseMilliseconds: lease.Milliseconds(), ProjectID: run.ProjectID,
+		IntegrationID: run.IntegrationID, Kind: githubCheckRunStateKind, ID: run.ID, ExpectedRevision: run.revision,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return storeerr.ErrConflict
+	}
+	if err == nil {
+		run.revision = revision
+	}
+	return err
 }
 
 func (s *Store) SaveGitHubCheckRun(ctx context.Context, run GitHubCheckRun) error {

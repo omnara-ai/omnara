@@ -4,6 +4,7 @@ package integrationstore_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -22,7 +23,7 @@ func TestGitHubCheckRunRestartMarksAlwaysAdvance(t *testing.T) {
 	}
 	tracked := func() integrationstore.GitHubCheckRun {
 		t.Helper()
-		runs, err := f.store.ListGitHubCheckRuns(f.ctx, uuid.Nil, 10)
+		runs, err := f.store.ListGitHubCheckRuns(f.ctx, uuid.Nil, uuid.Nil, 10)
 		require.NoError(t, err)
 		require.Len(t, runs, 1)
 		return runs[0]
@@ -55,10 +56,41 @@ func TestRestartGitHubCheckRunsFlagsTrackedAgentsOnThatPullRequest(t *testing.T)
 	require.NoError(t, f.store.MarkGitHubCheckRun(f.ctx, f.project, f.integrationID, uuid.New(), address, false))
 	require.NoError(t, f.store.MarkGitHubCheckRun(f.ctx, f.project, f.integrationID, uuid.New(), other, false))
 	require.NoError(t, f.store.RestartGitHubCheckRuns(f.ctx, f.project, f.integrationID, address))
-	runs, err := f.store.ListGitHubCheckRuns(f.ctx, uuid.Nil, 10)
+	runs, err := f.store.ListGitHubCheckRuns(f.ctx, uuid.Nil, uuid.Nil, 10)
 	require.NoError(t, err)
 	require.Len(t, runs, 2)
 	for _, run := range runs {
 		require.Equal(t, run.Address == address, run.Restart, "pull request %s", run.Address.Ref)
 	}
+}
+
+func TestGitHubCheckRunClaimsHideRowsFromOtherReconcilers(t *testing.T) {
+	t.Parallel()
+	f := newInboxFixture(t)
+	address := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}
+	require.NoError(t, f.store.MarkGitHubCheckRun(f.ctx, f.project, f.integrationID, uuid.New(), address, true))
+	owner, other := uuid.New(), uuid.New()
+	list := func(claim uuid.UUID) []integrationstore.GitHubCheckRun {
+		t.Helper()
+		runs, err := f.store.ListGitHubCheckRuns(f.ctx, claim, uuid.Nil, 10)
+		require.NoError(t, err)
+		return runs
+	}
+	only := func(claim uuid.UUID) integrationstore.GitHubCheckRun {
+		t.Helper()
+		runs := list(claim)
+		require.Len(t, runs, 1)
+		return runs[0]
+	}
+	run := only(owner)
+	stale := run
+	require.NoError(t, f.store.ClaimGitHubCheckRun(f.ctx, &run, owner, time.Minute))
+	require.ErrorIs(t, f.store.ClaimGitHubCheckRun(f.ctx, &stale, other, time.Minute), storeerr.ErrConflict)
+	require.Empty(t, list(other), "a live claim hides the row from other reconcilers")
+	require.True(t, only(owner).Unfinished, "the owner keeps seeing its claimed row as unfinished")
+	require.NoError(t, f.store.SaveGitHubCheckRun(f.ctx, run))
+	require.False(t, only(other).Unfinished, "saving releases the claim")
+	expired := only(owner)
+	require.NoError(t, f.store.ClaimGitHubCheckRun(f.ctx, &expired, owner, 0))
+	require.True(t, only(other).Unfinished, "an expired claim stops hiding the row but still marks it unfinished")
 }
