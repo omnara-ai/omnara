@@ -24,9 +24,10 @@ type ExecutionHeadSampleReport struct {
 }
 
 func (s *Store) SampleExecutionHeads(ctx context.Context, after uuid.UUID, n int32) (ExecutionHeadSampleReport, error) {
-	routes, err := readExecutionSnapshot(ctx, s.pool, func(tx pgx.Tx) ([]agentexecution.AgentRoute, error) {
-		return agentexecution.SelectExecutionSamples(ctx, tx, after, n)
-	})
+	routes, err := readExecutionSnapshot(ctx, s.pool, "sample execution head",
+		func(tx pgx.Tx) ([]agentexecution.AgentRoute, error) {
+			return agentexecution.SelectExecutionSamples(ctx, tx, after, n)
+		})
 	if err != nil {
 		return ExecutionHeadSampleReport{Cursor: after}, err
 	}
@@ -35,9 +36,10 @@ func (s *Store) SampleExecutionHeads(ctx context.Context, after uuid.UUID, n int
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		differences, err := readExecutionSnapshot(ctx, s.pool, func(tx pgx.Tx) ([]agentexecution.HeadDifference, error) {
-			return agentexecution.CompareExecutionHead(ctx, tx, route)
-		})
+		differences, err := readExecutionSnapshot(ctx, s.pool, "sample execution head",
+			func(tx pgx.Tx) ([]agentexecution.HeadDifference, error) {
+				return agentexecution.CompareExecutionHead(ctx, tx, route)
+			})
 		report.Cursor = route.AgentID
 		if errors.Is(err, agentexecution.ErrSampleIneligible) {
 			continue
@@ -48,8 +50,10 @@ func (s *Store) SampleExecutionHeads(ctx context.Context, after uuid.UUID, n int
 	return report, ctx.Err()
 }
 
-func readExecutionSnapshot[T any](ctx context.Context, pool *storeutil.Pool, read func(pgx.Tx) (T, error)) (T, error) {
-	return storeutil.RetryTransaction(ctx, "sample execution head", func() (T, error) {
+func readExecutionSnapshot[T any](
+	ctx context.Context, pool *storeutil.Pool, operation string, read func(pgx.Tx) (T, error),
+) (T, error) {
+	return storeutil.RetryTransaction(ctx, operation, func() (T, error) {
 		var zero T
 		tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 		if err != nil {
@@ -61,7 +65,7 @@ func readExecutionSnapshot[T any](ctx context.Context, pool *storeutil.Pool, rea
 		}
 		result, err := read(tx)
 		if err != nil {
-			return zero, fmt.Errorf("sample execution head: %w", err)
+			return zero, fmt.Errorf("%s: %w", operation, err)
 		}
 		return result, tx.Commit(ctx)
 	})

@@ -694,6 +694,70 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	}
 }
 
+func TestAgentTreeActivityIncludesActiveDescendants(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-tree@example.com", "Subagent Tree")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t, ctx, store, "subagent-tree", "Subagent Tree", subagentParentYAML,
+	)
+	topLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  profile.CurrentConfigID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "subagent-tree-top",
+	})
+	if err != nil {
+		t.Fatalf("launch top-level agent: %v", err)
+	}
+	top := topLaunch.Agent
+	middle, err := spawnSubagentForTest(
+		t, ctx, store, top, profile.CurrentConfigID, "middle", "subagent-tree-middle", nil, withoutLaunchMessage,
+	)
+	if err != nil {
+		t.Fatalf("spawn middle subagent: %v", err)
+	}
+	leaf, err := spawnSubagentForTest(
+		t, ctx, store, middle.Agent, profile.CurrentConfigID, "leaf", "subagent-tree-leaf", nil, withoutLaunchMessage,
+	)
+	if err != nil {
+		t.Fatalf("spawn leaf subagent: %v", err)
+	}
+	treeState := func(agentID uuid.UUID) string {
+		t.Helper()
+		activity, err := store.Execution().ListAgentTreeActivity(ctx, []uuid.UUID{testProjectID}, []uuid.UUID{agentID})
+		if err != nil {
+			t.Fatalf("list tree activity: %v", err)
+		}
+		return activity[agentID].State
+	}
+	if got := treeState(top.ID); got != executionstore.SubagentStateIdle {
+		t.Fatalf("idle tree state = %q", got)
+	}
+	if _, err := store.Execution().AcquireAgentRuntimeLock(
+		ctx, testProjectID, leaf.Agent.ID, testWorkerProcessID, testAgentRuntimeLockLeaseDuration,
+	); err != nil {
+		t.Fatalf("acquire leaf runtime lock: %v", err)
+	}
+	if got := treeState(top.ID); got != executionstore.SubagentStateRunning {
+		t.Fatalf("tree state with running grandchild = %q", got)
+	}
+	if got := treeState(middle.Agent.ID); got != executionstore.SubagentStateRunning {
+		t.Fatalf("subagent tree state with running child = %q", got)
+	}
+	own, err := store.Execution().GetAgentActivity(ctx, testProjectID, top.ID)
+	if err != nil {
+		t.Fatalf("get own activity: %v", err)
+	}
+	if own.State != executionstore.SubagentStateIdle {
+		t.Fatalf("own state with running grandchild = %q", own.State)
+	}
+}
+
 func containsAgentID(agents []executionstore.AgentRecord, id uuid.UUID) bool {
 	for _, agent := range agents {
 		if agent.ID == id {

@@ -138,6 +138,7 @@ func main() {
 			MachinePools:         machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL),
 			Metrics:              metricSet,
 			Interval:             cfg.MaintenanceInterval,
+			PublicURL:            cfg.PublicURL,
 			DefaultModelProvider: defaultModelProvider,
 		})
 	}()
