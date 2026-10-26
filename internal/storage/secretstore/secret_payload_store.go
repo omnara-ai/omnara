@@ -136,6 +136,16 @@ func (s *Store) ValidateProjectSecretReference(
 	return nil
 }
 
+func (s *Store) ReadProjectAvailableSecretPayloadTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	input ReadProjectAvailableSecretPayloadInput,
+) (SecretPayloadRecord, error) {
+	reader := *s
+	reader.q = s.q.WithTx(tx)
+	return reader.ReadProjectAvailableSecretPayload(ctx, input)
+}
+
 func (s *Store) ReadProjectAvailableSecretPayload(
 	ctx context.Context,
 	input ReadProjectAvailableSecretPayloadInput,

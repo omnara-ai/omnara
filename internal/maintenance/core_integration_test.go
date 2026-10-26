@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	webhookconfig "github.com/omnara-ai/omnara/internal/eventwebhook/config"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -19,22 +20,22 @@ import (
 func TestRunCoreMaintenanceCleansUpDespiteAnotherTaskFailure(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	pool, store := seedMaintenanceWebhook(t)
+	pool, store := seedMaintenanceWebhookDelivery(t)
 	_, err := pool.Exec(ctx, "DROP TABLE user_auth_tokens")
 	require.NoError(t, err)
 	result := RunCore(ctx, store)
 	require.ErrorContains(t, result.AuthCleanupErr, "delete inactive auth tokens")
-	require.NoError(t, result.WebhookCleanupErr)
+	require.NoError(t, result.WebhookDeliveryCleanupErr)
 	require.NoError(t, result.ReapRuntimeLocksErr)
 	require.NoError(t, result.ExpireDaemonRuntimesErr)
 	require.NoError(t, result.ExpireProcessToolsErr)
-	require.EqualValues(t, 1, result.DeletedWebhooks)
+	require.EqualValues(t, 1, result.DeletedWebhookDeliveries)
 }
 
 func TestRunCoreMaintenanceParallelTasksAndCancellation(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	pool, store := seedMaintenanceWebhook(t)
+	pool, store := seedMaintenanceWebhookDelivery(t)
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -58,14 +59,14 @@ func TestRunCoreMaintenanceParallelTasksAndCancellation(t *testing.T) {
 	select {
 	case result := <-done:
 		require.ErrorIs(t, result.ReapRuntimeLocksErr, context.Canceled)
-		require.NoError(t, result.WebhookCleanupErr)
-		require.EqualValues(t, 1, result.DeletedWebhooks)
+		require.NoError(t, result.WebhookDeliveryCleanupErr)
+		require.EqualValues(t, 1, result.DeletedWebhookDeliveries)
 	case <-time.After(3 * time.Second):
 		t.Fatal("maintenance did not finish after cancellation")
 	}
 }
 
-func seedMaintenanceWebhook(t *testing.T) (*pgxpool.Pool, *storage.Store) {
+func seedMaintenanceWebhookDelivery(t *testing.T) (*pgxpool.Pool, *storage.Store) {
 	t.Helper()
 	ctx := t.Context()
 	pool := integrationdb.OpenMigratedPool(t, ctx, "../../migrations")
@@ -75,14 +76,16 @@ func seedMaintenanceWebhook(t *testing.T) (*pgxpool.Pool, *storage.Store) {
 		ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),
 	}
 	storagefixture.SeedProject(t, ctx, pool, ids, time.Now().UTC())
+	_, err := store.Execution().CreateEventWebhook(ctx, executionstore.CreateEventWebhookInput{
+		ProjectID: ids.ProjectID, Scope: executionstore.EventWebhookScope{Kind: executionstore.EventWebhookScopeProject},
+		Settings: webhookconfig.Settings{URL: "https://example.com/events", EventTypes: []string{"agent_input"}},
+	})
+	require.NoError(t, err)
 	config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		`instruction: test
 model:
   provider_config: openai-prod
   name: test
-event_webhook:
-  url: https://example.com/events
-  events: [agent_input]
 `)
 	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
 		ProjectID: ids.ProjectID, CurrentConfigID: config.ID,

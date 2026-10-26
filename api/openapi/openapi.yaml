@@ -80,6 +80,183 @@ tags:
   - name: Machine Daemon
     description: Routes the Omnara machine daemon uses to connect a machine.
 paths:
+  /orgs/{orgID}/projects/{projectID}/event-webhooks:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+    get:
+      operationId: listEventWebhooks
+      tags: [Events]
+      summary: List event webhooks for one scope
+      description: Returns the directly attached webhooks, not inherited matches. Each scope supports up to 16 webhooks. Requires project read permission.
+      parameters:
+        - name: scope_kind
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/EventWebhookScopeKind'
+        - name: agent_profile_id
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
+        - name: agent_id
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgentID'
+      responses:
+        '200':
+          description: Webhooks for the requested scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListEventWebhooksResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    post:
+      operationId: createEventWebhook
+      tags: [Events]
+      summary: Create an event webhook
+      description: Subscribes to future events from agents matching the scope. Each scope can have only one active webhook per URL; duplicates return 409. Matching scopes are additive. Requires project management permission.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventWebhookRequest'
+      responses:
+        '201':
+          description: Webhook created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventWebhook'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: webhookID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/EventWebhookID'
+    patch:
+      operationId: updateEventWebhook
+      tags: [Events]
+      summary: Update event webhook settings
+      description: The scope cannot change. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Event filters affect newly queued deliveries; URL and signing changes also apply to pending attempts.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEventWebhookRequest'
+      responses:
+        '200':
+          description: Webhook updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventWebhook'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      operationId: deleteEventWebhook
+      tags: [Events]
+      summary: Delete an event webhook
+      description: Stops new deliveries and pending attempts. Requests already in flight may finish.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Webhook deleted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /personal-access-tokens:
     get:
       operationId: listPersonalAccessTokens
@@ -9016,8 +9193,6 @@ components:
       additionalProperties: false
       required: [instruction, model]
       properties:
-        event_webhook:
-          $ref: '#/components/schemas/AgentConfigDefinitionEventWebhook'
         git_credentials:
           $ref: '#/components/schemas/AgentConfigDefinitionGitCredentials'
         instruction:
@@ -9074,24 +9249,6 @@ components:
           $ref: '#/components/schemas/AgentConfigDefinitionSubagents'
         tools:
           $ref: '#/components/schemas/AgentConfigDefinitionTools'
-      x-go-type: json.RawMessage
-    AgentConfigDefinitionEventWebhook:
-      type: object
-      additionalProperties: false
-      required: [url, events]
-      properties:
-        events:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items:
-            enum: [agent_input, model_output, tool_result, context_checkpoint, tool_call_update]
-        signing_secret_id:
-          type: string
-          minLength: 1
-        url:
-          type: string
-          minLength: 1
       x-go-type: json.RawMessage
     AgentConfigDefinitionGitCredentials:
       description: Integration whose git credentials the agent's machines use.
@@ -9723,6 +9880,143 @@ components:
     AgentProfileID:
       type: string
       pattern: '^aprf_[a-z2-7]{26}$'
+    EventWebhookID:
+      type: string
+      pattern: '^whk_[a-z2-7]{26}$'
+    EventWebhookScopeKind:
+      type: string
+      enum: [project, profile, agent]
+      x-enum-varnames: [EventWebhookScopeProject, EventWebhookScopeAgentProfile, EventWebhookScopeAgent]
+    ProjectEventWebhookScope:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [project]
+          x-enum-varnames: [ProjectEventWebhookScopeKindProject]
+    AgentProfileEventWebhookScope:
+      type: object
+      additionalProperties: false
+      required: [kind, agent_profile_id]
+      properties:
+        kind:
+          type: string
+          enum: [profile]
+          x-enum-varnames: [AgentProfileEventWebhookScopeKindProfile]
+        agent_profile_id:
+          $ref: '#/components/schemas/AgentProfileID'
+    AgentEventWebhookScope:
+      type: object
+      additionalProperties: false
+      required: [kind, agent_id]
+      description: Watches only this agent, not its descendants.
+      properties:
+        kind:
+          type: string
+          enum: [agent]
+          x-enum-varnames: [AgentEventWebhookScopeKindAgent]
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+    EventWebhookScope:
+      oneOf:
+        - $ref: '#/components/schemas/ProjectEventWebhookScope'
+        - $ref: '#/components/schemas/AgentProfileEventWebhookScope'
+        - $ref: '#/components/schemas/AgentEventWebhookScope'
+      discriminator:
+        propertyName: kind
+        mapping:
+          project: '#/components/schemas/ProjectEventWebhookScope'
+          profile: '#/components/schemas/AgentProfileEventWebhookScope'
+          agent: '#/components/schemas/AgentEventWebhookScope'
+    UpdateEventWebhookRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+        event_types:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/EventWebhookEventType'
+        signing_secret_id:
+          oneOf:
+            - $ref: '#/components/schemas/SecretID'
+            - type: 'null'
+          description: Project-available generic secret. Omit to preserve signing, or set to null to remove it.
+    CreateEventWebhookRequest:
+      type: object
+      additionalProperties: false
+      required: [url, event_types, scope]
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+        event_types:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/EventWebhookEventType'
+        signing_secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: Optional project-available generic secret.
+        scope:
+          $ref: '#/components/schemas/EventWebhookScope'
+    EventWebhookEventType:
+      type: string
+      enum: [agent_input, model_output, tool_result, context_checkpoint, tool_call_update]
+    EventWebhook:
+      type: object
+      additionalProperties: false
+      required: [id, org_id, project_id, url, event_types, scope, created_at, updated_at]
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+        event_types:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/EventWebhookEventType'
+        signing_secret_id:
+          $ref: '#/components/schemas/SecretID'
+          description: Optional project-available generic secret.
+        scope:
+          $ref: '#/components/schemas/EventWebhookScope'
+        id:
+          $ref: '#/components/schemas/EventWebhookID'
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ListEventWebhooksResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventWebhook'
     CronTriggerID:
       type: string
       pattern: '^cron_[a-z2-7]{26}$'
@@ -11740,8 +12034,6 @@ components:
           x-go-type-skip-optional-pointer: true
           additionalProperties:
             $ref: '#/components/schemas/CompiledMCPServer'
-        event_webhook:
-          $ref: '#/components/schemas/CompiledEventWebhook'
         interaction_handlers:
           type: object
           x-go-type-skip-optional-pointer: true
@@ -11768,26 +12060,6 @@ components:
           type: integer
         max_depth:
           type: integer
-    CompiledEventWebhook:
-      type: object
-      additionalProperties: false
-      required: [url, events]
-      properties:
-        url:
-          type: string
-        events:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items:
-            type: string
-            enum: [agent_input, model_output, tool_result, context_checkpoint, tool_call_update]
-        signing_secret_id:
-          $ref: '#/components/schemas/SecretID'
-          x-go-type: publicid.ID
-          x-go-type-import:
-            path: github.com/omnara-ai/omnara/internal/publicid
-          x-go-type-skip-optional-pointer: true
     CompiledAgentModel:
       type: object
       additionalProperties: false
@@ -13502,7 +13774,7 @@ components:
         created_at:
           $ref: '#/components/schemas/Timestamp'
     EventWebhookPayload:
-      description: JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
+      description: JSON body posted to an event webhook. Each event name determines its data schema.
       oneOf:
         - $ref: '#/components/schemas/EventWebhookAgentInputEvent'
         - $ref: '#/components/schemas/EventWebhookModelOutputEvent'

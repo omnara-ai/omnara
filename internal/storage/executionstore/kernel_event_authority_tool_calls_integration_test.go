@@ -178,7 +178,7 @@ func TestToolCallLifecyclePublishesCommittedUpdatesOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "tool_call_updates")
-	enableEventWebhook(t, fixture, nil)
+	createAgentEventWebhook(t, fixture, nil)
 	publisher := &recordingPostCommitPublisher{}
 	fixture.Store = newIntegrationStore(
 		fixture.Store.pool,

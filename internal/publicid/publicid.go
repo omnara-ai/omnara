@@ -23,6 +23,7 @@ const (
 	KindAgentConfig              Kind = "agent_config"
 	KindAgentProfile             Kind = "agent_profile"
 	KindCronTrigger              Kind = "cron_trigger"
+	KindEventWebhook             Kind = "event_webhook"
 	KindIntegration              Kind = "integration"
 	KindIntegrationProfileChoice Kind = "integration_profile_choice"
 	KindIntegrationSubscription  Kind = "integration_subscription"
@@ -71,6 +72,7 @@ var kindPrefixes = map[Kind]string{
 	KindAgentConfig:              "acfg",
 	KindAgentProfile:             "aprf",
 	KindCronTrigger:              "cron",
+	KindEventWebhook:             "whk",
 	KindIntegration:              "itg",
 	KindIntegrationProfileChoice: "ipc",
 	KindIntegrationSubscription:  "isub",

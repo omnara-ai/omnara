@@ -14,7 +14,3 @@ tools:
           type: string
       required: [text]
       additionalProperties: false
-event_webhook:
-  url: https://YOUR-PUBLIC-HOST/webhook
-  signing_secret_id: sec_REPLACE_ME
-  events: [tool_call_update]

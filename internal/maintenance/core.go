@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	runtimeLockReapBatchSize     int32 = 100
-	eventWebhookCleanupBatchSize int32 = 500
-	eventWebhookCleanupTimeout         = 5 * time.Second
+	runtimeLockReapBatchSize             int32 = 100
+	eventWebhookDeliveryCleanupBatchSize int32 = 500
+	eventWebhookDeliveryCleanupTimeout         = 5 * time.Second
 )
 
 type CoreResult struct {
@@ -25,8 +25,8 @@ type CoreResult struct {
 	ExpireDaemonRuntimesErr       error
 	ExpiredProcessTools           int64
 	ExpireProcessToolsErr         error
-	DeletedWebhooks               int64
-	WebhookCleanupErr             error
+	DeletedWebhookDeliveries      int64
+	WebhookDeliveryCleanupErr     error
 	AuthCleanup                   identitystore.AuthStateCleanupResult
 	AuthCleanupErr                error
 	DeletedIntegrationStates      int64
@@ -63,12 +63,11 @@ func RunCore(ctx context.Context, store *storage.Store) CoreResult {
 		)
 	})
 	tasks.Go(func() {
-		defer recoverMaintenanceTask("cleanup event webhooks", &result.WebhookCleanupErr)
-		cleanupCtx, cancel := context.WithTimeout(ctx, eventWebhookCleanupTimeout)
+		defer recoverMaintenanceTask("cleanup event webhook deliveries", &result.WebhookDeliveryCleanupErr)
+		cleanupCtx, cancel := context.WithTimeout(ctx, eventWebhookDeliveryCleanupTimeout)
 		defer cancel()
-		result.DeletedWebhooks, result.WebhookCleanupErr = store.Execution().DeleteExpiredEventWebhookDeliveries(
-			cleanupCtx, eventWebhookCleanupBatchSize,
-		)
+		result.DeletedWebhookDeliveries, result.WebhookDeliveryCleanupErr =
+			store.Execution().DeleteExpiredEventWebhookDeliveries(cleanupCtx, eventWebhookDeliveryCleanupBatchSize)
 	})
 	tasks.Go(func() {
 		defer recoverMaintenanceTask("cleanup auth state", &result.AuthCleanupErr)

@@ -1,10 +1,35 @@
 ---
-title: "Webhook payloads"
+title: "Event webhooks"
 description: "Event webhook bodies and generated SDK schemas"
 icon: "webhook"
 ---
 
-Configure an [event webhook](/agents/configuration#event-webhook) to receive JSON POST requests with `event` and `data`. The event name determines the data schema. These are the same data objects used by the [event stream](/events/streaming).
+Event webhooks send JSON POST requests with `event` and `data` matching the [event stream](/events/streaming), excluding token previews, heartbeats, and stream errors. They are managed independently of agent configuration.
+
+## Configure
+
+Create a webhook with `POST /orgs/{orgID}/projects/{projectID}/event-webhooks`:
+
+```json
+{
+  "scope": {
+    "kind": "profile",
+    "agent_profile_id": "aprf_5n6a2bfgik7mv4qtrwz3jehcyd"
+  },
+  "url": "https://example.com/events",
+  "event_types": ["tool_call_update"]
+}
+```
+
+Each webhook watches a project, profile, or single agent. Profile webhooks cover existing and future agents of that profile; agent webhooks do not include descendants. Matching scopes are additive, including when their URLs are identical. Each project, profile, or agent can have up to 16 directly attached webhooks, with one webhook per URL. Listing requires project read permission; changes require project management permission.
+
+See the API reference to [list](/api-reference/endpoints/events/list-event-webhooks-for-one-scope), [update](/api-reference/endpoints/events/update-event-webhook-settings), or [delete](/api-reference/endpoints/events/delete-an-event-webhook) webhooks. In the dashboard, manage webhooks from the profile’s Webhooks tab or the agent’s sidebar. Inherited webhooks are shown read-only; project webhooks are managed through the API. To receive events from launch onward, configure a profile webhook before launching its agents.
+
+The required `event_types` allowlist selects `agent_input`, `model_output`, `tool_result`, `context_checkpoint`, or `tool_call_update`. New webhooks and filter changes affect future events, with no historical replay. URL/signing changes apply to pending attempts too. Removing a webhook stops pending attempts; in-flight requests may finish. Deleting a profile removes its webhooks.
+
+Deliveries retry independently for up to ten minutes, with a five-second request timeout and exponential backoff with jitter. Return `2xx` to acknowledge receipt. Events may arrive more than once or out of order; deduplicate deliveries by `Webhook-Id` and custom tool execution by tool-call ID.
+
+Signing is optional. Set `signing_secret_id` to a project-available generic secret generated with `openssl rand -base64 32`.
 
 Webhook deliveries are suppressed for deleted projects and organizations, including events produced by their deletion.
 
@@ -14,7 +39,7 @@ Every request includes `Webhook-Id` (stable across retries) and `Webhook-Timesta
 
 The SDK includes the TypeScript type `EventWebhookPayload` and the Zod schema `zEventWebhookPayload` for validating incoming webhook payloads.
 
-Install `@omnara/sdk` and `standardwebhooks`. Set `WEBHOOK_SIGNING_SECRET` to the same base64 value stored in the agent config's signing secret. This Node.js server verifies the raw body before validating the payload; missing, invalid, or expired signatures are rejected.
+Install `@omnara/sdk` and `standardwebhooks`. Set `WEBHOOK_SIGNING_SECRET` to the same base64 value stored in the webhook's signing secret. This Node.js server verifies the raw body before validating the payload; missing, invalid, or expired signatures are rejected.
 
 ```typescript
 import { createServer } from 'node:http'
@@ -192,6 +217,6 @@ Timeline events include event, agent, project, organization, and turn identifier
 </Accordion>
 </AccordionGroup>
 
-`tool_call_update` is a notification to fetch the tool call or interaction for its current details. It carries a state snapshot, not the tool arguments or a timeline sequence. For custom execution, handle `ready` updates and deduplicate by tool-call ID. Self-subagents send their own agent IDs; profile subagents use their own webhook configuration.
+`tool_call_update` is a notification to fetch the tool call or interaction for its current details. It carries a state snapshot, not the tool arguments or a timeline sequence. For custom execution, handle `ready` updates and deduplicate by tool-call ID. Subagents follow the same scope rules and send their own agent IDs.
 
 When a permission or question opens or closes, `interaction_update` includes its ID, kind, and state (`open`, `resolved`, or `canceled`). Omission means no interaction change. Track interactions by ID; a terminal update takes precedence over a late `open` update. Fetch interactions when you need the full form.

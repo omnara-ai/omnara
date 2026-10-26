@@ -416,7 +416,7 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 	reapRuntimeLocksOutcome := completedMaintenanceOutcome(ctx, result.ReapRuntimeLocksErr)
 	expireDaemonRuntimesOutcome := completedMaintenanceOutcome(ctx, result.ExpireDaemonRuntimesErr)
 	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, result.ExpireProcessToolsErr)
-	webhookCleanupOutcome := completedMaintenanceOutcome(ctx, result.WebhookCleanupErr)
+	webhookDeliveryCleanupOutcome := completedMaintenanceOutcome(ctx, result.WebhookDeliveryCleanupErr)
 	authCleanupOutcome := completedMaintenanceOutcome(ctx, result.AuthCleanupErr)
 	statesOutcome := completedMaintenanceOutcome(ctx, result.IntegrationStatesCleanupErr)
 	completedInboxOutcome := completedMaintenanceOutcome(ctx, result.CompletedInboxCleanupErr)
@@ -431,7 +431,7 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 		result.ExpiredDaemonRuntimes > 0 ||
 		result.ExpiredProcessTools > 0 ||
 		authCleanupDeleted ||
-		result.DeletedWebhooks > 0 ||
+		result.DeletedWebhookDeliveries > 0 ||
 		result.DeletedIntegrationStates > 0 ||
 		result.CompletedInbox > 0 ||
 		result.DeletedInbox > 0
@@ -448,7 +448,7 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 			completedInboxOutcome.err,
 			deletedInboxOutcome.err,
 			statesOutcome.err,
-			webhookCleanupOutcome.err,
+			webhookDeliveryCleanupOutcome.err,
 		),
 	)
 	if statesOutcome.err != nil {
@@ -478,10 +478,10 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 	} else if !expireProcessToolsOutcome.interrupted && result.ExpiredProcessTools > 0 {
 		log.Info("expired process tool calls", "count", result.ExpiredProcessTools)
 	}
-	if webhookCleanupOutcome.err != nil {
-		log.Error("cleanup expired event webhooks", "error", webhookCleanupOutcome.err)
-	} else if !webhookCleanupOutcome.interrupted && result.DeletedWebhooks > 0 {
-		log.Info("cleaned expired event webhooks", "count", result.DeletedWebhooks)
+	if webhookDeliveryCleanupOutcome.err != nil {
+		log.Error("cleanup expired event webhook deliveries", "error", webhookDeliveryCleanupOutcome.err)
+	} else if !webhookDeliveryCleanupOutcome.interrupted && result.DeletedWebhookDeliveries > 0 {
+		log.Info("cleaned expired event webhook deliveries", "count", result.DeletedWebhookDeliveries)
 	}
 	if authCleanupOutcome.err != nil {
 		log.Error("cleanup inactive auth state", "error", authCleanupOutcome.err)
