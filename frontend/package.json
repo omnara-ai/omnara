@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@oxlint/plugins": "1.87.0",
-    "eslint-plugin-simple-import-sort": "^12.0.0",
+    "eslint-plugin-simple-import-sort": "^14.0.0",
     "oxlint": "1.87.0",
     "oxlint-tsgolint": "7.0.2004",
     "prettier": "^3.9.10",
