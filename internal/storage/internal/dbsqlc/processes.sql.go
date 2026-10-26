@@ -548,7 +548,7 @@ func (q *Queries) GetDaemonFileProcessScope(ctx context.Context, arg GetDaemonFi
 
 const getDaemonGitCredentialsScope = `-- name: GetDaemonGitCredentialsScope :one
 SELECT process.project_id, process.agent_id,
-       (original_config.compiled_definition->'git_credentials')::jsonb AS git_credentials
+       (original_definition.compiled_definition->'git_credentials')::jsonb AS git_credentials
 FROM processes process
 JOIN orgs org ON org.id = process.org_id AND org.deleted_at IS NULL
 JOIN projects project ON project.org_id = process.org_id AND project.id = process.project_id
@@ -571,13 +571,17 @@ JOIN agent_configs original_config ON original_config.project_id = process.proje
   AND original_config.id = context.agent_config_id
 JOIN agent_configs current_config ON current_config.project_id = process.project_id
   AND current_config.id = agent.current_config_id
+JOIN agent_config_definitions original_definition ON original_definition.project_id = original_config.project_id
+  AND original_definition.id = original_config.definition_id
+JOIN agent_config_definitions current_definition ON current_definition.project_id = current_config.project_id
+  AND current_definition.id = current_config.definition_id
 WHERE process.org_id = $1
   AND process.machine_id = $2
   AND process.id = $3
   AND process.execution_spec->>'kind' = 'shell'
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
-  AND original_config.compiled_definition->'git_credentials' = current_config.compiled_definition->'git_credentials'
+  AND original_definition.compiled_definition->'git_credentials' = current_definition.compiled_definition->'git_credentials'
   AND EXISTS (
     SELECT 1
     FROM agent_events source_event
@@ -1153,7 +1157,7 @@ func (q *Queries) ListActiveProcesses(ctx context.Context, arg ListActiveProcess
 const listDaemonProcessOffers = `-- name: ListDaemonProcessOffers :many
 SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec,
        coalesce((CASE WHEN process.execution_spec->>'kind' = 'shell' THEN (
-         SELECT config.compiled_definition->'git_credentials'->>'integration_id'
+         SELECT definition.compiled_definition->'git_credentials'->>'integration_id'
          FROM tool_calls tool_call
          JOIN model_outputs output ON output.agent_id = tool_call.agent_id
            AND output.id = tool_call.model_output_id
@@ -1161,6 +1165,8 @@ SELECT process.id, process.org_id, process.project_id, process.agent_id, process
            AND context.id = output.model_call_context_id
          JOIN agent_configs config ON config.project_id = context.project_id
            AND config.id = context.agent_config_id
+         JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+           AND definition.id = config.definition_id
          WHERE tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
        ) END)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id
 FROM processes process

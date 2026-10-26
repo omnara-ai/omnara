@@ -479,7 +479,9 @@ func expectedLongTranscriptEvents(
 SELECT model.current_revision_id, revision.model_provider_config_id, revision.provider_model_slug
 FROM agents agent
 JOIN agent_configs config ON config.project_id = agent.project_id AND config.id = agent.current_config_id
-JOIN configured_models model ON model.org_id = config.org_id AND model.id = config.configured_model_id
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id
+JOIN configured_models model ON model.org_id = definition.org_id AND model.id = definition.configured_model_id
 JOIN configured_model_revisions revision ON revision.org_id = model.org_id
   AND revision.id = model.current_revision_id
 WHERE agent.id = $1`, lt.agentID).Scan(&model.ConfiguredModelRevisionID, &model.ModelProviderConfigID,
@@ -580,7 +582,9 @@ SELECT k, agent.id AS agent_id, agent.org_id, agent.project_id,
   k = $2::int - 2 AS call_b_excluded
 FROM agents agent
 JOIN agent_configs config ON config.project_id = agent.project_id AND config.id = agent.current_config_id
-JOIN configured_models model ON model.org_id = config.org_id AND model.id = config.configured_model_id
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id
+JOIN configured_models model ON model.org_id = definition.org_id AND model.id = definition.configured_model_id
 CROSS JOIN generate_series(0, $2::int - 1) k
 WHERE agent.id = $1`, lt.agentID, longTranscriptTurns, lt.configIDs[1])
 	require.NoError(t, err)

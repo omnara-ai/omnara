@@ -6,22 +6,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-func agentConfigRecordFromSQLC(row dbsqlc.AgentConfig) AgentConfigRecord {
-	return AgentConfigRecord{
-		ID:                      row.ID,
-		OrgID:                   row.OrgID,
-		ProjectID:               row.ProjectID,
-		Source:                  storeutil.TextOrEmpty(row.Source),
-		SourceFormat:            storeutil.TextOrEmpty(row.SourceFormat),
-		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
-		ConfiguredModelID:       row.ConfiguredModelID,
-		CompiledDefinition:      row.CompiledDefinition,
-		EffectiveDefinitionHash: row.EffectiveDefinitionHash,
-		CreatedAt:               row.CreatedAt,
-	}
-}
-
-func agentConfigRecordFromUpsertSQLC(row dbsqlc.UpsertAgentConfigByHashRow) AgentConfigRecord {
+func agentConfigRecordFromSQLC(row dbsqlc.GetAgentConfigRow) AgentConfigRecord {
 	return AgentConfigRecord{
 		ID:                      row.ID,
 		OrgID:                   row.OrgID,

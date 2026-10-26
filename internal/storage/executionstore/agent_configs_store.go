@@ -238,54 +238,32 @@ func insertAgentConfigTx(
 	if err := lockAndValidateAgentConfigModelContractTx(ctx, qtx, input); err != nil {
 		return AgentConfigRecord{}, err
 	}
-	row, err := qtx.UpsertAgentConfigByHash(
-		ctx,
-		dbsqlc.UpsertAgentConfigByHashParams{
-			OrgID:                   input.OrgID,
-			ProjectID:               input.ProjectID,
-			ConfiguredModelID:       input.ConfiguredModelID,
-			Source:                  storeutil.TextFromEmpty(input.Source),
-			SourceFormat:            storeutil.TextFromEmpty(input.SourceFormat),
-			SourceHash:              storeutil.TextFromEmpty(input.SourceHash),
-			CompiledDefinition:      input.CompiledDefinition,
-			EffectiveDefinitionHash: input.EffectiveDefinitionHash,
-		},
-	)
-	var record AgentConfigRecord
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		// Insert-or-select race: a concurrent transaction inserted the same hash
-		// and committed after our statement snapshot was taken, so ON CONFLICT
-		// DO NOTHING skipped the insert while the select branch could not see
-		// the committed row. Re-select on a fresh snapshot.
-		existing, selectErr := qtx.GetAgentConfigByHash(
-			ctx,
-			dbsqlc.GetAgentConfigByHashParams{
-				ProjectID:               input.ProjectID,
-				EffectiveDefinitionHash: input.EffectiveDefinitionHash,
-				SourceFormat:            storeutil.TextFromEmpty(input.SourceFormat),
-				SourceHash:              storeutil.TextFromEmpty(input.SourceHash),
-			},
-		)
-		if selectErr != nil {
-			return AgentConfigRecord{}, fmt.Errorf(
-				"reload agent config after upsert race: %w",
-				selectErr,
-			)
-		}
-		record = agentConfigRecordFromSQLC(existing)
-		record.Created = false
-	case err != nil:
-		return AgentConfigRecord{}, fmt.Errorf("upsert agent config: %w", err)
-	default:
-		record = agentConfigRecordFromUpsertSQLC(row)
-		record.Created = row.Inserted
+	definition, err := upsertAgentConfigDefinitionTx(ctx, qtx, input)
+	if err != nil {
+		return AgentConfigRecord{}, err
 	}
-	if !sameAgentConfigAuthority(record, input) {
+	if !sameAgentConfigDefinition(definition, input) {
 		return AgentConfigRecord{}, fmt.Errorf(
 			"agent config hash collision or canonicalization mismatch: %w",
 			storeerr.ErrIdempotencyConflict,
 		)
+	}
+	version, created, err := findOrInsertAgentConfigVersionTx(ctx, qtx, input, definition.ID)
+	if err != nil {
+		return AgentConfigRecord{}, err
+	}
+	record := AgentConfigRecord{
+		ID:                      version.ID,
+		OrgID:                   input.OrgID,
+		ProjectID:               input.ProjectID,
+		Source:                  input.Source,
+		SourceFormat:            input.SourceFormat,
+		SourceHash:              input.SourceHash,
+		ConfiguredModelID:       definition.ConfiguredModelID,
+		CompiledDefinition:      definition.CompiledDefinition,
+		EffectiveDefinitionHash: definition.EffectiveDefinitionHash,
+		CreatedAt:               version.CreatedAt,
+		Created:                 created,
 	}
 	if record.Created {
 		track(resourceguard.Creation{Kind: resourceguard.AgentConfigs, OrgID: input.OrgID, ProjectID: input.ProjectID})
@@ -331,13 +309,101 @@ func lockAndValidateAgentConfigModelContractTx(
 	return nil
 }
 
-func sameAgentConfigAuthority(record AgentConfigRecord, input CreateAgentConfigInput) bool {
-	return record.Source == input.Source &&
-		record.SourceFormat == input.SourceFormat &&
-		record.SourceHash == input.SourceHash &&
-		record.ConfiguredModelID == input.ConfiguredModelID &&
-		sameJSON(record.CompiledDefinition, input.CompiledDefinition) &&
-		record.EffectiveDefinitionHash == input.EffectiveDefinitionHash
+// upsertAgentConfigDefinitionTx returns the project's deduplicated definition
+// for the compiled config, inserting it if this is the first version to
+// compile to it.
+func upsertAgentConfigDefinitionTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CreateAgentConfigInput,
+) (dbsqlc.AgentConfigDefinition, error) {
+	row, err := qtx.UpsertAgentConfigDefinition(
+		ctx,
+		dbsqlc.UpsertAgentConfigDefinitionParams{
+			OrgID:                   input.OrgID,
+			ProjectID:               input.ProjectID,
+			ConfiguredModelID:       input.ConfiguredModelID,
+			CompiledDefinition:      input.CompiledDefinition,
+			EffectiveDefinitionHash: input.EffectiveDefinitionHash,
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Insert-or-select race: a concurrent transaction inserted the same hash
+		// and committed after our statement snapshot was taken, so ON CONFLICT
+		// DO NOTHING skipped the insert while the select branch could not see
+		// the committed row. Re-select on a fresh snapshot.
+		existing, selectErr := qtx.GetAgentConfigDefinitionByHash(
+			ctx,
+			dbsqlc.GetAgentConfigDefinitionByHashParams{
+				ProjectID:               input.ProjectID,
+				EffectiveDefinitionHash: input.EffectiveDefinitionHash,
+			},
+		)
+		if selectErr != nil {
+			return dbsqlc.AgentConfigDefinition{}, fmt.Errorf(
+				"reload agent config definition after upsert race: %w",
+				selectErr,
+			)
+		}
+		return existing, nil
+	}
+	if err != nil {
+		return dbsqlc.AgentConfigDefinition{}, fmt.Errorf("upsert agent config definition: %w", err)
+	}
+	return dbsqlc.AgentConfigDefinition(row), nil
+}
+
+// findOrInsertAgentConfigVersionTx returns the existing version with the same
+// source and definition, or records a new one. Versions are not unique in the
+// schema, because migrations may repoint two versions at one definition; the
+// advisory lock keeps concurrent identical creates from both inserting.
+func findOrInsertAgentConfigVersionTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CreateAgentConfigInput,
+	definitionID uuid.UUID,
+) (dbsqlc.FindAgentConfigVersionRow, bool, error) {
+	source := storeutil.TextFromEmpty(input.Source)
+	sourceFormat := storeutil.TextFromEmpty(input.SourceFormat)
+	sourceHash := storeutil.TextFromEmpty(input.SourceHash)
+	if err := qtx.LockAgentConfigVersionKey(ctx, dbsqlc.LockAgentConfigVersionKeyParams{
+		ProjectID:    input.ProjectID,
+		DefinitionID: definitionID,
+		SourceHash:   sourceHash,
+	}); err != nil {
+		return dbsqlc.FindAgentConfigVersionRow{}, false, fmt.Errorf("lock agent config version: %w", err)
+	}
+	existing, err := qtx.FindAgentConfigVersion(ctx, dbsqlc.FindAgentConfigVersionParams{
+		ProjectID:    input.ProjectID,
+		DefinitionID: definitionID,
+		SourceHash:   sourceHash,
+		SourceFormat: sourceFormat,
+		Source:       source,
+	})
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return dbsqlc.FindAgentConfigVersionRow{}, false, fmt.Errorf("find agent config version: %w", err)
+	}
+	inserted, err := qtx.InsertAgentConfigVersion(ctx, dbsqlc.InsertAgentConfigVersionParams{
+		OrgID:        input.OrgID,
+		ProjectID:    input.ProjectID,
+		DefinitionID: definitionID,
+		Source:       source,
+		SourceFormat: sourceFormat,
+		SourceHash:   sourceHash,
+	})
+	if err != nil {
+		return dbsqlc.FindAgentConfigVersionRow{}, false, fmt.Errorf("insert agent config version: %w", err)
+	}
+	return dbsqlc.FindAgentConfigVersionRow(inserted), true, nil
+}
+
+func sameAgentConfigDefinition(definition dbsqlc.AgentConfigDefinition, input CreateAgentConfigInput) bool {
+	return definition.ConfiguredModelID == input.ConfiguredModelID &&
+		sameJSON(definition.CompiledDefinition, input.CompiledDefinition) &&
+		definition.EffectiveDefinitionHash == input.EffectiveDefinitionHash
 }
 
 func loadAgentConfigTx(

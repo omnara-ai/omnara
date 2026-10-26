@@ -35,10 +35,22 @@ func TestOrganizationDeletionIncludesDeletedProjectPoolAgents(t *testing.T) {
 	var config uuid.UUID
 	require.NoError(t,
 		f.pool.QueryRow(ctx,
-			`INSERT INTO agent_configs(org_id,project_id,configured_model_id,source,source_format,source_hash,compiled_definition,effective_definition_hash,created_at)
- SELECT org_id,$1,configured_model_id,source,source_format,source_hash,compiled_definition,
- effective_definition_hash,now()
- FROM agent_configs WHERE id=$2 RETURNING id`,
+			`WITH original AS (
+  SELECT config.org_id,config.source,config.source_format,config.source_hash,
+         definition.configured_model_id,definition.compiled_definition,definition.effective_definition_hash
+  FROM agent_configs config
+  JOIN agent_config_definitions definition ON definition.project_id=config.project_id
+    AND definition.id=config.definition_id
+  WHERE config.id=$2
+), definition AS (
+  INSERT INTO agent_config_definitions(org_id,project_id,configured_model_id,compiled_definition,
+    effective_definition_hash,created_at)
+  SELECT org_id,$1,configured_model_id,compiled_definition,effective_definition_hash,now() FROM original
+  RETURNING id
+)
+INSERT INTO agent_configs(org_id,project_id,definition_id,source,source_format,source_hash,created_at)
+SELECT original.org_id,$1,definition.id,original.source,original.source_format,original.source_hash,now()
+FROM original, definition RETURNING id`,
 			project,
 			f.agent.CurrentConfigID).Scan(&config))
 	remaining, err := f.store.Execution().CreateAgentFixture(ctx,

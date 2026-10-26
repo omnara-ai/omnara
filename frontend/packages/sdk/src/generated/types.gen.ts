@@ -1430,7 +1430,7 @@ export type ResolvedAgentConfigTool = {
 };
 
 /**
- * An agent config to compile. YAML sources are stored verbatim, so comments and formatting survive; JSON sources, as text or as an object, are stored canonicalized, so the same JSON definition always maps to the same config.
+ * An agent config to compile. The source, YAML or JSON, as text or as a JSON object, is stored exactly as sent, so comments and formatting survive. Configs whose sources compile to the same definition share it, however their sources are formatted.
  */
 export type CreateAgentConfigRequest = {
     source: AgentConfigSourceInput;
@@ -1900,7 +1900,7 @@ export type AgentConfig = {
     org_id: OrganizationId;
     project_id: ProjectId;
     /**
-     * Saved source text. YAML sources keep their original text; JSON sources are stored canonicalized.
+     * Saved source text, exactly as sent.
      */
     source?: string;
     source_format?: 'yaml' | 'json';

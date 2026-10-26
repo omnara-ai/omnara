@@ -1218,7 +1218,7 @@ func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, 
 }
 
 // agentConfigSourceInput resolves a request's source and source_format into compiler input.
-// JSON is canonicalized, so the same definition maps to the same saved config however it was sent.
+// The source is kept exactly as sent; equivalent sources share a compiled definition instead.
 func agentConfigSourceInput(
 	sourceFormatRaw string,
 	source json.RawMessage,
@@ -1236,15 +1236,12 @@ func agentConfigSourceInput(
 		if err := json.Unmarshal(trimmed, &text); err != nil {
 			return "", "", fmt.Errorf("source must be a string or JSON object: %w", err)
 		}
-		if sourceFormat == agentconfig.SourceFormatJSON {
-			text = string(agentconfig.CanonicalDefinitionJSON([]byte(text)))
-		}
 		return sourceFormat, text, nil
 	case trimmed[0] == '{':
 		if sourceFormat != agentconfig.SourceFormatJSON {
 			return "", "", errors.New("a JSON object source requires source_format json")
 		}
-		return sourceFormat, string(agentconfig.CanonicalDefinitionJSON(trimmed)), nil
+		return sourceFormat, string(trimmed), nil
 	default:
 		return "", "", errors.New("source must be a string or JSON object")
 	}

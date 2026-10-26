@@ -122,25 +122,6 @@ func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	return parsed, err
 }
 
-func CanonicalDefinitionJSON(raw []byte) []byte {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return raw
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return raw
-	}
-	var canonical bytes.Buffer
-	encoder := json.NewEncoder(&canonical)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return raw
-	}
-	return bytes.TrimSuffix(canonical.Bytes(), []byte("\n"))
-}
-
 func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, *yaml.Node, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return AgentConfigSource{}, nil, errors.New("agent config source is required")
