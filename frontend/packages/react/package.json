@@ -26,7 +26,7 @@
     "@types/react": "^19.0.0",
     "ai": "7.0.143",
     "react": "19.3.0-canary-eb8feb71-20260814",
-    "typescript": "^5.6.0",
+    "typescript": "^7.0.2",
     "vitest": "5.0.5"
   }
 }
