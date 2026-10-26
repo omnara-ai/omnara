@@ -301,6 +301,13 @@ after accepting them for an agent. This means the input was accepted, not that
 the agent has finished. Reactions are best effort; a failed reaction does not
 prevent the agent from receiving the comment.
 
+With the **Checks** permission, the PR also shows a check named after your GitHub App:
+**Working** while the agent or its subagents run, **Waiting for input** when it needs
+an answer or approval, and **Finished** when it stops. The check follows work that
+GitHub starts: the PR opening, new commits and comments the agent receives. Follow-ups
+sent only through Omnara (the dashboard or API) don't update a finished check. Like
+reactions, check updates are best effort.
+
 GitHub does not automatically retry failed webhook deliveries. If Omnara cannot
 persist an event and returns a non-2xx response, explicitly
 [redeliver it from GitHub](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)

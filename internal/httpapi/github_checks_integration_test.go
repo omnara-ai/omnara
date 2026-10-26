@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
@@ -41,6 +42,54 @@ func newGitHubChecksJourney(t *testing.T, seed string) (githubHTTPJourney, map[s
 	return f, profile
 }
 
+type githubCheckRunRequest struct {
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	HeadSHA    string `json:"head_sha"`
+	DetailsURL string `json:"details_url"`
+	Output     struct {
+		Title   string `json:"title"`
+		Summary string `json:"summary"`
+	} `json:"output"`
+}
+
+func newGitHubChecksAPI(
+	t *testing.T, head func() string, denyChecks *atomic.Bool,
+	checkRun func(*http.Request, githubCheckRunRequest) any,
+) github.Config {
+	t.Helper()
+	repository := github.Repository{ID: 1001, Name: "repository", Owner: github.User{Login: "owner"}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var result any
+		switch {
+		case r.URL.Path == "/app/installations/456/access_tokens":
+			var grant struct {
+				Permissions map[string]string `json:"permissions"`
+			}
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&grant))
+			if grant.Permissions["checks"] != "" && denyChecks != nil && denyChecks.Load() {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+			}
+			result = map[string]any{"token": "token", "expires_at": "2099-01-01T00:00:00Z"}
+		case r.URL.Path == "/installation/repositories":
+			result = map[string]any{"total_count": 1, "repositories": []github.Repository{repository}}
+		case r.URL.Path == "/repos/owner/repository/pulls/42":
+			result = github.PullRequest{ID: 2042, Number: 42, Base: github.Branch{Repo: &repository},
+				Head: github.Branch{SHA: head()}}
+		case strings.HasPrefix(r.URL.Path, "/repos/owner/repository/check-runs"):
+			var body githubCheckRunRequest
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			result = checkRun(r, body)
+		default:
+			t.Errorf("unexpected GitHub request: %s %s", r.Method, r.URL.Path)
+		}
+		assert.NoError(t, json.NewEncoder(w).Encode(result))
+	}))
+	t.Cleanup(server.Close)
+	return github.Config{APIURL: server.URL, HTTPClient: server.Client()}
+}
+
 func TestGitHubCheckReconcilerTracksAgentActivity(t *testing.T) {
 	t.Parallel()
 	f, profile := newGitHubChecksJourney(t, "github-checks")
@@ -57,60 +106,27 @@ func TestGitHubCheckReconcilerTracksAgentActivity(t *testing.T) {
 		head = commit
 	}
 	var denyChecks atomic.Bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		repository := github.Repository{ID: 1001, Name: "repository", Owner: github.User{Login: "owner"}}
+	api := newGitHubChecksAPI(t, func() string {
 		mu.Lock()
 		defer mu.Unlock()
-		var result any
-		switch {
-		case r.URL.Path == "/app/installations/456/access_tokens":
-			var grant struct {
-				Permissions map[string]string `json:"permissions"`
-			}
-			assert.NoError(t, json.NewDecoder(r.Body).Decode(&grant))
-			if grant.Permissions["checks"] != "" && denyChecks.Load() {
-				w.WriteHeader(http.StatusUnprocessableEntity)
-			}
-			result = map[string]any{"token": "token", "expires_at": "2099-01-01T00:00:00Z"}
-		case r.URL.Path == "/installation/repositories":
-			result = map[string]any{"total_count": 1, "repositories": []github.Repository{repository}}
-		case r.URL.Path == "/repos/owner/repository/pulls/42":
-			result = github.PullRequest{ID: 2042, Number: 42, Base: github.Branch{Repo: &repository},
-				Head: github.Branch{SHA: head}}
-		case strings.HasPrefix(r.URL.Path, "/repos/owner/repository/check-runs"):
-			var body struct {
-				Name       string `json:"name"`
-				Status     string `json:"status"`
-				Conclusion string `json:"conclusion"`
-				HeadSHA    string `json:"head_sha"`
-				DetailsURL string `json:"details_url"`
-				Output     struct {
-					Title   string `json:"title"`
-					Summary string `json:"summary"`
-				} `json:"output"`
-			}
-			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-			calls = append(calls, strings.TrimSpace(fmt.Sprint(r.Method, " ", r.URL.Path, " ",
-				body.Status, body.Conclusion, " ", body.HeadSHA, " ", body.DetailsURL)))
-			titles = append(titles, body.Output.Title)
-			if len(calls) == 1 {
-				firstSummary, checkName = body.Output.Summary, body.Name
-			}
-			result = map[string]any{"id": len(calls)}
-			if hook := onClose; hook != nil && r.Method == http.MethodPatch {
-				onClose = nil
-				hook()
-			}
-		default:
-			t.Errorf("unexpected GitHub request: %s %s", r.Method, r.URL.Path)
+		return head
+	}, &denyChecks, func(r *http.Request, body githubCheckRunRequest) any {
+		mu.Lock()
+		defer mu.Unlock()
+		calls = append(calls, strings.TrimSpace(fmt.Sprint(r.Method, " ", r.URL.Path, " ",
+			body.Status, body.Conclusion, " ", body.HeadSHA, " ", body.DetailsURL)))
+		titles = append(titles, body.Output.Title)
+		if len(calls) == 1 {
+			firstSummary, checkName = body.Output.Summary, body.Name
 		}
-		assert.NoError(t, json.NewEncoder(w).Encode(result))
-	}))
-	t.Cleanup(server.Close)
+		if hook := onClose; hook != nil && r.Method == http.MethodPatch {
+			onClose = nil
+			hook()
+		}
+		return map[string]any{"id": len(calls)}
+	})
 	reconciler := &integrationruntime.GitHubCheckReconciler{
-		Store:     f.project.Store,
-		GitHub:    github.Config{APIURL: server.URL, HTTPClient: server.Client()},
-		PublicURL: "https://omnara.test",
+		Store: f.project.Store, GitHub: api, PublicURL: "https://omnara.test",
 	}
 	reconcile := func() { require.NoError(t, reconciler.Reconcile(t.Context())) }
 	makeIdle := func(agentID any) {
@@ -247,33 +263,23 @@ func TestGitHubCheckReconcilersShareOneCheck(t *testing.T) {
 	f, _ := newGitHubChecksJourney(t, "github-check-claims")
 	entered, release := make(chan struct{}), make(chan struct{})
 	var creates, closes atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		repository := github.Repository{ID: 1001, Name: "repository", Owner: github.User{Login: "owner"}}
-		var result any
-		switch {
-		case r.URL.Path == "/app/installations/456/access_tokens":
-			result = map[string]any{"token": "token", "expires_at": "2099-01-01T00:00:00Z"}
-		case r.URL.Path == "/installation/repositories":
-			result = map[string]any{"total_count": 1, "repositories": []github.Repository{repository}}
-		case r.URL.Path == "/repos/owner/repository/pulls/42":
-			result = github.PullRequest{ID: 2042, Number: 42, Base: github.Branch{Repo: &repository},
-				Head: github.Branch{SHA: strings.Repeat("b", 40)}}
-		case r.Method == http.MethodPost && r.URL.Path == "/repos/owner/repository/check-runs":
-			id := creates.Add(1)
-			if id == 1 {
-				close(entered)
-				<-release
+	api := newGitHubChecksAPI(t, func() string { return strings.Repeat("b", 40) }, nil,
+		func(r *http.Request, _ githubCheckRunRequest) any {
+			switch {
+			case r.Method == http.MethodPost:
+				id := creates.Add(1)
+				if id == 1 {
+					close(entered)
+					<-release
+				}
+				return map[string]any{"id": id}
+			case r.URL.Path == "/repos/owner/repository/check-runs/1":
+				closes.Add(1)
+				return map[string]any{"id": 1}
 			}
-			result = map[string]any{"id": id}
-		case r.Method == http.MethodPatch && r.URL.Path == "/repos/owner/repository/check-runs/1":
-			closes.Add(1)
-			result = map[string]any{"id": 1}
-		default:
-			t.Errorf("unexpected GitHub request: %s %s", r.Method, r.URL.Path)
-		}
-		assert.NoError(t, json.NewEncoder(w).Encode(result))
-	}))
-	t.Cleanup(server.Close)
+			t.Errorf("unexpected check run request: %s %s", r.Method, r.URL.Path)
+			return nil
+		})
 	var unblock sync.Once
 	t.Cleanup(func() { unblock.Do(func() { close(release) }) })
 	raw := githubHTTPPullRequest(t, 42, "opened")
@@ -281,7 +287,7 @@ func TestGitHubCheckReconcilersShareOneCheck(t *testing.T) {
 	require.Len(t, f.consume(t, raw), 1)
 	reconciler := func() *integrationruntime.GitHubCheckReconciler {
 		return &integrationruntime.GitHubCheckReconciler{
-			Store: f.project.Store, GitHub: github.Config{APIURL: server.URL, HTTPClient: server.Client()},
+			Store: f.project.Store, GitHub: api,
 		}
 	}
 	first, second := reconciler(), reconciler()
@@ -311,4 +317,33 @@ func TestGitHubCheckReconcilersShareOneCheck(t *testing.T) {
 	require.Len(t, runs, 1)
 	require.False(t, runs[0].Unfinished)
 	require.Equal(t, int64(2), runs[0].Run)
+}
+
+func TestGitHubCheckReconcilerUpdatesTheWaitingCheck(t *testing.T) {
+	t.Parallel()
+	f, _ := newGitHubChecksJourney(t, "github-check-waiting")
+	ctx := t.Context()
+	agentID, _ := createHTTPStructuredQuestionInteraction(t, ctx, integrationPoolForHandler(t, f.handler),
+		f.project.Store, f.project.OrgUUID, f.project.ProjectUUID, time.Now())
+	require.NoError(t, f.project.Store.Integrations().MarkGitHubCheckRun(ctx, f.project.ProjectUUID, f.integration.ID,
+		agentID, integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}, false))
+	var mu sync.Mutex
+	var calls []string
+	api := newGitHubChecksAPI(t, func() string { return strings.Repeat("b", 40) }, nil,
+		func(r *http.Request, body githubCheckRunRequest) any {
+			mu.Lock()
+			defer mu.Unlock()
+			calls = append(calls, strings.TrimSpace(fmt.Sprint(r.Method, " ", r.URL.Path, " ", body.Status, body.Conclusion)))
+			return map[string]any{"id": 1}
+		})
+	reconciler := &integrationruntime.GitHubCheckReconciler{Store: f.project.Store, GitHub: api}
+	require.NoError(t, reconciler.Reconcile(ctx))
+	requestJSONWithHeaders(t, f.handler, http.MethodPost,
+		f.project.ProjectPath+"/agents/"+testPublicID(t, publicid.KindAgent, agentID)+"/archive", "", "",
+		http.StatusOK, authHeaders(f.project.AdminToken))
+	require.NoError(t, reconciler.Reconcile(ctx))
+	require.Equal(t, []string{
+		"POST /repos/owner/repository/check-runs completedaction_required",
+		"PATCH /repos/owner/repository/check-runs/1 neutral",
+	}, calls, "finishing after a question updates the waiting check instead of adding another")
 }
