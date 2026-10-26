@@ -112,11 +112,12 @@ func TestPendingReadSuppressesExitNotification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create read action: %v", err)
 	}
-	if _, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(ctx, executionstore.AcceptDaemonProcessActionInput{
+	accept := executionstore.AcceptDaemonProcessActionInput{
 		Authority: fixture.authority(),
 		ProcessID: process.ID,
 		ID:        read.ID,
-	}); err != nil || !found {
+	}
+	if _, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(ctx, accept); err != nil || !found {
 		t.Fatalf("accept read found=%t err=%v", found, err)
 	}
 
