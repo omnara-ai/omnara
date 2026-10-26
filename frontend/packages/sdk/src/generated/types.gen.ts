@@ -2219,7 +2219,7 @@ export type AgentActivity = {
 };
 
 /**
- * Background work that will wake the agent, at most 20 of each kind. Processes are commands the agent left running that send it a message when they end; they stop counting an hour after they started. Subagents are active children that are still working.
+ * Background work that will wake the agent, at most 20 of each kind. Processes are commands the agent left running that send it a message when they end; they count until they end. Subagents are active children that are still working.
  */
 export type AgentWaitingOn = {
     process_ids: Array<ProcessId>;

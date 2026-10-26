@@ -24,7 +24,6 @@ const (
 	outputMatchMaxReports   = 50
 )
 
-// outputSpan is the output from start to end.
 type outputSpan struct {
 	start, end int64
 }
@@ -122,7 +121,6 @@ func (m *outputMatcher) consider(line string, shown bool) {
 	m.pending = append(m.pending, line)
 }
 
-// due reports whether pending matches should be reported now.
 func (m *outputMatcher) due(final bool) bool {
 	if len(m.pending) == 0 && m.dropped == 0 {
 		return false
@@ -135,7 +133,6 @@ func (m *outputMatcher) due(final bool) bool {
 		(m.lastReport.IsZero() || now.Sub(m.lastReport) >= outputMatchMinInterval)
 }
 
-// take returns the next report's sequence and result and clears the pending matches.
 func (m *outputMatcher) take() (int64, daemonprotocol.OutputMatchResult) {
 	m.seq++
 	result := daemonprotocol.OutputMatchResult{

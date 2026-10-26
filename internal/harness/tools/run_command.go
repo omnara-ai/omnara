@@ -36,8 +36,7 @@ type resolvedRunCommandRequest struct {
 	IOMode    processcmd.IOMode
 	Detach    bool
 	// Stdin keeps a pipe command's stdin open for write_process.
-	Stdin bool
-	// NotifyMatch is a regular expression for output lines to report.
+	Stdin       bool
 	NotifyMatch string
 }
 

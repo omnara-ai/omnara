@@ -60,7 +60,6 @@ func (o observation) split() bool { return o.TailCursor > 0 }
 
 func (o observation) complete() bool { return o.Output != nil && o.NextCursor != nil }
 
-// validateRange checks that the output fits its byte range and maxBytes.
 // Replacement symbols for NUL and invalid UTF-8 count as one raw byte.
 func (o observation) validateRange(maxBytes int) error {
 	cursor, next := o.Cursor, *o.NextCursor

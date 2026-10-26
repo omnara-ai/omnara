@@ -264,7 +264,6 @@ func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 	return status
 }
 
-// agentActivityState returns the state and, for waiting_on_work, what the agent waits on.
 func agentActivityState(
 	archived, hasOpenQuestion, hasOpenPermission, isRunning bool,
 	waitingOn AgentWaitingOn,

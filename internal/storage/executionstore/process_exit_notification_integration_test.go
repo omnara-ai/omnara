@@ -99,7 +99,7 @@ func TestPendingReadSuppressesExitNotification(t *testing.T) {
 	process := startBackgroundProcessForTest(t, ctx, fixture, "pending_read_exit_silent", true)
 
 	readToolCallID := createToolCallForProcessTest(t, ctx, fixture, "pending_read_exit_silent_read", "read_process")
-	if _, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+	read, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
 		ToolCallID:    readToolCallID,
@@ -108,12 +108,20 @@ func TestPendingReadSuppressesExitNotification(t *testing.T) {
 		ProcessID:  process.ID,
 		ActionKind: executionstore.ProcessActionKindRead,
 		Payload:    json.RawMessage(`{"wait_ms":300000}`),
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create read action: %v", err)
+	}
+	if _, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(ctx, executionstore.AcceptDaemonProcessActionInput{
+		Authority: fixture.authority(),
+		ProcessID: process.ID,
+		ID:        read.ID,
+	}); err != nil || !found {
+		t.Fatalf("accept read found=%t err=%v", found, err)
 	}
 
 	exitCode := 0
-	if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, executionstore.CompleteDaemonProcessInput{
+	completion := executionstore.CompleteDaemonProcessInput{
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
 		ID:            process.ID,
@@ -122,11 +130,30 @@ func TestPendingReadSuppressesExitNotification(t *testing.T) {
 		ExitCode:      &exitCode,
 		Result:        json.RawMessage(`{"state":"exited","output":"done\n","cursor":0,"next_cursor":5,"truncated":false,"done":true}`),
 		SourceEndedAt: fixture.Now.Add(65 * time.Second),
-	}); err != nil {
+	}
+	if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completion); err != nil {
 		t.Fatalf("complete process: %v", err)
 	}
 	if texts := processNotificationTexts(t, ctx, fixture); len(texts) != 0 {
 		t.Fatalf("process with a pending read sent notifications: %q", texts)
+	}
+
+	if _, err := fixture.Store.Execution().FailDaemonProcessAction(ctx, executionstore.CompleteDaemonProcessActionInput{
+		ProjectID:          testProjectID,
+		AgentID:            fixture.AgentID,
+		ProcessID:          process.ID,
+		ID:                 read.ID,
+		Authority:          fixture.authority(),
+		StateReasonCode:    "output_unavailable",
+		StateReasonMessage: "the retained output file is missing",
+	}); err != nil {
+		t.Fatalf("finish read: %v", err)
+	}
+	if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completion); err != nil {
+		t.Fatalf("replay completion: %v", err)
+	}
+	if texts := processNotificationTexts(t, ctx, fixture); len(texts) != 0 {
+		t.Fatalf("replay after the read finished sent notifications: %q", texts)
 	}
 }
 
@@ -191,7 +218,7 @@ func TestOnlyEffectiveStopSuppressesExitNotification(t *testing.T) {
 			}
 
 			exitCode := 0
-			if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, executionstore.CompleteDaemonProcessInput{
+			completion := executionstore.CompleteDaemonProcessInput{
 				ProjectID:     testProjectID,
 				AgentID:       fixture.AgentID,
 				ID:            process.ID,
@@ -200,11 +227,27 @@ func TestOnlyEffectiveStopSuppressesExitNotification(t *testing.T) {
 				ExitCode:      &exitCode,
 				Result:        json.RawMessage(`{"state":"exited","output":"","cursor":0,"next_cursor":0,"truncated":false,"done":true}`),
 				SourceEndedAt: fixture.Now.Add(65 * time.Second),
-			}); err != nil {
+			}
+			if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completion); err != nil {
 				t.Fatalf("complete process: %v", err)
 			}
 			if texts := processNotificationTexts(t, ctx, fixture); (len(texts) == 1) != tc.notify {
 				t.Fatalf("notify = %v, notifications = %q", tc.notify, texts)
+			}
+
+			// A replay after the stop settles or ages out keeps the first decision.
+			if _, err := fixture.Store.pool.Exec(ctx,
+				`UPDATE process_actions SET state = 'failed', updated_at = now() - interval '1 minute',
+				 state_reason_code = coalesce(state_reason_code, 'process_not_running')
+				 WHERE agent_id = $1 AND id = $2`, fixture.AgentID, action.ID,
+			); err != nil {
+				t.Fatalf("age stop action: %v", err)
+			}
+			if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completion); err != nil {
+				t.Fatalf("replay completion: %v", err)
+			}
+			if texts := processNotificationTexts(t, ctx, fixture); (len(texts) == 1) != tc.notify {
+				t.Fatalf("after replay notify = %v, notifications = %q", tc.notify, texts)
 			}
 		})
 	}
@@ -329,8 +372,8 @@ UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = fal
 	if err != nil {
 		t.Fatalf("get activity: %v", err)
 	}
-	if activity.State != executionstore.SubagentStateIdle || !activity.WaitingOn.Empty() {
-		t.Fatalf("activity after an hour = %+v, want idle", activity)
+	if activity.State != executionstore.SubagentStateWaitingOnWork || len(activity.WaitingOn.ProcessIDs) != 1 {
+		t.Fatalf("activity after two hours = %+v, want waiting_on_work", activity)
 	}
 }
 

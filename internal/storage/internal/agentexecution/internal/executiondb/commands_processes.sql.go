@@ -14,6 +14,20 @@ import (
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
+const markProcessExitNoticeDecided = `-- name: MarkProcessExitNoticeDecided :exec
+UPDATE processes SET exit_notice_decided=true WHERE agent_id=$1 AND id=$2
+`
+
+type MarkProcessExitNoticeDecidedParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+func (q *Queries) MarkProcessExitNoticeDecided(ctx context.Context, db DBTX, arg MarkProcessExitNoticeDecidedParams) error {
+	_, err := db.Exec(ctx, markProcessExitNoticeDecided, arg.AgentID, arg.ID)
+	return err
+}
+
 const readExecutionActionOwner = `-- name: ReadExecutionActionOwner :one
 SELECT a.id,a.process_id,a.tool_call_id,a.action_kind,a.seq,a.payload,a.state,a.state_reason_code,a.state_reason_message,
  EXISTS(SELECT 1 FROM process_actions earlier WHERE earlier.agent_id=a.agent_id AND earlier.process_id=a.process_id
@@ -59,7 +73,7 @@ func (q *Queries) ReadExecutionActionOwner(ctx context.Context, db DBTX, arg Rea
 
 const readExecutionProcessOwner = `-- name: ReadExecutionProcessOwner :one
 SELECT p.id,p.org_id,p.machine_id,p.tool_call_id,p.state,p.state_reason_code,p.state_reason_message,p.exit_code,
- p.exit_signal,p.execution_spec,p.execution_granted_at,p.source_started_at,p.source_ended_at,p.default_output_cursor,p.notify_on_exit,p.notify_match,
+ p.exit_signal,p.execution_spec,p.execution_granted_at,p.source_started_at,p.source_ended_at,p.default_output_cursor,p.notify_on_exit,p.notify_match,p.exit_notice_decided,
  -- A stop counts while it is in flight, once a terminate is applied, or for 30 seconds after an
  -- interrupt is applied; a program still running after that survived the interrupt.
  EXISTS(SELECT 1 FROM process_actions a WHERE a.agent_id=p.agent_id AND a.process_id=p.id
@@ -92,6 +106,7 @@ type ReadExecutionProcessOwnerRow struct {
 	DefaultOutputCursor int64
 	NotifyOnExit        bool
 	NotifyMatch         string
+	ExitNoticeDecided   bool
 	StopRequested       bool
 	ReadPending         bool
 }
@@ -116,6 +131,7 @@ func (q *Queries) ReadExecutionProcessOwner(ctx context.Context, db DBTX, arg Re
 		&i.DefaultOutputCursor,
 		&i.NotifyOnExit,
 		&i.NotifyMatch,
+		&i.ExitNoticeDecided,
 		&i.StopRequested,
 		&i.ReadPending,
 	)

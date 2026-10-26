@@ -29,11 +29,7 @@ SELECT EXISTS (
       LIMIT 1
     ), agent.created_at) < coalesce($3::timestamptz, statement_timestamp())
       - make_interval(mins => agent.archive_after_idle_minutes)
-    AND NOT agent_subtree_has_work(
-      agent.project_id,
-      agent.id,
-      coalesce($3::timestamptz, statement_timestamp())
-    )
+    AND NOT agent_subtree_has_work(agent.project_id, agent.id)
 )::boolean AS idle
 `
 
@@ -181,7 +177,7 @@ SELECT agent.id,
        )::boolean AS is_running,
        ARRAY(
          SELECT process.id
-         FROM agent_background_processes(agent.project_id, agent.id, statement_timestamp()) process
+         FROM agent_background_processes(agent.project_id, agent.id) process
          ORDER BY process.created_at, process.id
          LIMIT 20
        )::uuid[] AS background_process_ids,
@@ -191,7 +187,7 @@ SELECT agent.id,
          WHERE child.project_id = agent.project_id
            AND child.parent_agent_id = agent.id
            AND child.state = 'active'
-           AND agent_subtree_has_work(child.project_id, child.id, statement_timestamp())
+           AND agent_subtree_has_work(child.project_id, child.id)
          ORDER BY child.created_at, child.id
          LIMIT 20
        )::uuid[] AS working_subagent_ids
@@ -427,7 +423,7 @@ SELECT agent.id,
        )::boolean AS is_running,
        ARRAY(
          SELECT process.id
-         FROM agent_background_processes(agent.project_id, agent.id, statement_timestamp()) process
+         FROM agent_background_processes(agent.project_id, agent.id) process
          ORDER BY process.created_at, process.id
          LIMIT 20
        )::uuid[] AS background_process_ids,
@@ -437,7 +433,7 @@ SELECT agent.id,
          WHERE child.project_id = agent.project_id
            AND child.parent_agent_id = agent.id
            AND child.state = 'active'
-           AND agent_subtree_has_work(child.project_id, child.id, statement_timestamp())
+           AND agent_subtree_has_work(child.project_id, child.id)
          ORDER BY child.created_at, child.id
          LIMIT 20
        )::uuid[] AS working_subagent_ids
@@ -510,23 +506,19 @@ WITH candidate AS (
       WHERE event.agent_id = agent.id
       ORDER BY event.sequence DESC
       LIMIT 1
-    ), agent.created_at) < coalesce($1::timestamptz, statement_timestamp())
+    ), agent.created_at) < coalesce($2::timestamptz, statement_timestamp())
       - make_interval(mins => agent.archive_after_idle_minutes)
 )
 SELECT candidate.project_id, candidate.id
 FROM candidate
-WHERE NOT agent_subtree_has_work(
-  candidate.project_id,
-  candidate.id,
-  coalesce($1::timestamptz, statement_timestamp())
-)
+WHERE NOT agent_subtree_has_work(candidate.project_id, candidate.id)
 ORDER BY candidate.created_at, candidate.id
-LIMIT $2::integer
+LIMIT $1::integer
 `
 
 type ListIdleAgentsForArchiveParams struct {
-	AsOf     *time.Time
 	RowLimit int32
+	AsOf     *time.Time
 }
 
 type ListIdleAgentsForArchiveRow struct {
@@ -535,7 +527,7 @@ type ListIdleAgentsForArchiveRow struct {
 }
 
 func (q *Queries) ListIdleAgentsForArchive(ctx context.Context, arg ListIdleAgentsForArchiveParams) ([]ListIdleAgentsForArchiveRow, error) {
-	rows, err := q.db.Query(ctx, listIdleAgentsForArchive, arg.AsOf, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listIdleAgentsForArchive, arg.RowLimit, arg.AsOf)
 	if err != nil {
 		return nil, err
 	}
