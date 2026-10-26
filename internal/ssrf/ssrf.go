@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 )
 
 var ErrBlockedAddress = errors.New("ssrf: address blocked")
@@ -23,11 +24,60 @@ func ClassifyURLHost(host string) URLHost {
 	}
 }
 
-func IsAllowedIP(ip net.IP, allowLoopback bool) bool {
+// allowedPrefixes is the operator-managed egress allowlist configured via
+// OMNARA_ALLOWED_PRIVATE_CIDRS. It is installed once at process startup via
+// SetAllowedPrefixes and consulted by every policy check, including the
+// dial-time check in Dial, so DNS rebinding stays blocked: every connection
+// re-resolves and is re-checked against the same prefixes. Held atomically so
+// reads on the request path can never race a (re)configuration.
+var allowedPrefixes atomic.Pointer[[]netip.Prefix]
+
+// SetAllowedPrefixes installs the operator-managed network allowlist for the
+// whole process. Call it once during startup before any outbound traffic.
+func SetAllowedPrefixes(prefixes []netip.Prefix) {
+	if prefixes == nil {
+		allowedPrefixes.Store(nil)
+		return
+	}
+	allowedPrefixes.Store(&prefixes)
+}
+
+func loadAllowedPrefixes() []netip.Prefix {
+	if p := allowedPrefixes.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// IsAllowedPrefix reports whether an IP literal falls inside one of the
+// operator-allowlisted prefixes, including IPv4 embedded in IPv6 forms. It is
+// meant for save-time host classification; the authoritative enforcement point
+// stays in Dial, which checks resolved IPs on every connection.
+func IsAllowedPrefix(ip net.IP) bool {
+	return isAllowedPrefixIn(loadAllowedPrefixes(), ip)
+}
+
+func isAllowedPrefixIn(prefixes []netip.Prefix, ip net.IP) bool {
+	if len(prefixes) == 0 {
+		return false
+	}
 	if v4 := ip.To4(); v4 != nil {
 		ip = v4
 	} else if ip.To16() == nil {
 		return false
+	}
+	return prefixesAllowIP(prefixes, ip) || embeddedPrefixesAllowIP(prefixes, ip)
+}
+
+func IsAllowedIP(ip net.IP, allowLoopback bool) bool {
+	prefixes := loadAllowedPrefixes()
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	} else if ip.To16() == nil {
+		return false
+	}
+	if isAllowedPrefixIn(prefixes, ip) {
+		return true
 	}
 	if ip.IsLoopback() {
 		return allowLoopback
@@ -44,6 +94,60 @@ func IsAllowedIP(ip net.IP, allowLoopback bool) bool {
 		}
 	}
 	return true
+}
+
+// HostPermitsPlainHTTP is the save-time gate for plain HTTP on operator-owned
+// URLs (model provider base URLs, MCP endpoints, event webhooks). A literal IP
+// must sit inside the operator allowlist. Other hostnames are accepted whenever
+// an allowlist is configured, deferring to dial-time enforcement: the API and
+// worker may see different DNS views for internal names, so save-time resolution
+// would fight the dial gate or break registration outright. Dial re-resolves and
+// re-checks every connection, so a name that later resolves outside the allowlist
+// cannot reach blocked ranges.
+func HostPermitsPlainHTTP(host string) bool {
+	prefixes := loadAllowedPrefixes()
+	if len(prefixes) == 0 {
+		return false
+	}
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if host == "" {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return isAllowedPrefixIn(prefixes, ip)
+	}
+	return true
+}
+
+// LiteralIPInAllowedPrefix reports whether a hostname is a literal IP inside the
+// operator allowlist. Unlike HostPermitsPlainHTTP it accepts no hostnames, which
+// makes it the right gate for URLs that operators do not control (web fetch
+// targets chosen by models).
+func LiteralIPInAllowedPrefix(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if host == "" {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && IsAllowedPrefix(ip)
+}
+
+func prefixesAllowIP(prefixes []netip.Prefix, ip net.IP) bool {
+	for _, prefix := range prefixes {
+		if cidrContains(prefix, ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func embeddedPrefixesAllowIP(prefixes []netip.Prefix, ip net.IP) bool {
+	for _, embedded := range embeddedIPv4Addresses(ip) {
+		if prefixesAllowIP(prefixes, embedded) {
+			return true
+		}
+	}
+	return false
 }
 
 // blockedPrefixes supplements net.IP's broad classifications with a

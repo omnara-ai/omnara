@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -94,6 +95,7 @@ type Config struct {
 	PublicAPIURL                      string
 	BillingURL                        string
 	TrustedProxyCIDRs                 []string
+	AllowedPrivateCIDRs               []string
 	APIRateLimitReadsPerHour          int
 	APIRateLimitWritesPerHour         int
 	APIRateLimitBurst                 int
@@ -321,6 +323,7 @@ func Load() (Config, error) {
 		PublicAPIURL:                      publicAPIURL,
 		BillingURL:                        normalizePublicURL(getenv("OMNARA_BILLING_URL", "")),
 		TrustedProxyCIDRs:                 getenvCSV("OMNARA_TRUSTED_PROXY_CIDRS"),
+		AllowedPrivateCIDRs:               getenvCSV("OMNARA_ALLOWED_PRIVATE_CIDRS"),
 		APIRateLimitReadsPerHour:          apiRateLimitReadsPerHour,
 		APIRateLimitWritesPerHour:         apiRateLimitWritesPerHour,
 		APIRateLimitBurst:                 apiRateLimitBurst,
@@ -470,6 +473,39 @@ func normalizePublicURL(raw string) string {
 	return strings.TrimRight(strings.TrimSpace(raw), "/")
 }
 
+// AllowedPrivatePrefixes parses the OMNARA_ALLOWED_PRIVATE_CIDRS egress
+// allowlist into netip prefixes and returns warnings for risky ranges such as
+// the catch-all 0.0.0.0/0 or ranges that include the cloud metadata endpoint.
+// An unset allowlist yields nil and the strict default posture is preserved.
+func (cfg Config) AllowedPrivatePrefixes() ([]netip.Prefix, []string, error) {
+	if len(cfg.AllowedPrivateCIDRs) == 0 {
+		return nil, nil, nil
+	}
+	prefixes := make([]netip.Prefix, 0, len(cfg.AllowedPrivateCIDRs))
+	var warnings []string
+	for _, raw := range cfg.AllowedPrivateCIDRs {
+		prefix, err := netip.ParsePrefix(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parse OMNARA_ALLOWED_PRIVATE_CIDRS: %w", err)
+		}
+		prefix = prefix.Masked()
+		prefixes = append(prefixes, prefix)
+		if prefix.Bits() == 0 {
+			warnings = append(warnings, fmt.Sprintf(
+				"OMNARA_ALLOWED_PRIVATE_CIDRS includes %s which allows outbound requests to every address",
+				prefix,
+			))
+		}
+		if prefix.Contains(netip.MustParseAddr("169.254.169.254")) {
+			warnings = append(warnings, fmt.Sprintf(
+				"OMNARA_ALLOWED_PRIVATE_CIDRS includes %s which reaches the cloud metadata endpoint 169.254.169.254",
+				prefix,
+			))
+		}
+	}
+	return prefixes, warnings, nil
+}
+
 func (cfg Config) ValidateAPI() error {
 	if err := validatePortWithName("OMNARA_API_ADDR", cfg.APIAddr); err != nil {
 		return err
@@ -545,6 +581,9 @@ func (cfg Config) ValidateAPI() error {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
 			return fmt.Errorf("parse OMNARA_TRUSTED_PROXY_CIDRS: %w", err)
 		}
+	}
+	if _, _, err := cfg.AllowedPrivatePrefixes(); err != nil {
+		return err
 	}
 	if cfg.APIRateLimitReadsPerHour < 0 || cfg.APIRateLimitWritesPerHour < 0 {
 		return fmt.Errorf(
@@ -716,6 +755,9 @@ func (cfg Config) ValidateWorker() error {
 		)
 	}
 	if err := cfg.validatePublicURL(true); err != nil {
+		return err
+	}
+	if _, _, err := cfg.AllowedPrivatePrefixes(); err != nil {
 		return err
 	}
 	if !filepath.IsAbs(cfg.MemoryDir) {

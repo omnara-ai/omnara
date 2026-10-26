@@ -168,6 +168,27 @@ timeout. Explicit values in `OMNARA_DATABASE_URL` take precedence.
 | `OMNARA_WEB_SERVING` | `embedded` serves a SPA compiled into `cmd/api`; `disabled` leaves web assets to a separate service. The official cluster API image contains no frontend assets and sets this to `disabled`; the cluster web image serves only static assets and does not proxy API traffic. | `disabled` | No |
 | `OMNARA_TRUSTED_PROXY_CIDRS` | Comma-separated proxy/load-balancer hop CIDRs whose `X-Forwarded-For`/`X-Real-IP` are trusted for auth rate limiting. Only hops you control. | — | No |
 
+## Private network egress
+
+Omnara blocks outbound requests to private and special-use IP ranges (SSRF
+protection) by default. `OMNARA_ALLOWED_PRIVATE_CIDRS` lets a self-hosted single
+operator allow specific ranges so it can reach model endpoints (and other egress
+targets) on a private local cloud, including plain HTTP endpoints.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_ALLOWED_PRIVATE_CIDRS` | Comma-separated CIDRs that outbound requests (model provider endpoints, model discovery, web fetch, MCP servers, event webhooks) may reach even when private/special-use. `http://` is accepted for hosts inside these ranges. Unset blocks all private ranges; `0.0.0.0/0` disables SSRF protection entirely and logs a loud startup warning. | — | No |
+
+:::warning
+This is for single-operator self-hosted installs only. Do not set it on
+multi-tenant deployments: agent-controlled web fetches can pivot into any
+allowlisted range (prompt injection against a wide `/16` reaches routers, NAS,
+panels). Allowlist the narrowest ranges you need; allowlisting a range that
+includes `169.254.169.254` exposes cloud metadata credentials. Set the same value
+on the API and worker. Every connection is re-resolved and re-checked at dial time,
+so DNS rebinding stays blocked.
+:::
+
 ## API rate limits
 
 Limits apply per user, per org for org API keys, and per machine for machine daemons.

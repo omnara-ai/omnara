@@ -1,8 +1,12 @@
 package ssrf
 
 import (
+	"context"
+	"errors"
 	"net"
+	"net/netip"
 	"testing"
+	"time"
 )
 
 func TestClassifyURLHost(t *testing.T) {
@@ -107,5 +111,88 @@ func TestIsAllowedIPBlocksSpecialUseRanges(t *testing.T) {
 	}
 	if IsAllowedIP(nil, false) {
 		t.Fatal("invalid IP accepted")
+	}
+}
+
+func TestAllowedPrefixesGrantAccess(t *testing.T) {
+	SetAllowedPrefixes([]netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/8"),
+		netip.MustParsePrefix("fd00::/8"),
+	})
+	t.Cleanup(func() { SetAllowedPrefixes(nil) })
+
+	tests := []struct {
+		name          string
+		ip            string
+		allowLoopback bool
+		want          bool
+	}{
+		{name: "allowlisted private", ip: "10.0.5.21", want: true},
+		{name: "allowlisted private outside dev", ip: "10.0.5.21", want: true},
+		{name: "private outside allowlist still blocked", ip: "192.168.1.1"},
+		{name: "ipv4-compatible allowlisted", ip: "::10.0.5.21", want: true},
+		{name: "nat64 embedded allowlisted", ip: "64:ff9b::10.0.5.21", want: true},
+		{name: "6to4 embedded allowlisted", ip: "2002:0a00:0515::", want: true},
+		{name: "ipv4-mapped allowlisted", ip: "::ffff:10.0.5.21", want: true},
+		{name: "allowlisted ipv6 ula", ip: "fd00::5", want: true},
+		{name: "ipv4-compatible private outside allowlist", ip: "::192.168.1.1"},
+		{name: "nat64 embedded private outside allowlist", ip: "64:ff9b::192.168.1.1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ip := net.ParseIP(tc.ip)
+			if ip == nil {
+				t.Fatalf("parse %s", tc.ip)
+			}
+			if got := IsAllowedIP(ip, tc.allowLoopback); got != tc.want {
+				t.Fatalf("IsAllowedIP(%s, %v) = %v, want %v", tc.ip, tc.allowLoopback, got, tc.want)
+			}
+		})
+	}
+
+	if IsAllowedPrefix(net.ParseIP("169.254.169.254")) {
+		t.Fatal("metadata endpoint inside allowlist")
+	}
+	if !IsAllowedPrefix(net.ParseIP("10.9.9.9")) {
+		t.Fatal("allowlisted literal rejected")
+	}
+	if !HostPermitsPlainHTTP("10.0.5.21") {
+		t.Fatal("allowlisted host literal rejected")
+	}
+	if HostPermitsPlainHTTP("192.168.1.1") {
+		t.Fatal("non-allowlisted host literal accepted")
+	}
+	// Save-time accepts names that do not resolve (the API/worker DNS-view
+	// divergence means we can't validate them here); enforcement is at dial time.
+	if !HostPermitsPlainHTTP("does-not-exist.invalid") {
+		t.Fatal("unresolvable name rejected at save time")
+	}
+}
+
+func TestDialUsesAllowlist(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = listener.Close() }()
+
+	SetAllowedPrefixes([]netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")})
+	t.Cleanup(func() { SetAllowedPrefixes(nil) })
+
+	conn, err := Dial(
+		context.Background(),
+		&net.Dialer{Timeout: 2 * time.Second},
+		"tcp",
+		listener.Addr().String(),
+		false,
+	)
+	if err != nil {
+		t.Fatalf("allowlisted loopback dial rejected: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := Dial(context.Background(), &net.Dialer{Timeout: time.Second}, "tcp", "10.0.0.1:1", false); !errors.Is(
+		err, ErrBlockedAddress,
+	) {
+		t.Fatalf("non-allowlisted private dial error = %v, want ErrBlockedAddress", err)
 	}
 }

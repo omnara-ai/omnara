@@ -571,6 +571,68 @@ func TestValidateAPITrustedProxyCIDRs(t *testing.T) {
 	}
 }
 
+func TestAllowedPrivatePrefixes(t *testing.T) {
+	prefixes, warnings, err := Config{}.AllowedPrivatePrefixes()
+	if err != nil || prefixes != nil || warnings != nil {
+		t.Fatalf("unset allowlist = (%v, %v, %v), want nil, nil, nil", prefixes, warnings, err)
+	}
+
+	prefixes, warnings, err = Config{AllowedPrivateCIDRs: []string{"10.0.0.0/8"}}.AllowedPrivatePrefixes()
+	if err != nil {
+		t.Fatalf("valid allowlist: %v", err)
+	}
+	if len(prefixes) != 1 || len(warnings) != 0 {
+		t.Fatalf("prefixes=%v warnings=%v, want 1 prefix and no warnings", prefixes, warnings)
+	}
+
+	masked, _, err := Config{AllowedPrivateCIDRs: []string{"10.1.2.3/8"}}.AllowedPrivatePrefixes()
+	if err != nil {
+		t.Fatalf("unmasked allowlist: %v", err)
+	}
+	if masked[0].String() != "10.0.0.0/8" {
+		t.Fatalf("masked[0]=%s, want masked 10.0.0.0/8", masked[0])
+	}
+
+	_, warnings, err = Config{AllowedPrivateCIDRs: []string{"0.0.0.0/0"}}.AllowedPrivatePrefixes()
+	if err != nil {
+		t.Fatalf("catch-all allowlist: %v", err)
+	}
+	if len(warnings) != 2 {
+		t.Fatalf("catch-all warnings=%v, want catch-all + metadata warnings", warnings)
+	}
+	if !strings.Contains(warnings[0], "every address") || !strings.Contains(warnings[1], "169.254.169.254") {
+		t.Fatalf("catch-all warnings=%v, want catch-all + metadata wording", warnings)
+	}
+
+	if _, _, err := (Config{AllowedPrivateCIDRs: []string{"not-a-cidr"}}).AllowedPrivatePrefixes(); err == nil ||
+		!strings.Contains(err.Error(), "OMNARA_ALLOWED_PRIVATE_CIDRS") {
+		t.Fatalf("expected allowlist parse error, got %v", err)
+	}
+}
+
+func TestLoadAllowedPrivateCIDRs(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_ALLOWED_PRIVATE_CIDRS", "10.0.0.0/8, 192.168.0.0/16")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !slices.Equal(cfg.AllowedPrivateCIDRs, []string{"10.0.0.0/8", "192.168.0.0/16"}) {
+		t.Fatalf("allowed private cidrs=%v", cfg.AllowedPrivateCIDRs)
+	}
+	if err := cfg.ValidateWorker(); err != nil {
+		t.Fatalf("validate worker config: %v", err)
+	}
+	t.Setenv("OMNARA_ALLOWED_PRIVATE_CIDRS", "not-a-cidr")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("load invalid allowlist config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err == nil || !strings.Contains(err.Error(), "OMNARA_ALLOWED_PRIVATE_CIDRS") {
+		t.Fatalf("expected allowlist config error, got %v", err)
+	}
+}
+
 func TestLoadAPIRateLimitDefaults(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	t.Setenv("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", "")
