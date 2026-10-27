@@ -258,6 +258,58 @@
   }
 }
 
+@property --ring-base {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0.08;
+}
+
+/* Mirrors the omnara.com hero ring: aurora/auroraStore.ts sets the blob centers
+   relative to each ring, and the mask confines the highlight to its 1px border. */
+.aurora-ring {
+  --spec-ax: -9999px;
+  --spec-ay: -9999px;
+  --spec-bx: -9999px;
+  --spec-by: -9999px;
+  --ring-accent: var(--palette-light-accent);
+  --ring-accent-strong: var(--palette-light-accent-strong);
+  --ring-fg: var(--palette-light-fg);
+  padding: 1px;
+  background:
+    radial-gradient(
+      560px circle at var(--spec-ax) var(--spec-ay),
+      rgb(var(--ring-accent-strong) / 0.6),
+      rgb(var(--ring-accent) / 0.18) 45%,
+      transparent 70%
+    ),
+    radial-gradient(
+      560px circle at var(--spec-bx) var(--spec-by),
+      rgb(var(--ring-accent-strong) / 0.6),
+      rgb(var(--ring-accent) / 0.18) 45%,
+      transparent 70%
+    ),
+    rgb(var(--ring-fg) / var(--ring-base, 0.08));
+  transition: --ring-base 0.35s ease;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.dark .aurora-ring {
+  --ring-accent: var(--palette-dark-accent);
+  --ring-accent-strong: var(--palette-dark-accent-strong);
+  --ring-fg: var(--palette-dark-fg);
+}
+
+.group:hover > .aurora-ring {
+  --ring-base: 0.14;
+}
+
 .code-highlight span {
   color: var(--shiki-light);
 }

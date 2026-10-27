@@ -3,6 +3,8 @@ import type { OrgOverviewResponse } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
+import type { Blob } from '@/components/aurora/aurora'
+import { DitherBackdrop } from '@/components/aurora/DitherBackdrop'
 import { ArrowRight } from '@/components/icons'
 import { AgentOnboarding } from '@/components/overview/AgentOnboarding'
 import { panelHintClass } from '@/components/overview/CodeBlock'
@@ -15,6 +17,12 @@ import { errorMessage } from '@/lib/submit-status'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { cn } from '@/lib/utils'
 
+/** The landing hero's blobs, larger and lower so they sit behind the onboarding content. */
+const onboardingBlobs: Blob[] = [
+  { cx: 0.2, cy: 0.4, ax: 0.14, ay: 0.14, wx: 0.31, wy: 0.23, r: 0.4, peak: 0.6 },
+  { cx: 0.84, cy: 0.44, ax: 0.12, ay: 0.12, wx: 0.19, wy: 0.29, r: 0.35, peak: 0.4 },
+]
+
 export function Overview() {
   const { activeOrg } = useActiveOrg()
   const overviewQuery = useOrgOverview(activeOrg.id)
@@ -25,9 +33,23 @@ export function Overview() {
       {overviewQuery.isPending ? (
         <Skeleton className="h-28 rounded-xl" />
       ) : onboarding ? (
-        <div className="flex min-h-0 flex-1 justify-center pb-8 sm:pb-16">
-          <AgentOnboarding key={onboarding.key} orgId={activeOrg.id} project={onboarding.project} />
-        </div>
+        <>
+          <DitherBackdrop
+            className="absolute inset-x-0 top-0 h-[760px] sm:h-[900px]"
+            blobs={onboardingBlobs}
+          />
+          <div
+            data-transparent-header
+            className="relative flex min-h-0 flex-1 justify-center pt-20 pb-8 sm:pt-24 sm:pb-12"
+          >
+            <AgentOnboarding
+              key={onboarding.key}
+              orgId={activeOrg.id}
+              project={onboarding.project}
+              onAgentLaunched={onboarding.finish}
+            />
+          </div>
+        </>
       ) : overviewQuery.data ? (
         <OverviewContent orgId={activeOrg.id} overview={overviewQuery.data} />
       ) : (
@@ -45,6 +67,7 @@ export function Overview() {
 /**
  * The project to onboard in, while the org has no agents yet. Once a profile shows up
  * during onboarding it stays up, so creating the profile doesn't close it before launch.
+ * `finish` closes it once an agent is launched, leaving the overview.
  */
 function useOverviewOnboarding(orgId: string, overview: OrgOverviewResponse | undefined) {
   const project = overview && onboardingProject(overview)
@@ -58,7 +81,10 @@ function useOverviewOnboarding(orgId: string, overview: OrgOverviewResponse | un
   if (needsOnboarding && !profileSeen && overview.recent_agent_profiles.length > 0) {
     setProfileSeenKey(key)
   }
-  return project && (needsOnboarding || profileSeen) ? { project, key } : undefined
+  const finish = () => {
+    setProfileSeenKey(undefined)
+  }
+  return project && (needsOnboarding || profileSeen) ? { project, key, finish } : undefined
 }
 
 function OverviewContent({ orgId, overview }: { orgId: string; overview: OrgOverviewResponse }) {

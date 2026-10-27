@@ -4,9 +4,8 @@ import { Link } from '@tanstack/react-router'
 import { type ReactNode, useState } from 'react'
 
 import { agentTemplates } from '@/components/agents/agentTemplates'
-import { Monitor, Terminal } from '@/components/icons'
 import { CodeBlock, CodeTabsBlock } from '@/components/overview/CodeBlock'
-import { ChatGuide, ChatOptions, CreateChat, RunFooter } from '@/components/overview/OnboardingChat'
+import { ChatGuide, ChatOptions, RunFooter } from '@/components/overview/OnboardingChat'
 import {
   chatMessage,
   cliLoginCommand,
@@ -14,52 +13,56 @@ import {
   profileCreateSpec,
   shellCode,
 } from '@/components/overview/onboardingCli'
-import { ProfileDraftStep } from '@/components/overview/OnboardingProfileDraft'
 import { OnboardingStep, OnboardingSteps } from '@/components/overview/OnboardingSteps'
+import { OnboardingModeLink, PromptOnboarding } from '@/components/overview/PromptOnboarding'
 import { useCreateChat } from '@/components/overview/useCreateChat'
 import { useOnboarding } from '@/components/overview/useOnboarding'
 import { useTemplateDefaults } from '@/components/overview/useTemplateDefaults'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { errorMessage } from '@/lib/submit-status'
 
-type OnboardingTab = 'cli' | 'browser'
-
-export function AgentOnboarding({ orgId, project }: { orgId: string; project: VisibleProject }) {
-  const [tab, setTab] = useState<OnboardingTab>('cli')
+export function AgentOnboarding({
+  orgId,
+  project,
+  onAgentLaunched,
+}: {
+  orgId: string
+  project: VisibleProject
+  /** Closes onboarding when the prompt's coding agent launches the first agent. */
+  onAgentLaunched: () => void
+}) {
+  const [manual, setManual] = useState(false)
 
   return (
-    <div className="flex w-full max-w-4xl flex-col gap-8 py-2 sm:gap-10 sm:py-4">
-      <Tabs
-        value={tab}
-        onValueChange={(value) => {
-          setTab(value === 'browser' ? 'browser' : 'cli')
-        }}
-      >
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex flex-col gap-2">
-            <h2 className="type-title">Launch your first agent</h2>
-            <p className="text-muted-foreground text-sm">
-              Follow the steps to create an agent profile and start a chat.
-            </p>
-          </div>
-          <TabsList aria-label="Setup method" className="h-10 w-full self-start sm:h-10 sm:w-fit">
-            <TabsTrigger value="cli" className="px-4">
-              <Terminal />
-              CLI
-            </TabsTrigger>
-            <TabsTrigger value="browser" className="px-4">
-              <Monitor />
-              Browser
-            </TabsTrigger>
-          </TabsList>
-        </div>
-        <TabsContent value="cli" className="pt-8 sm:pt-14">
+    <div className="my-auto flex w-full max-w-4xl flex-col gap-8 py-2 sm:gap-10 sm:py-4">
+      <div className="flex flex-col items-center gap-2 text-center">
+        <h2 className="type-title">Launch your first agent</h2>
+        {manual && (
+          <p className="text-muted-foreground text-sm">
+            Follow the steps to create an agent profile and start a chat.
+          </p>
+        )}
+      </div>
+      {manual ? (
+        <div className="flex flex-col gap-8">
           <CliSteps orgId={orgId} project={project} />
-        </TabsContent>
-        <TabsContent value="browser" className="pt-8 sm:pt-14">
-          <BrowserSteps orgId={orgId} project={project} />
-        </TabsContent>
-      </Tabs>
+          <OnboardingModeLink
+            onClick={() => {
+              setManual(false)
+            }}
+          >
+            or prompt your agent
+          </OnboardingModeLink>
+        </div>
+      ) : (
+        <PromptOnboarding
+          orgId={orgId}
+          projectId={project.id}
+          onAgentLaunched={onAgentLaunched}
+          onSetUpManually={() => {
+            setManual(true)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -210,51 +213,6 @@ function CliProfileOptions({
         />
       }
     />
-  )
-}
-
-function BrowserSteps({ orgId, project }: { orgId: string; project: VisibleProject }) {
-  const {
-    agentProfile: profile,
-    agent,
-    live,
-    steps,
-  } = useOnboarding({ orgId, projectId: project.id })
-  const { createProfile, chat } = steps.browser
-  return (
-    <OnboardingSteps>
-      <OnboardingStep
-        index={1}
-        title="Create an agent profile"
-        doneTitle="Created an agent profile"
-        description="Pick a template, optionally customize it, then create the profile"
-        status={createProfile}
-        nextStatus={chat}
-        completion={profile && <ProfileCreated project={project} profile={profile} />}
-      >
-        {!profile && (
-          <ProfileDraftStep orgId={orgId} project={project} disabled={live.agentProfile != null} />
-        )}
-      </OnboardingStep>
-      <OnboardingStep
-        index={2}
-        title="Create a chat"
-        doneTitle="Created a chat"
-        description="Start a chat with an agent running your profile"
-        status={chat}
-        completion={agent && <ChatGuide project={project} agent={agent} />}
-      >
-        {agent ? null : profile ? (
-          <CreateChat
-            orgId={orgId}
-            project={project}
-            profile={profile}
-            disabled={live.agent != null}
-          />
-        ) : null}
-        {agent && profile && <ChatOptions orgId={orgId} project={project} profile={profile} />}
-      </OnboardingStep>
-    </OnboardingSteps>
   )
 }
 

@@ -31,6 +31,7 @@ function AppSidebar({ children }: { children: ReactNode }) {
   return (
     <Sidebar
       collapsible={isMobile ? 'offcanvas' : 'none'}
+      className="md:border-sidebar-border/60 md:border-r"
       onClick={(event) => {
         if (isMobile && event.target instanceof Element && event.target.closest('a')) {
           setOpenMobile(false)
@@ -80,9 +81,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <SidebarInset
         style={insetStyle}
-        className="md:[&:has([data-side=right][data-state=expanded])>header]:pr-[calc(var(--agent-pane-width)+1rem)]"
+        className="group/inset md:[&:has([data-side=right][data-state=expanded])>header]:pr-[calc(var(--agent-pane-width)+1rem)]"
       >
-        <header className="bg-background grid h-12 shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b px-4 md:grid-cols-[1fr_minmax(0,auto)_1fr]">
+        {/* A page marked data-transparent-header draws under the header, which floats over it. */}
+        <header className="bg-background grid h-12 shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b px-4 group-has-[[data-transparent-header]]/inset:absolute group-has-[[data-transparent-header]]/inset:inset-x-0 group-has-[[data-transparent-header]]/inset:top-0 group-has-[[data-transparent-header]]/inset:z-10 group-has-[[data-transparent-header]]/inset:bg-transparent md:grid-cols-[1fr_minmax(0,auto)_1fr]">
           <div className="flex min-w-0 items-center gap-2">
             <SidebarTrigger className="size-10 sm:size-10 md:hidden" />
             <ProjectSwitcher />
