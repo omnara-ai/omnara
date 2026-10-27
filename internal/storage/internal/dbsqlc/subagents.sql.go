@@ -560,6 +560,101 @@ func (q *Queries) ListIdleAgentsForArchive(ctx context.Context, arg ListIdleAgen
 	return items, nil
 }
 
+const listOpenAgentInteractionsForProject = `-- name: ListOpenAgentInteractionsForProject :many
+SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction.turn_id,
+       interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
+       interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
+       interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
+       interaction.destination, interaction.presentation_receipt,
+       agent.name AS agent_name, agent.subagent_key
+FROM agent_interaction_read_projection interaction
+JOIN agents agent ON agent.project_id = interaction.project_id
+  AND agent.id = interaction.agent_id
+WHERE interaction.project_id = $1
+  AND interaction.state = 'open'
+  AND ($2::text = '' OR interaction.interaction_kind = $2)
+  AND (
+    $3::timestamptz IS NULL
+    OR (interaction.created_at, interaction.id) > ($3::timestamptz, $4::uuid)
+  )
+ORDER BY interaction.created_at ASC, interaction.id ASC
+LIMIT $5::bigint
+`
+
+type ListOpenAgentInteractionsForProjectParams struct {
+	ProjectID       uuid.UUID
+	InteractionKind string
+	CursorCreatedAt *time.Time
+	CursorID        *uuid.UUID
+	RowLimit        int64
+}
+
+type ListOpenAgentInteractionsForProjectRow struct {
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
+	ProviderCallID      string
+	InteractionKind     string
+	State               string
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	ResolvedByInputID   *uuid.UUID
+	CreatedAt           time.Time
+	ResolvedAt          *time.Time
+	Destination         *json.RawMessage
+	PresentationReceipt *json.RawMessage
+	AgentName           string
+	SubagentKey         string
+}
+
+func (q *Queries) ListOpenAgentInteractionsForProject(ctx context.Context, arg ListOpenAgentInteractionsForProjectParams) ([]ListOpenAgentInteractionsForProjectRow, error) {
+	rows, err := q.db.Query(ctx, listOpenAgentInteractionsForProject,
+		arg.ProjectID,
+		arg.InteractionKind,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOpenAgentInteractionsForProjectRow{}
+	for rows.Next() {
+		var i ListOpenAgentInteractionsForProjectRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.TurnID,
+			&i.ModelCallContextID,
+			&i.ToolCallID,
+			&i.ProviderCallID,
+			&i.InteractionKind,
+			&i.State,
+			&i.Request,
+			&i.Resolution,
+			&i.ResolvedByInputID,
+			&i.CreatedAt,
+			&i.ResolvedAt,
+			&i.Destination,
+			&i.PresentationReceipt,
+			&i.AgentName,
+			&i.SubagentKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listParentMachineBindingsForSharing = `-- name: ListParentMachineBindingsForSharing :many
 SELECT pmgrant.id AS project_machine_grant_id,
        binding.machine_id,

@@ -175,6 +175,26 @@ WHERE interaction.project_id = sqlc.arg(project_id)
 ORDER BY interaction.created_at ASC, interaction.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
+-- name: ListOpenAgentInteractionsForProject :many
+SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction.turn_id,
+       interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
+       interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
+       interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
+       interaction.destination, interaction.presentation_receipt,
+       agent.name AS agent_name, agent.subagent_key
+FROM agent_interaction_read_projection interaction
+JOIN agents agent ON agent.project_id = interaction.project_id
+  AND agent.id = interaction.agent_id
+WHERE interaction.project_id = sqlc.arg(project_id)
+  AND interaction.state = 'open'
+  AND (sqlc.arg(interaction_kind)::text = '' OR interaction.interaction_kind = sqlc.arg(interaction_kind))
+  AND (
+    sqlc.narg(cursor_created_at)::timestamptz IS NULL
+    OR (interaction.created_at, interaction.id) > (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
+  )
+ORDER BY interaction.created_at ASC, interaction.id ASC
+LIMIT sqlc.arg(row_limit)::bigint;
+
 -- name: ListIdleAgentsForArchive :many
 WITH RECURSIVE candidate AS (
   SELECT agent.project_id, agent.id, agent.created_at

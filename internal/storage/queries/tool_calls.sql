@@ -105,6 +105,30 @@ WHERE call.project_id = sqlc.arg(project_id)
 ORDER BY call.created_at ASC, call.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
+-- name: ListUnfinishedToolCallsForProject :many
+SELECT call.id, call.project_id, call.agent_id,
+  call.turn_id, call.source_event_id,
+  call.model_call_context_id, call.provider_call_id,
+  call.name, call.input,
+  call.type, call.state,
+  ''::text AS outcome, call.runtime_lock_id,
+  '[]'::jsonb AS result_content_parts,
+  call.created_at, NULL::timestamptz AS completed_at
+FROM tool_call_read_projection call
+WHERE call.project_id = sqlc.arg(project_id)
+  AND call.state <> 'completed'
+  AND (sqlc.arg(state)::text = '' OR call.state = sqlc.arg(state))
+  AND (sqlc.arg(type)::text = '' OR call.type = sqlc.arg(type))
+  AND (
+    sqlc.narg(cursor_created_at)::timestamptz IS NULL
+    OR (call.created_at, call.id) > (
+      sqlc.narg(cursor_created_at)::timestamptz,
+      sqlc.narg(cursor_id)::uuid
+    )
+  )
+ORDER BY call.created_at ASC, call.id ASC
+LIMIT sqlc.arg(row_limit)::bigint;
+
 -- name: NextRunnableToolCallForModelOutput :one
 SELECT call.id, call.project_id, call.agent_id,
   call.turn_id, call.source_event_id,

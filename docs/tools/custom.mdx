@@ -73,6 +73,8 @@ curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/tool-calls?state=ready&
 
 `ready` means the permission check has passed and the call is waiting for your result. A custom call using `always_ask` remains in `awaiting_permission` until someone responds to its [interaction](/events/interactions). After you submit a result, it moves to `completed`.
 
+To find ready custom calls from every agent in the project, including subagents, query `GET $OMNARA_API/orgs/$ORG/projects/$PROJ/tool-calls?state=ready&type=custom`. Each call includes its `agent_id`; use it when you submit the result.
+
 <Tip>
 To avoid continuous polling, which counts against your [rate limits](/api/overview#rate-limits), connect to the agent's [event stream](/events/streaming), then query `GET /tool-calls?state=ready&type=custom` for already-ready calls and watch for future `tool_call_update` frames whose `state` is `ready`. Repeat the query after reconnecting because lifecycle updates are not replayed. Subagents can call custom tools too: the parent's stream carries their `tool_call_update` frames with the subagent's `agent_id`, and `include_subagents=true` on the query returns their calls.
 
@@ -132,5 +134,5 @@ Result text, structured-data string keys and values, and metadata must not conta
 That makes result submission naturally safe to retry from multiple workers — losers of the race get a clean `409`, not a corrupted timeline.
 
 <Info>
-Full schema and playground: [List tool calls](/api-reference/endpoints/agents/list-tool-calls) · [Submit a result](/api-reference/endpoints/agents/submit-a-result-for-a-ready-custom-tool-call).
+Full schema and playground: [List tool calls](/api-reference/endpoints/agents/list-tool-calls) · [List unfinished tool calls across agents](/api-reference/endpoints/agents/list-unfinished-tool-calls-across-agents) · [Submit a result](/api-reference/endpoints/agents/submit-a-result-for-a-ready-custom-tool-call).
 </Info>

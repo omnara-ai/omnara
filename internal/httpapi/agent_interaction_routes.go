@@ -62,14 +62,60 @@ func (s strictOpenAPIServer) listAgentInteractions(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
+	response, err := agentInteractionsListResponse(orgID, agentID, page)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListAgentInteractions200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) ListProjectInteractions(
+	ctx context.Context,
+	request openapi.ListProjectInteractionsRequestObject,
+) (openapi.ListProjectInteractionsResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	limit, after, err := parseOpenAPIPageParams(request.Params.Limit, request.Params.Cursor, publicid.KindAgentInteraction)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	var kind executionstore.AgentInteractionKind
+	if request.Params.InteractionKind != nil {
+		kind = executionstore.AgentInteractionKind(*request.Params.InteractionKind)
+	}
+	page, err := s.server.store.Execution().ListOpenProjectInteractions(
+		ctx,
+		executionstore.ListOpenProjectInteractionsInput{
+			ProjectID:       scope.project.ID,
+			InteractionKind: kind,
+			Limit:           limit,
+			After:           after,
+		},
+	)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	response, err := agentInteractionsListResponse(scope.project.OrgID, uuid.Nil, page)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListProjectInteractions200JSONResponse(response), nil
+}
+
+func agentInteractionsListResponse(
+	orgID, listedAgentID uuid.UUID,
+	page executionstore.ListAgentInteractionsResult,
+) (openapi.ListAgentInteractionsResponse, error) {
 	data := make([]openapi.AgentInteraction, 0, len(page.Interactions))
 	var last executionstore.AgentInteractionRecord
 	for _, item := range page.Interactions {
 		response, err := agentInteractionResponseFromRecord(orgID, item.AgentInteractionRecord)
 		if err != nil {
-			return nil, err
+			return openapi.ListAgentInteractionsResponse{}, err
 		}
-		if item.AgentID != agentID {
+		if item.AgentID != listedAgentID {
 			response.AgentName = &item.AgentName
 			response.SubagentKey = ptrFromNonEmpty(item.SubagentKey)
 		}
@@ -83,12 +129,12 @@ func (s strictOpenAPIServer) listAgentInteractions(
 		last.ID,
 	)
 	if err != nil {
-		return nil, err
+		return openapi.ListAgentInteractionsResponse{}, err
 	}
-	return openapi.ListAgentInteractions200JSONResponse(openapi.ListAgentInteractionsResponse{
+	return openapi.ListAgentInteractionsResponse{
 		Data:       data,
 		NextCursor: nullableFromPtr(nextCursor),
-	}), nil
+	}, nil
 }
 
 func (s strictOpenAPIServer) ResolveAgentInteraction(

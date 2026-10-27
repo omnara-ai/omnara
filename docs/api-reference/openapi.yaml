@@ -4706,6 +4706,66 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/tool-calls:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+    get:
+      operationId: listProjectToolCalls
+      tags: [Agents]
+      summary: List unfinished tool calls across agents
+      description: >-
+        Lists unfinished tool calls from every agent in the project, including subagents.
+        Items are ordered by created_at ascending, then id ascending. Submit custom tool results
+        against each call's agent_id.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: Same values as each call's `state`, except `completed`, which is never listed.
+          schema:
+            type: string
+            enum: [awaiting_authorization, awaiting_permission, ready, running, waiting]
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ToolCallType'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Unfinished tool calls in the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListToolCallsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls:
     parameters:
       - name: orgID
@@ -5221,6 +5281,58 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/interactions:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+    get:
+      operationId: listProjectInteractions
+      tags: [Interactions]
+      summary: List open interactions across agents
+      description: >-
+        Lists open permission prompts and ask_question questions from every agent in the project,
+        including subagents, oldest first. Resolve each one against its agent_id.
+      parameters:
+        - name: interaction_kind
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgentInteractionKind'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Open interactions in the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAgentInteractionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -14085,10 +14197,11 @@ components:
           type: string
           description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
         agent_name:
+          description: Present on project lists, and when the interaction belongs to a subagent of the listed agent.
           $ref: '#/components/schemas/AgentName'
         subagent_key:
           type: string
-          description: Present when the interaction belongs to a subagent of the listed agent.
+          description: Present when the interaction belongs to a subagent and was listed for its project or an ancestor agent.
         interaction_kind:
           $ref: '#/components/schemas/AgentInteractionKind'
         state:

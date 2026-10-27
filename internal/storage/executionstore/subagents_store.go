@@ -374,10 +374,56 @@ func (s *Store) ListAgentInteractions(
 	if err != nil {
 		return ListAgentInteractionsResult{}, fmt.Errorf("list agent interactions: %w", err)
 	}
+	return agentTreeInteractionsPage(rows, input.Limit), nil
+}
+
+type ListOpenProjectInteractionsInput struct {
+	ProjectID       uuid.UUID
+	InteractionKind AgentInteractionKind
+	Limit           int
+	After           listing.KeysetCursor
+}
+
+func (s *Store) ListOpenProjectInteractions(
+	ctx context.Context,
+	input ListOpenProjectInteractionsInput,
+) (ListAgentInteractionsResult, error) {
+	if input.ProjectID == uuid.Nil {
+		return ListAgentInteractionsResult{}, errors.New("project is required")
+	}
+	if input.Limit <= 0 {
+		return ListAgentInteractionsResult{}, errors.New("limit must be positive")
+	}
+	params := dbsqlc.ListOpenAgentInteractionsForProjectParams{
+		ProjectID:       input.ProjectID,
+		InteractionKind: string(input.InteractionKind),
+		RowLimit:        int64(input.Limit) + 1,
+	}
+	if input.After.Set {
+		createdAt := input.After.CreatedAt
+		id := input.After.ID
+		params.CursorCreatedAt = &createdAt
+		params.CursorID = &id
+	}
+	rows, err := s.q.ListOpenAgentInteractionsForProject(ctx, params)
+	if err != nil {
+		return ListAgentInteractionsResult{}, fmt.Errorf("list open project interactions: %w", err)
+	}
+	converted := make([]dbsqlc.ListAgentInteractionsForAgentsRow, 0, len(rows))
+	for _, row := range rows {
+		converted = append(converted, dbsqlc.ListAgentInteractionsForAgentsRow(row))
+	}
+	return agentTreeInteractionsPage(converted, input.Limit), nil
+}
+
+func agentTreeInteractionsPage(
+	rows []dbsqlc.ListAgentInteractionsForAgentsRow,
+	limit int,
+) ListAgentInteractionsResult {
 	result := ListAgentInteractionsResult{}
-	if len(rows) > input.Limit {
+	if len(rows) > limit {
 		result.HasMore = true
-		rows = rows[:input.Limit]
+		rows = rows[:limit]
 	}
 	result.Interactions = make([]AgentTreeInteraction, 0, len(rows))
 	for _, row := range rows {
@@ -404,7 +450,7 @@ func (s *Store) ListAgentInteractions(
 			SubagentKey: row.SubagentKey,
 		})
 	}
-	return result, nil
+	return result
 }
 
 type SendSubagentMessageInput struct {
