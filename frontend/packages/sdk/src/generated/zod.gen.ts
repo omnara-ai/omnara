@@ -5010,6 +5010,29 @@ export const zCreateAgentInputPath = z.object({
  */
 export const zCreateAgentInputResponse = zAgentInputEnvelope;
 
+export const zListProjectToolCallsPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+});
+
+export const zListProjectToolCallsQuery = z.object({
+    state: z.enum([
+        'awaiting_authorization',
+        'awaiting_permission',
+        'ready',
+        'running',
+        'waiting'
+    ]).optional(),
+    type: zToolCallType.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Unfinished tool calls in the project.
+ */
+export const zListProjectToolCallsResponse = zListToolCallsResponse;
+
 export const zListToolCallsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
     projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
@@ -5125,6 +5148,22 @@ export const zCancelAgentPath = z.object({
  * Agent canceled.
  */
 export const zCancelAgentResponse2 = zCancelAgentResponse;
+
+export const zListProjectInteractionsPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+});
+
+export const zListProjectInteractionsQuery = z.object({
+    interaction_kind: zAgentInteractionKind.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Open interactions in the project.
+ */
+export const zListProjectInteractionsResponse = zListAgentInteractionsResponse;
 
 export const zListAgentInteractionsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

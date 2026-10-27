@@ -2973,9 +2973,12 @@ export type AgentInteraction = {
      * The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
      */
     tool_name?: string;
+    /**
+     * Present on project lists, and when the interaction belongs to a subagent of the listed agent.
+     */
     agent_name?: AgentName;
     /**
-     * Present when the interaction belongs to a subagent of the listed agent.
+     * Present when the interaction belongs to a subagent and was listed for its project or an ancestor agent.
      */
     subagent_key?: string;
     interaction_kind: AgentInteractionKind;
@@ -12422,6 +12425,90 @@ export type CreateAgentInputResponses = {
 
 export type CreateAgentInputResponse = CreateAgentInputResponses[keyof CreateAgentInputResponses];
 
+export type ListProjectToolCallsData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+    };
+    query?: {
+        /**
+         * Same values as each call's `state`, except `completed`, which is never listed.
+         */
+        state?: 'awaiting_authorization' | 'awaiting_permission' | 'ready' | 'running' | 'waiting';
+        type?: ToolCallType;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/tool-calls';
+};
+
+export type ListProjectToolCallsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListProjectToolCallsError = ListProjectToolCallsErrors[keyof ListProjectToolCallsErrors];
+
+export type ListProjectToolCallsResponses = {
+    /**
+     * Unfinished tool calls in the project.
+     */
+    200: ListToolCallsResponse;
+};
+
+export type ListProjectToolCallsResponse = ListProjectToolCallsResponses[keyof ListProjectToolCallsResponses];
+
 export type ListToolCallsData = {
     body?: never;
     path: {
@@ -13010,6 +13097,86 @@ export type CancelAgentResponses = {
 };
 
 export type CancelAgentResponse2 = CancelAgentResponses[keyof CancelAgentResponses];
+
+export type ListProjectInteractionsData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+    };
+    query?: {
+        interaction_kind?: AgentInteractionKind;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/interactions';
+};
+
+export type ListProjectInteractionsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListProjectInteractionsError = ListProjectInteractionsErrors[keyof ListProjectInteractionsErrors];
+
+export type ListProjectInteractionsResponses = {
+    /**
+     * Open interactions in the project.
+     */
+    200: ListAgentInteractionsResponse;
+};
+
+export type ListProjectInteractionsResponse = ListProjectInteractionsResponses[keyof ListProjectInteractionsResponses];
 
 export type ListAgentInteractionsData = {
     body?: never;
