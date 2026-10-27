@@ -327,7 +327,8 @@ func migrateEventWebhookSubscriptions(ctx context.Context, tx *sql.Tx) error {
 		WHERE call.type='built_in' AND call.name='spawn_agent' AND call.state<>'completed'
 		AND config.compiled_definition#>>'{tools,spawn_agent,enabled}'='true'
 		AND config.compiled_definition->'subagents'->btrim(call.input->>'agent',
-			U&'\0009\000A\000B\000C\000D\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000')->>'type'='self'
+			U&'\0009\000A\000B\000C\000D\0020\0085\00A0\1680\2000\2001\2002\2003' ||
+			U&'\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000')->>'type'='self'
 	) SELECT agent.id::text FROM self_spawns spawn
 		JOIN agents agent ON agent.id=spawn.agent_id
 		JOIN legacy_event_webhook_configs own ON own.id=spawn.config_id
