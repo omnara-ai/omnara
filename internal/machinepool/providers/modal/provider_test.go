@@ -48,7 +48,11 @@ func TestProviderProvisionCreatesSandbox(t *testing.T) {
 			); diff != "" {
 				t.Fatal(diff)
 			}
-			env := rpc.create.GetEphemeralSecrets().GetContents()
+			sources := rpc.create.GetSecretSources()
+			if len(sources) != 1 {
+				t.Fatalf("create secret sources = %+v", sources)
+			}
+			env := sources[0].GetEnv().GetContents()
 			if env["APP_ENV"] != "production" ||
 				env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
 				env[providers.ManagedBootstrapScriptEnvVar] == "" {
