@@ -29,8 +29,6 @@ CREATE UNIQUE INDEX event_webhooks_active_scope_url_idx
     ON event_webhooks(project_id, agent_profile_id, agent_id, url)
     NULLS NOT DISTINCT WHERE deleted_at IS NULL;
 
-DELETE FROM event_webhook_deliveries;
-
 ALTER TABLE event_webhook_deliveries
-    ADD COLUMN webhook_id uuid NOT NULL,
+    ADD COLUMN webhook_id uuid,
     ADD FOREIGN KEY (org_id, webhook_id) REFERENCES event_webhooks(org_id, id);
