@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
@@ -36,11 +37,18 @@ func TestLiveAnthropicReasoningEffort(t *testing.T) {
 		}
 	}
 
-	for _, effort := range []string{"low", "high"} {
-		t.Run("effort "+effort, func(t *testing.T) {
+	// Claude 5+ models think by default, so the adapter always spells out
+	// adaptive thinking with server-side dropping of prefix-mismatched blocks.
+	const adaptiveThinking = `{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`
+	for _, effort := range []string{"", "low", "high"} {
+		name := "effort " + effort
+		if effort == "" {
+			name = "provider default effort"
+		}
+		t.Run(name, func(t *testing.T) {
 			prepared, response := liveReasoningRespond(t, client(""), effort,
 				"What is 17 * 23? Reply with only the number.")
-			requireLiveReasoningRequest(t, prepared, effort, `{"type":"adaptive"}`)
+			requireLiveReasoningRequest(t, prepared, effort, adaptiveThinking)
 			if !strings.Contains(response.Text(), "391") {
 				t.Fatalf("response text = %q, want 391", response.Text())
 			}
@@ -65,7 +73,7 @@ func TestLiveAnthropicReasoningEffort(t *testing.T) {
 		}`
 		prepared, response := liveReasoningRespond(t, client(apiVariantOptions), "low",
 			"What is 17 * 23?")
-		requireLiveReasoningRequest(t, prepared, "low", `{"type":"adaptive"}`)
+		requireLiveReasoningRequest(t, prepared, "low", adaptiveThinking)
 		// The provider only returns schema-shaped JSON when output_config.format
 		// survived alongside the adapter-owned effort.
 		var answer struct {
@@ -80,11 +88,15 @@ func TestLiveAnthropicReasoningEffort(t *testing.T) {
 	})
 
 	t.Run("effort keeps api variant thinking", func(t *testing.T) {
-		thinking := `{"type":"adaptive","display":"summarized"}`
-		prepared, response := liveReasoningRespond(t, client(`{"thinking":`+thinking+`}`), "high",
+		prepared, response := liveReasoningRespond(
+			t,
+			client(`{"thinking":{"type":"adaptive","display":"summarized"}}`),
+			"high",
 			"How many positive integers below 1000 are divisible by 7 but not by 11? "+
-				"Reply with only the number.")
-		requireLiveReasoningRequest(t, prepared, "high", thinking)
+				"Reply with only the number.",
+		)
+		requireLiveReasoningRequest(t, prepared, "high",
+			`{"type":"adaptive","display":"summarized","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`)
 		if !strings.Contains(response.Text(), "130") {
 			t.Fatalf("response text = %q, want 130", response.Text())
 		}
@@ -137,15 +149,19 @@ func requireLiveReasoningRequest(
 	if err := json.Unmarshal(prepared.Body, &body); err != nil {
 		t.Fatalf("decode request: %v", err)
 	}
-	var outputConfig struct {
-		Effort string `json:"effort"`
+	if effort == "" {
+		if outputConfig, ok := body["output_config"]; ok {
+			t.Fatalf("output_config = %s, want the provider default effort", outputConfig)
+		}
+	} else {
+		var outputConfig struct {
+			Effort string `json:"effort"`
+		}
+		if err := json.Unmarshal(body["output_config"], &outputConfig); err != nil || outputConfig.Effort != effort {
+			t.Fatalf("output_config = %s, want effort %q", body["output_config"], effort)
+		}
 	}
-	if err := json.Unmarshal(body["output_config"], &outputConfig); err != nil || outputConfig.Effort != effort {
-		t.Fatalf("output_config = %s, want effort %q", body["output_config"], effort)
-	}
-	if got := string(body["thinking"]); got != wantThinking {
-		t.Fatalf("thinking = %s, want %s", got, wantThinking)
-	}
+	require.JSONEq(t, wantThinking, string(body["thinking"]), "thinking")
 }
 
 func liveReasoningParts(response model.Response) int {
