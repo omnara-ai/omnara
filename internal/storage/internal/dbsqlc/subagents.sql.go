@@ -561,24 +561,30 @@ func (q *Queries) ListIdleAgentsForArchive(ctx context.Context, arg ListIdleAgen
 }
 
 const listOpenAgentInteractionsForProject = `-- name: ListOpenAgentInteractionsForProject :many
+WITH page AS (
+  SELECT interaction.agent_id, interaction.id, agent.name AS agent_name, agent.subagent_key
+  FROM agent_interactions interaction
+  JOIN agents agent ON agent.id = interaction.agent_id
+  WHERE agent.project_id = $1
+    AND interaction.state = 'open'
+    AND ($2::text = '' OR interaction.interaction_kind = $2)
+    AND (
+      $3::timestamptz IS NULL
+      OR (interaction.created_at, interaction.id) > ($3::timestamptz, $4::uuid)
+    )
+  ORDER BY interaction.created_at ASC, interaction.id ASC
+  LIMIT $5::bigint
+)
 SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction.turn_id,
        interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
        interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
        interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
        interaction.destination, interaction.presentation_receipt,
-       agent.name AS agent_name, agent.subagent_key
-FROM agent_interaction_read_projection interaction
-JOIN agents agent ON agent.project_id = interaction.project_id
-  AND agent.id = interaction.agent_id
-WHERE interaction.project_id = $1
-  AND interaction.state = 'open'
-  AND ($2::text = '' OR interaction.interaction_kind = $2)
-  AND (
-    $3::timestamptz IS NULL
-    OR (interaction.created_at, interaction.id) > ($3::timestamptz, $4::uuid)
-  )
+       page.agent_name, page.subagent_key
+FROM page
+JOIN agent_interaction_read_projection interaction ON interaction.agent_id = page.agent_id
+  AND interaction.id = page.id
 ORDER BY interaction.created_at ASC, interaction.id ASC
-LIMIT $5::bigint
 `
 
 type ListOpenAgentInteractionsForProjectParams struct {
