@@ -72,6 +72,14 @@ type ListToolCallsInput struct {
 	After     listing.KeysetCursor
 }
 
+type ListUnfinishedProjectToolCallsInput struct {
+	ProjectID uuid.UUID
+	State     ToolCallState
+	Type      string
+	Limit     int
+	After     listing.KeysetCursor
+}
+
 type ListToolCallsResult struct {
 	ToolCalls []ToolCallRecord
 	HasMore   bool

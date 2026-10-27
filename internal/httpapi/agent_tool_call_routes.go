@@ -54,12 +54,60 @@ func (s strictOpenAPIServer) ListToolCalls(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
+	response, err := toolCallsListResponse(page)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListToolCalls200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) ListProjectToolCalls(
+	ctx context.Context,
+	request openapi.ListProjectToolCallsRequestObject,
+) (openapi.ListProjectToolCallsResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	limit, after, err := parseOpenAPIPageParams(request.Params.Limit, request.Params.Cursor, publicid.KindToolCall)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	var state executionstore.ToolCallState
+	if request.Params.State != nil {
+		state = executionstore.ToolCallState(*request.Params.State)
+	}
+	toolType := ""
+	if request.Params.Type != nil {
+		toolType = string(*request.Params.Type)
+	}
+	page, err := s.server.store.Execution().ListUnfinishedProjectToolCalls(
+		ctx,
+		executionstore.ListUnfinishedProjectToolCallsInput{
+			ProjectID: scope.project.ID,
+			State:     state,
+			Type:      toolType,
+			Limit:     limit,
+			After:     after,
+		},
+	)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	response, err := toolCallsListResponse(page)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListProjectToolCalls200JSONResponse(response), nil
+}
+
+func toolCallsListResponse(page executionstore.ListToolCallsResult) (openapi.ListToolCallsResponse, error) {
 	data := make([]openapi.ToolCall, 0, len(page.ToolCalls))
 	var last executionstore.ToolCallRecord
 	for _, toolCall := range page.ToolCalls {
 		response, err := publicToolCallFromRecord(toolCall)
 		if err != nil {
-			return nil, err
+			return openapi.ListToolCallsResponse{}, err
 		}
 		data = append(data, response)
 		last = toolCall
@@ -71,12 +119,12 @@ func (s strictOpenAPIServer) ListToolCalls(
 		last.ID,
 	)
 	if err != nil {
-		return nil, err
+		return openapi.ListToolCallsResponse{}, err
 	}
-	return openapi.ListToolCalls200JSONResponse(openapi.ListToolCallsResponse{
+	return openapi.ListToolCallsResponse{
 		Data:       data,
 		NextCursor: nullableFromPtr(nextCursor),
-	}), nil
+	}, nil
 }
 
 func (s strictOpenAPIServer) SubmitToolCallResult(
