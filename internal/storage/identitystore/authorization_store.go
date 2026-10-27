@@ -60,6 +60,10 @@ func AuthorizeProject(ctx context.Context, q *dbsqlc.Queries, input AuthorizePro
 }
 
 func (s *Store) AuthorizeOrg(ctx context.Context, input AuthorizeOrgInput) (bool, error) {
+	return AuthorizeOrg(ctx, s.q, input)
+}
+
+func AuthorizeOrg(ctx context.Context, q *dbsqlc.Queries, input AuthorizeOrgInput) (bool, error) {
 	if input.Principal.Type == "" || input.Principal.ID == uuid.Nil {
 		return false, storeerr.ErrUnauthorized
 	}
@@ -79,7 +83,7 @@ func (s *Store) AuthorizeOrg(ctx context.Context, input AuthorizeOrgInput) (bool
 	if userID == nil && orgAPIKeyID == nil {
 		return false, nil
 	}
-	role, err := s.q.GetOrgAuthorizationRoleForPrincipal(
+	role, err := q.GetOrgAuthorizationRoleForPrincipal(
 		ctx,
 		dbsqlc.GetOrgAuthorizationRoleForPrincipalParams{
 			OrgID:       input.OrgID,

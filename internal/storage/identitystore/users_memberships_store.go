@@ -656,6 +656,79 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 	return nil
 }
 
+func (s *Store) TransferOrgOwnership(ctx context.Context, input TransferOrgOwnershipInput) error {
+	if input.OrgID == uuid.Nil {
+		return errors.New("org id is required")
+	}
+	if input.OwnerUserID == uuid.Nil || input.NewOwnerUserID == uuid.Nil {
+		return errors.New("owner and new owner user ids are required")
+	}
+	if input.OwnerUserID == input.NewOwnerUserID {
+		return storeerr.InvalidRequest(errors.New("ownership must be transferred to another member"))
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin transfer org ownership: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
+		return err
+	}
+	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: input.NewOwnerUserID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrNotFound
+		}
+		return fmt.Errorf("lock new owner: %w", err)
+	}
+	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.OrgID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrNotFound
+		}
+		return fmt.Errorf("lock org: %w", err)
+	}
+	owner, err := qtx.LockUserOrgMembership(
+		ctx,
+		dbsqlc.LockUserOrgMembershipParams{OrgID: input.OrgID, UserID: input.OwnerUserID},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return storeerr.ErrUnauthorized
+	}
+	if err != nil {
+		return fmt.Errorf("lock owner membership: %w", err)
+	}
+	if owner.Role != authz.OrgRoleOwner {
+		return storeerr.ErrUnauthorized
+	}
+	ownedCount, err := qtx.CountOwnedOrgMembershipsForUser(
+		ctx,
+		dbsqlc.CountOwnedOrgMembershipsForUserParams{UserID: input.NewOwnerUserID},
+	)
+	if err != nil {
+		return fmt.Errorf("count owned orgs: %w", err)
+	}
+	if ownedCount >= MaxOwnedOrgsPerUser {
+		return storeerr.ErrUnauthorized
+	}
+	if _, err := qtx.UpdateOrgMembershipRoleForUser(ctx, dbsqlc.UpdateOrgMembershipRoleForUserParams{
+		OrgID: input.OrgID, UserID: input.NewOwnerUserID, Role: authz.OrgRoleOwner,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrNotFound
+		}
+		return fmt.Errorf("promote new owner: %w", err)
+	}
+	if _, err := qtx.UpdateOrgMembershipRoleForUser(ctx, dbsqlc.UpdateOrgMembershipRoleForUserParams{
+		OrgID: input.OrgID, UserID: input.OwnerUserID, Role: authz.OrgRoleAdmin,
+	}); err != nil {
+		return fmt.Errorf("demote previous owner: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transfer org ownership: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) RemoveProjectMembership(ctx context.Context, input RemoveProjectMembershipInput) error {
 	if input.OrgID == uuid.Nil {
 		return errors.New("org id is required")

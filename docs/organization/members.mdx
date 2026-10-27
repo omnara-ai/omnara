@@ -20,8 +20,8 @@ An **organization** is the top-level account. **Projects** contain agents and co
 
 | Role | Can |
 | --- | --- |
-| `owner` | Everything, including deleting the org |
-| `admin` | Manage the org: members, projects, secrets, machines, models — everything but org deletion |
+| `owner` | Everything, including deleting the org and transferring ownership |
+| `admin` | Manage the org: members, projects, secrets, machines, models — everything but deleting the org or transferring ownership |
 | `member` | See the org; project access comes only from explicit project roles |
 
 **Project roles** — granted per member, per project:
@@ -69,7 +69,7 @@ Project lists include only projects you can access. Each project includes `acces
 
 ## Invite people
 
-Invitations are org-scoped and email-addressed. Invite as `admin` or `member` (`owner` is never grantable — ownership is established at org creation).
+Invitations are org-scoped and email-addressed. Invite as `admin` or `member`. The org's creator is its `owner` until they transfer ownership.
 
 <Tabs>
 <Tab title="API">
@@ -97,14 +97,16 @@ Invitations are org-scoped and email-addressed. Invite as `admin` or `member` (`
   The response includes each member's user ID, email, display name, and organization role. Use the user ID to change their role or remove them:
 
   <MembersUpdate />
+
+  The owner can hand the org to another member with `POST /orgs/$ORG/members/{userID}/transfer-ownership` (`transferOrgOwnership`). The previous owner becomes an `admin` and can then remove themselves.
 </Tab>
 <Tab title="Dashboard">
-  The **Members** page (with **All projects** selected in the project switcher) lists everyone with their org role. Expand a member to change their **Org role** (admin/member toggle) or **Remove from organization**.
+  The **Members** page (with **All projects** selected in the project switcher) lists everyone with their org role. Expand a member to change their **Org role** (admin/member toggle) or **Remove from organization**. Owners also see **Transfer ownership**: type the organization name to confirm, and that member becomes the owner while you become an admin.
 </Tab>
 </Tabs>
 
 <Warning>
-  The last owner cannot be demoted or removed. Removing another member permanently deletes the secrets and skills they own in this organization. Removal fails if one of their secrets is still used by another resource.
+  The owner cannot be demoted or removed until they transfer ownership. Removing another member permanently deletes the secrets and skills they own in this organization. Removal fails if one of their secrets is still used by another resource.
 </Warning>
 
 ## Give members project access

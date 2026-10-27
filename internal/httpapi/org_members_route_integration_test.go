@@ -4,12 +4,15 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
@@ -204,6 +207,93 @@ func TestListOrgMembers(t *testing.T) {
 		"",
 		http.StatusNotFound,
 		authHeaders(other.AdminToken),
+	)
+}
+
+func TestTransferOrgOwnership(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	store := storage.NewStore(pool)
+
+	project := bootstrapPublicHTTPProject(t, handler, "transfer-owner")
+
+	admin, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "transfer-owner-admin@example.com", DisplayName: "Admin"},
+	)
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	if _, err := store.Identity().AddOrgMembership(
+		ctx,
+		identitystore.AddOrgMembershipInput{OrgID: project.OrgUUID, UserID: admin.ID, Role: "admin"},
+	); err != nil {
+		t.Fatalf("add admin: %v", err)
+	}
+	adminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx,
+		identitystore.CreatePersonalAccessTokenInput{UserID: admin.ID, Name: "admin"},
+	)
+	if err != nil {
+		t.Fatalf("create admin pat: %v", err)
+	}
+	outsider, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "transfer-owner-outsider@example.com", DisplayName: "Outsider"},
+	)
+	if err != nil {
+		t.Fatalf("create outsider: %v", err)
+	}
+	adminUserID, err := publicid.Encode(publicid.KindUser, admin.ID)
+	if err != nil {
+		t.Fatalf("encode admin user id: %v", err)
+	}
+	outsiderUserID, err := publicid.Encode(publicid.KindUser, outsider.ID)
+	if err != nil {
+		t.Fatalf("encode outsider user id: %v", err)
+	}
+
+	membersPath := "/api/v1/orgs/" + project.OrgID + "/members"
+	transfer := func(userID, token string, wantStatus int) {
+		t.Helper()
+		requestJSONWithHeaders(
+			t, handler, http.MethodPost, membersPath+"/"+userID+"/transfer-ownership", "", "",
+			wantStatus, authHeaders(token),
+		)
+	}
+	transfer(adminUserID, adminPAT.Token, http.StatusForbidden)
+	transfer(project.AdminUserID, project.AdminToken, http.StatusBadRequest)
+	transfer(outsiderUserID, project.AdminToken, http.StatusNotFound)
+	transfer(adminUserID, project.AdminToken, http.StatusNoContent)
+
+	listed := requestJSONWithHeaders(
+		t, handler, http.MethodGet, membersPath, "", "", http.StatusOK, authHeaders(project.AdminToken),
+	)
+	roles := map[any]any{}
+	for _, raw := range testutil.RequireType[[]any](t, listed["data"]) {
+		row := testutil.RequireType[map[string]any](t, raw)
+		roles[row["user_id"]] = row["role"]
+	}
+	if roles[adminUserID] != "owner" || roles[project.AdminUserID] != "admin" {
+		t.Fatalf("roles after transfer = %v, want %s owner and %s admin", roles, adminUserID, project.AdminUserID)
+	}
+
+	transfer(adminUserID, project.AdminToken, http.StatusForbidden)
+	if err := store.Identity().TransferOrgOwnership(ctx, identitystore.TransferOrgOwnershipInput{
+		OrgID: project.OrgUUID, OwnerUserID: project.AdminUserUUID, NewOwnerUserID: admin.ID,
+	}); !errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("transfer by former owner err = %v, want unauthorized", err)
+	}
+	if _, err := store.Organizations().DeleteOrganization(
+		ctx, project.OrgUUID, identitystore.NewUserPrincipal(project.AdminUserUUID),
+	); !errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("delete by former owner err = %v, want unauthorized", err)
+	}
+
+	requestJSONWithHeaders(
+		t, handler, http.MethodDelete, membersPath+"/"+project.AdminUserID, "", "",
+		http.StatusNoContent, authHeaders(project.AdminToken),
 	)
 }
 

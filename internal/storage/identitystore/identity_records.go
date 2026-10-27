@@ -435,6 +435,12 @@ type RemoveOrgMemberInput struct {
 	UserID uuid.UUID
 }
 
+type TransferOrgOwnershipInput struct {
+	OrgID          uuid.UUID
+	OwnerUserID    uuid.UUID
+	NewOwnerUserID uuid.UUID
+}
+
 type RemoveProjectMembershipInput struct {
 	OrgID     uuid.UUID
 	ProjectID uuid.UUID

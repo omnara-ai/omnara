@@ -600,7 +600,7 @@ paths:
         organization and project memberships, and releases the account's sign-in identity
         (emails, linked auth identities, and password credentials) so the same email can register a
         new account. Personal secrets and skills owned by the user are deleted with the account.
-        Deletion is blocked while the user is the last owner of any organization (add another owner
+        Deletion is blocked while the user is the last owner of any organization (transfer ownership
         or delete the organization first), while a personal skill is referenced by an active
         agent's configuration, or while a personal secret is referenced by a model provider config,
         machine pool, or integration. Organization and project resources are unaffected,
@@ -1355,6 +1355,50 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/members/{userID}/transfer-ownership:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: userID
+        in: path
+        description: User ID (usr_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^usr_[a-z2-7]{26}$'
+    post:
+      operationId: transferOrgOwnership
+      tags: [Organizations and Projects]
+      summary: Transfer organization ownership
+      description: >-
+        Makes the member the organization's owner and makes the calling owner an admin. Only the
+        organization owner can transfer ownership.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Ownership transferred.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':

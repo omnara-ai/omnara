@@ -234,6 +234,7 @@ const (
 	operationSleepMachineDaemonRuntime     operationID = "SleepMachineDaemonRuntime"
 	operationSocketMachineDaemonRuntime    operationID = "SocketMachineDaemonRuntime"
 	operationStreamEvents                  operationID = "StreamEvents"
+	operationTransferOrgOwnership          operationID = "TransferOrgOwnership"
 	operationUpdateAgentConfig             operationID = "UpdateAgentConfig"
 	operationUpdateAgentProfile            operationID = "UpdateAgentProfile"
 	operationUpdateConfiguredModel         operationID = "UpdateConfiguredModel"
@@ -324,6 +325,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationDeleteOrgInvitation:        accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationUpdateOrgMember:            accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationRemoveOrgMember:            accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationTransferOrgOwnership:       userPolicy(orgScope(identitystore.OrgActionOwn)),
 	operationListMemberProjectAccess:    accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateMachine:              accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationConnectBYOMachine:          accountPolicy(orgScope(identitystore.OrgActionManage)),

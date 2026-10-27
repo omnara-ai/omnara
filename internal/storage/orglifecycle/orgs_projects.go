@@ -522,15 +522,11 @@ func (s *Service) DeleteOrganization(
 	if deletedBy.ID == uuid.Nil {
 		return nil, errors.New("actor is required")
 	}
-	actor, err := executionstore.OmnaraActorParams(orgID, deletedBy)
-	if err != nil {
-		return nil, err
-	}
 	return agentexecution.Retry(ctx,
 		"delete_organization",
 		func(ctx context.Context) ([]executionstore.MachineRecord,
 			error) {
-			return s.deleteOrganizationOnce(ctx, orgID, actor)
+			return s.deleteOrganizationOnce(ctx, orgID, deletedBy)
 		})
 }
 
@@ -538,8 +534,12 @@ func (s *Service) DeleteOrganization(
 func (s *Service) deleteOrganizationOnce(
 	ctx context.Context,
 	orgID uuid.UUID,
-	actor *executionstore.ActorParams,
+	deletedBy identitystore.PrincipalRecord,
 ) ([]executionstore.MachineRecord, error) {
+	actor, err := executionstore.OmnaraActorParams(orgID, deletedBy)
+	if err != nil {
+		return nil, err
+	}
 	unit, err := s.cell.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -557,6 +557,15 @@ func (s *Service) deleteOrganizationOnce(
 	}
 	if !active {
 		return nil, storeerr.ErrNotFound
+	}
+	allowed, err := identitystore.AuthorizeOrg(ctx, q, identitystore.AuthorizeOrgInput{
+		Principal: deletedBy, OrgID: orgID, Action: identitystore.OrgActionOwn,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, storeerr.ErrUnauthorized
 	}
 	orgProjectIDs, err := q.ListActiveProjectIDsForOrganization(
 		ctx,

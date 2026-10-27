@@ -7077,7 +7077,7 @@ func TestOrganizationDeletionLocksMembershipsBeforeAccountOwnedResources(t *test
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool, WithBlobStore(integrationblob.MustOpen(t, ctx)))
-	admin := createSecretTestUser(t, ctx, store, "Organization Deletion Admin", "admin")
+	owner := createSecretTestUser(t, ctx, store, "Organization Deletion Owner", "owner")
 	member := createSecretTestUser(t, ctx, store, "Organization Deletion Member", "member")
 	if _, err := store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
 		OrgID: testOrgID, ProjectID: testProjectID, UserID: member.ID, Role: "developer",
@@ -7096,10 +7096,6 @@ func TestOrganizationDeletionLocksMembershipsBeforeAccountOwnedResources(t *test
 	if err != nil {
 		t.Fatalf("create user-owned secret: %v", err)
 	}
-	actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(admin.ID))
-	if err != nil {
-		t.Fatalf("build organization deletion actor: %v", err)
-	}
 
 	controlTx := integrationdb.BeginTx(t, ctx, pool)
 	if _, err := controlTx.Exec(ctx,
@@ -7114,7 +7110,7 @@ func TestOrganizationDeletionLocksMembershipsBeforeAccountOwnedResources(t *test
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserOrgMembershipsForDeletion", 1)
 	organizationDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
-			context.Background(), testOrgID, actor,
+			context.Background(), testOrgID, userPrincipal(owner.ID),
 		)
 		return deleteErr
 	})
@@ -7172,12 +7168,12 @@ func TestAccountAndOrganizationDeletionLockMembershipsInStableOrder(t *testing.T
 			pool := openIntegrationDB(t, ctx)
 			seedMigratedDB(t, ctx, pool)
 			store := newIntegrationStore(pool)
-			admin := createSecretTestUser(t, ctx, store, "Membership Order Admin", "admin")
+			owner := createSecretTestUser(t, ctx, store, "Membership Order Owner", "owner")
 			member := createSecretTestUser(t, ctx, store, "Membership Order First", "member")
 			secondOrgID, secondUserID := testOrgID, member.ID
 			if deleteAccount {
 				other, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
-					UserID: admin.ID, Name: "Membership Order Other",
+					UserID: owner.ID, Name: "Membership Order Other",
 				})
 				if err != nil {
 					t.Fatalf("create second organization: %v", err)
@@ -7206,10 +7202,6 @@ func TestAccountAndOrganizationDeletionLockMembershipsInStableOrder(t *testing.T
 					t.Fatalf("assign ordered membership ID: %v", err)
 				}
 			}
-			actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(admin.ID))
-			if err != nil {
-				t.Fatalf("build organization deletion actor: %v", err)
-			}
 			controlTx := integrationdb.BeginTx(t, ctx, pool)
 			if _, err := controlTx.Exec(ctx,
 				`SELECT id FROM org_memberships WHERE id = $1 FOR UPDATE`, lowerID,
@@ -7221,7 +7213,7 @@ func TestAccountAndOrganizationDeletionLockMembershipsInStableOrder(t *testing.T
 					return store.Identity().DeleteUserAccount(context.Background(), member.ID)
 				}
 				_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
-					context.Background(), testOrgID, actor,
+					context.Background(), testOrgID, userPrincipal(owner.ID),
 				)
 				return deleteErr
 			})
@@ -7351,21 +7343,17 @@ func TestOrgAPIKeyMutationWaitingBehindDeletionRejectsInactiveOrganization(t *te
 			pool := openIntegrationDB(t, ctx)
 			seedMigratedDB(t, ctx, pool)
 			store := NewStore(pool)
-			admin := mustCreateIdentityUser(t, ctx, store, operation+"-key-delete@example.com", "Key Deletion Admin")
+			owner := mustCreateIdentityUser(t, ctx, store, operation+"-key-delete@example.com", "Key Deletion Owner")
 			if _, err := store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
-				OrgID: testOrgID, UserID: admin.ID, Role: "admin",
+				OrgID: testOrgID, UserID: owner.ID, Role: "owner",
 			}); err != nil {
-				t.Fatalf("add key administrator: %v", err)
+				t.Fatalf("add key owner: %v", err)
 			}
 			key, err := store.Identity().CreateOrgAPIKeyWithPlaintext(ctx, identitystore.CreateOrgAPIKeyInput{
-				OrgID: testOrgID, CreatedByUserID: admin.ID, Name: "Deletion key", OrgRole: "member",
+				OrgID: testOrgID, CreatedByUserID: owner.ID, Name: "Deletion key", OrgRole: "member",
 			})
 			if err != nil {
 				t.Fatalf("create organization API key: %v", err)
-			}
-			actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(admin.ID))
-			if err != nil {
-				t.Fatalf("build organization deletion actor: %v", err)
 			}
 
 			controlTx := integrationdb.BeginTx(t, ctx, pool)
@@ -7376,7 +7364,7 @@ func TestOrgAPIKeyMutationWaitingBehindDeletionRejectsInactiveOrganization(t *te
 				_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
 					context.Background(),
 					testOrgID,
-					actor,
+					userPrincipal(owner.ID),
 				)
 				return deleteErr
 			})
@@ -7388,7 +7376,7 @@ func TestOrgAPIKeyMutationWaitingBehindDeletionRejectsInactiveOrganization(t *te
 						context.Background(),
 						identitystore.UpdateOrgAPIKeyInput{
 							OrgID: testOrgID, KeyID: key.Record.ID,
-							ActorPrincipal: userPrincipal(admin.ID), Name: "Too late",
+							ActorPrincipal: userPrincipal(owner.ID), Name: "Too late",
 						},
 					)
 					return updateErr
@@ -7397,7 +7385,7 @@ func TestOrgAPIKeyMutationWaitingBehindDeletionRejectsInactiveOrganization(t *te
 					context.Background(),
 					testOrgID,
 					key.Record.ID,
-					userPrincipal(admin.ID),
+					userPrincipal(owner.ID),
 				)
 				return revokeErr
 			})

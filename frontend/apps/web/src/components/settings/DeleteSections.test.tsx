@@ -256,7 +256,7 @@ describe('DeleteAccountSection', () => {
 
     expect(buttons('Delete account')[0]?.disabled).toBe(true)
     expect(container.textContent).toContain(
-      'You own Acme and Beta. Delete those organizations from organization settings before deleting your account.',
+      'You own Acme and Beta. Transfer ownership on the Members page or delete those organizations in organization settings before deleting your account.',
     )
     expect([...container.querySelectorAll('strong')].map((item) => item.textContent)).toEqual([
       'Acme',

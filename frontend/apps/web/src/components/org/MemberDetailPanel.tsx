@@ -1,7 +1,9 @@
-import { useRemoveOrgMember, useUpdateOrgMemberRole } from '@omnara/react'
+import { useRemoveOrgMember, useTransferOrgOwnership, useUpdateOrgMemberRole } from '@omnara/react'
 import type { OrgMember } from '@omnara/sdk'
+import { useState } from 'react'
 
 import { MemberProjectAccessSection } from '@/components/org/MemberProjectAccessSection'
+import { TypeToConfirmDialog } from '@/components/settings/TypeToConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { formatDateTime } from '@/lib/format'
@@ -20,11 +22,16 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
   const canManage = canManageOrg(activeOrg.role)
   const updateRole = useUpdateOrgMemberRole(orgId)
   const removeMember = useRemoveOrgMember(orgId)
+  const transferOwnership = useTransferOrgOwnership(orgId)
+  const [transferOpen, setTransferOpen] = useState(false)
   const isOwner = member.role === 'owner'
   const canManageThisMember = canManage && !isOwner
   const removeError = removeMember.isError
     ? errorMessage(removeMember.error, 'Could not remove this member from the organization.')
     : ''
+  const transferError = transferOwnership.isError
+    ? errorMessage(transferOwnership.error, 'Could not transfer ownership.')
+    : null
 
   return (
     <div className="flex flex-col gap-3">
@@ -46,7 +53,7 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
               <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:items-center sm:gap-0">
                 <dt className="text-muted-foreground">Org role</dt>
                 <dd className="flex min-w-0 flex-col gap-2">
-                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
                     <div className="flex gap-2">
                       {ORG_ROLES.map((role) => (
                         <Button
@@ -66,23 +73,69 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
                         </Button>
                       ))}
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="text-destructive hover:text-destructive shrink-0"
-                      disabled={removeMember.isPending}
-                      loading={removeMember.isPending}
-                      onClick={() => {
-                        if (
-                          window.confirm(`Remove ${memberName(member)} from this organization?`)
-                        ) {
-                          removeMember.mutate(member.user_id)
-                        }
-                      }}
-                    >
-                      Remove from organization
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      {activeOrg.role === 'owner' && (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              transferOwnership.reset()
+                              setTransferOpen(true)
+                            }}
+                          >
+                            Transfer ownership
+                          </Button>
+                          <TypeToConfirmDialog
+                            open={transferOpen}
+                            onOpenChange={setTransferOpen}
+                            title={`Transfer ownership to ${memberName(member)}?`}
+                            description={
+                              <>
+                                <p>
+                                  {memberName(member)} becomes the owner of {activeOrg.name}, and
+                                  you become an admin. Only the owner can delete the organization or
+                                  transfer ownership.
+                                </p>
+                                <p>
+                                  You can't undo this. Only the new owner can transfer it back to
+                                  you.
+                                </p>
+                              </>
+                            }
+                            confirmationText={activeOrg.name}
+                            confirmLabel="Transfer ownership"
+                            pending={transferOwnership.isPending}
+                            error={transferError}
+                            onConfirm={() => {
+                              transferOwnership.mutate(member.user_id, {
+                                onSuccess: () => {
+                                  setTransferOpen(false)
+                                },
+                              })
+                            }}
+                          />
+                        </>
+                      )}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive hover:text-destructive shrink-0"
+                        disabled={removeMember.isPending}
+                        loading={removeMember.isPending}
+                        onClick={() => {
+                          if (
+                            window.confirm(`Remove ${memberName(member)} from this organization?`)
+                          ) {
+                            removeMember.mutate(member.user_id)
+                          }
+                        }}
+                      >
+                        Remove from organization
+                      </Button>
+                    </div>
                   </div>
                   {removeError && (
                     <p role="alert" className="text-destructive text-xs sm:text-right">

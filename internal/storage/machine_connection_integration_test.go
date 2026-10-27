@@ -409,17 +409,7 @@ SELECT (SELECT count(*)::integer
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
 		store := newIntegrationStore(pool)
-		user := mustCreateIdentityUser(
-			t,
-			ctx,
-			store,
-			"organization-deletion-wins@example.com",
-			"Organization Deletion Wins",
-		)
-		actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(user.ID))
-		if err != nil {
-			t.Fatalf("build organization deletion actor: %v", err)
-		}
+		owner := createSecretTestUser(t, ctx, store, "Organization Deletion Wins", "owner")
 
 		controlTx := integrationdb.BeginTx(t, ctx, pool)
 		if _, err := controlTx.Exec(
@@ -434,7 +424,7 @@ SELECT (SELECT count(*)::integer
 			_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
 				ctx,
 				testOrgID,
-				actor,
+				userPrincipal(owner.ID),
 			)
 			return deleteErr
 		})

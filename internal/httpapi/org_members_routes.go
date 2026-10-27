@@ -137,6 +137,25 @@ func (s strictOpenAPIServer) RemoveOrgMember(
 	return openapi.RemoveOrgMember204Response{}, nil
 }
 
+func (s strictOpenAPIServer) TransferOrgOwnership(
+	ctx context.Context,
+	request openapi.TransferOrgOwnershipRequestObject,
+) (openapi.TransferOrgOwnershipResponseObject, error) {
+	org, userID, err := orgAndMemberUserID(ctx, request.UserID)
+	if err != nil {
+		return nil, err
+	}
+	principal, _ := principalFromContext(ctx)
+	if err := s.server.store.Identity().TransferOrgOwnership(ctx, identitystore.TransferOrgOwnershipInput{
+		OrgID:          org.ID,
+		OwnerUserID:    principal.ID,
+		NewOwnerUserID: userID,
+	}); err != nil {
+		return nil, apierror.OrgScoped(err)
+	}
+	return openapi.TransferOrgOwnership204Response{}, nil
+}
+
 func projectMembershipGrantResponse(
 	grant identitystore.ProjectMembershipGrantRecord,
 ) (openapi.ProjectMembershipGrant, error) {

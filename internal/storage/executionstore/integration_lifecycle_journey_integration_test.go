@@ -110,7 +110,8 @@ func TestScopeTeardownSweepsLiveIntegrationsSubscriptionsTargetsAndCredentials(t
 			if scope == "project" {
 				_, err = f.store.Organizations().DeleteProject(f.ctx, testOrgID, testProjectID, userPrincipal(f.user.ID))
 			} else {
-				_, err = f.store.Organizations().DeleteOrganization(f.ctx, testOrgID, userPrincipal(f.user.ID))
+				owner := createSecretTestUser(t, f.ctx, f.store, "Scope Teardown Owner", "owner")
+				_, err = f.store.Organizations().DeleteOrganization(f.ctx, testOrgID, userPrincipal(owner.ID))
 			}
 			require.NoError(t, err, "teardown must release integration credentials before checking secret references")
 			var deletedIntegrations, liveTargets, activeSubscriptions, versions int
