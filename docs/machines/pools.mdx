@@ -16,14 +16,14 @@ Omnara gives you two ways to run pool machines:
 
 ## Default machine environment
 
-Machines from Omnara-managed pools run Ubuntu 24.04 as root, with common development tools preinstalled so agents can start working without installing them. The default working directory is `/workspace`. Custom pools and self-hosted deployments use the image or snapshot you choose.
+Machines from Omnara-managed pools run Ubuntu 26.04 as root, with common development tools preinstalled so agents can start working without installing them. The default working directory is `/workspace`. Custom pools and self-hosted deployments use the image or snapshot you choose.
 
 | Category | Included |
 | --- | --- |
-| Languages | Python 3.12, Node.js 24, Go 1.27, C and C++ (gcc 13) |
+| Languages | Python 3.14, Node.js 24, Go 1.27, C and C++ (gcc 15) |
 | Package managers | pip, uv, npm, pnpm, Yarn |
 | Build tools | make, cmake, ninja |
-| Databases | PostgreSQL 16, Redis 7, SQLite |
+| Databases | PostgreSQL 18, Redis 8, SQLite |
 | Command-line tools | `git`, `gh`, `jq`, `yq`, `rg`, `curl`, `wget`, `zip`, `sudo` |
 | Python libraries | numpy, pandas, matplotlib, openpyxl, python-docx, python-pptx, pypdf |
 | PDF tools | `pdftotext`, `pdftoppm`, `qpdf` |
@@ -31,7 +31,7 @@ Machines from Omnara-managed pools run Ubuntu 24.04 as root, with common develop
 
 - `/bin/sh` is bash, so [`run_command`](/tools/built-in#run_command) accepts bash syntax with the default shell.
 - `pip install` and `uv pip install --system` install into the system Python without a virtual environment.
-- PostgreSQL and Redis are installed but not running. Create and start a PostgreSQL cluster with `pg_createcluster 16 main --start`.
+- PostgreSQL and Redis are installed but not running. Create and start a PostgreSQL cluster with `pg_createcluster 18 main --start`.
 - A `GITHUB_TOKEN` or `GH_TOKEN` [environment variable](/agents/configuration#machines) authenticates both `gh` and `git` to GitHub over HTTPS.
 
 Agents can install other tools with `apt-get` or a language's package manager.
