@@ -7405,6 +7405,81 @@ func TestOrgAPIKeyMutationWaitingBehindDeletionRejectsInactiveOrganization(t *te
 	}
 }
 
+func TestDeletionWaitingBehindOwnershipTransferKeepsNewOwner(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		waitQuery string
+		want      error
+		remove    func(store *Store, owner, recipient identitystore.UserRecord) error
+	}{
+		{
+			name:      "organization deletion by former owner",
+			waitQuery: "LockOrganizationLifecycleExclusive",
+			want:      storeerr.ErrUnauthorized,
+			remove: func(store *Store, owner, _ identitystore.UserRecord) error {
+				_, err := store.Organizations().DeleteOrganization(context.Background(), testOrgID, userPrincipal(owner.ID))
+				return err
+			},
+		},
+		{
+			name:      "account deletion by recipient",
+			waitQuery: "LockUserForUpdate",
+			want:      storeerr.ErrConflict,
+			remove: func(store *Store, _, recipient identitystore.UserRecord) error {
+				return store.Identity().DeleteUserAccount(context.Background(), recipient.ID)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := NewStore(pool)
+			owner := createSecretTestUser(t, ctx, store, "Transfer Race Owner", "owner")
+			recipient := createSecretTestUser(t, ctx, store, "Transfer Race Recipient", "member")
+
+			controlTx := integrationdb.BeginTx(t, ctx, pool)
+			if _, err := dbsqlc.New(controlTx).LockOrg(ctx, dbsqlc.LockOrgParams{ID: testOrgID}); err != nil {
+				t.Fatalf("lock organization: %v", err)
+			}
+			transferDone := integrationdb.RunAsyncError(func() error {
+				return store.Identity().TransferOrgOwnership(context.Background(), identitystore.TransferOrgOwnershipInput{
+					OrgID: testOrgID, OwnerUserID: owner.ID, NewOwnerUserID: recipient.ID,
+				})
+			})
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 1)
+			removeDone := integrationdb.RunAsyncError(func() error { return tc.remove(store, owner, recipient) })
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, tc.waitQuery, 1)
+			if err := controlTx.Commit(ctx); err != nil {
+				t.Fatalf("release ownership transfer control transaction: %v", err)
+			}
+			if err := integrationdb.Await(t, transferDone, "ownership transfer"); err != nil {
+				t.Fatalf("transfer ownership: %v", err)
+			}
+			if err := integrationdb.Await(t, removeDone, tc.name); !errors.Is(err, tc.want) {
+				t.Fatalf("%s error = %v, want %v", tc.name, err, tc.want)
+			}
+
+			if _, err := store.Identity().GetOrg(ctx, testOrgID); err != nil {
+				t.Fatalf("organization after %s: %v", tc.name, err)
+			}
+			var owners int
+			var recipientOwns bool
+			if err := pool.QueryRow(ctx,
+				`SELECT count(*), coalesce(bool_and(user_id = $2), false) FROM org_memberships WHERE org_id = $1 AND role = 'owner'`,
+				testOrgID, recipient.ID,
+			).Scan(&owners, &recipientOwns); err != nil {
+				t.Fatalf("load organization owners: %v", err)
+			}
+			if owners != 1 || !recipientOwns {
+				t.Fatalf("owners = %d recipient owns = %v, want recipient as sole owner", owners, recipientOwns)
+			}
+		})
+	}
+}
+
 func TestCompromiseRevocationSerializesConcurrentTokenCreation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

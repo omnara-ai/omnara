@@ -285,11 +285,6 @@ func TestTransferOrgOwnership(t *testing.T) {
 	}); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("transfer by former owner err = %v, want unauthorized", err)
 	}
-	if _, err := store.Organizations().DeleteOrganization(
-		ctx, project.OrgUUID, identitystore.NewUserPrincipal(project.AdminUserUUID),
-	); !errors.Is(err, storeerr.ErrUnauthorized) {
-		t.Fatalf("delete by former owner err = %v, want unauthorized", err)
-	}
 
 	requestJSONWithHeaders(
 		t, handler, http.MethodDelete, membersPath+"/"+project.AdminUserID, "", "",
