@@ -223,6 +223,17 @@ func IsClaudeFamilyModelSlug(providerModelSlug string) bool {
 	return hasFamily && (hasVersion || hasLatestAlias)
 }
 
+// ClaudeThinksAdaptivelyByDefault reports whether the model runs adaptive
+// thinking when a request omits thinking.type, per
+// https://platform.claude.com/docs/en/build-with-claude/thinking.
+func ClaudeThinksAdaptivelyByDefault(providerModelSlug string) bool {
+	if !IsClaudeFamilyModelSlug(providerModelSlug) {
+		return false
+	}
+	major, _, hasVersion := claudeModelVersion(providerModelSlug)
+	return hasVersion && major >= 5
+}
+
 func boundedOpenAIPatchCount(width, height, patchBudget, maxDimension int) int {
 	patches, scaledWidth, scaledHeight := openAIPatchDimensions(width, height, maxDimension)
 	if patches <= patchBudget {
@@ -274,6 +285,15 @@ func normalizedProviderModelName(slug string) string {
 	}
 	if variant := strings.IndexByte(name, ':'); variant >= 0 {
 		name = name[:variant]
+	}
+	// Bedrock spells Claude IDs anthropic.claude-…, optionally behind a
+	// cross-region inference profile prefix such as us. or global.
+	if prefix, rest, ok := strings.Cut(name, "."); ok {
+		if prefix == "anthropic" {
+			name = rest
+		} else if bedrockName, ok := strings.CutPrefix(rest, "anthropic."); ok {
+			name = bedrockName
+		}
 	}
 	return name
 }

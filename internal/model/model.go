@@ -137,6 +137,15 @@ func ProviderReplayIdentityForClient(
 	}
 }
 
+// ProviderReplaySlugsCompatible reports whether replay produced under one model
+// slug can be sent to another on the same provider route. Claude models accept
+// each other's signed thinking, so a conversation's replay outlives a switch.
+func ProviderReplaySlugsCompatible(apiFormat modelprotocol.APIFormat, source, target string) bool {
+	return source == target ||
+		apiFormat == modelprotocol.APIFormatAnthropicMessages &&
+			IsClaudeFamilyModelSlug(source) && IsClaudeFamilyModelSlug(target)
+}
+
 func CapabilitiesForClient(client Client) Capabilities {
 	if client == nil {
 		return Capabilities{}

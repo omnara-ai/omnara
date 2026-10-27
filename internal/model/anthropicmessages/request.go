@@ -120,6 +120,10 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 			if err != nil {
 				return nil, err
 			}
+			// Spell out the default so the binding policy below applies to it.
+			if _, ok := thinking["type"]; !ok && model.ClaudeThinksAdaptivelyByDefault(c.ProviderModelSlug) {
+				thinking["type"] = json.RawMessage(`"adaptive"`)
+			}
 		}
 		if dropPrefixMismatchedThinking(thinking) {
 			if payload.Thinking == nil {
@@ -556,9 +560,11 @@ func anthropicReplayCompatible(source, target modelenvelope.ProviderReplayIdenti
 	}
 	sameModel := target
 	sameModel.RequestedProviderModelSlug = source.RequestedProviderModelSlug
-	return source.Matches(sameModel) &&
-		model.IsClaudeFamilyModelSlug(source.RequestedProviderModelSlug) &&
-		model.IsClaudeFamilyModelSlug(target.RequestedProviderModelSlug)
+	return source.Matches(sameModel) && model.ProviderReplaySlugsCompatible(
+		source.APIFormat,
+		source.RequestedProviderModelSlug,
+		target.RequestedProviderModelSlug,
+	)
 }
 
 type anthropicReplaySemantic struct {

@@ -675,6 +675,7 @@ func TestPrepareSendsReasoningEffortAsOutputConfig(t *testing.T) {
 			apiVariantOptions: `{"output_config":{"effort":"max"}}`,
 			supportsReasoning: true,
 			wantOutputConfig:  `{"effort":"max"}`,
+			wantThinking:      adaptiveThinkingDroppingPrefixMismatches,
 		},
 		{
 			name:              "effort keeps api variant manual thinking",
@@ -692,7 +693,7 @@ func TestPrepareSendsReasoningEffortAsOutputConfig(t *testing.T) {
 			wantOutputConfig:  `{"effort":"high"}`,
 			wantThinking:      adaptiveThinkingDroppingPrefixMismatches,
 		},
-		{name: "reasoning unsupported", effort: "low"},
+		{name: "reasoning unsupported", effort: "low", wantThinking: adaptiveThinkingDroppingPrefixMismatches},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := Client{

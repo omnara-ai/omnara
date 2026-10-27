@@ -18,6 +18,16 @@ const adaptiveThinkingDroppingPrefixMismatches = `{"block_binding":{"prefix_mism
 
 func prepareThinkingRequest(t *testing.T, client Client, messages []modelcontext.Message) map[string]json.RawMessage {
 	t.Helper()
+	return prepareThinkingRequestWithEffort(t, client, messages, "high")
+}
+
+func prepareThinkingRequestWithEffort(
+	t *testing.T,
+	client Client,
+	messages []modelcontext.Message,
+	effort string,
+) map[string]json.RawMessage {
+	t.Helper()
 	client.EndpointPath = testEndpointPath
 	if client.ProviderModelSlug == "" {
 		client.ProviderModelSlug = "claude-opus-5-5"
@@ -31,7 +41,7 @@ func prepareThinkingRequest(t *testing.T, client Client, messages []modelcontext
 		Policy: model.RequestPolicy{
 			MaxOutputTokens:   4096,
 			SupportsReasoning: &supportsReasoning,
-			ReasoningEffort:   "high",
+			ReasoningEffort:   effort,
 		},
 	})
 	require.NoError(t, err)
@@ -72,8 +82,19 @@ func TestPrepareDropsPrefixMismatchedThinkingOnlyForClaudeModels(t *testing.T) {
 			wantThinking: adaptiveThinkingDroppingPrefixMismatches,
 		},
 		{
-			name:         "bedrock claude slug",
-			client:       Client{APIVariant: modelprotocol.APIVariantBedrock},
+			name: "bedrock claude ID",
+			client: Client{
+				APIVariant:        modelprotocol.APIVariantBedrock,
+				ProviderModelSlug: "anthropic.claude-opus-5-5",
+			},
+			wantThinking: adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{
+			name: "bedrock cross-region inference profile",
+			client: Client{
+				APIVariant:        modelprotocol.APIVariantBedrock,
+				ProviderModelSlug: "global.anthropic.claude-opus-5-5",
+			},
 			wantThinking: adaptiveThinkingDroppingPrefixMismatches,
 		},
 		{
@@ -125,6 +146,61 @@ func TestPrepareDropsPrefixMismatchedThinkingOnlyForClaudeModels(t *testing.T) {
 	}
 }
 
+func TestPrepareDropsPrefixMismatchedThinkingWithoutConfiguredEffort(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		client       Client
+		wantThinking string
+	}{
+		{
+			name:         "opus 5.5 thinks adaptively by default",
+			client:       Client{ProviderModelSlug: "claude-opus-5-5"},
+			wantThinking: adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{
+			name:         "sonnet 5 thinks adaptively by default",
+			client:       Client{ProviderModelSlug: "claude-sonnet-5"},
+			wantThinking: adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{
+			name: "bedrock fable 5.1 thinks adaptively by default",
+			client: Client{
+				APIVariant:        modelprotocol.APIVariantBedrock,
+				ProviderModelSlug: "us.anthropic.claude-fable-5-1",
+			},
+			wantThinking: adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{
+			name: "configured display without a type",
+			client: Client{
+				ProviderModelSlug: "claude-opus-5-5",
+				APIVariantOptions: json.RawMessage(`{"thinking":{"display":"summarized"}}`),
+			},
+			wantThinking: `{"block_binding":{"prefix_mismatch_behavior":"drop_block"},` +
+				`"display":"summarized","type":"adaptive"}`,
+		},
+		{
+			name: "configured disabled thinking stays disabled",
+			client: Client{
+				ProviderModelSlug: "claude-opus-5",
+				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"disabled"}}`),
+			},
+			wantThinking: `{"type":"disabled"}`,
+		},
+		{name: "opus 4.8 keeps thinking off by default", client: Client{ProviderModelSlug: "claude-opus-4-8"}},
+		{name: "versionless alias keeps provider default", client: Client{ProviderModelSlug: "claude-opus-latest"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := prepareThinkingRequestWithEffort(t, tc.client, nil, "")
+			if tc.wantThinking == "" {
+				require.NotContains(t, payload, "thinking")
+				return
+			}
+			require.JSONEq(t, tc.wantThinking, string(payload["thinking"]))
+		})
+	}
+}
+
 func TestThinkingBindingBetaHeaderOnlyForClaudeModels(t *testing.T) {
 	const claude = "claude-opus-5-5"
 	operatorBetas := route.Headers{"Anthropic-Beta": "context-1m-2025-08-07, interleaved-thinking-2025-05-14"}
@@ -151,6 +227,14 @@ func TestThinkingBindingBetaHeaderOnlyForClaudeModels(t *testing.T) {
 			client: Client{
 				APIVariant:        modelprotocol.APIVariantOpenRouter,
 				ProviderModelSlug: "anthropic/claude-opus-5.5",
+			},
+			wantBeta: thinkingBindingControlsBeta,
+		},
+		{
+			name: "bedrock claude ID",
+			client: Client{
+				APIVariant:        modelprotocol.APIVariantBedrock,
+				ProviderModelSlug: "anthropic.claude-opus-5-5",
 			},
 			wantBeta: thinkingBindingControlsBeta,
 		},
@@ -209,6 +293,12 @@ func TestPrepareReplaysThinkingAcrossClaudeModelSwitches(t *testing.T) {
 			name:       "routed claude slugs",
 			sourceSlug: "anthropic/claude-sonnet-5-5",
 			targetSlug: "anthropic/claude-opus-5-5",
+			wantReplay: true,
+		},
+		{
+			name:       "bedrock claude IDs",
+			sourceSlug: "us.anthropic.claude-sonnet-5-5",
+			targetSlug: "anthropic.claude-opus-5-5",
 			wantReplay: true,
 		},
 		{name: "non-claude source", sourceSlug: "minimax-m3", targetSlug: "claude-opus-5-5"},
