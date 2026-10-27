@@ -92,7 +92,8 @@ WITH legacy_event_webhook_configs AS (
     JOIN agent_configs config ON config.id = context.agent_config_id
     WHERE call.type = 'built_in' AND call.name = 'spawn_agent' AND call.state <> 'completed'
       AND config.compiled_definition#>>'{tools,spawn_agent,enabled}' = 'true'
-      AND config.compiled_definition->'subagents'->(call.input->>'agent')->>'type' = 'self'
+      AND config.compiled_definition->'subagents'->btrim(call.input->>'agent',
+          U&'\0009\000A\000B\000C\000D\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000')->>'type' = 'self'
 )
 SELECT agent.org_id, agent.project_id, agent.id AS agent_id, agent.agent_profile_id, own.id AS config_id,
        'Finish its work, relaunch under a profile with the same webhook URL, events, and signing secret, archive the original, then rerun the preflight.' AS resolution

@@ -38,7 +38,8 @@ func TestEventWebhookConfigMigration(t *testing.T) {
 		"oversized_agent_url", "oversized_profile_url", "oversized_archived_url", "unused_oversized_url",
 		"oversized_archived_without_deliveries",
 		"self_agent", "self_profile", "self_archived", "self_disabled", "self_profile_without_webhook",
-		"pending_self", "pending_completed", "pending_disabled", "pending_unknown_subagent",
+		"pending_self", "pending_self_spaces", "pending_self_whitespace",
+		"pending_completed", "pending_disabled", "pending_unknown_subagent",
 		"pending_profile_covered", "pending_profile_conflict",
 	} {
 		t.Run(scenario, func(t *testing.T) {
@@ -254,7 +255,14 @@ func TestEventWebhookConfigMigration(t *testing.T) {
 					VALUES($1,$2,$3,3,'model_output','model_output:'||$4::text,$4::uuid,false,now())`,
 					uuid.New(), firstAgent, turnID, outputID)
 				key := "worker"
-				if scenario == "pending_unknown_subagent" {
+				switch scenario {
+				case "pending_self_spaces":
+					key = " worker "
+				case "pending_self_whitespace":
+					whitespace := "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+					key = whitespace + key + whitespace
+					require.Equal(t, "worker", strings.TrimSpace(key))
+				case "pending_unknown_subagent":
 					key = "missing"
 				}
 				write(`INSERT INTO tool_calls(id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
@@ -334,6 +342,7 @@ func TestEventWebhookConfigMigration(t *testing.T) {
 				"oversized_archived_url": "event_webhooks_url_check",
 				"self_agent":             "future self-subagents", "self_profile_without_webhook": "future self-subagents",
 				"pending_self": "future self-subagents", "pending_profile_conflict": "future self-subagents",
+				"pending_self_spaces": "future self-subagents", "pending_self_whitespace": "future self-subagents",
 			}[scenario]
 			for _, version := range []int64{57, 58} {
 				if scenario == "already_scoped_delivery" && version == 57 {
