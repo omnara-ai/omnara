@@ -106,6 +106,24 @@ ORDER BY call.created_at ASC, call.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ListUnfinishedToolCallsForProject :many
+WITH page AS (
+  SELECT tool_call.agent_id, tool_call.id
+  FROM tool_calls tool_call
+  JOIN agents agent ON agent.id = tool_call.agent_id
+  WHERE agent.project_id = sqlc.arg(project_id)
+    AND tool_call.state <> 'completed'
+    AND (sqlc.arg(state)::text = '' OR tool_call.state = sqlc.arg(state))
+    AND (sqlc.arg(type)::text = '' OR tool_call.type = sqlc.arg(type))
+    AND (
+      sqlc.narg(cursor_created_at)::timestamptz IS NULL
+      OR (tool_call.created_at, tool_call.id) > (
+        sqlc.narg(cursor_created_at)::timestamptz,
+        sqlc.narg(cursor_id)::uuid
+      )
+    )
+  ORDER BY tool_call.created_at ASC, tool_call.id ASC
+  LIMIT sqlc.arg(row_limit)::bigint
+)
 SELECT call.id, call.project_id, call.agent_id,
   call.turn_id, call.source_event_id,
   call.model_call_context_id, call.provider_call_id,
@@ -114,20 +132,10 @@ SELECT call.id, call.project_id, call.agent_id,
   ''::text AS outcome, call.runtime_lock_id,
   '[]'::jsonb AS result_content_parts,
   call.created_at, NULL::timestamptz AS completed_at
-FROM tool_call_read_projection call
-WHERE call.project_id = sqlc.arg(project_id)
-  AND call.state <> 'completed'
-  AND (sqlc.arg(state)::text = '' OR call.state = sqlc.arg(state))
-  AND (sqlc.arg(type)::text = '' OR call.type = sqlc.arg(type))
-  AND (
-    sqlc.narg(cursor_created_at)::timestamptz IS NULL
-    OR (call.created_at, call.id) > (
-      sqlc.narg(cursor_created_at)::timestamptz,
-      sqlc.narg(cursor_id)::uuid
-    )
-  )
-ORDER BY call.created_at ASC, call.id ASC
-LIMIT sqlc.arg(row_limit)::bigint;
+FROM page
+JOIN tool_call_read_projection call ON call.agent_id = page.agent_id
+  AND call.id = page.id
+ORDER BY call.created_at ASC, call.id ASC;
 
 -- name: NextRunnableToolCallForModelOutput :one
 SELECT call.id, call.project_id, call.agent_id,

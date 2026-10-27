@@ -435,6 +435,24 @@ func (q *Queries) ListToolCallsForAgent(ctx context.Context, arg ListToolCallsFo
 }
 
 const listUnfinishedToolCallsForProject = `-- name: ListUnfinishedToolCallsForProject :many
+WITH page AS (
+  SELECT tool_call.agent_id, tool_call.id
+  FROM tool_calls tool_call
+  JOIN agents agent ON agent.id = tool_call.agent_id
+  WHERE agent.project_id = $1
+    AND tool_call.state <> 'completed'
+    AND ($2::text = '' OR tool_call.state = $2)
+    AND ($3::text = '' OR tool_call.type = $3)
+    AND (
+      $4::timestamptz IS NULL
+      OR (tool_call.created_at, tool_call.id) > (
+        $4::timestamptz,
+        $5::uuid
+      )
+    )
+  ORDER BY tool_call.created_at ASC, tool_call.id ASC
+  LIMIT $6::bigint
+)
 SELECT call.id, call.project_id, call.agent_id,
   call.turn_id, call.source_event_id,
   call.model_call_context_id, call.provider_call_id,
@@ -443,20 +461,10 @@ SELECT call.id, call.project_id, call.agent_id,
   ''::text AS outcome, call.runtime_lock_id,
   '[]'::jsonb AS result_content_parts,
   call.created_at, NULL::timestamptz AS completed_at
-FROM tool_call_read_projection call
-WHERE call.project_id = $1
-  AND call.state <> 'completed'
-  AND ($2::text = '' OR call.state = $2)
-  AND ($3::text = '' OR call.type = $3)
-  AND (
-    $4::timestamptz IS NULL
-    OR (call.created_at, call.id) > (
-      $4::timestamptz,
-      $5::uuid
-    )
-  )
+FROM page
+JOIN tool_call_read_projection call ON call.agent_id = page.agent_id
+  AND call.id = page.id
 ORDER BY call.created_at ASC, call.id ASC
-LIMIT $6::bigint
 `
 
 type ListUnfinishedToolCallsForProjectParams struct {
