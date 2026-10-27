@@ -660,7 +660,7 @@ func TestPrepareSendsReasoningEffortAsOutputConfig(t *testing.T) {
 			supportsReasoning: true,
 			effort:            "low",
 			wantOutputConfig:  `{"effort":"low"}`,
-			wantThinking:      `{"type":"adaptive"}`,
+			wantThinking:      adaptiveThinkingDroppingPrefixMismatches,
 		},
 		{
 			name:              "effort merges into api variant output config",
@@ -668,13 +668,14 @@ func TestPrepareSendsReasoningEffortAsOutputConfig(t *testing.T) {
 			supportsReasoning: true,
 			effort:            "medium",
 			wantOutputConfig:  `{"effort":"medium","format":{"type":"json_schema"}}`,
-			wantThinking:      `{"type":"adaptive"}`,
+			wantThinking:      adaptiveThinkingDroppingPrefixMismatches,
 		},
 		{
 			name:              "api variant output config without effort",
 			apiVariantOptions: `{"output_config":{"effort":"max"}}`,
 			supportsReasoning: true,
 			wantOutputConfig:  `{"effort":"max"}`,
+			wantThinking:      adaptiveThinkingDroppingPrefixMismatches,
 		},
 		{
 			name:              "effort keeps api variant manual thinking",
@@ -690,14 +691,14 @@ func TestPrepareSendsReasoningEffortAsOutputConfig(t *testing.T) {
 			supportsReasoning: true,
 			effort:            "high",
 			wantOutputConfig:  `{"effort":"high"}`,
-			wantThinking:      `{"type":"adaptive"}`,
+			wantThinking:      adaptiveThinkingDroppingPrefixMismatches,
 		},
-		{name: "reasoning unsupported", effort: "low"},
+		{name: "reasoning unsupported", effort: "low", wantThinking: adaptiveThinkingDroppingPrefixMismatches},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := Client{
 				EndpointPath:      testEndpointPath,
-				ProviderModelSlug: "claude-test",
+				ProviderModelSlug: "claude-opus-5-5",
 				APIVariantOptions: json.RawMessage(tc.apiVariantOptions),
 			}
 			supportsReasoning := tc.supportsReasoning
@@ -731,7 +732,7 @@ func TestPrepareSendsReasoningEffortAsOutputConfig(t *testing.T) {
 func TestPrepareReasoningEffortKeepsOtherAPIVariantOptions(t *testing.T) {
 	client := Client{
 		EndpointPath:      testEndpointPath,
-		ProviderModelSlug: "claude-test",
+		ProviderModelSlug: "claude-opus-5-5",
 		APIVariantOptions: json.RawMessage(`{
 			"metadata":{"user_id":"user-1"},
 			"top_k":5,
@@ -762,7 +763,7 @@ func TestPrepareReasoningEffortKeepsOtherAPIVariantOptions(t *testing.T) {
 		"metadata":      `{"user_id":"user-1"}`,
 		"top_k":         `5`,
 		"service_tier":  `"auto"`,
-		"thinking":      `{"type":"adaptive","display":"summarized"}`,
+		"thinking":      `{"block_binding":{"prefix_mismatch_behavior":"drop_block"},"display":"summarized","type":"adaptive"}`,
 		"output_config": `{"effort":"low","format":{"type":"json_schema","schema":{"type":"object"}}}`,
 	} {
 		if got := string(payload[key]); got != want {

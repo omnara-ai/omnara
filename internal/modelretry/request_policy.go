@@ -5,15 +5,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 type ProviderReplayPolicyStore interface {
-	GetProviderReplaySuppressionCutoff(
+	ListProviderReplayRejections(
 		context.Context,
 		uuid.UUID,
 		uuid.UUID,
 		uuid.UUID,
-	) (int64, error)
+	) (executionstore.ProviderReplayRejections, error)
 }
 
 func RequestPolicyForModelCall(
@@ -22,7 +23,7 @@ func RequestPolicyForModelCall(
 	projectID, agentID, modelCallContextID uuid.UUID,
 	base model.RequestPolicy,
 ) (model.RequestPolicy, error) {
-	cutoff, err := store.GetProviderReplaySuppressionCutoff(
+	rejections, err := store.ListProviderReplayRejections(
 		ctx,
 		projectID,
 		agentID,
@@ -31,8 +32,13 @@ func RequestPolicyForModelCall(
 	if err != nil {
 		return model.RequestPolicy{}, err
 	}
-	if cutoff > base.ProviderReplayCutoffEventSequence {
-		base.ProviderReplayCutoffEventSequence = cutoff
+	// A rejection under any model that shares replay with this one invalidated
+	// the conversation's earlier replay, so switching models must not revive it.
+	for slug, cutoff := range rejections.CutoffBySlug {
+		if cutoff > base.ProviderReplayCutoffEventSequence &&
+			model.ProviderReplaySlugsCompatible(rejections.APIFormat, slug, rejections.ProviderModelSlug) {
+			base.ProviderReplayCutoffEventSequence = cutoff
+		}
 	}
 	return base, nil
 }
