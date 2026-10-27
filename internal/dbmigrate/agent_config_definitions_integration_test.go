@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const agentConfigDefinitionsMigration = 57
+const agentConfigDefinitionsMigration = 58
 
 type agentConfigDefinitionsFixture struct {
 	db                *sql.DB
