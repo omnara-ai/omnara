@@ -79,9 +79,7 @@ function SetupPrompt() {
   return (
     <div className="flex w-full max-w-2xl min-w-0 flex-col gap-3 self-center">
       <div className="flex items-center justify-between gap-3 pr-1.5">
-        <span className="text-muted-foreground text-sm">
-          Paste into your coding agent to set up your first Omnara agent
-        </span>
+        <span className="text-muted-foreground text-sm">Paste into your coding agent</span>
         <div
           role="group"
           aria-label="Open the prompt in a desktop coding app"

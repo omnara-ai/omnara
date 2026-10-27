@@ -20,9 +20,7 @@ export interface OnboardingProgress {
   agentProfile?: AgentProfileSummary
   agent?: Agent
   live: { agentProfile?: AgentProfileSummary; agent?: Agent }
-  steps: {
-    cli: { login: StepStatus; createProfile: StepStatus; chat: StepStatus }
-  }
+  steps: { login: StepStatus; createProfile: StepStatus; chat: StepStatus }
 }
 
 function stepStatus(completed: boolean, open: boolean): StepStatus {
@@ -73,13 +71,11 @@ export function useOnboarding(input: { orgId: string; projectId: string }): Onbo
     agent,
     live,
     steps: {
-      cli: {
-        login: stepStatus(cliToken != null || hasProfile, true),
-        // Open alongside login: only the CLI command needs it, and Run creates the
-        // profile with the browser session.
-        createProfile: stepStatus(hasProfile, true),
-        chat: stepStatus(agent != null, hasProfile),
-      },
+      login: stepStatus(cliToken != null || hasProfile, true),
+      // Open alongside login: only the CLI command needs it, and Run creates the
+      // profile with the browser session.
+      createProfile: stepStatus(hasProfile, true),
+      chat: stepStatus(agent != null, hasProfile),
     },
   }
 }

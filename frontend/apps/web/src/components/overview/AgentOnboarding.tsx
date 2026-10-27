@@ -81,7 +81,7 @@ function CliSteps({ orgId, project }: { orgId: string; project: VisibleProject }
   })
   const [profilePending, setProfilePending] = useState(false)
   const chatRun = useCreateChat(orgId, project, profile)
-  const { login, createProfile, chat } = steps.cli
+  const { login, createProfile, chat } = steps
   if (!ready) return null
   return (
     <OnboardingSteps>

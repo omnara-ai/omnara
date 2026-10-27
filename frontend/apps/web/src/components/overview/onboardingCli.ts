@@ -10,10 +10,9 @@ export const cliLoginCommand = 'npx omnara login'
 export function shellCode(command: string): CodeContent {
   return { copy: command, segments: [{ text: command }], language: 'shell' }
 }
-export const cliSetupPrompt =
-  'Read https://omnara.com/SKILL.md and help me create an Omnara agent profile.'
-// Same prompt as the omnara.com hero, so the landing page and the app hand off identically.
 export const skillUrl = 'https://www.omnara.com/SKILL.md'
+export const cliSetupPrompt = `Read ${skillUrl} and help me create an Omnara agent profile.`
+// Same prompt as the omnara.com hero, so the landing page and the app hand off identically.
 export const agentSetupPrompt = `Read ${skillUrl} and follow it to set up my Omnara agent.`
 function shellLines(parts: string[]) {
   return parts.join(' \\\n  ')

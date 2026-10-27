@@ -24,6 +24,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import type { CssVariables } from '@/lib/css'
+import { cn } from '@/lib/utils'
 
 function AppSidebar({ children }: { children: ReactNode }) {
   const { isMobile, setOpenMobile } = useSidebar()
@@ -52,6 +53,7 @@ function ScopedNav() {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [breadcrumbSlot, setBreadcrumbSlot] = useState<HTMLDivElement | null>(null)
+  const [scrolled, setScrolled] = useState(false)
 
   return (
     <SidebarProvider className="h-svh" keyboardShortcut={false}>
@@ -83,8 +85,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         style={insetStyle}
         className="group/inset md:[&:has([data-side=right][data-state=expanded])>header]:pr-[calc(var(--agent-pane-width)+1rem)]"
       >
-        {/* A page marked data-transparent-header draws under the header, which floats over it. */}
-        <header className="bg-background grid h-12 shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b px-4 group-has-[[data-transparent-header]]/inset:absolute group-has-[[data-transparent-header]]/inset:inset-x-0 group-has-[[data-transparent-header]]/inset:top-0 group-has-[[data-transparent-header]]/inset:z-10 group-has-[[data-transparent-header]]/inset:bg-transparent md:grid-cols-[1fr_minmax(0,auto)_1fr]">
+        {/* A page marked data-transparent-header draws under the header, which floats over it
+            until the page scrolls, so content never shows through it. */}
+        <header
+          className={cn(
+            'bg-background grid h-12 shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b px-4 group-has-[[data-transparent-header]]/inset:absolute group-has-[[data-transparent-header]]/inset:inset-x-0 group-has-[[data-transparent-header]]/inset:top-0 group-has-[[data-transparent-header]]/inset:z-10 md:grid-cols-[1fr_minmax(0,auto)_1fr]',
+            !scrolled && 'group-has-[[data-transparent-header]]/inset:bg-transparent',
+          )}
+        >
           <div className="flex min-w-0 items-center gap-2">
             <SidebarTrigger className="size-10 sm:size-10 md:hidden" />
             <ProjectSwitcher />
@@ -92,7 +100,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div ref={setBreadcrumbSlot} className="flex min-w-0 justify-end md:justify-center" />
         </header>
         <BreadcrumbSlotContext value={breadcrumbSlot}>
-          <div className="relative min-h-0 flex-1 overflow-auto p-4 pt-6 sm:p-6 sm:pt-9">
+          <div
+            className="relative min-h-0 flex-1 overflow-auto p-4 pt-6 sm:p-6 sm:pt-9"
+            onScroll={(event) => {
+              setScrolled(event.currentTarget.scrollTop > 0)
+            }}
+          >
             {children}
           </div>
         </BreadcrumbSlotContext>
