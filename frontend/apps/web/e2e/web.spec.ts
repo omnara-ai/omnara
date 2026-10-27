@@ -524,7 +524,8 @@ test('walks a new organization through onboarding to its first chat', async ({ p
   await page.getByRole('button', { name: 'or set up manually' }).click()
   await expect(step(1)).toHaveAttribute('data-status', 'active')
   await expect(step(1)).toContainText('npx omnara login')
-  await expect(step(2)).toHaveAttribute('data-status', 'upcoming')
+  // The browser can create the profile without the CLI login.
+  await expect(step(2)).toHaveAttribute('data-status', 'active')
   await expect(step(3)).toHaveAttribute('data-status', 'upcoming')
 
   await step(2).getByRole('button', { name: 'Run' }).click()

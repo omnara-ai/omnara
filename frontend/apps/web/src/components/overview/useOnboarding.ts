@@ -25,9 +25,9 @@ export interface OnboardingProgress {
   }
 }
 
-function statusAt(index: number, completed: boolean[]): StepStatus {
-  if (completed[index]) return 'done'
-  return completed.indexOf(false) === index ? 'active' : 'upcoming'
+function stepStatus(completed: boolean, open: boolean): StepStatus {
+  if (completed) return 'done'
+  return open ? 'active' : 'upcoming'
 }
 
 function projectProgress(overview: OrgOverviewResponse | undefined, projectId: string) {
@@ -64,11 +64,7 @@ export function useOnboarding(input: { orgId: string; projectId: string }): Onbo
   const cliToken = useInfiniteQueryItems({ data: shownTokens }).find(isCliLoginToken)
 
   const { agentProfile, agent } = projectProgress(shownOverview, input.projectId)
-  const cliCompleted = [
-    cliToken != null || agentProfile != null,
-    agentProfile != null,
-    agent != null,
-  ]
+  const hasProfile = agentProfile != null
 
   return {
     ready: !tokensQuery.isPending,
@@ -78,9 +74,11 @@ export function useOnboarding(input: { orgId: string; projectId: string }): Onbo
     live,
     steps: {
       cli: {
-        login: statusAt(0, cliCompleted),
-        createProfile: statusAt(1, cliCompleted),
-        chat: statusAt(2, cliCompleted),
+        login: stepStatus(cliToken != null || hasProfile, true),
+        // Open alongside login: only the CLI command needs it, and Run creates the
+        // profile with the browser session.
+        createProfile: stepStatus(hasProfile, true),
+        chat: stepStatus(agent != null, hasProfile),
       },
     },
   }

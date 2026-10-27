@@ -139,7 +139,6 @@ export const DitherBackdrop = ({
     scheme.observe(document.documentElement, { attributeFilter: ['class'] })
 
     return () => {
-      if (disposed) return
       disposed = true
       if (raf !== null) cancelAnimationFrame(raf)
       resize.disconnect()
