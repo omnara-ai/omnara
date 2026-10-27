@@ -52,8 +52,9 @@ const (
 )
 
 type HTTPError struct {
-	Status int
-	Body   []byte
+	Status          int
+	Body            []byte
+	WWWAuthenticate []string
 }
 
 func (e *HTTPError) Error() string {
@@ -67,10 +68,11 @@ func (e *HTTPError) Error() string {
 }
 
 type RPCError struct {
-	Code       int
-	Message    string
-	Data       json.RawMessage
-	HTTPStatus int
+	Code            int
+	Message         string
+	Data            json.RawMessage
+	HTTPStatus      int
+	WWWAuthenticate []string
 }
 
 func (e *RPCError) Error() string {

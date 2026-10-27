@@ -394,6 +394,46 @@ func sendAuthProbe(
 	return response, nil
 }
 
+// AuthRequirementFromChallenge discovers the OAuth server for an endpoint from
+// a Bearer challenge it already returned. Servers that answer discovery
+// anonymously but challenge individual tool calls cannot be re-probed with
+// DetectAuth, so their authorization starts from the recorded challenge.
+func AuthRequirementFromChallenge(
+	ctx context.Context,
+	endpoint string,
+	challenge AuthorizationChallenge,
+	opts AuthOptions,
+) (AuthRequirement, error) {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return AuthRequirement{}, errors.New("mcp auth: endpoint URL is required")
+	}
+	if err := urlpolicy.RequireHTTPSOrLoopback(endpoint); err != nil {
+		return AuthRequirement{}, fmt.Errorf("mcp auth: endpoint URL: %w", err)
+	}
+	params := map[string]string{}
+	if challenge.ResourceMetadataURL != "" {
+		params["resource_metadata"] = challenge.ResourceMetadataURL
+	}
+	if len(challenge.Scopes) > 0 {
+		params["scope"] = strings.Join(challenge.Scopes, " ")
+	}
+	authRequirement, err := authRequirementFromChallenges(
+		ctx,
+		endpoint,
+		[]oauthex.Challenge{{Scheme: "bearer", Params: params}},
+		clientWithoutRedirects(opts.HTTPClient),
+	)
+	if errors.Is(err, context.Canceled) || IsRetryableConnectionFailure(err) {
+		return AuthRequirement{}, err
+	}
+	if err != nil {
+		return AuthRequirement{}, fmt.Errorf("%w: %w", ErrOAuthMetadataUnavailable, err)
+	}
+	authRequirement.Required = true
+	return authRequirement, nil
+}
+
 func authRequirementFromChallenge(
 	ctx context.Context,
 	endpoint string,
@@ -404,6 +444,15 @@ func authRequirementFromChallenge(
 	if err != nil {
 		return AuthRequirement{}, fmt.Errorf("mcp auth: parse WWW-Authenticate: %w", err)
 	}
+	return authRequirementFromChallenges(ctx, endpoint, challenges, client)
+}
+
+func authRequirementFromChallenges(
+	ctx context.Context,
+	endpoint string,
+	challenges []oauthex.Challenge,
+	client *http.Client,
+) (AuthRequirement, error) {
 	protectedResourceMetadata, err := discoverProtectedResourceMetadata(ctx, endpoint, challenges, client)
 	if err != nil {
 		return AuthRequirement{}, err

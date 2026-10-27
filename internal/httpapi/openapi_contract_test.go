@@ -431,6 +431,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"Skill.name":                                              "#/components/schemas/SkillName",
 		"Actor.display_name":                                      "",
 		"AgentInteraction.tool_name":                              "",
+		"AgentInteractionAuthorization.mcp_tool_name":             "",
 		"CreateMachinePoolRequestBase.provider_config":            "",
 		"CreateSlackSetupRequest.app_name":                        "",
 		"CreateGitHubSetupRequest.app_name":                       "",

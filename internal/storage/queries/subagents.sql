@@ -21,7 +21,7 @@ SELECT agent.id,
          SELECT 1
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
-           AND interaction.interaction_kind = 'permission'
+           AND interaction.interaction_kind IN ('permission', 'authorization')
            AND interaction.state = 'open'
        ) AS has_open_permission,
        (
@@ -65,7 +65,7 @@ SELECT agent.id,
          SELECT 1
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
-           AND interaction.interaction_kind = 'permission'
+           AND interaction.interaction_kind IN ('permission', 'authorization')
            AND interaction.state = 'open'
        ) AS has_open_permission,
        (

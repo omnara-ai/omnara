@@ -1,10 +1,9 @@
-import { useAgentInteractions, useResolveAgentInteraction } from '@omnara/react'
-import type {
-  AgentInteraction,
-  InteractionAnswer,
-  InteractionFormOption,
-  ResolveAgentInteractionRequest,
-} from '@omnara/sdk'
+import {
+  useAgentInteractions,
+  useResolveAgentInteraction,
+  useStartAgentInteractionAuthorization,
+} from '@omnara/react'
+import type { AgentInteraction, InteractionAnswer, InteractionFormOption } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { KeyRound, MessageCircleQuestion } from '@/components/icons'
@@ -15,34 +14,18 @@ import { Label } from '@/components/ui/label'
 import { errorMessage } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
 
-type Resolve = (
-  interaction: AgentInteraction,
-  body: ResolveAgentInteractionRequest,
-) => Promise<void>
+import {
+  AuthorizationCard,
+  AuthorizationOutcomeDialog,
+  type Authorize,
+} from './AgentInteractionAuthorization'
+import { keyedContextItems, type Resolve, subagentSourceLabel } from './agentInteractionCards'
 
 function selectedOptions(
   options: InteractionFormOption[],
   optionIndices: number[],
 ): InteractionFormOption[] {
   return optionIndices.flatMap((index) => options[index] ?? [])
-}
-
-function keyedContextItems(interaction: AgentInteraction) {
-  const occurrences = new Map<string, number>()
-  return (interaction.request.context ?? []).map((item) => {
-    const contentKey = JSON.stringify([item.label, item.value])
-    const occurrence = (occurrences.get(contentKey) ?? 0) + 1
-    occurrences.set(contentKey, occurrence)
-    return {
-      item,
-      key: `${interaction.id}:context:${contentKey}:${String(occurrence)}`,
-    }
-  })
-}
-
-function subagentSourceLabel(interaction: AgentInteraction): string | null {
-  if (interaction.agent_name == null) return null
-  return `From subagent ${interaction.agent_name}`
 }
 
 /**
@@ -351,11 +334,12 @@ export function AgentInteractions({
 }) {
   const interactionsQuery = useAgentInteractions(orgID, projectID, agentID)
   const resolveInteraction = useResolveAgentInteraction(orgID, projectID, agentID)
+  const startAuthorization = useStartAgentInteractionAuthorization(orgID, projectID, agentID)
   const interactions = interactionsQuery.data?.data ?? []
   const loadError =
     interactionsQuery.error != null ? errorMessage(interactionsQuery.error, 'Unknown error') : null
-  const error = resolveInteraction.error
-  const pending = resolveInteraction.isPending
+  const error = resolveInteraction.error ?? startAuthorization.error
+  const pending = resolveInteraction.isPending || startAuthorization.isPending
   const onResolve: Resolve = async (interaction, body) => {
     await resolveInteraction.mutateAsync({
       interactionID: interaction.id,
@@ -363,7 +347,15 @@ export function AgentInteractions({
       targetAgentID: interaction.agent_id,
     })
   }
-  if (interactions.length === 0 && loadError == null) return null
+  const onAuthorize: Authorize = async (interaction) => {
+    const response = await startAuthorization.mutateAsync({
+      interactionID: interaction.id,
+      returnTo: window.location.pathname + window.location.search + window.location.hash,
+      targetAgentID: interaction.agent_id,
+    })
+    window.location.assign(response.authorization_url)
+  }
+  if (interactions.length === 0 && loadError == null) return <AuthorizationOutcomeDialog />
   return (
     <section
       className="grid max-h-[40svh] min-w-0 gap-3 overflow-x-hidden overflow-y-auto pr-1"
@@ -372,16 +364,28 @@ export function AgentInteractions({
       {loadError != null && (
         <p className="text-destructive text-xs">Could not load pending requests: {loadError}</p>
       )}
+      <AuthorizationOutcomeDialog />
       {error && <p className="text-destructive text-xs">{error.message}</p>}
-      {interactions.map((interaction) => (
-        <InteractionFormCard
-          key={interaction.id}
-          interaction={interaction}
-          resolve={onResolve}
-          pending={pending}
-          canOperate={canOperate}
-        />
-      ))}
+      {interactions.map((interaction) =>
+        interaction.interaction_kind === 'authorization' ? (
+          <AuthorizationCard
+            key={interaction.id}
+            interaction={interaction}
+            resolve={onResolve}
+            authorize={onAuthorize}
+            pending={pending}
+            canOperate={canOperate}
+          />
+        ) : (
+          <InteractionFormCard
+            key={interaction.id}
+            interaction={interaction}
+            resolve={onResolve}
+            pending={pending}
+            canOperate={canOperate}
+          />
+        ),
+      )}
     </section>
   )
 }

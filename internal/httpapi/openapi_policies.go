@@ -115,134 +115,135 @@ const (
 	operationDisconnectIntegration         operationID = "DisconnectIntegration"
 	operationListIntegrationDefinitions    operationID = "ListIntegrationDefinitions"
 
-	operationCreateIntegration             operationID = "CreateIntegration"
-	operationUpdateIntegration             operationID = "UpdateIntegration"
-	operationDeleteIntegration             operationID = "DeleteIntegration"
-	operationGetIntegration                operationID = "GetIntegration"
-	operationListIntegrations              operationID = "ListIntegrations"
-	operationListIntegrationSubscriptions  operationID = "ListIntegrationSubscriptions"
-	operationCreateIntegrationSubscription operationID = "CreateIntegrationSubscription"
-	operationDeleteIntegrationSubscription operationID = "DeleteIntegrationSubscription"
-	operationListCronTriggers              operationID = "ListCronTriggers"
-	operationGetCronTrigger                operationID = "GetCronTrigger"
-	operationUpdateCronTrigger             operationID = "UpdateCronTrigger"
-	operationDeleteCronTrigger             operationID = "DeleteCronTrigger"
-	operationDeclineInvitation             operationID = "DeclineInvitation"
-	operationArchiveAgent                  operationID = "ArchiveAgent"
-	operationDeleteAgentProfile            operationID = "DeleteAgentProfile"
-	operationDeleteCurrentUser             operationID = "DeleteCurrentUser"
-	operationDeleteOrganization            operationID = "DeleteOrganization"
-	operationDeleteProject                 operationID = "DeleteProject"
-	operationDeleteConfiguredModel         operationID = "DeleteConfiguredModel"
-	operationDeleteMachine                 operationID = "DeleteMachine"
-	operationDeleteMachinePool             operationID = "DeleteMachinePool"
-	operationDeleteModelProviderConfig     operationID = "DeleteModelProviderConfig"
-	operationDeleteSkill                   operationID = "DeleteSkill"
-	operationDeleteSkillGrant              operationID = "DeleteSkillGrant"
-	operationDemoteSteeringInputToQueued   operationID = "DemoteSteeringInputToQueued"
-	operationEndMachineDaemonRuntime       operationID = "EndMachineDaemonRuntime"
-	operationGetAgent                      operationID = "GetAgent"
-	operationGetAgentConfig                operationID = "GetAgentConfig"
-	operationGetAgentConfigGeneratedSource operationID = "GetAgentConfigGeneratedSource"
-	operationGetAgentProfile               operationID = "GetAgentProfile"
-	operationGetArtifact                   operationID = "GetArtifact"
-	operationGetArtifactContent            operationID = "GetArtifactContent"
-	operationGetCurrentUser                operationID = "GetCurrentUser"
-	operationGetDaemonGitCredentials       operationID = "GetDaemonGitCredentials"
-	operationGetDaemonSkillArchive         operationID = "GetDaemonSkillArchive"
-	operationGetMachine                    operationID = "GetMachine"
-	operationGetOrgAPIKey                  operationID = "GetOrgAPIKey"
-	operationGetOrgOverview                operationID = "GetOrgOverview"
-	operationGetOrgUsage                   operationID = "GetOrgUsage"
-	operationGetProjectUsage               operationID = "GetProjectUsage"
-	operationGetAgentProfileUsage          operationID = "GetAgentProfileUsage"
-	operationGetAgentUsage                 operationID = "GetAgentUsage"
-	operationGetOrgUsageTimeseries         operationID = "GetOrgUsageTimeseries"
-	operationGetMachinePool                operationID = "GetMachinePool"
-	operationGetModelCatalog               operationID = "GetModelCatalog"
-	operationGetModelProviderConfig        operationID = "GetModelProviderConfig"
-	operationGetSkill                      operationID = "GetSkill"
-	operationUpdateSkill                   operationID = "UpdateSkill"
-	operationGetToolCatalog                operationID = "GetToolCatalog"
-	operationListMCPServers                operationID = "ListMCPServers"
-	operationListMCPServerTools            operationID = "ListMCPServerTools"
-	operationGetProjectMachinePoolGrant    operationID = "GetProjectMachinePoolGrant"
-	operationCreateMemoryStore             operationID = "CreateMemoryStore"
-	operationListMemoryStores              operationID = "ListMemoryStores"
-	operationListOrgMemoryStores           operationID = "ListOrgMemoryStores"
-	operationGetMemoryStore                operationID = "GetMemoryStore"
-	operationUpdateMemoryStore             operationID = "UpdateMemoryStore"
-	operationDeleteMemoryStore             operationID = "DeleteMemoryStore"
-	operationListMemoryFiles               operationID = "ListMemoryFiles"
-	operationDownloadMemoryFile            operationID = "DownloadMemoryFile"
-	operationWriteMemoryFile               operationID = "WriteMemoryFile"
-	operationDeleteMemoryFile              operationID = "DeleteMemoryFile"
-	operationUploadDaemonFile              operationID = "UploadDaemonFile"
-	operationDownloadDaemonFile            operationID = "DownloadDaemonFile"
-	operationListActors                    operationID = "ListActors"
-	operationGetActor                      operationID = "GetActor"
-	operationPutActor                      operationID = "PutActor"
-	operationListAgentInteractions         operationID = "ListAgentInteractions"
-	operationListAgentProfiles             operationID = "ListAgentProfiles"
-	operationListAgents                    operationID = "ListAgents"
-	operationListBYOMachineDaemonTokens    operationID = "ListBYOMachineDaemonTokens"
-	operationListConfiguredModels          operationID = "ListConfiguredModels"
-	operationListEvents                    operationID = "ListEvents"
-	operationListMachinePools              operationID = "ListMachinePools"
-	operationListModelProviderConfigs      operationID = "ListModelProviderConfigs"
-	operationListMemberProjectAccess       operationID = "ListMemberProjectAccess"
-	operationListOrgAPIKeys                operationID = "ListOrgAPIKeys"
-	operationListOrgAgents                 operationID = "ListOrgAgents"
-	operationListOrgIntegrations           operationID = "ListOrgIntegrations"
-	operationListOrgAgentProfiles          operationID = "ListOrgAgentProfiles"
-	operationListOrgInvitations            operationID = "ListOrgInvitations"
-	operationListOrgMembers                operationID = "ListOrgMembers"
-	operationListSkills                    operationID = "ListSkills"
-	operationListSkillGrants               operationID = "ListSkillGrants"
-	operationListProjectAvailableSkills    operationID = "ListProjectAvailableSkills"
-	operationListPendingInvitations        operationID = "ListPendingInvitations"
-	operationListPersonalAccessTokens      operationID = "ListPersonalAccessTokens"
-	operationListProjectMachineGrants      operationID = "ListProjectMachineGrants"
-	operationListProjectMachinePoolGrants  operationID = "ListProjectMachinePoolGrants"
-	operationListProjectModelGrants        operationID = "ListProjectModelGrants"
-	operationListQueuedBacklogInputs       operationID = "ListQueuedBacklogInputs"
-	operationListTurnEvents                operationID = "ListTurnEvents"
-	operationListTurns                     operationID = "ListTurns"
-	operationListVisibleMachines           operationID = "ListVisibleMachines"
-	operationListVisibleProjectMachines    operationID = "ListVisibleProjectMachines"
-	operationListVisibleProjects           operationID = "ListVisibleProjects"
-	operationMoveQueuedBacklogInput        operationID = "MoveQueuedBacklogInput"
-	operationPromoteQueuedInputToSteering  operationID = "PromoteQueuedInputToSteering"
-	operationRegisterMachineDaemonRuntime  operationID = "RegisterMachineDaemonRuntime"
-	operationRecordMachineFailure          operationID = "RecordMachineFailure"
-	operationRemoveMemberProjectAccess     operationID = "RemoveMemberProjectAccess"
-	operationRenameAgentProfile            operationID = "RenameAgentProfile"
-	operationRemoveOrgMember               operationID = "RemoveOrgMember"
-	operationResolveAgentInteraction       operationID = "ResolveAgentInteraction"
-	operationRevokeMachineDaemonToken      operationID = "RevokeMachineDaemonToken"
-	operationDeleteOrgInvitation           operationID = "DeleteOrgInvitation"
-	operationRevokeOrgAPIKey               operationID = "RevokeOrgAPIKey"
-	operationRevokePersonalAccessToken     operationID = "RevokePersonalAccessToken"
-	operationDeleteProjectMachineGrant     operationID = "DeleteProjectMachineGrant"
-	operationDeleteProjectMachinePoolGrant operationID = "DeleteProjectMachinePoolGrant"
-	operationDeleteProjectModelGrant       operationID = "DeleteProjectModelGrant"
-	operationSetMemberProjectAccess        operationID = "SetMemberProjectAccess"
-	operationSleepMachineDaemonRuntime     operationID = "SleepMachineDaemonRuntime"
-	operationSocketMachineDaemonRuntime    operationID = "SocketMachineDaemonRuntime"
-	operationStreamEvents                  operationID = "StreamEvents"
-	operationUpdateAgentConfig             operationID = "UpdateAgentConfig"
-	operationUpdateAgentProfile            operationID = "UpdateAgentProfile"
-	operationUpdateConfiguredModel         operationID = "UpdateConfiguredModel"
-	operationUpdateMachinePool             operationID = "UpdateMachinePool"
-	operationUpdateMachine                 operationID = "UpdateMachine"
-	operationUpdateModelProviderConfig     operationID = "UpdateModelProviderConfig"
-	operationUpdateOrgAPIKey               operationID = "UpdateOrgAPIKey"
-	operationListOrgAPIKeyProjectAccess    operationID = "ListOrgAPIKeyProjectAccess"
-	operationSetOrgAPIKeyProjectRole       operationID = "SetOrgAPIKeyProjectRole"
-	operationRemoveOrgAPIKeyProjectRole    operationID = "RemoveOrgAPIKeyProjectRole"
-	operationUpdateOrgMember               operationID = "UpdateOrgMember"
-	operationUpdateProjectMachinePoolGrant operationID = "UpdateProjectMachinePoolGrant"
-	operationUpdateProjectModelGrant       operationID = "UpdateProjectModelGrant"
+	operationCreateIntegration                  operationID = "CreateIntegration"
+	operationUpdateIntegration                  operationID = "UpdateIntegration"
+	operationDeleteIntegration                  operationID = "DeleteIntegration"
+	operationGetIntegration                     operationID = "GetIntegration"
+	operationListIntegrations                   operationID = "ListIntegrations"
+	operationListIntegrationSubscriptions       operationID = "ListIntegrationSubscriptions"
+	operationCreateIntegrationSubscription      operationID = "CreateIntegrationSubscription"
+	operationDeleteIntegrationSubscription      operationID = "DeleteIntegrationSubscription"
+	operationListCronTriggers                   operationID = "ListCronTriggers"
+	operationGetCronTrigger                     operationID = "GetCronTrigger"
+	operationUpdateCronTrigger                  operationID = "UpdateCronTrigger"
+	operationDeleteCronTrigger                  operationID = "DeleteCronTrigger"
+	operationDeclineInvitation                  operationID = "DeclineInvitation"
+	operationArchiveAgent                       operationID = "ArchiveAgent"
+	operationDeleteAgentProfile                 operationID = "DeleteAgentProfile"
+	operationDeleteCurrentUser                  operationID = "DeleteCurrentUser"
+	operationDeleteOrganization                 operationID = "DeleteOrganization"
+	operationDeleteProject                      operationID = "DeleteProject"
+	operationDeleteConfiguredModel              operationID = "DeleteConfiguredModel"
+	operationDeleteMachine                      operationID = "DeleteMachine"
+	operationDeleteMachinePool                  operationID = "DeleteMachinePool"
+	operationDeleteModelProviderConfig          operationID = "DeleteModelProviderConfig"
+	operationDeleteSkill                        operationID = "DeleteSkill"
+	operationDeleteSkillGrant                   operationID = "DeleteSkillGrant"
+	operationDemoteSteeringInputToQueued        operationID = "DemoteSteeringInputToQueued"
+	operationEndMachineDaemonRuntime            operationID = "EndMachineDaemonRuntime"
+	operationGetAgent                           operationID = "GetAgent"
+	operationGetAgentConfig                     operationID = "GetAgentConfig"
+	operationGetAgentConfigGeneratedSource      operationID = "GetAgentConfigGeneratedSource"
+	operationGetAgentProfile                    operationID = "GetAgentProfile"
+	operationGetArtifact                        operationID = "GetArtifact"
+	operationGetArtifactContent                 operationID = "GetArtifactContent"
+	operationGetCurrentUser                     operationID = "GetCurrentUser"
+	operationGetDaemonGitCredentials            operationID = "GetDaemonGitCredentials"
+	operationGetDaemonSkillArchive              operationID = "GetDaemonSkillArchive"
+	operationGetMachine                         operationID = "GetMachine"
+	operationGetOrgAPIKey                       operationID = "GetOrgAPIKey"
+	operationGetOrgOverview                     operationID = "GetOrgOverview"
+	operationGetOrgUsage                        operationID = "GetOrgUsage"
+	operationGetProjectUsage                    operationID = "GetProjectUsage"
+	operationGetAgentProfileUsage               operationID = "GetAgentProfileUsage"
+	operationGetAgentUsage                      operationID = "GetAgentUsage"
+	operationGetOrgUsageTimeseries              operationID = "GetOrgUsageTimeseries"
+	operationGetMachinePool                     operationID = "GetMachinePool"
+	operationGetModelCatalog                    operationID = "GetModelCatalog"
+	operationGetModelProviderConfig             operationID = "GetModelProviderConfig"
+	operationGetSkill                           operationID = "GetSkill"
+	operationUpdateSkill                        operationID = "UpdateSkill"
+	operationGetToolCatalog                     operationID = "GetToolCatalog"
+	operationListMCPServers                     operationID = "ListMCPServers"
+	operationListMCPServerTools                 operationID = "ListMCPServerTools"
+	operationGetProjectMachinePoolGrant         operationID = "GetProjectMachinePoolGrant"
+	operationCreateMemoryStore                  operationID = "CreateMemoryStore"
+	operationListMemoryStores                   operationID = "ListMemoryStores"
+	operationListOrgMemoryStores                operationID = "ListOrgMemoryStores"
+	operationGetMemoryStore                     operationID = "GetMemoryStore"
+	operationUpdateMemoryStore                  operationID = "UpdateMemoryStore"
+	operationDeleteMemoryStore                  operationID = "DeleteMemoryStore"
+	operationListMemoryFiles                    operationID = "ListMemoryFiles"
+	operationDownloadMemoryFile                 operationID = "DownloadMemoryFile"
+	operationWriteMemoryFile                    operationID = "WriteMemoryFile"
+	operationDeleteMemoryFile                   operationID = "DeleteMemoryFile"
+	operationUploadDaemonFile                   operationID = "UploadDaemonFile"
+	operationDownloadDaemonFile                 operationID = "DownloadDaemonFile"
+	operationListActors                         operationID = "ListActors"
+	operationGetActor                           operationID = "GetActor"
+	operationPutActor                           operationID = "PutActor"
+	operationListAgentInteractions              operationID = "ListAgentInteractions"
+	operationListAgentProfiles                  operationID = "ListAgentProfiles"
+	operationListAgents                         operationID = "ListAgents"
+	operationListBYOMachineDaemonTokens         operationID = "ListBYOMachineDaemonTokens"
+	operationListConfiguredModels               operationID = "ListConfiguredModels"
+	operationListEvents                         operationID = "ListEvents"
+	operationListMachinePools                   operationID = "ListMachinePools"
+	operationListModelProviderConfigs           operationID = "ListModelProviderConfigs"
+	operationListMemberProjectAccess            operationID = "ListMemberProjectAccess"
+	operationListOrgAPIKeys                     operationID = "ListOrgAPIKeys"
+	operationListOrgAgents                      operationID = "ListOrgAgents"
+	operationListOrgIntegrations                operationID = "ListOrgIntegrations"
+	operationListOrgAgentProfiles               operationID = "ListOrgAgentProfiles"
+	operationListOrgInvitations                 operationID = "ListOrgInvitations"
+	operationListOrgMembers                     operationID = "ListOrgMembers"
+	operationListSkills                         operationID = "ListSkills"
+	operationListSkillGrants                    operationID = "ListSkillGrants"
+	operationListProjectAvailableSkills         operationID = "ListProjectAvailableSkills"
+	operationListPendingInvitations             operationID = "ListPendingInvitations"
+	operationListPersonalAccessTokens           operationID = "ListPersonalAccessTokens"
+	operationListProjectMachineGrants           operationID = "ListProjectMachineGrants"
+	operationListProjectMachinePoolGrants       operationID = "ListProjectMachinePoolGrants"
+	operationListProjectModelGrants             operationID = "ListProjectModelGrants"
+	operationListQueuedBacklogInputs            operationID = "ListQueuedBacklogInputs"
+	operationListTurnEvents                     operationID = "ListTurnEvents"
+	operationListTurns                          operationID = "ListTurns"
+	operationListVisibleMachines                operationID = "ListVisibleMachines"
+	operationListVisibleProjectMachines         operationID = "ListVisibleProjectMachines"
+	operationListVisibleProjects                operationID = "ListVisibleProjects"
+	operationMoveQueuedBacklogInput             operationID = "MoveQueuedBacklogInput"
+	operationPromoteQueuedInputToSteering       operationID = "PromoteQueuedInputToSteering"
+	operationRegisterMachineDaemonRuntime       operationID = "RegisterMachineDaemonRuntime"
+	operationRecordMachineFailure               operationID = "RecordMachineFailure"
+	operationRemoveMemberProjectAccess          operationID = "RemoveMemberProjectAccess"
+	operationRenameAgentProfile                 operationID = "RenameAgentProfile"
+	operationRemoveOrgMember                    operationID = "RemoveOrgMember"
+	operationResolveAgentInteraction            operationID = "ResolveAgentInteraction"
+	operationStartAgentInteractionAuthorization operationID = "StartAgentInteractionAuthorization"
+	operationRevokeMachineDaemonToken           operationID = "RevokeMachineDaemonToken"
+	operationDeleteOrgInvitation                operationID = "DeleteOrgInvitation"
+	operationRevokeOrgAPIKey                    operationID = "RevokeOrgAPIKey"
+	operationRevokePersonalAccessToken          operationID = "RevokePersonalAccessToken"
+	operationDeleteProjectMachineGrant          operationID = "DeleteProjectMachineGrant"
+	operationDeleteProjectMachinePoolGrant      operationID = "DeleteProjectMachinePoolGrant"
+	operationDeleteProjectModelGrant            operationID = "DeleteProjectModelGrant"
+	operationSetMemberProjectAccess             operationID = "SetMemberProjectAccess"
+	operationSleepMachineDaemonRuntime          operationID = "SleepMachineDaemonRuntime"
+	operationSocketMachineDaemonRuntime         operationID = "SocketMachineDaemonRuntime"
+	operationStreamEvents                       operationID = "StreamEvents"
+	operationUpdateAgentConfig                  operationID = "UpdateAgentConfig"
+	operationUpdateAgentProfile                 operationID = "UpdateAgentProfile"
+	operationUpdateConfiguredModel              operationID = "UpdateConfiguredModel"
+	operationUpdateMachinePool                  operationID = "UpdateMachinePool"
+	operationUpdateMachine                      operationID = "UpdateMachine"
+	operationUpdateModelProviderConfig          operationID = "UpdateModelProviderConfig"
+	operationUpdateOrgAPIKey                    operationID = "UpdateOrgAPIKey"
+	operationListOrgAPIKeyProjectAccess         operationID = "ListOrgAPIKeyProjectAccess"
+	operationSetOrgAPIKeyProjectRole            operationID = "SetOrgAPIKeyProjectRole"
+	operationRemoveOrgAPIKeyProjectRole         operationID = "RemoveOrgAPIKeyProjectRole"
+	operationUpdateOrgMember                    operationID = "UpdateOrgMember"
+	operationUpdateProjectMachinePoolGrant      operationID = "UpdateProjectMachinePoolGrant"
+	operationUpdateProjectModelGrant            operationID = "UpdateProjectModelGrant"
 )
 
 type operationPolicy struct {
@@ -388,82 +389,83 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 		customScope("machine daemon token and active file transfer process"),
 	),
 
-	operationCreateAgentConfig:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationResolveAgentConfigTools:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationCreateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationUpdateAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationRenameAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDeleteAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationConfigureIntegration:          userPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDisconnectIntegration:         accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationListIntegrationDefinitions:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationCreateIntegration:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationUpdateIntegration:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDeleteIntegration:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationGetIntegration:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListIntegrations:              accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListIntegrationSubscriptions:  accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationCreateIntegrationSubscription: accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDeleteIntegrationSubscription: accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationUpdateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDeleteCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationGetCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListCronTriggers:              accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationGetAgentConfig:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationGetAgentConfigGeneratedSource: accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationGetToolCatalog:                accountPolicy(noScope()),
-	operationListMCPServers:                accountPolicy(noScope()),
-	operationListMCPServerTools:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationGetAgentProfile:               accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListAgentProfiles:             accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListVisibleProjectMachines:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListAgents:                    accountPolicy(projectScope(identitystore.AgentActionRead)),
-	operationListActors:                    accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationGetActor:                      accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationPutActor:                      accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateAgent:                   accountPolicy(projectScope(identitystore.AgentActionOperate)),
-	operationCreateProjectModelGrant:       accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationSetMemberProjectAccess:        accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationRemoveMemberProjectAccess:     accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationListProjectAvailableSecrets:   accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
-	operationGetProjectAvailableSecret:     accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
-	operationListProjectModelGrants:        accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationUpdateProjectModelGrant:       accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationDeleteProjectModelGrant:       accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationListProjectMachineGrants:      accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListProjectMachinePoolGrants:  accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationGetProjectMachinePoolGrant:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationUpdateProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationDeleteProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationCreateProjectMachinePoolGrant: accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
-	operationGetAgent:                      accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationListQueuedBacklogInputs:       accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationListEvents:                    accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationListTurns:                     accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationListTurnEvents:                accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationStreamEvents:                  accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationListAgentInteractions:         accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationGetArtifact:                   accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationGetArtifactContent:            accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationCancelAgent:                   accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationArchiveAgent:                  accountPolicy(agentScope(identitystore.ProjectActionManage)),
-	operationCancelQueuedBacklogInput:      accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationMoveQueuedBacklogInput:        accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationPromoteQueuedInputToSteering:  accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationDemoteSteeringInputToQueued:   accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationCreateAgentInput:              accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationListToolCalls:                 accountPolicy(agentScope(identitystore.AgentActionRead)),
-	operationSubmitToolCallResult:          accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationResolveAgentInteraction:       accountPolicy(agentScope(identitystore.AgentActionOperate)),
-	operationUpdateAgentConfig:             accountPolicy(agentScope(identitystore.ProjectActionManage)),
-	operationGetMachine:                    accountPolicy(machineScope(executionstore.MachineActionRead)),
-	operationUpdateMachine:                 accountPolicy(machineScope(executionstore.MachineActionManage)),
-	operationDeleteMachine:                 accountPolicy(machineScope(executionstore.MachineActionManage)),
-	operationListBYOMachineDaemonTokens:    accountPolicy(machineScope(executionstore.MachineActionManage)),
-	operationCreateBYOMachineDaemonToken:   accountPolicy(machineScope(executionstore.MachineActionManage)),
-	operationRevokeMachineDaemonToken:      accountPolicy(machineScope(executionstore.MachineActionManage)),
-	operationCreateProjectMachineGrant:     accountPolicy(customScope("project access-manage + BYO machine manage")),
+	operationCreateAgentConfig:                  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationResolveAgentConfigTools:            accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationCreateAgentProfile:                 accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationUpdateAgentProfile:                 accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationRenameAgentProfile:                 accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteAgentProfile:                 accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateCronTrigger:                  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationConfigureIntegration:               userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDisconnectIntegration:              accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationListIntegrationDefinitions:         accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationCreateIntegration:                  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationUpdateIntegration:                  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteIntegration:                  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetIntegration:                     accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListIntegrations:                   accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListIntegrationSubscriptions:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationCreateIntegrationSubscription:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteIntegrationSubscription:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationUpdateCronTrigger:                  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteCronTrigger:                  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetCronTrigger:                     accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListCronTriggers:                   accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentConfig:                     accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentConfigGeneratedSource:      accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetToolCatalog:                     accountPolicy(noScope()),
+	operationListMCPServers:                     accountPolicy(noScope()),
+	operationListMCPServerTools:                 accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetAgentProfile:                    accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListAgentProfiles:                  accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListVisibleProjectMachines:         accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListAgents:                         accountPolicy(projectScope(identitystore.AgentActionRead)),
+	operationListActors:                         accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetActor:                           accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationPutActor:                           accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateAgent:                        accountPolicy(projectScope(identitystore.AgentActionOperate)),
+	operationCreateProjectModelGrant:            accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationSetMemberProjectAccess:             accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationRemoveMemberProjectAccess:          accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationListProjectAvailableSecrets:        accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
+	operationGetProjectAvailableSecret:          accountPolicy(projectScope(identitystore.ProjectActionSecretsList)),
+	operationListProjectModelGrants:             accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationUpdateProjectModelGrant:            accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationDeleteProjectModelGrant:            accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationListProjectMachineGrants:           accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListProjectMachinePoolGrants:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetProjectMachinePoolGrant:         accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationUpdateProjectMachinePoolGrant:      accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationDeleteProjectMachinePoolGrant:      accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationCreateProjectMachinePoolGrant:      accountPolicy(projectScope(identitystore.ProjectActionAccessManage)),
+	operationGetAgent:                           accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationListQueuedBacklogInputs:            accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationListEvents:                         accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationListTurns:                          accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationListTurnEvents:                     accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationStreamEvents:                       accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationListAgentInteractions:              accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationGetArtifact:                        accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationGetArtifactContent:                 accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationCancelAgent:                        accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationArchiveAgent:                       accountPolicy(agentScope(identitystore.ProjectActionManage)),
+	operationCancelQueuedBacklogInput:           accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationMoveQueuedBacklogInput:             accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationPromoteQueuedInputToSteering:       accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationDemoteSteeringInputToQueued:        accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationCreateAgentInput:                   accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationListToolCalls:                      accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationSubmitToolCallResult:               accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationResolveAgentInteraction:            accountPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationStartAgentInteractionAuthorization: userPolicy(agentScope(identitystore.AgentActionOperate)),
+	operationUpdateAgentConfig:                  accountPolicy(agentScope(identitystore.ProjectActionManage)),
+	operationGetMachine:                         accountPolicy(machineScope(executionstore.MachineActionRead)),
+	operationUpdateMachine:                      accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationDeleteMachine:                      accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationListBYOMachineDaemonTokens:         accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationCreateBYOMachineDaemonToken:        accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationRevokeMachineDaemonToken:           accountPolicy(machineScope(executionstore.MachineActionManage)),
+	operationCreateProjectMachineGrant:          accountPolicy(customScope("project access-manage + BYO machine manage")),
 	operationDeleteProjectMachineGrant: accountPolicy(
 		customScope("project access-manage + machine manage on the grant's machine"),
 	),
