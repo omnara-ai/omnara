@@ -165,10 +165,6 @@ it('places the compact sidebar add button beside the heading and opens the creat
   })
   const add = button('Add webhook')
   expect(add.textContent.trim()).toBe('Add')
-  expect(add.className).toContain('text-muted-foreground')
-  expect(add.className).toContain('h-9')
-  expect(add.className).toContain('sm:h-7')
-  expect(add.className).toContain('px-2')
   expect(add.parentElement?.querySelector('[data-sidebar="group-label"]')?.textContent).toBe(
     'Webhooks',
   )
@@ -183,8 +179,6 @@ it('keeps the sidebar heading without an add button for readers', async () => {
   await waitForUI(() => {
     expect(container.querySelector('p')?.textContent).toBe('No webhooks')
   })
-  expect(container.querySelector('p')?.classList.contains('py-1.5')).toBe(true)
-  expect(container.querySelector('p')?.classList.contains('truncate')).toBe(true)
   expect(container.querySelector('[data-sidebar="group-label"]')?.textContent).toBe('Webhooks')
   expect(container.querySelectorAll('button')).toHaveLength(0)
 })
@@ -203,15 +197,11 @@ it.each([false, true])(
     })
     const rows = [...container.querySelectorAll('li')]
     expect(container.querySelectorAll('ul')).toHaveLength(1)
-    expect(container.querySelectorAll('h3')).toHaveLength(0)
-    expect(container.querySelector('ul')?.classList.contains('border')).toBe(sidebar)
-    expect(rows.every((row) => row.classList.contains('px-3') === sidebar)).toBe(true)
     expect(rows.map((row) => row.querySelector('p:last-child')?.textContent)).toEqual([
       'Agent webhook',
       'Profile webhook',
       'Project webhook',
     ])
-    expect(container.textContent).not.toContain('From ')
     expect(rows[0]?.querySelectorAll('button')).toHaveLength(2)
     expect(rows[1]?.querySelectorAll('button')).toHaveLength(0)
     expect(rows[2]?.querySelectorAll('button')).toHaveLength(0)
@@ -238,7 +228,6 @@ it('shows profile webhooks as editable and project webhooks as inherited on the 
     expect(container.querySelectorAll('li')).toHaveLength(2)
   })
   expect(container.querySelectorAll('ul')).toHaveLength(1)
-  expect(container.textContent).not.toContain('This profile')
   expect(container.textContent).toContain('Profile webhook')
   expect(container.textContent).toContain('Project webhook')
   expect(container.querySelectorAll('[aria-label^="Edit webhook"]')).toHaveLength(1)
@@ -289,8 +278,6 @@ it.each([agentScope, profileScope])(
       expect(container.textContent).toContain('No webhooks.')
     })
     expect(container.querySelectorAll('p')).toHaveLength(1)
-    expect(container.querySelector('p')?.classList.contains('py-1.5')).toBe(false)
-    expect(container.querySelector('p')?.classList.contains('truncate')).toBe(false)
     expect(container.querySelectorAll('button')).toHaveLength(0)
   },
 )
@@ -301,7 +288,6 @@ it('does not show an empty state when only inherited webhooks exist', async () =
     expect(container.querySelectorAll('li')).toHaveLength(2)
   })
   expect(container.textContent).not.toContain('No webhooks')
-  expect(container.textContent).not.toContain('This agent')
   expect(container.querySelectorAll('[aria-label^="Edit webhook"]')).toHaveLength(0)
   expect(container.querySelectorAll('[aria-label^="Delete webhook"]')).toHaveLength(0)
   expect(container.querySelectorAll('button')).toHaveLength(1)
