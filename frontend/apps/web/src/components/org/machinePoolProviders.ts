@@ -302,9 +302,10 @@ const agent37: MachinePoolProviderDefinition = {
   resource: {
     key: 'template',
     label: 'Template',
-    placeholder: 'omnara-machine',
+    placeholder: 'agent37-omnara',
+    optional: true,
     description:
-      'An Agent37 template name. Machines are 2 vCPU with 4 GB, or 4 vCPU with 8, 16, or 32 GB.',
+      "Leave empty to use agent37-omnara, Agent37's template with Omnara's default development tools, or enter a template name. Machines are 2 vCPU with 4 GB, or 4 vCPU with 8, 16, or 32 GB.",
     descriptionHref: 'https://www.agent37.com/docs/agents-api/templates',
   },
   resources: {

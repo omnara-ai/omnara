@@ -115,7 +115,7 @@ func (p *provider) ProvisionMachine(
 	if firstAttempt && !p.createAttempted {
 		p.createAttempted = true
 		target, err = p.api.CreateInstance(ctx, createInstanceRequest{
-			Template: options.Template,
+			Template: options.template(),
 			Name:     name,
 			Metadata: metadata,
 			Resources: instanceResources{

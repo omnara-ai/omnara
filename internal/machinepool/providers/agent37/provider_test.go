@@ -81,6 +81,19 @@ func TestAgent37CheckConnectionChecksAPIAccess(t *testing.T) {
 	}
 }
 
+func TestAgent37ProvisionMachineDefaultsToTheOmnaraTemplate(t *testing.T) {
+	api := newFakeAPI()
+	_, err := provisionTestMachine(
+		t, api, uuid.New(), uuid.New(), testMachineProvisioning(t, "", 2, 4096), nil,
+	)
+	if err != nil {
+		t.Fatalf("provision machine: %v", err)
+	}
+	if api.createRequest.Template != defaultTemplate {
+		t.Fatalf("create template = %q, want %q", api.createRequest.Template, defaultTemplate)
+	}
+}
+
 func TestAgent37ProvisionMachineCreatesTheInstanceAndStartsTheDaemon(t *testing.T) {
 	api := newFakeAPI()
 	api.created.Resources = instanceResources{CPU: 4, MemoryGB: 16, DiskGB: 20}

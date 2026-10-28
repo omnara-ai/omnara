@@ -12,7 +12,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-const maxDiskGB = 80
+const (
+	defaultTemplate = "agent37-omnara"
+	maxDiskGB       = 80
+)
 
 // Agent37 sells these vCPU and memory pairs; disk is sized separately.
 var machineShapes = []machineShape{
@@ -32,9 +35,16 @@ type providerConfig struct {
 }
 
 type providerOptions struct {
-	Template      string `json:"template"`
+	Template      string `json:"template,omitempty"`
 	DiskGB        int    `json:"disk_gb,omitempty"`
 	StartupScript string `json:"startup_script,omitempty"`
+}
+
+func (o providerOptions) template() string {
+	if o.Template == "" {
+		return defaultTemplate
+	}
+	return o.Template
 }
 
 type Definition struct{}
@@ -173,9 +183,9 @@ func validateAllowedTemplate(options, defaultOptions providerOptions, config pro
 	return providers.ValidateAllowedValue(
 		"agent37 template",
 		"allowed_templates",
-		options.Template,
+		options.template(),
 		config.AllowedTemplates,
-		defaultOptions.Template,
+		defaultOptions.template(),
 	)
 }
 
@@ -201,6 +211,9 @@ func parseProviderConfig(raw json.RawMessage) (providerConfig, error) {
 
 func parseProviderOptions(rawOptions map[string]json.RawMessage) (providerOptions, error) {
 	var options providerOptions
+	if rawOptions == nil {
+		return options, nil
+	}
 	raw, err := json.Marshal(rawOptions)
 	if err != nil {
 		return providerOptions{}, fmt.Errorf("encode agent37 provider_options: %w", err)
@@ -209,8 +222,15 @@ func parseProviderOptions(rawOptions map[string]json.RawMessage) (providerOption
 		return providerOptions{}, fmt.Errorf("decode agent37 provider_options: %w", err)
 	}
 	options.Template = strings.TrimSpace(options.Template)
-	if err := validateTemplate(options.Template); err != nil {
-		return providerOptions{}, fmt.Errorf("agent37 machine config template: %w", err)
+	if _, ok := rawOptions["template"]; ok && options.Template == "" {
+		return providerOptions{}, errors.New(
+			"agent37 machine config template must be non-empty; omit it to use " + defaultTemplate,
+		)
+	}
+	if options.Template != "" {
+		if err := validateTemplate(options.Template); err != nil {
+			return providerOptions{}, fmt.Errorf("agent37 machine config template: %w", err)
+		}
 	}
 	if _, ok := rawOptions["disk_gb"]; ok && (options.DiskGB < 1 || options.DiskGB > maxDiskGB) {
 		return providerOptions{}, fmt.Errorf("agent37 machine config disk_gb must be between 1 and %d", maxDiskGB)

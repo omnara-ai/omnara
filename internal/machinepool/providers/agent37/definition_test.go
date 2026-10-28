@@ -34,7 +34,7 @@ func TestAgent37ProviderConfigRejectsUnknownAndInvalidFields(t *testing.T) {
 	}
 }
 
-func TestAgent37ProviderOptionsRequireATemplate(t *testing.T) {
+func TestAgent37ProviderOptionsDefaultTheTemplate(t *testing.T) {
 	options, err := parseProviderOptions(map[string]json.RawMessage{
 		"template":       mustRawJSON(t, " acme-agent-box@2 "),
 		"disk_gb":        mustRawJSON(t, 12),
@@ -47,8 +47,18 @@ func TestAgent37ProviderOptionsRequireATemplate(t *testing.T) {
 		t.Fatalf("provider options = %+v, want the trimmed template, disk, and script", options)
 	}
 	for name, raw := range map[string]map[string]json.RawMessage{
-		"nil":               nil,
-		"no template":       {"startup_script": mustRawJSON(t, "echo ready")},
+		"nil":         nil,
+		"no template": {"startup_script": mustRawJSON(t, "echo ready")},
+	} {
+		options, err := parseProviderOptions(raw)
+		if err != nil {
+			t.Fatalf("%s: parse provider options: %v", name, err)
+		}
+		if options.Template != "" || options.template() != defaultTemplate {
+			t.Fatalf("%s: provider options = %+v, want agent37-omnara by default", name, options)
+		}
+	}
+	for name, raw := range map[string]map[string]json.RawMessage{
 		"blank template":    {"template": json.RawMessage(`"  "`)},
 		"wildcard template": {"template": json.RawMessage(`"*"`)},
 		"newline template":  {"template": json.RawMessage(`"a\nb"`)},
@@ -93,8 +103,11 @@ func TestAgent37ValidatePoolEnforcesShapeTemplateAndAllowlist(t *testing.T) {
 	if err := definition.ValidatePool(testPoolPolicy(t, config, "acme-other")); err == nil {
 		t.Fatal("validate pool accepted a default template outside the allowlist")
 	}
-	if err := definition.ValidatePool(testPoolPolicy(t, json.RawMessage(`{}`), "")); err == nil {
-		t.Fatal("validate pool accepted a pool without a template")
+	if err := definition.ValidatePool(testPoolPolicy(t, json.RawMessage(`{}`), "")); err != nil {
+		t.Fatalf("validate pool without a template: %v", err)
+	}
+	if err := definition.ValidatePool(testPoolPolicy(t, config, "")); err == nil {
+		t.Fatal("validate pool accepted the default template outside the allowlist")
 	}
 	policy := testPoolPolicy(t, json.RawMessage(`{}`), testTemplate)
 	memoryMB := 6144

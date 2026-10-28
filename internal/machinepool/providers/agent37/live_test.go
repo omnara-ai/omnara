@@ -17,8 +17,8 @@ import (
 func TestAgent37ProviderLiveSmoke(t *testing.T) {
 	apiKey := strings.TrimSpace(os.Getenv("AGENT37_API_KEY"))
 	templateName := strings.TrimSpace(os.Getenv("OMNARA_AGENT37_TEST_TEMPLATE"))
-	if apiKey == "" || templateName == "" {
-		t.Skip("an Agent37 API key and OMNARA_AGENT37_TEST_TEMPLATE are required")
+	if apiKey == "" {
+		t.Skip("AGENT37_API_KEY is required")
 	}
 	config := mustRawJSON(t, map[string]any{"allowed_templates": []string{"*"}})
 	omnaraPublicURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_URL"))

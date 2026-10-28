@@ -122,6 +122,23 @@ describe('Tenki machine pools', () => {
 })
 
 describe('Agent37 machine pools', () => {
+  it('creates a pool on the omnara template without a template name', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'agent37'),
+      name: 'agent37-pool',
+      maxMachines: '2',
+      secretId: 'sec_agent37',
+    }
+    expect(values).toMatchObject({ image: '' })
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolCreateRequest(values)).toMatchObject({
+      provider: 'agent37',
+      default_machine_cpu: 2,
+      default_machine_memory_mb: 4096,
+      default_machine_provider_options: {},
+    })
+  })
+
   it('creates a template pool on the smallest Agent37 shape', () => {
     const values = {
       ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'agent37'),
