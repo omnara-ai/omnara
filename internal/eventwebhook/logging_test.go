@@ -122,9 +122,9 @@ func TestDeliveryGiveUpLevelSeparatesRecipientFailures(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			sender, store, delivery := testSender()
-			store.retryResult = executionstore.EventWebhookRetryResult{GaveUp: true}
+			store.retryResult = executionstore.EventWebhookDeliveryRetryResult{GaveUp: true}
 			if test.internal {
-				store.target.SigningSecretID = uuid.New()
+				store.endpoint.SigningSecretID = uuid.New()
 				store.secretErr = errors.New("decrypt failed")
 			}
 			var output bytes.Buffer
