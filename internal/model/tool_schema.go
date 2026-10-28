@@ -9,9 +9,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 )
 
-// claudeRejectedCompositions are the input schema keywords Claude rejects at the top
-// level of a tool's input_schema ("does not support oneOf, allOf, or anyOf at the top
-// level"). JSON Schema and MCP allow them, so MCP tools can carry them.
 var claudeRejectedCompositions = []struct {
 	keyword string
 	phrase  string
@@ -21,9 +18,6 @@ var claudeRejectedCompositions = []struct {
 	{"allOf", "all of"},
 }
 
-// ClaudeCompatibleToolSpecs drops top-level anyOf, oneOf and allOf from tool input
-// schemas for routes that serve Claude. Clauses that only require arguments are kept
-// as a sentence in the tool description; the tool still validates each call.
 func ClaudeCompatibleToolSpecs(specs []modelcontext.ToolSpec) []modelcontext.ToolSpec {
 	var out []modelcontext.ToolSpec
 	for index, spec := range specs {
@@ -83,8 +77,6 @@ func withoutTopLevelCompositions(schema json.RawMessage) (json.RawMessage, strin
 	return encoded, strings.Join(notes, " "), true
 }
 
-// requiredOnlyNote describes clauses that only list required arguments, such as
-// [{"required":["profile"]},{"required":["config"]}], as "Provide exactly one of: profile; config."
 func requiredOnlyNote(raw json.RawMessage, phrase string) (string, bool) {
 	var clauses []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &clauses); err != nil || len(clauses) == 0 {

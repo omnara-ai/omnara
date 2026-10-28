@@ -63,8 +63,6 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 	return rendered
 }
 
-// modelCandidates lists the models a request may be served by: the requested model and,
-// on routes that fall back, the fallback models.
 func (c Client) modelCandidates(compat compat) []string {
 	candidates := []string{c.ProviderModelSlug}
 	if compat.routesFallbackModels {
