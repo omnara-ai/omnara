@@ -2411,9 +2411,9 @@ VALUES ($2, $3, $4,
     ::jsonb, 'manager-cleanup-effective-hash', $5)
 RETURNING id)
 INSERT INTO agent_configs(id, org_id, project_id, definition_id, source, source_format, source_hash,
-    source_revision, created_at)
+    created_at)
 SELECT $1, $2, $3, definition.id,
-    'name: manager cleanup', 'yaml', 'manager-cleanup-source-hash', 1, $5
+    'name: manager cleanup', 'yaml', 'manager-cleanup-source-hash', $5
 FROM definition
 `, configID, orgID, projectID, configuredModelID, now)
 

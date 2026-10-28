@@ -1014,8 +1014,6 @@ func agentConfigDetailResponse(
 		ProjectId:               summary.ProjectId,
 		Source:                  summary.Source,
 		SourceFormat:            (*openapi.AgentConfigSourceFormat)(summary.SourceFormat),
-		SourceRevision:          summary.SourceRevision,
-		SourceNotices:           summary.SourceNotices,
 		EffectiveDefinitionHash: summary.EffectiveDefinitionHash,
 		Model:                   summary.Model,
 		InstructionHash:         summary.InstructionHash,
@@ -1105,12 +1103,8 @@ func (s *Server) agentConfigSummaryFromRecord(
 		CreatedAt:               record.CreatedAt,
 	}
 	if record.Source != "" {
-		source, revision := record.Source, record.SourceRevision
+		source := record.Source
 		response.Source = &source
-		response.SourceRevision = &revision
-		if notices := agentconfig.SourceNotices(revision, source); len(notices) > 0 {
-			response.SourceNotices = &notices
-		}
 	}
 	if record.SourceFormat != "" {
 		sourceFormat := openapi.AgentConfigSummarySourceFormat(record.SourceFormat)

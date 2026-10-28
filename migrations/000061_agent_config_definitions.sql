@@ -74,11 +74,6 @@ ALTER TABLE agent_configs
     DROP COLUMN effective_definition_hash,
     DROP COLUMN configured_model_id;
 
-ALTER TABLE agent_configs
-    ADD COLUMN source_revision integer NOT NULL DEFAULT 1 CHECK (source_revision >= 1);
-
-ALTER TABLE agent_configs ALTER COLUMN source_revision DROP DEFAULT;
-
 CREATE INDEX agent_configs_definition_source_idx
     ON agent_configs(project_id, definition_id, (coalesce(source_hash, '')));
 

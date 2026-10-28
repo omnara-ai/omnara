@@ -79,7 +79,6 @@ type AgentConfigRecord struct {
 	Source                  string          `json:"source,omitempty"`
 	SourceFormat            string          `json:"source_format,omitempty"`
 	SourceHash              string          `json:"source_hash,omitempty"`
-	SourceRevision          int             `json:"source_revision"`
 	ConfiguredModelID       uuid.UUID       `json:"configured_model_id"`
 	CompiledDefinition      json.RawMessage `json:"compiled_definition"`
 	EffectiveDefinitionHash string          `json:"effective_definition_hash"`
@@ -260,7 +259,6 @@ func insertAgentConfigTx(
 		Source:                  input.Source,
 		SourceFormat:            input.SourceFormat,
 		SourceHash:              input.SourceHash,
-		SourceRevision:          agentconfig.CurrentSourceRevision,
 		ConfiguredModelID:       definition.ConfiguredModelID,
 		CompiledDefinition:      definition.CompiledDefinition,
 		EffectiveDefinitionHash: definition.EffectiveDefinitionHash,
@@ -371,12 +369,11 @@ func findOrInsertAgentConfigVersionTx(
 		return dbsqlc.FindAgentConfigVersionRow{}, false, fmt.Errorf("lock agent config version: %w", err)
 	}
 	existing, err := qtx.FindAgentConfigVersion(ctx, dbsqlc.FindAgentConfigVersionParams{
-		ProjectID:      input.ProjectID,
-		DefinitionID:   definitionID,
-		SourceHash:     sourceHash,
-		SourceFormat:   sourceFormat,
-		Source:         source,
-		SourceRevision: agentconfig.CurrentSourceRevision,
+		ProjectID:    input.ProjectID,
+		DefinitionID: definitionID,
+		SourceHash:   sourceHash,
+		SourceFormat: sourceFormat,
+		Source:       source,
 	})
 	if err == nil {
 		return existing, false, nil
@@ -385,13 +382,12 @@ func findOrInsertAgentConfigVersionTx(
 		return dbsqlc.FindAgentConfigVersionRow{}, false, fmt.Errorf("find agent config version: %w", err)
 	}
 	inserted, err := qtx.InsertAgentConfigVersion(ctx, dbsqlc.InsertAgentConfigVersionParams{
-		OrgID:          input.OrgID,
-		ProjectID:      input.ProjectID,
-		DefinitionID:   definitionID,
-		Source:         source,
-		SourceFormat:   sourceFormat,
-		SourceHash:     sourceHash,
-		SourceRevision: agentconfig.CurrentSourceRevision,
+		OrgID:        input.OrgID,
+		ProjectID:    input.ProjectID,
+		DefinitionID: definitionID,
+		Source:       source,
+		SourceFormat: sourceFormat,
+		SourceHash:   sourceHash,
 	})
 	if err != nil {
 		return dbsqlc.FindAgentConfigVersionRow{}, false, fmt.Errorf("insert agent config version: %w", err)

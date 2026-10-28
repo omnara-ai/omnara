@@ -626,10 +626,10 @@ INSERT INTO agent_execution_state(agent_id,incomplete_tools) SELECT id,false FRO
 	if _, err := pool.Exec(ctx, `
 INSERT INTO agent_configs(
   org_id, project_id, definition_id, source, source_format,
-  source_hash, source_revision, created_at
+  source_hash, created_at
 )
 SELECT org_id, project_id, definition_id,
-       source || n, source_format, source_hash || n, source_revision, $2
+       source || n, source_format, source_hash || n, $2
 FROM agent_configs
 CROSS JOIN generate_series(1, $3::bigint) AS n
 WHERE id = $1
