@@ -155,9 +155,16 @@ func runtimeMCPToolSpecs(
 			if !toolcatalog.IsMCPRuntimeToolName(name) {
 				continue
 			}
+			schema, argumentsNote, err := providerSafeMCPInputSchema(schema)
+			if err != nil {
+				return nil, fmt.Errorf("mcp tool %q from server %q: %w", tool.Name, server.ServerKey, err)
+			}
 			description := fmt.Sprintf("MCP tool %q from server %q.", tool.Name, server.ServerKey)
 			if tool.Description != "" {
 				description = fmt.Sprintf("%s %s", description, tool.Description)
+			}
+			if argumentsNote != "" {
+				description = fmt.Sprintf("%s %s", description, argumentsNote)
 			}
 			out = append(
 				out,
