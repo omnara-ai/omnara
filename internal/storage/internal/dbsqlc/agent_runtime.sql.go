@@ -99,9 +99,12 @@ FROM agents agent
 LEFT JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
  AND agent_config.id = agent.current_config_id
+LEFT JOIN agent_config_definitions agent_config_definition
+  ON agent_config_definition.project_id = agent_config.project_id
+ AND agent_config_definition.id = agent_config.definition_id
 LEFT JOIN configured_models configured_model
   ON configured_model.org_id = agent.org_id
- AND configured_model.id = agent_config.configured_model_id
+ AND configured_model.id = agent_config_definition.configured_model_id
 LEFT JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
@@ -173,9 +176,12 @@ FROM agents agent
 LEFT JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
  AND agent_config.id = agent.current_config_id
+LEFT JOIN agent_config_definitions agent_config_definition
+  ON agent_config_definition.project_id = agent_config.project_id
+ AND agent_config_definition.id = agent_config.definition_id
 LEFT JOIN configured_models configured_model
   ON configured_model.org_id = agent.org_id
- AND configured_model.id = agent_config.configured_model_id
+ AND configured_model.id = agent_config_definition.configured_model_id
 LEFT JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
@@ -277,9 +283,12 @@ LEFT JOIN integrations install
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
  AND agent_config.id = agent.current_config_id
+JOIN agent_config_definitions agent_config_definition
+  ON agent_config_definition.project_id = agent_config.project_id
+ AND agent_config_definition.id = agent_config.definition_id
 JOIN configured_models configured_model
   ON configured_model.org_id = agent.org_id
- AND configured_model.id = agent_config.configured_model_id
+ AND configured_model.id = agent_config_definition.configured_model_id
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
@@ -443,9 +452,12 @@ LEFT JOIN integrations install
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
  AND agent_config.id = agent.current_config_id
+JOIN agent_config_definitions agent_config_definition
+  ON agent_config_definition.project_id = agent_config.project_id
+ AND agent_config_definition.id = agent_config.definition_id
 JOIN configured_models configured_model
   ON configured_model.org_id = agent.org_id
- AND configured_model.id = agent_config.configured_model_id
+ AND configured_model.id = agent_config_definition.configured_model_id
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
@@ -591,9 +603,12 @@ LEFT JOIN integrations install
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
  AND agent_config.id = agent.current_config_id
+JOIN agent_config_definitions agent_config_definition
+  ON agent_config_definition.project_id = agent_config.project_id
+ AND agent_config_definition.id = agent_config.definition_id
 JOIN configured_models configured_model
   ON configured_model.org_id = agent.org_id
- AND configured_model.id = agent_config.configured_model_id
+ AND configured_model.id = agent_config_definition.configured_model_id
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id

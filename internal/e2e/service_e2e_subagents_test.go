@@ -497,8 +497,12 @@ func TestServiceE2EDeterministicProfileSubagentLinksProfile(t *testing.T) {
 	var childInstruction string
 	if err := env.db.QueryRow(
 		ctx,
-		`SELECT source IS NULL AND source_format IS NULL AND source_hash IS NULL,
-		        compiled_definition->>'instruction' FROM agent_configs WHERE id = $1`,
+		`SELECT config.source IS NULL AND config.source_format IS NULL AND config.source_hash IS NULL,
+		        definition.compiled_definition->>'instruction'
+		 FROM agent_configs config
+		 JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+		   AND definition.id = config.definition_id
+		 WHERE config.id = $1`,
 		childConfigID,
 	).Scan(&noSource, &childInstruction); err != nil {
 		t.Fatalf("load derived subagent config: %v", err)

@@ -714,7 +714,6 @@ func TestPublicAgentConfigAcceptsJSONSource(t *testing.T) {
 	project := bootstrapPublicHTTPProject(t, handler, "agent-config-json-source")
 	sourceJSON := "{\n  \"instruction\": \"Configured from <JSON> & text.\",\n" +
 		"  \"model\": {\"provider_config\": \"openai-prod\", \"name\": \"gpt-test\"}\n}\n"
-	canonicalJSON := `{"instruction":"Configured from <JSON> & text.","model":{"name":"gpt-test","provider_config":"openai-prod"}}`
 
 	config := createPublicHTTPAgentConfig(
 		t,
@@ -726,8 +725,8 @@ func TestPublicAgentConfigAcceptsJSONSource(t *testing.T) {
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	if config["source_format"] != "json" || config["source"] != canonicalJSON {
-		t.Fatalf("JSON text config source was not stored canonicalized: %+v", config)
+	if config["source_format"] != "json" || config["source"] != sourceJSON {
+		t.Fatalf("JSON text config source was not stored verbatim: %+v", config)
 	}
 	if _, ok := config["definition"]; ok {
 		t.Fatalf("agent config responses should return source, not definition: %+v", config)
@@ -773,32 +772,40 @@ func TestPublicAgentConfigAcceptsJSONObjectSource(t *testing.T) {
 		)
 	}
 
+	objectSource := `{"instruction":"Configured from an object.","model":{"provider_config":"openai-prod","name":"gpt-test"}}`
 	config := create(
-		`{"source_format":"json","source":`+
-			`{"instruction":"Configured from an object.","model":{"provider_config":"openai-prod","name":"gpt-test"}}}`,
+		`{"source_format":"json","source":`+objectSource+`}`,
 		"idem-object-source", http.StatusCreated,
 	)
-	canonicalJSON := `{"instruction":"Configured from an object.","model":{"name":"gpt-test","provider_config":"openai-prod"}}`
-	if config["source_format"] != "json" || config["source"] != canonicalJSON {
-		t.Fatalf("JSON object config source was not stored canonicalized: %+v", config)
+	if config["source_format"] != "json" || config["source"] != objectSource {
+		t.Fatalf("JSON object config source was not stored verbatim: %+v", config)
 	}
+	again := create(
+		`{"source_format":"json","source":`+objectSource+`}`,
+		"idem-object-source-again", http.StatusOK,
+	)
+	if again["id"] != config["id"] {
+		t.Fatalf("identical JSON object should return config %v, got %+v", config["id"], again)
+	}
+	reorderedSource := `{ "model": {"name": "gpt-test", "provider_config": "openai-prod"},` +
+		` "instruction": "Configured from an object." }`
 	reordered := create(
-		`{"source": { "model": {"name": "gpt-test", "provider_config": "openai-prod"},`+
-			` "instruction": "Configured from an object." }, "source_format": "json"}`,
-		"idem-object-source-reordered", http.StatusOK,
+		`{"source": `+reorderedSource+`, "source_format": "json"}`,
+		"idem-object-source-reordered", http.StatusCreated,
 	)
-	if reordered["id"] != config["id"] {
-		t.Fatalf("reordered JSON object should dedupe to %v, got %+v", config["id"], reordered)
+	if reordered["id"] == config["id"] || reordered["source"] != reorderedSource ||
+		reordered["effective_definition_hash"] != config["effective_definition_hash"] {
+		t.Fatalf("reordered JSON object should be a new version sharing %v's definition, got %+v", config["id"], reordered)
 	}
+	textSource := "{\n  \"model\": {\"provider_config\": \"openai-prod\", \"name\": \"gpt-test\"},\n" +
+		"  \"instruction\": \"Configured from an object.\"\n}\n"
 	asText := create(
-		`{"source_format":"json","source":`+quotedJSONString(
-			"{\n  \"model\": {\"provider_config\": \"openai-prod\", \"name\": \"gpt-test\"},\n"+
-				"  \"instruction\": \"Configured from an object.\"\n}\n",
-		)+`}`,
-		"idem-object-source-as-text", http.StatusOK,
+		`{"source_format":"json","source":`+quotedJSONString(textSource)+`}`,
+		"idem-object-source-as-text", http.StatusCreated,
 	)
-	if asText["id"] != config["id"] || asText["source"] != canonicalJSON {
-		t.Fatalf("formatted JSON text should dedupe to the object config %v, got %+v", config["id"], asText)
+	if asText["id"] == config["id"] || asText["source"] != textSource ||
+		asText["effective_definition_hash"] != config["effective_definition_hash"] {
+		t.Fatalf("formatted JSON text should be a new version sharing %v's definition, got %+v", config["id"], asText)
 	}
 
 	sourceYAML := "instruction: Configured from YAML.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
@@ -884,12 +891,12 @@ func TestPublicAgentLaunchCombinesProfileWithAnyConfig(t *testing.T) {
 	inline := launch(inlineBody, "idem-combo-inline", http.StatusCreated)
 	inlineAgent := testutil.RequireType[map[string]any](t, inline["agent"])
 	inlineConfig := testutil.RequireType[map[string]any](t, inline["agent_config"])
-	const canonicalInline = `{"instruction":"Inline override.",` +
-		`"model":{"name":"gpt-test","provider_config":"openai-prod"}}`
+	const inlineSource = `{"instruction":"Inline override.",` +
+		`"model":{"provider_config":"openai-prod","name":"gpt-test"}}`
 	if inlineAgent["agent_profile_id"] != profileID ||
 		inlineAgent["current_config_id"] == profileConfig["id"] ||
 		inlineAgent["current_config_id"] != inlineConfig["id"] ||
-		inlineConfig["source"] != canonicalInline {
+		inlineConfig["source"] != inlineSource {
 		t.Fatalf("profile + config_source should launch a new config attributed to the profile: %+v", inline)
 	}
 

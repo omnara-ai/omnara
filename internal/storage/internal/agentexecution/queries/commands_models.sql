@@ -28,7 +28,8 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
 -- @sqlc-vet-disable model-provider-configs-deleted-at
 SELECT m.current_revision_id,CASE WHEN p.management_kind='cluster' THEN coalesce(w.new_managed_work_allowed,true)
  ELSE true END::boolean AS allowed
-FROM agent_configs c JOIN configured_models m ON m.org_id=c.org_id AND m.id=c.configured_model_id
+FROM agent_configs c JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
+JOIN configured_models m ON m.org_id=d.org_id AND m.id=d.configured_model_id
 JOIN model_provider_configs p ON p.org_id=m.org_id AND p.id=m.model_provider_config_id
 LEFT JOIN org_managed_work_admission w ON w.org_id=c.org_id
 WHERE c.project_id=sqlc.arg(project_id) AND c.id=sqlc.arg(config_id);

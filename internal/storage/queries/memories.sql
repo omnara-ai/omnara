@@ -66,9 +66,10 @@ WHERE project_id = sqlc.arg(project_id)
 FOR SHARE;
 
 -- name: GetAgentMemoryConfig :one
-SELECT coalesce(c.compiled_definition->'memory_stores', '[]'::jsonb)::jsonb AS memory_stores
+SELECT coalesce(d.compiled_definition->'memory_stores', '[]'::jsonb)::jsonb AS memory_stores
 FROM agents a
 JOIN agent_configs c ON c.project_id = a.project_id AND c.id = a.current_config_id
+JOIN agent_config_definitions d ON d.project_id = c.project_id AND d.id = c.definition_id
 WHERE a.project_id = sqlc.arg(project_id)
   AND a.id = sqlc.arg(agent_id)
   AND a.state = 'active';
@@ -109,11 +110,12 @@ SELECT s.id
 FROM memory_stores s
 JOIN agents a ON a.project_id = s.project_id AND a.id = sqlc.arg(agent_id)
 JOIN agent_configs c ON c.project_id = a.project_id AND c.id = a.current_config_id
+JOIN agent_config_definitions d ON d.project_id = c.project_id AND d.id = c.definition_id
 WHERE s.project_id = sqlc.arg(project_id)
   AND s.name = sqlc.arg(name)
   AND s.deleted_at IS NULL
   AND a.state = 'active'
-  AND c.compiled_definition->'memory_stores' @> jsonb_build_array(jsonb_build_object('id', s.id));
+  AND d.compiled_definition->'memory_stores' @> jsonb_build_array(jsonb_build_object('id', s.id));
 
 -- name: ListMemoryStoresPendingFileRemoval :many
 SELECT s.id, s.project_id, p.org_id, s.name,

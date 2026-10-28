@@ -42,7 +42,9 @@ func TestIntegrationSubscriptionLaunchBatchRejectsInvalidAttachment(t *testing.T
 			var agents, configs, subscriptions int
 			require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT
 				(SELECT count(*) FROM agents WHERE project_id=$1 AND idempotency_key=$2),
-				(SELECT count(*) FROM agent_configs WHERE project_id=$1 AND effective_definition_hash=$3),
+				(SELECT count(*) FROM agent_configs config JOIN agent_config_definitions definition
+					ON definition.project_id=config.project_id AND definition.id=config.definition_id
+					WHERE config.project_id=$1 AND definition.effective_definition_hash=$3),
 				(SELECT count(*) FROM integration_subscriptions WHERE project_id=$1)`,
 				testProjectID, input.IdempotencyKey, definition.EffectiveDefinitionHash).Scan(&agents, &configs, &subscriptions))
 			require.Zero(t, agents)

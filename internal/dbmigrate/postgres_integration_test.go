@@ -127,7 +127,7 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions," +
+	const expected = "agent_config_definitions,agent_configs,agent_machine_bindings,agents,configured_model_revisions," +
 		"configured_models,daemon_runtimes,event_webhook_deliveries,event_webhooks,integrations,machine_daemon_tokens," +
 		"machine_online_intervals,machine_pools,machines,mcp_server_catalogs,model_call_contexts," +
 		"model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission," +
@@ -157,7 +157,8 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "actors,agent_configs,agent_inputs,agent_machine_bindings,agent_profile_versions," +
+	const expected = "actors,agent_config_definitions,agent_configs,agent_inputs,agent_machine_bindings," +
+		"agent_profile_versions," +
 		"agent_profiles,agents,cron_triggers,event_webhooks,integration_inbox,integration_runtime,integration_states," +
 		"integration_subscriptions,integration_targets,integrations," +
 		"memory_stores,model_call_contexts,process_actions,processes,project_machine_grants," +

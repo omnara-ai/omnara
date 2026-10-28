@@ -24,14 +24,11 @@ type Actor struct {
 	UpdatedAt        time.Time
 }
 
-type AgentConfig struct {
+type AgentConfigDefinition struct {
 	ID                      uuid.UUID
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	ConfiguredModelID       uuid.UUID
-	Source                  *string
-	SourceFormat            *string
-	SourceHash              *string
 	CompiledDefinition      json.RawMessage
 	EffectiveDefinitionHash string
 	CreatedAt               time.Time
