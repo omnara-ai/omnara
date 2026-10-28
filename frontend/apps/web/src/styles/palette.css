@@ -17,6 +17,7 @@
   --palette-dark-accent-soft: 193 207 244;
   --palette-dark-destructive: oklch(0.7 0.19 22);
   --palette-dark-success: 98 207 158;
+  --palette-dark-aurora: 101 135 220;
 
   --palette-light-bg: 252 252 253;
   --palette-light-fg: 17 18 24;
@@ -30,4 +31,5 @@
   --palette-light-accent-soft: 112 140 217;
   --palette-light-destructive: oklch(0.58 0.24 27);
   --palette-light-success: 13 122 79;
+  --palette-light-aurora: 60 93 184;
 }

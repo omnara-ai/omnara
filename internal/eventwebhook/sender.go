@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
+	webhookconfig "github.com/omnara-ai/omnara/internal/eventwebhook/config"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -37,14 +37,14 @@ const (
 )
 
 type Store interface {
-	GetAgentEventWebhookTarget(context.Context, uuid.UUID) (executionstore.EventWebhookTarget, error)
+	GetEventWebhookEndpoint(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (executionstore.EventWebhookEndpoint, error)
 	GetAgentEventForWebhook(context.Context, uuid.UUID, uuid.UUID, int64) (executionstore.AgentEventReadRecord, error)
 	ClaimEventWebhookDelivery(context.Context, int) (executionstore.EventWebhookDelivery, error)
 	CompleteEventWebhookDelivery(context.Context, uuid.UUID, uuid.UUID) error
 	RetryEventWebhookDelivery(
 		context.Context, uuid.UUID, uuid.UUID, time.Duration,
-	) (executionstore.EventWebhookRetryResult, error)
-	ReadEventWebhookSigningSecret(context.Context, executionstore.EventWebhookTarget) (string, error)
+	) (executionstore.EventWebhookDeliveryRetryResult, error)
+	ReadEventWebhookSigningSecret(context.Context, executionstore.EventWebhookEndpoint) (string, error)
 }
 
 type Sender struct {
@@ -97,13 +97,13 @@ func (s *Sender) Run(ctx context.Context) {
 }
 
 func (s *Sender) deliver(ctx context.Context, delivery executionstore.EventWebhookDelivery) {
-	ctx, event := logent.EventWebhookDelivery(logpkg.WithLogger(ctx, s.log), delivery)
+	ctx, event := logent.EventWebhookDeliveryAttempt(logpkg.WithLogger(ctx, s.log), delivery)
 	defer event.Done(ctx)
 	attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
 	err := s.send(attemptCtx, delivery)
 	cancel()
 	if ctx.Err() != nil {
-		logent.EventWebhookDeliveryResult(ctx, "canceled", ctx.Err(), time.Time{})
+		logent.EventWebhookDeliveryAttemptResult(ctx, "canceled", ctx.Err(), time.Time{})
 		return
 	}
 	updateCtx, updateCancel := context.WithTimeout(ctx, storeTimeout)
@@ -114,22 +114,22 @@ func (s *Sender) deliver(ctx context.Context, delivery executionstore.EventWebho
 		)
 		if retryErr != nil {
 			logent.EventWebhookStoreFailed(ctx, "retry", retryErr)
-			logent.EventWebhookDeliveryResult(ctx, "retry_failed", err, time.Time{})
+			logent.EventWebhookDeliveryAttemptResult(ctx, "retry_failed", err, time.Time{})
 			return
 		}
 		outcome := "retry_scheduled"
 		if retry.GaveUp {
 			outcome = "gave_up"
 		}
-		logent.EventWebhookDeliveryResult(ctx, outcome, err, retry.NextAttemptAt)
+		logent.EventWebhookDeliveryAttemptResult(ctx, outcome, err, retry.NextAttemptAt)
 		return
 	}
 	completeErr := s.store.CompleteEventWebhookDelivery(updateCtx, delivery.ID, delivery.ClaimToken)
 	if completeErr != nil {
 		logent.EventWebhookStoreFailed(ctx, "complete", completeErr)
-		logent.EventWebhookDeliveryResult(ctx, "complete_failed", nil, time.Time{})
+		logent.EventWebhookDeliveryAttemptResult(ctx, "complete_failed", nil, time.Time{})
 	} else {
-		logent.EventWebhookDeliveryResult(ctx, "completed", nil, time.Time{})
+		logent.EventWebhookDeliveryAttemptResult(ctx, "completed", nil, time.Time{})
 	}
 }
 
@@ -142,18 +142,18 @@ func retryDelay(attempt int32) time.Duration {
 }
 
 func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookDelivery) error {
-	target, err := s.store.GetAgentEventWebhookTarget(ctx, delivery.AgentID)
+	endpoint, err := s.store.GetEventWebhookEndpoint(ctx, delivery.OrgID, delivery.WebhookID, delivery.AgentID)
 	if err != nil {
 		return err
 	}
-	logent.EventWebhookTarget(ctx, target)
-	if target.URL == "" {
+	logent.EventWebhookEndpoint(ctx, endpoint)
+	if endpoint.URL == "" {
 		return nil
 	}
 	var data any
 	var event string
 	if delivery.EventSequence != nil {
-		record, readErr := s.store.GetAgentEventForWebhook(ctx, target.ProjectID, delivery.AgentID, *delivery.EventSequence)
+		record, readErr := s.store.GetAgentEventForWebhook(ctx, endpoint.ProjectID, delivery.AgentID, *delivery.EventSequence)
 		if readErr != nil {
 			return readErr
 		}
@@ -169,7 +169,7 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 	if err != nil {
 		return err
 	}
-	logent.EventWebhookKind(ctx, event)
+	logent.EventWebhookEventKind(ctx, event)
 	body, err := json.Marshal(struct {
 		Event string `json:"event"`
 		Data  any    `json:"data"`
@@ -177,15 +177,15 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 	if err != nil {
 		return fmt.Errorf("encode event webhook: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.URL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.URL, bytes.NewReader(body))
 	if err != nil {
 		return errors.New("create event webhook request failed")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Webhook-Id", delivery.ID.String())
 	req.Header.Set("Webhook-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
-	if target.SigningSecretID != uuid.Nil {
-		secret, readErr := s.store.ReadEventWebhookSigningSecret(ctx, target)
+	if endpoint.SigningSecretID != uuid.Nil {
+		secret, readErr := s.store.ReadEventWebhookSigningSecret(ctx, endpoint)
 		if readErr != nil {
 			return fmt.Errorf("read event webhook signing secret: %w", readErr)
 		}
@@ -213,7 +213,7 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 }
 
 func sign(secret, id, timestamp string, body []byte) (string, error) {
-	key, err := agentconfig.DecodeEventWebhookSigningKey(secret)
+	key, err := webhookconfig.DecodeSigningKey(secret)
 	if err != nil {
 		return "", err
 	}

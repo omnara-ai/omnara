@@ -10,6 +10,20 @@ import (
 
 var ErrBlockedAddress = errors.New("ssrf: address blocked")
 
+type URLHost struct {
+	IP       net.IP
+	LocalDev bool
+}
+
+func ClassifyURLHost(host string) URLHost {
+	normalized := strings.TrimSuffix(strings.ToLower(host), ".")
+	ip := net.ParseIP(normalized)
+	return URLHost{
+		IP:       ip,
+		LocalDev: normalized == "localhost" || (ip != nil && ip.IsLoopback()),
+	}
+}
+
 // allowedPrefixes is the operator-managed egress allowlist configured via
 // OMNARA_ALLOWED_PRIVATE_CIDRS. It is installed once at process startup via
 // SetAllowedPrefixes and consulted by every policy check, including the

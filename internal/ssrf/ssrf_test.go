@@ -9,6 +9,39 @@ import (
 	"time"
 )
 
+func TestClassifyURLHost(t *testing.T) {
+	for _, test := range []struct {
+		host     string
+		ip       string
+		localDev bool
+	}{
+		{host: "localhost", localDev: true},
+		{host: "LOCALHOST.", localDev: true},
+		{host: "127.0.0.1", ip: "127.0.0.1", localDev: true},
+		{host: "::1", ip: "::1", localDev: true},
+		{host: "::ffff:127.0.0.1", ip: "127.0.0.1", localDev: true},
+		{host: "10.0.0.1", ip: "10.0.0.1"},
+		{host: "8.8.8.8.", ip: "8.8.8.8"},
+		{host: "2606:4700:4700::1111", ip: "2606:4700:4700::1111"},
+		{host: "example.com"},
+		{host: "localhost.example.com"},
+	} {
+		t.Run(test.host, func(t *testing.T) {
+			host := ClassifyURLHost(test.host)
+			if host.LocalDev != test.localDev {
+				t.Errorf("LocalDev = %v, want %v", host.LocalDev, test.localDev)
+			}
+			if test.ip == "" {
+				if host.IP != nil {
+					t.Errorf("IP = %v, want nil", host.IP)
+				}
+			} else if !host.IP.Equal(net.ParseIP(test.ip)) {
+				t.Errorf("IP = %v, want %s", host.IP, test.ip)
+			}
+		})
+	}
+}
+
 func TestIsAllowedIPBlocksSpecialUseRanges(t *testing.T) {
 	tests := []struct {
 		name          string

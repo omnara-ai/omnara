@@ -149,11 +149,13 @@ func TestCompactionPolicyPreservesResolvedReasoningAtProviderWireBoundary(t *tes
 		{
 			name: "Anthropic adaptive thinking",
 			client: anthropicmessages.Client{
-				EndpointPath: "/messages", ProviderModelSlug: "claude-test", ModelCapabilities: highReasoning,
+				EndpointPath: "/messages", ProviderModelSlug: "claude-opus-5-5", ModelCapabilities: highReasoning,
 				APIVariantOptions: json.RawMessage(`{"thinking":{"type":"adaptive"}}`),
 			},
 			outputField: "max_tokens",
-			wantFields:  map[string]string{"thinking": `{"type":"adaptive"}`},
+			wantFields: map[string]string{
+				"thinking": `{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`,
+			},
 		},
 		{
 			name: "Anthropic future thinking mode",
@@ -358,6 +360,119 @@ func preparePolicyWireBody(
 		t.Fatalf("decode wire request: %v", err)
 	}
 	return body
+}
+
+func TestFirstClaudeRequestAfterCompactionKeepsSignedThinking(t *testing.T) {
+	capabilities := model.Capabilities{
+		ContextWindowTokens:    200_000,
+		MaxOutputTokens:        new(64_000),
+		DefaultMaxOutputTokens: 2_048,
+		SupportsReasoning:      true,
+		DefaultReasoningEffort: "high",
+	}
+	providerDefaultEffort := capabilities
+	providerDefaultEffort.DefaultReasoningEffort = ""
+	tests := []struct {
+		name         string
+		sourceSlug   string
+		capabilities model.Capabilities
+		replayCutoff int64
+		wantReplay   bool
+	}{
+		{name: "configured effort", sourceSlug: "claude-opus-5-5", capabilities: capabilities, wantReplay: true},
+		{
+			name:         "provider default effort",
+			sourceSlug:   "claude-opus-5-5",
+			capabilities: providerDefaultEffort,
+			wantReplay:   true,
+		},
+		{
+			name:         "kept turn from another Claude model",
+			sourceSlug:   "claude-sonnet-5-5",
+			capabilities: capabilities,
+			wantReplay:   true,
+		},
+		{
+			name:         "kept turn behind an earlier replay rejection",
+			sourceSlug:   "claude-opus-5-5",
+			capabilities: capabilities,
+			replayCutoff: 20,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := anthropicmessages.Client{
+				ModelProviderConfigID: "mpc_1",
+				EndpointPath:          "/messages",
+				ProviderModelSlug:     "claude-opus-5-5",
+				ModelCapabilities:     test.capabilities,
+			}
+			source := client
+			source.ProviderModelSlug = test.sourceSlug
+			bundle := modelcontext.Bundle{
+				SystemPrompt: "system contract",
+				ContextCheckpoint: &modelcontext.CheckpointRef{
+					ID:                             "ccp_1",
+					Sequence:                       12,
+					SummarizedThroughEventSequence: 9,
+					Summary:                        "closed history summary",
+				},
+				Messages: []modelcontext.Message{
+					{
+						Role:     modelprotocol.RoleUser,
+						Sequence: 10,
+						Content:  json.RawMessage(`[{"type":"text","text":"kept question"}]`),
+					},
+					{
+						Role:     modelprotocol.RoleAssistant,
+						Sequence: 20,
+						Content:  json.RawMessage(`[{"type":"text","text":"kept answer"}]`),
+						ProviderReplay: json.RawMessage(
+							`[{"type":"thinking","thinking":"","signature":"sig_kept"},` +
+								`{"type":"text","text":"kept answer"}]`,
+						),
+						ProviderReplaySource: model.ProviderReplayIdentityForClient("mpc_1", source),
+					},
+					{
+						Role:     modelprotocol.RoleUser,
+						Sequence: 30,
+						Content:  json.RawMessage(`[{"type":"text","text":"next question"}]`),
+					},
+				},
+			}
+			policy := model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(client))
+			policy.ProviderReplayCutoffEventSequence = test.replayCutoff
+			body := preparePolicyWireBody(t, client, bundle, policy)
+
+			require.JSONEq(
+				t,
+				`{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"drop_block"}}`,
+				string(body["thinking"]),
+			)
+			var messages []struct {
+				Role    string `json:"role"`
+				Content []struct {
+					Type      string `json:"type"`
+					Text      string `json:"text"`
+					Signature string `json:"signature"`
+				} `json:"content"`
+			}
+			require.NoError(t, json.Unmarshal(body["messages"], &messages))
+			require.Len(t, messages, 3, "summary and kept question share the first user turn")
+			require.Equal(t, "user", messages[0].Role)
+			require.Contains(t, messages[0].Content[0].Text, "closed history summary")
+			require.Equal(t, "kept question", messages[0].Content[len(messages[0].Content)-1].Text)
+			assistant := messages[1]
+			require.Equal(t, "assistant", assistant.Role)
+			require.Equal(t, "kept answer", assistant.Content[len(assistant.Content)-1].Text)
+			if test.wantReplay {
+				require.Equal(t, "thinking", assistant.Content[0].Type)
+				require.Equal(t, "sig_kept", assistant.Content[0].Signature)
+			} else {
+				require.NotContains(t, string(body["messages"]), "sig_kept")
+			}
+		})
+	}
 }
 
 func TestCompactionPolicyDisablesPromptCacheControls(t *testing.T) {

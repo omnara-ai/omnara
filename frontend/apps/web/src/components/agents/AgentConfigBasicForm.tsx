@@ -1,6 +1,5 @@
 import { useToolCatalog } from '@omnara/react'
 
-import { AgentConfigEventWebhookField } from '@/components/agents/AgentConfigEventWebhookField'
 import { AgentConfigGitCredentialsField } from '@/components/agents/AgentConfigGitCredentialsField'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
@@ -130,18 +129,6 @@ export function AgentConfigBasicForm({
               forceMount
               className="flex flex-col gap-3 pt-4 data-[state=closed]:hidden"
             >
-              <FieldGroup className="bg-card rounded-xl border px-4 py-4 sm:px-5">
-                <AgentConfigEventWebhookField
-                  orgId={orgId}
-                  projectId={projectId}
-                  events={form.eventWebhookEvents}
-                  onEventsChange={form.setEventWebhookEvents}
-                  url={form.eventWebhookUrl}
-                  signingSecretId={form.eventWebhookSigningSecretId}
-                  onUrlChange={form.setEventWebhookUrl}
-                  onSigningSecretIdChange={form.setEventWebhookSigningSecretId}
-                />
-              </FieldGroup>
               <AgentConfigGitCredentialsField
                 orgId={orgId}
                 projectId={projectId}

@@ -8,7 +8,6 @@ export type ClientOptions = {
  * An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.
  */
 export type AgentConfigDefinition = {
-    event_webhook?: AgentConfigDefinitionEventWebhook;
     git_credentials?: AgentConfigDefinitionGitCredentials;
     instruction: string;
     interaction_handlers?: AgentConfigDefinitionInteractionHandlers;
@@ -37,12 +36,6 @@ export type AgentConfigToolsDefinition = {
     subagents?: AgentConfigDefinitionSubagents;
     tools?: AgentConfigDefinitionTools;
     [key: string]: unknown;
-};
-
-export type AgentConfigDefinitionEventWebhook = {
-    events: Array<'agent_input' | 'model_output' | 'tool_result' | 'context_checkpoint' | 'tool_call_update'>;
-    signing_secret_id?: string;
-    url: string;
 };
 
 /**
@@ -340,6 +333,84 @@ export type AgentId = string;
 export type AgentConfigId = string;
 
 export type AgentProfileId = string;
+
+export type EventWebhookId = string;
+
+export type EventWebhookScopeType = 'project' | 'profile' | 'agent';
+
+export type ProjectEventWebhookScope = {
+    type: 'project';
+};
+
+export type AgentProfileEventWebhookScope = {
+    type: 'profile';
+    agent_profile_id: AgentProfileId;
+};
+
+/**
+ * Watches only this agent, not its descendants.
+ */
+export type AgentEventWebhookScope = {
+    type: 'agent';
+    agent_id: AgentId;
+};
+
+export type EventWebhookScope = ({
+    type: 'project';
+} & ProjectEventWebhookScope) | ({
+    type: 'profile';
+} & AgentProfileEventWebhookScope) | ({
+    type: 'agent';
+} & AgentEventWebhookScope);
+
+export type UpdateEventWebhookRequest = {
+    /**
+     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     */
+    url?: string;
+    event_types?: Array<EventWebhookEventType>;
+    /**
+     * Project-available generic secret. Omit to preserve signing, or set to null to remove it.
+     */
+    signing_secret_id?: SecretId | null;
+};
+
+export type CreateEventWebhookRequest = {
+    /**
+     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     */
+    url: string;
+    event_types: Array<EventWebhookEventType>;
+    /**
+     * Optional project-available generic secret.
+     */
+    signing_secret_id?: SecretId;
+    scope: EventWebhookScope;
+};
+
+export type EventWebhookEventType = 'agent_input' | 'model_output' | 'tool_result' | 'context_checkpoint' | 'tool_call_update';
+
+export type EventWebhook = {
+    /**
+     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     */
+    url: string;
+    event_types: Array<EventWebhookEventType>;
+    /**
+     * Optional project-available generic secret.
+     */
+    signing_secret_id?: SecretId;
+    scope: EventWebhookScope;
+    id: EventWebhookId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    created_at: string;
+    updated_at: string;
+};
+
+export type ListEventWebhooksResponse = {
+    data: Array<EventWebhook>;
+};
 
 export type CronTriggerId = string;
 
@@ -1656,7 +1727,6 @@ export type CompiledAgentConfig = {
     mcp?: {
         [key: string]: CompiledMcpServer;
     };
-    event_webhook?: CompiledEventWebhook;
     interaction_handlers?: {
         [key: string]: CompiledIntegrationCapability;
     };
@@ -1668,12 +1738,6 @@ export type CompiledAgentConfig = {
     };
     max_subagents?: number;
     max_depth?: number;
-};
-
-export type CompiledEventWebhook = {
-    url: string;
-    events: Array<'agent_input' | 'model_output' | 'tool_result' | 'context_checkpoint' | 'tool_call_update'>;
-    signing_secret_id?: SecretId;
 };
 
 export type CompiledAgentModel = {
@@ -2626,7 +2690,7 @@ export type ContextCheckpointEvent = {
 };
 
 /**
- * JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
+ * JSON body posted to an event webhook. Each event name determines its data schema.
  */
 export type EventWebhookPayload = ({
     event: 'agent_input';
@@ -4738,6 +4802,284 @@ export type SecretMcpoAuthFlowIdFilter = McpoAuthFlowId;
  * Filter a project inventory by how the secret became available.
  */
 export type SecretAvailabilitySourceFilter = 'direct' | 'grant';
+
+export type ListEventWebhooksData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query: {
+        scope_type: EventWebhookScopeType;
+        agent_profile_id?: AgentProfileId;
+        agent_id?: AgentId;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/event-webhooks';
+};
+
+export type ListEventWebhooksErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListEventWebhooksError = ListEventWebhooksErrors[keyof ListEventWebhooksErrors];
+
+export type ListEventWebhooksResponses = {
+    /**
+     * Webhooks for the requested scope.
+     */
+    200: ListEventWebhooksResponse;
+};
+
+export type ListEventWebhooksResponse2 = ListEventWebhooksResponses[keyof ListEventWebhooksResponses];
+
+export type CreateEventWebhookData = {
+    body: CreateEventWebhookRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/event-webhooks';
+};
+
+export type CreateEventWebhookErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateEventWebhookError = CreateEventWebhookErrors[keyof CreateEventWebhookErrors];
+
+export type CreateEventWebhookResponses = {
+    /**
+     * Webhook created.
+     */
+    201: EventWebhook;
+};
+
+export type CreateEventWebhookResponse = CreateEventWebhookResponses[keyof CreateEventWebhookResponses];
+
+export type DeleteEventWebhookData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        webhookID: EventWebhookId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID}';
+};
+
+export type DeleteEventWebhookErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteEventWebhookError = DeleteEventWebhookErrors[keyof DeleteEventWebhookErrors];
+
+export type DeleteEventWebhookResponses = {
+    /**
+     * Webhook deleted.
+     */
+    204: void;
+};
+
+export type DeleteEventWebhookResponse = DeleteEventWebhookResponses[keyof DeleteEventWebhookResponses];
+
+export type UpdateEventWebhookData = {
+    body: UpdateEventWebhookRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        webhookID: EventWebhookId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID}';
+};
+
+export type UpdateEventWebhookErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateEventWebhookError = UpdateEventWebhookErrors[keyof UpdateEventWebhookErrors];
+
+export type UpdateEventWebhookResponses = {
+    /**
+     * Webhook updated.
+     */
+    200: EventWebhook;
+};
+
+export type UpdateEventWebhookResponse = UpdateEventWebhookResponses[keyof UpdateEventWebhookResponses];
 
 export type ListPersonalAccessTokensData = {
     body?: never;

@@ -11,7 +11,7 @@ func TestRunCoreMaintenanceRecoversEachTaskPanic(t *testing.T) {
 	result := RunCore(t.Context(), &storage.Store{})
 	for _, err := range []error{
 		result.ReapRuntimeLocksErr, result.ExpireDaemonRuntimesErr, result.ExpireProcessToolsErr,
-		result.WebhookCleanupErr, result.AuthCleanupErr,
+		result.WebhookDeliveryCleanupErr, result.AuthCleanupErr,
 		result.IntegrationStatesCleanupErr, result.CompletedInboxCleanupErr, result.DeletedInboxCleanupErr,
 	} {
 		require.ErrorContains(t, err, "panicked:")

@@ -315,7 +315,7 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 			ProjectID: testProjectID, AgentID: lt.agentID, ModelCallContextID: contextID,
 		})
 		require.NoError(t, err)
-		_, err = reads.GetProviderReplaySuppressionCutoff(ctx, dbsqlc.GetProviderReplaySuppressionCutoffParams{
+		_, err = reads.ListProviderReplayRejectionCutoffs(ctx, dbsqlc.ListProviderReplayRejectionCutoffsParams{
 			ProjectID: testProjectID, AgentID: lt.agentID, ModelCallContextID: contextID,
 		})
 		require.NoError(t, err)

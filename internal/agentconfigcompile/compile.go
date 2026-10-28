@@ -226,19 +226,6 @@ func Compile(
 	if err != nil {
 		return Body{}, err
 	}
-	if webhook := result.Compiled.EventWebhook; webhook != nil && webhook.SigningSecretID != uuid.Nil {
-		secret, err := store.Execution().ReadEventWebhookSigningSecret(ctx, executionstore.EventWebhookTarget{
-			OrgID: orgID, ProjectID: projectID, SigningSecretID: webhook.SigningSecretID,
-		})
-		if err != nil {
-			return Body{}, err
-		}
-		if _, err := agentconfig.DecodeEventWebhookSigningKey(secret); err != nil {
-			return Body{}, &agentconfig.ValidationError{Issues: []agentconfig.Issue{{
-				Path: "/event_webhook/signing_secret_id", Message: err.Error(),
-			}}}
-		}
-	}
 	if result.Compiled.Model.ConfiguredModelID == uuid.Nil {
 		return Body{}, fmt.Errorf(
 			"model.provider_config and model.name must resolve to a configured project-granted model",

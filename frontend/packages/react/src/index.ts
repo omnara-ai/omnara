@@ -76,6 +76,12 @@ export {
   useUpdateCronTrigger,
 } from './domains/cron-triggers'
 export {
+  useCreateEventWebhook,
+  useDeleteEventWebhook,
+  useEventWebhooks,
+  useUpdateEventWebhook,
+} from './domains/event-webhooks'
+export {
   useCreateIntegrationSubscription,
   useDeleteIntegrationSubscription,
   useIntegrationSubscriptions,

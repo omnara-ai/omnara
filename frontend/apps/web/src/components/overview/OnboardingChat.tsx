@@ -5,45 +5,9 @@ import type { ReactNode } from 'react'
 import { ArrowUpRight, PlayIcon } from '@/components/icons'
 import { CodeTabsBlock, nodeHint, terminalHint } from '@/components/overview/CodeBlock'
 import { chatCommands } from '@/components/overview/onboardingCli'
-import { type ChatRun, useCreateChat } from '@/components/overview/useCreateChat'
+import type { ChatRun } from '@/components/overview/useCreateChat'
 import { Button } from '@/components/ui/button'
 import { useWebConfig } from '@/lib/web-config'
-
-export function CreateChat({
-  orgId,
-  project,
-  profile,
-  disabled = false,
-}: {
-  orgId: string
-  project: VisibleProject
-  profile: AgentProfileSummary
-  disabled?: boolean
-}) {
-  const chat = useCreateChat(orgId, project, profile)
-  return (
-    <div className="flex flex-col gap-4">
-      {chat.error && (
-        <p className="text-destructive text-sm" role="alert">
-          {chat.error}
-        </p>
-      )}
-      <div>
-        <Button
-          type="button"
-          data-action="create-chat"
-          disabled={chat.pending || disabled}
-          loading={chat.pending}
-          onClick={() => {
-            void chat.launch()
-          }}
-        >
-          Create chat
-        </Button>
-      </div>
-    </div>
-  )
-}
 
 export function RunFooter({
   pending,

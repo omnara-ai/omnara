@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	webhookconfig "github.com/omnara-ai/omnara/internal/eventwebhook/config"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/maintenance"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -40,12 +41,17 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 model:
   provider_config: openai-prod
   name: gpt-test
-event_webhook:
-  url: https://example.com/events
-  events: [agent_input]
 `)
 	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "history", CurrentConfigID: config.ID,
+	})
+	require.NoError(t, err)
+	_, err = store.Execution().CreateEventWebhook(ctx, executionstore.CreateEventWebhookInput{
+		ProjectID: ids.ProjectID, Scope: executionstore.EventWebhookScope{
+			Type: executionstore.EventWebhookScopeAgentProfile,
+			ID:   profile.ID,
+		},
+		Settings: webhookconfig.Settings{URL: "https://example.com/events", EventTypes: []string{"agent_input"}},
 	})
 	require.NoError(t, err)
 	launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
@@ -53,10 +59,10 @@ event_webhook:
 		LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID), Message: "Accepted user input survives",
 	})
 	require.NoError(t, err)
-	expiredWebhooks, err := pool.Exec(ctx, `UPDATE event_webhook_deliveries
+	expiredWebhookDeliveries, err := pool.Exec(ctx, `UPDATE event_webhook_deliveries
  SET created_at = statement_timestamp() - interval '11 minutes' WHERE agent_id = $1`, launched.Agent.ID)
 	require.NoError(t, err)
-	require.Positive(t, expiredWebhooks.RowsAffected())
+	require.Positive(t, expiredWebhookDeliveries.RowsAffected())
 	live := createMaintenanceInboxIntegration(t, store, ids, "live").ID
 	disconnected := createMaintenanceInboxIntegration(t, store, ids, "disconnected").ID
 	deleted := createMaintenanceInboxIntegration(t, store, ids, "deleted").ID
@@ -148,11 +154,11 @@ event_webhook:
 	}
 	require.Contains(t, logs.String(), "cleaned completed integration inbox")
 	require.Contains(t, logs.String(), "cleaned deleted integration inbox")
-	require.Contains(t, logs.String(), "cleaned expired event webhooks")
-	var remainingWebhooks int
+	require.Contains(t, logs.String(), "cleaned expired event webhook deliveries")
+	var remainingWebhookDeliveries int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM event_webhook_deliveries WHERE agent_id = $1`,
-		launched.Agent.ID).Scan(&remainingWebhooks))
-	require.Zero(t, remainingWebhooks)
+		launched.Agent.ID).Scan(&remainingWebhookDeliveries))
+	require.Zero(t, remainingWebhookDeliveries)
 	require.NotContains(t, logs.String(), `"level":"ERROR"`)
 }
 

@@ -16,6 +16,7 @@ import { AgentProfileNameHeading } from '@/components/agents/AgentProfileNameHea
 import { AgentsSection } from '@/components/agents/AgentsSection'
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
+import { EventWebhooksSection } from '@/components/agents/EventWebhooksSection'
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { FiltersMenu } from '@/components/data-table/FiltersMenu'
@@ -37,7 +38,7 @@ import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useWebConfig } from '@/lib/web-config'
 
-type ProfileTab = 'configuration' | 'schedules' | 'agents' | 'usage'
+type ProfileTab = 'configuration' | 'schedules' | 'webhooks' | 'agents' | 'usage'
 
 const profileTabs = [
   {
@@ -49,6 +50,11 @@ const profileTabs = [
     value: 'schedules',
     label: 'Schedules',
     to: '/projects/$projectId/agent-profiles/$profileId/schedules',
+  },
+  {
+    value: 'webhooks',
+    label: 'Webhooks',
+    to: '/projects/$projectId/agent-profiles/$profileId/webhooks',
   },
   { value: 'agents', label: 'Agents', to: '/projects/$projectId/agent-profiles/$profileId/agents' },
   { value: 'usage', label: 'Usage', to: '/projects/$projectId/agent-profiles/$profileId/usage' },
@@ -165,6 +171,14 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           onAdd={() => {
             setAddCronOpen(true)
           }}
+        />
+      )}
+      {tab === 'webhooks' && (
+        <EventWebhooksSection
+          orgId={activeOrg.id}
+          projectId={projectId}
+          scope={{ type: 'profile', agent_profile_id: profile.id }}
+          canManage={canManage}
         />
       )}
       {tab === 'agents' && (

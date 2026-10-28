@@ -32,7 +32,7 @@ WHERE context.agent_id = sqlc.arg(agent_id)
       AND scoped_agent.id = sqlc.arg(agent_id)
   );
 
--- name: GetProviderReplaySuppressionCutoff :one
+-- name: ListProviderReplayRejectionCutoffs :many
 -- @sqlc-vet-disable model-provider-configs-deleted-at
 -- Replay safety remains part of immutable call lineage after provider soft deletion.
 WITH current_replay_identity AS MATERIALIZED (
@@ -53,8 +53,16 @@ WITH current_replay_identity AS MATERIALIZED (
         AND scoped_agent.id = sqlc.arg(agent_id)
     )
 )
-SELECT COALESCE((
-  SELECT MAX(failure.input_event_sequence)
+-- One row per rejected model slug, or a single row with a zero cutoff when
+-- there are none; callers decide which slugs share replay with the current one.
+SELECT current.provider_model_slug AS current_provider_model_slug,
+       current.api_format AS current_api_format,
+       COALESCE(failure.provider_model_slug, '')::text AS rejected_provider_model_slug,
+       COALESCE(failure.cutoff_event_sequence, 0)::bigint AS cutoff_event_sequence
+FROM current_replay_identity current
+LEFT JOIN LATERAL (
+  SELECT failure_revision.provider_model_slug,
+         MAX(failure.input_event_sequence) AS cutoff_event_sequence
   FROM model_call_contexts failure
   JOIN configured_model_revisions failure_revision
     ON failure_revision.org_id = failure.org_id
@@ -66,11 +74,10 @@ SELECT COALESCE((
     AND failure.error_kind = 'replay_rejected'
     AND failure.input_event_sequence <= current.input_event_sequence
     AND failure_revision.model_provider_config_id = current.model_provider_config_id
-    AND failure_revision.provider_model_slug = current.provider_model_slug
     AND failure.api_format = current.api_format
     AND failure.api_variant = current.api_variant
-), 0)::bigint AS cutoff_event_sequence
-FROM current_replay_identity current;
+  GROUP BY failure_revision.provider_model_slug
+) failure ON true;
 
 -- name: CountModelCallRetries :one
 SELECT (

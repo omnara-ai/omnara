@@ -32,8 +32,8 @@ import (
 )
 
 type testStore struct {
-	retryResult executionstore.EventWebhookRetryResult
-	target      executionstore.EventWebhookTarget
+	retryResult executionstore.EventWebhookDeliveryRetryResult
+	endpoint    executionstore.EventWebhookEndpoint
 	record      executionstore.AgentEventReadRecord
 	secret      string
 	secretErr   error
@@ -44,8 +44,10 @@ type testStore struct {
 	perOrgLimit atomic.Int64
 }
 
-func (s *testStore) GetAgentEventWebhookTarget(context.Context, uuid.UUID) (executionstore.EventWebhookTarget, error) {
-	return s.target, nil
+func (s *testStore) GetEventWebhookEndpoint(
+	context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
+) (executionstore.EventWebhookEndpoint, error) {
+	return s.endpoint, nil
 }
 
 func (s *testStore) GetAgentEventForWebhook(
@@ -57,7 +59,9 @@ func (s *testStore) GetAgentEventForWebhook(
 	return s.record, nil
 }
 
-func (s *testStore) ReadEventWebhookSigningSecret(context.Context, executionstore.EventWebhookTarget) (string, error) {
+func (s *testStore) ReadEventWebhookSigningSecret(
+	context.Context, executionstore.EventWebhookEndpoint,
+) (string, error) {
 	return s.secret, s.secretErr
 }
 
@@ -81,7 +85,7 @@ func (s *testStore) CompleteEventWebhookDelivery(context.Context, uuid.UUID, uui
 
 func (s *testStore) RetryEventWebhookDelivery(
 	context.Context, uuid.UUID, uuid.UUID, time.Duration,
-) (executionstore.EventWebhookRetryResult, error) {
+) (executionstore.EventWebhookDeliveryRetryResult, error) {
 	s.retried.Add(1)
 	return s.retryResult, nil
 }
@@ -94,12 +98,13 @@ func (transport testTransport) RoundTrip(request *http.Request) (*http.Response,
 
 func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 	store := &testStore{
-		target:  executionstore.EventWebhookTarget{ProjectID: uuid.New(), URL: "https://example.com/events"},
-		pending: make(chan executionstore.EventWebhookDelivery, 32),
+		endpoint: executionstore.EventWebhookEndpoint{ProjectID: uuid.New(), URL: "https://example.com/events"},
+		pending:  make(chan executionstore.EventWebhookDelivery, 32),
 	}
 	toolID, state := uuid.New(), "ready"
 	delivery := executionstore.EventWebhookDelivery{
-		ID: uuid.New(), AgentID: uuid.New(), OrgID: uuid.New(), ToolCallID: &toolID, ToolState: &state,
+		ID: uuid.New(), WebhookID: uuid.New(), AgentID: uuid.New(),
+		OrgID: uuid.New(), ToolCallID: &toolID, ToolState: &state,
 		ClaimToken: uuid.New(), AttemptCount: 1,
 	}
 	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7), store, delivery
@@ -113,7 +118,7 @@ func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 	}
 	key := []byte("12345678901234567890123456789012")
 	store.secret = "whsec_" + base64.StdEncoding.EncodeToString(key)
-	store.target.SigningSecretID = uuid.New()
+	store.endpoint.SigningSecretID = uuid.New()
 	var bodies [][]byte
 	sender.client = &http.Client{Transport: testTransport(func(req *http.Request) (*http.Response, error) {
 		body, err := io.ReadAll(req.Body)
@@ -155,7 +160,7 @@ func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 
 func TestSenderRetryUsesCurrentWebhookConfiguration(t *testing.T) {
 	sender, store, delivery := testSender()
-	store.target.SigningSecretID = uuid.New()
+	store.endpoint.SigningSecretID = uuid.New()
 	store.secret = base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
 	var calls int
 	sender.client = &http.Client{Transport: testTransport(func(req *http.Request) (*http.Response, error) {
@@ -172,8 +177,8 @@ func TestSenderRetryUsesCurrentWebhookConfiguration(t *testing.T) {
 	})}
 	sender.deliver(t.Context(), delivery)
 	require.Equal(t, int64(1), store.retried.Load())
-	store.target.URL = "https://example.com/new"
-	store.target.SigningSecretID = uuid.Nil
+	store.endpoint.URL = "https://example.com/new"
+	store.endpoint.SigningSecretID = uuid.Nil
 	sender.deliver(t.Context(), delivery)
 	require.Equal(t, 2, calls)
 	require.Equal(t, int64(1), store.completed.Load())
@@ -182,7 +187,7 @@ func TestSenderRetryUsesCurrentWebhookConfiguration(t *testing.T) {
 func TestSenderUsesExistingTimelinePayload(t *testing.T) {
 	sender, store, delivery := testSender()
 	store.record = executionstore.AgentEventReadRecord{
-		ID: uuid.New(), OrgID: uuid.New(), ProjectID: store.target.ProjectID, AgentID: delivery.AgentID,
+		ID: uuid.New(), OrgID: uuid.New(), ProjectID: store.endpoint.ProjectID, AgentID: delivery.AgentID,
 		TurnID: uuid.New(), Sequence: 17, EventKind: "context_checkpoint",
 		ContextCheckpointID: uuid.New(), CheckpointSummary: "summary", CreatedAt: time.Now(),
 	}
@@ -219,12 +224,12 @@ func TestSenderSkipsRemovedWebhookAndRetriesSigningErrors(t *testing.T) {
 			})}
 			switch scenario {
 			case "removed":
-				store.target.URL = ""
+				store.endpoint.URL = ""
 			case "secret unavailable":
-				store.target.SigningSecretID = uuid.New()
+				store.endpoint.SigningSecretID = uuid.New()
 				store.secretErr = errors.New("access revoked")
 			case "invalid secret":
-				store.target.SigningSecretID = uuid.New()
+				store.endpoint.SigningSecretID = uuid.New()
 				store.secret = "invalid"
 			}
 			sender.deliver(t.Context(), delivery)
@@ -246,13 +251,13 @@ func TestSenderBlocksPrivateDestinationsAndRedirects(t *testing.T) {
 	}))
 	defer destination.Close()
 	sender, store, delivery := testSender()
-	store.target.URL = destination.URL
+	store.endpoint.URL = destination.URL
 	require.Error(t, sender.send(t.Context(), delivery))
 	redirect := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, destination.URL, http.StatusTemporaryRedirect)
 	}))
 	defer redirect.Close()
-	store.target.URL = redirect.URL
+	store.endpoint.URL = redirect.URL
 	sender.client = outboundhttp.CloneWithoutRedirects(redirect.Client())
 	require.ErrorContains(t, sender.send(t.Context(), delivery), "HTTP 307")
 	require.Zero(t, calls.Load())
@@ -407,7 +412,7 @@ func TestSenderDrainsResponseForConnectionReuse(t *testing.T) {
 	defer server.Close()
 	sender, store, delivery := testSender()
 	sender.client = server.Client()
-	store.target.URL = server.URL
+	store.endpoint.URL = server.URL
 	for range 3 {
 		sender.deliver(t.Context(), delivery)
 	}

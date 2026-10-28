@@ -135,7 +135,7 @@ func OpenAIImageTokenEstimateForModels(
 		var estimate int
 		if ok {
 			estimate = openAIImageTokenEstimateForDimensions(providerModelSlug, width, height)
-		} else if isClaudeFamilyModelSlug(providerModelSlug) {
+		} else if IsClaudeFamilyModelSlug(providerModelSlug) {
 			estimate = anthropicImageResolutionLimits(providerModelSlug).maxTokens
 		} else {
 			estimate = openAIUnknownImageTokens
@@ -150,7 +150,7 @@ func OpenAIImageTokenEstimateForModels(
 
 func openAIImageTokenEstimateForDimensions(providerModelSlug string, width, height int) int {
 	name := normalizedProviderModelName(providerModelSlug)
-	if isClaudeFamilyModelSlug(name) {
+	if IsClaudeFamilyModelSlug(name) {
 		return anthropicImageTokenEstimateForDimensions(providerModelSlug, width, height)
 	}
 	patches := ceilDiv(width, 32) * ceilDiv(height, 32)
@@ -203,7 +203,7 @@ func openAIImageTokenEstimateForDimensions(providerModelSlug string, width, heig
 	}
 }
 
-func isClaudeFamilyModelSlug(providerModelSlug string) bool {
+func IsClaudeFamilyModelSlug(providerModelSlug string) bool {
 	name := normalizedProviderModelName(providerModelSlug)
 	if !strings.HasPrefix(name, "claude-") {
 		return false
@@ -221,6 +221,17 @@ func isClaudeFamilyModelSlug(providerModelSlug string) bool {
 		}
 	}
 	return hasFamily && (hasVersion || hasLatestAlias)
+}
+
+// ClaudeThinksAdaptivelyByDefault reports whether the model runs adaptive
+// thinking when a request omits thinking.type, per
+// https://platform.claude.com/docs/en/build-with-claude/thinking.
+func ClaudeThinksAdaptivelyByDefault(providerModelSlug string) bool {
+	if !IsClaudeFamilyModelSlug(providerModelSlug) {
+		return false
+	}
+	major, _, hasVersion := claudeModelVersion(providerModelSlug)
+	return hasVersion && major >= 5
 }
 
 func boundedOpenAIPatchCount(width, height, patchBudget, maxDimension int) int {
@@ -274,6 +285,15 @@ func normalizedProviderModelName(slug string) string {
 	}
 	if variant := strings.IndexByte(name, ':'); variant >= 0 {
 		name = name[:variant]
+	}
+	// Bedrock spells Claude IDs anthropic.claude-…, optionally behind a
+	// cross-region inference profile prefix such as us. or global.
+	if prefix, rest, ok := strings.Cut(name, "."); ok {
+		if prefix == "anthropic" {
+			name = rest
+		} else if bedrockName, ok := strings.CutPrefix(rest, "anthropic."); ok {
+			name = bedrockName
+		}
 	}
 	return name
 }
