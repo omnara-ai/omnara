@@ -4,16 +4,20 @@ package executionstore_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,14 +75,33 @@ func TestCreateAgentConfigConcurrentIdenticalCreatesShareOneVersion(t *testing.T
 		CompiledDefinition:      compiled.CanonicalJSON,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
+	// Seed the definition so its unique key cannot serialize the creates below.
+	seedInput := base
+	seedInput.Source = "# seed\n" + source
+	seed, err := store.Execution().CreateAgentConfig(ctx, seedInput)
+	require.NoError(t, err)
+	var definitionID uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT definition_id FROM agent_configs WHERE id = $1`, seed.ID).Scan(&definitionID))
+
 	withSource := base
 	withSource.Source = source
-	for name, input := range map[string]executionstore.CreateAgentConfigInput{
-		"with source": withSource,
-		"sourceless":  base,
+	sourceHash := sha256.Sum256([]byte(source))
+	for name, tc := range map[string]struct {
+		input      executionstore.CreateAgentConfigInput
+		sourceHash string
+	}{
+		"with source": {input: withSource, sourceHash: hex.EncodeToString(sourceHash[:])},
+		"sourceless":  {input: base},
 	} {
-		const workers = 8
-		start := make(chan struct{})
+		control, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		_, err = control.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(
+    'agent_config_version:' || $1::uuid::text || ':' || $2::uuid::text || ':' || $3::text, 0))`,
+			testProjectID, definitionID, tc.sourceHash)
+		require.NoError(t, err)
+
+		const workers = 2
 		records := make([]executionstore.AgentConfigRecord, workers)
 		errs := make([]error, workers)
 		var wg sync.WaitGroup
@@ -86,11 +109,11 @@ func TestCreateAgentConfigConcurrentIdenticalCreatesShareOneVersion(t *testing.T
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				<-start
-				records[index], errs[index] = store.Execution().CreateAgentConfig(ctx, input)
+				records[index], errs[index] = store.Execution().CreateAgentConfig(ctx, tc.input)
 			}()
 		}
-		close(start)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentConfigVersionKey", workers)
+		require.NoError(t, control.Rollback(ctx))
 		wg.Wait()
 
 		created := 0

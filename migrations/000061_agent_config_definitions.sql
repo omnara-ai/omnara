@@ -1,5 +1,9 @@
 -- +goose Up
 
+-- Held from the collision check through the pointer update so a config
+-- committed mid-migration cannot be left without a definition.
+LOCK TABLE agent_configs IN ACCESS EXCLUSIVE MODE;
+
 -- Versions that compile to the same thing share one definition per project.
 CREATE TABLE agent_config_definitions (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
