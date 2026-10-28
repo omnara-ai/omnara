@@ -243,6 +243,20 @@ type EffectiveResourceLimit struct {
 	MaxActiveIntegrationSubscriptionsPerAgent int64
 }
 
+type EventWebhook struct {
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	Url             string
+	EventTypes      []string
+	SigningSecretID *uuid.UUID
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+}
+
 type ExpiredIdlePoolMachineCandidate struct {
 	OrgID     uuid.UUID
 	MachineID uuid.UUID

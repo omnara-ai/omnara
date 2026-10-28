@@ -43,7 +43,6 @@ func TestPublicCompiledDefinition(t *testing.T) {
 			"bearer":{"url":"https://example.org","default_enabled":true,"permission":{"mode":"always_allow","parameters":{}},"auth":{"type":"bearer","secret_id":"UUID"}},
 			"oauth":{"url":"https://example.org","default_enabled":true,"permission":{"mode":"always_allow","parameters":{}},"auth":{"type":"oauth","secret_id":"UUID"}},
 			"public":{"url":"https://example.org","default_enabled":true,"permission":{"mode":"always_allow","parameters":{}}}},
-		"event_webhook":{"url":"https://example.com/events","events":["model_output"],"signing_secret_id":"UUID"},
 		"skills":[{"id":"UUID"}],
 		"memory_stores":[{"id":"UUID","access":"read_write"}],
 		"subagents":{"self":{"type":"self","description":"self","instruction_append":"more","max_instances":2,"archive_after_idle_minutes":0,"model":{"reasoning":{"effort":"low"}}},

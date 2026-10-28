@@ -1,7 +1,6 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
 import {
   zAgentConfigDefinition,
-  zAgentConfigDefinitionEventWebhook,
   zAgentConfigDefinitionGitCredentials,
   zAgentConfigDefinitionInteractionHandler,
   zAgentConfigDefinitionMcpTool,
@@ -146,7 +145,6 @@ const memoryStoreEntry = z.strictObject({
 export type BasicMemoryStore = z.infer<typeof memoryStoreEntry>
 
 const definitionFields = zAgentConfigDefinition.shape
-const webhookFields = zAgentConfigDefinitionEventWebhook.shape
 const optionalText = z.string().nullish()
 
 const basicDocument = z.looseObject({
@@ -168,12 +166,6 @@ const basicDocument = z.looseObject({
   skills: definitionFields.skills,
   memory_stores: z.array(memoryStoreEntry).nullish(),
   mcp: z.record(z.string(), mcpEntry).nullish(),
-  event_webhook: z
-    .strictObject({
-      ...webhookFields,
-      events: z.array(webhookFields.events.element).optional(),
-    })
-    .optional(),
   subagents: z.record(z.string(), subagentEntry).nullish(),
   max_subagents: definitionFields.max_subagents,
   // Out-of-range depths still load so the form can flag them; maxDepthValid enforces the limit.
@@ -235,9 +227,6 @@ function extractBasicConfig(document: Document): BasicConfig | null {
     interactionHandlers: doc.interaction_handlers ?? {},
     gitCredentials: doc.git_credentials ?? undefined,
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
-    eventWebhookEvents: doc.event_webhook ? (doc.event_webhook.events ?? []) : ['tool_call_update'],
-    eventWebhookUrl: doc.event_webhook?.url ?? '',
-    eventWebhookSigningSecretId: doc.event_webhook?.signing_secret_id ?? '',
     skillIds: doc.skills ?? [],
     memoryStores: doc.memory_stores ?? [],
     subagents: Object.entries(doc.subagents ?? {}).map(([key, entry]) => subagentDraft(key, entry)),

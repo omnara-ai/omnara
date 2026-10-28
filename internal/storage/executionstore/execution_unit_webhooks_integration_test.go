@@ -19,7 +19,7 @@ func TestLifecycleDeletionSuppressesWebhooks(t *testing.T) {
 				ctx := t.Context()
 				f := newProcessDaemonFixture(t, ctx, "lifecycle-webhooks")
 				toolID := createToolCallForProcessTestWithPermission(t, ctx, f, "lifecycle-question", "ask_question", true)
-				enableEventWebhook(t, f, []string{"agent_input", "tool_result", "tool_call_update"})
+				createAgentEventWebhook(t, f, []string{"agent_input", "tool_result", "tool_call_update"})
 				createQuestionInteractionForTest(t, ctx, f, toolID)
 				publisher := &recordingPostCommitPublisher{}
 				f.Store = newIntegrationStore(f.Store.pool, storage.WithPostCommitPublisher(publisher))

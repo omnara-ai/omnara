@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	webhookconfig "github.com/omnara-ai/omnara/internal/eventwebhook/config"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -23,42 +24,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func enableEventWebhook(t *testing.T, fixture processDaemonFixture, events []string) {
+func createAgentEventWebhook(
+	t *testing.T, fixture processDaemonFixture, eventTypes []string,
+) executionstore.EventWebhookRecord {
 	t.Helper()
-	source := "instruction: Webhook test.\nmodel:\n  provider_config: openai-prod\n  name: webhook-test\n" +
-		"event_webhook:\n  url: https://example.com/events\n"
-	if events == nil {
-		events = []string{
-			"agent_input",
-			"model_output",
-			"tool_result",
-			"context_checkpoint",
-			"tool_call_update",
-		}
+	if eventTypes == nil {
+		eventTypes = []string{"agent_input", "model_output", "tool_result", "context_checkpoint", "tool_call_update"}
 	}
-	encoded, err := json.Marshal(events)
-	require.NoError(t, err)
-	source += "  events: " + string(encoded) + "\n"
-	user := mustCreateProjectDeveloperUser(
-		t,
-		t.Context(),
-		fixture.Store,
-		"webhook-config@example.com",
-		"Webhook",
-	)
-	compiled := mustCompileAgentYAMLResolved(t, t.Context(), fixture.Store, source)
-	_, err = fixture.Store.Execution().ChangeAgentConfig(t.Context(), executionstore.ChangeAgentConfigInput{
-		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
-			ProjectID: testProjectID, Source: source, SourceFormat: "yaml",
-			ConfiguredModelID: parseConfiguredModelID(
-				t,
-				compiled,
-			), CompiledDefinition: compiled.CanonicalJSON,
-			EffectiveDefinitionHash: compiled.Hash,
+	record, err := fixture.Store.Execution().CreateEventWebhook(t.Context(), executionstore.CreateEventWebhookInput{
+		ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
+			Type: executionstore.EventWebhookScopeAgent,
+			ID:   fixture.AgentID,
 		},
-		AgentID: fixture.AgentID, ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID, Reason: "user_update",
+		Settings: webhookconfig.Settings{URL: "https://example.com/events", EventTypes: eventTypes},
 	})
 	require.NoError(t, err)
+	return record
 }
 
 func assertWebhookToolStates(
@@ -129,7 +110,7 @@ func TestInteractionWebhookLifecycle(t *testing.T) {
 				fixture := newProcessDaemonFixture(t, ctx, "interaction_webhook")
 				toolID := createToolCallForProcessTestWithPermission(t, ctx, fixture,
 					"interaction_webhook", "ask_question", kind == "question")
-				enableEventWebhook(t, fixture, []string{"tool_call_update"})
+				createAgentEventWebhook(t, fixture, []string{"tool_call_update"})
 				publisher := &recordingPostCommitPublisher{}
 				fixture.Store = newIntegrationStore(
 					fixture.Store.pool,
@@ -228,7 +209,7 @@ func TestInteractionWebhookCancelMultipleTools(t *testing.T) {
 		t, ctx, fixture, toolIDs[0], permissionRequestForStorageTest(t, "ask_question"),
 	)
 	question := createQuestionInteractionForTest(t, ctx, fixture, toolIDs[1])
-	enableEventWebhook(t, fixture, []string{"tool_call_update"})
+	createAgentEventWebhook(t, fixture, []string{"tool_call_update"})
 	publisher := &recordingPostCommitPublisher{}
 	fixture.Store = newIntegrationStore(fixture.Store.pool, storage.WithPostCommitPublisher(publisher))
 	for range 2 {
@@ -262,7 +243,7 @@ func TestInteractionWebhookPermissionThenQuestion(t *testing.T) {
 	fixture := newProcessDaemonFixture(t, ctx, "permission_then_question_webhook")
 	toolID := createToolCallForProcessTestWithPermission(t, ctx, fixture,
 		"permission_then_question_webhook", "ask_question", false)
-	enableEventWebhook(t, fixture, []string{"tool_call_update"})
+	createAgentEventWebhook(t, fixture, []string{"tool_call_update"})
 	publisher := &recordingPostCommitPublisher{}
 	fixture.Store = newIntegrationStore(fixture.Store.pool, storage.WithPostCommitPublisher(publisher))
 	permission := createPermissionInteractionForTest(
@@ -303,7 +284,7 @@ func TestInteractionWebhookPermissionThenQuestion(t *testing.T) {
 func TestEventWebhookFiltersBeforeEnqueue(t *testing.T) {
 	for _, scenario := range []struct {
 		name        string
-		events      []string
+		eventTypes  []string
 		sequences   []int64
 		toolUpdates int
 	}{
@@ -314,12 +295,8 @@ func TestEventWebhookFiltersBeforeEnqueue(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			ctx := t.Context()
 			fixture := newProcessDaemonFixture(t, ctx, "webhook_filter")
-			enableEventWebhook(t, fixture, scenario.events)
-			_, err := fixture.Store.pool.Exec(
-				ctx,
-				"DELETE FROM event_webhook_deliveries WHERE agent_id = $1",
-				fixture.AgentID,
-			)
+			createAgentEventWebhook(t, fixture, scenario.eventTypes)
+			_, err := fixture.Store.pool.Exec(ctx, "DELETE FROM event_webhook_deliveries WHERE agent_id = $1", fixture.AgentID)
 			require.NoError(t, err)
 			pending := notifications.NewTxNotifications()
 			for i, kind := range []string{"agent_input", "model_output", "tool_result", "context_checkpoint"} {
@@ -350,12 +327,8 @@ func TestEventWebhookClaimsRecoverAndExpire(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	fixture := newProcessDaemonFixture(t, ctx, "webhook_claims")
-	enableEventWebhook(t, fixture, nil)
-	_, err := fixture.Store.pool.Exec(
-		ctx,
-		"DELETE FROM event_webhook_deliveries WHERE agent_id = $1",
-		fixture.AgentID,
-	)
+	createAgentEventWebhook(t, fixture, nil)
+	_, err := fixture.Store.pool.Exec(ctx, "DELETE FROM event_webhook_deliveries WHERE agent_id = $1", fixture.AgentID)
 	require.NoError(t, err)
 	pending := notifications.NewTxNotifications()
 	toolID := uuid.New()
@@ -473,7 +446,7 @@ func TestEventWebhookClaimsShareOrganizationLimits(t *testing.T) {
 	const perOrgLimit = 3
 	ctx := t.Context()
 	fixture := newProcessDaemonFixture(t, ctx, "webhook_org_limits")
-	enableEventWebhook(t, fixture, []string{"tool_call_update"})
+	createAgentEventWebhook(t, fixture, []string{"tool_call_update"})
 	pool := fixture.Store.pool
 	_, err := pool.Exec(ctx, "DELETE FROM event_webhook_deliveries")
 	require.NoError(t, err)
@@ -509,11 +482,7 @@ func TestEventWebhookClaimsShareOrganizationLimits(t *testing.T) {
 	})
 	require.NoError(t, err)
 	config := storagefixture.SeedAgentConfig(t, ctx, fixture.Store.Models(), fixture.Store.Execution(),
-		otherOrgID, otherProjectID, testAgentConfigYAML()+`
-event_webhook:
-  url: https://example.com/events
-  events: [tool_call_update]
-`)
+		otherOrgID, otherProjectID, testAgentConfigYAML())
 	otherAgent, err := fixture.Store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
 		ProjectID: otherProjectID, CurrentConfigID: config.ID,
 	})
@@ -522,6 +491,14 @@ event_webhook:
 	for range perOrgLimit + 2 {
 		pending.AddToolCallUpdate(fixture.AgentID, uuid.New(), "ready", nil)
 	}
+	_, err = fixture.Store.Execution().CreateEventWebhook(ctx, executionstore.CreateEventWebhookInput{
+		ProjectID: otherProjectID, Scope: executionstore.EventWebhookScope{
+			Type: executionstore.EventWebhookScopeAgent,
+			ID:   otherAgent.ID,
+		},
+		Settings: webhookconfig.Settings{URL: "https://example.com/events", EventTypes: []string{"tool_call_update"}},
+	})
+	require.NoError(t, err)
 	pending.AddToolCallUpdate(otherAgent.ID, uuid.New(), "ready", nil)
 	unit, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
 	require.NoError(t, err)
@@ -570,7 +547,7 @@ func TestEventWebhookEnqueueFailureRollsBackTransaction(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	fixture := newProcessDaemonFixture(t, ctx, "webhook_rollback")
-	enableEventWebhook(t, fixture, nil)
+	createAgentEventWebhook(t, fixture, nil)
 	toolID := createTypedToolCallForProcessTest(t, ctx, fixture,
 		"webhook_rollback", "external_lookup", toolcatalog.ToolTypeCustom, false)
 	publisher := &recordingPostCommitPublisher{}
@@ -599,7 +576,7 @@ func TestEventWebhookCleanupIsBoundedAndPreservesUnexpiredDeliveries(t *testing.
 	t.Parallel()
 	ctx := t.Context()
 	fixture := newProcessDaemonFixture(t, ctx, "webhook_cleanup")
-	enableEventWebhook(t, fixture, []string{"tool_call_update"})
+	createAgentEventWebhook(t, fixture, []string{"tool_call_update"})
 	pending := notifications.NewTxNotifications()
 	toolIDs := make([]uuid.UUID, 6)
 	for i := range toolIDs {
@@ -632,7 +609,7 @@ func TestEventWebhookCleanupIsBoundedAndPreservesUnexpiredDeliveries(t *testing.
 	require.Equal(t, 3, remaining)
 }
 
-func TestEventWebhookDeletedOwnersHaveNoDeliveryTarget(t *testing.T) {
+func TestEventWebhookDeletedOwnersHaveNoDeliveryEndpoint(t *testing.T) {
 	for _, owner := range []struct {
 		name  string
 		query string
@@ -644,10 +621,10 @@ func TestEventWebhookDeletedOwnersHaveNoDeliveryTarget(t *testing.T) {
 		t.Run(owner.name, func(t *testing.T) {
 			ctx := t.Context()
 			fixture := newProcessDaemonFixture(t, ctx, "webhook_deleted_owner")
-			enableEventWebhook(t, fixture, nil)
-			target, err := fixture.Store.Execution().GetAgentEventWebhookTarget(ctx, fixture.AgentID)
+			webhook := createAgentEventWebhook(t, fixture, nil)
+			endpoint, err := fixture.Store.Execution().GetEventWebhookEndpoint(ctx, testOrgID, webhook.ID, fixture.AgentID)
 			require.NoError(t, err)
-			require.NotEmpty(t, target.URL)
+			require.NotEmpty(t, endpoint.URL)
 			pending := notifications.NewTxNotifications()
 			pending.AddToolCallUpdate(fixture.AgentID, uuid.New(), "ready", nil)
 			unit, err := fixture.Store.Execution().IntegrationBeginUnit(ctx)
@@ -660,13 +637,11 @@ func TestEventWebhookDeletedOwnersHaveNoDeliveryTarget(t *testing.T) {
 			delivery, err := fixture.Store.Execution().ClaimEventWebhookDelivery(ctx, 128)
 			require.NoError(t, err)
 			require.Equal(t, testOrgID, delivery.OrgID)
-			target, err = fixture.Store.Execution().GetAgentEventWebhookTarget(ctx, delivery.AgentID)
+			endpoint, err = fixture.Store.Execution().GetEventWebhookEndpoint(ctx,
+				delivery.OrgID, delivery.WebhookID, delivery.AgentID)
 			require.NoError(t, err)
-			require.Empty(t, target.URL)
-			require.NoError(
-				t,
-				fixture.Store.Execution().CompleteEventWebhookDelivery(ctx, delivery.ID, delivery.ClaimToken),
-			)
+			require.Empty(t, endpoint.URL)
+			require.NoError(t, fixture.Store.Execution().CompleteEventWebhookDelivery(ctx, delivery.ID, delivery.ClaimToken))
 		})
 	}
 }

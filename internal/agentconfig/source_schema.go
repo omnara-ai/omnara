@@ -26,12 +26,6 @@ const (
 	SourceFormatYAML SourceFormat = "yaml"
 )
 
-type EventWebhook struct {
-	Events          []string `json:"events"`
-	SigningSecretID string   `json:"signing_secret_id,omitempty"`
-	URL             string   `json:"url"`
-}
-
 type AgentConfigSource struct {
 	Version             string                                            `json:"version,omitempty"`
 	Instruction         string                                            `json:"instruction"`
@@ -45,7 +39,6 @@ type AgentConfigSource struct {
 	Subagents           map[string]AgentConfigSubagentSource              `json:"subagents,omitempty"`
 	MaxSubagents        *int                                              `json:"max_subagents,omitempty"`
 	MaxDepth            *int                                              `json:"max_depth,omitempty"`
-	EventWebhook        *EventWebhook                                     `json:"event_webhook,omitempty"`
 	MemoryStores        []MemoryStoreSource                               `json:"memory_stores,omitempty"`
 }
 

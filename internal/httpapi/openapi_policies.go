@@ -111,6 +111,7 @@ const (
 	operationCreateProjectMachinePoolGrant operationID = "CreateProjectMachinePoolGrant"
 	operationCreateProjectModelGrant       operationID = "CreateProjectModelGrant"
 	operationCreateCronTrigger             operationID = "CreateCronTrigger"
+	operationCreateEventWebhook            operationID = "CreateEventWebhook"
 	operationConfigureIntegration          operationID = "ConfigureIntegration"
 	operationDisconnectIntegration         operationID = "DisconnectIntegration"
 	operationListIntegrationDefinitions    operationID = "ListIntegrationDefinitions"
@@ -124,9 +125,12 @@ const (
 	operationCreateIntegrationSubscription operationID = "CreateIntegrationSubscription"
 	operationDeleteIntegrationSubscription operationID = "DeleteIntegrationSubscription"
 	operationListCronTriggers              operationID = "ListCronTriggers"
+	operationListEventWebhooks             operationID = "ListEventWebhooks"
 	operationGetCronTrigger                operationID = "GetCronTrigger"
 	operationUpdateCronTrigger             operationID = "UpdateCronTrigger"
+	operationUpdateEventWebhook            operationID = "UpdateEventWebhook"
 	operationDeleteCronTrigger             operationID = "DeleteCronTrigger"
+	operationDeleteEventWebhook            operationID = "DeleteEventWebhook"
 	operationDeclineInvitation             operationID = "DeclineInvitation"
 	operationArchiveAgent                  operationID = "ArchiveAgent"
 	operationDeleteAgentProfile            operationID = "DeleteAgentProfile"
@@ -395,6 +399,10 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationRenameAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateEventWebhook:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationUpdateEventWebhook:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteEventWebhook:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationListEventWebhooks:             accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationConfigureIntegration:          userPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDisconnectIntegration:         accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationListIntegrationDefinitions:    accountPolicy(projectScope(identitystore.ProjectActionRead)),

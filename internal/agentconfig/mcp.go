@@ -3,7 +3,6 @@ package agentconfig
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"sort"
 	"strings"
@@ -199,7 +198,7 @@ func ValidateMCPURL(raw string, allowInsecureLocalHTTP bool) (string, error) {
 	if parsed.Host == "" || parsed.Hostname() == "" {
 		return "", errors.New("url host is required")
 	}
-	host := classifyURLHost(parsed.Hostname())
+	host := ssrf.ClassifyURLHost(parsed.Hostname())
 
 	switch parsed.Scheme {
 	case "https":
@@ -222,20 +221,6 @@ func ValidateMCPURL(raw string, allowInsecureLocalHTTP bool) (string, error) {
 		return "", fmt.Errorf("url host IP is not permitted: %s", host.IP.String())
 	}
 	return parsed.String(), nil
-}
-
-type urlHost struct {
-	IP       net.IP
-	LocalDev bool
-}
-
-func classifyURLHost(host string) urlHost {
-	normalized := strings.TrimSuffix(strings.ToLower(host), ".")
-	ip := net.ParseIP(normalized)
-	return urlHost{
-		IP:       ip,
-		LocalDev: normalized == "localhost" || (ip != nil && ip.IsLoopback()),
-	}
 }
 
 func compileMCPTools(

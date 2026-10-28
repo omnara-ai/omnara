@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -95,15 +94,10 @@ func integrationPlannerFixture(
 	t.Helper()
 	project, org, integrationID := uuid.New(), uuid.New(), uuid.New()
 	modelID := uuid.New()
-	signingSecretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
-	require.NoError(t, err)
 	disabled := false
 	source := agentconfig.AgentConfigSource{
 		Instruction: "Pinned original",
 		Model:       agentconfig.AgentConfigModelSource{ProviderConfig: "test", Name: "model"},
-		EventWebhook: &agentconfig.EventWebhook{
-			URL: "https://example.com/events", Events: []string{"model_output"}, SigningSecretID: signingSecretID,
-		},
 		Tools: map[string]agentconfig.AgentConfigToolSource{
 			toolcatalog.IntegrationToolName("chat", "post_message"): {Enabled: &disabled},
 		},
@@ -205,7 +199,6 @@ func TestIntegrationPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T)
 		require.NoError(t, json.Unmarshal(execution.configs[recipient.Launch.AgentConfigID].CompiledDefinition, &compiled))
 		require.Equal(t, "Pinned original", compiled.Instruction)
 		require.Equal(t, base.Model, compiled.Model)
-		require.Equal(t, base.EventWebhook, compiled.EventWebhook)
 		require.False(t, compiled.Tools[toolcatalog.IntegrationToolName("chat", "post_message")].Enabled)
 		require.Len(t, recipient.Launch.Subscriptions, 1)
 		subscription := recipient.Launch.Subscriptions[0]

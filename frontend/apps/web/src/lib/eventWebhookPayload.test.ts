@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 
 import docs from '../../../../../docs/events/webhooks.mdx?raw'
 
-const examples = [...docs.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) =>
+const payloadExamples = docs.split('## Payload examples')[1] ?? ''
+const examples = [...payloadExamples.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) =>
   zEventWebhookPayload.parse(JSON.parse(match[1] ?? '')),
 )
 

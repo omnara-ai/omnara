@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	openapispec "github.com/omnara-ai/omnara/api/openapi"
-	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -41,10 +40,6 @@ func TestSpecSchemaMatchesGoConstants(t *testing.T) {
 		"/$defs/AgentConfigDefinitionMachineSource/properties/cwd/maxLength": float64(MaxMachineCwdLength),
 		"/$defs/ResourceNameReference/maxLength":                             float64(resourcename.MaxCodePoints),
 		"/properties/max_depth/maximum":                                      float64(MaxSubagentDepth),
-		"/$defs/AgentConfigDefinitionEventWebhook/properties/events/items/enum": []any{
-			string(events.KindAgentInput), string(events.KindModelOutput), string(events.KindToolResult),
-			string(events.KindContextCheckpoint), "tool_call_update",
-		},
 	} {
 		got, ok := jsonPointerValue(schema, pointer)
 		if !ok {

@@ -361,6 +361,11 @@ const agentProfileSchedulesRoute = createRoute({
   path: '/schedules',
 })
 
+const agentProfileWebhooksRoute = createRoute({
+  getParentRoute: () => agentProfileRoute,
+  path: '/webhooks',
+})
+
 const agentProfileAgentsRoute = createRoute({
   getParentRoute: () => agentProfileRoute,
   path: '/agents',
@@ -525,6 +530,7 @@ const routeTree = rootRoute.addChildren([
         agentProfileIndexRoute,
         agentProfileConfigurationRoute,
         agentProfileSchedulesRoute,
+        agentProfileWebhooksRoute,
         agentProfileAgentsRoute,
         agentProfileUsageRoute,
       ]),
