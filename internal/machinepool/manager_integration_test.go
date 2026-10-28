@@ -2410,9 +2410,10 @@ VALUES ($2, $3, $4,
     '{"name":"manager cleanup","model":{"provider_config":"manager-cleanup-provider","name":"manager-cleanup-model"}}'
     ::jsonb, 'manager-cleanup-effective-hash', $5)
 RETURNING id)
-INSERT INTO agent_configs(id, org_id, project_id, definition_id, source, source_format, source_hash, created_at)
+INSERT INTO agent_configs(id, org_id, project_id, definition_id, source, source_format, source_hash,
+    source_revision, created_at)
 SELECT $1, $2, $3, definition.id,
-    'name: manager cleanup', 'yaml', 'manager-cleanup-source-hash', $5
+    'name: manager cleanup', 'yaml', 'manager-cleanup-source-hash', 1, $5
 FROM definition
 `, configID, orgID, projectID, configuredModelID, now)
 

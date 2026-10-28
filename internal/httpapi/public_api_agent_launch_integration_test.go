@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -727,6 +728,9 @@ func TestPublicAgentConfigAcceptsJSONSource(t *testing.T) {
 	)
 	if config["source_format"] != "json" || config["source"] != sourceJSON {
 		t.Fatalf("JSON text config source was not stored verbatim: %+v", config)
+	}
+	if config["source_revision"] != float64(agentconfig.CurrentSourceRevision) || config["source_notices"] != nil {
+		t.Fatalf("new config source should be saved under the current revision without notices: %+v", config)
 	}
 	if _, ok := config["definition"]; ok {
 		t.Fatalf("agent config responses should return source, not definition: %+v", config)

@@ -1889,6 +1889,14 @@ export type AgentConfigSummary = {
     project_id: ProjectId;
     source?: string;
     source_format?: 'yaml' | 'json';
+    /**
+     * Omnara config revision the source was saved under. Present when the config has a source.
+     */
+    source_revision?: number;
+    /**
+     * What changed in Omnara since the source was saved, for sources saved under an older revision. The compiled definition reflects these changes; the saved source does not.
+     */
+    source_notices?: Array<string>;
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
@@ -1904,6 +1912,14 @@ export type AgentConfig = {
      */
     source?: string;
     source_format?: 'yaml' | 'json';
+    /**
+     * Omnara config revision the source was saved under. Present when the config has a source.
+     */
+    source_revision?: number;
+    /**
+     * What changed in Omnara since the source was saved, for sources saved under an older revision. The compiled definition reflects these changes; the saved source does not.
+     */
+    source_notices?: Array<string>;
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;

@@ -151,6 +151,10 @@ WHERE config.id = $1`, configID).Scan(&definitionID, &hash, &source, &definition
 		require.Equal(t, sharedID, definitionID, "equivalent configs should share one definition")
 		require.Equal(t, wantSource, source, "migration must keep each version's source as it was")
 	}
+	var staleRevisions int
+	require.NoError(t, f.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM agent_configs WHERE project_id = $1 AND source_revision <> 1`, f.projectID).Scan(&staleRevisions))
+	require.Zero(t, staleRevisions, "existing versions should be saved under revision 1")
 	otherID, otherHash, _, _ := definitionOf(onlyB)
 	require.NotEqual(t, sharedID, otherID)
 	require.Equal(t, "hash-b", otherHash)

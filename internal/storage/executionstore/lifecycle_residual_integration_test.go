@@ -48,8 +48,8 @@ func TestOrganizationDeletionIncludesDeletedProjectPoolAgents(t *testing.T) {
   SELECT org_id,$1,configured_model_id,compiled_definition,effective_definition_hash,now() FROM original
   RETURNING id
 )
-INSERT INTO agent_configs(org_id,project_id,definition_id,source,source_format,source_hash,created_at)
-SELECT original.org_id,$1,definition.id,original.source,original.source_format,original.source_hash,now()
+INSERT INTO agent_configs(org_id,project_id,definition_id,source,source_format,source_hash,source_revision,created_at)
+SELECT original.org_id,$1,definition.id,original.source,original.source_format,original.source_hash,1,now()
 FROM original, definition RETURNING id`,
 			project,
 			f.agent.CurrentConfigID).Scan(&config))

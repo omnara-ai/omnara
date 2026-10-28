@@ -51,26 +51,28 @@ SELECT id, created_at
 FROM agent_configs
 WHERE project_id = sqlc.arg(project_id)
   AND definition_id = sqlc.arg(definition_id)
-  AND source_hash IS NOT DISTINCT FROM sqlc.narg(source_hash)::text
+  -- source_hash is never '', so coalesce keeps the NULL-safe match indexable.
+  AND coalesce(source_hash, '') = coalesce(sqlc.narg(source_hash)::text, '')
   AND source_format IS NOT DISTINCT FROM sqlc.narg(source_format)::text
   AND source IS NOT DISTINCT FROM sqlc.narg(source)::text
+  AND source_revision = sqlc.arg(source_revision)
 ORDER BY created_at, id
 LIMIT 1;
 
 -- name: InsertAgentConfigVersion :one
 INSERT INTO agent_configs(
-    org_id, project_id, definition_id, source, source_format, source_hash, created_at
+    org_id, project_id, definition_id, source, source_format, source_hash, source_revision, created_at
 )
 VALUES (
     sqlc.arg(org_id), sqlc.arg(project_id), sqlc.arg(definition_id),
     sqlc.narg(source), sqlc.narg(source_format), sqlc.narg(source_hash),
-    transaction_timestamp()
+    sqlc.arg(source_revision), transaction_timestamp()
 )
 RETURNING id, created_at;
 
 -- name: GetAgentConfig :one
 SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
-       config.source, config.source_format, config.source_hash,
+       config.source, config.source_format, config.source_hash, config.source_revision,
        definition.compiled_definition, definition.effective_definition_hash,
        config.created_at
 FROM agent_configs config
@@ -109,7 +111,7 @@ config_change AS MATERIALIZED (
   LIMIT 1
 )
 SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
-       config.source, config.source_format, config.source_hash,
+       config.source, config.source_format, config.source_hash, config.source_revision,
        definition.compiled_definition,
        definition.effective_definition_hash,
        config.created_at,
@@ -145,7 +147,7 @@ config_change AS MATERIALIZED (
   LIMIT 1
 )
 SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
-       config.source, config.source_format, config.source_hash,
+       config.source, config.source_format, config.source_hash, config.source_revision,
        definition.compiled_definition,
        definition.effective_definition_hash,
        config.created_at,
@@ -241,6 +243,7 @@ SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        definition.configured_model_id AS config_configured_model_id,
        config.source AS config_source, config.source_format AS config_source_format,
        config.source_hash AS config_source_hash,
+       config.source_revision AS config_source_revision,
        definition.compiled_definition AS config_compiled_definition,
        definition.effective_definition_hash AS config_effective_definition_hash,
        config.created_at AS config_created_at,
@@ -280,7 +283,7 @@ WHERE profile.project_id = ANY(sqlc.arg(project_ids)::uuid[])
 SELECT id, org_id, project_id, name, current_config_id, current_generation,
        idempotency_key, created_at, updated_at, config_id, config_org_id,
        config_project_id, config_configured_model_id, config_source,
-       config_source_format, config_source_hash, config_compiled_definition,
+       config_source_format, config_source_hash, config_source_revision, config_compiled_definition,
        config_effective_definition_hash,
        config_created_at, sort_key, sort_is_null
 FROM listed
@@ -304,6 +307,7 @@ SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        definition.configured_model_id AS config_configured_model_id,
        config.source AS config_source, config.source_format AS config_source_format,
        config.source_hash AS config_source_hash,
+       config.source_revision AS config_source_revision,
        definition.compiled_definition AS config_compiled_definition,
        definition.effective_definition_hash AS config_effective_definition_hash,
        config.created_at AS config_created_at

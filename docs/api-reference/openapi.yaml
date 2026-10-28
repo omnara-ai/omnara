@@ -12418,6 +12418,16 @@ components:
         source_format:
           type: string
           enum: [yaml, json]
+        source_revision:
+          type: integer
+          description: Omnara config revision the source was saved under. Present when the config has a source.
+        source_notices:
+          type: array
+          items:
+            type: string
+          description: >-
+            What changed in Omnara since the source was saved, for sources saved under an older
+            revision. The compiled definition reflects these changes; the saved source does not.
         effective_definition_hash:
           type: string
         model:
@@ -12443,6 +12453,16 @@ components:
         source_format:
           type: string
           enum: [yaml, json]
+        source_revision:
+          type: integer
+          description: Omnara config revision the source was saved under. Present when the config has a source.
+        source_notices:
+          type: array
+          items:
+            type: string
+          description: >-
+            What changed in Omnara since the source was saved, for sources saved under an older
+            revision. The compiled definition reflects these changes; the saved source does not.
         effective_definition_hash:
           type: string
         model:

@@ -61,7 +61,7 @@ config_change AS MATERIALIZED (
   LIMIT 1
 )
 SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
-       config.source, config.source_format, config.source_hash,
+       config.source, config.source_format, config.source_hash, config.source_revision,
        definition.compiled_definition,
        definition.effective_definition_hash,
        config.created_at,
@@ -88,6 +88,7 @@ type CaptureAgentConfigForEventWatermarkRow struct {
 	Source                  *string
 	SourceFormat            *string
 	SourceHash              *string
+	SourceRevision          int32
 	CompiledDefinition      json.RawMessage
 	EffectiveDefinitionHash string
 	CreatedAt               time.Time
@@ -105,6 +106,7 @@ func (q *Queries) CaptureAgentConfigForEventWatermark(ctx context.Context, arg C
 		&i.Source,
 		&i.SourceFormat,
 		&i.SourceHash,
+		&i.SourceRevision,
 		&i.CompiledDefinition,
 		&i.EffectiveDefinitionHash,
 		&i.CreatedAt,
@@ -144,7 +146,7 @@ config_change AS MATERIALIZED (
   LIMIT 1
 )
 SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
-       config.source, config.source_format, config.source_hash,
+       config.source, config.source_format, config.source_hash, config.source_revision,
        definition.compiled_definition,
        definition.effective_definition_hash,
        config.created_at,
@@ -171,6 +173,7 @@ type CaptureAgentConfigForModelContextRow struct {
 	Source                  *string
 	SourceFormat            *string
 	SourceHash              *string
+	SourceRevision          int32
 	CompiledDefinition      json.RawMessage
 	EffectiveDefinitionHash string
 	CreatedAt               time.Time
@@ -188,6 +191,7 @@ func (q *Queries) CaptureAgentConfigForModelContext(ctx context.Context, arg Cap
 		&i.Source,
 		&i.SourceFormat,
 		&i.SourceHash,
+		&i.SourceRevision,
 		&i.CompiledDefinition,
 		&i.EffectiveDefinitionHash,
 		&i.CreatedAt,
@@ -282,19 +286,22 @@ SELECT id, created_at
 FROM agent_configs
 WHERE project_id = $1
   AND definition_id = $2
-  AND source_hash IS NOT DISTINCT FROM $3::text
+  -- source_hash is never '', so coalesce keeps the NULL-safe match indexable.
+  AND coalesce(source_hash, '') = coalesce($3::text, '')
   AND source_format IS NOT DISTINCT FROM $4::text
   AND source IS NOT DISTINCT FROM $5::text
+  AND source_revision = $6
 ORDER BY created_at, id
 LIMIT 1
 `
 
 type FindAgentConfigVersionParams struct {
-	ProjectID    uuid.UUID
-	DefinitionID uuid.UUID
-	SourceHash   *string
-	SourceFormat *string
-	Source       *string
+	ProjectID      uuid.UUID
+	DefinitionID   uuid.UUID
+	SourceHash     *string
+	SourceFormat   *string
+	Source         *string
+	SourceRevision int32
 }
 
 type FindAgentConfigVersionRow struct {
@@ -309,6 +316,7 @@ func (q *Queries) FindAgentConfigVersion(ctx context.Context, arg FindAgentConfi
 		arg.SourceHash,
 		arg.SourceFormat,
 		arg.Source,
+		arg.SourceRevision,
 	)
 	var i FindAgentConfigVersionRow
 	err := row.Scan(&i.ID, &i.CreatedAt)
@@ -317,7 +325,7 @@ func (q *Queries) FindAgentConfigVersion(ctx context.Context, arg FindAgentConfi
 
 const getAgentConfig = `-- name: GetAgentConfig :one
 SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
-       config.source, config.source_format, config.source_hash,
+       config.source, config.source_format, config.source_hash, config.source_revision,
        definition.compiled_definition, definition.effective_definition_hash,
        config.created_at
 FROM agent_configs config
@@ -339,6 +347,7 @@ type GetAgentConfigRow struct {
 	Source                  *string
 	SourceFormat            *string
 	SourceHash              *string
+	SourceRevision          int32
 	CompiledDefinition      json.RawMessage
 	EffectiveDefinitionHash string
 	CreatedAt               time.Time
@@ -355,6 +364,7 @@ func (q *Queries) GetAgentConfig(ctx context.Context, arg GetAgentConfigParams) 
 		&i.Source,
 		&i.SourceFormat,
 		&i.SourceHash,
+		&i.SourceRevision,
 		&i.CompiledDefinition,
 		&i.EffectiveDefinitionHash,
 		&i.CreatedAt,
@@ -696,23 +706,24 @@ func (q *Queries) GetProjectByID(ctx context.Context, arg GetProjectByIDParams) 
 
 const insertAgentConfigVersion = `-- name: InsertAgentConfigVersion :one
 INSERT INTO agent_configs(
-    org_id, project_id, definition_id, source, source_format, source_hash, created_at
+    org_id, project_id, definition_id, source, source_format, source_hash, source_revision, created_at
 )
 VALUES (
     $1, $2, $3,
     $4, $5, $6,
-    transaction_timestamp()
+    $7, transaction_timestamp()
 )
 RETURNING id, created_at
 `
 
 type InsertAgentConfigVersionParams struct {
-	OrgID        uuid.UUID
-	ProjectID    uuid.UUID
-	DefinitionID uuid.UUID
-	Source       *string
-	SourceFormat *string
-	SourceHash   *string
+	OrgID          uuid.UUID
+	ProjectID      uuid.UUID
+	DefinitionID   uuid.UUID
+	Source         *string
+	SourceFormat   *string
+	SourceHash     *string
+	SourceRevision int32
 }
 
 type InsertAgentConfigVersionRow struct {
@@ -728,6 +739,7 @@ func (q *Queries) InsertAgentConfigVersion(ctx context.Context, arg InsertAgentC
 		arg.Source,
 		arg.SourceFormat,
 		arg.SourceHash,
+		arg.SourceRevision,
 	)
 	var i InsertAgentConfigVersionRow
 	err := row.Scan(&i.ID, &i.CreatedAt)
@@ -825,6 +837,7 @@ SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        definition.configured_model_id AS config_configured_model_id,
        config.source AS config_source, config.source_format AS config_source_format,
        config.source_hash AS config_source_hash,
+       config.source_revision AS config_source_revision,
        definition.compiled_definition AS config_compiled_definition,
        definition.effective_definition_hash AS config_effective_definition_hash,
        config.created_at AS config_created_at,
@@ -864,7 +877,7 @@ WHERE profile.project_id = ANY($7::uuid[])
 SELECT id, org_id, project_id, name, current_config_id, current_generation,
        idempotency_key, created_at, updated_at, config_id, config_org_id,
        config_project_id, config_configured_model_id, config_source,
-       config_source_format, config_source_hash, config_compiled_definition,
+       config_source_format, config_source_hash, config_source_revision, config_compiled_definition,
        config_effective_definition_hash,
        config_created_at, sort_key, sort_is_null
 FROM listed
@@ -910,6 +923,7 @@ type ListAgentProfilesForProjectsRow struct {
 	ConfigSource                  *string
 	ConfigSourceFormat            *string
 	ConfigSourceHash              *string
+	ConfigSourceRevision          int32
 	ConfigCompiledDefinition      json.RawMessage
 	ConfigEffectiveDefinitionHash string
 	ConfigCreatedAt               time.Time
@@ -956,6 +970,7 @@ func (q *Queries) ListAgentProfilesForProjects(ctx context.Context, arg ListAgen
 			&i.ConfigSource,
 			&i.ConfigSourceFormat,
 			&i.ConfigSourceHash,
+			&i.ConfigSourceRevision,
 			&i.ConfigCompiledDefinition,
 			&i.ConfigEffectiveDefinitionHash,
 			&i.ConfigCreatedAt,
@@ -1078,6 +1093,7 @@ SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        definition.configured_model_id AS config_configured_model_id,
        config.source AS config_source, config.source_format AS config_source_format,
        config.source_hash AS config_source_hash,
+       config.source_revision AS config_source_revision,
        definition.compiled_definition AS config_compiled_definition,
        definition.effective_definition_hash AS config_effective_definition_hash,
        config.created_at AS config_created_at
@@ -1120,6 +1136,7 @@ type ListRecentAgentProfilesForProjectsRow struct {
 	ConfigSource                  *string
 	ConfigSourceFormat            *string
 	ConfigSourceHash              *string
+	ConfigSourceRevision          int32
 	ConfigCompiledDefinition      json.RawMessage
 	ConfigEffectiveDefinitionHash string
 	ConfigCreatedAt               time.Time
@@ -1151,6 +1168,7 @@ func (q *Queries) ListRecentAgentProfilesForProjects(ctx context.Context, arg Li
 			&i.ConfigSource,
 			&i.ConfigSourceFormat,
 			&i.ConfigSourceHash,
+			&i.ConfigSourceRevision,
 			&i.ConfigCompiledDefinition,
 			&i.ConfigEffectiveDefinitionHash,
 			&i.ConfigCreatedAt,

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -53,6 +54,64 @@ func TestCreateAgentConfigWithoutSource(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, first.ID, authored.ID)
 	require.Equal(t, source, authored.Source)
+}
+
+// Versions have no unique key, so only the advisory lock keeps concurrent
+// identical creates from inserting duplicates.
+func TestCreateAgentConfigConcurrentIdenticalCreatesShareOneVersion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	source := "instruction: concurrent\nmodel:\n  provider_config: openai-prod\n  name: test\n"
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, source)
+	base := executionstore.CreateAgentConfigInput{
+		ProjectID: testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
+		CompiledDefinition:      compiled.CanonicalJSON,
+		EffectiveDefinitionHash: compiled.Hash,
+	}
+	withSource := base
+	withSource.Source = source
+	for name, input := range map[string]executionstore.CreateAgentConfigInput{
+		"with source": withSource,
+		"sourceless":  base,
+	} {
+		const workers = 8
+		start := make(chan struct{})
+		records := make([]executionstore.AgentConfigRecord, workers)
+		errs := make([]error, workers)
+		var wg sync.WaitGroup
+		for index := range workers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				records[index], errs[index] = store.Execution().CreateAgentConfig(ctx, input)
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		created := 0
+		for index := range workers {
+			require.NoError(t, errs[index], name)
+			require.Equal(t, records[0].ID, records[index].ID, "%s: identical creates must return one config", name)
+			if records[index].Created {
+				created++
+			}
+		}
+		require.Equal(t, 1, created, "%s: exactly one create should insert", name)
+		var versions int
+		require.NoError(t, pool.QueryRow(ctx, `
+SELECT count(*)
+FROM agent_configs config
+JOIN agent_configs created ON created.id = $1
+WHERE config.project_id = created.project_id
+  AND config.definition_id = created.definition_id
+  AND config.source IS NOT DISTINCT FROM created.source`, records[0].ID).Scan(&versions))
+		require.Equal(t, 1, versions, "%s: concurrent creates must not insert duplicate versions", name)
+	}
 }
 
 func TestCreateAgentConfigMemoryStoreIDs(t *testing.T) {

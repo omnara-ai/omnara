@@ -74,8 +74,17 @@ ALTER TABLE agent_configs
     DROP COLUMN effective_definition_hash,
     DROP COLUMN configured_model_id;
 
+-- The config revision a version's source was saved under. A migration that
+-- rewrites definitions so saved sources no longer match bumps the current
+-- revision, and older sources are reported with what changed since.
+ALTER TABLE agent_configs
+    ADD COLUMN source_revision integer NOT NULL DEFAULT 1 CHECK (source_revision >= 1);
+
+ALTER TABLE agent_configs ALTER COLUMN source_revision DROP DEFAULT;
+
+-- Keyed on coalesce so lookups for sourceless versions use the index too.
 CREATE INDEX agent_configs_definition_source_idx
-    ON agent_configs(project_id, definition_id, source_hash);
+    ON agent_configs(project_id, definition_id, (coalesce(source_hash, '')));
 
 -- +goose StatementBegin
 CREATE FUNCTION reject_agent_config_definition_mutation()
