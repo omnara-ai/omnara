@@ -6,9 +6,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/omnara-ai/omnara/internal/ssrf"
 )
 
 func devFetcher() *Fetcher {
@@ -17,6 +20,35 @@ func devFetcher() *Fetcher {
 
 func prodFetcher() *Fetcher {
 	return NewFetcher(FetcherOptions{})
+}
+
+func TestFetchAllowsPlainHTTPIntoAllowlistedRanges(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, "lan model endpoint")
+	}))
+	defer server.Close()
+
+	ssrf.SetAllowedPrefixes([]netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")})
+	t.Cleanup(func() { ssrf.SetAllowedPrefixes(nil) })
+
+	result, err := prodFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL})
+	if err != nil {
+		t.Fatalf("fetch allowlisted loopback http: %v", err)
+	}
+	if result.Content != "lan model endpoint" {
+		t.Fatalf("content=%q", result.Content)
+	}
+}
+
+func TestFetchBlocksWithoutAllowlist(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
+	defer server.Close()
+
+	ssrf.SetAllowedPrefixes(nil)
+	if _, err := prodFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL}); err == nil {
+		t.Fatal("expected loopback fetch to stay blocked without allowlist")
+	}
 }
 
 const sampleHTML = `<!DOCTYPE html>

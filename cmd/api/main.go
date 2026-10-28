@@ -28,6 +28,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
@@ -72,6 +73,18 @@ func main() {
 		os.Exit(1)
 	}
 	log := slog.New(logpkg.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	allowedPrefixes, allowlistWarnings, err := cfg.AllowedPrivatePrefixes()
+	if err != nil {
+		log.Error("parse private egress allowlist", "error", err)
+		os.Exit(1)
+	}
+	ssrf.SetAllowedPrefixes(allowedPrefixes)
+	for _, warning := range allowlistWarnings {
+		log.Warn(warning)
+	}
+	if len(allowlistWarnings) > 0 {
+		log.Warn("private network egress is enabled; do not use OMNARA_ALLOWED_PRIVATE_CIDRS on multi-tenant deployments")
+	}
 	if _, err := toolcatalog.Default(); err != nil {
 		log.Error("validate tool catalog", "error", err)
 		os.Exit(1)

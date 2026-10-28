@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/url"
 	"strings"
+
+	"github.com/omnara-ai/omnara/internal/ssrf"
 )
 
 func RequireHTTPSOrLoopback(rawURL string) error {
@@ -25,10 +27,13 @@ func RequireHTTPSOrLoopback(rawURL string) error {
 	if strings.EqualFold(parsed.Scheme, "https") {
 		return nil
 	}
-	if strings.EqualFold(parsed.Scheme, "http") && loopbackHost(parsed.Hostname()) {
-		return nil
+	if strings.EqualFold(parsed.Scheme, "http") {
+		host := parsed.Hostname()
+		if loopbackHost(host) || ssrf.HostPermitsPlainHTTP(host) {
+			return nil
+		}
 	}
-	return errors.New("URL must use HTTPS unless it uses a loopback host")
+	return errors.New("URL must use HTTPS unless it uses a loopback host or an allowlisted private network")
 }
 
 func loopbackHost(host string) bool {
