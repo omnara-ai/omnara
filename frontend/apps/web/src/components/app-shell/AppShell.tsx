@@ -24,6 +24,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import type { CssVariables } from '@/lib/css'
+import { cn } from '@/lib/utils'
 
 function AppSidebar({ children }: { children: ReactNode }) {
   const { isMobile, setOpenMobile } = useSidebar()
@@ -31,6 +32,7 @@ function AppSidebar({ children }: { children: ReactNode }) {
   return (
     <Sidebar
       collapsible={isMobile ? 'offcanvas' : 'none'}
+      className="md:border-sidebar-border/60 md:border-r"
       onClick={(event) => {
         if (isMobile && event.target instanceof Element && event.target.closest('a')) {
           setOpenMobile(false)
@@ -51,6 +53,7 @@ function ScopedNav() {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [breadcrumbSlot, setBreadcrumbSlot] = useState<HTMLDivElement | null>(null)
+  const [scrolled, setScrolled] = useState(false)
 
   return (
     <SidebarProvider className="h-svh" keyboardShortcut={false}>
@@ -80,9 +83,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <SidebarInset
         style={insetStyle}
-        className="md:[&:has([data-side=right][data-state=expanded])>header]:pr-[calc(var(--agent-pane-width)+1rem)]"
+        className="group/inset md:[&:has([data-side=right][data-state=expanded])>header]:pr-[calc(var(--agent-pane-width)+1rem)]"
       >
-        <header className="bg-background grid h-12 shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b px-4 md:grid-cols-[1fr_minmax(0,auto)_1fr]">
+        {/* A page marked data-transparent-header draws under the header, which floats over it
+            until the page scrolls, so content never shows through it. */}
+        <header
+          className={cn(
+            'bg-background grid h-12 shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b px-4 group-has-[[data-transparent-header]]/inset:absolute group-has-[[data-transparent-header]]/inset:inset-x-0 group-has-[[data-transparent-header]]/inset:top-0 group-has-[[data-transparent-header]]/inset:z-10 md:grid-cols-[1fr_minmax(0,auto)_1fr]',
+            !scrolled && 'group-has-[[data-transparent-header]]/inset:bg-transparent',
+          )}
+        >
           <div className="flex min-w-0 items-center gap-2">
             <SidebarTrigger className="size-10 sm:size-10 md:hidden" />
             <ProjectSwitcher />
@@ -90,7 +100,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div ref={setBreadcrumbSlot} className="flex min-w-0 justify-end md:justify-center" />
         </header>
         <BreadcrumbSlotContext value={breadcrumbSlot}>
-          <div className="relative min-h-0 flex-1 overflow-auto p-4 pt-6 sm:p-6 sm:pt-9">
+          <div
+            className="relative min-h-0 flex-1 overflow-auto p-4 pt-6 sm:p-6 sm:pt-9"
+            onScroll={(event) => {
+              setScrolled(event.currentTarget.scrollTop > 0)
+            }}
+          >
             {children}
           </div>
         </BreadcrumbSlotContext>
