@@ -415,7 +415,7 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	buf, log := newRequestEventCapture()
 	handlerErr := apierror.ProjectScoped(context.Canceled)
 	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		openAPIResponseErrorHandler(w, r, handlerErr)
+		writeAPIError(w, r, handlerErr)
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
@@ -428,12 +428,27 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	event := decodeRequestEvent(t, buf)
 	for key, want := range map[string]any{
 		"level":            "error",
-		"error.message":    handlerErr.Error(),
+		"error.message":    context.Canceled.Error() + "\n" + handlerErr.Error(),
 		"http.status_code": float64(http.StatusInternalServerError),
 	} {
 		if got := event[key]; got != want {
 			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
 		}
+	}
+}
+
+func TestRequestLogKeepsClientErrorMessage(t *testing.T) {
+	buf, log := newRequestEventCapture()
+	handlerErr := apierror.FromCode(openapi.ErrorCodeNotFound, "agent not found").WithCause(errors.New("lookup detail"))
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeAPIError(w, r, handlerErr)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/test", nil))
+
+	event := decodeRequestEvent(t, buf)
+	if got := event["error.message"]; got != handlerErr.Error() {
+		t.Fatalf("error.message=%v want=%v in event %+v", got, handlerErr.Error(), event)
 	}
 }
 
@@ -447,7 +462,7 @@ func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 	).WithCause(context.Canceled)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/test", func(w http.ResponseWriter, r *http.Request) {
-		openAPIResponseErrorHandler(w, r, handlerErr)
+		writeAPIError(w, r, handlerErr)
 	})
 	handler := requestEvents(log, metrics.NewHTTPRecorder(set, metrics.SubsystemAPI), mux)(mux)
 
@@ -506,7 +521,7 @@ func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
 	).WithCause(errors.New("query agent row: connection refused"))
 	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logpkg.Error(r.Context(), context.Canceled)
-		openAPIResponseErrorHandler(w, r, handlerErr)
+		writeAPIError(w, r, handlerErr)
 	}))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -521,7 +536,7 @@ func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
 	event := decodeRequestEvent(t, buf)
 	for key, want := range map[string]any{
 		"level":                      "error",
-		"error.message":              errors.Join(context.Canceled, handlerErr).Error(),
+		"error.message":              errors.Join(context.Canceled, errors.Unwrap(handlerErr), handlerErr).Error(),
 		"http.status_code":           float64(http.StatusServiceUnavailable),
 		"http.request.cancel_cause":  context.Canceled.Error(),
 		"http.request.cancel_source": "request_context",

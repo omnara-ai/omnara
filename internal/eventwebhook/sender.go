@@ -55,6 +55,12 @@ type Sender struct {
 	log         *slog.Logger
 }
 
+type recipientError struct{ error }
+
+func (e recipientError) Unwrap() error { return e.error }
+
+func (recipientError) EventWebhookRecipientFailure() {}
+
 func New(store Store, log *slog.Logger, maxInFlight, perOrgLimit int) *Sender {
 	return &Sender{store: store, log: log, maxInFlight: maxInFlight, perOrgLimit: perOrgLimit,
 		client: outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{Timeout: attemptTimeout})}
@@ -201,13 +207,13 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 		if errors.As(err, &requestError) {
 			err = requestError.Err
 		}
-		return fmt.Errorf("post event webhook: %w", err)
+		return recipientError{fmt.Errorf("post event webhook: %w", err)}
 	}
 	logent.EventWebhookResponse(ctx, response.StatusCode)
 	defer func() { _ = response.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, responseDrainLimit))
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("event webhook returned HTTP %d", response.StatusCode)
+		return recipientError{fmt.Errorf("event webhook returned HTTP %d", response.StatusCode)}
 	}
 	return nil
 }

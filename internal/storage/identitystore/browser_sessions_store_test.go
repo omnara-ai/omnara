@@ -24,28 +24,8 @@ func TestAuthenticateBrowserSessionRetry(t *testing.T) {
 	retryable := &browserSessionRetryError{cause: errors.New("write timeout"), safe: true}
 	partialWrite := &browserSessionRetryError{cause: errors.New("partial write timeout")}
 	writeTimeout := &browserSessionRetryError{cause: &net.OpError{Op: "write", Err: os.ErrDeadlineExceeded}, safe: true}
-	readTimeout := &browserSessionRetryError{cause: &net.OpError{Op: "read", Err: os.ErrDeadlineExceeded}, safe: true}
 	partialTimeout := &browserSessionRetryError{cause: &net.OpError{Op: "write", Err: os.ErrDeadlineExceeded}}
 	queryError := &pgconn.PgError{Code: "42601", Message: "syntax error"}
-	cfg, err := pgconn.ParseConfig("postgres://user:pass@127.0.0.1:1,127.0.0.2:1/db?sslmode=disable")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dialCalls := 0
-	acquireFailure := errors.New("connection refused")
-	cfg.DialFunc = func(context.Context, string, string) (net.Conn, error) {
-		dialCalls++
-		if dialCalls == 1 {
-			return nil, &net.OpError{Op: "dial", Err: os.ErrDeadlineExceeded}
-		}
-		return nil, &net.OpError{Op: "dial", Err: acquireFailure}
-	}
-	_, connectErr := pgconn.ConnectConfig(context.Background(), cfg)
-	var connectTimeout net.Error
-	if dialCalls != 2 || !errors.Is(connectErr, acquireFailure) ||
-		!errors.As(connectErr, &connectTimeout) || !connectTimeout.Timeout() {
-		t.Fatalf("expected mixed timeout and acquisition failure, got %v (%d dials)", connectErr, dialCalls)
-	}
 	userID, sessionID := uuid.New(), uuid.New()
 	wantPrincipal := NewBrowserSessionPrincipal(userID, sessionID)
 	for _, tt := range []struct {
@@ -53,7 +33,6 @@ func TestAuthenticateBrowserSessionRetry(t *testing.T) {
 		errs        []error
 		cancel      bool
 		emptyToken  bool
-		expired     bool
 		wantErr     error
 		cancelAfter time.Duration
 		wantElapsed time.Duration
@@ -90,23 +69,8 @@ func TestAuthenticateBrowserSessionRetry(t *testing.T) {
 		{name: "partial write", errs: []error{partialWrite}, wantErr: partialWrite},
 		{name: "canceled during first attempt", errs: []error{retryable}, cancel: true, wantErr: retryable},
 		{name: "deadline exceeded", errs: []error{context.DeadlineExceeded}, wantErr: context.DeadlineExceeded},
-		{name: "canceled write timeout", errs: []error{writeTimeout}, cancel: true, wantErr: context.Canceled},
-		{name: "canceled write after retry", errs: []error{retryable, writeTimeout}, cancel: true, wantErr: context.Canceled},
 		{name: "active write timeout recovers", errs: []error{writeTimeout, nil}},
-		{name: "canceled partial write", errs: []error{partialTimeout}, cancel: true, wantErr: context.Canceled},
-		{name: "canceled read timeout", errs: []error{readTimeout}, cancel: true, wantErr: context.Canceled},
-		{name: "canceled postgres failure", errs: []error{queryError}, cancel: true, wantErr: queryError},
-		{name: "canceled mixed acquisition failure", errs: []error{connectErr}, cancel: true, wantErr: connectErr},
-		{
-			name: "canceled non-timeout write", errs: []error{&net.OpError{Op: "write", Err: os.ErrClosed}},
-			cancel: true, wantErr: os.ErrClosed,
-		},
-		{
-			name: "canceled non-timeout dial", errs: []error{&net.OpError{Op: "dial", Err: os.ErrPermission}},
-			cancel: true, wantErr: os.ErrPermission,
-		},
 		{name: "canceled success", errs: []error{nil}, cancel: true},
-		{name: "expired write timeout", errs: []error{writeTimeout}, expired: true, wantErr: writeTimeout},
 		{name: "empty token", emptyToken: true, wantErr: storeerr.ErrUnauthorized},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -116,11 +80,6 @@ func TestAuthenticateBrowserSessionRetry(t *testing.T) {
 				if tt.cancelAfter > 0 {
 					timer := time.AfterFunc(tt.cancelAfter, cancel)
 					defer timer.Stop()
-				}
-				if tt.expired {
-					expiredCtx, expireCancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
-					defer expireCancel()
-					ctx = expiredCtx
 				}
 				calls := 0
 				token := "session-token"

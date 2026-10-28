@@ -139,6 +139,7 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 				return true, err
 			})
 		if err != nil {
+			logIntegrationCredentialError(ctx, "accept GitHub webhook", err)
 			apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "GitHub intake unavailable")
 			return
 		}
@@ -161,6 +162,7 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		if verified {
 			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid GitHub webhook")
 		} else {
+			logIntegrationCredentialError(ctx, "verify GitHub webhook", err)
 			apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "GitHub credentials unavailable")
 		}
 		return

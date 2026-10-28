@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"time"
 
 	"github.com/google/uuid"
@@ -99,12 +98,6 @@ func (s *Store) AuthenticateBrowserSession(
 		return PrincipalRecord{}, "", storeerr.ErrUnauthorized
 	}
 	if err != nil {
-		var timeoutErr net.Error
-		var connectErr *pgconn.ConnectError
-		if errors.Is(ctx.Err(), context.Canceled) &&
-			!errors.As(err, &connectErr) && errors.As(err, &timeoutErr) && timeoutErr.Timeout() {
-			err = fmt.Errorf("%s: %w", err.Error(), context.Canceled)
-		}
 		return PrincipalRecord{}, "", fmt.Errorf("authenticate browser session: %w", err)
 	}
 	return NewBrowserSessionPrincipal(row.UserID, row.BrowserSessionID), row.CsrfTokenHash, nil

@@ -3,10 +3,14 @@ package storeutil
 import (
 	"context"
 	"errors"
+	"net"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
@@ -56,6 +60,73 @@ func TestQueryTxWrapsNestedTransactions(t *testing.T) {
 	assertQueryError(t, nested.Rollback(t.Context()), cause)
 	_, err = tx.Begin(t.Context())
 	assertQueryError(t, err, cause)
+}
+
+func TestQueryDBReportsCanceledDriverTimeoutsAsCancellation(t *testing.T) {
+	timeout := &net.OpError{Op: "write", Net: "tcp", Err: os.ErrDeadlineExceeded}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	query := "-- name: GetAgent :one\nSELECT 1"
+	assertCanceled := func(err error, detail string) {
+		t.Helper()
+		require.True(t, errutil.OnlyMatches(err, context.Canceled), err)
+		require.ErrorContains(t, err, detail)
+	}
+	for _, db := range []dbsqlc.DBTX{queryDB{db: &queryTestTx{err: timeout}}, queryTx{Tx: &queryTestTx{err: timeout}}} {
+		_, err := db.Exec(canceled, query)
+		assertCanceled(err, "db query GetAgent: timeout")
+		rows, err := db.Query(canceled, query)
+		assertCanceled(err, "db query GetAgent: timeout")
+		assertCanceled(rows.Err(), "db query GetAgent: timeout")
+		assertCanceled(db.QueryRow(canceled, query).Scan(), "db query GetAgent: timeout")
+		_, err = db.Exec(t.Context(), query)
+		assertQueryError(t, err, timeout)
+	}
+	rows, err := queryDB{db: &queryTestTx{rowsErr: timeout}}.Query(canceled, query)
+	require.NoError(t, err)
+	assertCanceled(rows.Err(), "db query GetAgent: timeout")
+	_, err = queryTx{Tx: &queryTestTx{err: timeout}}.Begin(canceled)
+	assertCanceled(err, "db query begin: timeout")
+	assertQueryError(t, queryTx{Tx: &queryTestTx{err: timeout}}.Commit(canceled), timeout)
+}
+
+func TestQueryDBKeepsOtherFailuresOfCanceledRequests(t *testing.T) {
+	cfg, err := pgconn.ParseConfig("postgres://user:pass@127.0.0.1:1,127.0.0.2:1/db?sslmode=disable")
+	require.NoError(t, err)
+	dials := 0
+	cfg.DialFunc = func(context.Context, string, string) (net.Conn, error) {
+		dials++
+		if dials == 1 {
+			return nil, &net.OpError{Op: "dial", Err: os.ErrDeadlineExceeded}
+		}
+		return nil, &net.OpError{Op: "dial", Err: errors.New("connection refused")}
+	}
+	_, connectErr := pgconn.ConnectConfig(t.Context(), cfg)
+	var connectTimeout net.Error
+	require.True(t, errors.As(connectErr, &connectTimeout) && connectTimeout.Timeout(), connectErr)
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	for name, tt := range map[string]struct {
+		err     error
+		expired bool
+	}{
+		"mixed connect failure": {err: connectErr},
+		"non-timeout write":     {err: &net.OpError{Op: "write", Err: os.ErrClosed}},
+		"postgres error":        {err: &pgconn.PgError{Code: "42601"}},
+		"deadline exceeded":     {err: &net.OpError{Op: "write", Err: os.ErrDeadlineExceeded}, expired: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := canceled
+			if tt.expired {
+				ctx = expired
+			}
+			_, err := queryDB{db: &queryTestTx{err: tt.err}}.Exec(ctx, "-- name: GetAgent :one\nSELECT 1")
+			require.NotErrorIs(t, err, context.Canceled)
+			assertQueryError(t, err, tt.err)
+		})
+	}
 }
 
 func assertQueryError(t *testing.T, err, cause error) {
