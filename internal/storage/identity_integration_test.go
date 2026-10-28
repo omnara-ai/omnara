@@ -3102,10 +3102,10 @@ func TestOrgInvitationAcceptDoesNotChangeExistingMembership(t *testing.T) {
 	}
 	if _, err := store.Identity().CreateOrgInvitation(
 		ctx,
-		identitystore.CreateOrgInvitationInput{OrgID: testOrgID, Email: "owner-invite@example.com", Role: "owner"},
+		identitystore.CreateOrgInvitationInput{OrgID: testOrgID, Email: "invalid-invite@example.com", Role: "superuser"},
 	); err == nil ||
-		err.Error() != "role must be admin or member" {
-		t.Fatalf("expected owner invitation to be rejected, got %v", err)
+		err.Error() != "role must be owner, admin, or member" {
+		t.Fatalf("expected invalid invitation role to be rejected, got %v", err)
 	}
 
 	secondOrgID := testID("invite_page_org_2")
@@ -3385,7 +3385,7 @@ func TestAddOrgMembershipPreservesLastOwner(t *testing.T) {
 		identitystore.AddOrgMembershipInput{OrgID: testOrgID, UserID: owner.ID, Role: "admin"},
 	); !errors.Is(
 		err,
-		storeerr.ErrUnauthorized,
+		storeerr.ErrConflict,
 	) {
 		t.Fatalf("expected last owner demotion to fail, got %v", err)
 	}
@@ -3429,9 +3429,9 @@ func TestUpdateOrgMemberRole(t *testing.T) {
 	}
 
 	if _, err := store.Identity().UpdateOrgMemberRole(ctx, identitystore.UpdateOrgMemberRoleInput{
-		OrgID: testOrgID, UserID: member.ID, Role: "owner",
-	}); err == nil {
-		t.Fatal("expected owner role to be rejected")
+		OrgID: testOrgID, UserID: member.ID, Role: "owner", ActorPrincipal: userPrincipal(member.ID),
+	}); !errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("expected non-owner grant of owner to fail, got %v", err)
 	}
 
 	stranger := mustCreateIdentityUser(t, ctx, store, "role-update-stranger@example.com", "Stranger")
@@ -3449,8 +3449,8 @@ func TestUpdateOrgMemberRole(t *testing.T) {
 		t.Fatalf("add owner: %v", err)
 	}
 	if _, err := store.Identity().UpdateOrgMemberRole(ctx, identitystore.UpdateOrgMemberRoleInput{
-		OrgID: testOrgID, UserID: owner.ID, Role: "admin",
-	}); !errors.Is(err, storeerr.ErrUnauthorized) {
+		OrgID: testOrgID, UserID: owner.ID, Role: "admin", ActorPrincipal: userPrincipal(owner.ID),
+	}); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("expected sole owner demotion to fail, got %v", err)
 	}
 
@@ -3462,7 +3462,7 @@ func TestUpdateOrgMemberRole(t *testing.T) {
 		t.Fatalf("add other owner: %v", err)
 	}
 	if _, err := store.Identity().UpdateOrgMemberRole(ctx, identitystore.UpdateOrgMemberRoleInput{
-		OrgID: testOrgID, UserID: owner.ID, Role: "admin",
+		OrgID: testOrgID, UserID: owner.ID, Role: "admin", ActorPrincipal: userPrincipal(otherOwner.ID),
 	}); err != nil {
 		t.Fatalf("demote owner with another owner present: %v", err)
 	}
@@ -3549,8 +3549,8 @@ func TestRemoveOrgMemberCascadesAccessGrants(t *testing.T) {
 	}
 	if err := store.Identity().RemoveOrgMember(
 		ctx,
-		identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: owner.ID},
-	); !errors.Is(err, storeerr.ErrUnauthorized) {
+		identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: owner.ID, ActorPrincipal: userPrincipal(owner.ID)},
+	); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("expected sole owner removal to fail, got %v", err)
 	}
 
@@ -3563,7 +3563,7 @@ func TestRemoveOrgMemberCascadesAccessGrants(t *testing.T) {
 	}
 	if err := store.Identity().RemoveOrgMember(
 		ctx,
-		identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: owner.ID},
+		identitystore.RemoveOrgMemberInput{OrgID: testOrgID, UserID: owner.ID, ActorPrincipal: userPrincipal(otherOwner.ID)},
 	); err != nil {
 		t.Fatalf("remove non-sole owner: %v", err)
 	}
@@ -7290,7 +7290,7 @@ func TestConcurrentOwnerExitPreservesAnOrganizationOwner(t *testing.T) {
 					_, updateErr := store.Identity().UpdateOrgMemberRole(
 						context.Background(),
 						identitystore.UpdateOrgMemberRoleInput{
-							OrgID: testOrgID, UserID: second.ID, Role: "member",
+							OrgID: testOrgID, UserID: second.ID, Role: "member", ActorPrincipal: userPrincipal(second.ID),
 						},
 					)
 					return updateErr
@@ -7313,7 +7313,7 @@ func TestConcurrentOwnerExitPreservesAnOrganizationOwner(t *testing.T) {
 			accountErr := integrationdb.Await(t, accountDone, "account deletion")
 			roleErr := integrationdb.Await(t, roleDone, "organization role update")
 			if accountWins {
-				if accountErr != nil || !errors.Is(roleErr, storeerr.ErrUnauthorized) {
+				if accountErr != nil || !errors.Is(roleErr, storeerr.ErrConflict) {
 					t.Fatalf("account-first outcome account=%v role=%v", accountErr, roleErr)
 				}
 			} else if roleErr != nil || !errors.Is(accountErr, storeerr.ErrConflict) {
@@ -7405,81 +7405,90 @@ func TestOrgAPIKeyMutationWaitingBehindDeletionRejectsInactiveOrganization(t *te
 	}
 }
 
-func TestDeletionWaitingBehindOwnershipTransferKeepsNewOwner(t *testing.T) {
+func TestAccountDeletionWaitingBehindOwnerPromotionKeepsAnOwner(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct {
-		name      string
-		waitQuery string
-		want      error
-		remove    func(store *Store, owner, recipient identitystore.UserRecord) error
-	}{
-		{
-			name:      "organization deletion by former owner",
-			waitQuery: "LockOrganizationLifecycleExclusive",
-			want:      storeerr.ErrUnauthorized,
-			remove: func(store *Store, owner, _ identitystore.UserRecord) error {
-				_, err := store.Organizations().DeleteOrganization(context.Background(), testOrgID, userPrincipal(owner.ID))
-				return err
-			},
-		},
-		{
-			name:      "account deletion by recipient",
-			waitQuery: "LockUserForUpdate",
-			want:      storeerr.ErrConflict,
-			remove: func(store *Store, _, recipient identitystore.UserRecord) error {
-				return store.Identity().DeleteUserAccount(context.Background(), recipient.ID)
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			ctx := context.Background()
-			pool := openIntegrationDB(t, ctx)
-			seedMigratedDB(t, ctx, pool)
-			store := NewStore(pool)
-			owner := createSecretTestUser(t, ctx, store, "Transfer Race Owner", "owner")
-			recipient := createSecretTestUser(t, ctx, store, "Transfer Race Recipient", "member")
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := NewStore(pool)
+	owner := createSecretTestUser(t, ctx, store, "Promoting Owner", "owner")
+	recipient := createSecretTestUser(t, ctx, store, "Promoted Recipient", "member")
 
-			controlTx := integrationdb.BeginTx(t, ctx, pool)
-			if _, err := dbsqlc.New(controlTx).LockOrg(ctx, dbsqlc.LockOrgParams{ID: testOrgID}); err != nil {
-				t.Fatalf("lock organization: %v", err)
-			}
-			transferDone := integrationdb.RunAsyncError(func() error {
-				return store.Identity().TransferOrgOwnership(context.Background(), identitystore.TransferOrgOwnershipInput{
-					OrgID: testOrgID, OwnerUserID: owner.ID, NewOwnerUserID: recipient.ID,
-				})
-			})
-			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 1)
-			removeDone := integrationdb.RunAsyncError(func() error { return tc.remove(store, owner, recipient) })
-			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, tc.waitQuery, 1)
-			if err := controlTx.Commit(ctx); err != nil {
-				t.Fatalf("release ownership transfer control transaction: %v", err)
-			}
-			if err := integrationdb.Await(t, transferDone, "ownership transfer"); err != nil {
-				t.Fatalf("transfer ownership: %v", err)
-			}
-			if err := integrationdb.Await(t, removeDone, tc.name); !errors.Is(err, tc.want) {
-				t.Fatalf("%s error = %v, want %v", tc.name, err, tc.want)
-			}
-
-			if _, err := store.Identity().GetOrg(ctx, testOrgID); err != nil {
-				t.Fatalf("organization after %s: %v", tc.name, err)
-			}
-			var owners int
-			var recipientOwns bool
-			if err := pool.QueryRow(ctx,
-				`SELECT count(*), coalesce(bool_and(user_id = $2), false) FROM org_memberships WHERE org_id = $1 AND role = 'owner'`,
-				testOrgID, recipient.ID,
-			).Scan(&owners, &recipientOwns); err != nil {
-				t.Fatalf("load organization owners: %v", err)
-			}
-			if owners != 1 || !recipientOwns {
-				t.Fatalf("owners = %d recipient owns = %v, want recipient as sole owner", owners, recipientOwns)
-			}
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(controlTx).LockOrg(ctx, dbsqlc.LockOrgParams{ID: testOrgID}); err != nil {
+		t.Fatalf("lock organization: %v", err)
+	}
+	promoteDone := integrationdb.RunAsyncError(func() error {
+		_, err := store.Identity().UpdateOrgMemberRole(context.Background(), identitystore.UpdateOrgMemberRoleInput{
+			OrgID: testOrgID, UserID: recipient.ID, Role: "owner", ActorPrincipal: userPrincipal(owner.ID),
 		})
+		return err
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 1)
+	deleteDone := integrationdb.RunAsyncError(func() error {
+		return store.Identity().DeleteUserAccount(context.Background(), recipient.ID)
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockUserForUpdate", 1)
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release owner promotion control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, promoteDone, "owner promotion"); err != nil {
+		t.Fatalf("promote recipient: %v", err)
+	}
+	if err := integrationdb.Await(t, deleteDone, "recipient account deletion"); err != nil {
+		t.Fatalf("delete recipient account: %v", err)
+	}
+	var owners int
+	var ownerKept bool
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*)::integer, coalesce(bool_and(user_id = $2), false) FROM org_memberships WHERE org_id = $1 AND role = 'owner'`,
+		testOrgID, owner.ID,
+	).Scan(&owners, &ownerKept); err != nil {
+		t.Fatalf("load organization owners: %v", err)
+	}
+	if owners != 1 || !ownerKept {
+		t.Fatalf("owners = %d original owner kept = %v, want the original owner as sole owner", owners, ownerKept)
 	}
 }
 
+func TestOrganizationDeletionWaitingBehindOwnerDemotionRejectsFormerOwner(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := NewStore(pool)
+	deleter := createSecretTestUser(t, ctx, store, "Demoted Owner", "owner")
+	coOwner := createSecretTestUser(t, ctx, store, "Co-owner", "owner")
+
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(controlTx).LockOrg(ctx, dbsqlc.LockOrgParams{ID: testOrgID}); err != nil {
+		t.Fatalf("lock organization: %v", err)
+	}
+	demoteDone := integrationdb.RunAsyncError(func() error {
+		_, err := store.Identity().UpdateOrgMemberRole(context.Background(), identitystore.UpdateOrgMemberRoleInput{
+			OrgID: testOrgID, UserID: deleter.ID, Role: "admin", ActorPrincipal: userPrincipal(coOwner.ID),
+		})
+		return err
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 1)
+	deleteDone := integrationdb.RunAsyncError(func() error {
+		_, err := store.Organizations().DeleteOrganization(context.Background(), testOrgID, userPrincipal(deleter.ID))
+		return err
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrganizationLifecycleExclusive", 1)
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release owner demotion control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, demoteDone, "owner demotion"); err != nil {
+		t.Fatalf("demote owner: %v", err)
+	}
+	if err := integrationdb.Await(t, deleteDone, "organization deletion"); !errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("organization deletion by demoted owner error = %v, want unauthorized", err)
+	}
+	if _, err := store.Identity().GetOrg(ctx, testOrgID); err != nil {
+		t.Fatalf("organization after rejected deletion: %v", err)
+	}
+}
 func TestCompromiseRevocationSerializesConcurrentTokenCreation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

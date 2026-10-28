@@ -64,7 +64,6 @@ export function DeleteOrganizationSection() {
       />
       <TypeToConfirmDialog
         key={target.id}
-        destructive
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={`Delete ${target.name}?`}

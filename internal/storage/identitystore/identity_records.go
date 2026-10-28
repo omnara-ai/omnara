@@ -349,9 +349,10 @@ type DenyDeviceAuthFlowInput struct {
 }
 
 type CreateOrgInvitationInput struct {
-	OrgID uuid.UUID
-	Email string
-	Role  string
+	OrgID          uuid.UUID
+	Email          string
+	Role           string
+	ActorPrincipal PrincipalRecord
 }
 
 type OrgInvitationRecord struct {
@@ -425,20 +426,16 @@ type ProjectMembershipRecord struct {
 }
 
 type UpdateOrgMemberRoleInput struct {
-	OrgID  uuid.UUID
-	UserID uuid.UUID
-	Role   string
+	OrgID          uuid.UUID
+	UserID         uuid.UUID
+	Role           string
+	ActorPrincipal PrincipalRecord
 }
 
 type RemoveOrgMemberInput struct {
-	OrgID  uuid.UUID
-	UserID uuid.UUID
-}
-
-type TransferOrgOwnershipInput struct {
 	OrgID          uuid.UUID
-	OwnerUserID    uuid.UUID
-	NewOwnerUserID uuid.UUID
+	UserID         uuid.UUID
+	ActorPrincipal PrincipalRecord
 }
 
 type RemoveProjectMembershipInput struct {

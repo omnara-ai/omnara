@@ -200,7 +200,6 @@ export {
   useRemoveMemberProjectAccess,
   useRemoveOrgMember,
   useSetMemberProjectAccess,
-  useTransferOrgOwnership,
   useUpdateOrgMemberRole,
 } from './domains/org-members'
 export {

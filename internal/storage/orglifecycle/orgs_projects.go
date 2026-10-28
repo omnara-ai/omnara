@@ -558,14 +558,8 @@ func (s *Service) deleteOrganizationOnce(
 	if !active {
 		return nil, storeerr.ErrNotFound
 	}
-	allowed, err := identitystore.AuthorizeOrg(ctx, q, identitystore.AuthorizeOrgInput{
-		Principal: deletedBy, OrgID: orgID, Action: identitystore.OrgActionOwn,
-	})
-	if err != nil {
+	if err := identitystore.RequireOrgOwner(ctx, q, orgID, deletedBy); err != nil {
 		return nil, err
-	}
-	if !allowed {
-		return nil, storeerr.ErrUnauthorized
 	}
 	orgProjectIDs, err := q.ListActiveProjectIDsForOrganization(
 		ctx,

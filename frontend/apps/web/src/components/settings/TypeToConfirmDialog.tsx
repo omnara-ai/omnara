@@ -13,7 +13,7 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
 /**
- * Confirmation for irreversible actions: the confirm button stays disabled
+ * Confirmation for irreversible deletes: the destructive button stays disabled
  * until the user types `confirmationText` exactly.
  */
 export function TypeToConfirmDialog({
@@ -26,7 +26,6 @@ export function TypeToConfirmDialog({
   pending,
   error,
   onConfirm,
-  destructive = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -37,7 +36,6 @@ export function TypeToConfirmDialog({
   pending: boolean
   error: string | null
   onConfirm: () => void
-  destructive?: boolean
 }) {
   const [typed, setTyped] = useState('')
   const matches = typed === confirmationText
@@ -100,7 +98,7 @@ export function TypeToConfirmDialog({
               </Button>
               <Button
                 type="submit"
-                variant={destructive ? 'destructive' : 'default'}
+                variant="destructive"
                 disabled={!matches || pending}
                 loading={pending}
               >

@@ -238,10 +238,12 @@ func (s strictOpenAPIServer) createOrgInvitation(
 	org identitystore.OrgRecord,
 	body openapi.CreateOrgInvitationJSONRequestBody,
 ) (openapi.CreateOrgInvitationResponseObject, error) {
+	principal, _ := principalFromContext(ctx)
 	invitation, err := s.server.store.Identity().CreateOrgInvitation(ctx, identitystore.CreateOrgInvitationInput{
-		OrgID: org.ID,
-		Email: string(body.Email),
-		Role:  body.Role,
+		OrgID:          org.ID,
+		Email:          string(body.Email),
+		Role:           body.Role,
+		ActorPrincipal: principal,
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)

@@ -51,25 +51,6 @@ export function useRemoveOrgMember(orgID: string) {
   })
 }
 
-export function useTransferOrgOwnership(orgID: string) {
-  const client = useOmnaraClient()
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async (userID: string) => {
-      const { data } = await sdk.transferOrgOwnership({ path: { orgID, userID }, client })
-      return data
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: listOrgMembersQueryKey({ path: { orgID }, client }),
-        }),
-        queryClient.invalidateQueries({ queryKey: getCurrentUserQueryKey({ client }) }),
-      ])
-    },
-  })
-}
-
 export function useMemberProjectAccess(
   orgID: string,
   userID: string,

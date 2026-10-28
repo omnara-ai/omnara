@@ -30,8 +30,8 @@ func (s *Store) CreateOrgInvitation(
 	if input.Role == "" {
 		return OrgInvitationRecord{}, storeerr.InvalidRequest(errors.New("role is required"))
 	}
-	if input.Role != authz.OrgRoleAdmin && input.Role != authz.OrgRoleMember {
-		return OrgInvitationRecord{}, storeerr.InvalidRequest(errors.New("role must be admin or member"))
+	if !isValidOrgRole(input.Role) {
+		return OrgInvitationRecord{}, storeerr.InvalidRequest(errors.New("role must be owner, admin, or member"))
 	}
 	normalizedEmail := emailaddr.Normalize(input.Email)
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -42,6 +42,11 @@ func (s *Store) CreateOrgInvitation(
 	qtx := s.q.WithTx(tx)
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 		return OrgInvitationRecord{}, err
+	}
+	if input.Role == authz.OrgRoleOwner {
+		if err := RequireOrgOwner(ctx, qtx, input.OrgID, input.ActorPrincipal); err != nil {
+			return OrgInvitationRecord{}, err
+		}
 	}
 	emailUser, err := qtx.GetVerifiedUserEmailByNormalizedEmail(
 		ctx,
@@ -365,6 +370,11 @@ func (s *Store) answerOrgInvitation(
 			}
 			if membershipCount >= MaxOrgMembershipsPerUser {
 				return OrgInvitationWithOrgNameRecord{}, storeerr.ErrUnauthorized
+			}
+			if answered.OrgRole == authz.OrgRoleOwner {
+				if err := checkOwnedOrgCapacity(ctx, qtx, userID); err != nil {
+					return OrgInvitationWithOrgNameRecord{}, err
+				}
 			}
 		}
 		if _, err := qtx.AddUserOrgMembershipIfMissing(

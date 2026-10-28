@@ -100,6 +100,17 @@ func AuthorizeOrg(ctx context.Context, q *dbsqlc.Queries, input AuthorizeOrgInpu
 	return authz.OrgRoleAllows(role, input.Action), nil
 }
 
+func RequireOrgOwner(ctx context.Context, q *dbsqlc.Queries, orgID uuid.UUID, principal PrincipalRecord) error {
+	owner, err := AuthorizeOrg(ctx, q, AuthorizeOrgInput{Principal: principal, OrgID: orgID, Action: OrgActionOwn})
+	if err != nil {
+		return err
+	}
+	if !owner {
+		return storeerr.ErrUnauthorized
+	}
+	return nil
+}
+
 func (s *Store) HasOrgMembership(ctx context.Context, principal PrincipalRecord, orgID uuid.UUID) (bool, error) {
 	if orgID == uuid.Nil || !IsAccountPrincipal(principal) {
 		return false, nil

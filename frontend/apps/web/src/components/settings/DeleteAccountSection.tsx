@@ -27,7 +27,6 @@ export function DeleteAccountSection() {
   const { data: me } = useMe()
   const deleteAccount = useDeleteCurrentUser()
   const [confirmOpen, setConfirmOpen] = useState(false)
-  // Each org has exactly one owner, so the server rejects deleting any account that owns an org.
   const ownedOrgs = me.orgs.filter((org) => org.role === 'owner')
   const ownsOrgs = ownedOrgs.length > 0
   const error = deleteAccount.isError
@@ -51,9 +50,10 @@ export function DeleteAccountSection() {
         description={
           ownsOrgs ? (
             <>
-              You own <OrgNameList orgs={ownedOrgs} />. Transfer ownership on the Members page or
-              delete {ownedOrgs.length === 1 ? 'that organization' : 'those organizations'} in
-              organization settings before deleting your account.
+              You own <OrgNameList orgs={ownedOrgs} />. Add another owner and step down on the
+              Members page, or delete{' '}
+              {ownedOrgs.length === 1 ? 'that organization' : 'those organizations'} in organization
+              settings, before deleting your account.
             </>
           ) : (
             'Permanently delete your account, personal secrets and skills, and all of your access tokens and memberships.'
@@ -75,7 +75,6 @@ export function DeleteAccountSection() {
         }
       />
       <TypeToConfirmDialog
-        destructive
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title="Delete your account?"

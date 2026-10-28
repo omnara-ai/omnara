@@ -4124,16 +4124,6 @@ export const zUpdateOrgMemberPath = z.object({
  */
 export const zUpdateOrgMemberResponse = zOrganizationMembership;
 
-export const zTransferOrgOwnershipPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    userID: z.string().regex(/^usr_[a-z2-7]{26}$/)
-});
-
-/**
- * Ownership transferred.
- */
-export const zTransferOrgOwnershipResponse = z.void();
-
 export const zListMemberProjectAccessPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
     userID: z.string().regex(/^usr_[a-z2-7]{26}$/)

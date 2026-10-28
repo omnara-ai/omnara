@@ -4,7 +4,6 @@ package httpapi
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -12,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
@@ -210,7 +208,7 @@ func TestListOrgMembers(t *testing.T) {
 	)
 }
 
-func TestTransferOrgOwnership(t *testing.T) {
+func TestOrgOwnerRoleManagement(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -218,78 +216,73 @@ func TestTransferOrgOwnership(t *testing.T) {
 	handler := newIntegrationServer(pool)
 	store := storage.NewStore(pool)
 
-	project := bootstrapPublicHTTPProject(t, handler, "transfer-owner")
+	project := bootstrapPublicHTTPProject(t, handler, "owner-roles")
 
-	admin, err := storagetest.CreateVerifiedUser(
-		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "transfer-owner-admin@example.com", DisplayName: "Admin"},
-	)
-	if err != nil {
-		t.Fatalf("create admin: %v", err)
-	}
-	if _, err := store.Identity().AddOrgMembership(
-		ctx,
-		identitystore.AddOrgMembershipInput{OrgID: project.OrgUUID, UserID: admin.ID, Role: "admin"},
-	); err != nil {
-		t.Fatalf("add admin: %v", err)
-	}
-	adminPAT, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
-		ctx,
-		identitystore.CreatePersonalAccessTokenInput{UserID: admin.ID, Name: "admin"},
-	)
-	if err != nil {
-		t.Fatalf("create admin pat: %v", err)
-	}
-	outsider, err := storagetest.CreateVerifiedUser(
-		ctx, pool, storagetest.CreateVerifiedUserInput{Email: "transfer-owner-outsider@example.com", DisplayName: "Outsider"},
-	)
-	if err != nil {
-		t.Fatalf("create outsider: %v", err)
-	}
-	adminUserID, err := publicid.Encode(publicid.KindUser, admin.ID)
-	if err != nil {
-		t.Fatalf("encode admin user id: %v", err)
-	}
-	outsiderUserID, err := publicid.Encode(publicid.KindUser, outsider.ID)
-	if err != nil {
-		t.Fatalf("encode outsider user id: %v", err)
-	}
-
-	membersPath := "/api/v1/orgs/" + project.OrgID + "/members"
-	transfer := func(userID, token string, wantStatus int) {
+	newUser := func(email, role string) (string, string) {
 		t.Helper()
-		requestJSONWithHeaders(
-			t, handler, http.MethodPost, membersPath+"/"+userID+"/transfer-ownership", "", "",
-			wantStatus, authHeaders(token),
+		user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: email})
+		if err != nil {
+			t.Fatalf("create %s: %v", email, err)
+		}
+		if role != "" {
+			if _, err := store.Identity().AddOrgMembership(
+				ctx,
+				identitystore.AddOrgMembershipInput{OrgID: project.OrgUUID, UserID: user.ID, Role: role},
+			); err != nil {
+				t.Fatalf("add %s: %v", email, err)
+			}
+		}
+		pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+			ctx,
+			identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: email},
 		)
+		if err != nil {
+			t.Fatalf("create pat for %s: %v", email, err)
+		}
+		userID, err := publicid.Encode(publicid.KindUser, user.ID)
+		if err != nil {
+			t.Fatalf("encode %s: %v", email, err)
+		}
+		return userID, pat.Token
 	}
-	transfer(adminUserID, adminPAT.Token, http.StatusForbidden)
-	transfer(project.AdminUserID, project.AdminToken, http.StatusBadRequest)
-	transfer(outsiderUserID, project.AdminToken, http.StatusNotFound)
-	transfer(adminUserID, project.AdminToken, http.StatusNoContent)
+	adminID, adminToken := newUser("owner-roles-admin@example.com", "admin")
+	memberID, memberToken := newUser("owner-roles-member@example.com", "member")
+	inviteeID, inviteeToken := newUser("owner-roles-invitee@example.com", "")
 
-	listed := requestJSONWithHeaders(
-		t, handler, http.MethodGet, membersPath, "", "", http.StatusOK, authHeaders(project.AdminToken),
-	)
+	membersPath := "/api/v1/orgs/" + project.OrgID + "/members/"
+	request := func(method, path, body, token string, want int) map[string]any {
+		t.Helper()
+		return requestJSONWithHeaders(t, handler, method, path, body, "", want, authHeaders(token))
+	}
+	request(http.MethodPatch, membersPath+memberID, `{"role":"owner"}`, adminToken, http.StatusForbidden)
+	request(http.MethodPatch, membersPath+memberID, `{"role":"owner"}`, project.AdminToken, http.StatusOK)
+	request(http.MethodPatch, membersPath+memberID, `{"role":"admin"}`, adminToken, http.StatusForbidden)
+	request(http.MethodDelete, membersPath+memberID, "", adminToken, http.StatusForbidden)
+	request(http.MethodPatch, membersPath+project.AdminUserID, `{"role":"admin"}`, memberToken, http.StatusOK)
+	request(http.MethodPatch, membersPath+memberID, `{"role":"admin"}`, memberToken, http.StatusConflict)
+	request(http.MethodDelete, membersPath+memberID, "", memberToken, http.StatusConflict)
+
+	invitationsPath := "/api/v1/orgs/" + project.OrgID + "/invitations"
+	inviteBody := `{"email":"owner-roles-invitee@example.com","role":"owner"}`
+	request(http.MethodPost, invitationsPath, inviteBody, adminToken, http.StatusForbidden)
+	invite := request(http.MethodPost, invitationsPath, inviteBody, memberToken, http.StatusCreated)
+	acceptPath := "/api/v1/invitations/" + testutil.RequireType[string](t, invite["id"]) + "/accept"
+	request(http.MethodPost, acceptPath, "", inviteeToken, http.StatusOK)
+
+	listed := request(http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/members", "", adminToken, http.StatusOK)
 	roles := map[any]any{}
 	for _, raw := range testutil.RequireType[[]any](t, listed["data"]) {
 		row := testutil.RequireType[map[string]any](t, raw)
 		roles[row["user_id"]] = row["role"]
 	}
-	if roles[adminUserID] != "owner" || roles[project.AdminUserID] != "admin" {
-		t.Fatalf("roles after transfer = %v, want %s owner and %s admin", roles, adminUserID, project.AdminUserID)
+	want := map[any]any{
+		project.AdminUserID: "admin", adminID: "admin", memberID: "owner", inviteeID: "owner",
 	}
-
-	transfer(adminUserID, project.AdminToken, http.StatusForbidden)
-	if err := store.Identity().TransferOrgOwnership(ctx, identitystore.TransferOrgOwnershipInput{
-		OrgID: project.OrgUUID, OwnerUserID: project.AdminUserUUID, NewOwnerUserID: admin.ID,
-	}); !errors.Is(err, storeerr.ErrUnauthorized) {
-		t.Fatalf("transfer by former owner err = %v, want unauthorized", err)
+	for userID, role := range want {
+		if roles[userID] != role {
+			t.Fatalf("roles = %v, want %v", roles, want)
+		}
 	}
-
-	requestJSONWithHeaders(
-		t, handler, http.MethodDelete, membersPath+"/"+project.AdminUserID, "", "",
-		http.StatusNoContent, authHeaders(project.AdminToken),
-	)
 }
 
 func orderedMemberNames(t *testing.T, data []any) []string {
