@@ -18,15 +18,15 @@ const orgId = fakeId('org'),
   projectId = fakeId('proj'),
   profileId = fakeId('aprf')
 const path = '/api/v1/orgs/' + orgId + '/projects/' + projectId + '/event-webhooks'
-const agentScope: Extract<EventWebhookScope, { kind: 'agent' }> = {
-  kind: 'agent',
+const agentScope: Extract<EventWebhookScope, { type: 'agent' }> = {
+  type: 'agent',
   agent_id: fakeId('agt'),
 }
-const profileScope: Extract<EventWebhookScope, { kind: 'profile' }> = {
-  kind: 'profile',
+const profileScope: Extract<EventWebhookScope, { type: 'profile' }> = {
+  type: 'profile',
   agent_profile_id: profileId,
 }
-const projectScope: EventWebhookScope = { kind: 'project' }
+const projectScope: EventWebhookScope = { type: 'project' }
 const now = '2026-10-23T00:00:00Z'
 function webhook(scope: EventWebhookScope = agentScope, id = fakeId('whk')): EventWebhook {
   return {
@@ -68,22 +68,26 @@ function mount(
   sidebar = false,
 ) {
   let rows = initial
-  let failRead: boolean | EventWebhookScope['kind'] = false
+  let failRead: boolean | EventWebhookScope['type'] = false
+  let readStatus = 500
   let failWrite = false
   const api = fakeApi([
     {
       method: 'GET',
       path,
       respond: ({ url }) =>
-        failRead === true || failRead === url.searchParams.get('scope_kind')
-          ? Response.json({ code: 'internal_error', error: 'Unavailable' }, { status: 500 })
+        failRead === true || failRead === url.searchParams.get('scope_type')
+          ? Response.json(
+              { code: readStatus === 404 ? 'not_found' : 'internal_error', error: 'Unavailable' },
+              { status: readStatus },
+            )
           : Response.json({
               data: rows.filter(
                 (row) =>
-                  row.scope.kind === url.searchParams.get('scope_kind') &&
-                  (row.scope.kind === 'agent' ? row.scope.agent_id : null) ===
+                  row.scope.type === url.searchParams.get('scope_type') &&
+                  (row.scope.type === 'agent' ? row.scope.agent_id : null) ===
                     url.searchParams.get('agent_id') &&
-                  (row.scope.kind === 'profile' ? row.scope.agent_profile_id : null) ===
+                  (row.scope.type === 'profile' ? row.scope.agent_profile_id : null) ===
                     url.searchParams.get('agent_profile_id'),
               ),
             }),
@@ -149,8 +153,9 @@ function mount(
   )
   return {
     api,
-    failRead: (value: boolean | EventWebhookScope['kind']) => {
+    failRead: (value: boolean | EventWebhookScope['type'], status = 500) => {
       failRead = value
+      readStatus = status
     },
     failWrite: (value: boolean) => {
       failWrite = value
@@ -212,7 +217,7 @@ it.each([false, true])(
     expect(
       api
         .requestsTo('GET', path)
-        .map((request) => request.url.searchParams.get('scope_kind'))
+        .map((request) => request.url.searchParams.get('scope_type'))
         .sort((a, b) => (a ?? '').localeCompare(b ?? '')),
     ).toEqual(['agent', 'profile', 'project'])
     expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
@@ -234,7 +239,7 @@ it('shows profile webhooks as editable and project webhooks as inherited on the 
   expect(
     api
       .requestsTo('GET', path)
-      .map((request) => request.url.searchParams.get('scope_kind'))
+      .map((request) => request.url.searchParams.get('scope_type'))
       .sort((a, b) => (a ?? '').localeCompare(b ?? '')),
   ).toEqual(['profile', 'project'])
 })
@@ -247,13 +252,13 @@ it('does not query a profile when the agent has none', async () => {
   expect(
     api
       .requestsTo('GET', path)
-      .map((request) => request.url.searchParams.get('scope_kind'))
+      .map((request) => request.url.searchParams.get('scope_type'))
       .sort((a, b) => (a ?? '').localeCompare(b ?? '')),
   ).toEqual(['agent', 'project'])
 })
 
 it.each([agentScope, profileScope])(
-  'shows $kind webhooks without management controls to readers',
+  'shows $type webhooks without management controls to readers',
   async (scope) => {
     const { api } = mount(
       [webhook(scope), webhook(projectScope, 'whk_' + 'b'.repeat(26))],
@@ -271,7 +276,7 @@ it.each([agentScope, profileScope])(
 )
 
 it.each([agentScope, profileScope])(
-  'shows one plain empty state to $kind readers outside the sidebar',
+  'shows one plain empty state to $type readers outside the sidebar',
   async (scope) => {
     mount([], scope, null, false)
     await waitForUI(() => {
@@ -313,7 +318,7 @@ it('discards an open editor when navigating to another agent', async () => {
 })
 
 it.each([agentScope, profileScope])(
-  'creates a webhook on the displayed $kind without touching config',
+  'creates a webhook on the displayed $type without touching config',
   async (scope) => {
     const { api } = mount([], scope)
     act(() => {
@@ -499,6 +504,31 @@ it('keeps loaded rows visible and retries when an inherited scope fails', async 
   })
   expect(container.querySelectorAll('li')).toHaveLength(2)
 })
+
+it.each([agentScope, profileScope])(
+  'ignores a missing profile only when inherited by the displayed $type',
+  async (scope) => {
+    const fixture = mount(
+      [
+        webhook(),
+        webhook(profileScope, 'whk_' + 'b'.repeat(26)),
+        webhook(projectScope, 'whk_' + 'c'.repeat(26)),
+      ],
+      scope,
+    )
+    await waitForUI(() => {
+      expect(container.querySelectorAll('li')).toHaveLength(scope.type === 'agent' ? 3 : 2)
+    })
+    fixture.failRead('profile', 404)
+    await rendered.cache.invalidateQueries()
+    await waitForUI(() => {
+      expect(container.querySelectorAll('li')).toHaveLength(2)
+      expect(container.querySelectorAll('[role="alert"]')).toHaveLength(
+        scope.type === 'agent' ? 0 : 1,
+      )
+    })
+  },
+)
 
 it('keeps the row and shows the error when deletion fails', async () => {
   const fixture = mount([webhook()])

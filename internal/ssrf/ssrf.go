@@ -4,9 +4,24 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strings"
 )
 
 var ErrBlockedAddress = errors.New("ssrf: address blocked")
+
+type URLHost struct {
+	IP       net.IP
+	LocalDev bool
+}
+
+func ClassifyURLHost(host string) URLHost {
+	normalized := strings.TrimSuffix(strings.ToLower(host), ".")
+	ip := net.ParseIP(normalized)
+	return URLHost{
+		IP:       ip,
+		LocalDev: normalized == "localhost" || (ip != nil && ip.IsLoopback()),
+	}
+}
 
 func IsAllowedIP(ip net.IP, allowLoopback bool) bool {
 	if v4 := ip.To4(); v4 != nil {

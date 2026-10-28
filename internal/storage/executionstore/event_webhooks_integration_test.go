@@ -33,7 +33,7 @@ func createAgentEventWebhook(
 	}
 	record, err := fixture.Store.Execution().CreateEventWebhook(t.Context(), executionstore.CreateEventWebhookInput{
 		ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeAgent,
+			Type: executionstore.EventWebhookScopeAgent,
 			ID:   fixture.AgentID,
 		},
 		Settings: webhookconfig.Settings{URL: "https://example.com/events", EventTypes: eventTypes},
@@ -493,7 +493,7 @@ func TestEventWebhookClaimsShareOrganizationLimits(t *testing.T) {
 	}
 	_, err = fixture.Store.Execution().CreateEventWebhook(ctx, executionstore.CreateEventWebhookInput{
 		ProjectID: otherProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeAgent,
+			Type: executionstore.EventWebhookScopeAgent,
 			ID:   otherAgent.ID,
 		},
 		Settings: webhookconfig.Settings{URL: "https://example.com/events", EventTypes: []string{"tool_call_update"}},

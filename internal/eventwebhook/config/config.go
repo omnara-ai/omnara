@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/base64"
 	"errors"
-	"net"
 	"net/url"
 	"slices"
 	"strings"
@@ -48,9 +47,8 @@ func ValidateURL(raw string) (string, error) {
 	if parsed.User != nil || parsed.Fragment != "" {
 		return "", errors.New("event webhook URL must not contain credentials or a fragment")
 	}
-	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
-	ip := net.ParseIP(host)
-	if host == "localhost" || (ip != nil && !ssrf.IsAllowedIP(ip, false)) {
+	host := ssrf.ClassifyURLHost(parsed.Hostname())
+	if host.LocalDev || (host.IP != nil && !ssrf.IsAllowedIP(host.IP, false)) {
 		return "", errors.New("event webhook URL must target a public host")
 	}
 	normalized := parsed.String()

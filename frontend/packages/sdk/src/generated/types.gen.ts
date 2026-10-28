@@ -336,14 +336,14 @@ export type AgentProfileId = string;
 
 export type EventWebhookId = string;
 
-export type EventWebhookScopeKind = 'project' | 'profile' | 'agent';
+export type EventWebhookScopeType = 'project' | 'profile' | 'agent';
 
 export type ProjectEventWebhookScope = {
-    kind: 'project';
+    type: 'project';
 };
 
 export type AgentProfileEventWebhookScope = {
-    kind: 'profile';
+    type: 'profile';
     agent_profile_id: AgentProfileId;
 };
 
@@ -351,16 +351,16 @@ export type AgentProfileEventWebhookScope = {
  * Watches only this agent, not its descendants.
  */
 export type AgentEventWebhookScope = {
-    kind: 'agent';
+    type: 'agent';
     agent_id: AgentId;
 };
 
 export type EventWebhookScope = ({
-    kind: 'project';
+    type: 'project';
 } & ProjectEventWebhookScope) | ({
-    kind: 'profile';
+    type: 'profile';
 } & AgentProfileEventWebhookScope) | ({
-    kind: 'agent';
+    type: 'agent';
 } & AgentEventWebhookScope);
 
 export type UpdateEventWebhookRequest = {
@@ -4810,7 +4810,7 @@ export type ListEventWebhooksData = {
         projectID: ProjectId;
     };
     query: {
-        scope_kind: EventWebhookScopeKind;
+        scope_type: EventWebhookScopeType;
         agent_profile_id?: AgentProfileId;
         agent_id?: AgentId;
     };

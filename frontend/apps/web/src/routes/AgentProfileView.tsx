@@ -177,7 +177,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         <EventWebhooksSection
           orgId={activeOrg.id}
           projectId={projectId}
-          scope={{ kind: 'profile', agent_profile_id: profile.id }}
+          scope={{ type: 'profile', agent_profile_id: profile.id }}
           canManage={canManage}
         />
       )}

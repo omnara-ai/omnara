@@ -44,7 +44,7 @@ export const listEventWebhooksQueryKey = (options: Options<ListEventWebhooksData
 /**
  * List event webhooks for one scope
  *
- * Returns the directly attached webhooks, not inherited matches. Each scope supports up to 16 webhooks. Requires project read permission.
+ * Returns the webhooks directly attached to the requested scope, not inherited matches.
  */
 export const listEventWebhooksOptions = (options: Options<ListEventWebhooksData>) => queryOptions<ListEventWebhooksResponse2, ListEventWebhooksError, ListEventWebhooksResponse2, ReturnType<typeof listEventWebhooksQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -81,7 +81,7 @@ export const createEventWebhookMutation = (options?: Partial<Options<CreateEvent
 /**
  * Delete an event webhook
  *
- * Stops new deliveries and pending attempts. Requests already in flight may finish.
+ * Deletes the webhook and stops new deliveries and pending attempts. Requests already in flight may finish.
  */
 export const deleteEventWebhookMutation = (options?: Partial<Options<DeleteEventWebhookData>>): UseMutationOptions<DeleteEventWebhookResponse, DeleteEventWebhookError, Options<DeleteEventWebhookData>> => {
     const mutationOptions: UseMutationOptions<DeleteEventWebhookResponse, DeleteEventWebhookError, Options<DeleteEventWebhookData>> = {
@@ -100,7 +100,7 @@ export const deleteEventWebhookMutation = (options?: Partial<Options<DeleteEvent
 /**
  * Update event webhook settings
  *
- * The scope cannot change. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Event filters affect newly queued deliveries; URL and signing changes also apply to pending attempts.
+ * Updates a webhook's URL, event filters, and signing settings. The scope cannot change. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Event filters affect newly queued deliveries; URL and signing changes also apply to pending attempts.
  */
 export const updateEventWebhookMutation = (options?: Partial<Options<UpdateEventWebhookData>>): UseMutationOptions<UpdateEventWebhookResponse, UpdateEventWebhookError, Options<UpdateEventWebhookData>> => {
     const mutationOptions: UseMutationOptions<UpdateEventWebhookResponse, UpdateEventWebhookError, Options<UpdateEventWebhookData>> = {

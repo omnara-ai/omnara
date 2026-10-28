@@ -1,18 +1,26 @@
 -- name: ListMatchingEventWebhooks :many
-SELECT webhook.id, webhook.org_id, webhook.event_types
-FROM agents agent
-JOIN projects project ON project.id = agent.project_id
-JOIN orgs org ON org.id = project.org_id
-JOIN event_webhooks webhook ON webhook.org_id = agent.org_id AND webhook.project_id = agent.project_id AND (
-    (webhook.agent_profile_id IS NULL AND webhook.agent_id IS NULL) OR
-    webhook.agent_profile_id = agent.agent_profile_id OR
-    (webhook.agent_profile_id IS NULL AND webhook.agent_id = agent.id)
+WITH matched AS (
+    SELECT DISTINCT ON (webhook.url, webhook.signing_secret_id, event_type)
+        webhook.id, webhook.org_id, event_type
+    FROM agents agent
+    JOIN projects project ON project.id = agent.project_id
+    JOIN orgs org ON org.id = project.org_id
+    JOIN event_webhooks webhook ON webhook.org_id = agent.org_id AND webhook.project_id = agent.project_id AND (
+        (webhook.agent_profile_id IS NULL AND webhook.agent_id IS NULL) OR
+        webhook.agent_profile_id = agent.agent_profile_id OR
+        (webhook.agent_profile_id IS NULL AND webhook.agent_id = agent.id)
+    )
+    CROSS JOIN LATERAL unnest(webhook.event_types) AS types(event_type)
+    WHERE agent.id = sqlc.arg(agent_id)
+      AND webhook.deleted_at IS NULL
+      AND project.deleted_at IS NULL
+      AND org.deleted_at IS NULL
+    ORDER BY webhook.url, webhook.signing_secret_id, event_type, webhook.id
 )
-WHERE agent.id = sqlc.arg(agent_id)
-  AND webhook.deleted_at IS NULL
-  AND project.deleted_at IS NULL
-  AND org.deleted_at IS NULL
-ORDER BY webhook.id;
+SELECT id, org_id, array_agg(event_type ORDER BY event_type)::text[] AS event_types
+FROM matched
+GROUP BY id, org_id
+ORDER BY id;
 
 -- name: GetEventWebhookEndpoint :one
 SELECT webhook.org_id, webhook.project_id, webhook.url, webhook.signing_secret_id

@@ -3,14 +3,17 @@
 package executionstore_test
 
 import (
+	"encoding/base64"
 	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
 	webhookconfig "github.com/omnara-ai/omnara/internal/eventwebhook/config"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
@@ -26,15 +29,15 @@ func TestEventWebhookScopeFanoutAndLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	otherWebhook, err := store.CreateEventWebhook(f.ctx, executionstore.CreateEventWebhookInput{
 		ProjectID: otherProject.ID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeProject,
+			Type: executionstore.EventWebhookScopeProject,
 		},
 		Settings: settings,
 	})
 	require.NoError(t, err)
 	var webhooks []executionstore.EventWebhookRecord
 	for _, scope := range []executionstore.EventWebhookScope{
-		{Kind: executionstore.EventWebhookScopeProject},
-		{Kind: executionstore.EventWebhookScopeAgentProfile, ID: f.profile.ID},
+		{Type: executionstore.EventWebhookScopeProject},
+		{Type: executionstore.EventWebhookScopeAgentProfile, ID: f.profile.ID},
 	} {
 		webhook, err := store.CreateEventWebhook(f.ctx, executionstore.CreateEventWebhookInput{
 			ProjectID: testProjectID, Scope: scope,
@@ -49,7 +52,7 @@ func TestEventWebhookScopeFanoutAndLifecycle(t *testing.T) {
 	for _, url := range []string{settings.URL, "https://example.com/other"} {
 		_, err := store.CreateEventWebhook(f.ctx, executionstore.CreateEventWebhookInput{
 			ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
-				Kind: executionstore.EventWebhookScopeAgent,
+				Type: executionstore.EventWebhookScopeAgent,
 				ID:   first.Agent.ID,
 			},
 			Settings: webhookconfig.Settings{URL: url, EventTypes: settings.EventTypes},
@@ -60,7 +63,7 @@ func TestEventWebhookScopeFanoutAndLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, otherEndpoint.URL)
 	own, err := store.ListEventWebhooks(f.ctx, testProjectID, executionstore.EventWebhookScope{
-		Kind: executionstore.EventWebhookScopeAgent,
+		Type: executionstore.EventWebhookScopeAgent,
 		ID:   first.Agent.ID,
 	})
 	require.NoError(t, err)
@@ -75,8 +78,8 @@ func TestEventWebhookScopeFanoutAndLifecycle(t *testing.T) {
 		agentID    uuid.UUID
 		webhookIDs []uuid.UUID
 	}{
-		{first.Agent.ID, []uuid.UUID{webhooks[0].ID, webhooks[1].ID, own[0].ID, own[1].ID}},
-		{second.Agent.ID, []uuid.UUID{webhooks[0].ID, webhooks[1].ID}},
+		{first.Agent.ID, []uuid.UUID{webhooks[0].ID, own[1].ID}},
+		{second.Agent.ID, []uuid.UUID{webhooks[0].ID}},
 		{third.Agent.ID, []uuid.UUID{webhooks[0].ID}},
 	} {
 		toolID := uuid.New()
@@ -138,6 +141,99 @@ func TestEventWebhookScopeFanoutAndLifecycle(t *testing.T) {
 	require.NotEmpty(t, endpoint.URL)
 }
 
+func TestEventWebhookDeduplication(t *testing.T) {
+	t.Parallel()
+	f := newIntegrationActivationFixture(t)
+	store := f.store.Execution()
+	launched, err := store.LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
+		ProjectID: testProjectID, ProfileID: f.profile.ID,
+		AgentConfigID: f.profile.CurrentConfigID, LaunchedBy: userPrincipal(f.user.ID),
+	})
+	require.NoError(t, err)
+	agentID := launched.Agent.ID
+	var signingKeys [2]uuid.UUID
+	for i := range signingKeys {
+		secret, _, err := f.store.Secrets().CreateSecret(f.ctx, secretstore.CreateSecretInput{
+			OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: testProjectID,
+			Name: fmt.Sprintf("webhook-signing-%d", i), Actor: userPrincipal(f.user.ID),
+			Material: secrets.GenericMaterial{Value: base64.StdEncoding.EncodeToString(make([]byte, 32))},
+		})
+		require.NoError(t, err)
+		signingKeys[i] = secret.ID
+	}
+	create := func(scope executionstore.EventWebhookScope, url string, key uuid.UUID, eventTypes ...string) uuid.UUID {
+		t.Helper()
+		webhook, err := store.CreateEventWebhook(f.ctx, executionstore.CreateEventWebhookInput{
+			ProjectID: testProjectID, Scope: scope,
+			Settings: webhookconfig.Settings{URL: url, SigningSecretID: key, EventTypes: eventTypes},
+		})
+		require.NoError(t, err)
+		return webhook.ID
+	}
+	project := executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeProject}
+	profile := executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeAgentProfile, ID: f.profile.ID}
+	agent := executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeAgent, ID: agentID}
+	const (
+		unsignedURL = "https://example.com/unsigned"
+		signedURL   = "https://example.com/signed"
+		mixedURL    = "https://example.com/mixed"
+	)
+	inputOwner := create(project, unsignedURL, uuid.Nil, "agent_input")
+	updateOwner := create(profile, unsignedURL, uuid.Nil, "agent_input", "tool_call_update")
+	create(agent, unsignedURL, uuid.Nil, "agent_input", "tool_call_update")
+	signedOwner := create(project, signedURL, signingKeys[0], "agent_input", "tool_call_update")
+	create(profile, signedURL, signingKeys[0], "agent_input", "tool_call_update")
+	otherSigned := create(agent, signedURL, signingKeys[1], "agent_input", "tool_call_update")
+	mixedUnsigned := create(project, mixedURL, uuid.Nil, "agent_input", "tool_call_update")
+	mixedSigned := create(profile, mixedURL, signingKeys[0], "agent_input", "tool_call_update")
+
+	toolID := uuid.New()
+	pending := notifications.NewTxNotifications()
+	pending.AddAgentEvent(agentID, 1, "agent_input")
+	pending.AddAgentEvent(agentID, 2, "agent_input")
+	pending.AddAgentEvent(agentID, 9, "model_output")
+	pending.AddToolCallUpdate(agentID, toolID, "ready", nil)
+	pending.AddToolCallUpdate(agentID, toolID, "completed", nil)
+	unit, err := store.IntegrationBeginUnit(f.ctx)
+	require.NoError(t, err)
+	defer func() { _ = unit.Rollback(f.ctx) }()
+	*unit.Notifications() = *pending
+	require.NoError(t, unit.Commit(f.ctx, "deduplicated webhooks"))
+
+	require.NoError(t, store.DeleteEventWebhook(f.ctx, testProjectID, inputOwner))
+	endpoint, err := store.GetEventWebhookEndpoint(f.ctx, testOrgID, inputOwner, agentID)
+	require.NoError(t, err)
+	require.Empty(t, endpoint.URL)
+	nextUnit, err := store.IntegrationBeginUnit(f.ctx)
+	require.NoError(t, err)
+	defer func() { _ = nextUnit.Rollback(f.ctx) }()
+	nextUnit.Notifications().AddAgentEvent(agentID, 3, "agent_input")
+	require.NoError(t, nextUnit.Commit(f.ctx, "remaining webhook"))
+
+	for _, sequence := range []int64{1, 2, 3} {
+		var ids []uuid.UUID
+		require.NoError(t, f.store.pool.QueryRow(f.ctx,
+			`SELECT array_agg(webhook_id) FROM event_webhook_deliveries WHERE agent_id=$1 AND event_sequence=$2`,
+			agentID, sequence).Scan(&ids))
+		owner := inputOwner
+		if sequence == 3 {
+			owner = updateOwner
+		}
+		require.ElementsMatch(t, []uuid.UUID{owner, signedOwner, otherSigned, mixedUnsigned, mixedSigned}, ids)
+	}
+	for _, state := range []string{"ready", "completed"} {
+		var ids []uuid.UUID
+		require.NoError(t, f.store.pool.QueryRow(f.ctx,
+			`SELECT array_agg(webhook_id) FROM event_webhook_deliveries WHERE tool_call_id=$1 AND tool_state=$2`,
+			toolID, state).Scan(&ids))
+		require.ElementsMatch(t, []uuid.UUID{updateOwner, signedOwner, otherSigned, mixedUnsigned, mixedSigned}, ids)
+	}
+	var filtered int
+	require.NoError(t, f.store.pool.QueryRow(f.ctx,
+		`SELECT count(*) FROM event_webhook_deliveries WHERE agent_id=$1 AND event_sequence=9`, agentID).Scan(&filtered))
+	require.Zero(t, filtered)
+}
+
 func TestEventWebhookEventTypesConstraint(t *testing.T) {
 	t.Parallel()
 	fixture := newProcessDaemonFixture(t, t.Context(), "webhook_event_types")
@@ -166,7 +262,7 @@ func TestEventWebhookScopeValidationAndLimits(t *testing.T) {
 	store := fixture.Store.Execution()
 	input := executionstore.CreateEventWebhookInput{
 		ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeAgent,
+			Type: executionstore.EventWebhookScopeAgent,
 			ID:   fixture.AgentID,
 		},
 		Settings: webhookconfig.Settings{URL: "https://example.com/events",
@@ -193,12 +289,12 @@ func TestEventWebhookScopeValidationAndLimits(t *testing.T) {
 	_, err = store.CreateEventWebhook(t.Context(), input)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	input.ProjectID = testProjectID
-	input.Scope.Kind = "org"
+	input.Scope.Type = "org"
 	input.Scope.ID = uuid.Nil
 	_, err = store.CreateEventWebhook(t.Context(), input)
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 	input.Scope = executionstore.EventWebhookScope{
-		Kind: executionstore.EventWebhookScopeProject,
+		Type: executionstore.EventWebhookScopeProject,
 		ID:   fixture.AgentID,
 	}
 	_, err = store.CreateEventWebhook(t.Context(), input)
@@ -225,25 +321,25 @@ func TestEventWebhookUniqueURLsPerScope(t *testing.T) {
 	require.NoError(t, err)
 	for _, input := range []executionstore.CreateEventWebhookInput{
 		{ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeProject,
+			Type: executionstore.EventWebhookScopeProject,
 		}},
 		{ProjectID: otherProject.ID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeProject,
+			Type: executionstore.EventWebhookScopeProject,
 		}},
 		{ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeAgentProfile,
+			Type: executionstore.EventWebhookScopeAgentProfile,
 			ID:   f.profile.ID,
 		}},
 		{ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeAgentProfile,
+			Type: executionstore.EventWebhookScopeAgentProfile,
 			ID:   otherProfile.ID,
 		}},
 		{ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeAgent,
+			Type: executionstore.EventWebhookScopeAgent,
 			ID:   firstAgent.Agent.ID,
 		}},
 		{ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeAgent,
+			Type: executionstore.EventWebhookScopeAgent,
 			ID:   secondAgent.Agent.ID,
 		}},
 	} {
@@ -292,7 +388,7 @@ func TestEventWebhookConcurrentURLConflict(t *testing.T) {
 	store := f.Store.Execution()
 	input := executionstore.CreateEventWebhookInput{
 		ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeAgent,
+			Type: executionstore.EventWebhookScopeAgent,
 			ID:   f.AgentID,
 		},
 		Settings: webhookconfig.Settings{URL: "https://example.com/original", EventTypes: []string{"tool_call_update"}},
@@ -332,7 +428,7 @@ func TestEventWebhookConcurrentPartialUpdates(t *testing.T) {
 	store := f.Store.Execution()
 	webhook, err := store.CreateEventWebhook(t.Context(), executionstore.CreateEventWebhookInput{
 		ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeAgent,
+			Type: executionstore.EventWebhookScopeAgent,
 			ID:   f.AgentID,
 		},
 		Settings: webhookconfig.Settings{URL: "https://example.com/events", EventTypes: []string{"tool_call_update"}},

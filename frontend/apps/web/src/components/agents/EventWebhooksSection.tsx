@@ -1,5 +1,5 @@
 import { useDeleteEventWebhook, useEventWebhooks } from '@omnara/react'
-import type { EventWebhook, EventWebhookScope } from '@omnara/sdk'
+import { ApiError, type EventWebhook, type EventWebhookScope } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
@@ -22,34 +22,35 @@ interface EventWebhooksSectionProps {
 
 export function EventWebhooksSection(props: EventWebhooksSectionProps) {
   const { orgId, projectId, scope, profileId } = props
-  const inheritsProfile = scope.kind === 'agent' && !!profileId
-  const inheritsProject = scope.kind !== 'project'
+  const inheritsProfile = scope.type === 'agent' && !!profileId
+  const inheritsProject = scope.type !== 'project'
   const direct = useEventWebhooks(orgId, projectId, scope)
   const profile = useEventWebhooks(
     orgId,
     projectId,
-    { kind: 'profile', agent_profile_id: profileId ?? '' },
+    { type: 'profile', agent_profile_id: profileId ?? '' },
     { enabled: inheritsProfile },
   )
   const project = useEventWebhooks(
     orgId,
     projectId,
-    { kind: 'project' },
+    { type: 'project' },
     { enabled: inheritsProject },
   )
+  const profileMissing = profile.error instanceof ApiError && profile.error.status === 404
   return (
     <EventWebhooksList
       key={
-        scope.kind === 'agent'
+        scope.type === 'agent'
           ? scope.agent_id
-          : scope.kind === 'profile'
+          : scope.type === 'profile'
             ? scope.agent_profile_id
             : projectId
       }
       {...props}
       queries={[
         direct,
-        ...(inheritsProfile ? [profile] : []),
+        ...(inheritsProfile && !profileMissing ? [profile] : []),
         ...(inheritsProject ? [project] : []),
       ]}
     />
@@ -93,12 +94,12 @@ function EventWebhooksList({
             className={cn('flex flex-col divide-y', sidebar && 'bg-background rounded-md border')}
           >
             {webhooks.map((webhook) => {
-              const inherited = webhook.scope.kind !== scope.kind
+              const inherited = webhook.scope.type !== scope.type
               const scopeLabel = {
                 project: 'Project webhook',
                 profile: 'Profile webhook',
                 agent: 'Agent webhook',
-              }[webhook.scope.kind]
+              }[webhook.scope.type]
               return (
                 <li
                   key={webhook.id}
@@ -118,7 +119,7 @@ function EventWebhooksList({
                       {webhook.event_types.join(', ')}
                     </p>
                     <p className="text-muted-foreground text-xs">
-                      {inherited && webhook.scope.kind === 'profile' ? (
+                      {inherited && webhook.scope.type === 'profile' ? (
                         <Link
                           to="/projects/$projectId/agent-profiles/$profileId/webhooks"
                           params={{ projectId, profileId: webhook.scope.agent_profile_id }}

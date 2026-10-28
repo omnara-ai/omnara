@@ -18,9 +18,9 @@ export function useEventWebhooks(
       client,
       path: { orgID, projectID },
       query: {
-        scope_kind: scope.kind,
-        agent_profile_id: scope.kind === 'profile' ? scope.agent_profile_id : undefined,
-        agent_id: scope.kind === 'agent' ? scope.agent_id : undefined,
+        scope_type: scope.type,
+        agent_profile_id: scope.type === 'profile' ? scope.agent_profile_id : undefined,
+        agent_id: scope.type === 'agent' ? scope.agent_id : undefined,
       },
     }),
     enabled: options?.enabled,

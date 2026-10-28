@@ -13,7 +13,7 @@ Create a webhook with `POST /orgs/{orgID}/projects/{projectID}/event-webhooks`:
 ```json
 {
   "scope": {
-    "kind": "profile",
+    "type": "profile",
     "agent_profile_id": "aprf_5n6a2bfgik7mv4qtrwz3jehcyd"
   },
   "url": "https://example.com/events",
@@ -21,11 +21,11 @@ Create a webhook with `POST /orgs/{orgID}/projects/{projectID}/event-webhooks`:
 }
 ```
 
-Each webhook watches a project, profile, or single agent. Profile webhooks cover existing and future agents of that profile; agent webhooks do not include descendants. Matching scopes are additive, including when their URLs are identical. Each project, profile, or agent can have up to 16 directly attached webhooks, with one webhook per URL. Listing requires project read permission; changes require project management permission.
+Each webhook watches a project, profile, or single agent. Profile webhooks cover existing and future agents of that profile; agent webhooks do not include descendants. Matching scopes are additive; overlapping subscriptions with the same URL and signing-secret ID queue only one delivery per event. Each project, profile, or agent can have up to 16 directly attached webhooks, with one webhook per URL. Listing requires project read permission; changes require project management permission.
 
 See the API reference to [list](/api-reference/endpoints/events/list-event-webhooks-for-one-scope), [update](/api-reference/endpoints/events/update-event-webhook-settings), or [delete](/api-reference/endpoints/events/delete-an-event-webhook) webhooks. In the dashboard, manage webhooks from the profile’s Webhooks tab or the agent’s sidebar. Inherited webhooks are shown read-only; project webhooks are managed through the API. To receive events from launch onward, configure a profile webhook before launching its agents.
 
-The required `event_types` allowlist selects `agent_input`, `model_output`, `tool_result`, `context_checkpoint`, or `tool_call_update`. New webhooks and filter changes affect future events, with no historical replay. URL/signing changes apply to pending attempts too. Removing a webhook stops pending attempts; in-flight requests may finish. Deleting a profile removes its webhooks.
+The required `event_types` allowlist selects `agent_input`, `model_output`, `tool_result`, `context_checkpoint`, or `tool_call_update`. New webhooks and filter changes affect future events, with no historical replay. URL/signing changes apply to pending attempts too. Removing the selected webhook stops its pending attempts without transferring them to another webhook; in-flight requests may finish. Deleting a profile removes its webhooks.
 
 Deliveries retry independently for up to ten minutes, with a five-second request timeout and exponential backoff with jitter. Return `2xx` to acknowledge receipt. Events may arrive more than once or out of order; deduplicate deliveries by `Webhook-Id` and custom tool execution by tool-call ID.
 

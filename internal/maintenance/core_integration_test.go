@@ -77,7 +77,7 @@ func seedMaintenanceWebhookDelivery(t *testing.T) (*pgxpool.Pool, *storage.Store
 	}
 	storagefixture.SeedProject(t, ctx, pool, ids, time.Now().UTC())
 	_, err := store.Execution().CreateEventWebhook(ctx, executionstore.CreateEventWebhookInput{
-		ProjectID: ids.ProjectID, Scope: executionstore.EventWebhookScope{Kind: executionstore.EventWebhookScopeProject},
+		ProjectID: ids.ProjectID, Scope: executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeProject},
 		Settings: webhookconfig.Settings{URL: "https://example.com/events", EventTypes: []string{"agent_input"}},
 	})
 	require.NoError(t, err)

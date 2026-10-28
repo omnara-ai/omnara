@@ -105,7 +105,7 @@ export function EventWebhookDialog({
         <DialogHeader>
           <DialogTitle>{webhook ? 'Edit webhook' : 'Add webhook'}</DialogTitle>
           <DialogDescription>
-            {scope.kind === 'profile'
+            {scope.type === 'profile'
               ? 'Receive future events from existing and new agents of this profile.'
               : 'Receive future events from this agent only, not its descendants.'}
           </DialogDescription>

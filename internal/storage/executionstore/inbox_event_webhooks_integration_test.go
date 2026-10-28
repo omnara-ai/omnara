@@ -18,7 +18,7 @@ func TestInboxLaunchEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	integration := newIntegrationActivationFixture(t)
 	_, err := integration.store.Execution().CreateEventWebhook(t.Context(), executionstore.CreateEventWebhookInput{
 		ProjectID: testProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeAgentProfile,
+			Type: executionstore.EventWebhookScopeAgentProfile,
 			ID:   integration.profile.ID,
 		},
 		Settings: webhookconfig.Settings{URL: "https://example.com/events", EventTypes: []string{"agent_input"}},

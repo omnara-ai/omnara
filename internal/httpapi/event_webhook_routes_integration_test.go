@@ -28,14 +28,14 @@ func TestEventWebhookRoutes(t *testing.T) {
 	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		integrationHTTPJSON(t, plainLaunch), "webhook-agent", http.StatusCreated, authHeaders(f.launchToken))
 	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent"])["id"])
-	for _, kind := range []string{"project", "profile", "agent"} {
-		scope := map[string]any{"kind": kind}
-		query := "?scope_kind=" + kind
-		if kind == "profile" {
+	for _, scopeType := range []string{"project", "profile", "agent"} {
+		scope := map[string]any{"type": scopeType}
+		query := "?scope_type=" + scopeType
+		if scopeType == "profile" {
 			scope["agent_profile_id"] = f.profileID
 			query += "&agent_profile_id=" + f.profileID
 		}
-		if kind == "agent" {
+		if scopeType == "agent" {
 			scope["agent_id"] = agentID
 			query += "&agent_id=" + agentID
 		}
@@ -70,6 +70,11 @@ func TestEventWebhookRoutes(t *testing.T) {
 		require.Equal(t, []any{first}, listed["data"])
 		requestJSONWithHeaders(t, f.handler, http.MethodGet,
 			endpoint+query, "", "", http.StatusOK, authHeaders(operator))
+		if scopeType != "project" {
+			requestJSONWithHeaders(t, f.handler, http.MethodGet,
+				other.ProjectPath+"/event-webhooks"+query, "", "", http.StatusNotFound,
+				authHeaders(f.project.AdminToken))
+		}
 		for _, method := range []string{http.MethodPatch, http.MethodDelete} {
 			deniedBody := ""
 			if method == http.MethodPatch {
@@ -106,11 +111,11 @@ func TestEventWebhookRoutes(t *testing.T) {
 	}
 
 	for _, scope := range []map[string]any{
-		{"kind": "org"},
+		{"type": "org"},
 		{},
-		{"kind": "project", "agent_id": agentID},
-		{"kind": "agent"},
-		{"kind": "profile", "agent_id": agentID},
+		{"type": "project", "agent_id": agentID},
+		{"type": "agent"},
+		{"type": "profile", "agent_id": agentID},
 	} {
 		requestJSONWithHeaders(t, f.handler, http.MethodPost, endpoint, integrationHTTPJSON(t,
 			map[string]any{"scope": scope, "url": "https://example.com/events",
@@ -118,16 +123,29 @@ func TestEventWebhookRoutes(t *testing.T) {
 			"", http.StatusBadRequest, authHeaders(f.project.AdminToken))
 	}
 	for _, query := range []string{
-		"", "?scope_kind=org", "?scope_kind=agent", "?scope_kind=project&agent_id=" + agentID,
+		"", "?scope_type=org", "?scope_type=agent", "?scope_type=project&agent_id=" + agentID,
+		"?scope_type=agent&agent_id=invalid", "?scope_type=profile&agent_profile_id=invalid",
 	} {
 		requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+query, "", "",
 			http.StatusBadRequest, authHeaders(f.project.AdminToken))
 	}
+	for _, query := range []string{
+		"?scope_type=agent&agent_id=" + testPublicID(t, publicid.KindAgent, uuid.New()),
+		"?scope_type=profile&agent_profile_id=" + testPublicID(t, publicid.KindAgentProfile, uuid.New()),
+	} {
+		requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+query, "", "",
+			http.StatusNotFound, authHeaders(f.project.AdminToken))
+	}
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, other.ProjectPath+"/event-webhooks",
 		integrationHTTPJSON(t, map[string]any{
-			"scope": map[string]any{"kind": "agent", "agent_id": agentID},
+			"scope": map[string]any{"type": "agent", "agent_id": agentID},
 			"url":   "https://example.com/events", "event_types": []string{"tool_call_update"},
 		}), "", http.StatusNotFound, authHeaders(f.project.AdminToken))
+	require.NoError(t, f.project.Store.Execution().DeleteAgentProfile(t.Context(), f.project.ProjectUUID,
+		mustPublicHTTPID(t, publicid.KindAgentProfile, f.profileID)))
+	requestJSONWithHeaders(t, f.handler, http.MethodGet,
+		endpoint+"?scope_type=profile&agent_profile_id="+f.profileID, "", "",
+		http.StatusNotFound, authHeaders(f.project.AdminToken))
 }
 
 func TestEventWebhookSigningSecrets(t *testing.T) {
@@ -148,7 +166,7 @@ func TestEventWebhookSigningSecrets(t *testing.T) {
 			}
 			secret, _, err := project.Store.Secrets().CreateSecret(t.Context(), input)
 			require.NoError(t, err)
-			body := map[string]any{"scope": map[string]any{"kind": "project"},
+			body := map[string]any{"scope": map[string]any{"type": "project"},
 				"url":               "https://example.com/events",
 				"event_types":       []string{"tool_call_update"},
 				"signing_secret_id": testPublicID(t, publicid.KindSecret, secret.ID)}
@@ -211,7 +229,7 @@ func TestEventWebhookSigningValidationUsesTransactionConnection(t *testing.T) {
 	}
 	webhook, err := project.Store.Execution().CreateEventWebhook(ctx, executionstore.CreateEventWebhookInput{
 		ProjectID: project.ProjectUUID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeProject,
+			Type: executionstore.EventWebhookScopeProject,
 		}, Settings: settings,
 	})
 	require.NoError(t, err)
@@ -230,7 +248,7 @@ func TestProfileEventWebhookReceivesLaunchEvents(t *testing.T) {
 	webhook := requestJSONWithHeaders(t, f.handler, http.MethodPost,
 		f.project.ProjectPath+"/event-webhooks",
 		integrationHTTPJSON(t, map[string]any{
-			"scope": map[string]any{"kind": "profile",
+			"scope": map[string]any{"type": "profile",
 				"agent_profile_id": f.profileID},
 			"url": "https://example.com/events", "event_types": []string{"agent_input"},
 		}), "", http.StatusCreated, authHeaders(f.project.AdminToken))

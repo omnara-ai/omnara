@@ -120,7 +120,7 @@ export function AgentSidebar({
               <EventWebhooksSection
                 orgId={orgId}
                 projectId={projectId}
-                scope={{ kind: 'agent', agent_id: agent.id }}
+                scope={{ type: 'agent', agent_id: agent.id }}
                 canManage={canManage}
                 profileId={agent.agent_profile_id}
                 sidebar

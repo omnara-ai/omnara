@@ -326,18 +326,18 @@ export const zAgentProfileId = z.string().regex(/^aprf_[a-z2-7]{26}$/);
 
 export const zEventWebhookId = z.string().regex(/^whk_[a-z2-7]{26}$/);
 
-export const zEventWebhookScopeKind = z.enum([
+export const zEventWebhookScopeType = z.enum([
     'project',
     'profile',
     'agent'
 ]);
 
 export const zProjectEventWebhookScope = z.object({
-    kind: z.enum(['project'])
+    type: z.enum(['project'])
 });
 
 export const zAgentProfileEventWebhookScope = z.object({
-    kind: z.enum(['profile']),
+    type: z.enum(['profile']),
     agent_profile_id: zAgentProfileId
 });
 
@@ -345,14 +345,14 @@ export const zAgentProfileEventWebhookScope = z.object({
  * Watches only this agent, not its descendants.
  */
 export const zAgentEventWebhookScope = z.object({
-    kind: z.enum(['agent']),
+    type: z.enum(['agent']),
     agent_id: zAgentId
 });
 
-export const zEventWebhookScope = z.discriminatedUnion('kind', [
-    zProjectEventWebhookScope.extend({ kind: z.literal('project') }),
-    zAgentProfileEventWebhookScope.extend({ kind: z.literal('profile') }),
-    zAgentEventWebhookScope.extend({ kind: z.literal('agent') })
+export const zEventWebhookScope = z.discriminatedUnion('type', [
+    zProjectEventWebhookScope.extend({ type: z.literal('project') }),
+    zAgentProfileEventWebhookScope.extend({ type: z.literal('profile') }),
+    zAgentEventWebhookScope.extend({ type: z.literal('agent') })
 ]);
 
 export const zEventWebhookEventType = z.enum([
@@ -3784,7 +3784,7 @@ export const zListEventWebhooksPath = z.object({
 });
 
 export const zListEventWebhooksQuery = z.object({
-    scope_kind: zEventWebhookScopeKind,
+    scope_type: zEventWebhookScopeType,
     agent_profile_id: zAgentProfileId.optional(),
     agent_id: zAgentId.optional()
 });

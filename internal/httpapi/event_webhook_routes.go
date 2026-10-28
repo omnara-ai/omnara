@@ -12,12 +12,12 @@ import (
 )
 
 func parseEventWebhookScope(input openapi.EventWebhookScope) (executionstore.EventWebhookScope, error) {
-	kind, err := input.Discriminator()
+	scopeType, err := input.Discriminator()
 	if err != nil {
 		return executionstore.EventWebhookScope{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid scope")
 	}
 	var profileID, agentID *string
-	switch executionstore.EventWebhookScopeKind(kind) {
+	switch executionstore.EventWebhookScopeType(scopeType) {
 	case executionstore.EventWebhookScopeProject:
 	case executionstore.EventWebhookScopeAgentProfile:
 		scope, err := input.AsAgentProfileEventWebhookScope()
@@ -32,21 +32,21 @@ func parseEventWebhookScope(input openapi.EventWebhookScope) (executionstore.Eve
 		}
 		agentID = &scope.AgentId
 	}
-	return parseEventWebhookScopeIDs(executionstore.EventWebhookScopeKind(kind), profileID, agentID)
+	return parseEventWebhookScopeIDs(executionstore.EventWebhookScopeType(scopeType), profileID, agentID)
 }
 
 func parseEventWebhookScopeIDs(
-	kind executionstore.EventWebhookScopeKind, profileID, agentID *string,
+	scopeType executionstore.EventWebhookScopeType, profileID, agentID *string,
 ) (executionstore.EventWebhookScope, error) {
-	scope := executionstore.EventWebhookScope{Kind: kind}
+	scope := executionstore.EventWebhookScope{Type: scopeType}
 	var rawID *string
 	var idKind publicid.Kind
 	switch {
-	case kind == executionstore.EventWebhookScopeProject && profileID == nil && agentID == nil:
+	case scopeType == executionstore.EventWebhookScopeProject && profileID == nil && agentID == nil:
 		return scope, nil
-	case kind == executionstore.EventWebhookScopeAgentProfile && profileID != nil && agentID == nil:
+	case scopeType == executionstore.EventWebhookScopeAgentProfile && profileID != nil && agentID == nil:
 		rawID, idKind = profileID, publicid.KindAgentProfile
-	case kind == executionstore.EventWebhookScopeAgent && agentID != nil && profileID == nil:
+	case scopeType == executionstore.EventWebhookScopeAgent && agentID != nil && profileID == nil:
 		rawID, idKind = agentID, publicid.KindAgent
 	default:
 		return scope, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid webhook scope")
@@ -61,10 +61,10 @@ func parseEventWebhookScopeIDs(
 
 func eventWebhookScopeResponse(scope executionstore.EventWebhookScope) (openapi.EventWebhookScope, error) {
 	var response openapi.EventWebhookScope
-	switch scope.Kind {
+	switch scope.Type {
 	case executionstore.EventWebhookScopeProject:
 		err := response.FromProjectEventWebhookScope(openapi.ProjectEventWebhookScope{
-			Kind: openapi.ProjectEventWebhookScopeKindProject,
+			Type: openapi.ProjectEventWebhookScopeTypeProject,
 		})
 		return response, err
 	case executionstore.EventWebhookScopeAgentProfile:
@@ -73,7 +73,7 @@ func eventWebhookScopeResponse(scope executionstore.EventWebhookScope) (openapi.
 			return response, err
 		}
 		err = response.FromAgentProfileEventWebhookScope(openapi.AgentProfileEventWebhookScope{
-			Kind: openapi.AgentProfileEventWebhookScopeKindProfile, AgentProfileId: id,
+			Type: openapi.AgentProfileEventWebhookScopeTypeProfile, AgentProfileId: id,
 		})
 		return response, err
 	case executionstore.EventWebhookScopeAgent:
@@ -82,7 +82,7 @@ func eventWebhookScopeResponse(scope executionstore.EventWebhookScope) (openapi.
 			return response, err
 		}
 		err = response.FromAgentEventWebhookScope(openapi.AgentEventWebhookScope{
-			Kind: openapi.AgentEventWebhookScopeKindAgent, AgentId: id,
+			Type: openapi.AgentEventWebhookScopeTypeAgent, AgentId: id,
 		})
 		return response, err
 	default:
@@ -176,7 +176,7 @@ func (s strictOpenAPIServer) ListEventWebhooks(
 	if err != nil {
 		return nil, err
 	}
-	scope, err := parseEventWebhookScopeIDs(executionstore.EventWebhookScopeKind(request.Params.ScopeKind),
+	scope, err := parseEventWebhookScopeIDs(executionstore.EventWebhookScopeType(request.Params.ScopeType),
 		request.Params.AgentProfileId, request.Params.AgentId)
 	if err != nil {
 		return nil, err

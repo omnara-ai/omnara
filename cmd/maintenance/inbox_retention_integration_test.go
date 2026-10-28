@@ -48,7 +48,7 @@ model:
 	require.NoError(t, err)
 	_, err = store.Execution().CreateEventWebhook(ctx, executionstore.CreateEventWebhookInput{
 		ProjectID: ids.ProjectID, Scope: executionstore.EventWebhookScope{
-			Kind: executionstore.EventWebhookScopeAgentProfile,
+			Type: executionstore.EventWebhookScopeAgentProfile,
 			ID:   profile.ID,
 		},
 		Settings: webhookconfig.Settings{URL: "https://example.com/events", EventTypes: []string{"agent_input"}},

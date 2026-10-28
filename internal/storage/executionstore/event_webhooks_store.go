@@ -20,21 +20,21 @@ import (
 
 const MaxEventWebhooksPerScope = 16
 
-type EventWebhookScopeKind string
+type EventWebhookScopeType string
 
 const (
-	EventWebhookScopeProject      EventWebhookScopeKind = "project"
-	EventWebhookScopeAgentProfile EventWebhookScopeKind = "profile"
-	EventWebhookScopeAgent        EventWebhookScopeKind = "agent"
+	EventWebhookScopeProject      EventWebhookScopeType = "project"
+	EventWebhookScopeAgentProfile EventWebhookScopeType = "profile"
+	EventWebhookScopeAgent        EventWebhookScopeType = "agent"
 )
 
 type EventWebhookScope struct {
-	Kind EventWebhookScopeKind
+	Type EventWebhookScopeType
 	ID   uuid.UUID
 }
 
 func (scope EventWebhookScope) Validate() error {
-	switch scope.Kind {
+	switch scope.Type {
 	case EventWebhookScopeProject:
 		if scope.ID == uuid.Nil {
 			return nil
@@ -83,12 +83,12 @@ func eventWebhookRecordFromSQLC(row dbsqlc.EventWebhook) EventWebhookRecord {
 
 func eventWebhookScopeFromColumns(agentProfileID, agentID *uuid.UUID) EventWebhookScope {
 	if agentProfileID != nil {
-		return EventWebhookScope{Kind: EventWebhookScopeAgentProfile, ID: *agentProfileID}
+		return EventWebhookScope{Type: EventWebhookScopeAgentProfile, ID: *agentProfileID}
 	}
 	if agentID != nil {
-		return EventWebhookScope{Kind: EventWebhookScopeAgent, ID: *agentID}
+		return EventWebhookScope{Type: EventWebhookScopeAgent, ID: *agentID}
 	}
-	return EventWebhookScope{Kind: EventWebhookScopeProject}
+	return EventWebhookScope{Type: EventWebhookScopeProject}
 }
 
 func validateEventWebhookScopeTx(ctx context.Context, tx pgx.Tx, projectID uuid.UUID, scope EventWebhookScope) error {
@@ -96,11 +96,11 @@ func validateEventWebhookScopeTx(ctx context.Context, tx pgx.Tx, projectID uuid.
 		return err
 	}
 	q := dbsqlc.New(tx)
-	if scope.Kind == EventWebhookScopeAgentProfile {
+	if scope.Type == EventWebhookScopeAgentProfile {
 		_, err := lockAgentProfileTx(ctx, q, projectID, scope.ID)
 		return err
 	}
-	if scope.Kind == EventWebhookScopeAgent {
+	if scope.Type == EventWebhookScopeAgent {
 		_, err := q.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{ProjectID: projectID, ID: scope.ID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return storeerr.ErrNotFound
@@ -160,7 +160,7 @@ func (s *Store) CreateEventWebhook(ctx context.Context, input CreateEventWebhook
 		return EventWebhookRecord{}, err
 	}
 	if err := lockResourceCreation(ctx, q, "event_webhooks",
-		fmt.Sprintf("%s/%s/%s", input.ProjectID, input.Scope.Kind, input.Scope.ID)); err != nil {
+		fmt.Sprintf("%s/%s/%s", input.ProjectID, input.Scope.Type, input.Scope.ID)); err != nil {
 		return EventWebhookRecord{}, err
 	}
 	settings, err := s.validateEventWebhookSettingsTx(ctx, tx, project.OrgID, input.ProjectID, input.Settings)
@@ -195,7 +195,7 @@ func (s *Store) CreateEventWebhook(ctx context.Context, input CreateEventWebhook
 
 func eventWebhookListParams(projectID uuid.UUID, scope EventWebhookScope) dbsqlc.ListEventWebhooksParams {
 	params := dbsqlc.ListEventWebhooksParams{ProjectID: projectID}
-	switch scope.Kind {
+	switch scope.Type {
 	case EventWebhookScopeProject:
 	case EventWebhookScopeAgentProfile:
 		params.AgentProfileID = &scope.ID
@@ -209,6 +209,20 @@ func (s *Store) ListEventWebhooks(
 	ctx context.Context, projectID uuid.UUID, scope EventWebhookScope,
 ) ([]EventWebhookRecord, error) {
 	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	var err error
+	switch scope.Type {
+	case EventWebhookScopeProject:
+	case EventWebhookScopeAgentProfile:
+		_, err = s.q.GetAgentProfile(ctx, dbsqlc.GetAgentProfileParams{ProjectID: projectID, ID: scope.ID})
+	case EventWebhookScopeAgent:
+		_, err = s.q.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{ProjectID: projectID, ID: scope.ID})
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, storeerr.ErrNotFound
+	}
+	if err != nil {
 		return nil, err
 	}
 	rows, err := s.q.ListEventWebhooks(ctx, eventWebhookListParams(projectID, scope))

@@ -96,13 +96,13 @@ paths:
       operationId: listEventWebhooks
       tags: [Events]
       summary: List event webhooks for one scope
-      description: Returns the directly attached webhooks, not inherited matches. Each scope supports up to 16 webhooks. Requires project read permission.
+      description: Returns the webhooks directly attached to the requested scope, not inherited matches.
       parameters:
-        - name: scope_kind
+        - name: scope_type
           in: query
           required: true
           schema:
-            $ref: '#/components/schemas/EventWebhookScopeKind'
+            $ref: '#/components/schemas/EventWebhookScopeType'
         - name: agent_profile_id
           in: query
           required: false
@@ -195,7 +195,7 @@ paths:
       operationId: updateEventWebhook
       tags: [Events]
       summary: Update event webhook settings
-      description: The scope cannot change. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Event filters affect newly queued deliveries; URL and signing changes also apply to pending attempts.
+      description: Updates a webhook's URL, event filters, and signing settings. The scope cannot change. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Event filters affect newly queued deliveries; URL and signing changes also apply to pending attempts.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -233,7 +233,7 @@ paths:
       operationId: deleteEventWebhook
       tags: [Events]
       summary: Delete an event webhook
-      description: Stops new deliveries and pending attempts. Requests already in flight may finish.
+      description: Deletes the webhook and stops new deliveries and pending attempts. Requests already in flight may finish.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -9883,40 +9883,40 @@ components:
     EventWebhookID:
       type: string
       pattern: '^whk_[a-z2-7]{26}$'
-    EventWebhookScopeKind:
+    EventWebhookScopeType:
       type: string
       enum: [project, profile, agent]
       x-enum-varnames: [EventWebhookScopeProject, EventWebhookScopeAgentProfile, EventWebhookScopeAgent]
     ProjectEventWebhookScope:
       type: object
       additionalProperties: false
-      required: [kind]
+      required: [type]
       properties:
-        kind:
+        type:
           type: string
           enum: [project]
-          x-enum-varnames: [ProjectEventWebhookScopeKindProject]
+          x-enum-varnames: [ProjectEventWebhookScopeTypeProject]
     AgentProfileEventWebhookScope:
       type: object
       additionalProperties: false
-      required: [kind, agent_profile_id]
+      required: [type, agent_profile_id]
       properties:
-        kind:
+        type:
           type: string
           enum: [profile]
-          x-enum-varnames: [AgentProfileEventWebhookScopeKindProfile]
+          x-enum-varnames: [AgentProfileEventWebhookScopeTypeProfile]
         agent_profile_id:
           $ref: '#/components/schemas/AgentProfileID'
     AgentEventWebhookScope:
       type: object
       additionalProperties: false
-      required: [kind, agent_id]
+      required: [type, agent_id]
       description: Watches only this agent, not its descendants.
       properties:
-        kind:
+        type:
           type: string
           enum: [agent]
-          x-enum-varnames: [AgentEventWebhookScopeKindAgent]
+          x-enum-varnames: [AgentEventWebhookScopeTypeAgent]
         agent_id:
           $ref: '#/components/schemas/AgentID'
     EventWebhookScope:
@@ -9925,7 +9925,7 @@ components:
         - $ref: '#/components/schemas/AgentProfileEventWebhookScope'
         - $ref: '#/components/schemas/AgentEventWebhookScope'
       discriminator:
-        propertyName: kind
+        propertyName: type
         mapping:
           project: '#/components/schemas/ProjectEventWebhookScope'
           profile: '#/components/schemas/AgentProfileEventWebhookScope'
