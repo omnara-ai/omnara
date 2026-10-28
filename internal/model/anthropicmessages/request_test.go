@@ -919,3 +919,37 @@ func TestPrepareSendsSafetyIdentifierPerHost(t *testing.T) {
 		}
 	}
 }
+
+func TestPrepareDropsTopLevelSchemaCompositions(t *testing.T) {
+	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test"}
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			Messages: []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "hi")},
+			ToolSpecs: []modelcontext.ToolSpec{{
+				Name:        "mcp__omnara__agents_launch",
+				Description: "Launches an agent.",
+				InputSchema: json.RawMessage(
+					`{"type":"object","properties":{"profile":{"type":"string"},"config":{"type":"string"}},` +
+						`"oneOf":[{"required":["profile"]},{"required":["config"]}]}`,
+				),
+			}},
+		},
+		Policy: model.RequestPolicy{MaxOutputTokens: 1024},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	var payload struct {
+		Tools []toolDefinition `json:"tools"`
+	}
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	tool := payload.Tools[0]
+	if strings.Contains(string(tool.InputSchema), "oneOf") {
+		t.Fatalf("input_schema keeps top-level oneOf: %s", tool.InputSchema)
+	}
+	if tool.Description != "Launches an agent. Provide exactly one of: profile; config." {
+		t.Fatalf("description = %q", tool.Description)
+	}
+}
