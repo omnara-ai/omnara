@@ -90,7 +90,7 @@ Two rules worth internalizing:
 
 ## Rate limits
 
-Requests count against two allowances per user, or per org for org API keys: 10,000 reads (`GET`) and 5,000 other requests per hour, refilling continuously, with bursts of up to 100. Over a limit, requests fail with `429`, code `rate_limited`, and a `Retry-After` header; MCP tool calls return a tool error with the same code. Use the [event stream](/events/streaming) or an [event webhook](/agents/configuration#event-webhook) instead of polling. Self-hosted deployments can [change these limits](/self-hosting/configuration#api-rate-limits).
+Requests count against two allowances per user, or per org for org API keys: 100,000 reads (`GET`) and 50,000 other requests per hour, refilling continuously, with bursts of up to 1,000. Over a limit, requests fail with `429`, code `rate_limited`, and a `Retry-After` header; MCP tool calls return a tool error with the same code. Use the [event stream](/events/streaming) or an [event webhook](/agents/configuration#event-webhook) instead of polling. Self-hosted deployments can [change these limits](/self-hosting/configuration#api-rate-limits).
 
 ## Request size limits
 

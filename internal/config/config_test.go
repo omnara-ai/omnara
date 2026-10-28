@@ -581,7 +581,7 @@ func TestLoadAPIRateLimitDefaults(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 	got := []int{cfg.APIRateLimitReadsPerHour, cfg.APIRateLimitWritesPerHour, cfg.APIRateLimitBurst}
-	if want := []int{10000, 5000, 100}; !slices.Equal(got, want) {
+	if want := []int{100000, 50000, 1000}; !slices.Equal(got, want) {
 		t.Fatalf("reads, writes, burst = %v, want %v", got, want)
 	}
 }

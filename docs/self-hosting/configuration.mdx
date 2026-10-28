@@ -174,9 +174,9 @@ Limits apply per user, per org for org API keys, and per machine for machine dae
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
-| `OMNARA_API_RATE_LIMIT_READS_PER_HOUR` | `GET` requests per hour for each user, org or machine; `0` leaves reads unlimited. | `10000` | No |
-| `OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR` | Other requests per hour for each user, org or machine; `0` leaves writes unlimited. | `5000` | No |
-| `OMNARA_API_RATE_LIMIT_BURST` | Requests each user, org or machine can make at once, for reads and writes separately. | `100` | No |
+| `OMNARA_API_RATE_LIMIT_READS_PER_HOUR` | `GET` requests per hour for each user, org or machine; `0` leaves reads unlimited. | `100000` | No |
+| `OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR` | Other requests per hour for each user, org or machine; `0` leaves writes unlimited. | `50000` | No |
+| `OMNARA_API_RATE_LIMIT_BURST` | Requests each user, org or machine can make at once, for reads and writes separately. | `1000` | No |
 
 ## Email
 

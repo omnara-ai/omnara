@@ -254,15 +254,15 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	apiRateLimitReadsPerHour, err := getenvInt("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", 10000)
+	apiRateLimitReadsPerHour, err := getenvInt("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", 100000)
 	if err != nil {
 		return Config{}, err
 	}
-	apiRateLimitWritesPerHour, err := getenvInt("OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR", 5000)
+	apiRateLimitWritesPerHour, err := getenvInt("OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR", 50000)
 	if err != nil {
 		return Config{}, err
 	}
-	apiRateLimitBurst, err := getenvInt("OMNARA_API_RATE_LIMIT_BURST", 100)
+	apiRateLimitBurst, err := getenvInt("OMNARA_API_RATE_LIMIT_BURST", 1000)
 	if err != nil {
 		return Config{}, err
 	}
