@@ -1,9 +1,6 @@
 -- +goose Up
 
--- Compiled configs are deduplicated per project by their effective definition
--- hash. agent_configs keeps one row per submitted version: its id is the stable
--- public config id and its source is preserved verbatim. Versions that compile
--- to the same thing share a definition instead of colliding.
+-- Versions that compile to the same thing share one definition per project.
 CREATE TABLE agent_config_definitions (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     org_id uuid NOT NULL REFERENCES orgs(id),
@@ -63,9 +60,8 @@ WHERE definition.project_id = config.project_id
 
 ALTER TABLE agent_configs ENABLE TRIGGER agent_configs_immutable;
 
--- Dropping effective_definition_hash also drops the old source-inclusive
--- unique key. Versions are intentionally not unique: two versions with the
--- same source may come to share a definition, and that must not collide.
+-- Dropping effective_definition_hash also drops the old unique key. Versions
+-- are intentionally not unique: rewrites may repoint two of them at one definition.
 ALTER TABLE agent_configs
     ALTER COLUMN definition_id SET NOT NULL,
     ADD CONSTRAINT agent_configs_definition_fkey
@@ -74,15 +70,11 @@ ALTER TABLE agent_configs
     DROP COLUMN effective_definition_hash,
     DROP COLUMN configured_model_id;
 
--- The config revision a version's source was saved under. A migration that
--- rewrites definitions so saved sources no longer match bumps the current
--- revision, and older sources are reported with what changed since.
 ALTER TABLE agent_configs
     ADD COLUMN source_revision integer NOT NULL DEFAULT 1 CHECK (source_revision >= 1);
 
 ALTER TABLE agent_configs ALTER COLUMN source_revision DROP DEFAULT;
 
--- Keyed on coalesce so lookups for sourceless versions use the index too.
 CREATE INDEX agent_configs_definition_source_idx
     ON agent_configs(project_id, definition_id, (coalesce(source_hash, '')));
 
@@ -104,9 +96,8 @@ CREATE TRIGGER agent_config_definitions_immutable
     FOR EACH ROW
     EXECUTE FUNCTION reject_agent_config_definition_mutation();
 
--- A version's source is permanent. The only permitted change is repointing a
--- version at a different definition, and only from a migration that opts in
--- with SET LOCAL omnara.agent_config_definition_rewrite = 'on'.
+-- Only definition_id may change, and only under
+-- SET LOCAL omnara.agent_config_definition_rewrite = 'on'.
 -- +goose StatementBegin
 CREATE FUNCTION reject_agent_config_version_mutation()
 RETURNS trigger

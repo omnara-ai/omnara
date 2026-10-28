@@ -1224,7 +1224,6 @@ func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, 
 }
 
 // agentConfigSourceInput resolves a request's source and source_format into compiler input.
-// The source is kept exactly as sent; equivalent sources share a compiled definition instead.
 func agentConfigSourceInput(
 	sourceFormatRaw string,
 	source json.RawMessage,

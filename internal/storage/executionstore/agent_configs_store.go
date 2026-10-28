@@ -311,9 +311,6 @@ func lockAndValidateAgentConfigModelContractTx(
 	return nil
 }
 
-// upsertAgentConfigDefinitionTx returns the project's deduplicated definition
-// for the compiled config, inserting it if this is the first version to
-// compile to it.
 func upsertAgentConfigDefinitionTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
@@ -355,11 +352,8 @@ func upsertAgentConfigDefinitionTx(
 	return dbsqlc.AgentConfigDefinition(row), nil
 }
 
-// findOrInsertAgentConfigVersionTx returns the existing version with the same
-// source and definition saved under the current revision, or records a new
-// one. Versions are not unique in the schema, because migrations may repoint
-// two versions at one definition; the advisory lock keeps concurrent identical
-// creates from both inserting.
+// Versions have no unique key, since migrations may repoint two versions at one
+// definition; the advisory lock keeps concurrent identical creates from both inserting.
 func findOrInsertAgentConfigVersionTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,

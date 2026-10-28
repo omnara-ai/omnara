@@ -391,8 +391,7 @@ func TestEventWebhookConfigMigration(t *testing.T) {
 					require.Empty(t, results[4].Rows)
 				}
 			}
-			// Stop at the last webhook migration: the checks below read agent_configs
-			// as it was before 61 moved compiled definitions out of it.
+			// The checks below read agent_configs as it was before 61.
 			err = applyProductionPostgresMigrationsThrough(t, ctx, db, 60)
 			if wantError != "" {
 				require.ErrorContains(t, err, wantError)
@@ -509,7 +508,6 @@ func TestEventWebhookConfigMigration(t *testing.T) {
 			}
 			_, err = db.ExecContext(ctx, `UPDATE agent_configs SET effective_definition_hash='bad' WHERE id=$1`, winnerID)
 			require.ErrorContains(t, err, "immutable")
-			// The store runs against the current schema.
 			require.NoError(t, applyProductionPostgresMigrations(ctx, db))
 			if checkInbox != nil {
 				checkInbox(true)
