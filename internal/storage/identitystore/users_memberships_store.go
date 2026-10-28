@@ -936,7 +936,7 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID uuid.UUID) error {
 		return fmt.Errorf("check user ownership: %w", err)
 	}
 	if isLastOwner {
-		return fmt.Errorf("account is the last owner of an organization: %w", storeerr.ErrConflict)
+		return storeerr.Tag(storeerr.ErrConflict, errors.New("account is the last owner of an organization"))
 	}
 	if err := q.LockUserOrgMembershipsForDeletion(ctx, dbsqlc.LockUserOrgMembershipsForDeletionParams{UserID: userID}); err != nil {
 		return fmt.Errorf("lock user memberships for deletion: %w", err)

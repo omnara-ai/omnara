@@ -250,18 +250,10 @@ describe('DeleteAccountSection', () => {
     expect(window.location.pathname).toBe('/login')
   })
 
-  it('blocks deletion and names the orgs the user still owns', async () => {
-    const beta = currentUserOrg({ id: 'org_beta', name: 'Beta', role: 'owner' })
-    await render(currentUser([acme, other, beta]), '/account-section', [])
+  it('lets owners start a delete and leaves the last-owner rule to the server', async () => {
+    await render(currentUser([acme]), '/account-section', [])
 
-    expect(buttons('Delete account')[0]?.disabled).toBe(true)
-    expect(container.textContent).toContain(
-      'You own Acme and Beta. Add another owner and step down on the Members page, or delete those organizations in organization settings, before deleting your account.',
-    )
-    expect([...container.querySelectorAll('strong')].map((item) => item.textContent)).toEqual([
-      'Acme',
-      'Beta',
-    ])
+    expect(buttons('Delete account')[0]?.disabled).toBe(false)
   })
 
   it('keeps the dialog open and shows the API error on failure', async () => {

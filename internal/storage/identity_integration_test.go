@@ -7451,6 +7451,79 @@ func TestAccountDeletionWaitingBehindOwnerPromotionKeepsAnOwner(t *testing.T) {
 	}
 }
 
+func TestOwnerInvitationWaitingBehindOwnerDemotionIsRejected(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := NewStore(pool)
+	inviter := createSecretTestUser(t, ctx, store, "Demoted Inviter", "owner")
+	coOwner := createSecretTestUser(t, ctx, store, "Co-owner", "owner")
+
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(controlTx).LockOrg(ctx, dbsqlc.LockOrgParams{ID: testOrgID}); err != nil {
+		t.Fatalf("lock organization: %v", err)
+	}
+	demoteDone := integrationdb.RunAsyncError(func() error {
+		_, err := store.Identity().UpdateOrgMemberRole(context.Background(), identitystore.UpdateOrgMemberRoleInput{
+			OrgID: testOrgID, UserID: inviter.ID, Role: "admin", ActorPrincipal: userPrincipal(coOwner.ID),
+		})
+		return err
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 1)
+	inviteDone := integrationdb.RunAsyncError(func() error {
+		_, err := store.Identity().CreateOrgInvitation(context.Background(), identitystore.CreateOrgInvitationInput{
+			OrgID: testOrgID, Email: "late-owner@example.com", Role: "owner", ActorPrincipal: userPrincipal(inviter.ID),
+		})
+		return err
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 2)
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release owner demotion control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, demoteDone, "owner demotion"); err != nil {
+		t.Fatalf("demote inviter: %v", err)
+	}
+	if err := integrationdb.Await(t, inviteDone, "owner invitation"); !errors.Is(err, storeerr.ErrUnauthorized) {
+		t.Fatalf("owner invitation by demoted owner error = %v, want unauthorized", err)
+	}
+}
+
+func TestConcurrentMemberAndOwnerInvitationsForSameEmailConflict(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := NewStore(pool)
+	inviter := createSecretTestUser(t, ctx, store, "Inviter", "owner")
+
+	controlTx := integrationdb.BeginTx(t, ctx, pool)
+	if _, err := dbsqlc.New(controlTx).LockOrg(ctx, dbsqlc.LockOrgParams{ID: testOrgID}); err != nil {
+		t.Fatalf("lock organization: %v", err)
+	}
+	invite := func(role string) <-chan error {
+		return integrationdb.RunAsyncError(func() error {
+			_, err := store.Identity().CreateOrgInvitation(context.Background(), identitystore.CreateOrgInvitationInput{
+				OrgID: testOrgID, Email: "same-invitee@example.com", Role: role, ActorPrincipal: userPrincipal(inviter.ID),
+			})
+			return err
+		})
+	}
+	memberDone := invite("member")
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 1)
+	ownerDone := invite("owner")
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 2)
+	if err := controlTx.Commit(ctx); err != nil {
+		t.Fatalf("release invitation control transaction: %v", err)
+	}
+	if err := integrationdb.Await(t, memberDone, "member invitation"); err != nil {
+		t.Fatalf("member invitation: %v", err)
+	}
+	if err := integrationdb.Await(t, ownerDone, "owner invitation"); !errors.Is(err, storeerr.ErrConflict) {
+		t.Fatalf("owner invitation for same email error = %v, want conflict", err)
+	}
+}
+
 func TestOrganizationDeletionWaitingBehindOwnerDemotionRejectsFormerOwner(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

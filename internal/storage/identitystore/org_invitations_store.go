@@ -43,6 +43,12 @@ func (s *Store) CreateOrgInvitation(
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 		return OrgInvitationRecord{}, err
 	}
+	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.OrgID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return OrgInvitationRecord{}, storeerr.ErrNotFound
+		}
+		return OrgInvitationRecord{}, fmt.Errorf("lock org: %w", err)
+	}
 	if input.Role == authz.OrgRoleOwner {
 		if err := RequireOrgOwner(ctx, qtx, input.OrgID, input.ActorPrincipal); err != nil {
 			return OrgInvitationRecord{}, err
