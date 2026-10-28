@@ -508,6 +508,7 @@ func (s *Server) Handler() http.Handler {
 	s.apiDispatch.Store(&apiDispatch)
 	return chain(mux,
 		requestEvents(s.log, s.recorder, mux),
+		rejectCanceledRequests,
 		maxBody(requestBodyLimit),
 		s.publicHostGuard,
 		s.auth,

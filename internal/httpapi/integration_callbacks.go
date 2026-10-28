@@ -22,9 +22,9 @@ func readIntegrationCallbackBody(
 	}
 	controller := http.NewResponseController(w)
 	_ = controller.SetReadDeadline(deadline)
-	defer func() { _ = controller.SetReadDeadline(time.Time{}) }()
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
 	if err != nil {
+		closeHTTP1Connection(w, r)
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
@@ -34,9 +34,11 @@ func readIntegrationCallbackBody(
 		return nil, false
 	}
 	if int64(len(raw)) > maxBodyBytes {
+		closeHTTP1Connection(w, r)
 		apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
 		return nil, false
 	}
+	_ = controller.SetReadDeadline(time.Time{})
 	return raw, true
 }
 

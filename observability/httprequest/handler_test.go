@@ -166,7 +166,8 @@ func TestHandlerRecordsMetricsFromTheEventStatus(t *testing.T) {
 		`test_api_requests_total{code="200",method="get",route="/orgs/{org}/ok"} 1`,
 		`test_api_requests_total{code="401",method="get",route="/orgs/{org}/guarded"} 1`,
 		`test_api_requests_total{code="404",method="get",route="unmatched"} 1`,
-		`test_api_requests_total{code="499",method="get",route="/canceled"} 1`,
+		`test_api_requests_total{code="200",method="get",route="/canceled"} 1`,
+		`test_api_requests_canceled_total{code="200",method="get",route="/canceled"} 1`,
 		`test_api_requests_total{code="500",method="post",route="/aborted"} 1`,
 		`test_api_request_duration_seconds_count{code="500",method="post",route="/aborted"} 1`,
 		`test_api_requests_in_flight 0`,
@@ -174,6 +175,9 @@ func TestHandlerRecordsMetricsFromTheEventStatus(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("metrics missing %q:\n%s", want, body)
 		}
+	}
+	if strings.Count(body, "test_api_requests_canceled_total{") != 1 {
+		t.Fatalf("only the canceled request should count as canceled:\n%s", body)
 	}
 	if strings.Contains(body, "org_123") || strings.Contains(body, "not-routed") {
 		t.Fatalf("raw request path leaked into metrics:\n%s", body)

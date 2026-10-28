@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -99,5 +100,41 @@ func TestRequestBodyLimitDaemonFileUpload(t *testing.T) {
 	)
 	if got := requestBodyLimit(req); got != daemonprotocol.MaxFileTransferBytes {
 		t.Fatalf("file upload body limit = %d, want %d", got, daemonprotocol.MaxFileTransferBytes)
+	}
+}
+
+func TestServerRejectsCanceledRequestsBeforeAuth(t *testing.T) {
+	server := mustNewUnitServer(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/me", nil))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+	if got := recorder.Header().Get("Connection"); got != "close" {
+		t.Fatalf("Connection = %q, want close", got)
+	}
+}
+
+func TestRejectCanceledRequestsLogsCancellationAtInfo(t *testing.T) {
+	buf, log := newRequestEventCapture()
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("canceled request reached the next handler")
+	})
+	handler := requestEvents(log, nil, nil)(rejectCanceledRequests(next))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/me", nil))
+	event := decodeRequestEvent(t, buf)
+	for key, want := range map[string]any{
+		"level":                      "info",
+		"http.status_code":           float64(http.StatusServiceUnavailable),
+		"http.request.cancel_cause":  context.Canceled.Error(),
+		"http.request.cancel_source": "request_context",
+	} {
+		if got := event[key]; got != want {
+			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
+		}
 	}
 }

@@ -1,14 +1,12 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -84,8 +82,7 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		http.Error(w, "interaction handler unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	r.Body = io.NopCloser(bytes.NewReader(raw))
-	handler.ServeHTTP(w, r)
+	handler.Serve(w, r, raw)
 }
 
 func (s *Server) discordCallbackOwner(ctx context.Context, input discord.Interaction) (uuid.UUID, error) {

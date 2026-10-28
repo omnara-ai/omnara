@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
@@ -22,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/observability/httprequest"
 	"github.com/omnara-ai/omnara/observability/metrics"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type principalContextKey struct{}
@@ -87,6 +89,25 @@ func requestEvents(log *slog.Logger, recorder *metrics.HTTPRecorder, mux *http.S
 	}
 	return func(next http.Handler) http.Handler {
 		return httprequest.Handler(config, next)
+	}
+}
+
+func rejectCanceledRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.Context().Err(); err != nil {
+			logpkg.Error(r.Context(), err)
+			closeHTTP1Connection(w, r)
+			apierror.Write(w, openapi.ErrorCodeServiceUnavailable)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func closeHTTP1Connection(w http.ResponseWriter, r *http.Request) {
+	if r.ProtoMajor == 1 {
+		w.Header().Set("Connection", "close")
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now())
 	}
 }
 

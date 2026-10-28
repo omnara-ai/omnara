@@ -239,7 +239,7 @@ func TestProfileChoiceSignedIntakeAcceptsOnlySingleNativeSelection(t *testing.T)
 			raw, err := json.Marshal(input)
 			require.NoError(t, err)
 			w := httptest.NewRecorder()
-			handler.ServeHTTP(w, signedRequest(private, string(raw), time.Now()))
+			handler.Serve(w, signedRequest(private, string(raw), time.Now()), raw)
 			if scenario == "valid" {
 				require.Equal(t, http.StatusOK, w.Code)
 				require.JSONEq(t, `{"type":6}`, w.Body.String())
@@ -304,7 +304,7 @@ func TestProfileChoiceSignedResponseUpdatesMessageAndClearsMenu(t *testing.T) {
 "user":{"id":"777"},"data":{"component_type":3,"custom_id":%q,"values":["one"]}}`,
 				ProfileChoiceCustomIDPrefix+choiceID)
 			w := httptest.NewRecorder()
-			handler.ServeHTTP(w, signedRequest(private, body, time.Now()))
+			handler.Serve(w, signedRequest(private, body, time.Now()), []byte(body))
 			require.Equal(t, http.StatusOK, w.Code)
 			require.Equal(t, 1, calls)
 			want := `{"type":7,"data":{"content":"Profile selected.","allowed_mentions":{"parse":[]}}}`
