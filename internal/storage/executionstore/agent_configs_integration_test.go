@@ -94,9 +94,8 @@ func TestCreateAgentConfigConcurrentIdenticalCreatesShareOneVersion(t *testing.T
 		"with source": {input: withSource, sourceHash: hex.EncodeToString(sourceHash[:])},
 		"sourceless":  {input: base},
 	} {
-		control, err := pool.Begin(ctx)
-		require.NoError(t, err)
-		_, err = control.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(
+		control := integrationdb.BeginTx(t, ctx, pool)
+		_, err := control.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(
     'agent_config_version:' || $1::uuid::text || ':' || $2::uuid::text || ':' || $3::text, 0))`,
 			testProjectID, definitionID, tc.sourceHash)
 		require.NoError(t, err)
