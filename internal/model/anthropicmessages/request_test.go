@@ -3,6 +3,7 @@ package anthropicmessages
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -930,7 +931,8 @@ func TestPrepareDropsTopLevelSchemaCompositions(t *testing.T) {
 				Description: "Launches an agent.",
 				InputSchema: json.RawMessage(
 					`{"type":"object","properties":{"profile":{"type":"string"},"config":{"type":"string"}},` +
-						`"oneOf":[{"required":["profile"]},{"required":["config"]}]}`,
+						`"oneOf":[{"required":["profile"]},{"required":["config"]}],` +
+						`"allOf":[{"properties":{"name":{"type":"string"}},"required":["name"]}]}`,
 				),
 			}},
 		},
@@ -946,8 +948,20 @@ func TestPrepareDropsTopLevelSchemaCompositions(t *testing.T) {
 		t.Fatalf("decode payload: %v", err)
 	}
 	tool := payload.Tools[0]
-	if strings.Contains(string(tool.InputSchema), "oneOf") {
-		t.Fatalf("input_schema keeps top-level oneOf: %s", tool.InputSchema)
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+		OneOf      json.RawMessage            `json:"oneOf"`
+		AllOf      json.RawMessage            `json:"allOf"`
+	}
+	if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+		t.Fatalf("decode input_schema: %v", err)
+	}
+	if schema.OneOf != nil || schema.AllOf != nil {
+		t.Fatalf("input_schema keeps a top-level composition: %s", tool.InputSchema)
+	}
+	if _, found := schema.Properties["name"]; !found || !slices.Equal(schema.Required, []string{"name"}) {
+		t.Fatalf("input_schema lost the allOf argument: %s", tool.InputSchema)
 	}
 	if tool.Description != "Launches an agent. Provide exactly one of: profile; config." {
 		t.Fatalf("description = %q", tool.Description)
