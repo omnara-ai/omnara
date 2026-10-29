@@ -268,3 +268,19 @@ SELECT EXISTS (
         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=subtree.id AND h.incomplete_tools)
     )
 )::boolean AS idle;
+
+-- name: ListActiveAgentTreeMembers :many
+WITH RECURSIVE subtree AS (
+  SELECT agent.project_id, agent.id AS tracked_agent_id, agent.id, 0 AS depth
+  FROM agents agent
+  WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+    AND agent.id = ANY(sqlc.arg(agent_ids)::uuid[])
+  UNION ALL
+  SELECT child.project_id, subtree.tracked_agent_id, child.id, subtree.depth + 1
+  FROM agents child
+  JOIN subtree ON child.project_id = subtree.project_id AND child.parent_agent_id = subtree.id
+  WHERE child.state = 'active' AND subtree.depth < 64
+)
+SELECT subtree.tracked_agent_id, subtree.id
+FROM subtree
+WHERE subtree.depth > 0;

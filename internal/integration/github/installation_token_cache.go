@@ -71,7 +71,7 @@ func (c *installationTokenCache) token(
 	if cached.expiresAt.After(client.now().Add(time.Minute)) {
 		return cached.token, nil
 	}
-	fresh, err := client.mintInstallationToken(ctx, repositoryID, write)
+	fresh, err := client.mintInstallationToken(ctx, repositoryID, pullRequestPermissions(write))
 	if err != nil {
 		return "", err
 	}

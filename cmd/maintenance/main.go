@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/defaultprovider"
 	"github.com/omnara-ai/omnara/internal/errutil"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/maintenance"
@@ -168,6 +169,13 @@ func main() {
 		defer close(idleAgentArchiveLoopDone)
 		runIdleAgentArchiveLoop(ctx, logger, store, machinePoolManager, cfg.MaintenanceInterval)
 	}()
+	githubCheckLoopDone := make(chan struct{})
+	go func() {
+		defer close(githubCheckLoopDone)
+		runGitHubCheckLoop(ctx, logger, &integrationruntime.GitHubCheckReconciler{
+			Store: store, PublicURL: cfg.PublicURL,
+		}, cfg.MaintenanceInterval)
+	}()
 	memoryCleanupDone := make(chan struct{})
 	go func() {
 		defer close(memoryCleanupDone)
@@ -253,6 +261,7 @@ func main() {
 	cancel()
 	<-machineLoopDone
 	<-idleAgentArchiveLoopDone
+	<-githubCheckLoopDone
 	<-memoryCleanupDone
 	<-executionHeadDone
 	<-runtimeDiscoveryDone
@@ -646,6 +655,35 @@ func runIdleAgentArchiveTick(
 	}
 	if _, err := machinePoolManager.DeleteMachines(ctx, machines); err != nil {
 		log.Error("delete idle agent machines", "machine_count", len(machines), "error", err)
+	}
+}
+
+func runGitHubCheckLoop(
+	ctx context.Context,
+	log *slog.Logger,
+	reconciler *integrationruntime.GitHubCheckReconciler,
+	interval time.Duration,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		runGitHubCheckTick(ctx, log, reconciler)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func runGitHubCheckTick(ctx context.Context, log *slog.Logger, reconciler *integrationruntime.GitHubCheckReconciler) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Error("GitHub check reconcile panicked", "error", recovered, "stack", string(debug.Stack()))
+		}
+	}()
+	if outcome := completedMaintenanceOutcome(ctx, reconciler.Reconcile(ctx)); outcome.err != nil {
+		log.Error("reconcile GitHub checks", "error", outcome.err)
 	}
 }
 

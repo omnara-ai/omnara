@@ -93,7 +93,7 @@ func (c *Client) installationToken(ctx context.Context, repositoryID int64, writ
 	if cached.repositoryID == repositoryID && cached.expiresAt.After(c.now().Add(time.Minute)) {
 		return cached.token, nil
 	}
-	fresh, err := c.mintInstallationToken(ctx, repositoryID, write)
+	fresh, err := c.mintInstallationToken(ctx, repositoryID, pullRequestPermissions(write))
 	if err != nil {
 		return "", err
 	}
@@ -101,19 +101,24 @@ func (c *Client) installationToken(ctx context.Context, repositoryID int64, writ
 	return fresh.token, nil
 }
 
-func (c *Client) mintInstallationToken(ctx context.Context, repositoryID int64, write bool) (cachedToken, error) {
+func pullRequestPermissions(write bool) map[string]string {
+	if write {
+		return map[string]string{"pull_requests": "write", "metadata": "read"}
+	}
+	return map[string]string{"pull_requests": "read", "metadata": "read"}
+}
+
+func (c *Client) mintInstallationToken(
+	ctx context.Context, repositoryID int64, permissions map[string]string,
+) (cachedToken, error) {
 	jwt, err := c.appJWT()
 	if err != nil {
 		return cachedToken{}, err
 	}
-	permission := "read"
-	if write {
-		permission = "write"
-	}
 	input := struct {
 		RepositoryIDs []int64           `json:"repository_ids"`
 		Permissions   map[string]string `json:"permissions"`
-	}{[]int64{repositoryID}, map[string]string{"pull_requests": permission, "metadata": "read"}}
+	}{[]int64{repositoryID}, permissions}
 	var result struct {
 		Token     string    `json:"token"`
 		ExpiresAt time.Time `json:"expires_at"`

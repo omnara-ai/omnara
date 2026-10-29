@@ -62,3 +62,44 @@ WITH deleted_integrations AS MATERIALIZED (
     LIMIT sqlc.arg(row_limit)
 )
 DELETE FROM integration_states state USING candidates WHERE state.id = candidates.id;
+
+-- name: MergeIntegrationState :exec
+INSERT INTO integration_states(project_id, integration_id, kind, key, scope_kind, scope_ref, data)
+VALUES (sqlc.arg(project_id), sqlc.arg(integration_id), sqlc.arg(kind), sqlc.arg(key),
+        sqlc.narg(scope_kind), sqlc.narg(scope_ref), sqlc.arg(data))
+ON CONFLICT (project_id, integration_id, kind, key) DO UPDATE
+SET data = integration_states.data || excluded.data,
+    revision = integration_states.revision + 1, updated_at = statement_timestamp()
+WHERE sqlc.arg(force)::boolean OR NOT integration_states.data @> excluded.data;
+
+-- name: ListActiveGitHubCheckRunStates :many
+SELECT state.id, state.project_id, state.integration_id, state.kind, state.key, state.scope_kind, state.scope_ref,
+       state.data, state.revision, state.expires_at, state.created_at, state.updated_at
+FROM integration_states state
+JOIN integrations integration ON integration.project_id = state.project_id AND integration.id = state.integration_id
+WHERE state.kind = 'github_check_run' AND state.id > sqlc.arg(after_id)
+  AND integration.state = 'active' AND integration.deleted_at IS NULL
+  AND (state.data->>'claim' IS NULL OR state.data->>'claim' = sqlc.arg(claim)::text
+       OR (state.data->>'claim_expires_at')::timestamptz <= statement_timestamp())
+ORDER BY state.id
+LIMIT sqlc.arg(row_limit);
+
+-- name: ClaimIntegrationState :one
+UPDATE integration_states
+SET data = data || jsonb_build_object('claim', sqlc.arg(claim)::text, 'claim_expires_at',
+        statement_timestamp() + sqlc.arg(lease_milliseconds)::bigint * interval '1 millisecond'),
+    revision = revision + 1, updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id)
+  AND kind = sqlc.arg(kind) AND id = sqlc.arg(id) AND revision = sqlc.arg(expected_revision)
+RETURNING revision;
+
+-- name: DeleteIntegrationState :execrows
+DELETE FROM integration_states
+WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id)
+  AND kind = sqlc.arg(kind) AND id = sqlc.arg(id) AND revision = sqlc.arg(expected_revision);
+
+-- name: MergeIntegrationStatesInScope :exec
+UPDATE integration_states
+SET data = data || sqlc.arg(data)::jsonb, revision = revision + 1, updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id)
+  AND kind = sqlc.arg(kind) AND scope_kind = sqlc.arg(scope_kind) AND scope_ref = sqlc.arg(scope_ref);

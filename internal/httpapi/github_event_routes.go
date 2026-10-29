@@ -38,6 +38,7 @@ type githubIntakeStore interface {
 	AcceptIntegrationReceipt(context.Context, integrationstore.VerifiedIntegrationReceipt) (
 		integrationstore.IntegrationInboxRecord, bool, error,
 	)
+	RestartGitHubCheckRuns(context.Context, uuid.UUID, uuid.UUID, integrationstore.ConversationAddress) error
 }
 
 type githubIntakeSecrets interface {
@@ -123,6 +124,9 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 				_, relevant, normalizeErr := integrationruntime.NormalizeGitHubIntegrationEvent(integration, raw)
 				if normalizeErr == nil && !relevant {
 					h.recorder.Record("github", metrics.IntegrationInboxIntakeOutcomeFiltered)
+					if address, ok := integrationruntime.GitHubSelfPush(integration, raw); ok {
+						return true, h.store.RestartGitHubCheckRuns(ctx, integration.ProjectID, integration.ID, address)
+					}
 					return true, nil
 				}
 				_, created, err := h.store.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{

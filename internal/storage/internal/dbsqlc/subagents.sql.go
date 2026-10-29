@@ -130,6 +130,53 @@ func (q *Queries) CountAgentAncestors(ctx context.Context, arg CountAgentAncesto
 	return column_1, err
 }
 
+const listActiveAgentTreeMembers = `-- name: ListActiveAgentTreeMembers :many
+WITH RECURSIVE subtree AS (
+  SELECT agent.project_id, agent.id AS tracked_agent_id, agent.id, 0 AS depth
+  FROM agents agent
+  WHERE agent.project_id = ANY($1::uuid[])
+    AND agent.id = ANY($2::uuid[])
+  UNION ALL
+  SELECT child.project_id, subtree.tracked_agent_id, child.id, subtree.depth + 1
+  FROM agents child
+  JOIN subtree ON child.project_id = subtree.project_id AND child.parent_agent_id = subtree.id
+  WHERE child.state = 'active' AND subtree.depth < 64
+)
+SELECT subtree.tracked_agent_id, subtree.id
+FROM subtree
+WHERE subtree.depth > 0
+`
+
+type ListActiveAgentTreeMembersParams struct {
+	ProjectIds []uuid.UUID
+	AgentIds   []uuid.UUID
+}
+
+type ListActiveAgentTreeMembersRow struct {
+	TrackedAgentID uuid.UUID
+	ID             uuid.UUID
+}
+
+func (q *Queries) ListActiveAgentTreeMembers(ctx context.Context, arg ListActiveAgentTreeMembersParams) ([]ListActiveAgentTreeMembersRow, error) {
+	rows, err := q.db.Query(ctx, listActiveAgentTreeMembers, arg.ProjectIds, arg.AgentIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveAgentTreeMembersRow{}
+	for rows.Next() {
+		var i ListActiveAgentTreeMembersRow
+		if err := rows.Scan(&i.TrackedAgentID, &i.ID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActiveChildAgentIDs = `-- name: ListActiveChildAgentIDs :many
 SELECT agent.id
 FROM agents agent

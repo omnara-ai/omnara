@@ -59,6 +59,8 @@ not narrow the installation access granted through [Git credentials](#git-creden
    you control. Give it repository **Pull requests: Read-only**, or **Read & write**
    if agents will comment, and **Issues: Read-only** for incoming PR conversation
    comments. For Git credentials, also request **Contents: Read & write**.
+   To show a check on the PR while the agent works, also request
+   **Checks: Read & write**.
 2. Enable webhooks with URL `https://YOUR_OMNARA_HOST/api/integrations/github/events`
    and a webhook secret. Subscribe to the [events](https://docs.github.com/en/webhooks/webhook-events-and-payloads)
    `pull_request`, `issue_comment`,
@@ -298,6 +300,13 @@ Omnara adds an 👀 reaction to PR discussion comments and inline review comment
 after accepting them for an agent. This means the input was accepted, not that
 the agent has finished. Reactions are best effort; a failed reaction does not
 prevent the agent from receiving the comment.
+
+With the **Checks** permission, the PR also shows a check named after your GitHub App:
+**Working** while the agent or its subagents run, **Waiting for input** when it needs
+an answer or approval, and **Finished** when it stops. The check follows work that
+GitHub starts: the PR opening, new commits and comments the agent receives. Follow-ups
+sent only through Omnara (the dashboard or API) don't update a finished check. Like
+reactions, check updates are best effort.
 
 GitHub does not automatically retry failed webhook deliveries. If Omnara cannot
 persist an event and returns a non-2xx response, explicitly

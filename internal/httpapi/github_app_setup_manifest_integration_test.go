@@ -230,7 +230,8 @@ func TestGitHubManifestRegistrationSavesRecoverableSecretWithoutConnecting(t *te
 		manifest["hook_attributes"],
 	)
 	require.Equal(t,
-		map[string]any{"pull_requests": "write", "issues": "read", "contents": "write"}, manifest["default_permissions"],
+		map[string]any{"pull_requests": "write", "issues": "read", "contents": "write", "checks": "write"},
+		manifest["default_permissions"],
 	)
 	require.ElementsMatch(
 		t,
