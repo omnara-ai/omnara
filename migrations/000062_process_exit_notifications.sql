@@ -1,11 +1,11 @@
 -- +goose Up
 
 ALTER TABLE processes
-    ADD COLUMN notify_on_exit boolean NOT NULL DEFAULT false,
     ADD COLUMN notify_match text NOT NULL DEFAULT '',
     ADD COLUMN exit_notice_decided boolean NOT NULL DEFAULT false;
 
--- Unfinished processes that will notify the agent on exit.
+-- Unfinished processes that will notify the agent on exit. File transfers
+-- report through their own tool call instead.
 -- +goose StatementBegin
 CREATE FUNCTION agent_background_processes(project_id uuid, agent_id uuid)
 RETURNS TABLE (id uuid, created_at timestamptz)
@@ -18,7 +18,7 @@ AS $$
     WHERE process.project_id = agent_background_processes.project_id
       AND process.agent_id = agent_background_processes.agent_id
       AND process.state IN ('queued', 'starting', 'running')
-      AND process.notify_on_exit;
+      AND process.execution_spec->>'kind' <> 'file_transfer';
 $$;
 -- +goose StatementEnd
 

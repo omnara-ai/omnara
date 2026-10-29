@@ -137,7 +137,7 @@ WHERE id = $1`, started.ID,
 		{"machine_daemon", "GetMachineWakeState", []any{wake.OrgID, wake.MachineID, wake.MachinePoolID}},
 		{"agent_machine_bindings", "ListExecutableAgentMachineBindings", []any{testProjectID, f.AgentID}},
 		{"processes", "InsertProcess", []any{
-			startedSpec, startedCwd, startedEnv, startedSecretEnv, startedTimeout, startedInitialWait, false, "",
+			startedSpec, startedCwd, startedEnv, startedSecretEnv, startedTimeout, startedInitialWait, "",
 			tools[1], f.BindingID, testProjectID, f.AgentID, f.Lock.ID,
 		}},
 		{"process_actions", "GetProcessActionCreateBlocker", []any{blocker.ProjectID, blocker.AgentID, blocker.ProcessID}},

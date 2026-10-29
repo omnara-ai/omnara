@@ -21,7 +21,6 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 		selector    processcmd.ShellSelector
 		waitMs      int
 		ioMode      processcmd.IOMode
-		detach      bool
 		notifyMatch string
 	}{
 		{
@@ -83,20 +82,11 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 		},
 		{
 			name:        "notify match",
-			input:       json.RawMessage(`{"command":"npm run dev","detach":true,"notify_match":"listening|ERROR"}`),
+			input:       json.RawMessage(`{"command":"npm run dev","notify_match":"listening|ERROR"}`),
 			command:     "npm run dev",
 			selector:    "default",
 			ioMode:      "pipe",
-			detach:      true,
 			notifyMatch: "listening|ERROR",
-		},
-		{
-			name:     "detach",
-			input:    json.RawMessage(`{"command":"npm run dev","detach":true}`),
-			command:  "npm run dev",
-			selector: "default",
-			ioMode:   "pipe",
-			detach:   true,
 		},
 		{
 			name:     "max wait",
@@ -119,7 +109,7 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			}
 			if resolved.Command != tc.command || resolved.Selector != tc.selector ||
 				resolved.WaitMs != wantWait ||
-				resolved.IOMode != tc.ioMode || resolved.Detach != tc.detach ||
+				resolved.IOMode != tc.ioMode ||
 				resolved.NotifyMatch != tc.notifyMatch {
 				t.Fatalf("unexpected resolution: %+v", resolved)
 			}

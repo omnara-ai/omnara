@@ -166,11 +166,6 @@ func buildDefaultCatalog() (Catalog, error) {
 					"and fails at once. Use pty for programs you send input to with write_process, such as REPLs, " +
 					"interactive terminal programs, or persistent shells.",
 			},
-			"detach": map[string]any{
-				"type": "boolean",
-				"description": "For long-lived processes such as servers: no message when it exits, " +
-					"and the agent is not treated as waiting on it. Defaults to false.",
-			},
 			"notify_match": map[string]any{
 				"type":      "string",
 				"minLength": 1,

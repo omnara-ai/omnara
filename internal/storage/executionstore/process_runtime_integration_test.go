@@ -1278,12 +1278,12 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 `, testProjectID, fixture.AgentID).Scan(&wakeupAfter); err != nil {
 		t.Fatalf("load terminal-report wakeup: %v", err)
 	}
-	if !wakeupBefore.Equal(wakeupAfter) {
-		t.Fatalf(
-			"benign terminal report changed readiness before=%s after=%s",
-			wakeupBefore,
-			wakeupAfter,
-		)
+	// The process outlived its tool call, so its exit notifies the agent.
+	if texts := processNotificationTexts(t, ctx, fixture); len(texts) != 1 {
+		t.Fatalf("exit notifications = %q, want one", texts)
+	}
+	if wakeupAfter.Before(wakeupBefore) {
+		t.Fatalf("terminal report moved readiness back before=%s after=%s", wakeupBefore, wakeupAfter)
 	}
 	if count := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); count != 0 {
 		t.Fatalf("owned agent has %d wakeups", count)

@@ -21,7 +21,6 @@ type runCommandRequest struct {
 	Cwd       json.RawMessage `json:"cwd,omitempty"`
 	WaitMs    json.RawMessage `json:"wait_ms,omitempty"`
 	IOMode    json.RawMessage `json:"io_mode,omitempty"`
-	Detach    *bool           `json:"detach,omitempty"`
 	// NotifyMatch is a regular expression for output lines to report.
 	NotifyMatch *string `json:"notify_match,omitempty"`
 }
@@ -33,7 +32,6 @@ type resolvedRunCommandRequest struct {
 	Cwd         string
 	WaitMs      int
 	IOMode      processcmd.IOMode
-	Detach      bool
 	NotifyMatch string
 }
 
@@ -139,7 +137,6 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 		Cwd:         cwd,
 		WaitMs:      waitMs,
 		IOMode:      ioMode,
-		Detach:      input.Detach != nil && *input.Detach,
 		NotifyMatch: notifyMatch,
 	}, nil
 }

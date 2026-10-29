@@ -100,7 +100,7 @@ func (h *Handle) CompleteProcess(ctx context.Context, input ProcessResult) (Exte
 			return ExternalCompletion{}, err
 		}
 		if !published.Matches {
-			if !backgrounded || !row.NotifyOnExit || row.ExitNoticeDecided {
+			if !backgrounded || row.ExecutionSpec.FileTransfer != nil || row.ExitNoticeDecided {
 				return published, nil
 			}
 			// Decided once, so a replay can't reverse it.

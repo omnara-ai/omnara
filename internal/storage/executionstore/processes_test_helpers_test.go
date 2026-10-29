@@ -856,7 +856,7 @@ func createToolCallBatchForProcessTest(
 		return ids
 	}
 	require.ErrorIs(t, err, pgx.ErrNoRows)
-	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+	_, _, _, err = fixture.Store.Execution().CreateAgentContentInput(
 		ctx,
 		executionstore.CreateAgentContentInputInput{
 			ProjectID:      testProjectID,
@@ -878,7 +878,16 @@ func createToolCallBatchForProcessTest(
 		fixture.AgentID,
 		fixture.Lock.ID,
 	)
-	if !found || len(admitted.Events) != 1 {
+	// Earlier processes in the test may have ended and notified the agent.
+	sourceInputs := 0
+	openingInputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
+	for _, admittedInput := range admitted.Inputs {
+		openingInputIDs = append(openingInputIDs, admittedInput.ID)
+		if admittedInput.IdempotencyScope != "process_notification" {
+			sourceInputs++
+		}
+	}
+	if !found || sourceInputs != 1 {
 		t.Fatalf("admit source agent input: found=%v admitted=%+v", found, admitted)
 	}
 	prepared1, err := fixture.Store.Execution().
@@ -886,7 +895,7 @@ func createToolCallBatchForProcessTest(
 			ProjectID:       testProjectID,
 			AgentID:         fixture.AgentID,
 			RuntimeLockID:   fixture.Lock.ID,
-			OpeningInputIDs: []uuid.UUID{input.ID},
+			OpeningInputIDs: openingInputIDs,
 		})
 	claim := prepared1.Claim
 

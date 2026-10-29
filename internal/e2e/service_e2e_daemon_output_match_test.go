@@ -64,7 +64,6 @@ func TestServiceE2EDaemonOutputMatchNotifiesAgent(t *testing.T) {
 					"printf 'request ok\\n'; sleep 120",
 				"shell":        "sh",
 				"cwd":          "/work",
-				"detach":       true,
 				"notify_match": "listening on [0-9]+",
 			})
 		case 2:

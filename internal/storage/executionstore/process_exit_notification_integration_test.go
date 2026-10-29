@@ -19,7 +19,7 @@ func TestBackgroundProcessExitNotifiesAgent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "background_exit_notifies")
-	process := startBackgroundProcessForTest(t, ctx, fixture, "background_exit_notifies", true)
+	process := startBackgroundProcessForTest(t, ctx, fixture, "background_exit_notifies")
 
 	exitCode := 1
 	complete := executionstore.CompleteDaemonProcessInput{
@@ -68,11 +68,16 @@ func TestBackgroundProcessExitNotifiesAgent(t *testing.T) {
 	}
 }
 
-func TestDetachedProcessExitDoesNotNotifyAgent(t *testing.T) {
+func TestFileTransferProcessExitDoesNotNotifyAgent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "detached_exit_silent")
-	process := startBackgroundProcessForTest(t, ctx, fixture, "detached_exit_silent", false)
+	fixture := newProcessDaemonFixture(t, ctx, "file_transfer_exit_silent")
+	process := startBackgroundProcessWithInputForTest(t, ctx, fixture, "file_transfer_exit_silent",
+		executionstore.CreateProcessInput{ExecutionSpec: processcmd.ForFileTransfer(processcmd.FileTransfer{
+			Direction: processcmd.FileTransferUpload,
+			LocalPath: "/work/report.txt",
+			Target:    processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
+		})})
 
 	exitCode := 0
 	if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, executionstore.CompleteDaemonProcessInput{
@@ -85,10 +90,10 @@ func TestDetachedProcessExitDoesNotNotifyAgent(t *testing.T) {
 		Result:        json.RawMessage(`{"state":"exited","output":"","cursor":0,"next_cursor":0,"truncated":false,"done":true}`),
 		SourceEndedAt: fixture.Now.Add(65 * time.Second),
 	}); err != nil {
-		t.Fatalf("complete detached process: %v", err)
+		t.Fatalf("complete file transfer process: %v", err)
 	}
 	if texts := processNotificationTexts(t, ctx, fixture); len(texts) != 0 {
-		t.Fatalf("detached process sent notifications: %q", texts)
+		t.Fatalf("file transfer process sent notifications: %q", texts)
 	}
 }
 
@@ -96,7 +101,7 @@ func TestPendingReadSuppressesExitNotification(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "pending_read_exit_silent")
-	process := startBackgroundProcessForTest(t, ctx, fixture, "pending_read_exit_silent", true)
+	process := startBackgroundProcessForTest(t, ctx, fixture, "pending_read_exit_silent")
 
 	readToolCallID := createToolCallForProcessTest(t, ctx, fixture, "pending_read_exit_silent_read", "read_process")
 	read, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
@@ -195,7 +200,7 @@ func TestOnlyEffectiveStopSuppressesExitNotification(t *testing.T) {
 			ctx := context.Background()
 			name := "stop_exit_" + tc.name
 			fixture := newProcessDaemonFixture(t, ctx, name)
-			process := startBackgroundProcessForTest(t, ctx, fixture, name, true)
+			process := startBackgroundProcessForTest(t, ctx, fixture, name)
 			stopToolCallID := createToolCallForProcessTest(t, ctx, fixture, name+"_stop", "stop_process")
 			action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 				ProjectID:     testProjectID,
@@ -259,12 +264,9 @@ func startBackgroundProcessForTest(
 	ctx context.Context,
 	fixture processDaemonFixture,
 	name string,
-	notifyOnExit bool,
 ) executionstore.ProcessRecord {
 	t.Helper()
-	return startBackgroundProcessWithInputForTest(t, ctx, fixture, name, executionstore.CreateProcessInput{
-		NotifyOnExit: notifyOnExit,
-	})
+	return startBackgroundProcessWithInputForTest(t, ctx, fixture, name, executionstore.CreateProcessInput{})
 }
 
 func startBackgroundProcessWithInputForTest(
@@ -275,7 +277,9 @@ func startBackgroundProcessWithInputForTest(
 	input executionstore.CreateProcessInput,
 ) executionstore.ProcessRecord {
 	t.Helper()
-	input.ExecutionSpec = processcmd.ForShell("sleep 60", "sh", "")
+	if input.ExecutionSpec.Kind == "" {
+		input.ExecutionSpec = processcmd.ForShell("sleep 60", "sh", "")
+	}
 	input.AgentMachineBindingID = fixture.BindingID
 	input.Cwd = "/work"
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, name, "run_command")
@@ -337,7 +341,7 @@ func TestBackgroundProcessMakesAgentWaitOnWork(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "background_waiting_on_work")
-	process := startBackgroundProcessForTest(t, ctx, fixture, "background_waiting_on_work", true)
+	process := startBackgroundProcessForTest(t, ctx, fixture, "background_waiting_on_work")
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx, testProjectID, fixture.AgentID, fixture.Lock.ID,
 	); err != nil {

@@ -496,7 +496,6 @@ type Process struct {
 	UpdatedAt             time.Time
 	LastActivityAt        time.Time
 	ExecutionSpec         processcmd.ExecutionSpec
-	NotifyOnExit          bool
 	NotifyMatch           string
 	ExitNoticeDecided     bool
 }

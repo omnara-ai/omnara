@@ -35,7 +35,6 @@ type runCommandAuthorization struct {
 	Cwd                   string                   `json:"cwd,omitempty"`
 	WaitMS                int                      `json:"wait_ms,omitempty"`
 	IOMode                processcmd.IOMode        `json:"io_mode"`
-	Detach                bool                     `json:"detach,omitempty"`
 	NotifyMatch           string                   `json:"notify_match,omitempty"`
 }
 
@@ -70,7 +69,6 @@ func runCommandAuthorizationInput(
 		Cwd:                   resolved.Cwd,
 		WaitMS:                resolved.WaitMs,
 		IOMode:                resolved.IOMode,
-		Detach:                resolved.Detach,
 		NotifyMatch:           resolved.NotifyMatch,
 	})
 	if err != nil {
@@ -160,7 +158,6 @@ func runCommand(
 		Cwd:            resolved.Cwd,
 		InitialWaitMS:  resolved.WaitMs,
 		TimeoutSeconds: 0,
-		NotifyOnExit:   !resolved.Detach,
 		NotifyMatch:    resolved.NotifyMatch,
 	})
 }

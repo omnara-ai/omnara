@@ -221,7 +221,6 @@ func (t *toolCallTransaction) startProcess(
 		SecretEnv:             processSecretEnv,
 		TimeoutSeconds:        int32(input.TimeoutSeconds),
 		InitialWaitMs:         int32(input.InitialWaitMS),
-		NotifyOnExit:          input.NotifyOnExit,
 		NotifyMatch:           input.NotifyMatch,
 		AgentMachineBindingID: input.AgentMachineBindingID,
 		ProjectID:             projectID,
@@ -275,7 +274,6 @@ func processReplayMatches(existing ProcessRecord, input CreateProcessInput) bool
 		reflect.DeepEqual(existing.ExecutionSpec, input.ExecutionSpec) &&
 		existing.TimeoutSeconds == input.TimeoutSeconds &&
 		existing.InitialWaitMS == input.InitialWaitMS &&
-		existing.NotifyOnExit == input.NotifyOnExit &&
 		existing.NotifyMatch == input.NotifyMatch
 }
 
