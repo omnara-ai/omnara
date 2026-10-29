@@ -16,8 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-// Output matching a watch_process pattern reaches the agent as a message after
-// the agent has finished its turn.
 func TestServiceE2EDaemonOutputMatchNotifiesAgent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
@@ -89,7 +87,6 @@ func TestServiceE2EDaemonOutputMatchNotifiesAgent(t *testing.T) {
 			}
 			writeOpenAIMessage(w, failModelRequest, "resp_waiting", "WAITING_"+nonce)
 		case 4:
-			// Only the matching line is sent, not the output around it.
 			request := mustJSONString(body)
 			if !strings.Contains(request, "printed lines matching `listening on [0-9]+`") ||
 				!strings.Contains(request, "```\\nserver listening on 3000\\n```") {

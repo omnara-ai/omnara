@@ -51,22 +51,15 @@ type SubagentStatus struct {
 	AgentActivityWork
 }
 
-// MaxAgentActivityIDs bounds the process and subagent IDs an activity lists.
 const MaxAgentActivityIDs = 20
 
-// AgentActivityWork is what an agent has open or running apart from its own
-// turn. Each part is reported whatever the agent's state.
 type AgentActivityWork struct {
 	OpenQuestionCount          int
 	OpenPermissionRequestCount int
-	// RunningProcesses are unfinished commands that will message the agent
-	// when they end; WorkingSubagents are active children whose subtree still
-	// has work.
-	RunningProcesses AgentActivityIDs
-	WorkingSubagents AgentActivityIDs
+	RunningProcesses           AgentActivityIDs
+	WorkingSubagents           AgentActivityIDs
 }
 
-// AgentActivityIDs counts items and lists the first MaxAgentActivityIDs.
 type AgentActivityIDs struct {
 	Count int
 	IDs   []uuid.UUID

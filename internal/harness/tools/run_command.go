@@ -29,7 +29,6 @@ type resolvedRunCommandRequest struct {
 	IOMode    processcmd.IOMode
 }
 
-// executionSpec gives pipe commands no stdin; only pty commands take input.
 func (r resolvedRunCommandRequest) executionSpec() processcmd.ExecutionSpec {
 	spec := processcmd.ForShell(r.Command, r.Selector, r.IOMode)
 	spec.Shell.NoStdin = r.IOMode == processcmd.IOModePipe

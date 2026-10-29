@@ -878,7 +878,6 @@ func createToolCallBatchForProcessTest(
 		fixture.AgentID,
 		fixture.Lock.ID,
 	)
-	// Earlier processes in the test may have ended and notified the agent.
 	sourceInputs := 0
 	openingInputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
 	for _, admittedInput := range admitted.Inputs {

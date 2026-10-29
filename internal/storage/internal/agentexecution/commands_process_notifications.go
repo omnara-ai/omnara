@@ -19,9 +19,7 @@ import (
 )
 
 const (
-	processNotificationScope = "process_notification"
-	// ProcessNotificationActorUserID is the Omnara actor that sends process
-	// exit and output-match notifications.
+	processNotificationScope       = "process_notification"
 	ProcessNotificationActorUserID = "process_notifications"
 	processNotificationActorName   = "Process notifications"
 	processNotificationTailBytes   = 2 * 1024
@@ -29,9 +27,6 @@ const (
 	processNotificationLabelChars  = 200
 )
 
-// notifyProcessExit tells the agent that a process it left running in the
-// background has ended. It is a steering input, so it does not cancel open
-// questions or permission requests; it waits for them like any other input.
 func (h *Handle) notifyProcessExit(
 	ctx context.Context,
 	row executiondb.ReadExecutionProcessOwnerRow,
@@ -45,8 +40,6 @@ func (h *Handle) notifyProcessExit(
 		renderProcessExit(processID, row, observed))
 }
 
-// NotifyProcessOutputMatch tells the agent about output lines that matched
-// a watch_process pattern on a process it left running in the background.
 func (h *Handle) NotifyProcessOutputMatch(
 	ctx context.Context,
 	id uuid.UUID,
@@ -249,7 +242,6 @@ func processEndPhrase(row executiondb.ReadExecutionProcessOwnerRow) string {
 	}
 }
 
-// outputTail returns the last lines of output, and whether they are all of it.
 func outputTail(output string) (string, bool) {
 	tail := output
 	if len(tail) > processNotificationTailBytes {

@@ -314,7 +314,6 @@ func (o *processOutput) Close() error {
 	return o.stickyErr
 }
 
-// End returns the cursor after the last captured byte.
 func (o *processOutput) End() int64 {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -599,9 +598,6 @@ func readProcessOutputSnapshotWindow(
 	)
 }
 
-// outputWindow is retained output from Start to Next. When Tail is set, Output
-// runs to HeadEnd, Tail starts at TailStart, and the bytes between them are
-// left out.
 type outputWindow struct {
 	Output    string
 	Tail      string
@@ -612,9 +608,6 @@ type outputWindow struct {
 	Truncated bool
 }
 
-// readProcessOutputWindow reads like readProcessOutputRange, except that when
-// more than maxBytes are available and headBytes is set it keeps the first
-// headBytes and the last maxBytes-headBytes, reading through to the end.
 func readProcessOutputWindow(
 	file *os.File,
 	baseOffset, endOffset, cursor int64,

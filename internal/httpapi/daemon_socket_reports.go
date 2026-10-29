@@ -349,6 +349,5 @@ func (s *daemonSocket) forgetAcceptedWork(event *daemonprotocol.ReportedEvent) {
 			delete(s.acceptedActions, actionID)
 		}
 	case daemonprotocol.EventProcessOutputMatched:
-		// Matches arrive while the process runs; it stays accepted.
 	}
 }

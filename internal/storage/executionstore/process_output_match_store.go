@@ -27,8 +27,6 @@ type NotifyProcessOutputMatchInput struct {
 	Result    json.RawMessage
 }
 
-// NotifyProcessOutputMatch applies a daemon's process_output_matched report by
-// sending the agent the matched lines. Repeated reports send one message.
 func (s *Store) NotifyProcessOutputMatch(ctx context.Context, input NotifyProcessOutputMatchInput) error {
 	if err := validateDaemonRuntimeAuthority(input.Authority); err != nil {
 		return err
@@ -64,7 +62,6 @@ func (s *Store) NotifyProcessOutputMatch(ctx context.Context, input NotifyProces
 	return err
 }
 
-// DecodeOutputMatchResult decodes and bounds a process_output_matched result.
 func DecodeOutputMatchResult(raw json.RawMessage) (daemonprotocol.OutputMatchResult, error) {
 	var matched daemonprotocol.OutputMatchResult
 	if err := json.Unmarshal(raw, &matched); err != nil {

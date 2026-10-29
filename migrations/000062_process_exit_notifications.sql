@@ -3,14 +3,11 @@
 ALTER TABLE processes
     ADD COLUMN exit_notice_decided boolean NOT NULL DEFAULT false;
 
--- watch_process reports output lines that match a pattern until it expires.
 ALTER TABLE process_actions
     DROP CONSTRAINT process_actions_action_kind_check,
     ADD CONSTRAINT process_actions_action_kind_check
         CHECK (action_kind IN ('write', 'read', 'interrupt', 'terminate', 'watch'));
 
--- Unfinished processes that will notify the agent on exit. File transfers
--- report through their own tool call instead.
 -- +goose StatementBegin
 CREATE FUNCTION agent_background_processes(project_id uuid, agent_id uuid)
 RETURNS TABLE (id uuid, created_at timestamptz)
@@ -27,9 +24,6 @@ AS $$
 $$;
 -- +goose StatementEnd
 
--- Whether an agent or any active descendant is running, has a wakeup or
--- incomplete tools, or is waiting on a background process. A pending turn
--- always has a wakeup or runtime lock, so logical_ready_at is not checked.
 -- +goose StatementBegin
 CREATE FUNCTION agent_subtree_has_work(project_id uuid, agent_id uuid)
 RETURNS boolean

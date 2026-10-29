@@ -103,12 +103,10 @@ func (h *Handle) CompleteProcess(ctx context.Context, input ProcessResult) (Exte
 			if !backgrounded || row.ExecutionSpec.FileTransfer != nil || row.ExitNoticeDecided {
 				return published, nil
 			}
-			// Decided once, so a replay can't reverse it.
 			if err := executiondb.New().MarkProcessExitNoticeDecided(ctx, h.unit.DB(),
 				executiondb.MarkProcessExitNoticeDecidedParams{AgentID: h.route.AgentID, ID: row.ID}); err != nil {
 				return ExternalCompletion{}, err
 			}
-			// A pending read_process reports the exit itself.
 			if !row.StopRequested && !row.ReadPending {
 				return published, h.notifyProcessExit(ctx, row, input.Observed)
 			}

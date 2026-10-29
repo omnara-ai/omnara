@@ -16,16 +16,12 @@ import (
 
 const (
 	outputMatchPollInterval = 250 * time.Millisecond
-	// outputMatchSettle gathers matches that arrive together into one report.
-	outputMatchSettle = 2 * time.Second
-	// outputMatchMinInterval spaces reports so a noisy log cannot flood the agent.
+	outputMatchSettle       = 2 * time.Second
 	outputMatchMinInterval  = 10 * time.Second
 	outputMatchMaxLines     = 20
 	outputMatchMaxLineRunes = 300
 )
 
-// outputMatcher finds complete output lines that match a pattern and batches
-// them into reports.
 type outputMatcher struct {
 	pattern      *regexp.Regexp
 	now          func() time.Time
@@ -42,10 +38,8 @@ func newOutputMatcher(pattern *regexp.Regexp, cursor, seq int64) *outputMatcher 
 	return &outputMatcher{pattern: pattern, now: time.Now, cursor: cursor, seq: seq}
 }
 
-// scan consumes a contiguous window read from the matcher's cursor.
 func (m *outputMatcher) scan(window outputWindow) {
 	if window.Start > m.cursor {
-		// Older output was dropped from retention, so the partial line is gone.
 		m.partial = ""
 	}
 	m.cursor = window.Next
@@ -60,7 +54,6 @@ func (m *outputMatcher) scan(window outputWindow) {
 	}
 }
 
-// finish treats a trailing line without a newline as complete.
 func (m *outputMatcher) finish() {
 	if m.partial != "" {
 		m.consider(m.partial)
@@ -111,14 +104,11 @@ func (m *outputMatcher) take() (int64, daemonprotocol.OutputMatchResult) {
 	return m.seq, result
 }
 
-// outputWatch is a running watch_process watch.
 type outputWatch struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 }
 
-// startOutputWatch replaces the process's watch with one for payload. A watch
-// cannot start once the terminal report has claimed the last one.
 func (s *runnerServerState) startOutputWatch(
 	runner *localProcessRunner,
 	payload processaction.WatchPayload,
@@ -164,9 +154,6 @@ func (s *runnerServerState) stopOutputWatchLocked() {
 	}
 }
 
-// closeOutputWatch lets the current watch flush its last matches, which the
-// process has ended for, and accepts no new watch, so every match report
-// precedes the terminal report.
 func (s *runnerServerState) closeOutputWatch(ctx context.Context) {
 	s.watchMu.Lock()
 	s.watchClosed = true
@@ -181,9 +168,6 @@ func (s *runnerServerState) closeOutputWatch(ctx context.Context) {
 	}
 }
 
-// watchOutputMatches reports output lines matching pattern from cursor until
-// the watch ends or the process does, then flushes what is pending. Writes use
-// parent so a flush outlives the watch's own deadline.
 func (s *runnerServerState) watchOutputMatches(
 	ctx, parent context.Context,
 	runner *localProcessRunner,
@@ -214,8 +198,6 @@ func (s *runnerServerState) watchOutputMatches(
 		if terminal {
 			matcher.finish()
 		}
-		// Once the watch is canceled or expires, one more pass reads and
-		// flushes the output that arrived before then.
 		stopping := terminal || ctx.Err() != nil
 		if matcher.due(stopping) && !s.freezeOutputMatch(parent, runner, matcher) {
 			return

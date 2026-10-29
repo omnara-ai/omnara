@@ -44,15 +44,13 @@ type stopAgentRequest struct {
 }
 
 type subagentSummary struct {
-	AgentID        string `json:"agent_id"`
-	Name           string `json:"name,omitempty"`
-	Key            string `json:"key"`
-	State          string `json:"state"`
-	LastActivityAt string `json:"last_activity_at"`
-	// RunningProcessCount and WorkingSubagentCount count background work
-	// that continues whatever the state is.
-	RunningProcessCount  int `json:"running_process_count,omitempty"`
-	WorkingSubagentCount int `json:"working_subagent_count,omitempty"`
+	AgentID              string `json:"agent_id"`
+	Name                 string `json:"name,omitempty"`
+	Key                  string `json:"key"`
+	State                string `json:"state"`
+	LastActivityAt       string `json:"last_activity_at"`
+	RunningProcessCount  int    `json:"running_process_count,omitempty"`
+	WorkingSubagentCount int    `json:"working_subagent_count,omitempty"`
 }
 
 func decodeStrictToolRequest(toolName string, raw json.RawMessage, target any) error {

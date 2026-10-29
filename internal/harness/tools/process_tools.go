@@ -257,9 +257,6 @@ func processToolMachineResolutionError(
 	return failInTransaction(unavailable.Content, unavailable.Cause), nil
 }
 
-// processHasNoStdin reports whether a process was started without stdin.
-// Daemons before processaction.OutputWindowDaemonVersion ignore no_stdin and
-// keep stdin open, so writes to their processes still go through.
 func processHasNoStdin(execution executionstore.ProcessExecution) bool {
 	if execution.Spec.Shell == nil || !execution.Spec.Shell.NoStdin {
 		return false
@@ -452,8 +449,6 @@ func observeProcess(
 		}
 		return completeInTransaction(content), nil
 	}
-	// An explicit offset pages through output, so it returns one contiguous
-	// page as soon as there is output there instead of waiting for exit.
 	var wait processaction.OutputWait
 	if id, err := decodeProcessID(request.ProcessID); err == nil && request.OffsetByte == nil {
 		execution, found, err := call.Reader.ProcessExecution(ctx, id)

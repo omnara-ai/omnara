@@ -134,8 +134,6 @@ type ProcessAssignment struct {
 	processaction.OutputWait
 }
 
-// outputBudget returns the most output bytes a result carries and how many of
-// them come from the start when output is longer.
 func (a ProcessAssignment) outputBudget() (int, int) {
 	if a.OutputBytes <= 0 {
 		return processaction.MaxObservationBytes, 0

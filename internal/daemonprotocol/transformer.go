@@ -42,9 +42,6 @@ func supportsLongReadWaits(daemonVersion string) bool {
 	return daemonversion.AtLeast(daemonVersion, processaction.LongWaitDaemonVersion)
 }
 
-// Daemons before 0.2.15 reject the output-window read fields; without them a
-// read returns on the first output, as it always did. Process offers need no
-// change because daemons ignore unknown offer fields.
 func supportsOutputWindows(daemonVersion string) bool {
 	return daemonversion.AtLeast(daemonVersion, processaction.OutputWindowDaemonVersion)
 }

@@ -1288,7 +1288,6 @@ func TestDetachedWatchReportsMatchingOutput(t *testing.T) {
 		require.Equal(t, "ERROR", matched.Pattern)
 		lines = append(lines, matched.Lines...)
 	}
-	// The unterminated last line counts once the process ends.
 	require.Equal(t, []string{"ERROR one", "ERROR two"}, lines)
 }
 

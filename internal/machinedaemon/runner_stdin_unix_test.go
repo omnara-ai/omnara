@@ -37,7 +37,6 @@ func TestPipeCommandWithoutStdinReadsEndOfInput(t *testing.T) {
 		t.Fatal("a command without stdin accepts input")
 	}
 
-	// With an open stdin pipe, read would block until the test times out.
 	exited := make(chan struct{})
 	go func() {
 		_ = runner.cmd.Wait()

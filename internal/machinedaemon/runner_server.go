@@ -221,7 +221,6 @@ type runnerServerState struct {
 	startedDone      chan struct{}
 	startedOnce      sync.Once
 
-	// runCtx outlives the started process, for watches started by actions.
 	runCtx      context.Context //nolint:containedctx // Supervisor-lifetime context.
 	watchMu     sync.Mutex
 	watch       *outputWatch
@@ -700,8 +699,6 @@ func initialProcessObservation(
 	}
 }
 
-// outputSettle decides when a wait for process output has seen enough before
-// the process ends or the wait expires.
 type outputSettle struct {
 	wait       processaction.OutputWait
 	now        func() time.Time
@@ -713,8 +710,6 @@ func newOutputSettle(wait processaction.OutputWait) *outputSettle {
 	return &outputSettle{wait: wait, now: time.Now, lastNext: -1}
 }
 
-// ready reports whether to return now: on the first output originally, or
-// with WaitForExit only once output has gone quiet for QuietMS.
 func (s *outputSettle) ready(window outputWindow) bool {
 	if !s.wait.WaitForExit {
 		return window.Output != ""

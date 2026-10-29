@@ -32,9 +32,6 @@ type Action struct {
 	Payload json.RawMessage
 }
 
-// observation is process output from a daemon, or the same fields in a result
-// built from one. Output runs from Cursor; when TailCursor is set, Output ends
-// at OmittedCursor and OutputTail runs from TailCursor to NextCursor.
 type observation struct {
 	ProcessID     *string
 	Output        *string
@@ -47,8 +44,6 @@ type observation struct {
 	Error         string
 }
 
-// publicOutputFields maps the daemon's output cursor fields to the byte
-// offsets that process tool results expose.
 var publicOutputFields = map[string]string{
 	"cursor":         "offset_byte",
 	"next_cursor":    "next_offset_byte",
@@ -60,7 +55,6 @@ func (o observation) split() bool { return o.TailCursor > 0 }
 
 func (o observation) complete() bool { return o.Output != nil && o.NextCursor != nil }
 
-// Replacement symbols for NUL and invalid UTF-8 count as one raw byte.
 func (o observation) validateRange(maxBytes int) error {
 	cursor, next := o.Cursor, *o.NextCursor
 	head := processaction.MinOutputRawBytes(*o.Output)
@@ -94,7 +88,6 @@ func (o observation) safeText() error {
 	return nil
 }
 
-// addTo copies the output fields, leaving out a zero cursor and false truncated.
 func (o observation) addTo(result map[string]any) {
 	result["output"] = *o.Output
 	if o.Cursor != 0 {
@@ -184,8 +177,6 @@ func TerminalState(state string) bool {
 }
 func publicID(kind publicid.Kind, id uuid.UUID) string { s, _ := publicid.Encode(kind, id); return s }
 
-// addTerminalFacts adds how a terminal process ended. An exited process's
-// reason message only restates its exit code, so it is left out.
 func addTerminalFacts(result map[string]any, process Process) {
 	if !TerminalState(process.State) {
 		return
@@ -273,8 +264,6 @@ func ReadFailure(
 	return json.Marshal(result)
 }
 
-// Terminal is the result for a process that ended without output to report,
-// such as a file transfer before its own result is added.
 func Terminal(process Process) (string, json.RawMessage, error) {
 	if !TerminalState(process.State) {
 		return "", nil, fmt.Errorf("process %s is not terminal", process.ID)
@@ -303,8 +292,6 @@ func Terminal(process Process) (string, json.RawMessage, error) {
 	return terminalOutcome(process), result, nil
 }
 
-// TerminalOutput is the run_command result for a process that ended before
-// the call returned, with the output the daemon observed if any.
 func TerminalOutput(process Process, observed json.RawMessage) (string, json.RawMessage, error) {
 	if !TerminalState(process.State) {
 		return "", nil, fmt.Errorf("process %s is not terminal", process.ID)
@@ -341,8 +328,6 @@ func terminalOutcome(process Process) string {
 	return "failed"
 }
 
-// Started is the run_command result for a process still running when the call
-// returns. The agent is told separately when it ends.
 func Started(process Process, observed json.RawMessage) (json.RawMessage, error) {
 	result := map[string]any{
 		"process_id": publicID(publicid.KindProcess, process.ID),

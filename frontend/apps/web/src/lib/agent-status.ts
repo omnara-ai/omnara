@@ -14,7 +14,6 @@ export function agentStatusLabel(agent: Agent) {
   return state && statusLabels[state]
 }
 
-/** Whether the agent has processes running or subagents working, whatever its own state. */
 export function hasBackgroundWork(activity: AgentActivity) {
   return activity.running_processes.count > 0 || activity.working_subagents.count > 0
 }

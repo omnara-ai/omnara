@@ -1,8 +1,5 @@
 -- +goose Up
 
--- watch_process adds the watch action kind. Rebuilding process_actions under
--- a new name before dropping the old table keeps its frozen reports, which
--- would otherwise cascade away with the old rows.
 CREATE TABLE process_actions_next (
     action_id TEXT PRIMARY KEY,
     process_id TEXT NOT NULL,
@@ -22,8 +19,6 @@ INSERT INTO process_actions_next(action_id, process_id, action_kind, seq, effect
 SELECT action_id, process_id, action_kind, seq, effect_committed
 FROM process_actions;
 
--- Output-match reports repeat per process, so process report slots gain a
--- sequence: 0 for started and terminal reports, 1 and up for matches.
 CREATE TABLE frozen_reports_next (
     report_id TEXT PRIMARY KEY,
     process_id TEXT NOT NULL,
@@ -86,7 +81,6 @@ DROP TABLE frozen_reports;
 
 DROP TABLE process_actions;
 
--- Renaming also points frozen_reports' foreign key at process_actions.
 ALTER TABLE process_actions_next RENAME TO process_actions;
 
 ALTER TABLE frozen_reports_next RENAME TO frozen_reports;

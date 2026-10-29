@@ -1278,7 +1278,6 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 `, testProjectID, fixture.AgentID).Scan(&wakeupAfter); err != nil {
 		t.Fatalf("load terminal-report wakeup: %v", err)
 	}
-	// The process outlived its tool call, so its exit notifies the agent.
 	if texts := processNotificationTexts(t, ctx, fixture); len(texts) != 1 {
 		t.Fatalf("exit notifications = %q, want one", texts)
 	}

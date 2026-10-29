@@ -20,12 +20,6 @@ const (
 	DefaultObservationBytes = 8 * 1024
 	MaxWriteBytes           = 128 * 1024
 
-	// Agent-facing process reads wait for exit instead of the first output
-	// and return at most AgentOutputBytes, keeping the first AgentHeadBytes
-	// and the end of longer output. run_command waits
-	// DefaultCommandWaitMilliseconds unless the agent asks for another wait.
-	// Daemons older than OutputWindowDaemonVersion ignore these settings
-	// and the no_stdin execution field.
 	AgentOutputBytes               = 16 * 1024
 	AgentHeadBytes                 = 2 * 1024
 	DefaultCommandWaitMilliseconds = 10 * 1000
@@ -95,9 +89,6 @@ func DecodeWritePayload(raw json.RawMessage) (WritePayload, error) {
 	return payload, nil
 }
 
-// A watch reports output lines that match Pattern, starting at Cursor or at
-// the end of output when the watch takes effect, until TimeoutSeconds pass or
-// the process ends. A new watch replaces the process's current one.
 type WatchPayload struct {
 	Pattern        string `json:"pattern"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
@@ -128,7 +119,6 @@ func DecodeWatchPayload(raw json.RawMessage) (WatchPayload, error) {
 	return payload, nil
 }
 
-// ValidateWatchPattern requires an RE2 expression that Postgres can store.
 func ValidateWatchPattern(pattern string) error {
 	if pattern == "" || len(pattern) > MaxWatchPatternBytes {
 		return fmt.Errorf("pattern must be 1 to %d bytes", MaxWatchPatternBytes)
@@ -149,19 +139,10 @@ type ReadPayload struct {
 	OutputWait
 }
 
-// OutputWait changes when a process read returns and which output it keeps.
-// The zero value is the original behavior: return on the first output and
-// keep the first bytes.
 type OutputWait struct {
-	// WaitForExit keeps waiting through output until the process ends or the
-	// wait expires.
 	WaitForExit bool `json:"wait_for_exit,omitempty"`
-	// QuietMS, with WaitForExit, also returns once output has arrived and then
-	// stopped for this long, as an interactive program does at a prompt.
-	QuietMS int `json:"quiet_ms,omitempty"`
-	// HeadBytes, when more output is available than fits, keeps this many
-	// bytes from the start and fills the rest from the end.
-	HeadBytes int `json:"head_bytes,omitempty"`
+	QuietMS     int  `json:"quiet_ms,omitempty"`
+	HeadBytes   int  `json:"head_bytes,omitempty"`
 }
 
 func (wait OutputWait) Validate(maxBytes int) error {
@@ -182,16 +163,14 @@ func (wait OutputWait) Zero() bool {
 }
 
 type ReadObservation struct {
-	ProcessID  string `json:"process_id"`
-	Output     string `json:"output"`
-	Cursor     int64  `json:"cursor"`
-	NextCursor int64  `json:"next_cursor"`
-	Truncated  bool   `json:"truncated"`
-	OutputTail string `json:"output_tail,omitempty"`
-	// OmittedCursor and TailCursor bound the bytes left out between Output,
-	// the head of the range, and OutputTail. Both are zero when nothing is.
-	OmittedCursor int64 `json:"omitted_cursor,omitempty"`
-	TailCursor    int64 `json:"tail_cursor,omitempty"`
+	ProcessID     string `json:"process_id"`
+	Output        string `json:"output"`
+	Cursor        int64  `json:"cursor"`
+	NextCursor    int64  `json:"next_cursor"`
+	Truncated     bool   `json:"truncated"`
+	OutputTail    string `json:"output_tail,omitempty"`
+	OmittedCursor int64  `json:"omitted_cursor,omitempty"`
+	TailCursor    int64  `json:"tail_cursor,omitempty"`
 }
 
 func DecodeReadPayload(raw json.RawMessage) (ReadPayload, error) {

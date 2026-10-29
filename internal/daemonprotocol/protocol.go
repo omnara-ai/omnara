@@ -365,19 +365,14 @@ type ProcessOffer struct {
 	Env              map[string]string        `json:"env,omitempty"`
 	WaitMs           int                      `json:"wait_ms,omitempty"`
 	TimeoutSeconds   int                      `json:"timeout_seconds"`
-	// OutputBytes and OutputWait shape the started and terminal results.
-	// Zero values keep the original behavior.
-	OutputBytes int `json:"output_bytes,omitempty"`
+	OutputBytes      int                      `json:"output_bytes,omitempty"`
 	processaction.OutputWait
 }
 
-// OutputMatchResult is the result of a process_output_matched event.
 type OutputMatchResult struct {
-	// Pattern is the watch_process pattern the lines matched.
 	Pattern string   `json:"pattern"`
 	Lines   []string `json:"lines"`
-	// Dropped counts matching lines left out of this report.
-	Dropped int `json:"dropped,omitempty"`
+	Dropped int      `json:"dropped,omitempty"`
 }
 
 type FileTransferResult struct {
@@ -534,8 +529,6 @@ const (
 	EventProcessActionApplied ReportedEventType = "process_action_applied"
 	EventProcessActionFailed  ReportedEventType = "process_action_failed"
 	EventProcessActionUnknown ReportedEventType = "process_action_unknown"
-	// EventProcessOutputMatched reports output lines that matched the
-	// process's watch_process pattern, numbered from 1 per process by Sequence.
 	EventProcessOutputMatched ReportedEventType = "process_output_matched"
 )
 

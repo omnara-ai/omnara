@@ -151,7 +151,6 @@ func (c *Client) outboxReports(
 			continue
 		}
 		if report.Kind == statedb.ReportProcessOutputMatch && report.State == statedb.ReportRejected {
-			// A rejected match only loses that notification; later reports proceed.
 			continue
 		}
 		if report.State != statedb.ReportPending {

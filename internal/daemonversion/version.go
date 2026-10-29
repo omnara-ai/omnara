@@ -54,8 +54,6 @@ func Validate(raw string) error {
 	return err
 }
 
-// AtLeast reports whether version is a development build or a release at or
-// after minimum.
 func AtLeast(version, minimum string) bool {
 	if version == Development {
 		return true

@@ -241,7 +241,6 @@ func TestOnlyEffectiveStopSuppressesExitNotification(t *testing.T) {
 				t.Fatalf("notify = %v, notifications = %q", tc.notify, texts)
 			}
 
-			// A replay after the stop settles or ages out keeps the first decision.
 			if _, err := fixture.Store.pool.Exec(ctx,
 				`UPDATE process_actions SET state = 'failed', updated_at = now() - interval '1 minute',
 				 state_reason_code = coalesce(state_reason_code, 'process_not_running')
@@ -347,7 +346,6 @@ func TestAgentActivityListsRunningProcessWhileIdle(t *testing.T) {
 	); err != nil {
 		t.Fatalf("release runtime lock: %v", err)
 	}
-	// Stand in for the model ending its turn after the run_command result.
 	if _, err := fixture.Store.pool.Exec(ctx, `
 UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = false WHERE agent_id = $1;
 `, fixture.AgentID); err != nil {
@@ -382,7 +380,6 @@ UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = fal
 	}
 }
 
-// An open question sets the state without hiding the agent's running process.
 func TestAgentActivityListsRunningProcessBesideOpenQuestion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

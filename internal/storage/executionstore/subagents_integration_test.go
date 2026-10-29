@@ -1286,7 +1286,6 @@ func TestParentActivityListsChildWhoseSubagentIsWorking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawn grandchild: %v", err)
 	}
-	// Stand in for every agent ending its turn, then give only the grandchild work.
 	agentIDs := []uuid.UUID{parent.ID, child.Agent.ID, grandchild.Agent.ID}
 	if _, err := pool.Exec(ctx, `
 UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = false WHERE agent_id = ANY($1);

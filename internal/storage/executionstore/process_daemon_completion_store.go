@@ -381,14 +381,11 @@ func (s *Store) GetProcessByToolCall(
 	return getProcessByToolCallTx(ctx, s.pool, projectID, agentID, toolCallID)
 }
 
-// ProcessExecution is what one of the agent's processes runs and the version
-// of the daemon currently connected for its machine, empty when none is.
 type ProcessExecution struct {
 	Spec          processcmd.ExecutionSpec
 	DaemonVersion string
 }
 
-// ProcessExecution returns what one of the agent's processes runs.
 func (r *ToolCallReader) ProcessExecution(
 	ctx context.Context,
 	processID uuid.UUID,

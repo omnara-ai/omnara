@@ -60,8 +60,6 @@ func (s *Supervisor) FreezeStartedReport(
 	return frozen, nil
 }
 
-// FreezeOutputMatchReport freezes the next output-match report for a running
-// or just-ended process.
 func (s *Supervisor) FreezeOutputMatchReport(
 	ctx context.Context,
 	report Report,
@@ -101,8 +99,6 @@ func (s *Supervisor) FreezeOutputMatchReport(
 	return frozen, nil
 }
 
-// LastOutputMatchSeq returns the highest output-match report sequence frozen
-// for the process, or 0.
 func (s *Supervisor) LastOutputMatchSeq(ctx context.Context) (int64, error) {
 	seq, err := s.store.q.GetLastOutputMatchReportSeq(
 		ctx,

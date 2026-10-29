@@ -186,7 +186,6 @@ func assertPublicOutputRange(t *testing.T, raw json.RawMessage, offset, next flo
 	if err := json.Unmarshal(raw, &body); err != nil {
 		t.Fatalf("decode result: %v", err)
 	}
-	// A zero offset is left out of results.
 	if got, ok := body["offset_byte"]; ok != (offset != 0) || ok && got != offset ||
 		body["next_offset_byte"] != next {
 		t.Fatalf("result output range = %s", raw)

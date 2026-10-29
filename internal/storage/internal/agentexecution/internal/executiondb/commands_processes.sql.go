@@ -74,8 +74,6 @@ func (q *Queries) ReadExecutionActionOwner(ctx context.Context, db DBTX, arg Rea
 const readExecutionProcessOwner = `-- name: ReadExecutionProcessOwner :one
 SELECT p.id,p.org_id,p.machine_id,p.tool_call_id,p.state,p.state_reason_code,p.state_reason_message,p.exit_code,
  p.exit_signal,p.execution_spec,p.execution_granted_at,p.source_started_at,p.source_ended_at,p.default_output_cursor,p.exit_notice_decided,
- -- A stop counts while it is in flight, once a terminate is applied, or for 30 seconds after an
- -- interrupt is applied; a program still running after that survived the interrupt.
  EXISTS(SELECT 1 FROM process_actions a WHERE a.agent_id=p.agent_id AND a.process_id=p.id
  AND a.action_kind IN ('interrupt','terminate') AND (a.state IN ('queued','accepted')
  OR a.state='applied' AND (a.action_kind='terminate' OR a.updated_at>statement_timestamp()-interval '30 seconds'))) AS stop_requested,
