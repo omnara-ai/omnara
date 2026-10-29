@@ -784,7 +784,7 @@ it.each(['slack_thread', 'discord_thread'] as const)(
         'Triage',
       )
     })
-    expect(field('Task instructions').value).toBe('Summarize the daily progress.')
+    expect(field('Message').value).toBe('Summarize the daily progress.')
     expect(
       api.requests
         .filter((request) => request.method !== 'GET')

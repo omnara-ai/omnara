@@ -152,7 +152,7 @@ export async function submit() {
 }
 export async function chooseProfile(selected = profile) {
   act(() => {
-    const picker = document.querySelector('[role="dialog"] [role="combobox"]')
+    const picker = document.querySelector('[role="dialog"] button[role="combobox"]')
     if (!(picker instanceof HTMLButtonElement)) throw new Error('Missing profile picker')
     picker.click()
   })

@@ -76,7 +76,7 @@ it.each(['slack_thread', 'discord_thread'] as const)(
     expect(button('Create schedule').disabled).toBe(true)
     await enter('Name', 'morning-report')
     await enter('Cron expression', '0 9 * * 1-5')
-    await enter('Task instructions', 'Summarize yesterday’s progress.')
+    await enter('Message', 'Summarize yesterday’s progress.')
     await enter('Channel ID', integrationKind === 'slack_thread' ? 'G123' : '123456789')
     expect(button('Create schedule').disabled).toBe(true)
     await chooseProfile()
@@ -225,12 +225,12 @@ it('edits integration settings including the profile for future runs while keepi
     expect(field('Channel ID').value).toBe('123')
   })
   expect(
-    document.querySelector<HTMLButtonElement>('[role="dialog"] [role="combobox"]')?.disabled,
+    document.querySelector<HTMLButtonElement>('[role="dialog"] button[role="combobox"]')?.disabled,
   ).toBe(false)
   await chooseProfile(replacement)
   await enter('Channel ID', '789')
   await enter('Opening message', 'Daily update {{.trigger.local_date}}')
-  await enter('Task instructions', 'Write a detailed update.')
+  await enter('Message', 'Write a detailed update.')
   await submit()
   await waitForUI(() => {
     expect(onOpenChange).toHaveBeenCalledWith(false)

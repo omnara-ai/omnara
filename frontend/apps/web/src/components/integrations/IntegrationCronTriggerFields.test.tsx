@@ -32,7 +32,9 @@ it('uses the declared schedule capability, defaults, order and constraints witho
           type: 'object',
           additionalProperties: false,
           required: ['queue'],
-          'x-omnara-field-order': ['queue', 'note'],
+          'x-omnara-sections': [
+            { icon: 'integration', title: 'In GitHub', fields: ['queue', 'note'] },
+          ],
           properties: {
             note: {
               type: 'string',
@@ -91,7 +93,9 @@ it('uses the declared schedule capability, defaults, order and constraints witho
   expect(field('Note')).toBeInstanceOf(HTMLTextAreaElement)
   expect(
     [...document.querySelectorAll('[role="dialog"] label')].map((label) => label.textContent),
-  ).toEqual(['Name', 'Queue', 'Note', 'Cron expression', 'Timezone'])
+  ).toEqual(['Name', 'Cron expression', 'Timezone', 'Queue', 'Note'])
+  const group = document.querySelector('[role="group"][aria-label="In GitHub"]')
+  expect([field('Queue'), field('Note')].every((element) => group?.contains(element))).toBe(true)
   expect(
     [...document.querySelectorAll('[role="dialog"] label')].some(
       (label) => label.textContent === 'Agent profile',
