@@ -160,7 +160,7 @@ func archiveIdleAgents(
 	machinePoolManager *machinepool.Manager,
 ) func(context.Context) bool {
 	return func(ctx context.Context) bool {
-		machines, archived, err := execution.ArchiveIdleAgents(ctx, machinepool.DefaultReconcileBatchSize)
+		machines, archived, full, err := execution.ArchiveIdleAgents(ctx, machinepool.DefaultReconcileBatchSize)
 		outcome := completedMaintenanceOutcome(ctx, err)
 		if outcome.err != nil {
 			log.Error("archive idle agents", "archived_count", archived, "error", outcome.err)
@@ -172,6 +172,6 @@ func archiveIdleAgents(
 				log.Error("delete idle agent machines", "machine_count", len(machines), "error", err)
 			}
 		}
-		return err == nil && archived > 0
+		return err == nil && full
 	}
 }
