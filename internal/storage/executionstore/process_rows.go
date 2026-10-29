@@ -31,7 +31,6 @@ func processRecordFromSQLC(row dbsqlc.Process) ProcessRecord {
 		ExitSignal:            row.ExitSignal,
 		CreatedAt:             row.CreatedAt,
 		UpdatedAt:             row.UpdatedAt,
-		NotifyMatch:           row.NotifyMatch,
 	}
 }
 

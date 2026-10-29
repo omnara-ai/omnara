@@ -23,6 +23,13 @@ type writeProcessRequest struct {
 	Data      string `json:"data"`
 }
 
+type watchProcessRequest struct {
+	ProcessID      string `json:"process_id"`
+	Pattern        string `json:"pattern"`
+	TimeoutSeconds *int   `json:"timeout_seconds,omitempty"`
+	OffsetByte     *int64 `json:"offset_byte,omitempty"`
+}
+
 type stopProcessRequest struct {
 	ProcessID string `json:"process_id"`
 	Mode      string `json:"mode"`
@@ -35,7 +42,6 @@ type runCommandAuthorization struct {
 	Cwd                   string                   `json:"cwd,omitempty"`
 	WaitMS                int                      `json:"wait_ms,omitempty"`
 	IOMode                processcmd.IOMode        `json:"io_mode"`
-	NotifyMatch           string                   `json:"notify_match,omitempty"`
 }
 
 type processActionAuthorization struct {
@@ -69,7 +75,6 @@ func runCommandAuthorizationInput(
 		Cwd:                   resolved.Cwd,
 		WaitMS:                resolved.WaitMs,
 		IOMode:                resolved.IOMode,
-		NotifyMatch:           resolved.NotifyMatch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal run_command authorization: %w", err)
@@ -158,7 +163,6 @@ func runCommand(
 		Cwd:            resolved.Cwd,
 		InitialWaitMS:  resolved.WaitMs,
 		TimeoutSeconds: 0,
-		NotifyMatch:    resolved.NotifyMatch,
 	})
 }
 
@@ -307,6 +311,52 @@ func writeProcess(
 		call,
 		processID,
 		executionstore.ProcessActionKindWrite,
+		payload,
+		authorizationInput,
+		executionstore.CreateProcessActionForToolCall,
+	)
+}
+
+func watchProcess(
+	ctx context.Context,
+	call transactionalToolContext,
+) (transactionalPhaseResult, error) {
+	processID, payload, err := watchProcessPayload(call.Call.Input)
+	if err != nil {
+		return nil, err
+	}
+	if id, err := decodeProcessID(processID); err == nil {
+		execution, found, err := call.Reader.ProcessExecution(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if found && execution.DaemonVersion != "" &&
+			!daemonversion.AtLeast(execution.DaemonVersion, processaction.WatchDaemonVersion) {
+			return failProcessTransaction(
+				errors.New("daemon does not support watch_process"),
+				processToolErrorActionUnavailable,
+				"watch_process needs omnarad "+processaction.WatchDaemonVersion+
+					" or later on this machine; use read_process with wait_ms instead",
+				false,
+				processID,
+				"",
+				"",
+			)
+		}
+	}
+	authorizationInput, err := processActionAuthorizationRequest(
+		processID,
+		executionstore.ProcessActionKindWatch,
+		payload,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return createProcessAction(
+		ctx,
+		call,
+		processID,
+		executionstore.ProcessActionKindWatch,
 		payload,
 		authorizationInput,
 		executionstore.CreateProcessActionForToolCall,
@@ -740,6 +790,43 @@ func writeProcessPayload(
 		return "", nil, fmt.Errorf("marshal write_process payload: %w", err)
 	}
 	return input.ProcessID, payload, nil
+}
+
+func watchProcessPayload(
+	raw json.RawMessage,
+) (string, json.RawMessage, error) {
+	var input watchProcessRequest
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return "", nil, fmt.Errorf("parse watch_process request: %w", err)
+	}
+	for key, value := range fields {
+		if string(value) == "null" {
+			return "", nil, fmt.Errorf("watch_process field %s cannot be null", key)
+		}
+	}
+	if err := decodeSingleStrictJSON(raw, &input, "watch_process request"); err != nil {
+		return "", nil, fmt.Errorf("parse watch_process request: %w", err)
+	}
+	if input.ProcessID == "" {
+		return "", nil, errors.New("watch_process requires process_id")
+	}
+	payload := processaction.WatchPayload{
+		Pattern:        input.Pattern,
+		TimeoutSeconds: processaction.DefaultWatchSeconds,
+		Cursor:         input.OffsetByte,
+	}
+	if input.TimeoutSeconds != nil {
+		payload.TimeoutSeconds = *input.TimeoutSeconds
+	}
+	body, err := marshalJSON(payload)
+	if err != nil {
+		return "", nil, fmt.Errorf("marshal watch_process payload: %w", err)
+	}
+	if _, err := processaction.DecodeWatchPayload(body); err != nil {
+		return "", nil, fmt.Errorf("watch_process %w", err)
+	}
+	return input.ProcessID, body, nil
 }
 
 func resolveProcessObservationRequest(

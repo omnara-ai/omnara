@@ -220,6 +220,12 @@ type runnerServerState struct {
 	inflight         map[string]*runnerActionCall
 	startedDone      chan struct{}
 	startedOnce      sync.Once
+
+	// runCtx outlives the started process, for watches started by actions.
+	runCtx      context.Context //nolint:containedctx // Supervisor-lifetime context.
+	watchMu     sync.Mutex
+	watch       *outputWatch
+	watchClosed bool
 }
 
 type runnerActionCall struct {
@@ -569,6 +575,7 @@ func (s *runnerServerState) startOnce(ctx context.Context) runnerResponse {
 	s.mu.Lock()
 	s.prepared = runner
 	s.startOutcome = processStarted
+	s.runCtx = ctx
 	s.mu.Unlock()
 	go s.freezeInitialObservation(ctx, runner)
 	go s.observeProcessExit(ctx, runner)
@@ -607,10 +614,8 @@ func (s *runnerServerState) freezeInitialObservation(
 	ctx context.Context,
 	runner *localProcessRunner,
 ) {
-	// The terminal report waits for startedDone, so output matches watched
-	// below are frozen before it.
 	defer s.startedOnce.Do(func() { close(s.startedDone) })
-	result, window, observedAt, done, err := initialProcessObservation(
+	result, _, observedAt, done, err := initialProcessObservation(
 		ctx,
 		s.assignment,
 		runner,
@@ -634,13 +639,10 @@ func (s *runnerServerState) freezeInitialObservation(
 		Kind:      statedb.ReportProcessStarted,
 		Body:      body,
 	}
-	if err := s.autonomousStateWrite(ctx, func() error {
+	_ = s.autonomousStateWrite(ctx, func() error {
 		_, freezeErr := s.processState.FreezeStartedReport(ctx, report)
 		return freezeErr
-	}); err != nil || s.assignment.NotifyMatch == "" {
-		return
-	}
-	s.watchOutputMatches(ctx, runner, window)
+	})
 }
 
 func initialProcessObservation(
@@ -867,6 +869,7 @@ func (s *runnerServerState) finishTerminalRunner(
 			return
 		}
 	}
+	s.closeOutputWatch(ctx)
 	report, err := s.processTerminalReport(
 		exit,
 		result,
@@ -1299,6 +1302,17 @@ func (s *runnerServerState) applyLiveAction(
 		if err := runner.terminateForAction(ctx); err != nil {
 			return unknownActionResult(daemonprotocol.ProcessActionReasonTerminateUnknown, err)
 		}
+	case daemonprotocol.ProcessActionWatch:
+		payload, err := processaction.DecodeWatchPayload(action.Payload)
+		if err != nil {
+			return failedActionResult(daemonprotocol.ProcessActionReasonInvalidPayload, err)
+		}
+		if err := s.startOutputWatch(runner, payload); err != nil {
+			if errors.Is(err, errOutputWatchClosed) {
+				return terminalProcessActionResult(action)
+			}
+			return failedActionResult(daemonprotocol.ProcessActionReasonRunnerUnavailable, err)
+		}
 	default:
 		return failedActionResult(
 			daemonprotocol.ProcessActionReasonUnsupportedAction,
@@ -1345,6 +1359,10 @@ func preflightActionResult(action ProcessAction) *processActionResult {
 	switch action.ActionKind {
 	case daemonprotocol.ProcessActionWrite:
 		if _, err := processaction.DecodeWritePayload(action.Payload); err != nil {
+			return invalid(err)
+		}
+	case daemonprotocol.ProcessActionWatch:
+		if _, err := processaction.DecodeWatchPayload(action.Payload); err != nil {
 			return invalid(err)
 		}
 	case daemonprotocol.ProcessActionInterrupt,
@@ -1643,7 +1661,8 @@ func validRunnerActionKind(kind daemonprotocol.ProcessActionKind) bool {
 	switch kind {
 	case daemonprotocol.ProcessActionWrite,
 		daemonprotocol.ProcessActionInterrupt,
-		daemonprotocol.ProcessActionTerminate:
+		daemonprotocol.ProcessActionTerminate,
+		daemonprotocol.ProcessActionWatch:
 		return true
 	default:
 		return false

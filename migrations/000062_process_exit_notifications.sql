@@ -1,8 +1,13 @@
 -- +goose Up
 
 ALTER TABLE processes
-    ADD COLUMN notify_match text NOT NULL DEFAULT '',
     ADD COLUMN exit_notice_decided boolean NOT NULL DEFAULT false;
+
+-- watch_process reports output lines that match a pattern until it expires.
+ALTER TABLE process_actions
+    DROP CONSTRAINT process_actions_action_kind_check,
+    ADD CONSTRAINT process_actions_action_kind_check
+        CHECK (action_kind IN ('write', 'read', 'interrupt', 'terminate', 'watch'));
 
 -- Unfinished processes that will notify the agent on exit. File transfers
 -- report through their own tool call instead.

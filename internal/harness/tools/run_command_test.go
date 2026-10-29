@@ -21,7 +21,6 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 		selector    processcmd.ShellSelector
 		waitMs      int
 		ioMode      processcmd.IOMode
-		notifyMatch string
 	}{
 		{
 			name:     "default",
@@ -81,14 +80,6 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			ioMode:   "pty",
 		},
 		{
-			name:        "notify match",
-			input:       json.RawMessage(`{"command":"npm run dev","notify_match":"listening|ERROR"}`),
-			command:     "npm run dev",
-			selector:    "default",
-			ioMode:      "pipe",
-			notifyMatch: "listening|ERROR",
-		},
-		{
 			name:     "max wait",
 			input:    json.RawMessage(`{"command":"make test","wait_ms":300000}`),
 			command:  "make test",
@@ -109,8 +100,7 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			}
 			if resolved.Command != tc.command || resolved.Selector != tc.selector ||
 				resolved.WaitMs != wantWait ||
-				resolved.IOMode != tc.ioMode ||
-				resolved.NotifyMatch != tc.notifyMatch {
+				resolved.IOMode != tc.ioMode {
 				t.Fatalf("unexpected resolution: %+v", resolved)
 			}
 		})
@@ -167,19 +157,9 @@ func TestResolveRunCommandRequestRejectsInvalidInput(t *testing.T) {
 		{name: "null wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":null}`), want: "wait_ms cannot be null"},
 		{name: "huge wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":300001}`), want: "wait_ms must be at most"},
 		{
-			name: "invalid notify_match",
-			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":"(listening"}`),
-			want: "notify_match is not a valid regular expression",
-		},
-		{
-			name: "empty notify_match",
-			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":""}`),
-			want: "notify_match must be 1 to 500 bytes",
-		},
-		{
-			name: "NUL notify_match",
-			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":"listening\u0000"}`),
-			want: "notify_match cannot contain NUL",
+			name: "removed notify_match",
+			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":"listening"}`),
+			want: "notify_match",
 		},
 		{name: "null io mode", raw: json.RawMessage(`{"command":"echo ok","io_mode":null}`), want: "io_mode cannot be null"},
 		{

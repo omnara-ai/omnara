@@ -314,6 +314,13 @@ func (o *processOutput) Close() error {
 	return o.stickyErr
 }
 
+// End returns the cursor after the last captured byte.
+func (o *processOutput) End() int64 {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.endOffset
+}
+
 func (o *processOutput) Slice(
 	cursor int64,
 	maxBytes int,

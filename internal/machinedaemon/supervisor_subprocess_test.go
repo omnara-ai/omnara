@@ -1235,6 +1235,63 @@ func TestDetachedPTYRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDetachedWatchReportsMatchingOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("detached supervisor execution is not complete on Windows")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	fixture := newDetachedSupervisorTestFixture(
+		t,
+		ctx,
+		ProcessAssignment{
+			ID: "prc_detached_watch",
+			Process: Process{
+				ExecutionSpec: processcmd.ForShell(
+					`sleep 1; printf 'ERROR one\nok\nERROR two'; sleep 1`, "sh", "pipe",
+				),
+				Cwd: t.TempDir(),
+			},
+		},
+	)
+	fixture.acceptAndStart(t, ctx)
+	action := ProcessAction{
+		ID:         "act_watch",
+		ActionKind: daemonprotocol.ProcessActionWatch,
+		Seq:        1,
+		Payload:    json.RawMessage(`{"pattern":"ERROR","timeout_seconds":30,"cursor":0}`),
+	}
+	require.NoError(t, fixture.runtime.runner.ApplyOnce(ctx, action))
+	applied, found, err := fixture.store.ReportBySlot(
+		ctx, statedb.ReportActionTerminal, fixture.runtime.processID, action.ID,
+	)
+	require.NoError(t, err)
+	require.True(t, found)
+	var appliedEvent daemonReportedEvent
+	require.NoError(t, json.Unmarshal(applied.Body, &appliedEvent))
+	require.Equal(t, "process_action_applied", string(appliedEvent.Type))
+	require.NoError(t, fixture.store.AcknowledgeReport(ctx, applied.ID))
+
+	fixture.waitClosed(t, 10*time.Second)
+	reports, err := fixture.store.ReportsForProcess(ctx, fixture.runtime.processID)
+	require.NoError(t, err)
+	var lines []string
+	for _, report := range reports {
+		if report.Kind != statedb.ReportProcessOutputMatch {
+			continue
+		}
+		var event daemonReportedEvent
+		require.NoError(t, json.Unmarshal(report.Body, &event))
+		var matched daemonprotocol.OutputMatchResult
+		require.NoError(t, json.Unmarshal(event.Result, &matched))
+		require.Equal(t, "ERROR", matched.Pattern)
+		lines = append(lines, matched.Lines...)
+	}
+	// The unterminated last line counts once the process ends.
+	require.Equal(t, []string{"ERROR one", "ERROR two"}, lines)
+}
+
 func TestDetachedSupervisorRejectsUnsafeActionPayloads(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("detached process containment is not complete on Windows")

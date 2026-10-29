@@ -1786,6 +1786,7 @@ func TestOutputMatchMigrationKeepsExistingReports(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, applyMigrations(ctx, db, fstest.MapFS{"000001_initial.sql": {Data: initial}}))
 	started := processReport("prc_migrated", ReportProcessStarted, "process_started", nil)
+	applied := actionReport(Action{ID: "act_migrated", ProcessID: "prc_migrated"}, nil)
 	for _, statement := range []struct {
 		query string
 		args  []any
@@ -1805,6 +1806,16 @@ func TestOutputMatchMigrationKeepsExistingReports(t *testing.T) {
 			 VALUES('rpt_migrated', 'prc_migrated', 'process_started', ?)`,
 			[]any{started.Body},
 		},
+		{
+			`INSERT INTO process_actions(action_id, process_id, action_kind, seq, effect_committed)
+			 VALUES('act_migrated', 'prc_migrated', 'write', 1, 1)`,
+			nil,
+		},
+		{
+			`INSERT INTO frozen_reports(report_id, process_id, action_id, report_kind, body)
+			 VALUES('rpt_action_migrated', 'prc_migrated', 'act_migrated', 'action_terminal', ?)`,
+			[]any{applied.Body},
+		},
 	} {
 		_, err := db.ExecContext(ctx, statement.query, statement.args...)
 		require.NoError(t, err)
@@ -1820,6 +1831,21 @@ func TestOutputMatchMigrationKeepsExistingReports(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, "rpt_migrated", report.ID)
 	require.Equal(t, int64(0), report.Seq)
+	actionReport, found, err := store.ReportBySlot(ctx, ReportActionTerminal, "prc_migrated", "act_migrated")
+	require.NoError(t, err)
+	require.True(t, found, "rebuilding process_actions must keep its action reports")
+	require.Equal(t, "rpt_action_migrated", actionReport.ID)
+	var parent string
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT "table" FROM pragma_foreign_key_list('frozen_reports') WHERE "from" = 'action_id'`,
+	).Scan(&parent))
+	require.Equal(t, "process_actions", parent)
+	_, err = store.db.ExecContext(ctx,
+		`INSERT INTO process_actions(action_id, process_id, action_kind, seq, effect_committed)
+		 VALUES('act_watch', 'prc_migrated', 'watch', 2, 0)`)
+	require.NoError(t, err, "the rebuilt table accepts watch actions")
+	_, err = store.db.ExecContext(ctx, `DELETE FROM process_actions WHERE action_id = 'act_watch'`)
+	require.NoError(t, err)
 	require.NoError(t, store.Audit(ctx))
 }
 

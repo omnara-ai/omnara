@@ -45,6 +45,7 @@ const (
 	ProcessActionKindWrite     = processaction.KindWrite
 	ProcessActionKindRead      = processaction.KindRead
 	ProcessActionKindInterrupt = processaction.KindInterrupt
+	ProcessActionKindWatch     = processaction.KindWatch
 	ProcessActionKindTerminate = processaction.KindTerminate
 )
 
@@ -54,9 +55,6 @@ type CreateProcessInput struct {
 	Cwd                   string
 	TimeoutSeconds        int
 	InitialWaitMS         int
-	// NotifyMatch sends the agent output lines that match this regular
-	// expression while the process runs after its tool call returned.
-	NotifyMatch string
 }
 
 type CreateProcessActionInput struct {
@@ -171,7 +169,6 @@ type ProcessRecord struct {
 	ExitSignal            string                   `json:"exit_signal,omitempty"`
 	CreatedAt             time.Time                `json:"created_at"`
 	UpdatedAt             time.Time                `json:"updated_at"`
-	NotifyMatch           string                   `json:"notify_match,omitempty"`
 }
 
 type ProcessActionRecord struct {

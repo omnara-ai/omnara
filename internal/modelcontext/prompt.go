@@ -20,12 +20,16 @@ func capabilityGuidance(specs []ToolSpec) string {
 				"A command still running when `run_command` returns sends you a message when it ends, so do not poll it; "+
 				"do other work or finish your turn.")
 	}
-	processActions := make([]string, 0, 3)
+	processActions := make([]string, 0, 4)
 	if HasTool(specs, toolcatalog.ToolNameWriteProcess) {
 		processActions = append(processActions, "use `write_process` to send stdin or PTY input")
 	}
 	if HasTool(specs, toolcatalog.ToolNameReadProcess) {
 		processActions = append(processActions, "use `read_process` to observe output")
+	}
+	if HasTool(specs, toolcatalog.ToolNameWatchProcess) {
+		processActions = append(processActions,
+			"use `watch_process` to get a message when its output matches a pattern, such as a server's ready line")
 	}
 	if HasTool(specs, toolcatalog.ToolNameStopProcess) {
 		processActions = append(processActions, "use `stop_process` to interrupt or terminate it")

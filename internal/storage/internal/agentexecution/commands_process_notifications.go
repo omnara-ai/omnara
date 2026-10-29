@@ -44,7 +44,7 @@ func (h *Handle) notifyProcessExit(
 }
 
 // NotifyProcessOutputMatch tells the agent about output lines that matched
-// the notify_match of a process it left running in the background.
+// a watch_process pattern on a process it left running in the background.
 func (h *Handle) NotifyProcessOutputMatch(
 	ctx context.Context,
 	id uuid.UUID,
@@ -57,7 +57,7 @@ func (h *Handle) NotifyProcessOutputMatch(
 		if err != nil {
 			return struct{}{}, err
 		}
-		if row.NotifyMatch == "" || row.StopRequested || row.ToolCallID == uuid.Nil {
+		if row.StopRequested || row.ToolCallID == uuid.Nil {
 			return struct{}{}, nil
 		}
 		call, err := h.tool(ctx, row.ToolCallID)
@@ -208,15 +208,12 @@ func renderProcessOutputMatch(
 ) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Background process %s (`%s`) printed lines matching `%s`:\n\n", processID,
-		truncateRunes(row.ExecutionSpec.Label(), processNotificationLabelChars), row.NotifyMatch)
+		truncateRunes(row.ExecutionSpec.Label(), processNotificationLabelChars), matched.Pattern)
 	text := strings.Join(matched.Lines, "\n")
 	fence := codeFence(text)
 	b.WriteString(fence + "\n" + text + "\n" + fence)
 	if matched.Dropped > 0 {
 		fmt.Fprintf(&b, "\n\n%d more matching lines are not shown; use read_process to read them.", matched.Dropped)
-	}
-	if matched.Final {
-		b.WriteString("\n\nNo more matches will be reported for this process.")
 	}
 	return b.String()
 }

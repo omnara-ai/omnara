@@ -15,7 +15,7 @@ The tools are grouped by what they do:
 | Web | `web_search`, `web_fetch` |
 | Questions | `ask_question` |
 | Commands | `run_command` |
-| Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
+| Processes | `read_process`, `write_process`, `watch_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
 | Files | `storage_list`, `storage_upload`, `storage_download`, `storage_read`, `storage_search`, `storage_write` |
 | Integrations | Integration-specific tools; `list_interaction_handlers`, `set_interaction_handler` |
@@ -71,7 +71,6 @@ Runs a shell command on a [machine attached to the agent](/machines/overview#bin
 | `cwd` | string | Overrides the binding's working directory |
 | `wait_ms` | integer | 1–300000 (default 10000); how long to wait for the command to exit before returning |
 | `io_mode` | enum | `pipe` (default) or `pty`. Only `pty` commands take input. See [input](#input) |
-| `notify_match` | string | RE2 regular expression; send the agent output lines that match while the command runs in the background |
 
 Every command returns a `process_id` (`prc_…`). `run_command` waits up to `wait_ms` (10 seconds by default) for the command to exit. If it does, the result includes its exit code and output:
 
@@ -99,7 +98,7 @@ When a command outlives its `run_command` call, Omnara sends the agent a message
 
 There is no message when the agent stopped the process with `stop_process`.
 
-With `notify_match`, the agent also receives the output lines that match the expression, except lines the `run_command` result already showed in full, so matches in output it left out are still reported. Matches that arrive together are batched into one message of up to 20 lines, messages are at least 10 seconds apart, and a process sends at most 50 of them; the last says no more will follow. For example, `run_command` with `notify_match: "listening on|error"` starts a development server and tells the agent when it is ready or fails. Matching needs omnarad 0.2.15 or later.
+To hear about specific output while a command runs, such as a development server's ready line or its errors, use [`watch_process`](#watch_process).
 
 Set `run_command` to `always_ask` to require approval before execution. The prompt shows the command, machine, shell, and working directory.
 
@@ -143,6 +142,21 @@ Sends input to a running process. The process must have been started with `io_mo
 | --- | --- | --- |
 | `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
 | `data`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Max 128 KiB per write |
+
+### `watch_process`
+
+Sends the agent a message with the output lines that match a regular expression, until the watch expires or the process ends.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
+| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | RE2 regular expression, up to 500 bytes, matched against each output line |
+| `timeout_seconds` | integer | 1–3600 (default 300); when the watch expires |
+| `offset_byte` | integer | ≥ 0; byte position to watch from, such as `next_offset_byte` from `run_command`. Omit to watch only output written after the watch starts |
+
+Matches that arrive together are batched into one message of up to 20 lines, and messages are at least 10 seconds apart. When the process ends, matches still pending are sent before its exit message. A process has one watch at a time: calling `watch_process` again replaces the pattern and restarts the timeout, so call it again to keep watching after a watch expires.
+
+For example, `run_command` starts a development server, then `watch_process` with `pattern: "listening on|error"` tells the agent when it is ready or fails. `watch_process` needs omnarad 0.2.15 or later.
 
 ### `stop_process`
 

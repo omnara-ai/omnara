@@ -232,7 +232,6 @@ func (s *Store) ListDaemonProcessOffers(
 				CreatedAt:             row.CreatedAt,
 				UpdatedAt:             row.UpdatedAt,
 				LastActivityAt:        row.LastActivityAt,
-				NotifyMatch:           row.NotifyMatch,
 			}),
 			GitCredentials: row.GitCredentialsIntegrationID != uuid.Nil,
 		}

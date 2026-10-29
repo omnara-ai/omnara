@@ -51,7 +51,10 @@ const (
 		"output, send input, or stop it."
 	writeProcessToolDescription = "Write exact bytes to a running process started with io_mode: pty."
 	stopProcessToolDescription  = "Interrupt or terminate a running process."
-	readProcessToolDescription  = "Read retained process output, optionally waiting for the process to end. " +
+	watchProcessToolDescription = "Watch a running process's output and get a message with the lines that match a " +
+		"regular expression, such as a server's ready line or errors, until the watch expires or the process ends. " +
+		"Matches are batched and rate limited. A new watch replaces the process's current one."
+	readProcessToolDescription = "Read retained process output, optionally waiting for the process to end. " +
 		"Long output keeps the start and end."
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
@@ -166,13 +169,6 @@ func buildDefaultCatalog() (Catalog, error) {
 					"and fails at once. Use pty for programs you send input to with write_process, such as REPLs, " +
 					"interactive terminal programs, or persistent shells.",
 			},
-			"notify_match": map[string]any{
-				"type":      "string",
-				"minLength": 1,
-				"maxLength": 500,
-				"description": "Regular expression (RE2). While the command runs after this returns, you get a " +
-					"message with output lines that match and that this result did not show, batched and rate limited.",
-			},
 		},
 	)
 	if err != nil {
@@ -194,6 +190,33 @@ func buildDefaultCatalog() (Catalog, error) {
 					"type": "string",
 					"description": "Exact stdin/PTY bytes to write. " +
 						"Include newlines explicitly when the running command expects Enter.",
+				},
+			},
+		},
+		{
+			ToolNameWatchProcess,
+			watchProcessToolDescription,
+			[]string{"process_id", "pattern"},
+			map[string]any{
+				"process_id": processID,
+				"pattern": map[string]any{
+					"type":        "string",
+					"minLength":   1,
+					"maxLength":   processaction.MaxWatchPatternBytes,
+					"description": "RE2 regular expression matched against each output line.",
+				},
+				"timeout_seconds": map[string]any{
+					"type":    "integer",
+					"minimum": 1,
+					"maximum": processaction.MaxWatchSeconds,
+					"description": fmt.Sprintf("How long the watch lasts, in seconds (default %d). "+
+						"Call watch_process again to keep watching.", processaction.DefaultWatchSeconds),
+				},
+				"offset_byte": map[string]any{
+					"type":    "integer",
+					"minimum": 0,
+					"description": "Byte position to watch from, such as next_offset_byte from run_command or " +
+						"read_process, so output since then is not missed. Omit to watch only new output.",
 				},
 			},
 		},

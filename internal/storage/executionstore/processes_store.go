@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"regexp"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -115,11 +114,6 @@ func (t *toolCallTransaction) startProcess(
 	if input.InitialWaitMS < 0 {
 		return ProcessRecord{}, errors.New("process initial wait must be non-negative")
 	}
-	if input.NotifyMatch != "" {
-		if _, err := regexp.Compile(input.NotifyMatch); err != nil {
-			return ProcessRecord{}, fmt.Errorf("process notify match is not a valid regular expression: %w", err)
-		}
-	}
 	projectID := t.input.ProjectID
 	agentID := t.input.AgentID
 	toolCallID := t.input.ToolCallID
@@ -221,7 +215,6 @@ func (t *toolCallTransaction) startProcess(
 		SecretEnv:             processSecretEnv,
 		TimeoutSeconds:        int32(input.TimeoutSeconds),
 		InitialWaitMs:         int32(input.InitialWaitMS),
-		NotifyMatch:           input.NotifyMatch,
 		AgentMachineBindingID: input.AgentMachineBindingID,
 		ProjectID:             projectID,
 		AgentID:               agentID,
@@ -273,8 +266,7 @@ func processReplayMatches(existing ProcessRecord, input CreateProcessInput) bool
 	return existing.AgentMachineBindingID == input.AgentMachineBindingID &&
 		reflect.DeepEqual(existing.ExecutionSpec, input.ExecutionSpec) &&
 		existing.TimeoutSeconds == input.TimeoutSeconds &&
-		existing.InitialWaitMS == input.InitialWaitMS &&
-		existing.NotifyMatch == input.NotifyMatch
+		existing.InitialWaitMS == input.InitialWaitMS
 }
 
 func getProcessByToolCallTx(

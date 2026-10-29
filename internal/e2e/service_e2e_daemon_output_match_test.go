@@ -16,19 +16,21 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-// A background command's matching output reaches the agent as a message after
-// its run_command call has returned and the agent has finished its turn.
+// Output matching a watch_process pattern reaches the agent as a message after
+// the agent has finished its turn.
 func TestServiceE2EDaemonOutputMatchNotifiesAgent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	const seed = "daemon-output-match"
 	env := newServiceE2EEnvironment(t, ctx, seed)
 	api := env.startAPI(t, ctx)
-	project := env.bootstrapProjectViaAPIWithTools(t, ctx, seed, "openai-prod", "service-e2e-local", "run_command")
+	project := env.bootstrapProjectViaAPIWithTools(
+		t, ctx, seed, "openai-prod", "service-e2e-local", "run_command", "watch_process",
+	)
 	machine := project.bootstrapDockerMachine(t, ctx, seed+"-machine")
 	project.updateAgentProfileConfigWithMachine(
 		t, ctx, seed+"-config", "openai-prod", "service-e2e-local",
-		machine.machineName, "/work", nil, nil, "run_command",
+		machine.machineName, "/work", nil, nil, "run_command", "watch_process",
 	)
 	agentID := project.createAgent(t, ctx)
 	daemon := env.startDaemonContainer(t, ctx, machine.daemonToken, machine.workdir)
@@ -62,21 +64,31 @@ func TestServiceE2EDaemonOutputMatchNotifiesAgent(t *testing.T) {
 			writeOpenAIFunctionCall(w, failModelRequest, "resp_server", "call_server", "run_command", map[string]any{
 				"command": "printf 'booting\\n'; sleep 12; printf 'server listening on 3000\\n'; " +
 					"printf 'request ok\\n'; sleep 120",
-				"shell":        "sh",
-				"cwd":          "/work",
-				"notify_match": "listening on [0-9]+",
+				"shell": "sh",
+				"cwd":   "/work",
 			})
 		case 2:
 			result, ok := fakeModelProcessResult(w, body, failModelRequest, "call_server")
 			if !ok {
 				return
 			}
-			if result.State != "running" || !strings.Contains(result.Output, "booting") {
+			if result.State != "running" || !strings.Contains(result.Output, "booting") ||
+				result.NextOffsetByte == nil {
 				failModelRequest(w, http.StatusBadRequest, "server result = %+v body=%s", result, mustJSONString(body))
 				return
 			}
-			writeOpenAIMessage(w, failModelRequest, "resp_waiting", "WAITING_"+nonce)
+			writeOpenAIFunctionCall(w, failModelRequest, "resp_watch", "call_watch", "watch_process", map[string]any{
+				"process_id":      result.ProcessID,
+				"pattern":         "listening on [0-9]+",
+				"timeout_seconds": 120,
+				"offset_byte":     *result.NextOffsetByte,
+			})
 		case 3:
+			if !fakeModelProcessActionAccepted(w, body, failModelRequest, "call_watch") {
+				return
+			}
+			writeOpenAIMessage(w, failModelRequest, "resp_waiting", "WAITING_"+nonce)
+		case 4:
 			// Only the matching line is sent, not the output around it.
 			request := mustJSONString(body)
 			if !strings.Contains(request, "printed lines matching `listening on [0-9]+`") ||
@@ -120,8 +132,10 @@ WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'mode
 		}
 		var processes, notifications string
 		_ = env.db.QueryRow(ctx, `
-SELECT coalesce(string_agg(state || ':match=' || notify_match || ':exit=' || notify_on_exit::text, ','), '')
-FROM processes WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID).Scan(&processes)
+SELECT coalesce(string_agg(process.state || ':actions=' || coalesce((
+    SELECT string_agg(action.action_kind || '/' || action.state, '+')
+    FROM process_actions action WHERE action.process_id = process.id), ''), ','), '')
+FROM processes process WHERE process.project_id = $1 AND process.agent_id = $2`, projectUUID, agentUUID).Scan(&processes)
 		_ = env.db.QueryRow(ctx, `
 SELECT count(*)::text FROM agent_inputs
 WHERE project_id = $1 AND agent_id = $2 AND idempotency_scope = 'process_notification'`,
@@ -131,7 +145,7 @@ WHERE project_id = $1 AND agent_id = $2 AND idempotency_scope = 'process_notific
 			requestCount.Load(), processes, notifications, api.logExcerpt(), worker.logExcerpt(), daemon.logExcerpt(),
 		)
 	})
-	if got := requestCount.Load(); got != 3 {
-		t.Fatalf("fake model saw %d requests, want 3", got)
+	if got := requestCount.Load(); got != 4 {
+		t.Fatalf("fake model saw %d requests, want 4", got)
 	}
 }

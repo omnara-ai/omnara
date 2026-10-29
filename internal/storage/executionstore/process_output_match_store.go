@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
@@ -68,6 +69,9 @@ func DecodeOutputMatchResult(raw json.RawMessage) (daemonprotocol.OutputMatchRes
 	var matched daemonprotocol.OutputMatchResult
 	if err := json.Unmarshal(raw, &matched); err != nil {
 		return daemonprotocol.OutputMatchResult{}, fmt.Errorf("decode output match result: %w", err)
+	}
+	if matched.Pattern == "" || len(matched.Pattern) > processaction.MaxWatchPatternBytes {
+		return daemonprotocol.OutputMatchResult{}, errors.New("output match result has an invalid pattern")
 	}
 	if len(matched.Lines) == 0 && matched.Dropped == 0 {
 		return daemonprotocol.OutputMatchResult{}, errors.New("output match result has no matches")

@@ -131,7 +131,6 @@ type ProcessAssignment struct {
 	WaitMs              int                  `json:"wait_ms,omitempty"`
 	TimeoutSeconds      int                  `json:"timeout_seconds"`
 	OutputBytes         int                  `json:"output_bytes,omitempty"`
-	NotifyMatch         string               `json:"notify_match,omitempty"`
 	processaction.OutputWait
 }
 

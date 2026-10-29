@@ -276,7 +276,6 @@ func daemonProcessOfferMessage(processID string, offer executionstore.DaemonProc
 		if wait, ok := offer.Process.ExecutionSpec.AgentOutputWait(); ok {
 			processOffer.OutputBytes = processaction.AgentOutputBytes
 			processOffer.OutputWait = wait
-			processOffer.NotifyMatch = offer.Process.NotifyMatch
 		}
 	}
 	message := daemonprotocol.Message{

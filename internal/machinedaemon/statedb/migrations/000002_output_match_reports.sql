@@ -1,5 +1,27 @@
 -- +goose Up
 
+-- watch_process adds the watch action kind. Rebuilding process_actions under
+-- a new name before dropping the old table keeps its frozen reports, which
+-- would otherwise cascade away with the old rows.
+CREATE TABLE process_actions_next (
+    action_id TEXT PRIMARY KEY,
+    process_id TEXT NOT NULL,
+    action_kind TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    effect_committed INTEGER NOT NULL,
+    CHECK (action_id <> ''),
+    CHECK (action_kind IN ('write', 'interrupt', 'terminate', 'watch')),
+    CHECK (seq > 0),
+    CHECK (effect_committed IN (0, 1)),
+    UNIQUE (action_id, process_id),
+    UNIQUE (process_id, seq),
+    FOREIGN KEY (process_id) REFERENCES processes(process_id) ON DELETE CASCADE
+) STRICT;
+
+INSERT INTO process_actions_next(action_id, process_id, action_kind, seq, effect_committed)
+SELECT action_id, process_id, action_kind, seq, effect_committed
+FROM process_actions;
+
 -- Output-match reports repeat per process, so process report slots gain a
 -- sequence: 0 for started and terminal reports, 1 and up for matches.
 CREATE TABLE frozen_reports_next (
@@ -37,7 +59,7 @@ CREATE TABLE frozen_reports_next (
         (state <> 'rejected' AND error_code = '' AND error = '')
     ),
     FOREIGN KEY (process_id) REFERENCES processes(process_id) ON DELETE CASCADE,
-    FOREIGN KEY (action_id, process_id) REFERENCES process_actions(action_id, process_id) ON DELETE CASCADE
+    FOREIGN KEY (action_id, process_id) REFERENCES process_actions_next(action_id, process_id) ON DELETE CASCADE
 ) STRICT;
 
 INSERT INTO frozen_reports_next(
@@ -61,6 +83,11 @@ SELECT report_id,
 FROM frozen_reports;
 
 DROP TABLE frozen_reports;
+
+DROP TABLE process_actions;
+
+-- Renaming also points frozen_reports' foreign key at process_actions.
+ALTER TABLE process_actions_next RENAME TO process_actions;
 
 ALTER TABLE frozen_reports_next RENAME TO frozen_reports;
 

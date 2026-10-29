@@ -162,7 +162,7 @@ func TestDefaultCatalogRunCommandSchemaMatchesModelFacingContract(t *testing.T) 
 	}
 	assertRunCommandInputSchema(t, entry.InputSchema)
 	for _, name := range []string{
-		"write_process", "read_process", "stop_process", "list_processes",
+		"write_process", "read_process", "stop_process", "watch_process", "list_processes",
 	} {
 		entry, ok := catalog.Lookup(name)
 		if !ok {
@@ -715,8 +715,10 @@ func assertRunCommandInputSchema(t *testing.T, raw json.RawMessage) {
 	if waitMS.Type != "integer" || waitMS.Minimum != 1 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
 		t.Fatalf("run_command wait_ms schema = %+v", waitMS)
 	}
-	if detach := schema.Properties["detach"]; detach.Type != "boolean" {
-		t.Fatalf("run_command detach schema = %+v", detach)
+	for _, removed := range []string{"detach", "notify_match"} {
+		if _, ok := schema.Properties[removed]; ok {
+			t.Fatalf("run_command schema must not expose %s: %s", removed, string(raw))
+		}
 	}
 	if ioMode := schema.Properties["io_mode"]; ioMode.Type != "string" ||
 		!sameStringSliceForAgentConfig(ioMode.Enum, []string{"pipe", "pty"}) {

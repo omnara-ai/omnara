@@ -4,15 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
-
-const maxNotifyMatchBytes = 500
 
 type runCommandRequest struct {
 	Command   string          `json:"command"`
@@ -21,18 +18,15 @@ type runCommandRequest struct {
 	Cwd       json.RawMessage `json:"cwd,omitempty"`
 	WaitMs    json.RawMessage `json:"wait_ms,omitempty"`
 	IOMode    json.RawMessage `json:"io_mode,omitempty"`
-	// NotifyMatch is a regular expression for output lines to report.
-	NotifyMatch *string `json:"notify_match,omitempty"`
 }
 
 type resolvedRunCommandRequest struct {
-	Command     string
-	MachineID   uuid.UUID
-	Selector    processcmd.ShellSelector
-	Cwd         string
-	WaitMs      int
-	IOMode      processcmd.IOMode
-	NotifyMatch string
+	Command   string
+	MachineID uuid.UUID
+	Selector  processcmd.ShellSelector
+	Cwd       string
+	WaitMs    int
+	IOMode    processcmd.IOMode
 }
 
 // executionSpec gives pipe commands no stdin; only pty commands take input.
@@ -115,28 +109,12 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 	if err != nil {
 		return resolvedRunCommandRequest{}, err
 	}
-	notifyMatch := ""
-	if input.NotifyMatch != nil {
-		notifyMatch = *input.NotifyMatch
-		if notifyMatch == "" || len(notifyMatch) > maxNotifyMatchBytes {
-			return resolvedRunCommandRequest{}, fmt.Errorf(
-				"notify_match must be 1 to %d bytes", maxNotifyMatchBytes,
-			)
-		}
-		if strings.Contains(notifyMatch, "\x00") {
-			return resolvedRunCommandRequest{}, errors.New("notify_match cannot contain NUL")
-		}
-		if _, err := regexp.Compile(notifyMatch); err != nil {
-			return resolvedRunCommandRequest{}, fmt.Errorf("notify_match is not a valid regular expression: %w", err)
-		}
-	}
 	return resolvedRunCommandRequest{
-		Command:     spec.Command,
-		MachineID:   machineID,
-		Selector:    spec.Shell,
-		Cwd:         cwd,
-		WaitMs:      waitMs,
-		IOMode:      ioMode,
-		NotifyMatch: notifyMatch,
+		Command:   spec.Command,
+		MachineID: machineID,
+		Selector:  spec.Shell,
+		Cwd:       cwd,
+		WaitMs:    waitMs,
+		IOMode:    ioMode,
 	}, nil
 }

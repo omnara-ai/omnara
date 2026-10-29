@@ -386,8 +386,7 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "background_output_match")
-	process := startBackgroundProcessWithInputForTest(t, ctx, fixture, "background_output_match",
-		executionstore.CreateProcessInput{NotifyMatch: "listening|ERROR"})
+	process := startBackgroundProcessForTest(t, ctx, fixture, "background_output_match")
 
 	match := executionstore.NotifyProcessOutputMatchInput{
 		Authority: fixture.authority(),
@@ -395,7 +394,7 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 		AgentID:   fixture.AgentID,
 		ID:        process.ID,
 		Sequence:  1,
-		Result:    json.RawMessage(`{"lines":["listening on :3000"]}`),
+		Result:    json.RawMessage(`{"pattern":"listening|ERROR","lines":["listening on :3000"]}`),
 	}
 	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
 		t.Fatalf("notify output match: %v", err)
@@ -404,7 +403,7 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 		t.Fatalf("replay output match: %v", err)
 	}
 	match.Sequence = 2
-	match.Result = json.RawMessage(`{"lines":["ERROR boom"],"dropped":3}`)
+	match.Result = json.RawMessage(`{"pattern":"listening|ERROR","lines":["ERROR boom"],"dropped":3}`)
 	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
 		t.Fatalf("notify second output match: %v", err)
 	}
@@ -418,26 +417,5 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 		!strings.Contains(texts[1], "ERROR boom") ||
 		!strings.Contains(texts[1], "3 more matching lines") {
 		t.Fatalf("output match notifications = %q", texts)
-	}
-}
-
-func TestStartProcessRejectsInvalidNotifyMatch(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "invalid_notify_match")
-	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "invalid_notify_match", "run_command")
-	_, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
-		ProjectID:     testProjectID,
-		AgentID:       fixture.AgentID,
-		ToolCallID:    toolCallID,
-		RuntimeLockID: fixture.Lock.ID,
-	}, executionstore.CreateProcessInput{
-		ExecutionSpec:         processcmd.ForShell("sleep 60", "sh", ""),
-		AgentMachineBindingID: fixture.BindingID,
-		Cwd:                   "/work",
-		NotifyMatch:           "(unclosed",
-	})
-	if err == nil || !strings.Contains(err.Error(), "not a valid regular expression") {
-		t.Fatalf("start process err = %v, want invalid regular expression", err)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 )
 
@@ -52,11 +53,12 @@ const (
 	KindRead      Kind = "read"
 	KindInterrupt Kind = "interrupt"
 	KindTerminate Kind = "terminate"
+	KindWatch     Kind = "watch"
 )
 
 func (kind Kind) Valid() bool {
 	switch kind {
-	case KindWrite, KindRead, KindInterrupt, KindTerminate:
+	case KindWrite, KindRead, KindInterrupt, KindTerminate, KindWatch:
 		return true
 	default:
 		return false
@@ -65,7 +67,7 @@ func (kind Kind) Valid() bool {
 
 func (kind Kind) Mutating() bool {
 	switch kind {
-	case KindWrite, KindInterrupt, KindTerminate:
+	case KindWrite, KindInterrupt, KindTerminate, KindWatch:
 		return true
 	default:
 		return false
@@ -91,6 +93,53 @@ func DecodeWritePayload(raw json.RawMessage) (WritePayload, error) {
 		)
 	}
 	return payload, nil
+}
+
+// A watch reports output lines that match Pattern, starting at Cursor or at
+// the end of output when the watch takes effect, until TimeoutSeconds pass or
+// the process ends. A new watch replaces the process's current one.
+type WatchPayload struct {
+	Pattern        string `json:"pattern"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+	Cursor         *int64 `json:"cursor,omitempty"`
+}
+
+const (
+	MaxWatchPatternBytes = 500
+	DefaultWatchSeconds  = 5 * 60
+	MaxWatchSeconds      = 60 * 60
+	WatchDaemonVersion   = OutputWindowDaemonVersion
+)
+
+func DecodeWatchPayload(raw json.RawMessage) (WatchPayload, error) {
+	var payload WatchPayload
+	if err := decodeObject(raw, &payload); err != nil {
+		return WatchPayload{}, err
+	}
+	if err := ValidateWatchPattern(payload.Pattern); err != nil {
+		return WatchPayload{}, err
+	}
+	if payload.TimeoutSeconds < 1 || payload.TimeoutSeconds > MaxWatchSeconds {
+		return WatchPayload{}, fmt.Errorf("timeout_seconds must be between 1 and %d", MaxWatchSeconds)
+	}
+	if payload.Cursor != nil && *payload.Cursor < 0 {
+		return WatchPayload{}, errors.New("cursor cannot be negative")
+	}
+	return payload, nil
+}
+
+// ValidateWatchPattern requires an RE2 expression that Postgres can store.
+func ValidateWatchPattern(pattern string) error {
+	if pattern == "" || len(pattern) > MaxWatchPatternBytes {
+		return fmt.Errorf("pattern must be 1 to %d bytes", MaxWatchPatternBytes)
+	}
+	if strings.Contains(pattern, "\x00") {
+		return errors.New("pattern cannot contain NUL")
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return fmt.Errorf("pattern is not a valid regular expression: %w", err)
+	}
+	return nil
 }
 
 type ReadPayload struct {

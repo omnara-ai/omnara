@@ -3,6 +3,7 @@ package machinedaemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 	"time"
@@ -21,31 +22,15 @@ const (
 	outputMatchMinInterval  = 10 * time.Second
 	outputMatchMaxLines     = 20
 	outputMatchMaxLineRunes = 300
-	outputMatchMaxReports   = 50
 )
 
-type outputSpan struct {
-	start, end int64
-}
-
-// shownSpans returns the output the window's result showed the agent.
-func (w outputWindow) shownSpans() []outputSpan {
-	if w.TailStart > 0 {
-		return []outputSpan{{w.Start, w.HeadEnd}, {w.TailStart, w.Next}}
-	}
-	return []outputSpan{{w.Start, w.Next}}
-}
-
 // outputMatcher finds complete output lines that match a pattern and batches
-// them into reports. Lines that lie wholly within shown spans are skipped,
-// since the agent has already seen them.
+// them into reports.
 type outputMatcher struct {
 	pattern      *regexp.Regexp
 	now          func() time.Time
 	cursor       int64
-	shown        []outputSpan
 	partial      string
-	partialShown bool
 	pending      []string
 	dropped      int
 	firstPending time.Time
@@ -57,40 +42,20 @@ func newOutputMatcher(pattern *regexp.Regexp, cursor, seq int64) *outputMatcher 
 	return &outputMatcher{pattern: pattern, now: time.Now, cursor: cursor, seq: seq}
 }
 
-// region reports whether output at the cursor was shown, and how many bytes
-// remain until that changes, or 0 if it never does.
-func (m *outputMatcher) region() (bool, int64) {
-	for _, span := range m.shown {
-		if m.cursor < span.start {
-			return false, span.start - m.cursor
-		}
-		if m.cursor < span.end {
-			return true, span.end - m.cursor
-		}
-	}
-	return false, 0
-}
-
-// scan consumes a contiguous window read from the matcher's cursor, all of
-// it shown or all of it not.
-func (m *outputMatcher) scan(window outputWindow, shown bool) {
+// scan consumes a contiguous window read from the matcher's cursor.
+func (m *outputMatcher) scan(window outputWindow) {
 	if window.Start > m.cursor {
 		// Older output was dropped from retention, so the partial line is gone.
 		m.partial = ""
 	}
 	m.cursor = window.Next
-	firstShown := shown && (m.partial == "" || m.partialShown)
 	lines := strings.Split(m.partial+window.Output, "\n")
 	m.partial = lines[len(lines)-1]
-	m.partialShown = shown
-	if len(lines) == 1 {
-		m.partialShown = firstShown
-	}
-	for i, line := range lines[:len(lines)-1] {
-		m.consider(line, shown && (i > 0 || firstShown))
+	for _, line := range lines[:len(lines)-1] {
+		m.consider(line)
 	}
 	if len(m.partial) > processaction.MaxObservationBytes {
-		m.consider(m.partial, m.partialShown)
+		m.consider(m.partial)
 		m.partial = ""
 	}
 }
@@ -98,14 +63,14 @@ func (m *outputMatcher) scan(window outputWindow, shown bool) {
 // finish treats a trailing line without a newline as complete.
 func (m *outputMatcher) finish() {
 	if m.partial != "" {
-		m.consider(m.partial, m.partialShown)
+		m.consider(m.partial)
 		m.partial = ""
 	}
 }
 
-func (m *outputMatcher) consider(line string, shown bool) {
+func (m *outputMatcher) consider(line string) {
 	line = strings.TrimSuffix(line, "\r")
-	if shown || !m.pattern.MatchString(line) {
+	if !m.pattern.MatchString(line) {
 		return
 	}
 	if len(m.pending) == 0 && m.dropped == 0 {
@@ -136,9 +101,9 @@ func (m *outputMatcher) due(final bool) bool {
 func (m *outputMatcher) take() (int64, daemonprotocol.OutputMatchResult) {
 	m.seq++
 	result := daemonprotocol.OutputMatchResult{
+		Pattern: m.pattern.String(),
 		Lines:   m.pending,
 		Dropped: m.dropped,
-		Final:   m.seq >= outputMatchMaxReports,
 	}
 	m.pending = nil
 	m.dropped = 0
@@ -146,59 +111,119 @@ func (m *outputMatcher) take() (int64, daemonprotocol.OutputMatchResult) {
 	return m.seq, result
 }
 
-func (m *outputMatcher) exhausted() bool {
-	return m.seq >= outputMatchMaxReports
+// outputWatch is a running watch_process watch.
+type outputWatch struct {
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
-// watchOutputMatches reports output lines matching the assignment's
-// notify_match until the process ends, skipping lines the initial window
-// showed in full, and flushes what is pending before returning so it precedes
-// the terminal report.
-func (s *runnerServerState) watchOutputMatches(
-	ctx context.Context,
+// startOutputWatch replaces the process's watch with one for payload. A watch
+// cannot start once the terminal report has claimed the last one.
+func (s *runnerServerState) startOutputWatch(
 	runner *localProcessRunner,
-	initial outputWindow,
-) {
-	pattern, err := regexp.Compile(s.assignment.NotifyMatch)
+	payload processaction.WatchPayload,
+) error {
+	pattern, err := regexp.Compile(payload.Pattern)
 	if err != nil {
+		return err
+	}
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
+	if s.watchClosed {
+		return errOutputWatchClosed
+	}
+	s.stopOutputWatchLocked()
+	cursor := runner.output.End()
+	if payload.Cursor != nil {
+		cursor = *payload.Cursor
+	}
+	s.mu.RLock()
+	parent := s.runCtx
+	s.mu.RUnlock()
+	if parent == nil {
+		return errors.New("the process has no live runner")
+	}
+	ctx, cancel := context.WithTimeout(parent, time.Duration(payload.TimeoutSeconds)*time.Second)
+	watch := &outputWatch{cancel: cancel, done: make(chan struct{})}
+	s.watch = watch
+	go func() {
+		defer close(watch.done)
+		defer cancel()
+		s.watchOutputMatches(ctx, parent, runner, pattern, cursor)
+	}()
+	return nil
+}
+
+var errOutputWatchClosed = errors.New("the process has ended")
+
+func (s *runnerServerState) stopOutputWatchLocked() {
+	if s.watch != nil {
+		s.watch.cancel()
+		<-s.watch.done
+		s.watch = nil
+	}
+}
+
+// closeOutputWatch lets the current watch flush its last matches, which the
+// process has ended for, and accepts no new watch, so every match report
+// precedes the terminal report.
+func (s *runnerServerState) closeOutputWatch(ctx context.Context) {
+	s.watchMu.Lock()
+	s.watchClosed = true
+	watch := s.watch
+	s.watchMu.Unlock()
+	if watch == nil {
 		return
 	}
+	select {
+	case <-watch.done:
+	case <-ctx.Done():
+	}
+}
+
+// watchOutputMatches reports output lines matching pattern from cursor until
+// the watch ends or the process does, then flushes what is pending. Writes use
+// parent so a flush outlives the watch's own deadline.
+func (s *runnerServerState) watchOutputMatches(
+	ctx, parent context.Context,
+	runner *localProcessRunner,
+	pattern *regexp.Regexp,
+	cursor int64,
+) {
 	var seq int64
-	if err := s.autonomousStateWrite(ctx, func() error {
+	if err := s.autonomousStateWrite(parent, func() error {
 		var readErr error
-		seq, readErr = s.processState.LastOutputMatchSeq(ctx)
+		seq, readErr = s.processState.LastOutputMatchSeq(parent)
 		return readErr
 	}); err != nil {
 		return
 	}
-	matcher := newOutputMatcher(pattern, initial.Start, seq)
-	matcher.shown = initial.shownSpans()
-	for !matcher.exhausted() {
+	matcher := newOutputMatcher(pattern, cursor, seq)
+	for {
 		terminal := runner.hasTerminalResult()
 		for {
-			shown, limit := matcher.region()
-			maxBytes := processaction.MaxObservationBytes
-			if limit > 0 && limit < int64(maxBytes) {
-				maxBytes = int(limit)
-			}
-			window, err := runner.Window(matcher.cursor, maxBytes, 0)
+			window, err := runner.Window(matcher.cursor, processaction.MaxObservationBytes, 0)
 			if err != nil {
 				return
 			}
 			if window.Output == "" {
 				break
 			}
-			matcher.scan(window, shown)
+			matcher.scan(window)
 		}
 		if terminal {
 			matcher.finish()
 		}
-		if matcher.due(terminal) && !s.freezeOutputMatch(ctx, runner, matcher) {
+		// Once the watch is canceled or expires, one more pass reads and
+		// flushes the output that arrived before then.
+		stopping := terminal || ctx.Err() != nil
+		if matcher.due(stopping) && !s.freezeOutputMatch(parent, runner, matcher) {
 			return
 		}
-		if terminal || sleepContext(ctx, outputMatchPollInterval) != nil {
+		if stopping {
 			return
 		}
+		_ = sleepContext(ctx, outputMatchPollInterval)
 	}
 }
 
