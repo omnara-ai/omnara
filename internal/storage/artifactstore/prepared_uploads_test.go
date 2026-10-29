@@ -30,11 +30,11 @@ func (s *preparedUploadBlobs) GetBlob(_ context.Context, key string) ([]byte, bl
 		return nil, blobstore.Metadata{}, blobstore.ErrNotFound
 	}
 	return append(
-			[]byte(nil),
-			content...), blobstore.Metadata{
-			Digest:    blobstore.ContentDigest(content),
-			SizeBytes: int64(len(content)),
-		}, nil
+		[]byte(nil),
+		content...), blobstore.Metadata{
+		Digest:    blobstore.ContentDigest(content),
+		SizeBytes: int64(len(content)),
+	}, nil
 }
 func (s *preparedUploadBlobs) DeleteBlob(context.Context, string) error {
 	panic("uncertain upload must never delete")
