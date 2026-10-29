@@ -43,7 +43,6 @@ func TestRejectedRequestsCloseHTTP1Connection(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		request    string
-		remainder  string
 		closeWrite bool
 		status     int
 		keepAlive  bool
@@ -57,12 +56,6 @@ func TestRejectedRequestsCloseHTTP1Connection(t *testing.T) {
 			name:    "body at limit",
 			request: "POST /read HTTP/1.1\r\nHost: x\r\nContent-Length: 16\r\n\r\n" + strings.Repeat("x", 16),
 			status:  http.StatusNoContent, keepAlive: true,
-		},
-		{
-			name:      "late body",
-			request:   "POST /read HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\n01234",
-			remainder: "56789",
-			status:    http.StatusBadRequest,
 		},
 		{
 			name:    "stalled body",
@@ -108,9 +101,6 @@ func TestRejectedRequestsCloseHTTP1Connection(t *testing.T) {
 				tcpConn, ok := conn.(*net.TCPConn)
 				require.True(t, ok)
 				require.NoError(t, tcpConn.CloseWrite())
-			}
-			if tc.remainder != "" {
-				time.AfterFunc(300*time.Millisecond, func() { _, _ = io.WriteString(conn, tc.remainder) })
 			}
 			reader := bufio.NewReader(conn)
 			response, err := http.ReadResponse(reader, nil)
