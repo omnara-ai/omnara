@@ -17,8 +17,9 @@ func capabilityGuidance(specs []ToolSpec) string {
 	if HasTool(specs, toolcatalog.ToolNameRunCommand) {
 		guidance = append(guidance,
 			"When a daemon-backed machine is attached, use `run_command` to start commands and persist useful work in files. "+
-				"A command still running when `run_command` returns sends you a message when it ends, so do not poll it; "+
-				"do other work or finish your turn.")
+				"A command still running when `run_command` returns sends you a message when it ends, so do not poll it "+
+				"or wait on it with a long `wait_ms`; do other work or finish your turn. To wait a set time, run "+
+				"`sleep <seconds>` with a short `wait_ms` and finish your turn; its exit message wakes you.")
 	}
 	processActions := make([]string, 0, 4)
 	if HasTool(specs, toolcatalog.ToolNameWriteProcess) {

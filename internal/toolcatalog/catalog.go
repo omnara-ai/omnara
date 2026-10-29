@@ -159,8 +159,8 @@ func buildDefaultCatalog() (Catalog, error) {
 				"minimum": 1,
 				"maximum": processaction.MaxWaitMilliseconds,
 				"description": "How long to wait for the command to exit before returning (default 10000, up to 300000 ms). " +
-					"Set it to how long you expect the command to take, so a build or test returns its result in one call. " +
-					"This is not a lifetime timeout: a command still running keeps running.",
+					"This is not a lifetime timeout: a command still running then keeps running and you get a message " +
+					"when it ends, so keep this short and do other work or end your turn instead of waiting.",
 			},
 			"io_mode": map[string]any{
 				"type": "string",
@@ -252,10 +252,11 @@ func buildDefaultCatalog() (Catalog, error) {
 			"type":    "integer",
 			"minimum": 1,
 			"maximum": processaction.MaxWaitMilliseconds,
-			"description": "Wait up to this long for the process to end before returning (up to 300000 ms). " +
-				"A pty program waiting at a prompt returns once its output goes quiet. " +
-				"With offset_byte, returns once output exists there. Omit to return immediately. " +
-				"Prefer one long wait over repeated reads.",
+			"description": fmt.Sprintf("Wait up to this long for the process to end before returning (up to 300000 ms). "+
+				"A pty process also returns after %d ms with no new output, as a program waiting at a prompt does. "+
+				"With offset_byte, returns once output exists there. Omit to return immediately. "+
+				"You get a message when a background process ends, so there is no need to wait for it here.",
+				processaction.InteractiveQuietMilliseconds),
 		},
 	}
 	if entries[ToolNameReadProcess], err = toolEntry(

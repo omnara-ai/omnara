@@ -86,7 +86,7 @@ Every command returns a `process_id` (`prc_…`). `run_command` waits up to `wai
 
 Results carry at most 16 KiB of output. Longer output keeps the first 2 KiB in `output` and the rest from the end in `output_tail`; `omitted_offset_byte` and `tail_offset_byte` mark the bytes left out, which [`read_process`](#read_process) can page through.
 
-If the command is still running when `wait_ms` passes, the result has `"state": "running"` and the output so far. The command keeps running; the agent can read its output, send input, or stop it with the process tools below, and receives a message when it ends. Setting `wait_ms` to how long a build or test is expected to take returns its result in one call instead.
+If the command is still running when `wait_ms` passes, the result has `"state": "running"` and the output so far. The command keeps running; the agent can read its output, send input, or stop it with the process tools below, and receives a message when it ends. Rather than a long `wait_ms`, the agent can keep it short and do other work or end its turn; to wait a set time, it can run `sleep` and let the exit message wake it.
 
 #### Input
 
@@ -126,7 +126,7 @@ Reads process output from a byte offset and can wait for the process to end.
 | `offset_byte` | integer | ≥ 0; byte position in the output stream. Omit to continue after the output returned by `run_command` or the last `read_process` call that omitted it |
 | `wait_ms` | integer | 1–300000; wait for the process to end before returning |
 
-Without `wait_ms`, `read_process` returns the retained output immediately. With it, the read returns when the process ends or `wait_ms` passes, so one long wait replaces repeated reads. A `pty` process also returns once its output has been quiet for a second, as an interactive program does at a prompt. A read with `offset_byte` returns as soon as there is output at that position.
+Without `wait_ms`, `read_process` returns the retained output immediately. With it, the read returns when the process ends or `wait_ms` passes. A `pty` process also returns after one second with no new output, as an interactive program does at a prompt. A read with `offset_byte` returns as soon as there is output at that position.
 
 Without `offset_byte`, a read returns at most 16 KiB of output, keeping the start and end like `run_command`. With `offset_byte`, it returns one contiguous page of up to 16 KiB from that position; pass `next_offset_byte` to continue, or `omitted_offset_byte` to read output an earlier result left out.
 
