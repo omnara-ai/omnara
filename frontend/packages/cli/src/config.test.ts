@@ -5,6 +5,7 @@ import {
   DEFAULT_API_URL,
   DEFAULT_ISSUER_URL,
   migrateLegacyBaseUrl,
+  resolveSavedToken,
   resolveUrls,
 } from './config.ts'
 
@@ -38,6 +39,32 @@ describe('resolveUrls', () => {
       apiUrl: 'https://self-hosted.example/api/v1',
       issuerUrl: DEFAULT_ISSUER_URL,
     })
+  })
+
+  it('ignores blank environment overrides and keeps the saved or hosted URL', () => {
+    expect(
+      resolveUrls(
+        { api_url: 'https://file.example/api/v1', issuer_url: 'https://file.example' },
+        { OMNARA_API_URL: '', OMNARA_ISSUER_URL: ' \t' },
+      ),
+    ).toEqual({ apiUrl: 'https://file.example/api/v1', issuerUrl: 'https://file.example' })
+    expect(resolveUrls({}, { OMNARA_API_URL: '', OMNARA_ISSUER_URL: '' })).toEqual({
+      apiUrl: DEFAULT_API_URL,
+      issuerUrl: DEFAULT_ISSUER_URL,
+    })
+  })
+
+  it('ignores a blank API key and keeps the saved token', () => {
+    expect(resolveSavedToken({ OMNARA_API_KEY: '' }, 'omnara_pat_v1_saved')).toBe(
+      'omnara_pat_v1_saved',
+    )
+    expect(resolveSavedToken({ OMNARA_API_KEY: ' \t' }, 'omnara_pat_v1_saved')).toBe(
+      'omnara_pat_v1_saved',
+    )
+    expect(resolveSavedToken({ OMNARA_API_KEY: 'omnara_pat_v1_env' }, 'omnara_pat_v1_saved')).toBe(
+      'omnara_pat_v1_env',
+    )
+    expect(resolveSavedToken({}, undefined)).toBeUndefined()
   })
 
   it('keeps an explicit api_url next to a self-hosted issuer', () => {
