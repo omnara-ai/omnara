@@ -16270,7 +16270,7 @@ components:
           minimum: 1
         action_kind:
           type: string
-          enum: [write, interrupt, terminate]
+          enum: [write, interrupt, terminate, watch]
         position:
           type: string
           enum: [effect_committed, terminal]
@@ -16322,7 +16322,7 @@ components:
           minimum: 1
         action_kind:
           type: string
-          enum: [write, read, interrupt, terminate]
+          enum: [write, read, interrupt, terminate, watch]
         disposition:
           type: string
           enum: [apply, retain, settle, release]

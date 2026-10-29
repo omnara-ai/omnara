@@ -2920,7 +2920,8 @@ export const zProcessActionReconciliationClaim = z.object({
     action_kind: z.enum([
         'write',
         'interrupt',
-        'terminate'
+        'terminate',
+        'watch'
     ]),
     position: z.enum(['effect_committed', 'terminal'])
 });
@@ -2948,7 +2949,8 @@ export const zProcessActionReconciliationDirective = z.object({
         'write',
         'read',
         'interrupt',
-        'terminate'
+        'terminate',
+        'watch'
     ]),
     disposition: z.enum([
         'apply',

@@ -4132,7 +4132,7 @@ export type ListMachineDaemonTokensResponse = {
 export type ProcessActionReconciliationClaim = {
     process_action_id: ProcessActionId;
     seq: number;
-    action_kind: 'write' | 'interrupt' | 'terminate';
+    action_kind: 'write' | 'interrupt' | 'terminate' | 'watch';
     position: 'effect_committed' | 'terminal';
 };
 
@@ -4150,7 +4150,7 @@ export type ProcessReconciliationClaim = {
 export type ProcessActionReconciliationDirective = {
     process_action_id: ProcessActionId;
     seq: number;
-    action_kind: 'write' | 'read' | 'interrupt' | 'terminate';
+    action_kind: 'write' | 'read' | 'interrupt' | 'terminate' | 'watch';
     disposition: 'apply' | 'retain' | 'settle' | 'release';
     payload?: unknown;
 };
