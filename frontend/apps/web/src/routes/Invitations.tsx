@@ -83,9 +83,8 @@ function InvitationsContent({
         </p>
       </div>
 
-      {invitations.length > 0 ? (
-        <PendingInvitationList invitations={invitations} onAccepted={onAccepted} />
-      ) : (
+      <PendingInvitationList invitations={invitations} onAccepted={onAccepted} />
+      {invitations.length === 0 && (
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -93,7 +92,8 @@ function InvitationsContent({
             </EmptyMedia>
             <EmptyTitle>No pending invitations</EmptyTitle>
             <EmptyDescription>
-              New organization invitations will appear here when they arrive.
+              New organization invitations will appear here when they arrive. Accepted, declined, or
+              canceled invitations are no longer listed.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>

@@ -205,6 +205,48 @@ describe('Onboarding organization creation', () => {
     expect(window.location.search).toBe('?user_code=ABCDE-F1234')
   })
 
+  it('keeps the error when accepting the last invitation finds it canceled', async () => {
+    let invitations = [orgInvitation()]
+    const api = fakeApi([
+      {
+        method: 'GET',
+        path: '/api/v1/invitations',
+        respond: () => jsonResponse({ data: invitations, next_cursor: null }),
+      },
+      {
+        method: 'POST',
+        path: `/api/v1/invitations/${fakeId('oinv')}/accept`,
+        respond: () => {
+          invitations = []
+          return jsonResponse(
+            { code: 'not_found', error: 'not found: invitation is no longer available' },
+            404,
+          )
+        },
+      },
+    ])
+    await renderOnboarding(api)
+
+    const accept = Array.from(container.querySelectorAll('button')).find(
+      (candidate) => candidate.textContent.trim() === 'Accept',
+    )
+    if (!accept) throw new Error('Missing Accept button')
+    await act(async () => {
+      accept.click()
+      await Promise.resolve()
+    })
+    await flush()
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      'not found: invitation is no longer available',
+    )
+    expect(
+      Array.from(container.querySelectorAll('button')).some(
+        (candidate) => candidate.textContent.trim() === 'Accept',
+      ),
+    ).toBe(false)
+  })
+
   it('ignores an unsafe return destination', async () => {
     const host = window.location.host
     window.history.replaceState(

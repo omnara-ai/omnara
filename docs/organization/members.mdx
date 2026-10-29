@@ -104,7 +104,7 @@ Invitations are org-scoped and email-addressed. Invite as `owner`, `admin`, or `
 </Tabs>
 
 <Warning>
-  Only owners can grant the owner role or change or remove an owner, and the last owner cannot be demoted or removed. Removing another member permanently deletes the secrets and skills they own in this organization. Removal fails if one of their secrets is still used by another resource.
+  Only owners can grant the owner role or change or remove an owner, and the last owner cannot be demoted or removed. Demoting an owner cancels the owner invitations they sent. Removing another member permanently deletes the secrets and skills they own in this organization and cancels invitations they sent. Removal fails if one of their secrets is still used by another resource.
 </Warning>
 
 ## Give members project access

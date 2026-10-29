@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -103,7 +104,21 @@ func checkOwnedOrgCapacity(ctx context.Context, qtx *dbsqlc.Queries, userID uuid
 		return fmt.Errorf("count owned orgs: %w", err)
 	}
 	if ownedCount >= MaxOwnedOrgsPerUser {
-		return storeerr.ErrUnauthorized
+		return resourceguard.LimitExceeded("owned organizations", MaxOwnedOrgsPerUser)
+	}
+	return nil
+}
+
+func checkOrgMembershipCapacity(ctx context.Context, qtx *dbsqlc.Queries, userID uuid.UUID) error {
+	membershipCount, err := qtx.CountOrgMembershipsForUser(
+		ctx,
+		dbsqlc.CountOrgMembershipsForUserParams{UserID: userID},
+	)
+	if err != nil {
+		return fmt.Errorf("count user org memberships: %w", err)
+	}
+	if membershipCount >= MaxOrgMembershipsPerUser {
+		return resourceguard.LimitExceeded("organization memberships", MaxOrgMembershipsPerUser)
 	}
 	return nil
 }
@@ -479,15 +494,8 @@ func (s *Store) AddOrgMembership(
 	}
 	membershipExists := err == nil
 	if !membershipExists {
-		membershipCount, countErr := qtx.CountOrgMembershipsForUser(
-			ctx,
-			dbsqlc.CountOrgMembershipsForUserParams{UserID: input.UserID},
-		)
-		if countErr != nil {
-			return OrgMembershipRecord{}, fmt.Errorf("count user org memberships: %w", countErr)
-		}
-		if membershipCount >= MaxOrgMembershipsPerUser {
-			return OrgMembershipRecord{}, storeerr.ErrUnauthorized
+		if err := checkOrgMembershipCapacity(ctx, qtx, input.UserID); err != nil {
+			return OrgMembershipRecord{}, err
 		}
 	}
 	if input.Role == "owner" && (!membershipExists || existing.Role != "owner") {
@@ -584,6 +592,14 @@ func (s *Store) UpdateOrgMemberRole(
 	)
 	if err != nil {
 		return OrgMembershipRecord{}, fmt.Errorf("update org membership role: %w", err)
+	}
+	if existing.Role == authz.OrgRoleOwner && input.Role != authz.OrgRoleOwner {
+		if err := qtx.DeleteOwnerOrgInvitationsFromSender(ctx, dbsqlc.DeleteOwnerOrgInvitationsFromSenderParams{
+			OrgID:                 input.OrgID,
+			CreatedByMembershipID: existing.ID,
+		}); err != nil {
+			return OrgMembershipRecord{}, fmt.Errorf("cancel demoted owner invitations: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return OrgMembershipRecord{}, fmt.Errorf("commit update org member role: %w", err)

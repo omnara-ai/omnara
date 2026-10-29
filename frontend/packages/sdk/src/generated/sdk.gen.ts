@@ -293,7 +293,7 @@ export const deleteOrganization = <ThrowOnError extends boolean = true>(options:
 /**
  * Delete the authenticated user's account
  *
- * Deletes the account, revokes all personal access tokens and browser sessions, removes all organization and project memberships, and releases the account's sign-in identity (emails, linked auth identities, and password credentials) so the same email can register a new account. Personal secrets and skills owned by the user are deleted with the account. Deletion is blocked while the user is the last owner of any organization (add another owner or delete the organization first), while a personal skill is referenced by an active agent's configuration, or while a personal secret is referenced by a model provider config, machine pool, or integration. Organization and project resources are unaffected, and agents, machines, and other records the user created are kept with their attribution.
+ * Deletes the account, revokes all personal access tokens and browser sessions, removes all organization and project memberships, and releases the account's sign-in identity (emails, linked auth identities, and password credentials) so the same email can register a new account. Personal secrets and skills owned by the user are deleted with the account, and pending invitations they sent are canceled. Deletion is blocked while the user is the last owner of any organization (add another owner or delete the organization first), while a personal skill is referenced by an active agent's configuration, or while a personal secret is referenced by a model provider config, machine pool, or integration. Organization and project resources are unaffected, and agents, machines, and other records the user created are kept with their attribution.
  */
 export const deleteCurrentUser = <ThrowOnError extends boolean = true>(options?: Options<DeleteCurrentUserData, ThrowOnError>): RequestResult<DeleteCurrentUserResponses, DeleteCurrentUserErrors, ThrowOnError> => (options?.client ?? client).delete<DeleteCurrentUserResponses, DeleteCurrentUserErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zDeleteCurrentUserResponse),
@@ -611,7 +611,7 @@ export const listOrgMembers = <ThrowOnError extends boolean = true>(options: Opt
 /**
  * Remove org member
  *
- * Removes the user's organization membership and all project memberships in the organization. The member's personal secrets and skills in the organization are deleted with the membership. Only owners can remove an owner. Removal is blocked when the user is the organization's last owner, while a personal skill is referenced by an active agent's configuration, or while a personal secret is referenced by a model provider config, machine pool, or integration.
+ * Removes the user's organization membership and all project memberships in the organization. The member's personal secrets and skills in the organization are deleted with the membership, and pending invitations they sent are canceled. Only owners can remove an owner. Removal is blocked when the user is the organization's last owner, while a personal skill is referenced by an active agent's configuration, or while a personal secret is referenced by a model provider config, machine pool, or integration.
  */
 export const removeOrgMember = <ThrowOnError extends boolean = true>(options: Options<RemoveOrgMemberData, ThrowOnError>): RequestResult<RemoveOrgMemberResponses, RemoveOrgMemberErrors, ThrowOnError> => (options.client ?? client).delete<RemoveOrgMemberResponses, RemoveOrgMemberErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zRemoveOrgMemberResponse),
@@ -635,7 +635,7 @@ export const removeOrgMember = <ThrowOnError extends boolean = true>(options: Op
 /**
  * Update org member role
  *
- * Changes the member's org role. Only owners can grant the owner role or change an owner's role, and the last owner cannot be demoted.
+ * Changes the member's org role. Only owners can grant the owner role or change an owner's role, and the last owner cannot be demoted. Demoting an owner cancels the pending owner invitations they sent.
  */
 export const updateOrgMember = <ThrowOnError extends boolean = true>(options: Options<UpdateOrgMemberData, ThrowOnError>): RequestResult<UpdateOrgMemberResponses, UpdateOrgMemberErrors, ThrowOnError> => (options.client ?? client).patch<UpdateOrgMemberResponses, UpdateOrgMemberErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateOrgMemberResponse),
@@ -813,7 +813,7 @@ export const updateOrgApiKey = <ThrowOnError extends boolean = true>(options: Op
 /**
  * Revoke an org API key
  *
- * Terminally revokes the key and removes its org and project roles. Idempotent.
+ * Terminally revokes the key, removes its org and project roles, and cancels pending invitations it sent. Idempotent.
  */
 export const revokeOrgApiKey = <ThrowOnError extends boolean = true>(options: Options<RevokeOrgApiKeyData, ThrowOnError>): RequestResult<RevokeOrgApiKeyResponses, RevokeOrgApiKeyErrors, ThrowOnError> => (options.client ?? client).post<RevokeOrgApiKeyResponses, RevokeOrgApiKeyErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zRevokeOrgApiKeyResponse),

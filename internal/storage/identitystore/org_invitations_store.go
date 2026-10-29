@@ -17,6 +17,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+var errInvitationUnavailable = storeerr.Tag(
+	storeerr.ErrNotFound,
+	errors.New("invitation is no longer available"),
+)
+
 func (s *Store) CreateOrgInvitation(
 	ctx context.Context,
 	input CreateOrgInvitationInput,
@@ -49,10 +54,24 @@ func (s *Store) CreateOrgInvitation(
 		}
 		return OrgInvitationRecord{}, fmt.Errorf("lock org: %w", err)
 	}
+	actorUserID, actorOrgAPIKeyID := AccountPrincipalIDs(input.ActorPrincipal)
+	sender, err := qtx.LockOrgMembershipForPrincipal(ctx, dbsqlc.LockOrgMembershipForPrincipalParams{
+		OrgID:       input.OrgID,
+		UserID:      actorUserID,
+		OrgApiKeyID: actorOrgAPIKeyID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return OrgInvitationRecord{}, storeerr.ErrUnauthorized
+	}
+	if err != nil {
+		return OrgInvitationRecord{}, fmt.Errorf("lock invitation sender: %w", err)
+	}
+	senderAction := OrgActionManage
 	if input.Role == authz.OrgRoleOwner {
-		if err := RequireOrgOwner(ctx, qtx, input.OrgID, input.ActorPrincipal); err != nil {
-			return OrgInvitationRecord{}, err
-		}
+		senderAction = OrgActionOwn
+	}
+	if !authz.OrgRoleAllows(sender.Role, senderAction) {
+		return OrgInvitationRecord{}, storeerr.ErrUnauthorized
 	}
 	emailUser, err := qtx.GetVerifiedUserEmailByNormalizedEmail(
 		ctx,
@@ -99,10 +118,11 @@ func (s *Store) CreateOrgInvitation(
 	row, err := qtx.CreateOrgInvitation(
 		ctx,
 		dbsqlc.CreateOrgInvitationParams{
-			OrgID:           input.OrgID,
-			Email:           input.Email,
-			NormalizedEmail: normalizedEmail,
-			OrgRole:         input.Role,
+			OrgID:                 input.OrgID,
+			Email:                 input.Email,
+			NormalizedEmail:       normalizedEmail,
+			OrgRole:               input.Role,
+			CreatedByMembershipID: sender.ID,
 		},
 	)
 	if err != nil {
@@ -319,7 +339,7 @@ func (s *Store) answerOrgInvitation(
 		dbsqlc.GetOrgInvitationForLifecycleParams{ID: id},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return OrgInvitationWithOrgNameRecord{}, storeerr.ErrNotFound
+		return OrgInvitationWithOrgNameRecord{}, errInvitationUnavailable
 	}
 	if err != nil {
 		return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("load organization invitation lifecycle: %w", err)
@@ -332,6 +352,12 @@ func (s *Store) answerOrgInvitation(
 			return OrgInvitationWithOrgNameRecord{}, storeerr.ErrNotFound
 		}
 		return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("lock invited user: %w", err)
+	}
+	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: invitation.OrgID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return OrgInvitationWithOrgNameRecord{}, errInvitationUnavailable
+		}
+		return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("lock org: %w", err)
 	}
 	var answered dbsqlc.ConsumeOrgInvitationForEmailRow
 	var matched bool
@@ -353,7 +379,7 @@ func (s *Store) answerOrgInvitation(
 		}
 	}
 	if !matched {
-		return OrgInvitationWithOrgNameRecord{}, storeerr.ErrNotFound
+		return OrgInvitationWithOrgNameRecord{}, errInvitationUnavailable
 	}
 	if accept {
 		_, membershipErr := qtx.LockUserOrgMembership(
@@ -367,15 +393,8 @@ func (s *Store) answerOrgInvitation(
 			)
 		}
 		if errors.Is(membershipErr, pgx.ErrNoRows) {
-			membershipCount, err := qtx.CountOrgMembershipsForUser(
-				ctx,
-				dbsqlc.CountOrgMembershipsForUserParams{UserID: userID},
-			)
-			if err != nil {
-				return OrgInvitationWithOrgNameRecord{}, fmt.Errorf("count user org memberships: %w", err)
-			}
-			if membershipCount >= MaxOrgMembershipsPerUser {
-				return OrgInvitationWithOrgNameRecord{}, storeerr.ErrUnauthorized
+			if err := checkOrgMembershipCapacity(ctx, qtx, userID); err != nil {
+				return OrgInvitationWithOrgNameRecord{}, err
 			}
 			if answered.OrgRole == authz.OrgRoleOwner {
 				if err := checkOwnedOrgCapacity(ctx, qtx, userID); err != nil {

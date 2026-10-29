@@ -51,8 +51,9 @@ export function DeleteAccountSection() {
           <>
             <p>
               This signs you out everywhere, revokes your personal access tokens, removes you from
-              every organization and project, and deletes your personal secrets and skills. Your
-              email is released so it can be used to register again.
+              every organization and project, cancels invitations you sent, and deletes your
+              personal secrets and skills. Your email is released so it can be used to register
+              again.
             </p>
             <p>Organizations, and the agents and other resources you created in them, are kept.</p>
             <p>This cannot be undone.</p>

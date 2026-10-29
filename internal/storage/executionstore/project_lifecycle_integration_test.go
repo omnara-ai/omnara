@@ -505,9 +505,10 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			return fixture.store.Identity().CreateOrgInvitation(
 				ctx,
 				identitystore.CreateOrgInvitationInput{
-					OrgID: testOrgID,
-					Email: "concurrent-org-child@example.com",
-					Role:  "member",
+					OrgID:          testOrgID,
+					Email:          "concurrent-org-child@example.com",
+					Role:           "member",
+					ActorPrincipal: userPrincipal(owner.ID),
 				},
 			)
 		})
@@ -575,9 +576,10 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			_, createErr := fixture.store.Identity().CreateOrgInvitation(
 				ctx,
 				identitystore.CreateOrgInvitationInput{
-					OrgID: testOrgID,
-					Email: "rejected-org-child@example.com",
-					Role:  "member",
+					OrgID:          testOrgID,
+					Email:          "rejected-org-child@example.com",
+					Role:           "member",
+					ActorPrincipal: userPrincipal(owner.ID),
 				},
 			)
 			return createErr
