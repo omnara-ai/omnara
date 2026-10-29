@@ -18,6 +18,7 @@ func TestLifecycleDeletionSuppressesWebhooks(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/fail_%t", scope, fail), func(t *testing.T) {
 				ctx := t.Context()
 				f := newProcessDaemonFixture(t, ctx, "lifecycle-webhooks")
+				owner := createSecretTestUser(t, ctx, f.Store, "Lifecycle Webhooks Owner", "owner")
 				toolID := createToolCallForProcessTestWithPermission(t, ctx, f, "lifecycle-question", "ask_question", true)
 				createAgentEventWebhook(t, f, []string{"agent_input", "tool_result", "tool_call_update"})
 				createQuestionInteractionForTest(t, ctx, f, toolID)
@@ -38,7 +39,7 @@ FOR EACH ROW EXECUTE FUNCTION reject_unit_webhook();`)
 						_, err := f.Store.Organizations().DeleteProject(ctx, testOrgID, testProjectID, userPrincipal(f.UserID))
 						return err
 					}
-					_, err := f.Store.Organizations().DeleteOrganization(ctx, testOrgID, userPrincipal(f.UserID))
+					_, err := f.Store.Organizations().DeleteOrganization(ctx, testOrgID, userPrincipal(owner.ID))
 					return err
 				}
 				err = remove(ctx)

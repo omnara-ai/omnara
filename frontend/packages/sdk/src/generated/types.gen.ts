@@ -4443,7 +4443,7 @@ export type ListOrgMembersResponse = {
 
 export type UpdateOrgMemberRequest = {
     /**
-     * The member's new org role (admin or member).
+     * The member's new org role (owner, admin, or member).
      */
     role: string;
 };

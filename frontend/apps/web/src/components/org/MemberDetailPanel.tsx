@@ -9,7 +9,7 @@ import { canManageOrg } from '@/lib/permissions'
 import { errorMessage } from '@/lib/submit-status'
 import { useActiveOrg } from '@/lib/use-active-org'
 
-const ORG_ROLES = ['member', 'admin'] as const
+const ORG_ROLES = ['member', 'admin', 'owner'] as const
 
 function memberName(member: OrgMember) {
   return member.display_name || member.email || 'Unnamed user'
@@ -21,10 +21,14 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
   const updateRole = useUpdateOrgMemberRole(orgId)
   const removeMember = useRemoveOrgMember(orgId)
   const isOwner = member.role === 'owner'
-  const canManageThisMember = canManage && !isOwner
-  const removeError = removeMember.isError
-    ? errorMessage(removeMember.error, 'Could not remove this member from the organization.')
-    : ''
+  const isViewerOwner = activeOrg.role === 'owner'
+  const canManageThisMember = canManage && (!isOwner || isViewerOwner)
+  const roles = ORG_ROLES.filter((role) => role !== 'owner' || isViewerOwner)
+  const actionError = updateRole.isError
+    ? errorMessage(updateRole.error, "Could not change this member's role.")
+    : removeMember.isError
+      ? errorMessage(removeMember.error, 'Could not remove this member from the organization.')
+      : ''
 
   return (
     <div className="flex flex-col gap-3">
@@ -46,9 +50,9 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
               <div className="grid gap-1 sm:col-span-2 sm:grid-cols-subgrid sm:items-center sm:gap-0">
                 <dt className="text-muted-foreground">Org role</dt>
                 <dd className="flex min-w-0 flex-col gap-2">
-                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
                     <div className="flex gap-2">
-                      {ORG_ROLES.map((role) => (
+                      {roles.map((role) => (
                         <Button
                           key={role}
                           type="button"
@@ -57,7 +61,14 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
                           className="capitalize"
                           disabled={updateRole.isPending}
                           onClick={() => {
-                            if (member.role !== role) {
+                            if (
+                              member.role !== role &&
+                              (role !== 'owner' ||
+                                window.confirm(
+                                  `Make ${memberName(member)} an owner? Owners can delete the organization and manage other owners.`,
+                                ))
+                            ) {
+                              removeMember.reset()
                               updateRole.mutate({ userID: member.user_id, role })
                             }
                           }}
@@ -77,6 +88,7 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
                         if (
                           window.confirm(`Remove ${memberName(member)} from this organization?`)
                         ) {
+                          updateRole.reset()
                           removeMember.mutate(member.user_id)
                         }
                       }}
@@ -84,9 +96,9 @@ export function MemberDetailPanel({ orgId, member }: { orgId: string; member: Or
                       Remove from organization
                     </Button>
                   </div>
-                  {removeError && (
+                  {actionError && (
                     <p role="alert" className="text-destructive text-xs sm:text-right">
-                      {removeError}
+                      {actionError}
                     </p>
                   )}
                 </dd>

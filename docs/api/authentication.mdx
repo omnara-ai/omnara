@@ -51,7 +51,7 @@ Services shouldn't run as a person — when that person leaves or their access c
 
 Create one in the dashboard: with **All projects** selected in the project switcher, open **API Tokens** under **Access** (org admins only) and click **New token**. Pick a name and org role; the `omnara_org_v1_…` token is shown once. Then grant the key project roles from its detail panel — a member-role key sees nothing until you do, same as a human member.
 
-Key management stays human-gated: creating, renaming, changing roles, and revoking all require a dashboard session, so one API key can never mint or escalate another. Listing and reading key metadata work with regular API auth ([List org API keys](/api-reference/endpoints/users-and-api-keys/list-org-api-keys)). Revocation is permanent and drops the key's org and project roles ([Revoke](/api-reference/endpoints/users-and-api-keys/revoke-an-org-api-key)).
+Key management stays human-gated: creating, renaming, changing roles, and revoking all require a dashboard session, so one API key can never mint or escalate another. Listing and reading key metadata work with regular API auth ([List org API keys](/api-reference/endpoints/users-and-api-keys/list-org-api-keys)). Revocation is permanent, drops the key's org and project roles, and cancels invitations it sent ([Revoke](/api-reference/endpoints/users-and-api-keys/revoke-an-org-api-key)).
 
 ## Device login for CLIs
 

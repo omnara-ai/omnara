@@ -488,7 +488,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "org-child-create-wins")
-		actor := scopeDeletionActor(t, fixture)
+		owner := createSecretTestUser(t, ctx, fixture.store, "Organization Child Owner", "owner")
 
 		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 		if err := dbsqlc.New(controlTx).LockResourceCreation(
@@ -505,9 +505,10 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			return fixture.store.Identity().CreateOrgInvitation(
 				ctx,
 				identitystore.CreateOrgInvitationInput{
-					OrgID: testOrgID,
-					Email: "concurrent-org-child@example.com",
-					Role:  "member",
+					OrgID:          testOrgID,
+					Email:          "concurrent-org-child@example.com",
+					Role:           "member",
+					ActorPrincipal: userPrincipal(owner.ID),
 				},
 			)
 		})
@@ -517,7 +518,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			_, deleteErr := fixture.store.Organizations().DeleteOrganizationOnceForIntegration(
 				ctx,
 				testOrgID,
-				actor,
+				userPrincipal(owner.ID),
 			)
 			return deleteErr
 		})
@@ -551,7 +552,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
 		fixture := newMachineLifecycleLockOrderFixture(t, ctx, "org-delete-child")
-		actor := scopeDeletionActor(t, fixture)
+		owner := createSecretTestUser(t, ctx, fixture.store, "Organization Child Owner", "owner")
 
 		controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 		if _, err := dbsqlc.New(controlTx).LockAgentInProject(
@@ -565,7 +566,7 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			_, deleteErr := fixture.store.Organizations().DeleteOrganizationOnceForIntegration(
 				ctx,
 				testOrgID,
-				actor,
+				userPrincipal(owner.ID),
 			)
 			return deleteErr
 		})
@@ -575,9 +576,10 @@ func TestOrganizationChildAdmissionSerializesWithDeletion(t *testing.T) {
 			_, createErr := fixture.store.Identity().CreateOrgInvitation(
 				ctx,
 				identitystore.CreateOrgInvitationInput{
-					OrgID: testOrgID,
-					Email: "rejected-org-child@example.com",
-					Role:  "member",
+					OrgID:          testOrgID,
+					Email:          "rejected-org-child@example.com",
+					Role:           "member",
+					ActorPrincipal: userPrincipal(owner.ID),
 				},
 			)
 			return createErr

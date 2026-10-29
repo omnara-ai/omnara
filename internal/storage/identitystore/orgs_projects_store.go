@@ -30,24 +30,10 @@ func checkOrgCreationCapacity(
 	q *dbsqlc.Queries,
 	userID uuid.UUID,
 ) error {
-	ownedCount, err := q.CountOwnedOrgMembershipsForUser(
-		ctx,
-		dbsqlc.CountOwnedOrgMembershipsForUserParams{UserID: userID},
-	)
-	if err != nil {
-		return fmt.Errorf("count owned orgs: %w", err)
+	if err := checkOwnedOrgCapacity(ctx, q, userID); err != nil {
+		return err
 	}
-	membershipCount, err := q.CountOrgMembershipsForUser(
-		ctx,
-		dbsqlc.CountOrgMembershipsForUserParams{UserID: userID},
-	)
-	if err != nil {
-		return fmt.Errorf("count user org memberships: %w", err)
-	}
-	if ownedCount >= MaxOwnedOrgsPerUser || membershipCount >= MaxOrgMembershipsPerUser {
-		return storeerr.ErrUnauthorized
-	}
-	return nil
+	return checkOrgMembershipCapacity(ctx, q, userID)
 }
 
 func (s *Store) ProvisionOrganizationTx(

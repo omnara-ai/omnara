@@ -21,8 +21,9 @@ import {
 } from '@/components/ui/select'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, settleSubmission, statusError, submitError } from '@/lib/submit-status'
+import { useActiveOrg } from '@/lib/use-active-org'
 
-const roles = ['member', 'admin'] as const
+const roles = ['member', 'admin', 'owner'] as const
 
 interface InviteMemberState {
   email: string
@@ -42,6 +43,8 @@ export function InviteMemberDialog({
   orgId: string
 }) {
   const inviteMember = useInviteMember(orgId)
+  const { activeOrg } = useActiveOrg()
+  const roleOptions = roles.filter((role) => role !== 'owner' || activeOrg.role === 'owner')
   const [state, setState] = useState<InviteMemberState>({
     email: '',
     role: 'admin',
@@ -115,7 +118,7 @@ export function InviteMemberDialog({
                   <SelectValue>{state.role}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {roles.map((role) => (
+                  {roleOptions.map((role) => (
                     <SelectItem key={role} value={role} className="capitalize">
                       {role}
                     </SelectItem>

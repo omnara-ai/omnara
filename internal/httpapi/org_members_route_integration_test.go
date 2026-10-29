@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -205,6 +206,83 @@ func TestListOrgMembers(t *testing.T) {
 		http.StatusNotFound,
 		authHeaders(other.AdminToken),
 	)
+}
+
+func TestOrgOwnerRoleManagement(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+
+	handler := newIntegrationServer(pool)
+	store := storage.NewStore(pool)
+
+	project := bootstrapPublicHTTPProject(t, handler, "owner-roles")
+
+	newUser := func(email, role string) (string, string) {
+		t.Helper()
+		user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{Email: email})
+		if err != nil {
+			t.Fatalf("create %s: %v", email, err)
+		}
+		if role != "" {
+			if _, err := store.Identity().AddOrgMembership(
+				ctx,
+				identitystore.AddOrgMembershipInput{OrgID: project.OrgUUID, UserID: user.ID, Role: role},
+			); err != nil {
+				t.Fatalf("add %s: %v", email, err)
+			}
+		}
+		pat, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+			ctx,
+			identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: email},
+		)
+		if err != nil {
+			t.Fatalf("create pat for %s: %v", email, err)
+		}
+		userID, err := publicid.Encode(publicid.KindUser, user.ID)
+		if err != nil {
+			t.Fatalf("encode %s: %v", email, err)
+		}
+		return userID, pat.Token
+	}
+	adminID, adminToken := newUser("owner-roles-admin@example.com", "admin")
+	memberID, memberToken := newUser("owner-roles-member@example.com", "member")
+	inviteeID, inviteeToken := newUser("owner-roles-invitee@example.com", "")
+
+	membersPath := "/api/v1/orgs/" + project.OrgID + "/members/"
+	request := func(method, path, body, token string, want int) map[string]any {
+		t.Helper()
+		return requestJSONWithHeaders(t, handler, method, path, body, "", want, authHeaders(token))
+	}
+	request(http.MethodPatch, membersPath+memberID, `{"role":"owner"}`, adminToken, http.StatusForbidden)
+	request(http.MethodPatch, membersPath+memberID, `{"role":"owner"}`, project.AdminToken, http.StatusOK)
+	request(http.MethodPatch, membersPath+memberID, `{"role":"admin"}`, adminToken, http.StatusForbidden)
+	request(http.MethodDelete, membersPath+memberID, "", adminToken, http.StatusForbidden)
+	request(http.MethodPatch, membersPath+project.AdminUserID, `{"role":"admin"}`, memberToken, http.StatusOK)
+	request(http.MethodPatch, membersPath+memberID, `{"role":"admin"}`, memberToken, http.StatusConflict)
+	request(http.MethodDelete, membersPath+memberID, "", memberToken, http.StatusConflict)
+
+	invitationsPath := "/api/v1/orgs/" + project.OrgID + "/invitations"
+	inviteBody := `{"email":"owner-roles-invitee@example.com","role":"owner"}`
+	request(http.MethodPost, invitationsPath, inviteBody, adminToken, http.StatusForbidden)
+	invite := request(http.MethodPost, invitationsPath, inviteBody, memberToken, http.StatusCreated)
+	acceptPath := "/api/v1/invitations/" + testutil.RequireType[string](t, invite["id"]) + "/accept"
+	request(http.MethodPost, acceptPath, "", inviteeToken, http.StatusOK)
+
+	listed := request(http.MethodGet, "/api/v1/orgs/"+project.OrgID+"/members", "", adminToken, http.StatusOK)
+	roles := map[any]any{}
+	for _, raw := range testutil.RequireType[[]any](t, listed["data"]) {
+		row := testutil.RequireType[map[string]any](t, raw)
+		roles[row["user_id"]] = row["role"]
+	}
+	want := map[any]any{
+		project.AdminUserID: "admin", adminID: "admin", memberID: "owner", inviteeID: "owner",
+	}
+	for userID, role := range want {
+		if roles[userID] != role {
+			t.Fatalf("roles = %v, want %v", roles, want)
+		}
+	}
 }
 
 func orderedMemberNames(t *testing.T, data []any) []string {

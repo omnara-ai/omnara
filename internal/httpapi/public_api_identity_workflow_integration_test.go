@@ -331,7 +331,7 @@ func TestPublicInvitationFlow(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/invitations",
-		`{"email":"owner@example.com","role":"owner"}`,
+		`{"email":"invalid@example.com","role":"superuser"}`,
 		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
@@ -571,7 +571,7 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 	requestJSONWithHeaders(
 		t, handler, http.MethodDelete,
 		"/api/v1/orgs/"+project.OrgID+"/members/"+project.AdminUserID,
-		"", "", http.StatusForbidden, authHeaders(project.AdminToken),
+		"", "", http.StatusConflict, authHeaders(project.AdminToken),
 	)
 
 	requestJSONWithHeaders(

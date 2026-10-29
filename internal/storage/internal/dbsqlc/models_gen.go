@@ -448,12 +448,13 @@ type OrgApiKey struct {
 }
 
 type OrgInvitation struct {
-	ID              uuid.UUID
-	OrgID           uuid.UUID
-	Email           string
-	NormalizedEmail string
-	OrgRole         string
-	CreatedAt       time.Time
+	ID                    uuid.UUID
+	OrgID                 uuid.UUID
+	Email                 string
+	NormalizedEmail       string
+	OrgRole               string
+	CreatedAt             time.Time
+	CreatedByMembershipID *uuid.UUID
 }
 
 type PersonalAccessToken struct {
