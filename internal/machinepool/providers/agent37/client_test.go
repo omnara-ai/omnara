@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
@@ -13,14 +14,20 @@ import (
 
 func newTestRESTClient(t *testing.T, handler http.HandlerFunc) *restClient {
 	t.Helper()
+	// Exec is served under /sandbox so one server can stand in for both addresses.
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer sk_live_test" {
+		if strings.HasPrefix(r.URL.Path, "/sandbox/") {
+			if r.Header.Get("X-Agent37-Key") != "sk_live_test" || r.Header.Get("Authorization") != "" {
+				t.Errorf("exec auth = key %q authorization %q, want the raw key alone",
+					r.Header.Get("X-Agent37-Key"), r.Header.Get("Authorization"))
+			}
+		} else if r.Header.Get("Authorization") != "Bearer sk_live_test" || r.Header.Get("X-Agent37-Key") != "" {
 			t.Errorf("authorization header = %q", r.Header.Get("Authorization"))
 		}
 		handler(w, r)
 	}))
 	t.Cleanup(server.Close)
-	return newRESTClient(server.URL, "sk_live_test", server.Client(), server.Client())
+	return newRESTClient(server.URL, server.URL+"/sandbox", "sk_live_test", server.Client(), server.Client())
 }
 
 func TestAgent37RESTClientCreatesInstances(t *testing.T) {
@@ -94,7 +101,7 @@ func TestAgent37RESTClientRunsLifecycleActions(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":[]}`))
 		case "POST /v1/instances/a37inst001/start":
 			_, _ = w.Write([]byte(`{"id":"a37inst001","status":"running"}`))
-		case "POST /v1/instances/a37inst001/exec":
+		case "POST /sandbox/v1/instances/a37inst001/exec":
 			var body map[string]string
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["command"] != "echo hi" || len(body) != 1 {
 				t.Errorf("exec body = %v error %v", body, err)

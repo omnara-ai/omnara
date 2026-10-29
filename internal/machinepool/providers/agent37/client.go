@@ -17,6 +17,10 @@ import (
 
 const defaultAPIBaseURL = "https://api.agent37.com"
 
+// Exec is answered by the machine the instance runs on, at this address, with
+// the raw key in X-Agent37-Key. api.agent37.com relays it there a hop later.
+const defaultExecBaseURL = "https://sandbox.agent37.app"
+
 type instanceStatus string
 
 const (
@@ -75,12 +79,13 @@ type apiClient interface {
 // budget instead of the short timeout used for reads.
 type restClient struct {
 	apiBaseURL      string
+	execBaseURL     string
 	apiKey          string
 	httpClient      *http.Client
 	lifecycleClient *http.Client
 }
 
-func newRESTClient(apiBaseURL, apiKey string, httpClient, lifecycleClient *http.Client) *restClient {
+func newRESTClient(apiBaseURL, execBaseURL, apiKey string, httpClient, lifecycleClient *http.Client) *restClient {
 	if httpClient == nil {
 		httpClient = providers.NewHTTPClient()
 	}
@@ -92,6 +97,7 @@ func newRESTClient(apiBaseURL, apiKey string, httpClient, lifecycleClient *http.
 	}
 	return &restClient{
 		apiBaseURL:      strings.TrimRight(apiBaseURL, "/"),
+		execBaseURL:     strings.TrimRight(execBaseURL, "/"),
 		apiKey:          apiKey,
 		httpClient:      httpClient,
 		lifecycleClient: lifecycleClient,
@@ -139,11 +145,12 @@ func (c *restClient) DeleteInstance(ctx context.Context, id string) error {
 
 func (c *restClient) Exec(ctx context.Context, id, command string) (execResult, error) {
 	var result execResult
-	err := c.do(
+	err := c.send(
 		ctx,
 		c.lifecycleClient,
 		http.MethodPost,
-		"/v1/instances/"+url.PathEscape(id)+"/exec",
+		c.execBaseURL+"/v1/instances/"+url.PathEscape(id)+"/exec",
+		map[string]string{"X-Agent37-Key": c.apiKey},
 		map[string]string{"command": command},
 		&result,
 	)
@@ -156,13 +163,31 @@ func (c *restClient) do(
 	method, path string,
 	body, out any,
 ) error {
+	return c.send(
+		ctx,
+		httpClient,
+		method,
+		c.apiBaseURL+path,
+		map[string]string{"Authorization": "Bearer " + c.apiKey},
+		body,
+		out,
+	)
+}
+
+func (c *restClient) send(
+	ctx context.Context,
+	httpClient *http.Client,
+	method, requestURL string,
+	headers map[string]string,
+	body, out any,
+) error {
 	response, err := providers.DoHTTPResponse(
 		ctx,
 		httpClient,
 		providers.Agent37,
 		method,
-		c.apiBaseURL+path,
-		map[string]string{"Authorization": "Bearer " + c.apiKey},
+		requestURL,
+		headers,
 		body,
 	)
 	if err != nil {

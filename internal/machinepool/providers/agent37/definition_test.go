@@ -190,8 +190,9 @@ func TestAgent37NewProviderRequiresAnAuthToken(t *testing.T) {
 			t.Fatal("provider has an unexpected implementation")
 		}
 		client, ok := concrete.api.(*restClient)
-		if !ok || client.apiBaseURL != defaultAPIBaseURL || client.apiKey != "sk_live_key" {
-			t.Fatalf("client = %+v, want the Agent37 API and the trimmed key", concrete.api)
+		if !ok || client.apiBaseURL != defaultAPIBaseURL || client.execBaseURL != defaultExecBaseURL ||
+			client.apiKey != "sk_live_key" {
+			t.Fatalf("client = %+v, want the Agent37 API, its exec address and the trimmed key", concrete.api)
 		}
 	}
 }
