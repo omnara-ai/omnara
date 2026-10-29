@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -113,6 +114,11 @@ func (t *toolCallTransaction) startProcess(
 	}
 	if input.InitialWaitMS < 0 {
 		return ProcessRecord{}, errors.New("process initial wait must be non-negative")
+	}
+	if input.NotifyMatch != "" {
+		if _, err := regexp.Compile(input.NotifyMatch); err != nil {
+			return ProcessRecord{}, fmt.Errorf("process notify match is not a valid regular expression: %w", err)
+		}
 	}
 	projectID := t.input.ProjectID
 	agentID := t.input.AgentID

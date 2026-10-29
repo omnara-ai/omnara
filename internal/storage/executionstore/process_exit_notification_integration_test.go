@@ -416,3 +416,24 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 		t.Fatalf("output match notifications = %q", texts)
 	}
 }
+
+func TestStartProcessRejectsInvalidNotifyMatch(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "invalid_notify_match")
+	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "invalid_notify_match", "run_command")
+	_, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    toolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 60", "sh", ""),
+		AgentMachineBindingID: fixture.BindingID,
+		Cwd:                   "/work",
+		NotifyMatch:           "(unclosed",
+	})
+	if err == nil || !strings.Contains(err.Error(), "not a valid regular expression") {
+		t.Fatalf("start process err = %v, want invalid regular expression", err)
+	}
+}
