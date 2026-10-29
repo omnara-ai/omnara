@@ -1,4 +1,4 @@
-package main
+package maintenance
 
 import (
 	"context"
@@ -7,29 +7,22 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 const discordRuntimeMetricsInterval = 30 * time.Second
 
-func runDiscordRuntimeMetricsLoop(
-	ctx context.Context, log *slog.Logger, store *integrationstore.Store,
+func recordDiscordRuntimeDemand(
+	log *slog.Logger, sample func(context.Context) (int64, error),
 	recorder *metrics.DiscordRuntimeDemandRecorder,
-) {
-	for ctx.Err() == nil {
-		count, err := sampleDiscordRuntimeDemand(ctx, log, store.CountUnclaimedDiscordIntegrations)
+) func(context.Context) bool {
+	return func(ctx context.Context) bool {
+		count, err := sampleDiscordRuntimeDemand(ctx, log, sample)
 		recorder.RecordUnclaimed(count, err)
 		if err != nil && ctx.Err() == nil {
 			log.Warn("sample unclaimed Discord integrations", "error", err)
 		}
-		timer := time.NewTimer(jitteredMaintenanceDelay(discordRuntimeMetricsInterval))
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
+		return false
 	}
 }
 

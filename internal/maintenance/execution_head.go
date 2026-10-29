@@ -1,4 +1,4 @@
-package main
+package maintenance
 
 import (
 	"context"
@@ -16,21 +16,14 @@ const (
 	executionHeadJob        = "execution_head_drift"
 )
 
-func runExecutionHeadLoop(ctx context.Context, log *slog.Logger, recorder *metrics.JobRecorder,
-	sample func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error)) {
+func sampleExecutionHeads(log *slog.Logger, recorder *metrics.JobRecorder,
+	sample func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error),
+) func(context.Context) bool {
 	recorder.InitializeItems(executionHeadJob, "checked", "mismatch", "error")
 	var cursor uuid.UUID
-	for {
+	return func(ctx context.Context) bool {
 		cursor = runExecutionHeadTick(ctx, log, recorder, cursor, sample)
-		timer := time.NewTimer(jitteredMaintenanceDelay(executionHeadInterval))
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return
-		case <-timer.C:
-		}
+		return false
 	}
 }
 

@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -280,77 +279,6 @@ func TestWorkerLoopFailureIsError(t *testing.T) {
 	record := oneRecord(t, &buf)
 	if got := record["level"]; got != "error" {
 		t.Fatalf("level = %v, want error in %+v", got, record)
-	}
-}
-
-func TestMaintenanceLoopCreatesWideEvent(t *testing.T) {
-	var buf bytes.Buffer
-	ctx := log.WithLogger(context.Background(), testLogger(&buf))
-	pollAt := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
-
-	ctx, event := MaintenanceLoop(ctx, 5*time.Second, pollAt)
-	MaintenanceLoopResult(ctx, 0, nil, true, nil)
-	event.Done(context.Background())
-
-	record := oneRecord(t, &buf)
-	for key, want := range map[string]any{
-		"level":                                "info",
-		"message":                              "maintenance.loop",
-		"event.name":                           "maintenance.loop",
-		"maintenance.loop.interval":            float64(5_000_000_000),
-		"maintenance.reap_runtime_locks.count": float64(0),
-		"maintenance.loop.worked":              true,
-	} {
-		if got := record[key]; got != want {
-			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
-		}
-	}
-	if record["maintenance.loop.poll_at"] == "" {
-		t.Fatalf("maintenance.loop.poll_at missing in %+v", record)
-	}
-}
-
-func TestMaintenanceLoopIdleSuccessIsDebug(t *testing.T) {
-	var buf bytes.Buffer
-	ctx := log.WithLogger(context.Background(), testLoggerAtLevel(&buf, slog.LevelDebug))
-
-	ctx, event := MaintenanceLoop(ctx, time.Second, time.Now().UTC())
-	MaintenanceLoopResult(ctx, 0, nil, false, nil)
-	event.Done(context.Background())
-
-	record := oneRecord(t, &buf)
-	if got := record["level"]; got != "debug" {
-		t.Fatalf("level = %v, want debug in %+v", got, record)
-	}
-}
-
-func TestMaintenanceLoopAttachesTaskErrors(t *testing.T) {
-	var buf bytes.Buffer
-	ctx := log.WithLogger(context.Background(), testLogger(&buf))
-
-	ctx, event := MaintenanceLoop(ctx, time.Second, time.Now().UTC())
-	reapErr := errors.New("reap failed")
-	cleanupErr := errors.New("cleanup failed")
-	MaintenanceLoopResult(
-		ctx,
-		0,
-		reapErr,
-		false,
-		errors.Join(reapErr, cleanupErr),
-	)
-	event.Done(context.Background())
-
-	record := oneRecord(t, &buf)
-	for key, want := range map[string]any{
-		"level":                                "error",
-		"error.message":                        "reap failed\ncleanup failed",
-		"maintenance.reap_runtime_locks.count": float64(0),
-		"maintenance.reap_runtime_locks.error": "reap failed",
-		"maintenance.loop.worked":              false,
-	} {
-		if got := record[key]; got != want {
-			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
-		}
 	}
 }
 

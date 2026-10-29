@@ -1,4 +1,4 @@
-package main
+package maintenance
 
 import (
 	"bytes"
@@ -88,22 +88,24 @@ func TestExecutionHeadTickCursor(t *testing.T) {
 	}
 }
 
-func TestExecutionHeadLoopInitializesItems(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+func TestExecutionHeadJobInitializesItemsAndCarriesCursor(t *testing.T) {
 	set := metrics.New()
 	var logs bytes.Buffer
-	runExecutionHeadLoop(ctx, slog.New(slog.NewJSONHandler(&logs, nil)),
+	next := uuid.New()
+	var calls []uuid.UUID
+	run := sampleExecutionHeads(slog.New(slog.NewJSONHandler(&logs, nil)),
 		metrics.NewJobRecorder(set, metrics.SubsystemMaintenance),
 		func(_ context.Context, after uuid.UUID, _ int32) (executionstore.ExecutionHeadSampleReport, error) {
-			require.Equal(t, uuid.Nil, after)
+			calls = append(calls, after)
 			response := httptest.NewRecorder()
 			set.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 			for _, outcome := range []string{"checked", "mismatch", "error"} {
 				require.Contains(t, response.Body.String(),
 					`omnara_maintenance_job_items_total{job="execution_head_drift",outcome="`+outcome+`"} 0`)
 			}
-			cancel()
-			return executionstore.ExecutionHeadSampleReport{}, context.Canceled
+			return executionstore.ExecutionHeadSampleReport{Cursor: next}, nil
 		})
+	require.False(t, run(t.Context()))
+	require.False(t, run(t.Context()))
+	require.Equal(t, []uuid.UUID{uuid.Nil, next}, calls)
 }
