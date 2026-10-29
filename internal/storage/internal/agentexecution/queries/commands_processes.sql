@@ -20,8 +20,6 @@ FROM process_actions a WHERE a.agent_id=sqlc.arg(agent_id) AND a.id=sqlc.arg(id)
 -- name: ReadProcessWatchAllowance :one
 SELECT coalesce(a.action_kind='watch' AND a.state IN ('accepted','applied')
  AND a.payload->>'pattern'=sqlc.arg(pattern)::text AND a.payload ? 'timeout_seconds',false)::boolean AS eligible,
- coalesce(a.updated_at+make_interval(secs=>(a.payload->>'timeout_seconds')::int+sqlc.arg(grace_seconds)::int)
- >statement_timestamp(),false)::boolean AS within_timeout,
  coalesce((a.payload->>'timeout_seconds')::int,0)::integer AS timeout_seconds,
  (SELECT count(*) FROM agent_inputs i WHERE i.agent_id=a.agent_id AND i.idempotency_scope='process_notification'
  AND starts_with(i.input_idempotency_key,sqlc.arg(key_prefix)::text))::integer AS report_count,

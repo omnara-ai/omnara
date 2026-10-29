@@ -499,21 +499,22 @@ func TestOutputMatchesNeedAnEligibleWatch(t *testing.T) {
 	require.NoError(t, notify(watchID, "ready", 1), "a replay within the allowance is accepted")
 	require.Len(t, processNotificationTexts(t, ctx, fixture), allowance)
 
-	other := startBackgroundProcessForTest(t, ctx, fixture, "output_match_expired")
-	expiredID := startWatchForTest(t, ctx, fixture, other.ID, "output_match_expired_watch", "ready", 10)
+	other := startBackgroundProcessForTest(t, ctx, fixture, "output_match_delayed")
+	delayedID := startWatchForTest(t, ctx, fixture, other.ID, "output_match_delayed_watch", "ready", 10)
 	_, err := fixture.Store.pool.Exec(ctx,
-		`UPDATE process_actions SET updated_at = statement_timestamp() - interval '2 minutes' WHERE id = $1`, expiredID)
+		`UPDATE process_actions SET updated_at = statement_timestamp() - interval '2 hours' WHERE id = $1`, delayedID)
 	require.NoError(t, err)
-	expired := executionstore.NotifyProcessOutputMatchInput{
+	delayed := executionstore.NotifyProcessOutputMatchInput{
 		Authority: fixture.authority(),
 		ProjectID: testProjectID,
 		AgentID:   fixture.AgentID,
 		ID:        other.ID,
 		Sequence:  int64(allowance) + 10,
-		Result:    outputMatchResultForTest(t, expiredID, "ready", `"lines":["ready"]`),
+		Result:    outputMatchResultForTest(t, delayedID, "ready", `"lines":["ready"]`),
 	}
-	require.NoError(t, fixture.Store.Execution().NotifyProcessOutputMatch(ctx, expired))
-	require.Len(t, processNotificationTexts(t, ctx, fixture), allowance, "an expired watch sends nothing")
+	require.NoError(t, fixture.Store.Execution().NotifyProcessOutputMatch(ctx, delayed))
+	require.Len(t, processNotificationTexts(t, ctx, fixture), allowance+1,
+		"a match captured during the watch is delivered after a reconnect past its deadline")
 }
 
 func startWatchForTest(

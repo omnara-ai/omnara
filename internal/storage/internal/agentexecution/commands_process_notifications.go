@@ -27,7 +27,6 @@ const (
 	processNotificationTailBytes   = 2 * 1024
 	processNotificationTailLines   = 20
 	processNotificationLabelChars  = 200
-	processWatchGraceSeconds       = 60
 )
 
 func (h *Handle) notifyProcessExit(
@@ -74,7 +73,7 @@ func (h *Handle) NotifyProcessOutputMatch(
 		allowance, err := executiondb.New().ReadProcessWatchAllowance(ctx, h.unit.DB(),
 			executiondb.ReadProcessWatchAllowanceParams{
 				AgentID: h.route.AgentID, ProcessID: row.ID, ID: watchID, Pattern: matched.Pattern,
-				GraceSeconds: processWatchGraceSeconds, KeyPrefix: keyPrefix, Key: key,
+				KeyPrefix: keyPrefix, Key: key,
 			})
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && !allowance.Eligible {
 			return struct{}{}, fmt.Errorf("%w: output match has no eligible watch", storeerr.ErrInvalidProcessOutputMatch)
@@ -82,8 +81,8 @@ func (h *Handle) NotifyProcessOutputMatch(
 		if err != nil {
 			return struct{}{}, err
 		}
-		if !allowance.Replay && (!allowance.WithinTimeout ||
-			int(allowance.ReportCount) >= processaction.MaxWatchReports(int(allowance.TimeoutSeconds))) {
+		if !allowance.Replay &&
+			int(allowance.ReportCount) >= processaction.MaxWatchReports(int(allowance.TimeoutSeconds)) {
 			return struct{}{}, nil
 		}
 		processID, err := publicid.Encode(publicid.KindProcess, row.ID)
