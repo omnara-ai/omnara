@@ -1253,7 +1253,7 @@ func TestAgentRuntimeLockReaperSkipsSubagentWithContendedParent(t *testing.T) {
 	}
 }
 
-func TestParentWaitsOnChildWhoseSubagentIsWorking(t *testing.T) {
+func TestParentActivityListsChildWhoseSubagentIsWorking(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -1300,7 +1300,7 @@ UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = fal
 	if err != nil {
 		t.Fatalf("get parent activity: %v", err)
 	}
-	if activity.State != executionstore.SubagentStateIdle || !activity.WaitingOn.Empty() {
+	if activity.State != executionstore.SubagentStateIdle || activity.WorkingSubagents.Count != 0 || activity.RunningProcesses.Count != 0 {
 		t.Fatalf("settled parent activity = %+v, want idle", activity)
 	}
 
@@ -1313,8 +1313,8 @@ UPDATE agent_execution_state SET incomplete_tools = true WHERE agent_id = $1;
 	if err != nil {
 		t.Fatalf("get parent activity: %v", err)
 	}
-	if activity.State != executionstore.SubagentStateWaitingOnWork ||
-		len(activity.WaitingOn.SubagentIDs) != 1 || activity.WaitingOn.SubagentIDs[0] != child.Agent.ID {
-		t.Fatalf("parent activity = %+v, want waiting_on_work on child %s", activity, child.Agent.ID)
+	if activity.State != executionstore.SubagentStateIdle || activity.WorkingSubagents.Count != 1 ||
+		len(activity.WorkingSubagents.IDs) != 1 || activity.WorkingSubagents.IDs[0] != child.Agent.ID {
+		t.Fatalf("parent activity = %+v, want idle with working child %s", activity, child.Agent.ID)
 	}
 }

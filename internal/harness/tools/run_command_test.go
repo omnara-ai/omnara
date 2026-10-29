@@ -15,12 +15,12 @@ import (
 
 func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 	cases := []struct {
-		name        string
-		input       json.RawMessage
-		command     string
-		selector    processcmd.ShellSelector
-		waitMs      int
-		ioMode      processcmd.IOMode
+		name     string
+		input    json.RawMessage
+		command  string
+		selector processcmd.ShellSelector
+		waitMs   int
+		ioMode   processcmd.IOMode
 	}{
 		{
 			name:     "default",

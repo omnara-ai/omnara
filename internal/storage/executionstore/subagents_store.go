@@ -27,7 +27,6 @@ const (
 	SubagentStateRunning              = "running"
 	SubagentStateIdle                 = "idle"
 	SubagentStateWaitingOnInteraction = "waiting_on_interaction"
-	SubagentStateWaitingOnWork        = "waiting_on_work"
 	SubagentStateArchived             = "archived"
 )
 
@@ -49,22 +48,48 @@ type SubagentStatus struct {
 	IsRunning         bool
 	HasOpenQuestion   bool
 	HasOpenPermission bool
-	WaitingOn         AgentWaitingOn
+	AgentActivityWork
 }
 
-// AgentWaitingOn lists the background work that will wake an agent in the
-// waiting_on_work state: processes that notify on exit and working subagents.
-type AgentWaitingOn struct {
-	ProcessIDs  []uuid.UUID
-	SubagentIDs []uuid.UUID
+// MaxAgentActivityIDs bounds the process and subagent IDs an activity lists.
+const MaxAgentActivityIDs = 20
+
+// AgentActivityWork is what an agent has open or running apart from its own
+// turn. Each part is reported whatever the agent's state.
+type AgentActivityWork struct {
+	OpenQuestionCount          int
+	OpenPermissionRequestCount int
+	// RunningProcesses are unfinished commands that will message the agent
+	// when they end; WorkingSubagents are active children whose subtree still
+	// has work.
+	RunningProcesses AgentActivityIDs
+	WorkingSubagents AgentActivityIDs
 }
 
-func agentWaitingOn(processIDs, subagentIDs []uuid.UUID) AgentWaitingOn {
-	return AgentWaitingOn{ProcessIDs: processIDs, SubagentIDs: subagentIDs}
+// AgentActivityIDs counts items and lists the first MaxAgentActivityIDs.
+type AgentActivityIDs struct {
+	Count int
+	IDs   []uuid.UUID
 }
 
-func (w AgentWaitingOn) Empty() bool {
-	return len(w.ProcessIDs) == 0 && len(w.SubagentIDs) == 0
+func agentActivityIDs(ids []uuid.UUID) AgentActivityIDs {
+	return AgentActivityIDs{Count: len(ids), IDs: ids[:min(len(ids), MaxAgentActivityIDs)]}
+}
+
+func agentActivityWork(
+	archived bool,
+	openQuestions, openPermissions int32,
+	processIDs, subagentIDs []uuid.UUID,
+) AgentActivityWork {
+	if archived {
+		return AgentActivityWork{}
+	}
+	return AgentActivityWork{
+		OpenQuestionCount:          int(openQuestions),
+		OpenPermissionRequestCount: int(openPermissions),
+		RunningProcesses:           agentActivityIDs(processIDs),
+		WorkingSubagents:           agentActivityIDs(subagentIDs),
+	}
 }
 
 func SubagentActorParams(orgID uuid.UUID, agent AgentRecord) (*ActorParams, error) {
@@ -251,34 +276,35 @@ func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 		LastActivityAt:    row.LastActivityAt,
 		Archived:          row.State == string(AgentStateArchived),
 		IsRunning:         row.IsRunning,
-		HasOpenQuestion:   row.HasOpenQuestion,
-		HasOpenPermission: row.HasOpenPermission,
+		HasOpenQuestion:   row.OpenQuestionCount > 0,
+		HasOpenPermission: row.OpenPermissionCount > 0,
 	}
-	status.State, status.WaitingOn = agentActivityState(
+	status.AgentActivityWork = agentActivityWork(
+		status.Archived,
+		row.OpenQuestionCount,
+		row.OpenPermissionCount,
+		row.BackgroundProcessIds,
+		row.WorkingSubagentIds,
+	)
+	status.State = agentActivityState(
 		status.Archived,
 		status.HasOpenQuestion,
 		status.HasOpenPermission,
 		status.IsRunning,
-		agentWaitingOn(row.BackgroundProcessIds, row.WorkingSubagentIds),
 	)
 	return status
 }
 
-func agentActivityState(
-	archived, hasOpenQuestion, hasOpenPermission, isRunning bool,
-	waitingOn AgentWaitingOn,
-) (string, AgentWaitingOn) {
+func agentActivityState(archived, hasOpenQuestion, hasOpenPermission, isRunning bool) string {
 	switch {
 	case archived:
-		return SubagentStateArchived, AgentWaitingOn{}
+		return SubagentStateArchived
 	case hasOpenQuestion, hasOpenPermission:
-		return SubagentStateWaitingOnInteraction, AgentWaitingOn{}
+		return SubagentStateWaitingOnInteraction
 	case isRunning:
-		return SubagentStateRunning, AgentWaitingOn{}
-	case !waitingOn.Empty():
-		return SubagentStateWaitingOnWork, waitingOn
+		return SubagentStateRunning
 	default:
-		return SubagentStateIdle, AgentWaitingOn{}
+		return SubagentStateIdle
 	}
 }
 

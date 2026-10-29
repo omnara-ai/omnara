@@ -2205,24 +2205,39 @@ export type Agent = {
 
 export type AgentActivity = {
     /**
-     * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; waiting_on_work while it is otherwise idle but background work will wake it, as listed in waiting_on; idle otherwise; and archived once the agent is archived.
+     * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived. Running processes and working subagents do not change it; see running_processes and working_subagents.
      */
-    state: 'running' | 'idle' | 'waiting_on_interaction' | 'waiting_on_work' | 'archived';
+    state: 'running' | 'idle' | 'waiting_on_interaction' | 'archived';
     /**
      * When the agent's latest event was recorded, or its creation time before any event.
      */
     last_activity_at: Timestamp;
-    /**
-     * Present when state is waiting_on_work.
-     */
-    waiting_on?: AgentWaitingOn;
+    open_interactions: AgentOpenInteractions;
+    running_processes: AgentRunningProcesses;
+    working_subagents: AgentWorkingSubagents;
 };
 
 /**
- * Background work that will wake the agent, at most 20 of each kind. Processes are commands the agent left running that send it a message when they end; they count until they end. Subagents are active children that are still working.
+ * The agent's open questions and permission requests.
  */
-export type AgentWaitingOn = {
+export type AgentOpenInteractions = {
+    question_count: number;
+    permission_request_count: number;
+};
+
+/**
+ * Commands the agent left running that will send it a message when they end. process_ids lists the first 20, oldest first.
+ */
+export type AgentRunningProcesses = {
+    count: number;
     process_ids: Array<ProcessId>;
+};
+
+/**
+ * Active subagents that are still working, including through their own subagents or processes. agent_ids lists the first 20, oldest first.
+ */
+export type AgentWorkingSubagents = {
+    count: number;
     agent_ids: Array<AgentId>;
 };
 

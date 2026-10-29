@@ -1433,10 +1433,26 @@ export const zCronTriggerLastRun = z.object({
 });
 
 /**
- * Background work that will wake the agent, at most 20 of each kind. Processes are commands the agent left running that send it a message when they end; they count until they end. Subagents are active children that are still working.
+ * The agent's open questions and permission requests.
  */
-export const zAgentWaitingOn = z.object({
-    process_ids: z.array(zProcessId).max(20),
+export const zAgentOpenInteractions = z.object({
+    question_count: z.int().gte(0),
+    permission_request_count: z.int().gte(0)
+});
+
+/**
+ * Commands the agent left running that will send it a message when they end. process_ids lists the first 20, oldest first.
+ */
+export const zAgentRunningProcesses = z.object({
+    count: z.int().gte(0),
+    process_ids: z.array(zProcessId).max(20)
+});
+
+/**
+ * Active subagents that are still working, including through their own subagents or processes. agent_ids lists the first 20, oldest first.
+ */
+export const zAgentWorkingSubagents = z.object({
+    count: z.int().gte(0),
     agent_ids: z.array(zAgentId).max(20)
 });
 
@@ -1445,11 +1461,12 @@ export const zAgentActivity = z.object({
         'running',
         'idle',
         'waiting_on_interaction',
-        'waiting_on_work',
         'archived'
     ]),
     last_activity_at: zTimestamp,
-    waiting_on: zAgentWaitingOn.optional()
+    open_interactions: zAgentOpenInteractions,
+    running_processes: zAgentRunningProcesses,
+    working_subagents: zAgentWorkingSubagents
 });
 
 export const zAgentModel = z.object({

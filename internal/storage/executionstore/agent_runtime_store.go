@@ -61,7 +61,7 @@ type AgentRecord struct {
 type AgentActivity struct {
 	State          string
 	LastActivityAt time.Time
-	WaitingOn      AgentWaitingOn
+	AgentActivityWork
 }
 
 type AgentModelDisplay struct {
@@ -241,14 +241,23 @@ func (s *Store) GetAgentActivity(ctx context.Context, projectID, agentID uuid.UU
 }
 
 func agentActivityFromRow(row dbsqlc.ListAgentActivityForAgentsRow) AgentActivity {
-	state, waitingOn := agentActivityState(
-		row.State == string(AgentStateArchived),
-		row.HasOpenQuestion,
-		row.HasOpenPermission,
-		row.IsRunning,
-		agentWaitingOn(row.BackgroundProcessIds, row.WorkingSubagentIds),
-	)
-	return AgentActivity{State: state, LastActivityAt: row.LastActivityAt, WaitingOn: waitingOn}
+	archived := row.State == string(AgentStateArchived)
+	return AgentActivity{
+		State: agentActivityState(
+			archived,
+			row.OpenQuestionCount > 0,
+			row.OpenPermissionCount > 0,
+			row.IsRunning,
+		),
+		LastActivityAt: row.LastActivityAt,
+		AgentActivityWork: agentActivityWork(
+			archived,
+			row.OpenQuestionCount,
+			row.OpenPermissionCount,
+			row.BackgroundProcessIds,
+			row.WorkingSubagentIds,
+		),
+	}
 }
 
 func (s *Store) listAgentsForProjectsByCreatedAtDesc(

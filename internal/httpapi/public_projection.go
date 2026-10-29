@@ -89,14 +89,11 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 		if !state.Valid() {
 			return openapi.Agent{}, fmt.Errorf("invalid agent activity state %q", record.Activity.State)
 		}
-		response.Activity = &openapi.AgentActivity{State: state, LastActivityAt: record.Activity.LastActivityAt}
-		if !record.Activity.WaitingOn.Empty() {
-			waitingOn, err := publicAgentWaitingOn(record.Activity.WaitingOn)
-			if err != nil {
-				return openapi.Agent{}, err
-			}
-			response.Activity.WaitingOn = &waitingOn
+		activity, err := publicAgentActivity(state, *record.Activity)
+		if err != nil {
+			return openapi.Agent{}, err
 		}
+		response.Activity = &activity
 	}
 	if record.Model.ProviderConfig != "" && record.Model.Name != "" {
 		response.Model = &openapi.AgentModel{
@@ -310,24 +307,44 @@ func jsonMapOrFallback(raw json.RawMessage, fallback json.RawMessage) (map[strin
 	return out, nil
 }
 
-func publicAgentWaitingOn(waitingOn executionstore.AgentWaitingOn) (openapi.AgentWaitingOn, error) {
-	result := openapi.AgentWaitingOn{
-		ProcessIds: make([]openapi.ProcessID, 0, len(waitingOn.ProcessIDs)),
-		AgentIds:   make([]openapi.AgentID, 0, len(waitingOn.SubagentIDs)),
+func publicAgentActivity(
+	state openapi.AgentActivityState,
+	activity executionstore.AgentActivity,
+) (openapi.AgentActivity, error) {
+	processIDs, err := publicIDs(publicid.KindProcess, activity.RunningProcesses.IDs)
+	if err != nil {
+		return openapi.AgentActivity{}, err
 	}
-	for _, id := range waitingOn.ProcessIDs {
-		encoded, err := publicid.Encode(publicid.KindProcess, id)
+	subagentIDs, err := publicIDs(publicid.KindAgent, activity.WorkingSubagents.IDs)
+	if err != nil {
+		return openapi.AgentActivity{}, err
+	}
+	return openapi.AgentActivity{
+		State:          state,
+		LastActivityAt: activity.LastActivityAt,
+		OpenInteractions: openapi.AgentOpenInteractions{
+			QuestionCount:          activity.OpenQuestionCount,
+			PermissionRequestCount: activity.OpenPermissionRequestCount,
+		},
+		RunningProcesses: openapi.AgentRunningProcesses{
+			Count:      activity.RunningProcesses.Count,
+			ProcessIds: processIDs,
+		},
+		WorkingSubagents: openapi.AgentWorkingSubagents{
+			Count:    activity.WorkingSubagents.Count,
+			AgentIds: subagentIDs,
+		},
+	}, nil
+}
+
+func publicIDs(kind publicid.Kind, ids []uuid.UUID) ([]string, error) {
+	encoded := make([]string, 0, len(ids))
+	for _, id := range ids {
+		value, err := publicid.Encode(kind, id)
 		if err != nil {
-			return openapi.AgentWaitingOn{}, err
+			return nil, err
 		}
-		result.ProcessIds = append(result.ProcessIds, encoded)
+		encoded = append(encoded, value)
 	}
-	for _, id := range waitingOn.SubagentIDs {
-		encoded, err := publicid.Encode(publicid.KindAgent, id)
-		if err != nil {
-			return openapi.AgentWaitingOn{}, err
-		}
-		result.AgentIds = append(result.AgentIds, encoded)
-	}
-	return result, nil
+	return encoded, nil
 }

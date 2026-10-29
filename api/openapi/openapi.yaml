@@ -12922,39 +12922,66 @@ components:
     AgentActivity:
       type: object
       additionalProperties: false
-      required: [state, last_activity_at]
+      required: [state, last_activity_at, open_interactions, running_processes, working_subagents]
       properties:
         state:
           description: >-
             running while the agent has work in progress, which includes a
             custom tool call awaiting its result; waiting_on_interaction while
-            it has an open question or permission request; waiting_on_work
-            while it is otherwise idle but background work will wake it, as
-            listed in waiting_on; idle otherwise; and archived once the agent
-            is archived.
+            it has an open question or permission request; idle otherwise; and
+            archived once the agent is archived. Running processes and working
+            subagents do not change it; see running_processes and
+            working_subagents.
           type: string
-          enum: [running, idle, waiting_on_interaction, waiting_on_work, archived]
+          enum: [running, idle, waiting_on_interaction, archived]
         last_activity_at:
           description: When the agent's latest event was recorded, or its creation time before any event.
           $ref: '#/components/schemas/Timestamp'
-        waiting_on:
-          description: Present when state is waiting_on_work.
-          $ref: '#/components/schemas/AgentWaitingOn'
-    AgentWaitingOn:
-      description: >-
-        Background work that will wake the agent, at most 20 of each kind.
-        Processes are commands the agent left running that send it a message
-        when they end; they count until they end.
-        Subagents are active children that are still working.
+        open_interactions:
+          $ref: '#/components/schemas/AgentOpenInteractions'
+        running_processes:
+          $ref: '#/components/schemas/AgentRunningProcesses'
+        working_subagents:
+          $ref: '#/components/schemas/AgentWorkingSubagents'
+    AgentOpenInteractions:
+      description: The agent's open questions and permission requests.
       type: object
       additionalProperties: false
-      required: [process_ids, agent_ids]
+      required: [question_count, permission_request_count]
       properties:
+        question_count:
+          type: integer
+          minimum: 0
+        permission_request_count:
+          type: integer
+          minimum: 0
+    AgentRunningProcesses:
+      description: >-
+        Commands the agent left running that will send it a message when they
+        end. process_ids lists the first 20, oldest first.
+      type: object
+      additionalProperties: false
+      required: [count, process_ids]
+      properties:
+        count:
+          type: integer
+          minimum: 0
         process_ids:
           type: array
           maxItems: 20
           items:
             $ref: '#/components/schemas/ProcessID'
+    AgentWorkingSubagents:
+      description: >-
+        Active subagents that are still working, including through their own
+        subagents or processes. agent_ids lists the first 20, oldest first.
+      type: object
+      additionalProperties: false
+      required: [count, agent_ids]
+      properties:
+        count:
+          type: integer
+          minimum: 0
         agent_ids:
           type: array
           maxItems: 20

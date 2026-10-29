@@ -337,11 +337,11 @@ ORDER BY input.queued_at`, testProjectID, fixture.AgentID)
 	return texts
 }
 
-func TestBackgroundProcessMakesAgentWaitOnWork(t *testing.T) {
+func TestAgentActivityListsRunningProcessWhileIdle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture := newProcessDaemonFixture(t, ctx, "background_waiting_on_work")
-	process := startBackgroundProcessForTest(t, ctx, fixture, "background_waiting_on_work")
+	fixture := newProcessDaemonFixture(t, ctx, "background_activity")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "background_activity")
 	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx, testProjectID, fixture.AgentID, fixture.Lock.ID,
 	); err != nil {
@@ -363,9 +363,9 @@ UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = fal
 	if err != nil {
 		t.Fatalf("get activity: %v", err)
 	}
-	if activity.State != executionstore.SubagentStateWaitingOnWork ||
-		len(activity.WaitingOn.ProcessIDs) != 1 || activity.WaitingOn.ProcessIDs[0] != process.ID {
-		t.Fatalf("activity = %+v, want waiting_on_work on %s", activity, process.ID)
+	if activity.State != executionstore.SubagentStateIdle || activity.RunningProcesses.Count != 1 ||
+		len(activity.RunningProcesses.IDs) != 1 || activity.RunningProcesses.IDs[0] != process.ID {
+		t.Fatalf("activity = %+v, want idle with process %s", activity, process.ID)
 	}
 
 	if _, err := fixture.Store.pool.Exec(ctx,
@@ -377,8 +377,27 @@ UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = fal
 	if err != nil {
 		t.Fatalf("get activity: %v", err)
 	}
-	if activity.State != executionstore.SubagentStateWaitingOnWork || len(activity.WaitingOn.ProcessIDs) != 1 {
-		t.Fatalf("activity after two hours = %+v, want waiting_on_work", activity)
+	if activity.RunningProcesses.Count != 1 {
+		t.Fatalf("activity after two hours = %+v, want the process listed", activity)
+	}
+}
+
+// An open question sets the state without hiding the agent's running process.
+func TestAgentActivityListsRunningProcessBesideOpenQuestion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "question_activity")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "question_activity")
+	questionCallID := createToolCallForProcessTest(t, ctx, fixture, "question_activity_question", "ask_question")
+	createQuestionInteractionForTest(t, ctx, fixture, questionCallID)
+	activity, err := fixture.Store.Execution().GetAgentActivity(ctx, testProjectID, fixture.AgentID)
+	if err != nil {
+		t.Fatalf("get activity: %v", err)
+	}
+	if activity.State != executionstore.SubagentStateWaitingOnInteraction ||
+		activity.OpenQuestionCount != 1 || activity.OpenPermissionRequestCount != 0 ||
+		activity.RunningProcesses.Count != 1 || activity.RunningProcesses.IDs[0] != process.ID {
+		t.Fatalf("activity = %+v, want waiting_on_interaction with process %s", activity, process.ID)
 	}
 }
 

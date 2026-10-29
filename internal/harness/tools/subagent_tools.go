@@ -49,6 +49,10 @@ type subagentSummary struct {
 	Key            string `json:"key"`
 	State          string `json:"state"`
 	LastActivityAt string `json:"last_activity_at"`
+	// RunningProcessCount and WorkingSubagentCount count background work
+	// that continues whatever the state is.
+	RunningProcessCount  int `json:"running_process_count,omitempty"`
+	WorkingSubagentCount int `json:"working_subagent_count,omitempty"`
 }
 
 func decodeStrictToolRequest(toolName string, raw json.RawMessage, target any) error {
@@ -198,11 +202,13 @@ func subagentSummaryFromStatus(status executionstore.SubagentStatus) (subagentSu
 		return subagentSummary{}, fmt.Errorf("encode subagent id: %w", err)
 	}
 	return subagentSummary{
-		AgentID:        agentPublicID,
-		Name:           status.Name,
-		Key:            status.Key,
-		State:          status.State,
-		LastActivityAt: status.LastActivityAt.UTC().Format(time.RFC3339),
+		AgentID:              agentPublicID,
+		Name:                 status.Name,
+		Key:                  status.Key,
+		State:                status.State,
+		LastActivityAt:       status.LastActivityAt.UTC().Format(time.RFC3339),
+		RunningProcessCount:  status.RunningProcesses.Count,
+		WorkingSubagentCount: status.WorkingSubagents.Count,
 	}, nil
 }
 

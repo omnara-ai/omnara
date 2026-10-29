@@ -10,20 +10,20 @@ SELECT agent.id,
          ORDER BY event.sequence DESC
          LIMIT 1
        ), agent.created_at) AS last_activity_at,
-       EXISTS (
-         SELECT 1
+       (
+         SELECT count(*)
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'question'
            AND interaction.state = 'open'
-       ) AS has_open_question,
-       EXISTS (
-         SELECT 1
+       )::integer AS open_question_count,
+       (
+         SELECT count(*)
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'permission'
            AND interaction.state = 'open'
-       ) AS has_open_permission,
+       )::integer AS open_permission_count,
        (
          EXISTS (
            SELECT 1
@@ -42,7 +42,6 @@ SELECT agent.id,
          SELECT process.id
          FROM agent_background_processes(agent.project_id, agent.id) process
          ORDER BY process.created_at, process.id
-         LIMIT 20
        )::uuid[] AS background_process_ids,
        ARRAY(
          SELECT child.id
@@ -52,7 +51,6 @@ SELECT agent.id,
            AND child.state = 'active'
            AND agent_subtree_has_work(child.project_id, child.id)
          ORDER BY child.created_at, child.id
-         LIMIT 20
        )::uuid[] AS working_subagent_ids
 FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)
@@ -70,20 +68,20 @@ SELECT agent.id,
          ORDER BY event.sequence DESC
          LIMIT 1
        ), agent.created_at) AS last_activity_at,
-       EXISTS (
-         SELECT 1
+       (
+         SELECT count(*)
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'question'
            AND interaction.state = 'open'
-       ) AS has_open_question,
-       EXISTS (
-         SELECT 1
+       )::integer AS open_question_count,
+       (
+         SELECT count(*)
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'permission'
            AND interaction.state = 'open'
-       ) AS has_open_permission,
+       )::integer AS open_permission_count,
        (
          EXISTS (
            SELECT 1
@@ -102,7 +100,6 @@ SELECT agent.id,
          SELECT process.id
          FROM agent_background_processes(agent.project_id, agent.id) process
          ORDER BY process.created_at, process.id
-         LIMIT 20
        )::uuid[] AS background_process_ids,
        ARRAY(
          SELECT child.id
@@ -112,7 +109,6 @@ SELECT agent.id,
            AND child.state = 'active'
            AND agent_subtree_has_work(child.project_id, child.id)
          ORDER BY child.created_at, child.id
-         LIMIT 20
        )::uuid[] AS working_subagent_ids
 FROM agents agent
 WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])

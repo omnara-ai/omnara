@@ -3,10 +3,19 @@ import type { Agent } from '@omnara/sdk'
 /** How often a query holding an active agent refetches, so its status settles once the agent finishes. */
 export const activeAgentPollIntervalMs = 5_000
 
-/** Whether the agent is working or waiting on someone or something, so its shown status can still change. */
+/**
+ * Whether the agent is working, waiting on someone, or has processes running or subagents
+ * working, so its shown status can still change.
+ */
 export function isAgentActive(agent: Agent) {
-  const state = agent.activity?.state
-  return state === 'running' || state === 'waiting_on_interaction' || state === 'waiting_on_work'
+  const activity = agent.activity
+  if (!activity) return false
+  return (
+    activity.state === 'running' ||
+    activity.state === 'waiting_on_interaction' ||
+    activity.running_processes.count > 0 ||
+    activity.working_subagents.count > 0
+  )
 }
 
 /**
