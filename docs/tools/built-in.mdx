@@ -138,13 +138,12 @@ Daemons older than omnarad 0.2.11 return as soon as output arrives and do not ke
 
 ### `write_process`
 
-Sends input to a running process or closes its standard input. The process must have been started with `io_mode: pty`; otherwise the call fails with `process_stdin_unavailable`.
+Sends input to a running process. The process must have been started with `io_mode: pty`; otherwise the call fails with `process_stdin_unavailable`.
 
 | Input | Type | Notes |
 | --- | --- | --- |
 | `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
-| `data` | string | Max 128 KiB per write |
-| `close_stdin` | boolean | End input after `data`; a `pty` process gets Ctrl-D, so a program reading to end of input finishes |
+| `data`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Max 128 KiB per write |
 
 ### `stop_process`
 

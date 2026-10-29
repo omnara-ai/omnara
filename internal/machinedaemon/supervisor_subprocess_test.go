@@ -1176,7 +1176,7 @@ func TestDetachedSupervisorTimeoutClosesWholeProcessTree(t *testing.T) {
 	}
 }
 
-func TestDetachedPTYRoundTripAndCloseStdinEndsInput(t *testing.T) {
+func TestDetachedPTYRoundTrip(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("PTY execution is not yet supported on Windows")
 	}
@@ -1192,15 +1192,14 @@ func TestDetachedPTYRoundTripAndCloseStdinEndsInput(t *testing.T) {
 				ExecutionSpec: processcmd.ForShell(
 					`printf '\033[31mready\033[0m\n'; `+
 						`IFS= read -r line; printf 'got:%s\n' "$line"; `+
-						`rest=$(cat); printf 'rest:%s\n' "$rest"`, "default", "pty",
+						`IFS= read -r next; printf 'next:%s\n' "$next"`, "default", "pty",
 				),
 				Cwd: t.TempDir(),
 			},
 		},
 	)
 	fixture.acceptAndStart(t, ctx)
-	// close_stdin after a partial line must still end input, not just submit it.
-	for index, payload := range []string{`{"data":"hello\n"}`, `{"data":"partial"}`, `{"close_stdin":true}`} {
+	for index, payload := range []string{`{"data":"hello\n"}`, `{"data":"world\n"}`} {
 		action := ProcessAction{
 			ID:         fmt.Sprintf("act_pty_input_%d", index),
 			ActionKind: "write",
@@ -1229,7 +1228,7 @@ func TestDetachedPTYRoundTripAndCloseStdinEndsInput(t *testing.T) {
 
 	fixture.waitClosed(t, 10*time.Second)
 	_, event := fixture.terminalEvent(t)
-	for _, want := range []string{"ready", "got:hello", "rest:partial"} {
+	for _, want := range []string{"ready", "got:hello", "next:world"} {
 		if !strings.Contains(string(event.Result), want) {
 			t.Fatalf("PTY terminal output = %s, want %q", event.Result, want)
 		}

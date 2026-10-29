@@ -73,8 +73,7 @@ func (kind Kind) Mutating() bool {
 }
 
 type WritePayload struct {
-	CloseStdin bool   `json:"close_stdin,omitempty"`
-	Data       string `json:"data,omitempty"`
+	Data string `json:"data"`
 }
 
 func DecodeWritePayload(raw json.RawMessage) (WritePayload, error) {
@@ -82,10 +81,8 @@ func DecodeWritePayload(raw json.RawMessage) (WritePayload, error) {
 	if err := decodeObject(raw, &payload); err != nil {
 		return WritePayload{}, err
 	}
-	if payload.Data == "" && !payload.CloseStdin {
-		return WritePayload{}, errors.New(
-			"write payload requires non-empty data or close_stdin=true",
-		)
+	if payload.Data == "" {
+		return WritePayload{}, errors.New("write payload requires non-empty data")
 	}
 	if len(payload.Data) > MaxWriteBytes {
 		return WritePayload{}, fmt.Errorf(

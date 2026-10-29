@@ -1279,24 +1279,14 @@ func (s *runnerServerState) applyLiveAction(
 		if err != nil {
 			return failedActionResult(daemonprotocol.ProcessActionReasonInvalidPayload, err)
 		}
-		if payload.Data != "" {
-			writeCtx, cancel := context.WithTimeout(
-				ctx,
-				processInputWriteTimeout,
-			)
-			err := runner.WriteInput(writeCtx, payload.Data)
-			cancel()
-			if err != nil {
-				return unknownActionResult(daemonprotocol.ProcessActionReasonStdinWriteUnknown, err)
-			}
-		}
-		if payload.CloseStdin {
-			endCtx, cancel := context.WithTimeout(ctx, processInputWriteTimeout)
-			err := runner.EndInput(endCtx)
-			cancel()
-			if err != nil {
-				return unknownActionResult(daemonprotocol.ProcessActionReasonStdinCloseUnknown, err)
-			}
+		writeCtx, cancel := context.WithTimeout(
+			ctx,
+			processInputWriteTimeout,
+		)
+		err = runner.WriteInput(writeCtx, payload.Data)
+		cancel()
+		if err != nil {
+			return unknownActionResult(daemonprotocol.ProcessActionReasonStdinWriteUnknown, err)
 		}
 	case daemonprotocol.ProcessActionInterrupt:
 		if err := runner.Interrupt(); err != nil {

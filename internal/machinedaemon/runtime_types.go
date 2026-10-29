@@ -228,7 +228,6 @@ type localProcessRunner struct {
 	stdin               *os.File
 	stdinMu             sync.Mutex
 	stdinOK             bool
-	inputMidLine        bool
 	noStdin             bool
 	ptyMode             bool
 	output              processOutput
@@ -383,10 +382,6 @@ func (r *localProcessRunner) WriteInput(
 		)
 	}
 	if writeErr == nil && written == len(data) {
-		if r.ptyMode && len(data) > 0 {
-			last := data[len(data)-1]
-			r.inputMidLine = last != '\n' && last != '\r'
-		}
 		if deadlineErr == nil {
 			deadlineErr = r.stdin.SetWriteDeadline(time.Time{})
 		}
@@ -412,37 +407,9 @@ func (r *localProcessRunner) WriteInput(
 	)
 }
 
-// EndInput tells the process no more input is coming. Closing a PTY would hang
-// up the process and lose its output, so it gets the terminal's end-of-input
-// character instead, twice after a partial line since the first only submits it.
-func (r *localProcessRunner) EndInput(ctx context.Context) error {
-	if !r.ptyMode {
-		return r.CloseInput()
-	}
-	r.stdinMu.Lock()
-	open, midLine := r.stdinOK, r.inputMidLine
-	r.stdinMu.Unlock()
-	if !open {
-		return nil
-	}
-	eof := "\x04"
-	if midLine {
-		eof = "\x04\x04"
-	}
-	if err := r.WriteInput(ctx, eof); err != nil {
-		return err
-	}
-	r.stdinMu.Lock()
-	r.stdinOK = false
-	r.stdinMu.Unlock()
-	return nil
-}
-
 func (r *localProcessRunner) CloseInput() error {
 	if r.ptyMode {
-		return errors.New(
-			"close_stdin is not supported for pty-backed processes",
-		)
+		return errors.New("closing input is not supported for pty-backed processes")
 	}
 	r.stdinMu.Lock()
 	defer r.stdinMu.Unlock()

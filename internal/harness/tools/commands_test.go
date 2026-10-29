@@ -128,17 +128,17 @@ func TestAlreadyStoppedProcessResult(t *testing.T) {
 	}
 }
 
-func TestProcessActionPayloadSupportsWriteAndClose(t *testing.T) {
+func TestProcessActionPayloadRequiresData(t *testing.T) {
 	t.Parallel()
 
-	processID, payload, err := writeProcessPayload(
-		json.RawMessage(`{"process_id":"prc","data":"x","close_stdin":true}`),
-	)
-	if err != nil {
-		t.Fatalf("write and close payload: %v", err)
-	}
-	if processID != "prc" || string(payload) != `{"close_stdin":true,"data":"x"}` {
-		t.Fatalf("unexpected write-and-close payload process_id=%q payload=%s", processID, payload)
+	for _, raw := range []string{
+		`{"process_id":"prc"}`,
+		`{"process_id":"prc","data":""}`,
+		`{"process_id":"prc","close_stdin":true}`,
+	} {
+		if _, _, err := writeProcessPayload(json.RawMessage(raw)); err == nil {
+			t.Fatalf("expected write_process request %s to be rejected", raw)
+		}
 	}
 }
 

@@ -196,7 +196,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				return
 			}
 			writeOpenAIFunctionCall(w, failModelRequest, "resp_start", "call_start", "run_command", map[string]any{
-				"command": "stty -echo; while IFS= read -r line; do case \"$line\" in CREATE*) printf created > stdin-file.txt; printf C;; DELETE*) rm -f stdin-file.txt; printf D;; esac; done",
+				"command": "stty -echo; while IFS= read -r line; do case \"$line\" in CREATE*) printf created > stdin-file.txt; printf C;; DELETE*) rm -f stdin-file.txt; printf D;; END*) break;; esac; done",
 				"shell":   "sh",
 				"cwd":     "/work",
 				"io_mode": "pty",
@@ -309,13 +309,13 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 			writeOpenAIFunctionCall(
 				w,
 				failModelRequest,
-				"resp_close_stdin",
-				"call_close_stdin",
+				"resp_end_input",
+				"call_end_input",
 				"write_process",
-				map[string]any{"process_id": id, "close_stdin": true},
+				map[string]any{"process_id": id, "data": "END\n"},
 			)
 		case 10:
-			if !fakeModelProcessActionAccepted(w, body, failModelRequest, "call_close_stdin") {
+			if !fakeModelProcessActionAccepted(w, body, failModelRequest, "call_end_input") {
 				return
 			}
 			mu.Lock()

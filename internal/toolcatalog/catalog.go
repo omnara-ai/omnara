@@ -49,10 +49,9 @@ const (
 		"and returns its output, keeping the start and end of long output. If it is still running, it keeps " +
 		"running and you get a message when it ends; use its process_id with the process tools to read " +
 		"output, send input, or stop it."
-	writeProcessToolDescription = "Write exact bytes to a running process started with io_mode: pty, " +
-		"close its input, or do both."
-	stopProcessToolDescription = "Interrupt or terminate a running process."
-	readProcessToolDescription = "Read retained process output, optionally waiting for the process to end. " +
+	writeProcessToolDescription = "Write exact bytes to a running process started with io_mode: pty."
+	stopProcessToolDescription  = "Interrupt or terminate a running process."
+	readProcessToolDescription  = "Read retained process output, optionally waiting for the process to end. " +
 		"Long output keeps the start and end."
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
@@ -193,18 +192,13 @@ func buildDefaultCatalog() (Catalog, error) {
 		{
 			ToolNameWriteProcess,
 			writeProcessToolDescription,
-			[]string{"process_id"},
+			[]string{"process_id", "data"},
 			map[string]any{
 				"process_id": processID,
 				"data": map[string]any{
 					"type": "string",
 					"description": "Exact stdin/PTY bytes to write. " +
 						"Include newlines explicitly when the running command expects Enter.",
-				},
-				"close_stdin": map[string]any{
-					"type": "boolean",
-					"description": "End input after writing data, so a program reading to end of input finishes. " +
-						"A PTY process gets Ctrl-D.",
 				},
 			},
 		},

@@ -550,7 +550,6 @@ const (
 	ProcessActionReasonInvalidPayload         = "invalid_payload"
 	ProcessActionReasonOutputUnavailable      = "output_unavailable"
 	ProcessActionReasonStdinWriteUnknown      = "stdin_write_unknown"
-	ProcessActionReasonStdinCloseUnknown      = "stdin_close_unknown"
 	ProcessActionReasonNotSupported           = "not_supported"
 	ProcessActionReasonInterruptUnknown       = "interrupt_unknown"
 	ProcessActionReasonTerminateUnknown       = "terminate_unknown"

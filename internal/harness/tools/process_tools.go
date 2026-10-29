@@ -19,9 +19,8 @@ import (
 )
 
 type writeProcessRequest struct {
-	ProcessID  string  `json:"process_id"`
-	Data       *string `json:"data,omitempty"`
-	CloseStdin *bool   `json:"close_stdin,omitempty"`
+	ProcessID string `json:"process_id"`
+	Data      string `json:"data"`
 }
 
 type stopProcessRequest struct {
@@ -730,26 +729,16 @@ func writeProcessPayload(
 	if input.ProcessID == "" {
 		return "", nil, errors.New("write_process requires process_id")
 	}
-	closeStdin := input.CloseStdin != nil && *input.CloseStdin
-	if (input.Data == nil || *input.Data == "") && !closeStdin {
-		return "", nil, errors.New(
-			"write_process requires non-empty data or close_stdin=true",
-		)
+	if input.Data == "" {
+		return "", nil, errors.New("write_process requires non-empty data")
 	}
-	if input.Data != nil && len(*input.Data) > processaction.MaxWriteBytes {
+	if len(input.Data) > processaction.MaxWriteBytes {
 		return "", nil, fmt.Errorf(
 			"write_process data cannot exceed %d bytes",
 			processaction.MaxWriteBytes,
 		)
 	}
-	payloadBody := processaction.WritePayload{}
-	if input.Data != nil && *input.Data != "" {
-		payloadBody.Data = *input.Data
-	}
-	if closeStdin {
-		payloadBody.CloseStdin = true
-	}
-	payload, err := marshalJSON(payloadBody)
+	payload, err := marshalJSON(processaction.WritePayload{Data: input.Data})
 	if err != nil {
 		return "", nil, fmt.Errorf("marshal write_process payload: %w", err)
 	}
