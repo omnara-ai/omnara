@@ -3,6 +3,7 @@ package agent37
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -19,15 +20,12 @@ import (
 )
 
 const (
-	// A create returns once the instance is running, which includes pulling
-	// the template image onto a host that has not run it before.
-	provisioningTimeout    = 5 * time.Minute
+	provisioningTimeout    = 2 * time.Minute
 	pollDelay              = time.Second
 	installationLabel      = "omnara-installation"
 	machineLabel           = "omnara-machine"
 	maxReportedOutputBytes = 2048
-	// Agent37 caps an exec request body at 128 KiB.
-	maxLaunchCommandBytes = 120 * 1024
+	maxExecRequestBytes    = 120 * 1024
 )
 
 //go:embed daemon_launcher.sh
@@ -77,11 +75,15 @@ func (p *provider) ValidateMachineConfig(
 	if err != nil {
 		return err
 	}
-	if size := len(daemonLaunchCommand(env)); size > maxLaunchCommandBytes {
+	request, err := json.Marshal(execRequest{Command: daemonLaunchCommand(env)})
+	if err != nil {
+		return err
+	}
+	if size := len(request); size > maxExecRequestBytes {
 		return fmt.Errorf(
 			"agent37 machine environment and startup script take %d bytes, more than the %d an agent37 machine accepts",
 			size,
-			maxLaunchCommandBytes,
+			maxExecRequestBytes,
 		)
 	}
 	return nil
@@ -121,12 +123,11 @@ func (p *provider) ProvisionMachine(
 			Resources: instanceResources{
 				CPU:      *machineProvisioning.CPU,
 				MemoryGB: *machineProvisioning.MemoryMB / 1024,
-				DiskGB:   options.DiskGB,
 			},
 		})
 		if err != nil {
 			status := apiStatusCode(err)
-			if status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable || isDialError(err) {
+			if status == http.StatusTooManyRequests || isNoCapacity(err) || isDialError(err) {
 				p.createAttempted = false
 			} else if status >= 400 && status < 500 && status != http.StatusRequestTimeout {
 				return providers.ProvisionMachineResult{}, fmt.Errorf(
@@ -218,7 +219,7 @@ func (p *provider) awaitRunning(ctx context.Context, target instance) (instance,
 }
 
 func validateInstanceResources(target instance, machineProvisioning executionstore.MachineProvisioningConfig) error {
-	if machineProvisioning.CPU != nil && target.Resources.CPU != *machineProvisioning.CPU {
+	if target.Resources.CPU != *machineProvisioning.CPU {
 		return fmt.Errorf(
 			"agent37 instance %q has %d vcpu, want %d",
 			target.ID,
@@ -226,7 +227,7 @@ func validateInstanceResources(target instance, machineProvisioning executionsto
 			*machineProvisioning.CPU,
 		)
 	}
-	if machineProvisioning.MemoryMB != nil && target.Resources.MemoryGB*1024 != *machineProvisioning.MemoryMB {
+	if target.Resources.MemoryGB*1024 != *machineProvisioning.MemoryMB {
 		return fmt.Errorf(
 			"agent37 instance %q has %d GB of memory, want %d MB",
 			target.ID,
@@ -252,10 +253,6 @@ func (p *provider) ensureDaemon(ctx context.Context, id string, env map[string]s
 	return nil
 }
 
-// daemonLaunchCommand exports the machine environment and runs the launcher,
-// which starts the managed daemon detached so it outlives the exec call. The
-// environment travels with the command rather than being stored on the
-// instance.
 func daemonLaunchCommand(env map[string]string) string {
 	var command strings.Builder
 	for _, name := range slices.Sorted(maps.Keys(env)) {
@@ -326,8 +323,6 @@ func ownedBy(current instance, installationID, machineID uuid.UUID) bool {
 	return true
 }
 
-// findOwned scans the workspace's instances because the Agent37 list endpoint
-// has no metadata filter.
 func (p *provider) findOwned(
 	ctx context.Context,
 	installationID, machineID uuid.UUID,

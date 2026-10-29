@@ -37,14 +37,13 @@ func TestAgent37ProviderConfigRejectsUnknownAndInvalidFields(t *testing.T) {
 func TestAgent37ProviderOptionsDefaultTheTemplate(t *testing.T) {
 	options, err := parseProviderOptions(map[string]json.RawMessage{
 		"template":       mustRawJSON(t, " acme-agent-box@2 "),
-		"disk_gb":        mustRawJSON(t, 12),
 		"startup_script": mustRawJSON(t, "echo ready"),
 	})
 	if err != nil {
 		t.Fatalf("parse provider options: %v", err)
 	}
-	if options.Template != "acme-agent-box@2" || options.DiskGB != 12 || options.StartupScript != "echo ready" {
-		t.Fatalf("provider options = %+v, want the trimmed template, disk, and script", options)
+	if options.Template != "acme-agent-box@2" || options.StartupScript != "echo ready" {
+		t.Fatalf("provider options = %+v, want the trimmed template and script", options)
 	}
 	for name, raw := range map[string]map[string]json.RawMessage{
 		"nil":         nil,
@@ -63,9 +62,6 @@ func TestAgent37ProviderOptionsDefaultTheTemplate(t *testing.T) {
 		"wildcard template": {"template": json.RawMessage(`"*"`)},
 		"newline template":  {"template": json.RawMessage(`"a\nb"`)},
 		"unknown key":       {"template": mustRawJSON(t, testTemplate), "image": json.RawMessage(`"ubuntu"`)},
-		"zero disk":         {"template": mustRawJSON(t, testTemplate), "disk_gb": json.RawMessage(`0`)},
-		"huge disk":         {"template": mustRawJSON(t, testTemplate), "disk_gb": json.RawMessage(`81`)},
-		"fractional disk":   {"template": mustRawJSON(t, testTemplate), "disk_gb": json.RawMessage(`4.5`)},
 		"long script":       testOptions(t, testTemplate, strings.Repeat("a", 64*1024+1)),
 	} {
 		if _, err := parseProviderOptions(raw); err == nil {
@@ -199,7 +195,7 @@ func TestAgent37NewProviderRequiresAnAuthToken(t *testing.T) {
 
 func TestAgent37ResolveMachineProviderOptionsLayersOverrides(t *testing.T) {
 	options := (Definition{}).ResolveMachineProviderOptions(
-		map[string]json.RawMessage{"template": mustRawJSON(t, testTemplate), "disk_gb": mustRawJSON(t, 8)},
+		map[string]json.RawMessage{"template": mustRawJSON(t, testTemplate)},
 		map[string]json.RawMessage{"template": mustRawJSON(t, "acme-project")},
 		map[string]json.RawMessage{"startup_script": mustRawJSON(t, "echo agent")},
 	)
@@ -207,7 +203,7 @@ func TestAgent37ResolveMachineProviderOptionsLayersOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse resolved options: %v", err)
 	}
-	if parsed.Template != "acme-project" || parsed.DiskGB != 8 || parsed.StartupScript != "echo agent" {
+	if parsed.Template != "acme-project" || parsed.StartupScript != "echo agent" {
 		t.Fatalf("resolved options = %+v", parsed)
 	}
 }

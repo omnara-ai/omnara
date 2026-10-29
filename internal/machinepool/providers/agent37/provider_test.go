@@ -96,11 +96,10 @@ func TestAgent37ProvisionMachineDefaultsToTheOmnaraTemplate(t *testing.T) {
 
 func TestAgent37ProvisionMachineCreatesTheInstanceAndStartsTheDaemon(t *testing.T) {
 	api := newFakeAPI()
-	api.created.Resources = instanceResources{CPU: 4, MemoryGB: 16, DiskGB: 20}
+	api.created.Resources = instanceResources{CPU: 4, MemoryGB: 16}
 	installationID := uuid.New()
 	machineID := uuid.New()
 	provisioning := testMachineProvisioning(t, testTemplate, 4, 16384)
-	provisioning.ProviderOptions["disk_gb"] = mustRawJSON(t, 20)
 	result, err := provisionTestMachine(
 		t, api, installationID, machineID, provisioning,
 		map[string]string{"TEAM": "platform", "my-var": "dropped"},
@@ -121,7 +120,7 @@ func TestAgent37ProvisionMachineCreatesTheInstanceAndStartsTheDaemon(t *testing.
 	}
 	request := api.createRequest
 	if api.createCalls != 1 || request.Name != name || request.Template != testTemplate ||
-		request.Resources != (instanceResources{CPU: 4, MemoryGB: 16, DiskGB: 20}) ||
+		request.Resources != (instanceResources{CPU: 4, MemoryGB: 16}) ||
 		len(request.Metadata) != 2 || request.Metadata[installationLabel] != metadata[installationLabel] ||
 		request.Metadata[machineLabel] != metadata[machineLabel] {
 		t.Fatalf("create calls = %d request = %+v", api.createCalls, request)
@@ -180,9 +179,14 @@ func TestAgent37ValidateMachineConfigBoundsTheLaunchCommand(t *testing.T) {
 	if err := p.ValidateMachineConfig(provisioning, map[string]string{"TEAM": "platform"}); err != nil {
 		t.Fatalf("validate machine config: %v", err)
 	}
-	err := p.ValidateMachineConfig(provisioning, map[string]string{"BIG": strings.Repeat("x", maxLaunchCommandBytes)})
-	if err == nil || !strings.Contains(err.Error(), "more than") {
-		t.Fatalf("validate oversized machine config = %v, want it refused", err)
+	for name, value := range map[string]string{
+		"plain":   strings.Repeat("x", maxExecRequestBytes),
+		"escaped": strings.Repeat("\"\n", maxExecRequestBytes/3),
+	} {
+		err := p.ValidateMachineConfig(provisioning, map[string]string{"BIG": value})
+		if err == nil || !strings.Contains(err.Error(), "more than") {
+			t.Fatalf("%s: validate oversized machine config = %v, want it refused", name, err)
+		}
 	}
 	if err := p.ValidateMachineConfig(provisioning, map[string]string{"OMNARA_API_URL": "x"}); err == nil {
 		t.Fatal("validate machine config accepted a reserved OMNARA_ name")
@@ -248,6 +252,7 @@ func TestAgent37ProvisionMachineClassifiesCreateFailures(t *testing.T) {
 	}{
 		"rate limited": {err: providers.WithResponse(apiError{StatusCode: http.StatusTooManyRequests}, providers.HTTPResponse{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"30"}}}), recreates: true},
 		"no capacity":  {err: apiError{StatusCode: http.StatusServiceUnavailable, Code: "no_capacity"}, recreates: true},
+		"unavailable":  {err: apiError{StatusCode: http.StatusServiceUnavailable}},
 		"unreachable":  {err: &net.OpError{Op: "dial", Err: errors.New("connection refused")}, recreates: true},
 		"server error": {err: apiError{StatusCode: http.StatusInternalServerError}},
 		"transport":    {err: errors.New("connection reset")},

@@ -14,7 +14,6 @@ import (
 
 func newTestRESTClient(t *testing.T, handler http.HandlerFunc) *restClient {
 	t.Helper()
-	// Exec is served under /sandbox so one server can stand in for both addresses.
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/sandbox/") {
 			if r.Header.Get("X-Agent37-Key") != "sk_live_test" || r.Header.Get("Authorization") != "" {
@@ -53,12 +52,12 @@ func TestAgent37RESTClientCreatesInstances(t *testing.T) {
 		t.Fatalf("create instance: %v", err)
 	}
 	if created.ID != "a37inst001" || created.Status != instanceStatusRunning ||
-		created.Resources != (instanceResources{CPU: 2, MemoryGB: 4, DiskGB: 4}) ||
+		created.Resources != (instanceResources{CPU: 2, MemoryGB: 4}) ||
 		created.Metadata["omnara-machine"] != "mch_1" {
 		t.Fatalf("created instance = %+v", created)
 	}
 	if string(received["resources"]) != `{"cpu":2,"memory":4}` || string(received["template"]) != `"acme-agent-box"` {
-		t.Fatalf("create request = %v, want the template and a size with the shape's default disk", received)
+		t.Fatalf("create request = %v, want the template and size", received)
 	}
 	for _, key := range []string{"env", "auto_sleep", "type", "region"} {
 		if _, ok := received[key]; ok {
@@ -152,5 +151,14 @@ func TestAgent37RESTClientReportsAPIErrors(t *testing.T) {
 	}
 	if delay, ok := providers.RetryAfter(err); !ok || delay.Seconds() != 7 {
 		t.Fatalf("retry after = %v %v", delay, ok)
+	}
+
+	flat := newTestRESTClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_api_key","message":"The API key is invalid."}`))
+	})
+	_, err = flat.Exec(context.Background(), "a37inst001", "true")
+	if err == nil || err.Error() != "agent37 API returned HTTP 401 (invalid_api_key): The API key is invalid." {
+		t.Fatalf("exec error = %v, want the flat error code and message", err)
 	}
 }

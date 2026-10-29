@@ -4,7 +4,7 @@ description: Always-on Linux computers for agents, running in seconds from any i
 icon: "/logo/providers/agent37.svg"
 ---
 
-[Agent37](https://www.agent37.com) gives each machine its own always-on Linux sandbox with a persistent disk, created through the Agents API in a few seconds. Connect your Agent37 workspace with a custom pool.
+[Agent37](https://www.agent37.com) gives each machine its own always-on Linux sandbox with a persistent disk, created in a few seconds. Connect your Agent37 workspace with a custom pool.
 
 ## Why Agent37
 
@@ -59,8 +59,7 @@ When you create a pool through the API, send these fields in the [Create a pool]
   "provider": "agent37",
   "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
   "default_machine_provider_options": {
-    "template": "omnara-machine", // optional
-    "disk_gb": 12 // optional
+    "template": "omnara-machine" // optional
   },
   "default_machine_cpu": 2,
   "default_machine_memory_mb": 4096,
@@ -74,5 +73,4 @@ When you create a pool through the API, send these fields in the [Create a pool]
 
 - `template` is optional. Omit it to use `agent37-omnara`, or set the name of a template in your Agent37 workspace. Add `@<revision>`, such as `omnara-machine@2`, to pin a published revision.
 - CPU and memory must be one of Agent37's sizes: 2 vCPU with 4096 MB, or 4 vCPU with 8192, 16384, or 32768 MB.
-- `disk_gb` is optional. Without it, each machine gets its size's default disk, 4 GB at 2 vCPU. See [instance sizing](https://www.agent37.com/docs/agents-api/instance-sizing) for each size's range.
 - Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_templates` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).

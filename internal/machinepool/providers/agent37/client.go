@@ -15,11 +15,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 )
 
-const defaultAPIBaseURL = "https://api.agent37.com"
-
-// Exec is answered by the machine the instance runs on, at this address, with
-// the raw key in X-Agent37-Key. api.agent37.com relays it there a hop later.
-const defaultExecBaseURL = "https://sandbox.agent37.app"
+const (
+	defaultAPIBaseURL  = "https://api.agent37.com"
+	defaultExecBaseURL = "https://sandbox.agent37.app"
+)
 
 type instanceStatus string
 
@@ -41,7 +40,6 @@ const (
 type instanceResources struct {
 	CPU      int `json:"cpu"`
 	MemoryGB int `json:"memory"`
-	DiskGB   int `json:"disk,omitempty"`
 }
 
 type instance struct {
@@ -56,6 +54,10 @@ type createInstanceRequest struct {
 	Name      string            `json:"name"`
 	Metadata  map[string]string `json:"metadata"`
 	Resources instanceResources `json:"resources"`
+}
+
+type execRequest struct {
+	Command string `json:"command"`
 }
 
 type execResult struct {
@@ -74,9 +76,6 @@ type apiClient interface {
 	Exec(ctx context.Context, id, command string) (execResult, error)
 }
 
-// Create, start, and delete return once the instance has reached the new
-// state, and exec returns once the command exits, so they get the provisioning
-// budget instead of the short timeout used for reads.
 type restClient struct {
 	apiBaseURL      string
 	execBaseURL     string
@@ -151,7 +150,7 @@ func (c *restClient) Exec(ctx context.Context, id, command string) (execResult, 
 		http.MethodPost,
 		c.execBaseURL+"/v1/instances/"+url.PathEscape(id)+"/exec",
 		map[string]string{"X-Agent37-Key": c.apiKey},
-		map[string]string{"command": command},
+		execRequest{Command: command},
 		&result,
 	)
 	return result, err
@@ -214,14 +213,20 @@ type apiError struct {
 func apiErrorFromResponse(response providers.HTTPResponse) apiError {
 	apiErr := apiError{StatusCode: response.StatusCode}
 	var envelope struct {
-		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
+		Error   json.RawMessage `json:"error"`
+		Message string          `json:"message"`
 	}
-	if json.Unmarshal(response.Body, &envelope) == nil {
-		apiErr.Code = envelope.Error.Code
-		apiErr.Message = envelope.Error.Message
+	if json.Unmarshal(response.Body, &envelope) != nil {
+		return apiErr
+	}
+	var nested struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(envelope.Error, &apiErr.Code) == nil {
+		apiErr.Message = envelope.Message
+	} else if json.Unmarshal(envelope.Error, &nested) == nil {
+		apiErr.Code, apiErr.Message = nested.Code, nested.Message
 	}
 	return apiErr
 }
@@ -249,8 +254,11 @@ func isNotFound(err error) bool {
 	return apiStatusCode(err) == http.StatusNotFound
 }
 
-// Agent37 answers 409 try_again while a sleep checkpoint is still being
-// written or a wake is in flight, and 503 when a region has no room yet.
+func isNoCapacity(err error) bool {
+	var apiErr apiError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusServiceUnavailable && apiErr.Code == "no_capacity"
+}
+
 func transientAPIError(err error) bool {
 	status := apiStatusCode(err)
 	return status == 0 || status == http.StatusConflict || status == http.StatusTooManyRequests ||

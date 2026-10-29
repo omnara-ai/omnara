@@ -75,7 +75,7 @@ func ownedInstance(t *testing.T, id string, status instanceStatus, installationI
 	return instance{
 		ID:        id,
 		Status:    status,
-		Resources: instanceResources{CPU: 2, MemoryGB: 4, DiskGB: 4},
+		Resources: instanceResources{CPU: 2, MemoryGB: 4},
 		Metadata:  map[string]any{installationLabel: metadata[installationLabel], machineLabel: metadata[machineLabel]},
 	}
 }
@@ -124,7 +124,7 @@ func newFakeAPI() *fakeAPI {
 		created: instance{
 			ID:        "a37inst001",
 			Status:    instanceStatusRunning,
-			Resources: instanceResources{CPU: 2, MemoryGB: 4, DiskGB: 4},
+			Resources: instanceResources{CPU: 2, MemoryGB: 4},
 		},
 		getFound: true,
 	}

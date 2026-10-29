@@ -12,12 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-const (
-	defaultTemplate = "agent37-omnara"
-	maxDiskGB       = 80
-)
+const defaultTemplate = "agent37-omnara"
 
-// Agent37 sells these vCPU and memory pairs; disk is sized separately.
 var machineShapes = []machineShape{
 	{CPU: 2, MemoryMB: 4096},
 	{CPU: 4, MemoryMB: 8192},
@@ -36,7 +32,6 @@ type providerConfig struct {
 
 type providerOptions struct {
 	Template      string `json:"template,omitempty"`
-	DiskGB        int    `json:"disk_gb,omitempty"`
 	StartupScript string `json:"startup_script,omitempty"`
 }
 
@@ -231,9 +226,6 @@ func parseProviderOptions(rawOptions map[string]json.RawMessage) (providerOption
 		if err := validateTemplate(options.Template); err != nil {
 			return providerOptions{}, fmt.Errorf("agent37 machine config template: %w", err)
 		}
-	}
-	if _, ok := rawOptions["disk_gb"]; ok && (options.DiskGB < 1 || options.DiskGB > maxDiskGB) {
-		return providerOptions{}, fmt.Errorf("agent37 machine config disk_gb must be between 1 and %d", maxDiskGB)
 	}
 	return options, providers.ValidateManagedStartupScript("agent37 machine config", options.StartupScript)
 }
