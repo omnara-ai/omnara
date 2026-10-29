@@ -91,7 +91,7 @@ If the command is still running when `wait_ms` passes, the result has `"state": 
 
 #### Input
 
-A `pipe` command gets no input: its stdin is `/dev/null`, so a program that prompts, such as a package manager asking for confirmation, reads end of input and fails at once instead of waiting until `wait_ms` passes. To send input with `write_process`, start the command with `io_mode: pty`. Daemons older than 0.2.11 keep stdin open for `pipe` commands.
+A `pipe` command gets no input: its stdin is `/dev/null`, so a program that prompts, such as a package manager asking for confirmation, reads end of input and fails at once instead of waiting until `wait_ms` passes. To send input with `write_process`, start the command with `io_mode: pty`. Daemons older than 0.2.15 keep stdin open for `pipe` commands.
 
 #### Background processes
 
@@ -99,7 +99,7 @@ When a command outlives its `run_command` call, Omnara sends the agent a message
 
 There is no message when the agent stopped the process with `stop_process`.
 
-With `notify_match`, the agent also receives the output lines that match the expression, except lines the `run_command` result already showed in full, so matches in output it left out are still reported. Matches that arrive together are batched into one message of up to 20 lines, messages are at least 10 seconds apart, and a process sends at most 50 of them; the last says no more will follow. For example, `run_command` with `notify_match: "listening on|error"` starts a development server and tells the agent when it is ready or fails. Matching needs omnarad 0.2.11 or later.
+With `notify_match`, the agent also receives the output lines that match the expression, except lines the `run_command` result already showed in full, so matches in output it left out are still reported. Matches that arrive together are batched into one message of up to 20 lines, messages are at least 10 seconds apart, and a process sends at most 50 of them; the last says no more will follow. For example, `run_command` with `notify_match: "listening on|error"` starts a development server and tells the agent when it is ready or fails. Matching needs omnarad 0.2.15 or later.
 
 Set `run_command` to `always_ask` to require approval before execution. The prompt shows the command, machine, shell, and working directory.
 
@@ -131,7 +131,7 @@ Without `wait_ms`, `read_process` returns the retained output immediately. With 
 
 Without `offset_byte`, a read returns at most 16 KiB of output, keeping the start and end like `run_command`. With `offset_byte`, it returns one contiguous page of up to 16 KiB from that position; pass `next_offset_byte` to continue, or `omitted_offset_byte` to read output an earlier result left out.
 
-Daemons older than omnarad 0.2.11 return as soon as output arrives and do not keep the end of long output.
+Daemons older than omnarad 0.2.15 return as soon as output arrives and do not keep the end of long output.
 
 `run_command` and `read_process` results include `offset_byte` and `next_offset_byte`. To continue from a specific point, pass `next_offset_byte` as `offset_byte`.
 

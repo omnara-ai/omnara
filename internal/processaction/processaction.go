@@ -29,7 +29,7 @@ const (
 	AgentHeadBytes                 = 2 * 1024
 	DefaultCommandWaitMilliseconds = 10 * 1000
 	InteractiveQuietMilliseconds   = 1000
-	OutputWindowDaemonVersion      = "0.2.11"
+	OutputWindowDaemonVersion      = "0.2.15"
 )
 
 // Process output replaces NUL bytes and invalid UTF-8, which Postgres cannot
