@@ -90,7 +90,7 @@ reference has since been deleted.
 
 ## Find agents
 
-The project's **Agents** page opens on **Profiles**; switch to the **Instances** tab to list active agents, and click one to open its conversation. `omnara agents list` and the API return active agents newest first; fetch one by ID with `omnara agents get {agent-id}`. Both responses include each agent's `activity`, whose `state` is `running`, `waiting_on_interaction`, `idle`, or `archived`. Archived agents are omitted from the list but remain retrievable by ID.
+The project's **Agents** page opens on **Profiles**; switch to the **Instances** tab to list active agents, and click one to open its conversation. `omnara agents list` and the API return active agents newest first; fetch one by ID with `omnara agents get {agent-id}`. Both responses include each agent's `activity`, whose `state` is `running`, `waiting_on_interaction`, `idle`, or `archived`. Pass `activity_state` (`--activity-state` in the CLI) to keep only agents in that activity. `activity_state=archived` includes archived agents even when `include_archived` is omitted. The Instances filters menu offers the same status choices. Archived agents are otherwise omitted from the list but remain retrievable by ID.
 
 <Info>
 For full schemas and playground see: [List agents](/api-reference/endpoints/agents/list-agents) and [Get agent](/api-reference/endpoints/agents/get-agent).

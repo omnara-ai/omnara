@@ -19,6 +19,12 @@ interface ToggleFilter {
   onChange: (checked: boolean) => void
 }
 
+interface ChoiceFilter<TValue extends string> {
+  value: TValue
+  options: readonly { value: TValue; label: string }[]
+  onChange: (value: TValue) => void
+}
+
 function keepMenuOpen(event: Event) {
   event.preventDefault()
 }
@@ -26,19 +32,21 @@ function keepMenuOpen(event: Event) {
 const trailingCheckboxItemClass =
   'pl-2 pr-8 [&>span:first-child]:left-auto [&>span:first-child]:right-2'
 
-export function FiltersMenu<TSort extends string>({
+export function FiltersMenu<TSort extends string, TActivity extends string = string>({
   label = 'Filters',
   sort,
+  activity,
   subagents,
   archived,
 }: {
   label?: string
   sort?: { value: TSort; options: readonly SortOption<TSort>[]; onChange: (sort: TSort) => void }
+  activity?: ChoiceFilter<TActivity>
   subagents?: ToggleFilter
   archived?: ToggleFilter
 }) {
   const hasToggles = subagents !== undefined || archived !== undefined
-  const hasSubmenus = sort !== undefined
+  const hasSubmenus = sort !== undefined || activity !== undefined
 
   return (
     <DropdownMenu>
@@ -66,6 +74,31 @@ export function FiltersMenu<TSort extends string>({
                 }}
               >
                 {sort.options.map((option) => (
+                  <DropdownMenuRadioItem key={option.value} value={option.value}>
+                    {option.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+        {activity && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <span className="flex-1">Status</span>
+              <span className="text-muted-foreground truncate text-xs">
+                {activity.options.find((option) => option.value === activity.value)?.label}
+              </span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-48">
+              <DropdownMenuRadioGroup
+                value={activity.value}
+                onValueChange={(value) => {
+                  const option = activity.options.find((candidate) => candidate.value === value)
+                  if (option) activity.onChange(option.value)
+                }}
+              >
+                {activity.options.map((option) => (
                   <DropdownMenuRadioItem key={option.value} value={option.value}>
                     {option.label}
                   </DropdownMenuRadioItem>

@@ -387,6 +387,125 @@ func TestListAgentsChildrenWithActivity(t *testing.T) {
 	}
 }
 
+func TestListAgentsByActivityState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	store := integrationStoreForHandler(t, handler)
+	project := bootstrapPublicHTTPProject(t, handler, "list-agents-activity")
+
+	idleA := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-activity-idle-a",
+	)
+	idleB := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-activity-idle-b",
+	)
+	running := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-activity-running",
+	)
+	archived := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-activity-archived",
+	)
+	idleIDs := []uuid.UUID{idleA.Agent.ID, idleB.Agent.ID, archived.Agent.ID}
+	if _, err := pool.Exec(ctx, `DELETE FROM agent_wakeups WHERE agent_id = ANY($1)`, idleIDs); err != nil {
+		t.Fatalf("clear idle wakeups: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM agent_runtime_locks WHERE agent_id = ANY($1)`, idleIDs); err != nil {
+		t.Fatalf("clear idle runtime locks: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = false WHERE agent_id = ANY($1)`,
+		idleIDs,
+	); err != nil {
+		t.Fatalf("clear idle execution state: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`INSERT INTO agent_wakeups(agent_id, ready_at, updated_at)
+		 VALUES ($1, statement_timestamp(), statement_timestamp())
+		 ON CONFLICT (agent_id) DO UPDATE SET
+		   ready_at = EXCLUDED.ready_at,
+		   updated_at = EXCLUDED.updated_at`,
+		running.Agent.ID,
+	); err != nil {
+		t.Fatalf("mark running agent: %v", err)
+	}
+	if _, _, err := store.Execution().ArchiveAgent(
+		ctx, project.ProjectUUID, archived.Agent.ID, httpUserPrincipal(project.AdminUserUUID),
+	); err != nil {
+		t.Fatalf("archive agent: %v", err)
+	}
+
+	idleAID := testPublicID(t, publicid.KindAgent, idleA.Agent.ID)
+	idleBID := testPublicID(t, publicid.KindAgent, idleB.Agent.ID)
+	runningID := testPublicID(t, publicid.KindAgent, running.Agent.ID)
+	archivedID := testPublicID(t, publicid.KindAgent, archived.Agent.ID)
+	agentsPath := project.ProjectPath + "/agents"
+
+	idleListed := requestJSONWithHeaders(
+		t, handler, http.MethodGet, agentsPath+"?activity_state=idle", "", "", http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	require.ElementsMatch(t, []string{idleAID, idleBID}, listedAgentIDs(t, idleListed))
+	require.Equal(t, "idle", listedAgentActivity(t, idleListed, idleAID))
+
+	runningListed := requestJSONWithHeaders(
+		t, handler, http.MethodGet, agentsPath+"?activity_state=running", "", "", http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	require.Equal(t, []string{runningID}, listedAgentIDs(t, runningListed))
+	require.Equal(t, "running", listedAgentActivity(t, runningListed, runningID))
+
+	archivedListed := requestJSONWithHeaders(
+		t, handler, http.MethodGet, agentsPath+"?activity_state=archived", "", "", http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	require.Equal(t, []string{archivedID}, listedAgentIDs(t, archivedListed))
+	require.Equal(t, "archived", listedAgentActivity(t, archivedListed, archivedID))
+
+	requestJSONWithHeaders(
+		t, handler, http.MethodGet, agentsPath+"?activity_state=nope", "", "", http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+
+	firstIdlePage := requestJSONWithHeaders(
+		t, handler, http.MethodGet, agentsPath+"?activity_state=idle&limit=1", "", "", http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	cursor := testutil.RequireType[string](t, firstIdlePage["next_cursor"])
+	requestJSONWithHeaders(
+		t, handler, http.MethodGet, agentsPath+"?activity_state=running&cursor="+cursor, "", "",
+		http.StatusBadRequest, authHeaders(project.AdminToken),
+	)
+}
+
+func listedAgentIDs(t *testing.T, listed map[string]any) []string {
+	t.Helper()
+	rows := testutil.RequireType[[]any](t, listed["data"])
+	ids := make([]string, 0, len(rows))
+	for _, raw := range rows {
+		row := testutil.RequireType[map[string]any](t, raw)
+		ids = append(ids, testutil.RequireType[string](t, row["id"]))
+	}
+	return ids
+}
+
+func listedAgentActivity(t *testing.T, listed map[string]any, agentID string) string {
+	t.Helper()
+	for _, raw := range testutil.RequireType[[]any](t, listed["data"]) {
+		row := testutil.RequireType[map[string]any](t, raw)
+		if testutil.RequireType[string](t, row["id"]) != agentID {
+			continue
+		}
+		activity := testutil.RequireType[map[string]any](t, row["activity"])
+		return testutil.RequireType[string](t, activity["state"])
+	}
+	t.Fatalf("agent %s missing from list: %+v", agentID, listed)
+	return ""
+}
+
 func TestListAgentsByProfile(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

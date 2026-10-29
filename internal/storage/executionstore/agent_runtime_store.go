@@ -128,6 +128,7 @@ type AgentListFilters struct {
 	ParentAgentID    *uuid.UUID
 	IncludeSubagents bool
 	IncludeArchived  bool
+	ActivityState    string
 }
 
 type ListAgentsForProjectsResult struct {
@@ -171,6 +172,7 @@ func (s *Store) ListAgentsForProjects(
 		ParentAgentID:    input.Filters.ParentAgentID,
 		IncludeSubagents: input.Filters.IncludeSubagents,
 		IncludeArchived:  input.Filters.IncludeArchived,
+		ActivityState:    input.Filters.ActivityState,
 	}
 	rows, err := s.q.ListAgentsForProjects(ctx, params)
 	if err != nil {
@@ -274,6 +276,7 @@ func (s *Store) listAgentsForProjectsByCreatedAtDesc(
 			ParentAgentID:    input.Filters.ParentAgentID,
 			IncludeSubagents: input.Filters.IncludeSubagents,
 			IncludeArchived:  input.Filters.IncludeArchived,
+			ActivityState:    input.Filters.ActivityState,
 			CursorSet:        input.List.After.Set,
 			CursorCreatedAt:  cursorCreatedAt,
 			CursorID:         input.List.After.ID,

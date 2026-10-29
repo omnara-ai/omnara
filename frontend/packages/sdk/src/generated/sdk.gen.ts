@@ -459,7 +459,7 @@ export const getOrgUsageTimeseries = <ThrowOnError extends boolean = true>(optio
 /**
  * List agents across projects
  *
- * Lists agents in every project of the organization where the caller can read agents. Each agent carries its project_id. Items are ordered by created_at descending, then id descending.
+ * Lists agents in every project of the organization where the caller can read agents. Each agent carries its project_id. Items are ordered by created_at descending, then id descending. Pass `activity_state` to keep only agents in that activity.
  */
 export const listOrgAgents = <ThrowOnError extends boolean = true>(options: Options<ListOrgAgentsData, ThrowOnError>): RequestResult<ListOrgAgentsResponses, ListOrgAgentsErrors, ThrowOnError> => (options.client ?? client).get<ListOrgAgentsResponses, ListOrgAgentsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListOrgAgentsResponse),
@@ -2176,7 +2176,7 @@ export const updateCronTrigger = <ThrowOnError extends boolean = true>(options: 
 /**
  * List agents
  *
- * Lists the project's agents with their current activity, newest first by default. Archived agents and subagents are excluded unless requested.
+ * Lists the project's agents with their current activity, newest first by default. Archived agents and subagents are excluded unless requested. Pass `activity_state` to keep only agents in that activity.
  */
 export const listAgents = <ThrowOnError extends boolean = true>(options: Options<ListAgentsData, ThrowOnError>): RequestResult<ListAgentsResponses, ListAgentsErrors, ThrowOnError> => (options.client ?? client).get<ListAgentsResponses, ListAgentsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListAgentsResponse2),

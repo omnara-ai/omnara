@@ -298,6 +298,47 @@ WHERE agent.project_id = ANY($7::uuid[])
   AND ($10::uuid IS NULL OR agent.agent_profile_id = $10::uuid)
   AND ($11::uuid IS NULL OR agent.parent_agent_id = $11::uuid)
   AND ($12::boolean OR $11::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND (
+    $13::text = ''
+    OR (
+      CASE
+        WHEN agent.state = 'archived' THEN 'archived'
+        WHEN EXISTS (
+          SELECT 1
+          FROM agent_interactions interaction
+          WHERE interaction.agent_id = agent.id
+            AND interaction.interaction_kind = 'question'
+            AND interaction.state = 'open'
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_interactions interaction
+          WHERE interaction.agent_id = agent.id
+            AND interaction.interaction_kind = 'permission'
+            AND interaction.state = 'open'
+        ) THEN 'waiting_on_interaction'
+        WHEN EXISTS (
+          SELECT 1
+          FROM agent_runtime_locks runtime_lock
+          WHERE runtime_lock.agent_id = agent.id
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_wakeups wake
+          WHERE wake.agent_id = agent.id
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_execution_state execution_state
+          WHERE execution_state.agent_id = agent.id
+            AND execution_state.logical_ready_at IS NOT NULL
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_execution_state execution_state
+          WHERE execution_state.agent_id = agent.id
+            AND execution_state.incomplete_tools
+        ) THEN 'running'
+        ELSE 'idle'
+      END
+    ) = $13::text
+  )
 )
 SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        interaction_target_id, idempotency_key,
@@ -331,6 +372,7 @@ type ListAgentsForProjectsParams struct {
 	AgentProfileID   *uuid.UUID
 	ParentAgentID    *uuid.UUID
 	IncludeSubagents bool
+	ActivityState    string
 }
 
 type ListAgentsForProjectsRow struct {
@@ -373,6 +415,7 @@ func (q *Queries) ListAgentsForProjects(ctx context.Context, arg ListAgentsForPr
 		arg.AgentProfileID,
 		arg.ParentAgentID,
 		arg.IncludeSubagents,
+		arg.ActivityState,
 	)
 	if err != nil {
 		return nil, err
@@ -468,11 +511,52 @@ WHERE agent.project_id = ANY($1::uuid[])
   AND ($5::uuid IS NULL OR agent.parent_agent_id = $5::uuid)
   AND ($6::boolean OR $5::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
   AND (
-    $7::boolean = false
-    OR (agent.created_at, agent.id) < ($8::timestamptz, $9::uuid)
+    $7::text = ''
+    OR (
+      CASE
+        WHEN agent.state = 'archived' THEN 'archived'
+        WHEN EXISTS (
+          SELECT 1
+          FROM agent_interactions interaction
+          WHERE interaction.agent_id = agent.id
+            AND interaction.interaction_kind = 'question'
+            AND interaction.state = 'open'
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_interactions interaction
+          WHERE interaction.agent_id = agent.id
+            AND interaction.interaction_kind = 'permission'
+            AND interaction.state = 'open'
+        ) THEN 'waiting_on_interaction'
+        WHEN EXISTS (
+          SELECT 1
+          FROM agent_runtime_locks runtime_lock
+          WHERE runtime_lock.agent_id = agent.id
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_wakeups wake
+          WHERE wake.agent_id = agent.id
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_execution_state execution_state
+          WHERE execution_state.agent_id = agent.id
+            AND execution_state.logical_ready_at IS NOT NULL
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_execution_state execution_state
+          WHERE execution_state.agent_id = agent.id
+            AND execution_state.incomplete_tools
+        ) THEN 'running'
+        ELSE 'idle'
+      END
+    ) = $7::text
+  )
+  AND (
+    $8::boolean = false
+    OR (agent.created_at, agent.id) < ($9::timestamptz, $10::uuid)
   )
 ORDER BY agent.created_at DESC, agent.id DESC
-LIMIT $10::bigint
+LIMIT $11::bigint
 `
 
 type ListAgentsForProjectsByCreatedAtDescParams struct {
@@ -482,6 +566,7 @@ type ListAgentsForProjectsByCreatedAtDescParams struct {
 	AgentProfileID   *uuid.UUID
 	ParentAgentID    *uuid.UUID
 	IncludeSubagents bool
+	ActivityState    string
 	CursorSet        bool
 	CursorCreatedAt  time.Time
 	CursorID         uuid.UUID
@@ -521,6 +606,7 @@ func (q *Queries) ListAgentsForProjectsByCreatedAtDesc(ctx context.Context, arg 
 		arg.AgentProfileID,
 		arg.ParentAgentID,
 		arg.IncludeSubagents,
+		arg.ActivityState,
 		arg.CursorSet,
 		arg.CursorCreatedAt,
 		arg.CursorID,

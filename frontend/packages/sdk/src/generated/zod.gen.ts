@@ -1432,13 +1432,18 @@ export const zCronTriggerLastRun = z.object({
     failure_message: z.string().nullable()
 });
 
+/**
+ * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived.
+ */
+export const zAgentActivityState = z.enum([
+    'running',
+    'idle',
+    'waiting_on_interaction',
+    'archived'
+]);
+
 export const zAgentActivity = z.object({
-    state: z.enum([
-        'running',
-        'idle',
-        'waiting_on_interaction',
-        'archived'
-    ]),
+    state: zAgentActivityState,
     last_activity_at: zTimestamp
 });
 
@@ -3666,6 +3671,11 @@ export const zListIntegrationDefinitionsResponse = z.object({
 });
 
 /**
+ * Return only agents whose current `activity.state` matches. `archived` includes archived agents even when `include_archived` is omitted.
+ */
+export const zAgentActivityStateFilter = zAgentActivityState;
+
+/**
  * Include each agent's `usage`, so a list can show costs without a request per agent.
  */
 export const zAgentIncludeUsage = z.boolean();
@@ -4003,6 +4013,7 @@ export const zListOrgAgentsQuery = z.object({
     parent_agent_id: zAgentId.optional(),
     include_subagents: z.boolean().optional(),
     include_archived: z.boolean().optional(),
+    activity_state: zAgentActivityState.optional(),
     include_usage: z.boolean().optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
@@ -5004,6 +5015,7 @@ export const zListAgentsQuery = z.object({
     parent_agent_id: zAgentId.optional(),
     include_subagents: z.boolean().optional(),
     include_archived: z.boolean().optional(),
+    activity_state: zAgentActivityState.optional(),
     include_usage: z.boolean().optional(),
     sort: zResourceListSort.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),

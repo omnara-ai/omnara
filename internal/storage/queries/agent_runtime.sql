@@ -124,6 +124,47 @@ WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
   AND (sqlc.narg(parent_agent_id)::uuid IS NULL OR agent.parent_agent_id = sqlc.narg(parent_agent_id)::uuid)
   AND (sqlc.arg(include_subagents)::boolean OR sqlc.narg(parent_agent_id)::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND (
+    sqlc.arg(activity_state)::text = ''
+    OR (
+      CASE
+        WHEN agent.state = 'archived' THEN 'archived'
+        WHEN EXISTS (
+          SELECT 1
+          FROM agent_interactions interaction
+          WHERE interaction.agent_id = agent.id
+            AND interaction.interaction_kind = 'question'
+            AND interaction.state = 'open'
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_interactions interaction
+          WHERE interaction.agent_id = agent.id
+            AND interaction.interaction_kind = 'permission'
+            AND interaction.state = 'open'
+        ) THEN 'waiting_on_interaction'
+        WHEN EXISTS (
+          SELECT 1
+          FROM agent_runtime_locks runtime_lock
+          WHERE runtime_lock.agent_id = agent.id
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_wakeups wake
+          WHERE wake.agent_id = agent.id
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_execution_state execution_state
+          WHERE execution_state.agent_id = agent.id
+            AND execution_state.logical_ready_at IS NOT NULL
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_execution_state execution_state
+          WHERE execution_state.agent_id = agent.id
+            AND execution_state.incomplete_tools
+        ) THEN 'running'
+        ELSE 'idle'
+      END
+    ) = sqlc.arg(activity_state)::text
+  )
 )
 SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        interaction_target_id, idempotency_key,
@@ -194,6 +235,47 @@ WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
   AND (sqlc.narg(parent_agent_id)::uuid IS NULL OR agent.parent_agent_id = sqlc.narg(parent_agent_id)::uuid)
   AND (sqlc.arg(include_subagents)::boolean OR sqlc.narg(parent_agent_id)::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND (
+    sqlc.arg(activity_state)::text = ''
+    OR (
+      CASE
+        WHEN agent.state = 'archived' THEN 'archived'
+        WHEN EXISTS (
+          SELECT 1
+          FROM agent_interactions interaction
+          WHERE interaction.agent_id = agent.id
+            AND interaction.interaction_kind = 'question'
+            AND interaction.state = 'open'
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_interactions interaction
+          WHERE interaction.agent_id = agent.id
+            AND interaction.interaction_kind = 'permission'
+            AND interaction.state = 'open'
+        ) THEN 'waiting_on_interaction'
+        WHEN EXISTS (
+          SELECT 1
+          FROM agent_runtime_locks runtime_lock
+          WHERE runtime_lock.agent_id = agent.id
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_wakeups wake
+          WHERE wake.agent_id = agent.id
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_execution_state execution_state
+          WHERE execution_state.agent_id = agent.id
+            AND execution_state.logical_ready_at IS NOT NULL
+        ) OR EXISTS (
+          SELECT 1
+          FROM agent_execution_state execution_state
+          WHERE execution_state.agent_id = agent.id
+            AND execution_state.incomplete_tools
+        ) THEN 'running'
+        ELSE 'idle'
+      END
+    ) = sqlc.arg(activity_state)::text
+  )
   AND (
     sqlc.arg(cursor_set)::boolean = false
     OR (agent.created_at, agent.id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid)
