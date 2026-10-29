@@ -93,9 +93,16 @@ func applyAdmissionDestination(
 	return nil
 }
 
+// internalInputPreservesInteractionSelection reports whether an input from
+// this actor is background work, such as a subagent report, a cron trigger,
+// or a process exit or output-match notification, that keeps the agent's
+// automatically selected question and approval destination.
 func internalInputPreservesInteractionSelection(provider ActorProvider, userID string) bool {
 	if provider != ActorProviderOmnara {
 		return false
+	}
+	if userID == agentexecution.ProcessNotificationActorUserID {
+		return true
 	}
 	if _, err := publicid.Decode(publicid.KindAgent, userID); err == nil {
 		return true

@@ -3,8 +3,10 @@
 package executionstore_test
 
 import (
+	"encoding/json"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
@@ -130,4 +132,46 @@ func TestCronTriggerAgentInputPreservesInteractionSelection(t *testing.T) {
 	selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
 	require.Equal(t, before, selection, "admitting the scheduler's input must preserve the Slack selection")
+}
+
+func TestProcessNotificationsPreserveInteractionSelection(t *testing.T) {
+	t.Parallel()
+	f := newIntegrationInteractionFixture(t)
+	process := startBackgroundProcessForTest(t, f.ctx, f.process, "interaction_selection_process")
+	before := f.selectOrigin(t, f.a.ID)
+	require.True(t, before.AutoSelect)
+	require.Equal(t, f.a.ID, before.IntegrationTargetID)
+
+	require.NoError(t, f.store.Execution().NotifyProcessOutputMatch(f.ctx, executionstore.NotifyProcessOutputMatchInput{
+		Authority: f.process.authority(),
+		ProjectID: testProjectID,
+		AgentID:   f.process.AgentID,
+		ID:        process.ID,
+		Sequence:  1,
+		Result:    json.RawMessage(`{"pattern":"listening","lines":["listening on :3000"]}`),
+	}))
+	exitCode := 0
+	_, err := f.store.Execution().CompleteDaemonProcess(f.ctx, executionstore.CompleteDaemonProcessInput{
+		ProjectID:     testProjectID,
+		AgentID:       f.process.AgentID,
+		ID:            process.ID,
+		Authority:     f.process.authority(),
+		State:         executionstore.ProcessStateExited,
+		ExitCode:      &exitCode,
+		Result:        json.RawMessage(`{"state":"exited","output":"","cursor":0,"next_cursor":0,"truncated":false,"done":true}`),
+		SourceEndedAt: f.process.Now.Add(time.Minute),
+	})
+	require.NoError(t, err)
+
+	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+		t, f.ctx, f.store, testProjectID, f.process.AgentID, f.process.Lock.ID,
+	)
+	require.True(t, found)
+	require.Len(t, admitted.Inputs, 2, "the match and exit notifications")
+	for _, input := range admitted.Inputs {
+		require.Equal(t, "process_notification", input.IdempotencyScope)
+	}
+	selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+	require.NoError(t, err)
+	require.Equal(t, before, selection, "admitting process notifications must preserve the Slack selection")
 }

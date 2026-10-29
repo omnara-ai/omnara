@@ -19,8 +19,10 @@ import (
 )
 
 const (
-	processNotificationScope       = "process_notification"
-	processNotificationActorUserID = "process_notifications"
+	processNotificationScope = "process_notification"
+	// ProcessNotificationActorUserID is the Omnara actor that sends process
+	// exit and output-match notifications.
+	ProcessNotificationActorUserID = "process_notifications"
 	processNotificationActorName   = "Process notifications"
 	processNotificationTailBytes   = 2 * 1024
 	processNotificationTailLines   = 20
@@ -129,7 +131,7 @@ func (h *Handle) processNotificationActor(
 		ProjectID:        h.route.ProjectID,
 		Provider:         "omnara",
 		ProviderTenantID: &tenant,
-		ProviderUserID:   processNotificationActorUserID,
+		ProviderUserID:   ProcessNotificationActorUserID,
 	})
 	if err == nil {
 		return actor.ID, nil
@@ -141,7 +143,7 @@ func (h *Handle) processNotificationActor(
 		ProjectID:        h.route.ProjectID,
 		Provider:         "omnara",
 		ProviderTenantID: &tenant,
-		ProviderUserID:   processNotificationActorUserID,
+		ProviderUserID:   ProcessNotificationActorUserID,
 		DisplayName:      processNotificationActorName,
 		Metadata:         json.RawMessage(`{}`),
 	})
