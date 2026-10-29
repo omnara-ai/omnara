@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -33,34 +34,30 @@ func TestJitteredMaintenanceDelayStaysWithinTenPercent(t *testing.T) {
 }
 
 func TestMaintenanceJobDoesNotOverlapItself(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	var calls, inFlight, maxInFlight atomic.Int32
-	firstStarted := make(chan struct{})
-	releaseFirst := make(chan struct{})
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		runMaintenanceJob(ctx, slog.New(slog.DiscardHandler), time.Millisecond, maintenanceJob{
-			"test", time.Millisecond, func(context.Context) bool {
-				call := calls.Add(1)
-				maxInFlight.Store(max(maxInFlight.Load(), inFlight.Add(1)))
-				defer inFlight.Add(-1)
-				if call == 1 {
-					close(firstStarted)
-					<-releaseFirst
-				} else {
-					cancel()
-				}
-				return false
-			},
-		})
-	}()
-	<-firstStarted
-	require.Never(t, func() bool { return calls.Load() > 1 }, 20*time.Millisecond, time.Millisecond)
-	close(releaseFirst)
-	<-done
-	require.EqualValues(t, 2, calls.Load())
-	require.EqualValues(t, 1, maxInFlight.Load())
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		release := make(chan struct{})
+		var calls atomic.Int32
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			runMaintenanceJob(ctx, slog.New(slog.DiscardHandler), time.Second, maintenanceJob{
+				"test", time.Second, func(context.Context) bool {
+					if calls.Add(1) == 1 {
+						<-release
+					}
+					return false
+				},
+			})
+		}()
+		time.Sleep(time.Hour) //nolint:omnaralint // Advance synctest's virtual clock.
+		require.EqualValues(t, 1, calls.Load(), "a blocked run must not start another")
+		close(release)
+		time.Sleep(1500 * time.Millisecond) //nolint:omnaralint // Advance synctest's virtual clock.
+		cancel()
+		<-done
+		require.EqualValues(t, 2, calls.Load())
+	})
 }
 
 func TestMaintenanceJobRecoversAndContinuesAfterPanic(t *testing.T) {
@@ -79,52 +76,67 @@ func TestMaintenanceJobRecoversAndContinuesAfterPanic(t *testing.T) {
 }
 
 func TestMaintenanceJobRerunsWhileBehindThenWaitsItsInterval(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	var calls atomic.Int32
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		runMaintenanceJob(ctx, slog.New(slog.DiscardHandler), time.Millisecond, maintenanceJob{
-			"test", time.Hour, func(context.Context) bool { return calls.Add(1) < 3 },
-		})
-	}()
-	require.Eventually(t, func() bool { return calls.Load() == 3 }, time.Second, time.Millisecond)
-	require.Never(t, func() bool { return calls.Load() > 3 }, 20*time.Millisecond, time.Millisecond)
-	cancel()
-	<-done
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		start := time.Now()
+		var runs []time.Duration
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			runMaintenanceJob(ctx, slog.New(slog.DiscardHandler), time.Second, maintenanceJob{
+				"test", time.Hour, func(context.Context) bool {
+					runs = append(runs, time.Since(start))
+					return len(runs) < 3
+				},
+			})
+		}()
+		time.Sleep(67 * time.Minute) //nolint:omnaralint // Advance synctest's virtual clock.
+		cancel()
+		<-done
+		require.Len(t, runs, 4)
+		require.Equal(t, []time.Duration{0, time.Second, 2 * time.Second}, runs[:3])
+		require.GreaterOrEqual(t, runs[3]-runs[2], 54*time.Minute)
+		require.LessOrEqual(t, runs[3]-runs[2], 66*time.Minute)
+	})
 }
 
 func TestMaintenanceJobBehindNeverWaitsLongerThanItsInterval(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	var calls atomic.Int32
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		runMaintenanceJob(ctx, slog.New(slog.DiscardHandler), time.Hour, maintenanceJob{
-			"test", time.Millisecond, func(context.Context) bool { calls.Add(1); return true },
-		})
-	}()
-	require.Eventually(t, func() bool { return calls.Load() >= 3 }, time.Second, time.Millisecond)
-	cancel()
-	<-done
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		var calls atomic.Int32
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			runMaintenanceJob(ctx, slog.New(slog.DiscardHandler), time.Hour, maintenanceJob{
+				"test", time.Second, func(context.Context) bool { calls.Add(1); return true },
+			})
+		}()
+		time.Sleep(10 * time.Second) //nolint:omnaralint // Advance synctest's virtual clock.
+		cancel()
+		<-done
+		require.GreaterOrEqual(t, calls.Load(), int32(10), "behind must never wait longer than the job's interval")
+	})
 }
 
 func TestMaintenanceJobsDoNotWaitOnEachOther(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	release := make(chan struct{})
-	var fastCalls atomic.Int32
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		runMaintenanceJobs(ctx, slog.New(slog.DiscardHandler), time.Millisecond, []maintenanceJob{
-			{"blocked", time.Millisecond, func(context.Context) bool { <-release; return false }},
-			{"fast", time.Millisecond, func(context.Context) bool { fastCalls.Add(1); return false }},
-		})
-	}()
-	require.Eventually(t, func() bool { return fastCalls.Load() >= 3 }, time.Second, time.Millisecond)
-	cancel()
-	close(release)
-	<-done
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		release := make(chan struct{})
+		var fastCalls atomic.Int32
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			runMaintenanceJobs(ctx, slog.New(slog.DiscardHandler), time.Second, []maintenanceJob{
+				{"blocked", time.Second, func(context.Context) bool { <-release; return false }},
+				{"fast", time.Second, func(context.Context) bool { fastCalls.Add(1); return false }},
+			})
+		}()
+		time.Sleep(10 * time.Second) //nolint:omnaralint // Advance synctest's virtual clock.
+		require.GreaterOrEqual(t, fastCalls.Load(), int32(9), "a blocked job must not hold up another")
+		cancel()
+		close(release)
+		<-done
+	})
 }
 
 func TestMaintenanceJobsReturnWithoutRunningWhenCanceled(t *testing.T) {

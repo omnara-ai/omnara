@@ -172,6 +172,6 @@ func archiveIdleAgents(
 				log.Error("delete idle agent machines", "machine_count", len(machines), "error", err)
 			}
 		}
-		return archived >= machinepool.DefaultReconcileBatchSize
+		return err == nil && archived > 0
 	}
 }
