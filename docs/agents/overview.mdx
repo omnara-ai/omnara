@@ -6,6 +6,7 @@ icon: "robot"
 
 import AgentsLaunch from '/snippets/agents-launch.mdx'
 import AgentsCancel from '/snippets/agents-cancel.mdx'
+import AgentsWait from '/snippets/agents-wait.mdx'
 import AgentsArchive from '/snippets/agents-archive.mdx'
 
 This page covers common agent lifecycle operations in the dashboard, with the [CLI](/quickstart), and over the API. CLI examples assume you have run `omnara login` and `omnara config select`; API examples use a [bearer token](/api/authentication):
@@ -95,6 +96,12 @@ The project's **Agents** page opens on **Profiles**; switch to the **Instances**
 <Info>
 For full schemas and playground see: [List agents](/api-reference/endpoints/agents/list-agents) and [Get agent](/api-reference/endpoints/agents/get-agent).
 </Info>
+
+## Wait for an agent
+
+`omnara agents wait {agent-id}` polls until the agent's `activity.state` is `idle`, then prints the same record as `omnara agents get`. Pass `--state` (repeatable) to wait for `running`, `waiting_on_interaction`, `idle`, or `archived`. `--timeout` is in seconds (default 300; `0` waits until interrupted).
+
+<AgentsWait />
 
 ## Stop current work
 
