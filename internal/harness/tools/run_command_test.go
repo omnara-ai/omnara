@@ -292,7 +292,7 @@ func TestRunCommandExecutionSpecGivesOnlyPTYStdin(t *testing.T) {
 	}
 }
 
-func TestProcessHasNoStdinTrustsOnlyDaemonsThatHonorIt(t *testing.T) {
+func TestProcessHasNoStdinTrustsOnlySupervisorsThatHonorIt(t *testing.T) {
 	noStdin := processcmd.ForShell("apt-get install foo", processcmd.ShellDefault, processcmd.IOModePipe)
 	noStdin.Shell.NoStdin = true
 	withStdin := processcmd.ForShell("python3", processcmd.ShellDefault, processcmd.IOModePipe)
@@ -301,15 +301,20 @@ func TestProcessHasNoStdinTrustsOnlyDaemonsThatHonorIt(t *testing.T) {
 		name          string
 		spec          processcmd.ExecutionSpec
 		daemonVersion string
+		accepted      bool
 		want          bool
 	}{
-		{name: "current daemon", spec: noStdin, daemonVersion: current, want: true},
-		{name: "no daemon connected", spec: noStdin, want: true},
-		{name: "old daemon keeps stdin", spec: noStdin, daemonVersion: "0.2.10"},
-		{name: "stdin requested", spec: withStdin, daemonVersion: current},
+		{name: "current supervisor", spec: noStdin, daemonVersion: current, accepted: true, want: true},
+		{name: "queued on current daemon", spec: noStdin, daemonVersion: current, want: true},
+		{name: "queued with no daemon connected", spec: noStdin, want: true},
+		{name: "released supervisor keeps stdin", spec: noStdin, daemonVersion: "0.2.14", accepted: true},
+		{name: "supervisor from before versions were recorded", spec: noStdin, accepted: true},
+		{name: "stdin requested", spec: withStdin, daemonVersion: current, accepted: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			execution := executionstore.ProcessExecution{Spec: test.spec, DaemonVersion: test.daemonVersion}
+			execution := executionstore.ProcessExecution{
+				Spec: test.spec, DaemonVersion: test.daemonVersion, Accepted: test.accepted,
+			}
 			if got := processHasNoStdin(execution); got != test.want {
 				t.Fatalf("processHasNoStdin = %t, want %t", got, test.want)
 			}

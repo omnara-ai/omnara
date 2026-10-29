@@ -469,34 +469,35 @@ type PersonalAccessToken struct {
 }
 
 type Process struct {
-	ID                    uuid.UUID
-	OrgID                 uuid.UUID
-	ProjectID             uuid.UUID
-	AgentID               uuid.UUID
-	ToolCallID            uuid.UUID
-	RuntimeLockID         uuid.UUID
-	AgentMachineBindingID uuid.UUID
-	MachineID             uuid.UUID
-	ExecutionGrantedAt    *time.Time
-	Cwd                   string
-	Env                   json.RawMessage
-	SecretEnv             json.RawMessage
-	TimeoutSeconds        int32
-	InitialWaitMs         int32
-	DefaultOutputCursor   int64
-	State                 string
-	StateReasonCode       *string
-	StateReasonMessage    string
-	SourceStartedAt       *time.Time
-	SourceEndedAt         *time.Time
-	StateChangedAt        time.Time
-	ExitCode              *int32
-	ExitSignal            string
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-	LastActivityAt        time.Time
-	ExecutionSpec         processcmd.ExecutionSpec
-	ExitNoticeDecided     bool
+	ID                      uuid.UUID
+	OrgID                   uuid.UUID
+	ProjectID               uuid.UUID
+	AgentID                 uuid.UUID
+	ToolCallID              uuid.UUID
+	RuntimeLockID           uuid.UUID
+	AgentMachineBindingID   uuid.UUID
+	MachineID               uuid.UUID
+	ExecutionGrantedAt      *time.Time
+	Cwd                     string
+	Env                     json.RawMessage
+	SecretEnv               json.RawMessage
+	TimeoutSeconds          int32
+	InitialWaitMs           int32
+	DefaultOutputCursor     int64
+	State                   string
+	StateReasonCode         *string
+	StateReasonMessage      string
+	SourceStartedAt         *time.Time
+	SourceEndedAt           *time.Time
+	StateChangedAt          time.Time
+	ExitCode                *int32
+	ExitSignal              string
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	LastActivityAt          time.Time
+	ExecutionSpec           processcmd.ExecutionSpec
+	ExitNoticeDecided       bool
+	SupervisorDaemonVersion *string
 }
 
 type ProcessAction struct {

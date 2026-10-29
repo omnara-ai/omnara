@@ -1,7 +1,10 @@
 -- +goose Up
 
 ALTER TABLE processes
-    ADD COLUMN exit_notice_decided boolean NOT NULL DEFAULT false;
+    ADD COLUMN exit_notice_decided boolean NOT NULL DEFAULT false,
+    ADD COLUMN supervisor_daemon_version text,
+    ADD CONSTRAINT processes_supervisor_daemon_version_check
+        CHECK (supervisor_daemon_version IS NULL OR supervisor_daemon_version <> '');
 
 ALTER TABLE process_actions
     DROP CONSTRAINT process_actions_action_kind_check,

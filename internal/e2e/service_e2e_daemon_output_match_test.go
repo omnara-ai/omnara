@@ -132,7 +132,8 @@ WHERE agent.project_id = $1 AND event.agent_id = $2 AND event.event_kind = 'mode
 SELECT coalesce(string_agg(process.state || ':actions=' || coalesce((
     SELECT string_agg(action.action_kind || '/' || action.state, '+')
     FROM process_actions action WHERE action.process_id = process.id), ''), ','), '')
-FROM processes process WHERE process.project_id = $1 AND process.agent_id = $2`, projectUUID, agentUUID).Scan(&processes)
+FROM processes process WHERE process.project_id = $1 AND process.agent_id = $2`,
+			projectUUID, agentUUID).Scan(&processes)
 		_ = env.db.QueryRow(ctx, `
 SELECT count(*)::text FROM agent_inputs
 WHERE project_id = $1 AND agent_id = $2 AND idempotency_scope = 'process_notification'`,

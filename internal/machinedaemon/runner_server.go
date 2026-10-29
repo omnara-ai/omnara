@@ -1302,7 +1302,8 @@ func (s *runnerServerState) applyLiveAction(
 		if err != nil {
 			return failedActionResult(daemonprotocol.ProcessActionReasonInvalidPayload, err)
 		}
-		if err := s.startOutputWatch(runner, payload); err != nil {
+		//nolint:contextcheck // The watch outlives the action that starts it.
+		if err := s.startOutputWatch(runner, action.ID, payload); err != nil {
 			if errors.Is(err, errOutputWatchClosed) {
 				return terminalProcessActionResult(action)
 			}

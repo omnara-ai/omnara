@@ -370,6 +370,7 @@ type ProcessOffer struct {
 }
 
 type OutputMatchResult struct {
+	WatchID string   `json:"watch_id"`
 	Pattern string   `json:"pattern"`
 	Lines   []string `json:"lines"`
 	Dropped int      `json:"dropped,omitempty"`

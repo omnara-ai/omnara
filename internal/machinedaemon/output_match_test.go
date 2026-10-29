@@ -1,12 +1,15 @@
 package machinedaemon
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +17,7 @@ func TestOutputMatcherBatchesCompleteMatchingLines(t *testing.T) {
 	t.Parallel()
 
 	clock := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
-	matcher := newOutputMatcher(regexp.MustCompile(`ERROR|listening`), 100, 3)
+	matcher := newOutputMatcher("pact_test", regexp.MustCompile(`ERROR|listening`), 100, 3)
 	matcher.now = func() time.Time { return clock }
 
 	matcher.scan(outputWindow{Output: "ok\nERROR one\nlisten", Start: 100, Next: 119})
@@ -42,7 +45,7 @@ func TestOutputMatcherBatchesCompleteMatchingLines(t *testing.T) {
 func TestOutputMatcherLimitsLinesAndFinishesPartialLine(t *testing.T) {
 	t.Parallel()
 
-	matcher := newOutputMatcher(regexp.MustCompile(`x`), 0, 0)
+	matcher := newOutputMatcher("pact_test", regexp.MustCompile(`x`), 0, 0)
 	var output strings.Builder
 	for i := range outputMatchMaxLines + 3 {
 		fmt.Fprintf(&output, "x%d\n", i)
@@ -68,8 +71,50 @@ func TestOutputMatcherLimitsLinesAndFinishesPartialLine(t *testing.T) {
 func TestOutputMatcherDropsPartialLineAfterRetentionGap(t *testing.T) {
 	t.Parallel()
 
-	matcher := newOutputMatcher(regexp.MustCompile(`ERROR`), 0, 0)
+	matcher := newOutputMatcher("pact_test", regexp.MustCompile(`ERROR`), 0, 0)
 	matcher.scan(outputWindow{Output: "ERROR cut", Next: 9})
 	matcher.scan(outputWindow{Output: "off\nERROR whole\n", Start: 20, Next: 36})
 	require.Equal(t, []string{"ERROR whole"}, matcher.pending)
+}
+
+func TestReplacingWatchDoesNotWaitForOldWatcherUnderApplyLocks(t *testing.T) {
+	t.Parallel()
+
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	state := &runnerServerState{runCtx: runCtx}
+	state.effectBoundaryMu.Lock()
+	state.reconciliationMu.RLock()
+	oldCtx, cancelOld := context.WithCancel(runCtx)
+	old := &outputWatch{cancel: cancelOld, done: make(chan struct{})}
+	var oldFlushed atomic.Bool
+	go func() {
+		defer close(old.done)
+		<-oldCtx.Done()
+		state.effectBoundaryMu.Lock()
+		oldFlushed.Store(true)
+		state.effectBoundaryMu.Unlock()
+	}()
+	state.watch = old
+
+	started := make(chan error, 1)
+	go func() {
+		started <- state.startOutputWatch(&localProcessRunner{}, "pact_new", processaction.WatchPayload{
+			Pattern: "ready", TimeoutSeconds: 60,
+		})
+	}()
+	select {
+	case err := <-started:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("replacing a watch waited for the old watcher while holding the apply locks")
+	}
+	replacement := state.watch
+	require.NotSame(t, old, replacement)
+	replacement.cancel()
+	state.reconciliationMu.RUnlock()
+	state.effectBoundaryMu.Unlock()
+	<-old.done
+	<-replacement.done
+	require.True(t, oldFlushed.Load())
 }

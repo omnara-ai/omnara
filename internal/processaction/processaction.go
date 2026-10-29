@@ -102,6 +102,12 @@ const (
 	WatchDaemonVersion   = OutputWindowDaemonVersion
 )
 
+const WatchReportIntervalSeconds = 10
+
+func MaxWatchReports(timeoutSeconds int) int {
+	return (timeoutSeconds+WatchReportIntervalSeconds-1)/WatchReportIntervalSeconds + 2
+}
+
 func DecodeWatchPayload(raw json.RawMessage) (WatchPayload, error) {
 	var payload WatchPayload
 	if err := decodeObject(raw, &payload); err != nil {

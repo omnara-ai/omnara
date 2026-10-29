@@ -17,12 +17,13 @@ import (
 const (
 	outputMatchPollInterval = 250 * time.Millisecond
 	outputMatchSettle       = 2 * time.Second
-	outputMatchMinInterval  = 10 * time.Second
+	outputMatchMinInterval  = processaction.WatchReportIntervalSeconds * time.Second
 	outputMatchMaxLines     = 20
 	outputMatchMaxLineRunes = 300
 )
 
 type outputMatcher struct {
+	watchID      string
 	pattern      *regexp.Regexp
 	now          func() time.Time
 	cursor       int64
@@ -34,8 +35,8 @@ type outputMatcher struct {
 	seq          int64
 }
 
-func newOutputMatcher(pattern *regexp.Regexp, cursor, seq int64) *outputMatcher {
-	return &outputMatcher{pattern: pattern, now: time.Now, cursor: cursor, seq: seq}
+func newOutputMatcher(watchID string, pattern *regexp.Regexp, cursor, seq int64) *outputMatcher {
+	return &outputMatcher{watchID: watchID, pattern: pattern, now: time.Now, cursor: cursor, seq: seq}
 }
 
 func (m *outputMatcher) scan(window outputWindow) {
@@ -94,6 +95,7 @@ func (m *outputMatcher) due(final bool) bool {
 func (m *outputMatcher) take() (int64, daemonprotocol.OutputMatchResult) {
 	m.seq++
 	result := daemonprotocol.OutputMatchResult{
+		WatchID: m.watchID,
 		Pattern: m.pattern.String(),
 		Lines:   m.pending,
 		Dropped: m.dropped,
@@ -111,6 +113,7 @@ type outputWatch struct {
 
 func (s *runnerServerState) startOutputWatch(
 	runner *localProcessRunner,
+	watchID string,
 	payload processaction.WatchPayload,
 ) error {
 	pattern, err := regexp.Compile(payload.Pattern)
@@ -122,7 +125,10 @@ func (s *runnerServerState) startOutputWatch(
 	if s.watchClosed {
 		return errOutputWatchClosed
 	}
-	s.stopOutputWatchLocked()
+	previous := s.watch
+	if previous != nil {
+		previous.cancel()
+	}
 	cursor := runner.output.End()
 	if payload.Cursor != nil {
 		cursor = *payload.Cursor
@@ -139,20 +145,18 @@ func (s *runnerServerState) startOutputWatch(
 	go func() {
 		defer close(watch.done)
 		defer cancel()
-		s.watchOutputMatches(ctx, parent, runner, pattern, cursor)
+		if previous != nil {
+			<-previous.done
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		s.watchOutputMatches(ctx, parent, runner, watchID, pattern, cursor)
 	}()
 	return nil
 }
 
 var errOutputWatchClosed = errors.New("the process has ended")
-
-func (s *runnerServerState) stopOutputWatchLocked() {
-	if s.watch != nil {
-		s.watch.cancel()
-		<-s.watch.done
-		s.watch = nil
-	}
-}
 
 func (s *runnerServerState) closeOutputWatch(ctx context.Context) {
 	s.watchMu.Lock()
@@ -171,6 +175,7 @@ func (s *runnerServerState) closeOutputWatch(ctx context.Context) {
 func (s *runnerServerState) watchOutputMatches(
 	ctx, parent context.Context,
 	runner *localProcessRunner,
+	watchID string,
 	pattern *regexp.Regexp,
 	cursor int64,
 ) {
@@ -182,7 +187,7 @@ func (s *runnerServerState) watchOutputMatches(
 	}); err != nil {
 		return
 	}
-	matcher := newOutputMatcher(pattern, cursor, seq)
+	matcher := newOutputMatcher(watchID, pattern, cursor, seq)
 	for {
 		terminal := runner.hasTerminalResult()
 		for {

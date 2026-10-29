@@ -12,10 +12,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
@@ -25,6 +27,7 @@ const (
 	processNotificationTailBytes   = 2 * 1024
 	processNotificationTailLines   = 20
 	processNotificationLabelChars  = 200
+	processWatchGraceSeconds       = 60
 )
 
 func (h *Handle) notifyProcessExit(
@@ -62,12 +65,33 @@ func (h *Handle) NotifyProcessOutputMatch(
 		if call.State != "completed" || storeutil.ValueOrZero(call.Outcome) != "succeeded" {
 			return struct{}{}, nil
 		}
+		watchID, err := publicid.Decode(publicid.KindProcessAction, matched.WatchID)
+		if err != nil {
+			return struct{}{}, fmt.Errorf("%w: output match watch id", storeerr.ErrInvalidProcessOutputMatch)
+		}
+		keyPrefix := fmt.Sprintf("match:%s:", watchID)
+		key := fmt.Sprintf("%s%d", keyPrefix, seq)
+		allowance, err := executiondb.New().ReadProcessWatchAllowance(ctx, h.unit.DB(),
+			executiondb.ReadProcessWatchAllowanceParams{
+				AgentID: h.route.AgentID, ProcessID: row.ID, ID: watchID, Pattern: matched.Pattern,
+				GraceSeconds: processWatchGraceSeconds, KeyPrefix: keyPrefix, Key: key,
+			})
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && !allowance.Eligible {
+			return struct{}{}, fmt.Errorf("%w: output match has no eligible watch", storeerr.ErrInvalidProcessOutputMatch)
+		}
+		if err != nil {
+			return struct{}{}, err
+		}
+		if !allowance.Replay && (!allowance.WithinTimeout ||
+			int(allowance.ReportCount) >= processaction.MaxWatchReports(int(allowance.TimeoutSeconds))) {
+			return struct{}{}, nil
+		}
 		processID, err := publicid.Encode(publicid.KindProcess, row.ID)
 		if err != nil {
 			return struct{}{}, err
 		}
-		return struct{}{}, h.sendProcessNotification(ctx, row, "output_match",
-			fmt.Sprintf("match:%s:%d", row.ID, seq), renderProcessOutputMatch(processID, row, matched))
+		return struct{}{}, h.sendProcessNotification(ctx, row, "output_match", key,
+			renderProcessOutputMatch(processID, row, matched))
 	})
 	return err
 }

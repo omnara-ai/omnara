@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
@@ -63,22 +64,28 @@ func (s *Store) NotifyProcessOutputMatch(ctx context.Context, input NotifyProces
 }
 
 func DecodeOutputMatchResult(raw json.RawMessage) (daemonprotocol.OutputMatchResult, error) {
+	invalid := func(reason string) (daemonprotocol.OutputMatchResult, error) {
+		return daemonprotocol.OutputMatchResult{}, fmt.Errorf("%w: %s", storeerr.ErrInvalidProcessOutputMatch, reason)
+	}
 	var matched daemonprotocol.OutputMatchResult
 	if err := json.Unmarshal(raw, &matched); err != nil {
-		return daemonprotocol.OutputMatchResult{}, fmt.Errorf("decode output match result: %w", err)
+		return invalid("decode output match result: " + err.Error())
+	}
+	if matched.WatchID == "" {
+		return invalid("output match result has no watch")
 	}
 	if matched.Pattern == "" || len(matched.Pattern) > processaction.MaxWatchPatternBytes {
-		return daemonprotocol.OutputMatchResult{}, errors.New("output match result has an invalid pattern")
+		return invalid("output match result has an invalid pattern")
 	}
 	if len(matched.Lines) == 0 && matched.Dropped == 0 {
-		return daemonprotocol.OutputMatchResult{}, errors.New("output match result has no matches")
+		return invalid("output match result has no matches")
 	}
 	if len(matched.Lines) > maxOutputMatchLines || matched.Dropped < 0 {
-		return daemonprotocol.OutputMatchResult{}, errors.New("output match result exceeds its line limit")
+		return invalid("output match result exceeds its line limit")
 	}
 	for _, line := range matched.Lines {
 		if len(line) > maxOutputMatchLineBytes {
-			return daemonprotocol.OutputMatchResult{}, errors.New("output match line exceeds its size limit")
+			return invalid("output match line exceeds its size limit")
 		}
 	}
 	return matched, nil

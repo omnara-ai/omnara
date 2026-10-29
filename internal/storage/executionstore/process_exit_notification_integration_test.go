@@ -5,14 +5,18 @@ package executionstore_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBackgroundProcessExitNotifiesAgent(t *testing.T) {
@@ -403,6 +407,7 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "background_output_match")
 	process := startBackgroundProcessForTest(t, ctx, fixture, "background_output_match")
+	watchID := startWatchForTest(t, ctx, fixture, process.ID, "background_output_match_watch", "listening|ERROR", 60)
 
 	match := executionstore.NotifyProcessOutputMatchInput{
 		Authority: fixture.authority(),
@@ -410,7 +415,7 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 		AgentID:   fixture.AgentID,
 		ID:        process.ID,
 		Sequence:  1,
-		Result:    json.RawMessage(`{"pattern":"listening|ERROR","lines":["listening on :3000"]}`),
+		Result:    outputMatchResultForTest(t, watchID, "listening|ERROR", `"lines":["listening on :3000"]`),
 	}
 	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
 		t.Fatalf("notify output match: %v", err)
@@ -419,7 +424,7 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 		t.Fatalf("replay output match: %v", err)
 	}
 	match.Sequence = 2
-	match.Result = json.RawMessage(`{"pattern":"listening|ERROR","lines":["ERROR boom"],"dropped":3}`)
+	match.Result = outputMatchResultForTest(t, watchID, "listening|ERROR", `"lines":["ERROR boom"],"dropped":3`)
 	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
 		t.Fatalf("notify second output match: %v", err)
 	}
@@ -434,4 +439,128 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 		!strings.Contains(texts[1], "3 more matching lines") {
 		t.Fatalf("output match notifications = %q", texts)
 	}
+}
+
+func TestProcessExecutionReportsTheAcceptingSupervisorVersion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "supervisor_version")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "supervisor_version")
+	_, err := fixture.Store.pool.Exec(ctx,
+		`UPDATE daemon_runtimes SET daemon_version = '9.9.9' WHERE id = $1`, fixture.RuntimeID)
+	require.NoError(t, err)
+
+	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "supervisor_version_watch", "watch_process")
+	var execution executionstore.ProcessExecution
+	errRead := errors.New("read only")
+	_, err = fixture.Store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    toolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, func(reader *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+		var found bool
+		var readErr error
+		execution, found, readErr = reader.ProcessExecution(ctx, process.ID)
+		require.NoError(t, readErr)
+		require.True(t, found)
+		return nil, errRead
+	})
+	require.ErrorIs(t, err, errRead)
+	require.True(t, execution.Accepted)
+	require.Equal(t, "1.0.0", execution.DaemonVersion)
+	require.False(t, execution.SupervisorSupports("9.9.9"))
+}
+
+func TestOutputMatchesNeedAnEligibleWatch(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "output_match_allowance")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "output_match_allowance")
+	notify := func(watchID uuid.UUID, pattern string, seq int64) error {
+		return fixture.Store.Execution().NotifyProcessOutputMatch(ctx, executionstore.NotifyProcessOutputMatchInput{
+			Authority: fixture.authority(),
+			ProjectID: testProjectID,
+			AgentID:   fixture.AgentID,
+			ID:        process.ID,
+			Sequence:  seq,
+			Result:    outputMatchResultForTest(t, watchID, pattern, `"lines":["ready"]`),
+		})
+	}
+
+	require.ErrorIs(t, notify(uuid.New(), "ready", 1), storeerr.ErrInvalidProcessOutputMatch)
+	watchID := startWatchForTest(t, ctx, fixture, process.ID, "output_match_allowance_watch", "ready", 10)
+	require.ErrorIs(t, notify(watchID, "other", 1), storeerr.ErrInvalidProcessOutputMatch)
+
+	allowance := processaction.MaxWatchReports(10)
+	for seq := int64(1); seq <= int64(allowance)+2; seq++ {
+		require.NoError(t, notify(watchID, "ready", seq))
+	}
+	require.NoError(t, notify(watchID, "ready", 1), "a replay within the allowance is accepted")
+	require.Len(t, processNotificationTexts(t, ctx, fixture), allowance)
+
+	other := startBackgroundProcessForTest(t, ctx, fixture, "output_match_expired")
+	expiredID := startWatchForTest(t, ctx, fixture, other.ID, "output_match_expired_watch", "ready", 10)
+	_, err := fixture.Store.pool.Exec(ctx,
+		`UPDATE process_actions SET updated_at = statement_timestamp() - interval '2 minutes' WHERE id = $1`, expiredID)
+	require.NoError(t, err)
+	expired := executionstore.NotifyProcessOutputMatchInput{
+		Authority: fixture.authority(),
+		ProjectID: testProjectID,
+		AgentID:   fixture.AgentID,
+		ID:        other.ID,
+		Sequence:  int64(allowance) + 10,
+		Result:    outputMatchResultForTest(t, expiredID, "ready", `"lines":["ready"]`),
+	}
+	require.NoError(t, fixture.Store.Execution().NotifyProcessOutputMatch(ctx, expired))
+	require.Len(t, processNotificationTexts(t, ctx, fixture), allowance, "an expired watch sends nothing")
+}
+
+func startWatchForTest(
+	t *testing.T,
+	ctx context.Context,
+	fixture processDaemonFixture,
+	processID uuid.UUID,
+	name, pattern string,
+	timeoutSeconds int,
+) uuid.UUID {
+	t.Helper()
+	toolCallID := createToolCallForProcessTest(t, ctx, fixture, name, "watch_process")
+	payload, err := json.Marshal(processaction.WatchPayload{Pattern: pattern, TimeoutSeconds: timeoutSeconds})
+	require.NoError(t, err)
+	action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    toolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, executionstore.CreateProcessActionInput{
+		ProcessID:  processID,
+		ActionKind: executionstore.ProcessActionKindWatch,
+		Payload:    payload,
+	})
+	require.NoError(t, err)
+	_, found, err := acceptDaemonProcessActionForTest(
+		ctx, fixture.Store, fixture.OrgID, fixture.MachineID, fixture.RuntimeID, processID, uuid.Nil,
+	)
+	require.NoError(t, err)
+	require.True(t, found)
+	_, err = fixture.Store.Execution().ApplyDaemonProcessAction(ctx, executionstore.CompleteDaemonProcessActionInput{
+		ProjectID: testProjectID,
+		AgentID:   fixture.AgentID,
+		ProcessID: processID,
+		ID:        action.ID,
+		Authority: fixture.authority(),
+		Result:    json.RawMessage(`{}`),
+	})
+	require.NoError(t, err)
+	return action.ID
+}
+
+func outputMatchResultForTest(t *testing.T, watchID uuid.UUID, pattern, fields string) json.RawMessage {
+	t.Helper()
+	publicWatchID, err := publicid.Encode(publicid.KindProcessAction, watchID)
+	require.NoError(t, err)
+	quotedPattern, err := json.Marshal(pattern)
+	require.NoError(t, err)
+	return json.RawMessage(`{"watch_id":"` + publicWatchID + `","pattern":` + string(quotedPattern) + `,` + fields + `}`)
 }

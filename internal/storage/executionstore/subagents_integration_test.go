@@ -1299,7 +1299,8 @@ UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = fal
 	if err != nil {
 		t.Fatalf("get parent activity: %v", err)
 	}
-	if activity.State != executionstore.SubagentStateIdle || activity.WorkingSubagents.Count != 0 || activity.RunningProcesses.Count != 0 {
+	if activity.State != executionstore.SubagentStateIdle ||
+		activity.WorkingSubagents.Count != 0 || activity.RunningProcesses.Count != 0 {
 		t.Fatalf("settled parent activity = %+v, want idle", activity)
 	}
 

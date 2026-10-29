@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -261,8 +260,7 @@ func processHasNoStdin(execution executionstore.ProcessExecution) bool {
 	if execution.Spec.Shell == nil || !execution.Spec.Shell.NoStdin {
 		return false
 	}
-	return execution.DaemonVersion == "" ||
-		daemonversion.AtLeast(execution.DaemonVersion, processaction.OutputWindowDaemonVersion)
+	return execution.SupervisorSupports(processaction.OutputWindowDaemonVersion)
 }
 
 func validateRunCommandInput(input json.RawMessage) error {
@@ -327,8 +325,7 @@ func watchProcess(
 		if err != nil {
 			return nil, err
 		}
-		if found && execution.DaemonVersion != "" &&
-			!daemonversion.AtLeast(execution.DaemonVersion, processaction.WatchDaemonVersion) {
+		if found && !execution.SupervisorSupports(processaction.WatchDaemonVersion) {
 			return failProcessTransaction(
 				errors.New("daemon does not support watch_process"),
 				processToolErrorActionUnavailable,

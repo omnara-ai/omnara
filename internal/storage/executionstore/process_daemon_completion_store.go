@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/daemonversion"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
@@ -384,6 +385,14 @@ func (s *Store) GetProcessByToolCall(
 type ProcessExecution struct {
 	Spec          processcmd.ExecutionSpec
 	DaemonVersion string
+	Accepted      bool
+}
+
+func (e ProcessExecution) SupervisorSupports(minimum string) bool {
+	if e.DaemonVersion == "" {
+		return !e.Accepted
+	}
+	return daemonversion.AtLeast(e.DaemonVersion, minimum)
 }
 
 func (r *ToolCallReader) ProcessExecution(
@@ -402,7 +411,7 @@ func (r *ToolCallReader) ProcessExecution(
 	if err != nil {
 		return ProcessExecution{}, false, fmt.Errorf("get process execution spec: %w", err)
 	}
-	return ProcessExecution{Spec: row.ExecutionSpec, DaemonVersion: row.DaemonVersion}, true, nil
+	return ProcessExecution{Spec: row.ExecutionSpec, DaemonVersion: row.DaemonVersion, Accepted: row.Accepted}, true, nil
 }
 
 func (r *ToolCallReader) ListActiveProcesses(

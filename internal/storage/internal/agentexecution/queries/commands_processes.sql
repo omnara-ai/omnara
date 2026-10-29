@@ -16,3 +16,15 @@ SELECT a.id,a.process_id,a.tool_call_id,a.action_kind,a.seq,a.payload,a.state,a.
  EXISTS(SELECT 1 FROM process_actions earlier WHERE earlier.agent_id=a.agent_id AND earlier.process_id=a.process_id
  AND earlier.seq<a.seq AND earlier.state IN ('queued','accepted')) AS earlier_pending
 FROM process_actions a WHERE a.agent_id=sqlc.arg(agent_id) AND a.id=sqlc.arg(id) FOR UPDATE;
+
+-- name: ReadProcessWatchAllowance :one
+SELECT coalesce(a.action_kind='watch' AND a.state IN ('accepted','applied')
+ AND a.payload->>'pattern'=sqlc.arg(pattern)::text AND a.payload ? 'timeout_seconds',false)::boolean AS eligible,
+ coalesce(a.updated_at+make_interval(secs=>(a.payload->>'timeout_seconds')::int+sqlc.arg(grace_seconds)::int)
+ >statement_timestamp(),false)::boolean AS within_timeout,
+ coalesce((a.payload->>'timeout_seconds')::int,0)::integer AS timeout_seconds,
+ (SELECT count(*) FROM agent_inputs i WHERE i.agent_id=a.agent_id AND i.idempotency_scope='process_notification'
+ AND starts_with(i.input_idempotency_key,sqlc.arg(key_prefix)::text))::integer AS report_count,
+ EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.agent_id AND i.idempotency_scope='process_notification'
+ AND i.input_idempotency_key=sqlc.arg(key)::text) AS replay
+FROM process_actions a WHERE a.agent_id=sqlc.arg(agent_id) AND a.process_id=sqlc.arg(process_id) AND a.id=sqlc.arg(id);

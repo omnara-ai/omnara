@@ -138,6 +138,7 @@ func TestProcessNotificationsPreserveInteractionSelection(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
 	process := startBackgroundProcessForTest(t, f.ctx, f.process, "interaction_selection_process")
+	watchID := startWatchForTest(t, f.ctx, f.process, process.ID, "interaction_selection_watch", "listening", 60)
 	before := f.selectOrigin(t, f.a.ID)
 	require.True(t, before.AutoSelect)
 	require.Equal(t, f.a.ID, before.IntegrationTargetID)
@@ -148,7 +149,7 @@ func TestProcessNotificationsPreserveInteractionSelection(t *testing.T) {
 		AgentID:   f.process.AgentID,
 		ID:        process.ID,
 		Sequence:  1,
-		Result:    json.RawMessage(`{"pattern":"listening","lines":["listening on :3000"]}`),
+		Result:    outputMatchResultForTest(t, watchID, "listening", `"lines":["listening on :3000"]`),
 	}))
 	exitCode := 0
 	_, err := f.store.Execution().CompleteDaemonProcess(f.ctx, executionstore.CompleteDaemonProcessInput{

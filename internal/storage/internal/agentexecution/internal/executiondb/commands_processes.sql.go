@@ -131,3 +131,55 @@ func (q *Queries) ReadExecutionProcessOwner(ctx context.Context, db DBTX, arg Re
 	)
 	return i, err
 }
+
+const readProcessWatchAllowance = `-- name: ReadProcessWatchAllowance :one
+SELECT coalesce(a.action_kind='watch' AND a.state IN ('accepted','applied')
+ AND a.payload->>'pattern'=$1::text AND a.payload ? 'timeout_seconds',false)::boolean AS eligible,
+ coalesce(a.updated_at+make_interval(secs=>(a.payload->>'timeout_seconds')::int+$2::int)
+ >statement_timestamp(),false)::boolean AS within_timeout,
+ coalesce((a.payload->>'timeout_seconds')::int,0)::integer AS timeout_seconds,
+ (SELECT count(*) FROM agent_inputs i WHERE i.agent_id=a.agent_id AND i.idempotency_scope='process_notification'
+ AND starts_with(i.input_idempotency_key,$3::text))::integer AS report_count,
+ EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.agent_id AND i.idempotency_scope='process_notification'
+ AND i.input_idempotency_key=$4::text) AS replay
+FROM process_actions a WHERE a.agent_id=$5 AND a.process_id=$6 AND a.id=$7
+`
+
+type ReadProcessWatchAllowanceParams struct {
+	Pattern      string
+	GraceSeconds int32
+	KeyPrefix    string
+	Key          string
+	AgentID      uuid.UUID
+	ProcessID    uuid.UUID
+	ID           uuid.UUID
+}
+
+type ReadProcessWatchAllowanceRow struct {
+	Eligible       bool
+	WithinTimeout  bool
+	TimeoutSeconds int32
+	ReportCount    int32
+	Replay         bool
+}
+
+func (q *Queries) ReadProcessWatchAllowance(ctx context.Context, db DBTX, arg ReadProcessWatchAllowanceParams) (ReadProcessWatchAllowanceRow, error) {
+	row := db.QueryRow(ctx, readProcessWatchAllowance,
+		arg.Pattern,
+		arg.GraceSeconds,
+		arg.KeyPrefix,
+		arg.Key,
+		arg.AgentID,
+		arg.ProcessID,
+		arg.ID,
+	)
+	var i ReadProcessWatchAllowanceRow
+	err := row.Scan(
+		&i.Eligible,
+		&i.WithinTimeout,
+		&i.TimeoutSeconds,
+		&i.ReportCount,
+		&i.Replay,
+	)
+	return i, err
+}
