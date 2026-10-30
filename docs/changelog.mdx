@@ -6,6 +6,63 @@ mode: "center"
 ---
 
 <Update
+  label="October 29, 2026"
+  rss={{
+    title: "E2B sandboxes, scoped Git access, and four new example agents",
+    description: "E2B and Superserve sandboxes, scoped Git credentials, four new example agents, configs at launch time, webhooks for projects and profiles, dashboard updates, and fixes."
+  }}
+>
+
+## E2B sandboxes, scoped Git access, and four new example agents
+
+E2B and Superserve join the sandbox providers, Git credentials can be limited to the repositories you choose, and four new example agents are ready to deploy.
+
+### New example agents
+
+- **Email agent**: gets its own email address through Primitive, and each email thread becomes its own conversation.
+- **Browser agent**: signs in to web apps with credentials stored as secrets and works in a real browser for hours.
+- **PR review agent**: reviews pull requests through the GitHub integration, with no GitHub token needed.
+- **SEO audit agent**: audits a page for SEO, AEO, and GEO and delivers a graded PDF report.
+
+See [Examples](/examples/overview).
+
+### E2B and Superserve sandboxes
+
+Bring your E2B or Superserve account as a sandbox provider. Machines start from a template you choose, and Superserve's default `superserve/omnara` template includes Omnara's default machine environment. The pool form now checks your credentials automatically before you save. See [E2B](/machines/providers/e2b) and [Superserve](/machines/providers/superserve).
+
+### Scoped Git access
+
+Choose an agent's Git credentials in the builder, limit them to specific repositories, or make them read-only. Credentials can push only when the integration has **Let agents push code** turned on, which also needs Contents: Read & write on the GitHub App. See [Git credentials](/integrations/github#git-credentials).
+
+### Launch with any config
+
+Pass a `config` or `config_source` when launching an agent, with or without a profile, and write configs in JSON as well as YAML. Agents launched from Slack, Discord, or GitHub can now have their configs edited like any other agent. See [Launch an agent](/agents/overview#launch-an-agent).
+
+### Webhooks for a project, profile, or agent
+
+Event webhooks are now managed on their own instead of inside agent configs. Attach one to a project, to a profile (covering its current and future agents), or to a single agent. Manage profile and agent webhooks from the dashboard, and project webhooks through the API. See [Event webhooks](/events/webhooks).
+
+### Dashboard updates
+
+New onboarding starts from a prompt describing the agent you want and shows a diagram of the system it builds. The Models, Machines, and Skills pages are redesigned, and a new org-wide Memory page lists stores across projects.
+
+### Agent improvements
+
+- Agents can wait up to five minutes for process output in one call instead of ten seconds, so long jobs need far fewer polls. Connected machines need `omnarad` 0.2.6 or later.
+- Long conversations compact based on the provider's token counts, and agents recover when a provider reports the context is too long.
+- Omnara-managed machines now run Ubuntu 26.04 with Python 3.14, PostgreSQL 18, and Redis 8. Start PostgreSQL with `pg_createcluster 18 main --start`. See [Default machine environment](/machines/pools#default-machine-environment).
+
+### Fixes and notes
+
+- API requests are rate limited per account, at 100,000 reads and 50,000 writes per hour. Requests over the limit return `429` with `Retry-After`. See [Rate limits](/api/overview#rate-limits).
+- `read_process` pages output by byte offset, and list tools use `offset` and `limit` instead of cursors.
+- `GET /agents/{agentID}` returns the agent's activity, tool-call events include interaction updates, and org API keys can grant models to projects.
+- Model requests to OpenAI, OpenRouter, and Anthropic include a hashed per-org safety identifier. Self-hosted deployments send one only when `OMNARA_SAFETY_IDENTIFIER_KEY` is set.
+- NUL bytes in command output no longer hang tool calls, tool results are no longer duplicated when sent to the model, machine errors tell agents what to do next, reasoning effort works for models on custom providers, and a bot mentioned before its integration is set up now replies.
+
+</Update>
+
+<Update
   label="October 7, 2026"
   rss={{
     title: "Integrations, memory stores, and a redesigned dashboard",
