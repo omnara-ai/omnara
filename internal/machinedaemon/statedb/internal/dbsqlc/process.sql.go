@@ -9,6 +9,23 @@ import (
 	"context"
 )
 
+const advanceOutputMatchSequence = `-- name: AdvanceOutputMatchSequence :exec
+UPDATE processes
+SET last_output_match_seq = ?1
+WHERE process_id = ?2
+  AND last_output_match_seq < ?1
+`
+
+type AdvanceOutputMatchSequenceParams struct {
+	LastOutputMatchSeq int64
+	ProcessID          string
+}
+
+func (q *Queries) AdvanceOutputMatchSequence(ctx context.Context, arg AdvanceOutputMatchSequenceParams) error {
+	_, err := q.db.ExecContext(ctx, advanceOutputMatchSequence, arg.LastOutputMatchSeq, arg.ProcessID)
+	return err
+}
+
 const advanceReleasedActionSequence = `-- name: AdvanceReleasedActionSequence :exec
 UPDATE processes
 SET resolved_action_seq = ?1
@@ -217,7 +234,8 @@ SELECT process_id,
        containment_empty,
        action_admission_closed,
        local_closed,
-       server_released
+       server_released,
+       last_output_match_seq
 FROM processes
 WHERE process_id = ?1
 `
@@ -242,6 +260,7 @@ func (q *Queries) GetProcess(ctx context.Context, arg GetProcessParams) (Process
 		&i.ActionAdmissionClosed,
 		&i.LocalClosed,
 		&i.ServerReleased,
+		&i.LastOutputMatchSeq,
 	)
 	return i, err
 }
@@ -306,7 +325,8 @@ SELECT process_id,
        containment_empty,
        action_admission_closed,
        local_closed,
-       server_released
+       server_released,
+       last_output_match_seq
 FROM processes
 ORDER BY process_id
 `
@@ -333,6 +353,7 @@ func (q *Queries) ListProcesses(ctx context.Context) ([]Process, error) {
 			&i.ActionAdmissionClosed,
 			&i.LocalClosed,
 			&i.ServerReleased,
+			&i.LastOutputMatchSeq,
 		); err != nil {
 			return nil, err
 		}

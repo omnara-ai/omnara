@@ -87,6 +87,7 @@ FROM frozen_reports report
 LEFT JOIN process_actions action
   ON action.action_id = report.action_id
 WHERE report.state IN ('pending', 'rejected')
+  AND NOT (report.report_kind = 'process_output_match' AND report.state = 'rejected')
   AND (
     report.report_kind <> 'process_terminal'
     OR NOT EXISTS (
@@ -121,7 +122,8 @@ ORDER BY report.process_id,
          END,
          coalesce(action.seq, 0),
          report.report_seq,
-         report.report_id;
+         report.report_id
+LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: ListFrozenReportsForProcess :many
 SELECT report.report_id,
@@ -175,8 +177,7 @@ SET state = 'rejected',
 WHERE report_id = sqlc.arg(report_id)
   AND state = 'pending';
 
--- name: GetLastOutputMatchReportSeq :one
-SELECT CAST(coalesce(max(report_seq), 0) AS INTEGER) AS last_seq
-FROM frozen_reports
-WHERE process_id = sqlc.arg(process_id)
+-- name: DeleteOutputMatchReport :exec
+DELETE FROM frozen_reports
+WHERE report_id = sqlc.arg(report_id)
   AND report_kind = 'process_output_match';

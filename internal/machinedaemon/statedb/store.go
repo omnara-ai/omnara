@@ -71,6 +71,7 @@ type Process struct {
 	ActionAdmissionClosed bool
 	LocalClosed           bool
 	ServerReleased        bool
+	LastOutputMatchSeq    int64
 }
 
 type Action struct {

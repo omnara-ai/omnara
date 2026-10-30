@@ -64,7 +64,7 @@ func (s *Supervisor) FreezeOutputMatchReport(
 	ctx context.Context,
 	report Report,
 ) (Report, error) {
-	if report.Kind != ReportProcessOutputMatch ||
+	if report.Kind != ReportProcessOutputMatch || report.Seq <= 0 ||
 		report.ProcessID != s.processID || report.ActionID != "" {
 		return Report{}, errors.New("invalid process output-match report")
 	}
@@ -89,9 +89,29 @@ func (s *Supervisor) FreezeOutputMatchReport(
 			s.processID,
 		)
 	}
+	if report.Seq <= process.LastOutputMatchSeq {
+		_, found, err := reportBySlotTx(ctx, qtx, report.Kind, report.ProcessID, "", report.Seq)
+		if err != nil {
+			return Report{}, err
+		}
+		if !found {
+			// The server acknowledged this report and it was deleted.
+			report.State = ReportAcknowledged
+			return report, nil
+		}
+	}
 	frozen, err := freezeReportTx(ctx, qtx, report)
 	if err != nil {
 		return Report{}, err
+	}
+	if err := qtx.AdvanceOutputMatchSequence(
+		ctx,
+		dbsqlc.AdvanceOutputMatchSequenceParams{
+			LastOutputMatchSeq: report.Seq,
+			ProcessID:          s.processID,
+		},
+	); err != nil {
+		return Report{}, dbError("advance output-match sequence", err)
 	}
 	if err := commitWrite(tx); err != nil {
 		return Report{}, err
@@ -100,14 +120,14 @@ func (s *Supervisor) FreezeOutputMatchReport(
 }
 
 func (s *Supervisor) LastOutputMatchSeq(ctx context.Context) (int64, error) {
-	seq, err := s.store.q.GetLastOutputMatchReportSeq(
-		ctx,
-		dbsqlc.GetLastOutputMatchReportSeqParams{ProcessID: s.processID},
-	)
+	process, found, err := processTx(ctx, s.store.q, s.processID)
 	if err != nil {
-		return 0, dbError("read last output-match report", err)
+		return 0, err
 	}
-	return seq, nil
+	if !found {
+		return 0, fmt.Errorf("%w: %s", ErrSupervisorIdentityMismatch, s.processID)
+	}
+	return process.LastOutputMatchSeq, nil
 }
 
 func (s *Supervisor) FreezeTerminalReport(
@@ -434,8 +454,15 @@ func (s *Store) ReportBySlot(
 	return reportFromSQLC(row), true, nil
 }
 
-func (s *Store) DeliveryCandidates(ctx context.Context) ([]Report, error) {
-	rows, err := s.q.ListFrozenReportDeliveryCandidates(ctx)
+// DeliveryCandidates lists one page of undelivered reports in delivery order.
+func (s *Store) DeliveryCandidates(ctx context.Context, offset, limit int) ([]Report, error) {
+	rows, err := s.q.ListFrozenReportDeliveryCandidates(
+		ctx,
+		dbsqlc.ListFrozenReportDeliveryCandidatesParams{
+			PageOffset: int64(offset),
+			PageLimit:  int64(limit),
+		},
+	)
 	if err != nil {
 		return nil, dbError("list daemon report delivery candidates", err)
 	}
@@ -545,7 +572,15 @@ func (s *Store) AcknowledgeReport(
 		); err != nil {
 			return dbError("compact acknowledged process action", err)
 		}
-	case ReportProcessStarted, ReportProcessTerminal, ReportProcessOutputMatch:
+	case ReportProcessOutputMatch:
+		// The sequence lives on the process, so the delivered body can go.
+		if err := qtx.DeleteOutputMatchReport(
+			ctx,
+			dbsqlc.DeleteOutputMatchReportParams{ReportID: reportID},
+		); err != nil {
+			return dbError("compact acknowledged output-match report", err)
+		}
+	case ReportProcessStarted, ReportProcessTerminal:
 		if report.State == ReportPending || report.State == ReportRejected {
 			if err := qtx.AcknowledgeProcessReport(
 				ctx,

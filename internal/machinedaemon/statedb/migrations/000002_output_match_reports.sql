@@ -95,3 +95,8 @@ CREATE UNIQUE INDEX frozen_action_report_slot_idx
 
 CREATE INDEX frozen_reports_pending_idx
     ON frozen_reports(state, process_id, report_kind);
+
+-- Acknowledged match reports are deleted, so the sequence lives on the process.
+ALTER TABLE processes
+    ADD COLUMN last_output_match_seq INTEGER NOT NULL DEFAULT 0
+    CHECK (last_output_match_seq >= 0);

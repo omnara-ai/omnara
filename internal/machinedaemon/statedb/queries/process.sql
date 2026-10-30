@@ -92,7 +92,8 @@ SELECT process_id,
        containment_empty,
        action_admission_closed,
        local_closed,
-       server_released
+       server_released,
+       last_output_match_seq
 FROM processes
 WHERE process_id = sqlc.arg(process_id);
 
@@ -108,7 +109,8 @@ SELECT process_id,
        containment_empty,
        action_admission_closed,
        local_closed,
-       server_released
+       server_released,
+       last_output_match_seq
 FROM processes
 ORDER BY process_id;
 
@@ -169,6 +171,12 @@ WHERE process_id = sqlc.arg(process_id)
 UPDATE processes
 SET resolved_action_seq = sqlc.arg(resolved_action_seq)
 WHERE process_id = sqlc.arg(process_id);
+
+-- name: AdvanceOutputMatchSequence :exec
+UPDATE processes
+SET last_output_match_seq = sqlc.arg(last_output_match_seq)
+WHERE process_id = sqlc.arg(process_id)
+  AND last_output_match_seq < sqlc.arg(last_output_match_seq);
 
 -- name: AdvanceReleasedActionSequence :exec
 UPDATE processes

@@ -33,6 +33,7 @@ type Process struct {
 	ActionAdmissionClosed int64
 	LocalClosed           int64
 	ServerReleased        int64
+	LastOutputMatchSeq    int64
 }
 
 type ProcessAction struct {

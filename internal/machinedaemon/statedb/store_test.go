@@ -48,7 +48,7 @@ func TestEmptyCollectionsAreNil(t *testing.T) {
 		t.Fatalf("actions = %#v, want nil", actions)
 	}
 
-	reports, err := store.DeliveryCandidates(ctx)
+	reports, err := store.DeliveryCandidates(ctx, 0, 1000)
 	require.NoError(t, err)
 	if reports != nil {
 		t.Fatalf("delivery candidates = %#v, want nil", reports)
@@ -1253,7 +1253,7 @@ func TestDeliveryCandidatesMergeRejectedAndPendingInLifecycleOrder(
 	)
 	require.NoError(t, err)
 
-	candidates, err := store.DeliveryCandidates(ctx)
+	candidates, err := store.DeliveryCandidates(ctx, 0, 1000)
 	require.NoError(t, err)
 	if len(candidates) != 2 ||
 		candidates[0].ID != started.ID ||
@@ -1887,7 +1887,7 @@ func TestOutputMatchReportsAreNumberedAndPrecedeTerminal(t *testing.T) {
 		ctx, processReport(process.ProcessID, ReportProcessTerminal, "process_finished", nil),
 	)
 	require.NoError(t, err)
-	candidates, err := store.DeliveryCandidates(ctx)
+	candidates, err := store.DeliveryCandidates(ctx, 0, 1000)
 	require.NoError(t, err)
 	var order []string
 	for _, report := range candidates {
@@ -1897,13 +1897,52 @@ func TestOutputMatchReportsAreNumberedAndPrecedeTerminal(t *testing.T) {
 
 	require.NoError(t, store.AcknowledgeReport(ctx, first.ID))
 	require.NoError(t, store.RejectReport(ctx, second.ID, "test_reject", "rejected"))
-	candidates, err = store.DeliveryCandidates(ctx)
+	candidates, err = store.DeliveryCandidates(ctx, 0, 1000)
 	require.NoError(t, err)
 	var ids []string
 	for _, report := range candidates {
 		ids = append(ids, report.ID)
 	}
 	require.Contains(t, ids, terminal.ID, "a rejected match must not hold back the terminal report")
+	require.NotContains(t, ids, second.ID, "a rejected match is never resent, so it is not loaded")
+	page, err := store.DeliveryCandidates(ctx, 1, 1)
+	require.NoError(t, err)
+	require.Equal(t, candidates[1:2], page)
+}
+
+func TestAcknowledgedOutputMatchReportsAreDeletedAndKeepTheirSequence(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _, process, supervisor := runningTestProcess(t)
+	first, err := supervisor.FreezeOutputMatchReport(ctx, outputMatchReport(process.ProcessID, 1, "error: one"))
+	require.NoError(t, err)
+	require.NoError(t, store.AcknowledgeReport(ctx, first.ID))
+
+	var remaining int
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM frozen_reports WHERE report_kind = 'process_output_match'`,
+	).Scan(&remaining))
+	require.Zero(t, remaining, "an acknowledged match report is deleted")
+	last, err := supervisor.LastOutputMatchSeq(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), last, "deleting a report keeps its sequence")
+
+	replayed, err := supervisor.FreezeOutputMatchReport(ctx, outputMatchReport(process.ProcessID, 1, "error: one"))
+	require.NoError(t, err)
+	require.Equal(t, ReportAcknowledged, replayed.State)
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM frozen_reports WHERE report_kind = 'process_output_match'`,
+	).Scan(&remaining))
+	require.Zero(t, remaining, "a replayed freeze of a deleted report does not send it again")
+
+	second, err := supervisor.FreezeOutputMatchReport(ctx, outputMatchReport(process.ProcessID, 2, "error: two"))
+	require.NoError(t, err)
+	require.Equal(t, ReportPending, second.State)
+	last, err = supervisor.LastOutputMatchSeq(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), last)
+	require.NoError(t, store.Audit(ctx))
 }
 
 func outputMatchReport(processID string, seq int64, line string) Report {

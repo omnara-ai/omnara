@@ -28,6 +28,21 @@ func (q *Queries) AcknowledgeProcessReport(ctx context.Context, arg AcknowledgeP
 	return err
 }
 
+const deleteOutputMatchReport = `-- name: DeleteOutputMatchReport :exec
+DELETE FROM frozen_reports
+WHERE report_id = ?1
+  AND report_kind = 'process_output_match'
+`
+
+type DeleteOutputMatchReportParams struct {
+	ReportID string
+}
+
+func (q *Queries) DeleteOutputMatchReport(ctx context.Context, arg DeleteOutputMatchReportParams) error {
+	_, err := q.db.ExecContext(ctx, deleteOutputMatchReport, arg.ReportID)
+	return err
+}
+
 const getFrozenActionReportBySlot = `-- name: GetFrozenActionReportBySlot :one
 SELECT report_id,
        process_id,
@@ -177,24 +192,6 @@ func (q *Queries) GetFrozenReportByID(ctx context.Context, arg GetFrozenReportBy
 	return i, err
 }
 
-const getLastOutputMatchReportSeq = `-- name: GetLastOutputMatchReportSeq :one
-SELECT CAST(coalesce(max(report_seq), 0) AS INTEGER) AS last_seq
-FROM frozen_reports
-WHERE process_id = ?1
-  AND report_kind = 'process_output_match'
-`
-
-type GetLastOutputMatchReportSeqParams struct {
-	ProcessID string
-}
-
-func (q *Queries) GetLastOutputMatchReportSeq(ctx context.Context, arg GetLastOutputMatchReportSeqParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getLastOutputMatchReportSeq, arg.ProcessID)
-	var last_seq int64
-	err := row.Scan(&last_seq)
-	return last_seq, err
-}
-
 const insertFrozenReport = `-- name: InsertFrozenReport :exec
 INSERT INTO frozen_reports(
     report_id,
@@ -249,6 +246,7 @@ FROM frozen_reports report
 LEFT JOIN process_actions action
   ON action.action_id = report.action_id
 WHERE report.state IN ('pending', 'rejected')
+  AND NOT (report.report_kind = 'process_output_match' AND report.state = 'rejected')
   AND (
     report.report_kind <> 'process_terminal'
     OR NOT EXISTS (
@@ -284,10 +282,16 @@ ORDER BY report.process_id,
          coalesce(action.seq, 0),
          report.report_seq,
          report.report_id
+LIMIT ?2 OFFSET ?1
 `
 
-func (q *Queries) ListFrozenReportDeliveryCandidates(ctx context.Context) ([]FrozenReport, error) {
-	rows, err := q.db.QueryContext(ctx, listFrozenReportDeliveryCandidates)
+type ListFrozenReportDeliveryCandidatesParams struct {
+	PageOffset int64
+	PageLimit  int64
+}
+
+func (q *Queries) ListFrozenReportDeliveryCandidates(ctx context.Context, arg ListFrozenReportDeliveryCandidatesParams) ([]FrozenReport, error) {
+	rows, err := q.db.QueryContext(ctx, listFrozenReportDeliveryCandidates, arg.PageOffset, arg.PageLimit)
 	if err != nil {
 		return nil, err
 	}
