@@ -37,7 +37,7 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		http.Error(w, "interaction handler unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	raw, ok := readIntegrationCallbackBody(w, r, discord.InteractionMaxBytes)
+	raw, ok := readIntegrationCallbackBody(w, r)
 	if !ok {
 		return
 	}

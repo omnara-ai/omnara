@@ -1410,7 +1410,7 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 	server := mustNewUnitServer(t)
 	mux := http.NewServeMux()
 	server.registerRoutes(mux)
-	handler := maxBody(requestBodyLimit)(mux)
+	handler := maxBody(requestBodyLimit, uploadBudget)(mux)
 	orgPath := testPublicID(t, publicid.KindOrganization, httpTestOrgID)
 	projectPath := testPublicID(t, publicid.KindProject, httpTestProjectID)
 	agentPath := testPublicID(t, publicid.KindAgent, httpTestAgentID)

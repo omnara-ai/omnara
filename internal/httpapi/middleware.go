@@ -17,10 +17,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/observability/httprequest"
 	"github.com/omnara-ai/omnara/observability/metrics"
@@ -38,6 +41,15 @@ const maxAttachmentRequestBodyBytes int64 = 2 * modelcontext.MaxResolvedMediaByt
 
 const maxSkillUploadRequestBodyBytes int64 = int64(skills.MaxArchiveBytes) + 1024*1024
 
+const (
+	uploadBaseTime          = 30 * time.Second
+	uploadMinBytesPerSecond = 64 * 1024
+)
+
+func uploadBudget(limitBytes int64) time.Duration {
+	return uploadBaseTime + time.Duration(limitBytes/uploadMinBytesPerSecond)*time.Second
+}
+
 func requestBodyLimit(r *http.Request) int64 {
 	if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/memory-stores/") &&
 		strings.HasSuffix(r.URL.Path, "/file") {
@@ -47,6 +59,16 @@ func requestBodyLimit(r *http.Request) int64 {
 		return maxRequestBodyBytes
 	}
 	switch {
+	case r.URL.Path == httpauth.OAuthDeviceAuthorizationPath, r.URL.Path == httpauth.OAuthTokenPath:
+		return httpauth.MaxOAuthFormBytes
+	case r.URL.Path == slackEventsPath:
+		return slack.EventBodyMaxBytes
+	case r.URL.Path == slackActionsPath:
+		return slack.ActionBodyMaxBytes
+	case r.URL.Path == GitHubEventsPath:
+		return integrationstore.IntegrationInboxMaxPayloadBytes
+	case strings.HasPrefix(r.URL.Path, "/api/integrations/discord/") && strings.HasSuffix(r.URL.Path, "/interactions"):
+		return discord.InteractionMaxBytes
 	case strings.HasSuffix(r.URL.Path, "/slack-setup"):
 		return maxSlackSetupRequestBodyBytes
 	case strings.HasSuffix(r.URL.Path, "/inputs"),
@@ -112,11 +134,15 @@ func closeHTTP1Connection(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func maxBody(limit func(*http.Request) int64) middleware {
+func maxBody(limit func(*http.Request) int64, budget func(int64) time.Duration) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Body != nil {
-				r.Body = limitedBody{ReadCloser: http.MaxBytesReader(w, r.Body, limit(r)), w: w, r: r}
+				limitBytes := limit(r)
+				if r.Body != http.NoBody {
+					_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(budget(limitBytes)))
+				}
+				r.Body = limitedBody{ReadCloser: http.MaxBytesReader(w, r.Body, limitBytes), w: w, r: r}
 			}
 			next.ServeHTTP(w, r)
 		})

@@ -19,7 +19,8 @@ import (
 )
 
 func rejectionTestHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	limit := func(*http.Request) int64 { return 16 }
+	return maxBody(limit, uploadBudget)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/next":
 			_, _ = fmt.Fprintf(w, "canceled=%t", r.Context().Err() != nil)
@@ -32,10 +33,10 @@ func rejectionTestHandler() http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 100*time.Millisecond)
 		defer cancel()
-		if _, ok := readIntegrationCallbackBody(w, r.WithContext(ctx), 16); ok {
+		if _, ok := readIntegrationCallbackBody(w, r.WithContext(ctx)); ok {
 			w.WriteHeader(http.StatusNoContent)
 		}
-	})
+	}))
 }
 
 func TestRejectedRequestsCloseHTTP1Connection(t *testing.T) {

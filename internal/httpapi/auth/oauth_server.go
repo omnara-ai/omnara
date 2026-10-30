@@ -16,7 +16,7 @@ const (
 	OAuthDeviceGrantType                 = "urn:ietf:params:oauth:grant-type:device_code"
 	OmnaraCLIClientID                    = "omnara-cli"
 
-	maxOAuthFormBytes = 16 * 1024
+	MaxOAuthFormBytes = 16 * 1024
 )
 
 type oauthPublicClient struct {
@@ -80,7 +80,7 @@ func parseOAuthForm(w http.ResponseWriter, r *http.Request) (url.Values, bool) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "content type must be application/x-www-form-urlencoded")
 		return nil, false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxOAuthFormBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, MaxOAuthFormBytes)
 	if err := r.ParseForm(); err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "request form is invalid")
 		return nil, false
