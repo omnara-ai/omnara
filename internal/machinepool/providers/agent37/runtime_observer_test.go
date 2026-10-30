@@ -88,44 +88,59 @@ func TestAgent37ObserveRuntimeStateIgnoresForeignMismatchedAndInvalidTargets(t *
 	}
 }
 
-func TestAgent37ObserveRuntimeStatesBoundsLookupsAndSkipsDuplicates(t *testing.T) {
+func TestAgent37ObserveRuntimeStatesListsOnceAndSkipsDuplicates(t *testing.T) {
 	api := newFakeAPI()
-	lookupErr := errors.New("control plane is unavailable")
-	api.getErrs = []error{lookupErr}
+	if observations, err := newTestProvider(api).ObserveRuntimeStates(context.Background(), nil); err != nil ||
+		len(observations) != 0 || api.listCalls != 0 {
+		t.Fatalf("observe no targets = %+v error = %v list calls = %d", observations, err, api.listCalls)
+	}
+
+	listErr := errors.New("control plane is unavailable")
+	api.listErr = listErr
 	if _, err := newTestProvider(api).ObserveRuntimeStates(
 		context.Background(),
 		[]providers.RuntimeTarget{testRuntimeTarget("a37inst001")},
-	); !errors.Is(err, lookupErr) {
-		t.Fatalf("observe runtime states error = %v, want the lookup failure", err)
+	); !errors.Is(err, listErr) {
+		t.Fatalf("observe runtime states error = %v, want the list failure", err)
 	}
 
 	api = newFakeAPI()
 	sharedA := testRuntimeTarget("a37shared1")
 	sharedB := testRuntimeTarget("a37shared1")
-	first := testRuntimeTarget("a37first01")
-	second := testRuntimeTarget("a37second1")
-	api.getResults = []instance{
-		ownedInstance(t, "a37first01", instanceStatusRunning, first.InstallationID, first.MachineID),
-		ownedInstance(t, "a37second1", instanceStatusSleeping, second.InstallationID, second.MachineID),
+	running := testRuntimeTarget("a37first01")
+	sleeping := testRuntimeTarget("a37second1")
+	foreign := testRuntimeTarget("a37foreign")
+	missing := testRuntimeTarget("a37missing")
+	api.instances = []instance{
+		ownedInstance(t, "a37shared1", instanceStatusRunning, sharedA.InstallationID, sharedA.MachineID),
+		ownedInstance(t, "a37first01", instanceStatusRunning, running.InstallationID, running.MachineID),
+		ownedInstance(t, "a37second1", instanceStatusSleeping, sleeping.InstallationID, sleeping.MachineID),
+		ownedInstance(t, "a37foreign", instanceStatusRunning, uuid.New(), uuid.New()),
 	}
 	observations, err := newTestProvider(api).ObserveRuntimeStates(
 		context.Background(),
-		[]providers.RuntimeTarget{sharedA, first, sharedB, second},
+		[]providers.RuntimeTarget{sharedA, running, sharedB, sleeping, foreign, missing},
 	)
 	if err != nil {
 		t.Fatalf("observe runtime states: %v", err)
 	}
-	if len(observations) != 4 || observations[0].State != providers.RuntimeStateUnknown ||
-		observations[1].State != providers.RuntimeStateRunning || observations[2].State != providers.RuntimeStateUnknown ||
-		observations[3].State != providers.RuntimeStateInactive {
+	want := []providers.RuntimeState{
+		providers.RuntimeStateUnknown,
+		providers.RuntimeStateRunning,
+		providers.RuntimeStateUnknown,
+		providers.RuntimeStateInactive,
+		providers.RuntimeStateUnknown,
+		providers.RuntimeStateTerminated,
+	}
+	if len(observations) != len(want) {
 		t.Fatalf("observations = %+v", observations)
 	}
-	if len(api.getDeadlines) != 2 {
-		t.Fatalf("bounded lookups = %d, want 2", len(api.getDeadlines))
-	}
-	for _, remaining := range api.getDeadlines {
-		if remaining <= 0 || remaining > runtimeObservationTimeout {
-			t.Fatalf("lookup deadline = %v, want at most %v", remaining, runtimeObservationTimeout)
+	for index, state := range want {
+		if observations[index].State != state {
+			t.Fatalf("observation %d = %+v, want %v", index, observations[index], state)
 		}
+	}
+	if api.listCalls != 1 || len(api.getLookups) != 0 {
+		t.Fatalf("list calls = %d lookups = %v, want one list and no lookups", api.listCalls, api.getLookups)
 	}
 }

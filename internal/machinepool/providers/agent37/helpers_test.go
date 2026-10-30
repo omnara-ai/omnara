@@ -100,12 +100,12 @@ type fakeAPI struct {
 
 	instances []instance
 	listCalls int
+	listErr   error
 
-	getResults   []instance
-	getFound     bool
-	getErrs      []error
-	getLookups   []string
-	getDeadlines []time.Duration
+	getResults []instance
+	getFound   bool
+	getErrs    []error
+	getLookups []string
 
 	startErrs  []error
 	startCalls int
@@ -155,14 +155,11 @@ func (a *fakeAPI) CreateInstance(_ context.Context, request createInstanceReques
 
 func (a *fakeAPI) ListInstances(context.Context) ([]instance, error) {
 	a.listCalls++
-	return a.instances, nil
+	return a.instances, a.listErr
 }
 
-func (a *fakeAPI) GetInstance(ctx context.Context, id string) (instance, bool, error) {
+func (a *fakeAPI) GetInstance(_ context.Context, id string) (instance, bool, error) {
 	a.getLookups = append(a.getLookups, id)
-	if deadline, ok := ctx.Deadline(); ok {
-		a.getDeadlines = append(a.getDeadlines, time.Until(deadline))
-	}
 	if len(a.getErrs) > 0 {
 		err := a.getErrs[0]
 		a.getErrs = a.getErrs[1:]

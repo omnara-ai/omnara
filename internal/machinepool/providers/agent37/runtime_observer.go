@@ -4,13 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
-
-const runtimeObservationTimeout = 5 * time.Second
 
 var _ providers.RuntimeStateObserver = (*provider)(nil)
 
@@ -26,17 +23,23 @@ func (p *provider) ObserveRuntimeStates(
 		resourceCounts[target.ProviderResourceID]++
 		machineCounts[target.MachineID]++
 	}
+	if len(targets) == 0 {
+		return observations, nil
+	}
+	instances, err := p.api.ListInstances(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list agent37 instances for runtime observation: %w", err)
+	}
+	byID := make(map[string]instance, len(instances))
+	for _, current := range instances {
+		byID[current.ID] = current
+	}
 	for index, target := range targets {
 		if resourceCounts[target.ProviderResourceID] != 1 || machineCounts[target.MachineID] != 1 {
 			continue
 		}
-		observationCtx, cancel := context.WithTimeout(ctx, runtimeObservationTimeout)
-		observation, err := p.ObserveRuntimeState(observationCtx, target)
-		cancel()
-		if err != nil {
-			return nil, err
-		}
-		observations[index] = observation
+		current, found := byID[target.ProviderResourceID]
+		observations[index] = runtimeObservation(target, current, found)
 	}
 	return observations, nil
 }
@@ -45,27 +48,34 @@ func (p *provider) ObserveRuntimeState(
 	ctx context.Context,
 	target providers.RuntimeTarget,
 ) (providers.RuntimeObservation, error) {
-	observation := target.UnknownObservation()
 	if !validRuntimeTarget(target) {
-		return observation, nil
+		return target.UnknownObservation(), nil
 	}
 	current, found, err := p.api.GetInstance(ctx, target.ProviderResourceID)
 	if err != nil {
-		return observation, fmt.Errorf(
+		return target.UnknownObservation(), fmt.Errorf(
 			"get agent37 instance %q for runtime observation: %w",
 			target.ProviderResourceID,
 			err,
 		)
 	}
-	if !found {
+	return runtimeObservation(target, current, found), nil
+}
+
+func runtimeObservation(
+	target providers.RuntimeTarget,
+	current instance,
+	found bool,
+) providers.RuntimeObservation {
+	observation := target.UnknownObservation()
+	switch {
+	case !validRuntimeTarget(target):
+	case !found:
 		observation.State = providers.RuntimeStateTerminated
-		return observation, nil
+	case current.ID == target.ProviderResourceID && ownedBy(current, target.InstallationID, target.MachineID):
+		observation.State = runtimeState(current.Status)
 	}
-	if current.ID != target.ProviderResourceID || !ownedBy(current, target.InstallationID, target.MachineID) {
-		return observation, nil
-	}
-	observation.State = runtimeState(current.Status)
-	return observation, nil
+	return observation
 }
 
 func runtimeState(status instanceStatus) providers.RuntimeState {
