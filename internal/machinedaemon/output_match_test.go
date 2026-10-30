@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
@@ -134,98 +135,103 @@ func TestReplacingWatchDoesNotWaitForOldWatcherUnderApplyLocks(t *testing.T) {
 func TestReplacementWatchReportsExpiryWhenOldWatcherOutlastsIt(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	const (
-		installationID       = "ins_replacement_watch_expiry"
-		machineID            = "mch_replacement_watch_expiry"
-		processID            = "prc_replacement_watch_expiry"
-		supervisorInstanceID = "supervisor-instance-replacement-watch-expiry"
-		supervisorToken      = "supervisor-token-replacement-watch-expiry"
-	)
-	root := t.TempDir()
-	path := filepath.Join(root, "state.sqlite")
-	store, err := statedb.Open(ctx, path, installationID, machineID)
-	require.NoError(t, err)
-	defer store.Close()
-	require.NoError(t, store.ReserveProcess(ctx, statedb.Process{
-		ProcessID:            processID,
-		SupervisorInstanceID: supervisorInstanceID,
-		SupervisorToken:      supervisorToken,
-	}))
-	require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
-	require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
-	supervisor, err := statedb.OpenSupervisor(
-		ctx, path, installationID, machineID, processID, supervisorInstanceID, supervisorToken,
-	)
-	require.NoError(t, err)
-	defer supervisor.Close()
-	execute, err := supervisor.AuthorizeSpawnOnce(ctx)
-	require.NoError(t, err)
-	require.True(t, execute)
-	require.NoError(t, supervisor.RecordSpawned(ctx, "process_group", "123"))
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+		defer cancel()
+		const (
+			installationID       = "ins_replacement_watch_expiry"
+			machineID            = "mch_replacement_watch_expiry"
+			processID            = "prc_replacement_watch_expiry"
+			supervisorInstanceID = "supervisor-instance-replacement-watch-expiry"
+			supervisorToken      = "supervisor-token-replacement-watch-expiry"
+		)
+		root := t.TempDir()
+		path := filepath.Join(root, "state.sqlite")
+		store, err := statedb.Open(ctx, path, installationID, machineID)
+		require.NoError(t, err)
+		defer store.Close()
+		require.NoError(t, store.ReserveProcess(ctx, statedb.Process{
+			ProcessID:            processID,
+			SupervisorInstanceID: supervisorInstanceID,
+			SupervisorToken:      supervisorToken,
+		}))
+		require.NoError(t, store.MarkPrepared(ctx, processID, supervisorInstanceID))
+		require.NoError(t, store.MarkAccepted(ctx, processID, supervisorInstanceID))
+		supervisor, err := statedb.OpenSupervisor(
+			ctx, path, installationID, machineID, processID, supervisorInstanceID, supervisorToken,
+		)
+		require.NoError(t, err)
+		defer supervisor.Close()
+		execute, err := supervisor.AuthorizeSpawnOnce(ctx)
+		require.NoError(t, err)
+		require.True(t, execute)
+		require.NoError(t, supervisor.RecordSpawned(ctx, "process_group", "123"))
 
-	runCtx, cancelRun := context.WithCancel(ctx)
-	defer cancelRun()
-	state := &runnerServerState{
-		processState: supervisor,
-		assignment:   ProcessAssignment{ID: processID},
-		runCtx:       runCtx,
-	}
-	outputPath := filepath.Join(root, "output.buf")
-	require.NoError(t, writeProcessOutputFile(outputPath, nil, 0))
-	runner := &localProcessRunner{
-		output: processOutput{
-			path:         outputPath,
-			limit:        1024,
-			syncBytes:    1024,
-			syncInterval: time.Hour,
-		},
-		terminalResultReady: make(chan struct{}),
-		startedAt:           time.Now(),
-	}
-	_, err = runner.output.Write([]byte("starting\n"))
-	require.NoError(t, err)
-	defer runner.output.Close()
-
-	oldCtx, cancelOld := context.WithCancel(runCtx)
-	old := &outputWatch{cancel: cancelOld, done: make(chan struct{})}
-	release := make(chan struct{})
-	go func() {
-		defer close(old.done)
-		<-oldCtx.Done()
-		<-release
-	}()
-	state.watch = old
-
-	require.NoError(t, state.startOutputWatch(runner, "pact_replacement", processaction.WatchPayload{
-		Pattern: "ready", TimeoutSeconds: 1,
-	}))
-	replacement := state.watch
-	time.Sleep(time.Second + 200*time.Millisecond) //nolint:omnaralint // Outlast the watch's wall-clock deadline.
-	close(release)
-	select {
-	case <-replacement.done:
-	case <-ctx.Done():
-		t.Fatal("the replacement watch did not finish")
-	}
-
-	reports, err := store.ReportsForProcess(ctx, processID)
-	require.NoError(t, err)
-	var expiries []daemonprotocol.OutputMatchResult
-	for _, report := range reports {
-		if report.Kind != statedb.ReportProcessOutputMatch {
-			continue
+		runCtx, cancelRun := context.WithCancel(ctx)
+		defer cancelRun()
+		state := &runnerServerState{
+			processState: supervisor,
+			assignment:   ProcessAssignment{ID: processID},
+			runCtx:       runCtx,
 		}
-		var event daemonReportedEvent
-		require.NoError(t, json.Unmarshal(report.Body, &event))
-		var matched daemonprotocol.OutputMatchResult
-		require.NoError(t, json.Unmarshal(event.Result, &matched))
-		expiries = append(expiries, matched)
-	}
-	require.Equal(t, []daemonprotocol.OutputMatchResult{{
-		WatchID: "pact_replacement", Pattern: "ready", Expired: true,
-	}}, expiries)
+		outputPath := filepath.Join(root, "output.buf")
+		require.NoError(t, writeProcessOutputFile(outputPath, nil, 0))
+		runner := &localProcessRunner{
+			output: processOutput{
+				path:         outputPath,
+				limit:        1024,
+				syncBytes:    1024,
+				syncInterval: time.Hour,
+			},
+			terminalResultReady: make(chan struct{}),
+			startedAt:           time.Now(),
+		}
+		_, err = runner.output.Write([]byte("starting\n"))
+		require.NoError(t, err)
+		defer runner.output.Close()
+
+		oldCtx, cancelOld := context.WithCancel(runCtx)
+		old := &outputWatch{cancel: cancelOld, done: make(chan struct{})}
+		release := make(chan struct{})
+		go func() {
+			defer close(old.done)
+			<-oldCtx.Done()
+			<-release
+		}()
+		state.watch = old
+
+		require.NoError(t, state.startOutputWatch(runner, "pact_replacement", processaction.WatchPayload{
+			Pattern: "ready", TimeoutSeconds: 1,
+		}))
+		replacement := state.watch
+		// The bubble's clock only advances once every goroutine is blocked, so the
+		// replacement's deadline fires while its predecessor is still holding it up.
+		<-time.After(time.Second + time.Millisecond)
+		synctest.Wait()
+		close(release)
+		select {
+		case <-replacement.done:
+		case <-ctx.Done():
+			t.Fatal("the replacement watch did not finish")
+		}
+
+		reports, err := store.ReportsForProcess(ctx, processID)
+		require.NoError(t, err)
+		var expiries []daemonprotocol.OutputMatchResult
+		for _, report := range reports {
+			if report.Kind != statedb.ReportProcessOutputMatch {
+				continue
+			}
+			var event daemonReportedEvent
+			require.NoError(t, json.Unmarshal(report.Body, &event))
+			var matched daemonprotocol.OutputMatchResult
+			require.NoError(t, json.Unmarshal(event.Result, &matched))
+			expiries = append(expiries, matched)
+		}
+		require.Equal(t, []daemonprotocol.OutputMatchResult{{
+			WatchID: "pact_replacement", Pattern: "ready", Expired: true,
+		}}, expiries)
+	})
 }
 
 func TestZeroTimeoutWatchCancelsCurrentWatch(t *testing.T) {
