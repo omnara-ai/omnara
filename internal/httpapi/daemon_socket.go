@@ -167,15 +167,10 @@ func (s *daemonSocket) run(ctx context.Context) {
 	runCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	s.drain = func() { s.drainLoop(runCtx) }
-	s.server.daemonHub.register(s)
-	defer func() {
-		s.server.daemonHub.unregister(s)
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cleanupCancel()
-		owner := s.presenceOwner()
-		_ = s.server.daemonHub.presence.DeleteIfOwned(cleanupCtx, s.machineID, owner)
-		_ = s.server.daemonHub.presence.DeleteRuntimeIfOwned(cleanupCtx, s.runtimeID, owner)
-	}()
+	defer s.server.daemonHub.unregister(s)
+	if !s.server.daemonHub.register(s) {
+		return
+	}
 	writerDone := make(chan struct{})
 	writeStopped := make(chan struct{})
 	go func() {
@@ -195,7 +190,9 @@ func (s *daemonSocket) run(ctx context.Context) {
 	s.enqueueDrain()
 	fallbackDrainTimer := time.NewTimer(s.server.daemonHub.fallbackDrainDelay(s.connectionID))
 	defer fallbackDrainTimer.Stop()
+	fallbackDone := make(chan struct{})
 	go func() {
+		defer close(fallbackDone)
 		for {
 			select {
 			case <-runCtx.Done():
@@ -210,10 +207,12 @@ func (s *daemonSocket) run(ctx context.Context) {
 	}()
 	s.readLoop(runCtx, cancel, writeStopped)
 	s.close(websocket.StatusNormalClosure, "closing")
+	cancel(s.cancellationCause(nil))
 	s.workMu.Lock()
 	drainDone := s.drainDone
 	s.workMu.Unlock()
 	<-writerDone
+	<-fallbackDone
 	if drainDone != nil {
 		<-drainDone
 	}
@@ -551,8 +550,10 @@ func (s *daemonSocket) rehydrateMissingPresence(
 	}
 	owner := s.presenceOwner()
 	if err := s.refreshDaemonRuntimePresence(ctx, owner); err != nil {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cleanupCancel()
 		_ = s.server.daemonHub.presence.DeleteIfOwned(
-			context.WithoutCancel(ctx),
+			cleanupCtx,
 			s.machineID,
 			owner,
 		)
