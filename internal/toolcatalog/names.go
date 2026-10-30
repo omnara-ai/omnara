@@ -12,6 +12,7 @@ const (
 	ToolNameWriteProcess       = "write_process"
 	ToolNameReadProcess        = "read_process"
 	ToolNameStopProcess        = "stop_process"
+	ToolNameWatchProcess       = "watch_process"
 	ToolNameListProcesses      = "list_processes"
 	ToolNameCreateMachine      = "create_machine"
 	ToolNameDeleteMachine      = "delete_machine"
@@ -45,6 +46,7 @@ func MachineToolNames() []string {
 		ToolNameWriteProcess,
 		ToolNameReadProcess,
 		ToolNameStopProcess,
+		ToolNameWatchProcess,
 		ToolNameListProcesses,
 		ToolNameListMachines,
 		ToolNameInspectMachine,

@@ -14,7 +14,8 @@ func TestDecodeWritePayload(t *testing.T) {
 		ok   bool
 	}{
 		{name: "data", raw: json.RawMessage(`{"data":"hello"}`), ok: true},
-		{name: "close", raw: json.RawMessage(`{"close_stdin":true}`), ok: true},
+		{name: "empty data", raw: json.RawMessage(`{"data":""}`)},
+		{name: "removed close_stdin", raw: json.RawMessage(`{"close_stdin":true}`)},
 		{name: "empty", raw: json.RawMessage(`{}`)},
 		{name: "null", raw: json.RawMessage(`{"data":null}`)},
 		{name: "unknown", raw: json.RawMessage(`{"extra":true}`)},

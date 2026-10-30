@@ -29,6 +29,7 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		[]string{
 			"write_process",
 			"stop_process",
+			"watch_process",
 			"list_processes",
 		},
 		expectedTopology{transactional: true},
@@ -148,6 +149,11 @@ func TestProcessToolImplementationValidatorBindings(t *testing.T) {
 			name:    "stop_process",
 			valid:   json.RawMessage(`{"process_id":"prc","mode":"terminate"}`),
 			invalid: json.RawMessage(`{"process_id":"prc","data":"x"}`),
+		},
+		{
+			name:    "watch_process",
+			valid:   json.RawMessage(`{"process_id":"prc","pattern":"ready","timeout_seconds":60}`),
+			invalid: json.RawMessage(`{"process_id":"prc","pattern":"("}`),
 		},
 		{
 			name:    "list_processes",

@@ -48,6 +48,41 @@ type SubagentStatus struct {
 	IsRunning         bool
 	HasOpenQuestion   bool
 	HasOpenPermission bool
+	AgentActivityWork
+}
+
+const MaxAgentActivityIDs = 20
+
+type AgentActivityWork struct {
+	OpenQuestionCount          int
+	OpenPermissionRequestCount int
+	RunningProcesses           AgentActivityIDs
+	WorkingSubagents           AgentActivityIDs
+}
+
+type AgentActivityIDs struct {
+	Count int
+	IDs   []uuid.UUID
+}
+
+func agentActivityIDs(ids []uuid.UUID) AgentActivityIDs {
+	return AgentActivityIDs{Count: len(ids), IDs: ids[:min(len(ids), MaxAgentActivityIDs)]}
+}
+
+func agentActivityWork(
+	archived bool,
+	openQuestions, openPermissions int32,
+	processIDs, subagentIDs []uuid.UUID,
+) AgentActivityWork {
+	if archived {
+		return AgentActivityWork{}
+	}
+	return AgentActivityWork{
+		OpenQuestionCount:          int(openQuestions),
+		OpenPermissionRequestCount: int(openPermissions),
+		RunningProcesses:           agentActivityIDs(processIDs),
+		WorkingSubagents:           agentActivityIDs(subagentIDs),
+	}
 }
 
 func SubagentActorParams(orgID uuid.UUID, agent AgentRecord) (*ActorParams, error) {
@@ -234,9 +269,16 @@ func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 		LastActivityAt:    row.LastActivityAt,
 		Archived:          row.State == string(AgentStateArchived),
 		IsRunning:         row.IsRunning,
-		HasOpenQuestion:   row.HasOpenQuestion,
-		HasOpenPermission: row.HasOpenPermission,
+		HasOpenQuestion:   row.OpenQuestionCount > 0,
+		HasOpenPermission: row.OpenPermissionCount > 0,
 	}
+	status.AgentActivityWork = agentActivityWork(
+		status.Archived,
+		row.OpenQuestionCount,
+		row.OpenPermissionCount,
+		row.BackgroundProcessIds,
+		row.WorkingSubagentIds,
+	)
 	status.State = agentActivityState(
 		status.Archived,
 		status.HasOpenQuestion,

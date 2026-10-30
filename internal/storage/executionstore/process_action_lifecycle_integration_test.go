@@ -665,7 +665,7 @@ func TestDaemonHeartbeatDoesNotDiscardAcceptedWrite(t *testing.T) {
 			builtInProcessToolCallBatchItem("heartbeat_keeps_accepted_write_action", "write_process"),
 		},
 	)
-	processToolCallID, closeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
+	processToolCallID, writeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
 
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -706,15 +706,15 @@ func TestDaemonHeartbeatDoesNotDiscardAcceptedWrite(t *testing.T) {
 	action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
-		ToolCallID:    closeInputToolCallID,
+		ToolCallID:    writeInputToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessActionInput{
 		ProcessID:  process.ID,
 		ActionKind: executionstore.ProcessActionKindWrite,
-		Payload:    json.RawMessage(`{"close_stdin":true}`),
+		Payload:    json.RawMessage(`{"data":"x"}`),
 	})
 	if err != nil {
-		t.Fatalf("create close input action: %v", err)
+		t.Fatalf("create write input action: %v", err)
 	}
 	if _, found, err := acceptDaemonProcessActionForTest(
 		ctx,
@@ -724,9 +724,9 @@ func TestDaemonHeartbeatDoesNotDiscardAcceptedWrite(t *testing.T) {
 		fixture.RuntimeID,
 		process.ID,
 		uuid.Nil); err != nil {
-		t.Fatalf("accept close input action: %v", err)
+		t.Fatalf("accept write input action: %v", err)
 	} else if !found {
-		t.Fatal("expected close input action accept")
+		t.Fatal("expected write input action accept")
 	}
 	exitCode := 0
 	endedAt := fixture.Now.Add(3 * time.Second)
@@ -759,18 +759,18 @@ func TestDaemonHeartbeatDoesNotDiscardAcceptedWrite(t *testing.T) {
 		ctx,
 		testProjectID,
 		fixture.AgentID,
-		closeInputToolCallID,
+		writeInputToolCallID,
 	)
 	if err != nil {
-		t.Fatalf("get completed close input action: %v", err)
+		t.Fatalf("get completed write input action: %v", err)
 	}
 	if !found || updated.ID != action.ID || updated.State != executionstore.ProcessActionStateAccepted ||
 		updated.StateReasonCode != "" {
 		t.Fatalf("write action after process completion = found %v %+v", found, updated)
 	}
-	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, closeInputToolCallID)
+	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, writeInputToolCallID)
 	if err != nil {
-		t.Fatalf("get completed close input tool call: %v", err)
+		t.Fatalf("get completed write input tool call: %v", err)
 	}
 	if toolCall.State != executionstore.ToolCallStateWaiting || toolCall.CompletedAt != nil {
 		t.Fatalf("accepted write tool call = %+v", toolCall)
@@ -791,7 +791,7 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 			builtInProcessToolCallBatchItem("terminal_process_keeps_accepted_mutation_close", "write_process"),
 		},
 	)
-	processToolCallID, closeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
+	processToolCallID, writeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
 
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -832,15 +832,15 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 	action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
-		ToolCallID:    closeInputToolCallID,
+		ToolCallID:    writeInputToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessActionInput{
 		ProcessID:  process.ID,
 		ActionKind: executionstore.ProcessActionKindWrite,
-		Payload:    json.RawMessage(`{"close_stdin":true}`),
+		Payload:    json.RawMessage(`{"data":"x"}`),
 	})
 	if err != nil {
-		t.Fatalf("create close input action: %v", err)
+		t.Fatalf("create write input action: %v", err)
 	}
 	if _, found, err := acceptDaemonProcessActionForTest(
 		ctx,
@@ -850,9 +850,9 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 		fixture.RuntimeID,
 		process.ID,
 		uuid.Nil); err != nil {
-		t.Fatalf("accept close input action: %v", err)
+		t.Fatalf("accept write input action: %v", err)
 	} else if !found {
-		t.Fatal("expected close input action accept")
+		t.Fatal("expected write input action accept")
 	}
 	exitCode := 0
 	endedAt := fixture.Now.Add(3 * time.Second)
@@ -887,10 +887,10 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 		ctx,
 		testProjectID,
 		fixture.AgentID,
-		closeInputToolCallID,
+		writeInputToolCallID,
 	)
 	if err != nil {
-		t.Fatalf("get resolved close input action: %v", err)
+		t.Fatalf("get resolved write input action: %v", err)
 	}
 	if !found || pending.ID != action.ID ||
 		pending.State != executionstore.ProcessActionStateAccepted ||
@@ -901,10 +901,10 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 		ctx,
 		testProjectID,
 		fixture.AgentID,
-		closeInputToolCallID,
+		writeInputToolCallID,
 	)
 	if err != nil {
-		t.Fatalf("re-read resolved close input action: %v", err)
+		t.Fatalf("re-read resolved write input action: %v", err)
 	}
 	if !found || updated.ID != action.ID || updated.State != executionstore.ProcessActionStateAccepted ||
 		updated.StateReasonCode != "" {
@@ -1231,7 +1231,7 @@ func TestAcceptedWriteRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 			builtInProcessToolCallBatchItem("terminal_process_keeps_accepted_write_close", "write_process"),
 		},
 	)
-	processToolCallID, closeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
+	processToolCallID, writeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
 
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -1272,15 +1272,15 @@ func TestAcceptedWriteRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 	action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
-		ToolCallID:    closeInputToolCallID,
+		ToolCallID:    writeInputToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessActionInput{
 		ProcessID:  process.ID,
 		ActionKind: executionstore.ProcessActionKindWrite,
-		Payload:    json.RawMessage(`{"close_stdin":true}`),
+		Payload:    json.RawMessage(`{"data":"x"}`),
 	})
 	if err != nil {
-		t.Fatalf("create close input action: %v", err)
+		t.Fatalf("create write input action: %v", err)
 	}
 	if _, found, err := acceptDaemonProcessActionForTest(
 		ctx,
@@ -1290,9 +1290,9 @@ func TestAcceptedWriteRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 		fixture.RuntimeID,
 		process.ID,
 		uuid.Nil); err != nil {
-		t.Fatalf("accept close input action: %v", err)
+		t.Fatalf("accept write input action: %v", err)
 	} else if !found {
-		t.Fatal("expected close input action accept")
+		t.Fatal("expected write input action accept")
 	}
 	exitCode := 0
 	endedAt := fixture.Now.Add(3 * time.Second)
@@ -1315,18 +1315,18 @@ func TestAcceptedWriteRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 		ctx,
 		testProjectID,
 		fixture.AgentID,
-		closeInputToolCallID,
+		writeInputToolCallID,
 	)
 	if err != nil {
-		t.Fatalf("get resolved close input action: %v", err)
+		t.Fatalf("get resolved write input action: %v", err)
 	}
 	if !found || updated.ID != action.ID || updated.State != executionstore.ProcessActionStateAccepted ||
 		updated.StateReasonCode != "" {
 		t.Fatalf("write action after process completion = found %v %+v", found, updated)
 	}
-	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, closeInputToolCallID)
+	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, writeInputToolCallID)
 	if err != nil {
-		t.Fatalf("get resolved close input tool call: %v", err)
+		t.Fatalf("get resolved write input tool call: %v", err)
 	}
 	if toolCall.State != executionstore.ToolCallStateWaiting || toolCall.CompletedAt != nil {
 		t.Fatalf("accepted write tool call = %+v", toolCall)

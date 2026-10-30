@@ -17,8 +17,8 @@ func TestMissingDefaultToolNamesDoesNotModifySource(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := missingDefaultToolNames(source)
-	if len(names) != 13 {
-		t.Fatalf("expected 13 missing pool and retrieval tools, got %v", names)
+	if len(names) != 14 {
+		t.Fatalf("expected 14 missing pool and retrieval tools, got %v", names)
 	}
 	for _, name := range names {
 		if _, configured := source.Tools[name]; configured {
@@ -26,7 +26,7 @@ func TestMissingDefaultToolNamesDoesNotModifySource(t *testing.T) {
 		}
 	}
 	compiled, err := compileTools(source, CompileOptions{})
-	if err != nil || len(compiled) != 14 || compiled["run_command"].Enabled {
+	if err != nil || len(compiled) != 15 || compiled["run_command"].Enabled {
 		t.Fatalf("compile tools: %+v, %v", compiled, err)
 	}
 	if len(source.Tools) != 1 || *source.Tools["run_command"].Enabled {
@@ -115,8 +115,8 @@ func TestToolPreviewDrafts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 14 {
-		t.Fatalf("got %d entries, want 14", len(entries))
+	if len(entries) != 15 {
+		t.Fatalf("got %d entries, want 15", len(entries))
 	}
 	for _, entry := range entries {
 		if entry.Name == "run_command" && (entry.Enabled || entry.Permission.Mode != toolpermission.ModeAlwaysAsk) {

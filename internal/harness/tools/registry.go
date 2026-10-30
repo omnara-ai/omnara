@@ -224,6 +224,12 @@ func builtInToolRegistrations() []toolRegistration {
 			),
 		},
 		{
+			name:                   toolcatalog.ToolNameWatchProcess,
+			semanticInputValidator: validateWatchProcessInput,
+			handler:                toolHandler{Transactional: watchProcess},
+			permissionModes:        commonPermissionModeHandlers(watchProcessPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameStopProcess,
 			semanticInputValidator: validateStopProcessInput,
 			handler:                toolHandler{Transactional: stopProcess},
@@ -357,6 +363,11 @@ func processObservationInputValidator(
 		_, err := resolveProcessObservationRequest(input, mode)
 		return err
 	}
+}
+
+func validateWatchProcessInput(input json.RawMessage) error {
+	_, _, err := watchProcessPayload(input)
+	return err
 }
 
 func validateStopProcessInput(input json.RawMessage) error {

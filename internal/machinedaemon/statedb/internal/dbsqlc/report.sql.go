@@ -28,11 +28,27 @@ func (q *Queries) AcknowledgeProcessReport(ctx context.Context, arg AcknowledgeP
 	return err
 }
 
+const deleteOutputMatchReport = `-- name: DeleteOutputMatchReport :exec
+DELETE FROM frozen_reports
+WHERE report_id = ?1
+  AND report_kind = 'process_output_match'
+`
+
+type DeleteOutputMatchReportParams struct {
+	ReportID string
+}
+
+func (q *Queries) DeleteOutputMatchReport(ctx context.Context, arg DeleteOutputMatchReportParams) error {
+	_, err := q.db.ExecContext(ctx, deleteOutputMatchReport, arg.ReportID)
+	return err
+}
+
 const getFrozenActionReportBySlot = `-- name: GetFrozenActionReportBySlot :one
 SELECT report_id,
        process_id,
        action_id,
        report_kind,
+       report_seq,
        body,
        state,
        error_code,
@@ -57,6 +73,7 @@ func (q *Queries) GetFrozenActionReportBySlot(ctx context.Context, arg GetFrozen
 		&i.ProcessID,
 		&i.ActionID,
 		&i.ReportKind,
+		&i.ReportSeq,
 		&i.Body,
 		&i.State,
 		&i.ErrorCode,
@@ -70,6 +87,7 @@ SELECT report_id,
        process_id,
        action_id,
        report_kind,
+       report_seq,
        body,
        state,
        error_code,
@@ -78,21 +96,24 @@ FROM frozen_reports
 WHERE process_id = ?1
   AND action_id IS NULL
   AND report_kind = ?2
+  AND report_seq = ?3
 `
 
 type GetFrozenProcessReportBySlotParams struct {
 	ProcessID  string
 	ReportKind string
+	ReportSeq  int64
 }
 
 func (q *Queries) GetFrozenProcessReportBySlot(ctx context.Context, arg GetFrozenProcessReportBySlotParams) (FrozenReport, error) {
-	row := q.db.QueryRowContext(ctx, getFrozenProcessReportBySlot, arg.ProcessID, arg.ReportKind)
+	row := q.db.QueryRowContext(ctx, getFrozenProcessReportBySlot, arg.ProcessID, arg.ReportKind, arg.ReportSeq)
 	var i FrozenReport
 	err := row.Scan(
 		&i.ReportID,
 		&i.ProcessID,
 		&i.ActionID,
 		&i.ReportKind,
+		&i.ReportSeq,
 		&i.Body,
 		&i.State,
 		&i.ErrorCode,
@@ -106,6 +127,7 @@ SELECT report_id,
        process_id,
        action_id,
        report_kind,
+       report_seq,
        body,
        state,
        error_code,
@@ -126,6 +148,7 @@ func (q *Queries) GetFrozenReportByAction(ctx context.Context, arg GetFrozenRepo
 		&i.ProcessID,
 		&i.ActionID,
 		&i.ReportKind,
+		&i.ReportSeq,
 		&i.Body,
 		&i.State,
 		&i.ErrorCode,
@@ -139,6 +162,7 @@ SELECT report_id,
        process_id,
        action_id,
        report_kind,
+       report_seq,
        body,
        state,
        error_code,
@@ -159,6 +183,7 @@ func (q *Queries) GetFrozenReportByID(ctx context.Context, arg GetFrozenReportBy
 		&i.ProcessID,
 		&i.ActionID,
 		&i.ReportKind,
+		&i.ReportSeq,
 		&i.Body,
 		&i.State,
 		&i.ErrorCode,
@@ -173,6 +198,7 @@ INSERT INTO frozen_reports(
     process_id,
     action_id,
     report_kind,
+    report_seq,
     body
 )
 VALUES(
@@ -180,7 +206,8 @@ VALUES(
     ?2,
     ?3,
     ?4,
-    ?5
+    ?5,
+    ?6
 )
 `
 
@@ -189,6 +216,7 @@ type InsertFrozenReportParams struct {
 	ProcessID  string
 	ActionID   sql.NullString
 	ReportKind string
+	ReportSeq  int64
 	Body       []byte
 }
 
@@ -198,6 +226,7 @@ func (q *Queries) InsertFrozenReport(ctx context.Context, arg InsertFrozenReport
 		arg.ProcessID,
 		arg.ActionID,
 		arg.ReportKind,
+		arg.ReportSeq,
 		arg.Body,
 	)
 	return err
@@ -208,6 +237,7 @@ SELECT report.report_id,
        report.process_id,
        report.action_id,
        report.report_kind,
+       report.report_seq,
        report.body,
        report.state,
        report.error_code,
@@ -216,6 +246,17 @@ FROM frozen_reports report
 LEFT JOIN process_actions action
   ON action.action_id = report.action_id
 WHERE report.state IN ('pending', 'rejected')
+  AND NOT (report.report_kind = 'process_output_match' AND report.state = 'rejected')
+  AND (
+    report.report_kind <> 'process_terminal'
+    OR NOT EXISTS (
+      SELECT 1
+      FROM frozen_reports pending_match
+      WHERE pending_match.process_id = report.process_id
+        AND pending_match.report_kind = 'process_output_match'
+        AND pending_match.state = 'pending'
+    )
+  )
   AND (
     report.report_kind <> 'process_terminal'
     OR NOT EXISTS (
@@ -235,14 +276,22 @@ ORDER BY report.process_id,
          CASE report.report_kind
            WHEN 'process_started' THEN 0
            WHEN 'action_terminal' THEN 1
+           WHEN 'process_output_match' THEN 1
            ELSE 2
          END,
          coalesce(action.seq, 0),
+         report.report_seq,
          report.report_id
+LIMIT ?2 OFFSET ?1
 `
 
-func (q *Queries) ListFrozenReportDeliveryCandidates(ctx context.Context) ([]FrozenReport, error) {
-	rows, err := q.db.QueryContext(ctx, listFrozenReportDeliveryCandidates)
+type ListFrozenReportDeliveryCandidatesParams struct {
+	PageOffset int64
+	PageLimit  int64
+}
+
+func (q *Queries) ListFrozenReportDeliveryCandidates(ctx context.Context, arg ListFrozenReportDeliveryCandidatesParams) ([]FrozenReport, error) {
+	rows, err := q.db.QueryContext(ctx, listFrozenReportDeliveryCandidates, arg.PageOffset, arg.PageLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -255,6 +304,7 @@ func (q *Queries) ListFrozenReportDeliveryCandidates(ctx context.Context) ([]Fro
 			&i.ProcessID,
 			&i.ActionID,
 			&i.ReportKind,
+			&i.ReportSeq,
 			&i.Body,
 			&i.State,
 			&i.ErrorCode,
@@ -278,6 +328,7 @@ SELECT report_id,
        process_id,
        action_id,
        report_kind,
+       report_seq,
        body,
        state,
        error_code,
@@ -299,6 +350,7 @@ func (q *Queries) ListFrozenReports(ctx context.Context) ([]FrozenReport, error)
 			&i.ProcessID,
 			&i.ActionID,
 			&i.ReportKind,
+			&i.ReportSeq,
 			&i.Body,
 			&i.State,
 			&i.ErrorCode,
@@ -322,6 +374,7 @@ SELECT report.report_id,
        report.process_id,
        report.action_id,
        report.report_kind,
+       report.report_seq,
        report.body,
        report.state,
        report.error_code,
@@ -333,9 +386,11 @@ WHERE report.process_id = ?1
 ORDER BY CASE report.report_kind
            WHEN 'process_started' THEN 0
            WHEN 'action_terminal' THEN 1
+           WHEN 'process_output_match' THEN 1
            ELSE 2
          END,
          coalesce(action.seq, 0),
+         report.report_seq,
          report.report_id
 `
 
@@ -357,6 +412,7 @@ func (q *Queries) ListFrozenReportsForProcess(ctx context.Context, arg ListFroze
 			&i.ProcessID,
 			&i.ActionID,
 			&i.ReportKind,
+			&i.ReportSeq,
 			&i.Body,
 			&i.State,
 			&i.ErrorCode,

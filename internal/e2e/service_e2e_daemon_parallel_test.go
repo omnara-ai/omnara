@@ -20,8 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Keep these markers to one byte: wait_ms returns on the first nonempty output
-// snapshot, which need not contain an entire multi-byte message.
+// Keep these markers to one byte: daemons before 0.2.15 return a wait on the
+// first nonempty output snapshot, which need not contain a whole message.
 const (
 	parallelServiceE2EReadyMarker    = "R"
 	parallelServiceE2EReleasedMarker = "G"
@@ -120,7 +120,7 @@ func TestServiceE2EParallelProcessActionsRecoverFIFOAfterDaemonRestart(t *testin
 						"command": parallelServiceE2ECommand(i),
 						"shell":   "sh",
 						"cwd":     "/work",
-						"wait_ms": 10000,
+						"io_mode": "pty",
 					},
 				})
 			}
@@ -162,7 +162,6 @@ func TestServiceE2EParallelProcessActionsRecoverFIFOAfterDaemonRestart(t *testin
 					),
 					ids[write.process],
 					write.data,
-					false,
 				))
 			}
 			writeOpenAIFunctionCalls(w, failModelRequest, "resp_parallel_blocked_actions", calls...)
@@ -196,12 +195,12 @@ func TestServiceE2EParallelProcessActionsRecoverFIFOAfterDaemonRestart(t *testin
 			writeOpenAIFunctionCalls(
 				w,
 				failModelRequest,
-				"resp_parallel_observe_and_close",
+				"resp_parallel_observe_and_end",
 				serviceE2EReadProcessCall("call_parallel_observe_0", ids[0], 0),
 				serviceE2EReadProcessCall("call_parallel_observe_1", ids[1], 0),
 				serviceE2EReadProcessCall("call_parallel_observe_2", ids[2], 0),
-				serviceE2EWriteProcessCall("call_parallel_close_0", ids[0], "", true),
-				serviceE2EWriteProcessCall("call_parallel_close_1", ids[1], "", true),
+				serviceE2EWriteProcessCall("call_parallel_end_0", ids[0], "END\n"),
+				serviceE2EWriteProcessCall("call_parallel_end_1", ids[1], "END\n"),
 				serviceE2EStopProcessCall("call_parallel_interrupt_2", ids[2], "interrupt"),
 			)
 		case 4:
@@ -221,8 +220,8 @@ func TestServiceE2EParallelProcessActionsRecoverFIFOAfterDaemonRestart(t *testin
 				ids[i] = result.ProcessID
 			}
 			for _, callID := range []string{
-				"call_parallel_close_0",
-				"call_parallel_close_1",
+				"call_parallel_end_0",
+				"call_parallel_end_1",
 				"call_parallel_interrupt_2",
 			} {
 				if !fakeModelProcessActionAccepted(w, body, failModelRequest, callID) {
@@ -251,7 +250,7 @@ func TestServiceE2EParallelProcessActionsRecoverFIFOAfterDaemonRestart(t *testin
 				if !ok {
 					return
 				}
-				if result.Done == nil || !*result.Done {
+				if result.State != "exited" && result.State != "failed" && result.State != "killed" {
 					failModelRequest(
 						w,
 						http.StatusBadRequest,
@@ -367,12 +366,13 @@ func TestServiceE2EParallelProcessActionsRecoverFIFOAfterDaemonRestart(t *testin
 
 func parallelServiceE2ECommand(index int) string {
 	return fmt.Sprintf(
-		"printf x >> /work/parallel-start-%[1]d.txt; "+
+		"stty -echo; printf x >> /work/parallel-start-%[1]d.txt; "+
 			"printf '"+parallelServiceE2EReadyMarker+"'; "+
 			"while [ ! -f /work/parallel-release-%[1]d ]; do sleep 0.05; done; "+
 			"printf '"+parallelServiceE2EReleasedMarker+"'; "+
 			"trap 'exit 130' INT; "+
 			"while IFS= read -r line; do "+
+			"[ \"$line\" = END ] && break; "+
 			"printf '%%s' \"$line\" >> /work/parallel-input-%[1]d.txt; "+
 			"done",
 		index,
@@ -384,8 +384,7 @@ func serviceE2EReadProcessCall(
 	waitMS int,
 ) fakeOpenAIFunctionCall {
 	args := map[string]any{
-		"process_id":  processID,
-		"limit_bytes": 4096,
+		"process_id": processID,
 	}
 	if waitMS > 0 {
 		args["wait_ms"] = waitMS
@@ -399,15 +398,8 @@ func serviceE2EReadProcessCall(
 
 func serviceE2EWriteProcessCall(
 	callID, processID, data string,
-	closeStdin bool,
 ) fakeOpenAIFunctionCall {
-	args := map[string]any{"process_id": processID}
-	if data != "" {
-		args["data"] = data
-	}
-	if closeStdin {
-		args["close_stdin"] = true
-	}
+	args := map[string]any{"process_id": processID, "data": data}
 	return fakeOpenAIFunctionCall{CallID: callID, Name: "write_process", Args: args}
 }
 

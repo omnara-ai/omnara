@@ -2,12 +2,14 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -28,6 +30,11 @@ func (t *toolCallTransaction) createProcessAction(
 	if !input.ActionKind.Valid() {
 		return ProcessActionRecord{}, fmt.Errorf("unsupported process action kind %q", input.ActionKind)
 	}
+	if input.ActionKind == ProcessActionKindWatch {
+		if _, err := processaction.DecodeWatchPayload(input.Payload); err != nil {
+			return ProcessActionRecord{}, fmt.Errorf("%w: %w", storeerr.ErrInvalidRequest, err)
+		}
+	}
 	projectID := t.input.ProjectID
 	agentID := t.input.AgentID
 	toolCallID := t.input.ToolCallID
@@ -43,8 +50,19 @@ func (t *toolCallTransaction) createProcessAction(
 	)
 	if replayErr == nil {
 		record := processActionRecordFromSQLC(replay)
+		requested := input.Payload
+		if record.ActionKind == ProcessActionKindWatch && input.ActionKind == ProcessActionKindWatch {
+			// The stored watch carries the read cursor it defaulted to.
+			if replayed, err := processaction.DecodeWatchPayload(record.Payload); err == nil &&
+				replayed.Cursor != nil {
+				requested, err = defaultWatchCursor(input.Payload, *replayed.Cursor)
+				if err != nil {
+					return ProcessActionRecord{}, err
+				}
+			}
+		}
 		if record.ProcessID != input.ProcessID || record.ActionKind != input.ActionKind ||
-			!sameJSON(record.Payload, input.Payload) ||
+			!sameJSON(record.Payload, requested) ||
 			record.ToolCallID != toolCallID {
 			return ProcessActionRecord{}, storeerr.ErrIdempotencyConflict
 		}
@@ -87,14 +105,15 @@ func (t *toolCallTransaction) createProcessAction(
 	if err := t.lockForMutation(ctx); err != nil {
 		return ProcessActionRecord{}, err
 	}
-	if _, err := t.q.LockProcessForActionCreation(
+	readCursor, err := t.q.LockProcessForActionCreation(
 		ctx,
 		dbsqlc.LockProcessForActionCreationParams{
 			ProjectID: projectID,
 			AgentID:   agentID,
 			ID:        input.ProcessID,
 		},
-	); err != nil {
+	)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ProcessActionRecord{}, storeerr.ErrNotFound
 		}
@@ -102,6 +121,14 @@ func (t *toolCallTransaction) createProcessAction(
 			"lock process for process action creation: %w",
 			err,
 		)
+	}
+	if input.ActionKind == ProcessActionKindWatch {
+		// A watch without an offset starts after the output the agent last read, so
+		// output written between run_command or read_process and the watch is not missed.
+		input.Payload, err = defaultWatchCursor(input.Payload, readCursor)
+		if err != nil {
+			return ProcessActionRecord{}, err
+		}
 	}
 	row, err := t.q.InsertProcessAction(
 		ctx,
@@ -127,6 +154,18 @@ func (t *toolCallTransaction) createProcessAction(
 	t.requiresWaitingDisposition = true
 	t.notifications.AddDaemonWork(processRow.MachineID)
 	return record, nil
+}
+
+func defaultWatchCursor(payload json.RawMessage, cursor int64) (json.RawMessage, error) {
+	watch, err := processaction.DecodeWatchPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", storeerr.ErrInvalidRequest, err)
+	}
+	if watch.Cancels() || watch.Cursor != nil {
+		return payload, nil
+	}
+	watch.Cursor = &cursor
+	return marshalJSON(watch)
 }
 
 func (t *toolCallTransaction) processActionCreateBlocker(

@@ -29,6 +29,12 @@ type resolvedRunCommandRequest struct {
 	IOMode    processcmd.IOMode
 }
 
+func (r resolvedRunCommandRequest) executionSpec() processcmd.ExecutionSpec {
+	spec := processcmd.ForShell(r.Command, r.Selector, r.IOMode)
+	spec.Shell.NoStdin = r.IOMode == processcmd.IOModePipe
+	return spec
+}
+
 func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, error) {
 	var input runCommandRequest
 	if err := decodeSingleStrictJSON(raw, &input, "run_command request"); err != nil {
@@ -67,7 +73,7 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 			return resolvedRunCommandRequest{}, errors.New("cwd cannot contain NUL")
 		}
 	}
-	waitMs := 0
+	waitMs := processaction.DefaultCommandWaitMilliseconds
 	if len(input.WaitMs) != 0 {
 		var rawWait *int
 		if err := json.Unmarshal(input.WaitMs, &rawWait); err != nil {
@@ -77,8 +83,8 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 			return resolvedRunCommandRequest{}, errors.New("wait_ms cannot be null")
 		}
 		waitMs = *rawWait
-		if waitMs <= 0 {
-			return resolvedRunCommandRequest{}, errors.New("wait_ms must be positive")
+		if waitMs < 0 {
+			return resolvedRunCommandRequest{}, errors.New("wait_ms must be non-negative")
 		}
 		if waitMs > processaction.MaxWaitMilliseconds {
 			return resolvedRunCommandRequest{}, fmt.Errorf(
