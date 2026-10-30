@@ -15,7 +15,7 @@ import { zResourceName } from '@omnara/sdk/zod'
 import * as z from 'zod'
 
 import { openInBrowser } from './browser.ts'
-import type { ConfigStore } from './config-file.ts'
+import { type ConfigStore, firstPresentSetting } from './config-file.ts'
 import { canPromptInteractively } from './interactive.ts'
 import { CliInputError } from './output.ts'
 
@@ -209,7 +209,7 @@ export async function loginWithDevice(options: DeviceLoginOptions): Promise<Devi
   report.success(loginMessage)
   report.info(`Token saved to ${store.path}`)
   if (validationWarning !== undefined) report.warn(validationWarning)
-  if (process.env.OMNARA_API_KEY !== undefined) {
+  if (firstPresentSetting(process.env.OMNARA_API_KEY) !== undefined) {
     report.warn('OMNARA_API_KEY is set and takes precedence over the saved token')
   }
   return { token, orgId, projectId, hasOrganizations }

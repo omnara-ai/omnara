@@ -19,6 +19,13 @@ const zConfigFile = z.looseObject({
 
 export type ConfigFile = z.infer<typeof zConfigFile>
 
+export function firstPresentSetting(...values: (string | undefined)[]): string | undefined {
+  for (const value of values) {
+    if (value !== undefined && value.trim() !== '') return value
+  }
+  return undefined
+}
+
 export function configFilePath(): string {
   return join(homedir(), '.config', 'omnara', 'config.json')
 }
