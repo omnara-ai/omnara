@@ -180,6 +180,7 @@ func (e AgentExecutor) executeModelStep(
 		OpeningInputIDs:            input.InputIDs,
 		Now:                        input.Now,
 		AgentConfigSnapshot:        &snapshot,
+		RuntimeContract:            &contract,
 		MediaProjector:             model.MediaProjectorForClient(client),
 		TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
 	})

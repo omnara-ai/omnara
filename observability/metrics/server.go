@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/http/pprof"
+	"os"
 	"time"
 )
 
@@ -32,11 +35,26 @@ func ServerHandler(set *Set, ready ReadyFunc) http.Handler {
 		writeStatus(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
 	mux.Handle("GET "+ScrapePath, set.Handler())
+	if os.Getenv("OMNARA_PPROF") == "1" {
+		mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+		mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
+	}
 	return mux
 }
 
 func Serve(ctx context.Context, log *slog.Logger, addr string, set *Set, ready ReadyFunc) <-chan error {
 	errc := make(chan error, 1)
+	if os.Getenv("OMNARA_PPROF") == "1" {
+		var err error
+		addr, err = profilingAddress(addr)
+		if err != nil {
+			errc <- err
+			return errc
+		}
+	}
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           ServerHandler(set, ready),
@@ -73,4 +91,12 @@ func writeStatus(w http.ResponseWriter, status int, body map[string]string) {
 	w.WriteHeader(status)
 	//nolint:errchkjson // Status is already committed; client write errors are not actionable here.
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+func profilingAddress(addr string) (string, error) {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", err
+	}
+	return net.JoinHostPort("127.0.0.1", port), nil
 }

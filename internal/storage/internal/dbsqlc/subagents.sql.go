@@ -179,14 +179,14 @@ SELECT agent.id,
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'question'
-           AND interaction.state = 'open'
+             AND interaction.state = 'open'
        ) AS has_open_question,
        EXISTS (
          SELECT 1
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'permission'
-           AND interaction.state = 'open'
+             AND interaction.state = 'open'
        ) AS has_open_permission,
        (
          EXISTS (
@@ -292,33 +292,50 @@ func (q *Queries) ListAgentDescendantIDs(ctx context.Context, arg ListAgentDesce
 }
 
 const listAgentInteractionsForAgents = `-- name: ListAgentInteractionsForAgents :many
-SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction.turn_id,
-       interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
+WITH page AS MATERIALIZED (
+  SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+  FROM agents scoped_agent
+  CROSS JOIN LATERAL (
+    SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+    FROM agent_interactions interaction
+    WHERE interaction.agent_id = scoped_agent.id
+      AND interaction.state = $1::text
+      AND (interaction.created_at, interaction.id) >
+          (coalesce($2::timestamptz, '-infinity'::timestamptz),
+           coalesce($3::uuid, '00000000-0000-0000-0000-000000000000'::uuid))
+    ORDER BY interaction.created_at, interaction.id
+    LIMIT $4::bigint
+  ) interaction
+  WHERE scoped_agent.id = ANY($5::uuid[])
+    AND scoped_agent.project_id = $6
+  ORDER BY interaction.created_at, interaction.id
+  LIMIT $4::bigint
+)
+SELECT interaction.id, agent.project_id, interaction.agent_id, context.turn_id,
+       output.model_call_context_id, interaction.tool_call_id, tool_call.provider_call_id,
        interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
        interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
        interaction.destination, interaction.presentation_receipt,
        agent.name AS agent_name, agent.subagent_key
-FROM agent_interaction_read_projection interaction
-JOIN agents agent ON agent.project_id = interaction.project_id
-  AND agent.id = interaction.agent_id
-WHERE interaction.project_id = $1
-  AND interaction.agent_id = ANY($2::uuid[])
-  AND ($3::text = '' OR interaction.state = $3)
-  AND (
-    $4::timestamptz IS NULL
-    OR (interaction.created_at, interaction.id) > ($4::timestamptz, $5::uuid)
-  )
-ORDER BY interaction.created_at ASC, interaction.id ASC
-LIMIT $6::bigint
+FROM page interaction
+JOIN agents agent ON agent.id = interaction.agent_id
+JOIN tool_calls tool_call ON tool_call.agent_id = interaction.agent_id AND tool_call.id = interaction.tool_call_id
+JOIN model_outputs output ON output.agent_id = tool_call.agent_id AND output.id = tool_call.model_output_id
+JOIN model_call_contexts context ON context.agent_id = output.agent_id AND context.id = output.model_call_context_id
+ORDER BY interaction.created_at, interaction.id
 `
 
 type ListAgentInteractionsForAgentsParams struct {
-	ProjectID       uuid.UUID
-	AgentIds        []uuid.UUID
 	State           string
 	CursorCreatedAt *time.Time
 	CursorID        *uuid.UUID
 	RowLimit        int64
+	AgentIds        []uuid.UUID
+	ProjectID       uuid.UUID
 }
 
 type ListAgentInteractionsForAgentsRow struct {
@@ -344,12 +361,12 @@ type ListAgentInteractionsForAgentsRow struct {
 
 func (q *Queries) ListAgentInteractionsForAgents(ctx context.Context, arg ListAgentInteractionsForAgentsParams) ([]ListAgentInteractionsForAgentsRow, error) {
 	rows, err := q.db.Query(ctx, listAgentInteractionsForAgents,
-		arg.ProjectID,
-		arg.AgentIds,
 		arg.State,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.RowLimit,
+		arg.AgentIds,
+		arg.ProjectID,
 	)
 	if err != nil {
 		return nil, err
@@ -358,6 +375,117 @@ func (q *Queries) ListAgentInteractionsForAgents(ctx context.Context, arg ListAg
 	items := []ListAgentInteractionsForAgentsRow{}
 	for rows.Next() {
 		var i ListAgentInteractionsForAgentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.TurnID,
+			&i.ModelCallContextID,
+			&i.ToolCallID,
+			&i.ProviderCallID,
+			&i.InteractionKind,
+			&i.State,
+			&i.Request,
+			&i.Resolution,
+			&i.ResolvedByInputID,
+			&i.CreatedAt,
+			&i.ResolvedAt,
+			&i.Destination,
+			&i.PresentationReceipt,
+			&i.AgentName,
+			&i.SubagentKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllAgentInteractionsForAgents = `-- name: ListAllAgentInteractionsForAgents :many
+WITH page AS MATERIALIZED (
+  SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+  FROM agents scoped_agent
+  CROSS JOIN LATERAL (
+    SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+    FROM agent_interactions interaction
+    WHERE interaction.agent_id = scoped_agent.id
+      AND (interaction.created_at, interaction.id) >
+          (coalesce($1::timestamptz, '-infinity'::timestamptz),
+           coalesce($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid))
+    ORDER BY interaction.created_at, interaction.id
+    LIMIT $3::bigint
+  ) interaction
+  WHERE scoped_agent.id = ANY($4::uuid[])
+    AND scoped_agent.project_id = $5
+  ORDER BY interaction.created_at, interaction.id
+  LIMIT $3::bigint
+)
+SELECT interaction.id, agent.project_id, interaction.agent_id, context.turn_id,
+       output.model_call_context_id, interaction.tool_call_id, tool_call.provider_call_id,
+       interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
+       interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
+       interaction.destination, interaction.presentation_receipt,
+       agent.name AS agent_name, agent.subagent_key
+FROM page interaction
+JOIN agents agent ON agent.id = interaction.agent_id
+JOIN tool_calls tool_call ON tool_call.agent_id = interaction.agent_id AND tool_call.id = interaction.tool_call_id
+JOIN model_outputs output ON output.agent_id = tool_call.agent_id AND output.id = tool_call.model_output_id
+JOIN model_call_contexts context ON context.agent_id = output.agent_id AND context.id = output.model_call_context_id
+ORDER BY interaction.created_at, interaction.id
+`
+
+type ListAllAgentInteractionsForAgentsParams struct {
+	CursorCreatedAt *time.Time
+	CursorID        *uuid.UUID
+	RowLimit        int64
+	AgentIds        []uuid.UUID
+	ProjectID       uuid.UUID
+}
+
+type ListAllAgentInteractionsForAgentsRow struct {
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
+	ProviderCallID      string
+	InteractionKind     string
+	State               string
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	ResolvedByInputID   *uuid.UUID
+	CreatedAt           time.Time
+	ResolvedAt          *time.Time
+	Destination         *json.RawMessage
+	PresentationReceipt *json.RawMessage
+	AgentName           string
+	SubagentKey         string
+}
+
+func (q *Queries) ListAllAgentInteractionsForAgents(ctx context.Context, arg ListAllAgentInteractionsForAgentsParams) ([]ListAllAgentInteractionsForAgentsRow, error) {
+	rows, err := q.db.Query(ctx, listAllAgentInteractionsForAgents,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.RowLimit,
+		arg.AgentIds,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllAgentInteractionsForAgentsRow{}
+	for rows.Next() {
+		var i ListAllAgentInteractionsForAgentsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProjectID,
@@ -405,14 +533,14 @@ SELECT agent.id,
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'question'
-           AND interaction.state = 'open'
+             AND interaction.state = 'open'
        ) AS has_open_question,
        EXISTS (
          SELECT 1
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'permission'
-           AND interaction.state = 'open'
+             AND interaction.state = 'open'
        ) AS has_open_permission,
        (
          EXISTS (
@@ -550,6 +678,118 @@ func (q *Queries) ListIdleAgentsForArchive(ctx context.Context, arg ListIdleAgen
 	for rows.Next() {
 		var i ListIdleAgentsForArchiveRow
 		if err := rows.Scan(&i.ProjectID, &i.ID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenAgentInteractionsForAgents = `-- name: ListOpenAgentInteractionsForAgents :many
+WITH page AS MATERIALIZED (
+  SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+  FROM agents scoped_agent
+  CROSS JOIN LATERAL (
+    SELECT interaction.id, interaction.agent_id, interaction.tool_call_id, interaction.interaction_kind,
+         interaction.state, interaction.request, interaction.resolution, interaction.resolved_by_input_id,
+         interaction.created_at, interaction.resolved_at, interaction.destination, interaction.presentation_receipt
+    FROM agent_interactions interaction
+    WHERE interaction.agent_id = scoped_agent.id
+      AND interaction.state = 'open'
+      AND (interaction.created_at, interaction.id) >
+          (coalesce($1::timestamptz, '-infinity'::timestamptz),
+           coalesce($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid))
+    ORDER BY interaction.created_at, interaction.id
+    LIMIT $3::bigint
+  ) interaction
+  WHERE scoped_agent.id = ANY($4::uuid[])
+    AND scoped_agent.project_id = $5
+  ORDER BY interaction.created_at, interaction.id
+  LIMIT $3::bigint
+)
+SELECT interaction.id, agent.project_id, interaction.agent_id, context.turn_id,
+       output.model_call_context_id, interaction.tool_call_id, tool_call.provider_call_id,
+       interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
+       interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
+       interaction.destination, interaction.presentation_receipt,
+       agent.name AS agent_name, agent.subagent_key
+FROM page interaction
+JOIN agents agent ON agent.id = interaction.agent_id
+JOIN tool_calls tool_call ON tool_call.agent_id = interaction.agent_id AND tool_call.id = interaction.tool_call_id
+JOIN model_outputs output ON output.agent_id = tool_call.agent_id AND output.id = tool_call.model_output_id
+JOIN model_call_contexts context ON context.agent_id = output.agent_id AND context.id = output.model_call_context_id
+ORDER BY interaction.created_at, interaction.id
+`
+
+type ListOpenAgentInteractionsForAgentsParams struct {
+	CursorCreatedAt *time.Time
+	CursorID        *uuid.UUID
+	RowLimit        int64
+	AgentIds        []uuid.UUID
+	ProjectID       uuid.UUID
+}
+
+type ListOpenAgentInteractionsForAgentsRow struct {
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
+	ProviderCallID      string
+	InteractionKind     string
+	State               string
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	ResolvedByInputID   *uuid.UUID
+	CreatedAt           time.Time
+	ResolvedAt          *time.Time
+	Destination         *json.RawMessage
+	PresentationReceipt *json.RawMessage
+	AgentName           string
+	SubagentKey         string
+}
+
+func (q *Queries) ListOpenAgentInteractionsForAgents(ctx context.Context, arg ListOpenAgentInteractionsForAgentsParams) ([]ListOpenAgentInteractionsForAgentsRow, error) {
+	rows, err := q.db.Query(ctx, listOpenAgentInteractionsForAgents,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.RowLimit,
+		arg.AgentIds,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOpenAgentInteractionsForAgentsRow{}
+	for rows.Next() {
+		var i ListOpenAgentInteractionsForAgentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.TurnID,
+			&i.ModelCallContextID,
+			&i.ToolCallID,
+			&i.ProviderCallID,
+			&i.InteractionKind,
+			&i.State,
+			&i.Request,
+			&i.Resolution,
+			&i.ResolvedByInputID,
+			&i.CreatedAt,
+			&i.ResolvedAt,
+			&i.Destination,
+			&i.PresentationReceipt,
+			&i.AgentName,
+			&i.SubagentKey,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

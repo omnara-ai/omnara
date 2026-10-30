@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -18,6 +19,7 @@ type BuildInput struct {
 	OpeningInputIDs            []uuid.UUID
 	Now                        time.Time
 	AgentConfigSnapshot        *executionstore.AgentConfigSnapshotRecord
+	RuntimeContract            *agentconfig.RuntimeContract
 	CheckpointOverride         *CheckpointRef
 	MediaProjector             MediaProjector
 	TextAttachmentBudgetTokens int

@@ -45,7 +45,11 @@ import {
   cacheAgentInputBacklog,
   useAgentInputBacklog,
 } from './agent-input-backlog'
-import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
+import {
+  invalidateSubagentList,
+  openAgentInteractionsQueryKey,
+  refreshToolState,
+} from './agent-interactions'
 import { agentUsageQueryPredicate } from './usage'
 
 export type { OmnaraUIMessage } from './agent-chat-messages'
@@ -424,7 +428,7 @@ export class AgentChatSession {
         const parsed = parseStreamData(data)
         if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
         else if (parsed.kind === 'event') this.handleEvent(parsed.event)
-        else this.invalidateInteractions()
+        else refreshToolState(this.queryClient, this.client, this.scope, parsed.update)
       }
     } catch (error) {
       if (signal.aborted) return

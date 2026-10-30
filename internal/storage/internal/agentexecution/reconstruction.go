@@ -248,7 +248,7 @@ func (l *executionLoader) turn(ctx context.Context, head ExecutionHead) (*Turn, 
 		return turn, nil
 	}
 	opening, err := l.q.CaptureExecutionOpening(ctx, l.db, executiondb.CaptureExecutionOpeningParams{
-		ProjectID: l.route.ProjectID, AgentID: head.AgentID, TurnID: turn.ID,
+		AgentID: head.AgentID, TurnID: turn.ID,
 		Watermark: turn.LastOpeningSequence, StopSequence: head.StopSequence})
 	if err != nil {
 		return nil, err

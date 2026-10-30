@@ -208,3 +208,38 @@ func TestIntegrationToolDescriptionIdentifiesAssignedConversation(t *testing.T) 
 		})
 	}
 }
+
+func TestBuildReusesContractAndResolvesLiveIntegrationAvailability(t *testing.T) {
+	store, integrationID := integrationContextFixture(t, `tools:
+  int__engineering__post_message: {}
+  web_search: {}
+`)
+	snapshot, err := store.CaptureAgentConfigForModelContext(t.Context(), testProjectID, testAgentID)
+	require.NoError(t, err)
+	contract, err := agentconfig.RuntimeContractFromCompiled(
+		snapshot.AgentConfig.CompiledDefinition, snapshot.AgentConfig.EffectiveDefinitionHash,
+	)
+	require.NoError(t, err)
+	input := BuildInput{
+		Now: time.Now(), ProjectID: testProjectID, AgentID: testAgentID, TurnID: testTurnID,
+		AgentConfigSnapshot: &snapshot, RuntimeContract: &contract,
+		OpeningInputIDs: []uuid.UUID{testInputID},
+	}
+	builder := Builder{Store: store}
+	original, err := builder.Build(t.Context(), input)
+	require.NoError(t, err)
+	require.True(t, HasTool(original.ToolSpecs, "int__engineering__post_message"))
+	input.RuntimeContract = nil
+	decoded, err := builder.Build(t.Context(), input)
+	require.NoError(t, err)
+	require.Equal(t, original, decoded)
+	input.RuntimeContract = &contract
+	delete(store.integrationDefinitions, integrationID)
+	live, err := builder.Build(t.Context(), input)
+	require.NoError(t, err)
+	require.False(t, HasTool(live.ToolSpecs, "int__engineering__post_message"))
+	require.True(t, HasTool(live.ToolSpecs, "web_search"))
+	input.AgentConfigSnapshot = nil
+	_, err = builder.Build(t.Context(), input)
+	require.ErrorContains(t, err, "runtime contract requires its captured agent config snapshot")
+}

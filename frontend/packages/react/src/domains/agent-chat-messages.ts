@@ -8,6 +8,7 @@ import type {
   ModelOutputDelta,
   ModelOutputEvent,
   ToolCallType,
+  ToolCallUpdate,
   ToolResultContentBlock,
 } from '@omnara/sdk'
 import type { UIMessage } from 'ai'
@@ -51,12 +52,12 @@ export type OmnaraUIMessage = Omit<BaseOmnaraUIMessage, 'parts'> & {
 
 export type AgentStreamFrame =
   | { kind: 'event'; event: AgentEvent }
-  | { kind: 'tool_call_update' }
+  | { kind: 'tool_call_update'; update: ToolCallUpdate }
   | { kind: 'delta'; delta: ModelOutputDelta }
 
 export function parseStreamData(data: AgentEventStreamFrame): AgentStreamFrame {
   if ('event_kind' in data) return { kind: 'event', event: data }
-  if ('tool_call_id' in data && 'state' in data) return { kind: 'tool_call_update' }
+  if ('tool_call_id' in data && 'state' in data) return { kind: 'tool_call_update', update: data }
   return { kind: 'delta', delta: data }
 }
 
