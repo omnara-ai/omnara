@@ -102,7 +102,7 @@ func (s *Store) insertLaunchInitialContentInputTx(
 	}
 	content := CreateAgentContentInputInput{
 		ProjectID: agent.ProjectID, AgentID: agent.ID, Actor: actor,
-		ContentBlocks: initial.ContentBlocks, Metadata: initial.Metadata,
+		ContentBlocks: initial.ContentBlocks, Metadata: initial.Metadata, Source: launch.InputSource,
 		DeliveryMode: initial.DeliveryMode, CancelOpenInteractions: initial.CancelOpenInteractions,
 		IdempotencyScope: "content_input", IdempotencyKey: initial.SemanticEventKey,
 	}

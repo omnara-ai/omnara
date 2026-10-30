@@ -89,6 +89,17 @@ func TestCronTriggerFiringAndCascade(t *testing.T) {
 		stats.Failures != 0 || stats.Disabled != 0 {
 		t.Fatalf("unexpected fire stats: %+v", stats)
 	}
+	var cronInputs int
+	if err := pool.QueryRow(
+		ctx,
+		"SELECT count(*) FROM agent_inputs WHERE project_id = $1 AND input_kind = 'content' AND source = 'cron'",
+		project.ProjectUUID,
+	).Scan(&cronInputs); err != nil {
+		t.Fatalf("count cron inputs: %v", err)
+	}
+	if cronInputs != 2 {
+		t.Fatalf("cron inputs = %d, want the launch message and the delivered message", cronInputs)
+	}
 
 	fired := requestJSONWithHeaders(
 		t,
@@ -415,18 +426,19 @@ func TestCronTriggerFiringSteeringDelivery(t *testing.T) {
 	}
 
 	agentUUID := mustPublicHTTPID(t, publicid.KindAgent, agentID)
-	var deliveryMode, text string
+	var deliveryMode, text, source string
 	if err := pool.QueryRow(
 		ctx,
-		"SELECT input.delivery_mode, block.text_content FROM agent_inputs input"+
+		"SELECT input.delivery_mode, block.text_content, coalesce(input.source, '') FROM agent_inputs input"+
 			" JOIN content_blocks block ON block.owner_agent_input_id = input.id AND block.block_kind = 'text'"+
 			" WHERE input.agent_id = $1 AND input.input_kind = 'content'",
 		agentUUID,
-	).Scan(&deliveryMode, &text); err != nil {
+	).Scan(&deliveryMode, &text, &source); err != nil {
 		t.Fatalf("load cron input: %v", err)
 	}
-	if deliveryMode != "steering" || text != "Steer steer-nudge." {
-		t.Fatalf("cron input = (%q, %q), want steering delivery of the rendered message", deliveryMode, text)
+	if deliveryMode != "steering" || text != "Steer steer-nudge." || source != "cron" {
+		t.Fatalf("cron input = (%q, %q, %q), want cron steering delivery of the rendered message",
+			deliveryMode, text, source)
 	}
 }
 

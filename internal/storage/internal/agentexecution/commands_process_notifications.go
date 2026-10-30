@@ -169,6 +169,7 @@ func (h *Handle) sendProcessNotification(
 		IdempotencyScope: processNotificationScope,
 		IdempotencyKey:   key,
 		Metadata:         metadata,
+		Source:           "process",
 		Content:          []Content{{Kind: "text", Text: text}},
 	})
 	return received.ID, err

@@ -165,12 +165,14 @@ func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *test
 			require.False(t, result.Input.Created)
 		}
 	}
-	var count int
+	var count, integrationCount int
 	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_idempotency_key=$2`,
+		`SELECT count(*), count(*) FILTER (WHERE source = 'integration')
+		FROM agent_inputs WHERE project_id=$1 AND input_idempotency_key=$2`,
 		ids.ProjectID, event.SemanticKey,
-	).Scan(&count))
+	).Scan(&count, &integrationCount))
 	require.Equal(t, 2, count)
+	require.Equal(t, 2, integrationCount, "inbox launches and inputs record the integration source")
 	replay, err := consumer.Consume(ctx, retry.Lease())
 	require.NoError(t, err)
 	require.Len(t, replay, 2)
