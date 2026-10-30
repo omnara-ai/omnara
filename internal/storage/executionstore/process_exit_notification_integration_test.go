@@ -434,9 +434,12 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 		!strings.Contains(texts[0], "3 more matching lines") {
 		t.Fatalf("merged output match notification = %q", texts[0])
 	}
-	_, err := fixture.Store.pool.Exec(ctx, `UPDATE agent_inputs SET state = 'canceled', canceled_at = now()
-WHERE agent_id = $1 AND idempotency_scope = 'process_notification' AND state = 'received'`, fixture.AgentID)
-	require.NoError(t, err)
+	merged := texts[0]
+	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+		t, ctx, fixture.Store, testProjectID, fixture.AgentID, fixture.Lock.ID,
+	)
+	require.True(t, found)
+	require.Len(t, admitted.Inputs, 1)
 
 	match.Sequence = 3
 	match.Result = outputMatchResultForTest(t, watchID, "listening|ERROR", `"lines":[],"expired":true`)
@@ -444,11 +447,24 @@ WHERE agent_id = $1 AND idempotency_scope = 'process_notification' AND state = '
 		t.Fatalf("notify watch expiry: %v", err)
 	}
 	texts = processNotificationTexts(t, ctx, fixture)
-	if len(texts) != 1 || !strings.Contains(texts[0], "expired with no new matching lines") {
-		t.Fatalf("process notifications after the merged one left = %q", texts)
+	if len(texts) != 2 || texts[0] != merged || !strings.Contains(texts[1], "expired with no new matching lines") ||
+		strings.Contains(texts[1], "ERROR boom") {
+		t.Fatalf("process notifications after the merged one was admitted = %q", texts)
 	}
+	var pending []uuid.UUID
+	rows, err := fixture.Store.pool.Query(ctx, `SELECT id FROM agent_inputs
+WHERE agent_id = $1 AND idempotency_scope = 'process_notification' AND state = 'received'`, fixture.AgentID)
+	require.NoError(t, err)
+	for rows.Next() {
+		var id uuid.UUID
+		require.NoError(t, rows.Scan(&id))
+		pending = append(pending, id)
+	}
+	require.NoError(t, rows.Err())
+	require.Len(t, pending, 1)
+	require.NotEqual(t, admitted.Inputs[0].ID, pending[0])
 	var reports []int64
-	rows, err := fixture.Store.pool.Query(ctx,
+	rows, err = fixture.Store.pool.Query(ctx,
 		`SELECT report_seq FROM process_watch_reports WHERE watch_action_id = $1 ORDER BY report_seq`, watchID)
 	require.NoError(t, err)
 	for rows.Next() {
