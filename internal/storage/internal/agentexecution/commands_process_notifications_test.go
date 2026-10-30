@@ -129,3 +129,20 @@ func TestRenderProcessOutputMatch(t *testing.T) {
 		t.Fatalf("render =\n%s\nwant\n%s", got, want)
 	}
 }
+
+func TestMergeOutputMatches(t *testing.T) {
+	earlier := daemonprotocol.OutputMatchResult{WatchID: "w", Pattern: "ERROR", Lines: []string{"ERROR 1"}}
+	var later daemonprotocol.OutputMatchResult
+	for n := 2; n <= 22; n++ {
+		later.Lines = append(later.Lines, fmt.Sprintf("ERROR %d", n))
+	}
+	later.Dropped = 4
+	later.Expired = true
+	merged := mergeOutputMatches(earlier, later)
+	if len(merged.Lines) != 20 || merged.Lines[0] != "ERROR 1" || merged.Lines[19] != "ERROR 20" {
+		t.Fatalf("merged lines = %q", merged.Lines)
+	}
+	if merged.Dropped != 6 || !merged.Expired || merged.WatchID != "w" || merged.Pattern != "ERROR" {
+		t.Fatalf("merged = %+v", merged)
+	}
+}

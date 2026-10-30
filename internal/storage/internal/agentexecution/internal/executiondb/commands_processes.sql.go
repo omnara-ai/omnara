@@ -14,6 +14,24 @@ import (
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
+const cancelPendingExecutionInput = `-- name: CancelPendingExecutionInput :execrows
+UPDATE agent_inputs SET state='canceled',canceled_at=statement_timestamp()
+WHERE agent_id=$1 AND id=$2 AND state='received' AND input_kind='content'
+`
+
+type CancelPendingExecutionInputParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+func (q *Queries) CancelPendingExecutionInput(ctx context.Context, db DBTX, arg CancelPendingExecutionInputParams) (int64, error) {
+	result, err := db.Exec(ctx, cancelPendingExecutionInput, arg.AgentID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const markProcessExitNoticeDecided = `-- name: MarkProcessExitNoticeDecided :exec
 UPDATE processes SET exit_notice_decided=true WHERE agent_id=$1 AND id=$2
 `
@@ -131,6 +149,31 @@ func (q *Queries) ReadExecutionProcessOwner(ctx context.Context, db DBTX, arg Re
 	return i, err
 }
 
+const readPendingProcessWatchReport = `-- name: ReadPendingProcessWatchReport :one
+SELECT i.id AS agent_input_id,r.matched FROM process_watch_reports r
+JOIN agent_inputs i ON i.id=r.agent_input_id
+WHERE r.watch_action_id=$1 AND i.agent_id=$2
+ AND i.state='received' AND i.input_kind='content'
+ORDER BY r.report_seq DESC LIMIT 1
+`
+
+type ReadPendingProcessWatchReportParams struct {
+	WatchActionID uuid.UUID
+	AgentID       uuid.UUID
+}
+
+type ReadPendingProcessWatchReportRow struct {
+	AgentInputID uuid.UUID
+	Matched      json.RawMessage
+}
+
+func (q *Queries) ReadPendingProcessWatchReport(ctx context.Context, db DBTX, arg ReadPendingProcessWatchReportParams) (ReadPendingProcessWatchReportRow, error) {
+	row := db.QueryRow(ctx, readPendingProcessWatchReport, arg.WatchActionID, arg.AgentID)
+	var i ReadPendingProcessWatchReportRow
+	err := row.Scan(&i.AgentInputID, &i.Matched)
+	return i, err
+}
+
 const readProcessWatchAllowance = `-- name: ReadProcessWatchAllowance :one
 SELECT coalesce(a.action_kind='watch' AND a.state IN ('accepted','applied')
  AND a.payload->>'pattern'=$1::text AND a.payload ? 'timeout_seconds',false)::boolean AS eligible,
@@ -174,15 +217,23 @@ func (q *Queries) ReadProcessWatchAllowance(ctx context.Context, db DBTX, arg Re
 }
 
 const recordProcessWatchReport = `-- name: RecordProcessWatchReport :exec
-INSERT INTO process_watch_reports(watch_action_id, report_seq) VALUES ($1, $2)
+INSERT INTO process_watch_reports(watch_action_id,report_seq,agent_input_id,matched)
+VALUES ($1,$2,$3,$4::jsonb)
 `
 
 type RecordProcessWatchReportParams struct {
 	WatchActionID uuid.UUID
 	ReportSeq     int64
+	AgentInputID  *uuid.UUID
+	Matched       json.RawMessage
 }
 
 func (q *Queries) RecordProcessWatchReport(ctx context.Context, db DBTX, arg RecordProcessWatchReportParams) error {
-	_, err := db.Exec(ctx, recordProcessWatchReport, arg.WatchActionID, arg.ReportSeq)
+	_, err := db.Exec(ctx, recordProcessWatchReport,
+		arg.WatchActionID,
+		arg.ReportSeq,
+		arg.AgentInputID,
+		arg.Matched,
+	)
 	return err
 }

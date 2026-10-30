@@ -25,4 +25,16 @@ SELECT coalesce(a.action_kind='watch' AND a.state IN ('accepted','applied')
 FROM process_actions a WHERE a.agent_id=sqlc.arg(agent_id) AND a.process_id=sqlc.arg(process_id) AND a.id=sqlc.arg(id);
 
 -- name: RecordProcessWatchReport :exec
-INSERT INTO process_watch_reports(watch_action_id, report_seq) VALUES (sqlc.arg(watch_action_id), sqlc.arg(report_seq));
+INSERT INTO process_watch_reports(watch_action_id,report_seq,agent_input_id,matched)
+VALUES (sqlc.arg(watch_action_id),sqlc.arg(report_seq),sqlc.narg(agent_input_id),sqlc.arg(matched)::jsonb);
+
+-- name: ReadPendingProcessWatchReport :one
+SELECT i.id AS agent_input_id,r.matched FROM process_watch_reports r
+JOIN agent_inputs i ON i.id=r.agent_input_id
+WHERE r.watch_action_id=sqlc.arg(watch_action_id) AND i.agent_id=sqlc.arg(agent_id)
+ AND i.state='received' AND i.input_kind='content'
+ORDER BY r.report_seq DESC LIMIT 1;
+
+-- name: CancelPendingExecutionInput :execrows
+UPDATE agent_inputs SET state='canceled',canceled_at=statement_timestamp()
+WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(id) AND state='received' AND input_kind='content';

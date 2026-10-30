@@ -102,7 +102,10 @@ const (
 	WatchDaemonVersion   = OutputWindowDaemonVersion
 )
 
-const WatchReportIntervalSeconds = 10
+const (
+	WatchReportIntervalSeconds = 10
+	MaxWatchReportLines        = 20
+)
 
 func MaxWatchReports(timeoutSeconds int) int {
 	return (timeoutSeconds+WatchReportIntervalSeconds-1)/WatchReportIntervalSeconds + 2

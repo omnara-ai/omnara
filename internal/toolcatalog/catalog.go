@@ -54,8 +54,11 @@ const (
 	watchProcessToolDescription = "Watch a running process's output and get a message with the lines that match a " +
 		"regular expression, such as a server's ready line or errors, until the watch expires or the process ends. " +
 		"You also get a message when the watch expires. " +
-		"Matches are batched and rate limited. A new watch replaces the process's current one; " +
-		"timeout_seconds 0 cancels it."
+		"Matches are batched and rate limited, and matches you have not read yet are merged into one message. " +
+		"Watch for rare lines you want to be told about, then use read_process for the surrounding output; " +
+		"a pattern that matches frequent lines, such as progress or every log line, floods you with messages. " +
+		"If a watch reports too often, replace it with a narrower pattern or cancel it. " +
+		"A new watch replaces the process's current one; timeout_seconds 0 cancels it."
 	readProcessToolDescription = "Read retained process output, optionally waiting for the process to end. " +
 		"Long output keeps the start and end."
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."

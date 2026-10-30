@@ -316,7 +316,7 @@ SELECT block.text_content
 FROM agent_inputs input
 JOIN content_blocks block ON block.agent_id = input.agent_id AND block.owner_agent_input_id = input.id
 WHERE input.project_id = $1 AND input.agent_id = $2 AND input.idempotency_scope = 'process_notification'
-  AND input.delivery_mode = 'steering'
+  AND input.delivery_mode = 'steering' AND input.state <> 'canceled'
 ORDER BY input.queued_at`, testProjectID, fixture.AgentID)
 	if err != nil {
 		t.Fatalf("query process notifications: %v", err)
@@ -424,22 +424,28 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
 		t.Fatalf("notify second output match: %v", err)
 	}
+
+	texts := processNotificationTexts(t, ctx, fixture)
+	if len(texts) != 1 {
+		t.Fatalf("waiting process notifications = %d, want 1: %q", len(texts), texts)
+	}
+	if !strings.Contains(texts[0], "printed lines matching `listening|ERROR`") ||
+		!strings.Contains(texts[0], "listening on :3000\nERROR boom") ||
+		!strings.Contains(texts[0], "3 more matching lines") {
+		t.Fatalf("merged output match notification = %q", texts[0])
+	}
+	_, err := fixture.Store.pool.Exec(ctx, `UPDATE agent_inputs SET state = 'canceled', canceled_at = now()
+WHERE agent_id = $1 AND idempotency_scope = 'process_notification' AND state = 'received'`, fixture.AgentID)
+	require.NoError(t, err)
+
 	match.Sequence = 3
 	match.Result = outputMatchResultForTest(t, watchID, "listening|ERROR", `"lines":[],"expired":true`)
 	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
 		t.Fatalf("notify watch expiry: %v", err)
 	}
-
-	texts := processNotificationTexts(t, ctx, fixture)
-	if len(texts) != 3 {
-		t.Fatalf("process notifications = %d, want 3: %q", len(texts), texts)
-	}
-	if !strings.Contains(texts[0], "printed lines matching `listening|ERROR`") ||
-		!strings.Contains(texts[0], "listening on :3000") ||
-		!strings.Contains(texts[1], "ERROR boom") ||
-		!strings.Contains(texts[1], "3 more matching lines") ||
-		!strings.Contains(texts[2], "expired with no new matching lines") {
-		t.Fatalf("output match notifications = %q", texts)
+	texts = processNotificationTexts(t, ctx, fixture)
+	if len(texts) != 1 || !strings.Contains(texts[0], "expired with no new matching lines") {
+		t.Fatalf("process notifications after the merged one left = %q", texts)
 	}
 	var reports []int64
 	rows, err := fixture.Store.pool.Query(ctx,
@@ -510,7 +516,16 @@ func TestOutputMatchesNeedAnEligibleWatch(t *testing.T) {
 		require.NoError(t, notify(watchID, "ready", seq))
 	}
 	require.NoError(t, notify(watchID, "ready", 1), "a replay within the allowance is accepted")
-	require.Len(t, processNotificationTexts(t, ctx, fixture), allowance)
+	reports := func(watchID uuid.UUID) int {
+		var n int
+		require.NoError(t, fixture.Store.pool.QueryRow(ctx,
+			`SELECT count(*) FROM process_watch_reports WHERE watch_action_id = $1`, watchID).Scan(&n))
+		return n
+	}
+	require.Equal(t, allowance, reports(watchID))
+	texts := processNotificationTexts(t, ctx, fixture)
+	require.Len(t, texts, 1, "reports the agent has not read are merged")
+	require.Equal(t, allowance, strings.Count(texts[0], "\nready"))
 
 	other := startBackgroundProcessForTest(t, ctx, fixture, "output_match_delayed")
 	delayedID := startWatchForTest(t, ctx, fixture, other.ID, "output_match_delayed_watch", "ready", 10)
@@ -526,8 +541,9 @@ func TestOutputMatchesNeedAnEligibleWatch(t *testing.T) {
 		Result:    outputMatchResultForTest(t, delayedID, "ready", `"lines":["ready"]`),
 	}
 	require.NoError(t, fixture.Store.Execution().NotifyProcessOutputMatch(ctx, delayed))
-	require.Len(t, processNotificationTexts(t, ctx, fixture), allowance+1,
+	require.Equal(t, 1, reports(delayedID),
 		"a match captured during the watch is delivered after a reconnect past its deadline")
+	require.Len(t, processNotificationTexts(t, ctx, fixture), 2)
 }
 
 func startWatchForTest(

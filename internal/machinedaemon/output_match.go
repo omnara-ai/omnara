@@ -18,7 +18,7 @@ const (
 	outputMatchPollInterval = 250 * time.Millisecond
 	outputMatchSettle       = 2 * time.Second
 	outputMatchMinInterval  = processaction.WatchReportIntervalSeconds * time.Second
-	outputMatchMaxLines     = 20
+	outputMatchMaxLines     = processaction.MaxWatchReportLines
 	outputMatchMaxLineRunes = 300
 )
 

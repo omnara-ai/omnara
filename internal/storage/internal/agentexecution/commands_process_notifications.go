@@ -38,8 +38,9 @@ func (h *Handle) notifyProcessExit(
 	if err != nil {
 		return err
 	}
-	return h.sendProcessNotification(ctx, row, "exit", "exit:"+row.ID.String(),
+	_, err = h.sendProcessNotification(ctx, row, "exit", "exit:"+row.ID.String(),
 		renderProcessExit(processID, row, observed))
+	return err
 }
 
 func (h *Handle) NotifyProcessOutputMatch(
@@ -48,7 +49,7 @@ func (h *Handle) NotifyProcessOutputMatch(
 	seq int64,
 	matched daemonprotocol.OutputMatchResult,
 ) error {
-	_, err := executeCommand(ctx, h, func(*executionMutation) (struct{}, error) {
+	_, err := executeCommand(ctx, h, func(m *executionMutation) (struct{}, error) {
 		row, err := executiondb.New().ReadExecutionProcessOwner(ctx, h.unit.DB(),
 			executiondb.ReadExecutionProcessOwnerParams{AgentID: h.route.AgentID, ID: id})
 		if err != nil {
@@ -82,48 +83,86 @@ func (h *Handle) NotifyProcessOutputMatch(
 			int(allowance.ReportCount) >= processaction.MaxWatchReports(int(allowance.TimeoutSeconds)) {
 			return struct{}{}, nil
 		}
-		if err := executiondb.New().RecordProcessWatchReport(ctx, h.unit.DB(),
-			executiondb.RecordProcessWatchReportParams{WatchActionID: watchID, ReportSeq: seq}); err != nil {
+		pending, err := executiondb.New().ReadPendingProcessWatchReport(ctx, h.unit.DB(),
+			executiondb.ReadPendingProcessWatchReportParams{WatchActionID: watchID, AgentID: h.route.AgentID})
+		switch {
+		case err == nil:
+			var earlier daemonprotocol.OutputMatchResult
+			if err := json.Unmarshal(pending.Matched, &earlier); err != nil {
+				return struct{}{}, err
+			}
+			matched = mergeOutputMatches(earlier, matched)
+			if _, err := executiondb.New().CancelPendingExecutionInput(ctx, h.unit.DB(),
+				executiondb.CancelPendingExecutionInputParams{AgentID: h.route.AgentID, ID: pending.AgentInputID}); err != nil {
+				return struct{}{}, err
+			}
+			m.changed()
+		case !errors.Is(err, pgx.ErrNoRows):
 			return struct{}{}, err
 		}
 		processID, err := publicid.Encode(publicid.KindProcess, row.ID)
 		if err != nil {
 			return struct{}{}, err
 		}
-		return struct{}{}, h.sendProcessNotification(ctx, row, "output_match",
+		inputID, err := h.sendProcessNotification(ctx, row, "output_match",
 			fmt.Sprintf("match:%s:%d", watchID, seq), renderProcessOutputMatch(processID, row, matched))
+		if err != nil {
+			return struct{}{}, err
+		}
+		body, err := json.Marshal(matched)
+		if err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, executiondb.New().RecordProcessWatchReport(ctx, h.unit.DB(),
+			executiondb.RecordProcessWatchReportParams{
+				WatchActionID: watchID, ReportSeq: seq, AgentInputID: storeutil.IDFromNil(inputID), Matched: body,
+			})
 	})
 	return err
+}
+
+func mergeOutputMatches(earlier, later daemonprotocol.OutputMatchResult) daemonprotocol.OutputMatchResult {
+	merged := earlier
+	merged.Dropped += later.Dropped
+	for _, line := range later.Lines {
+		if len(merged.Lines) == processaction.MaxWatchReportLines {
+			merged.Dropped++
+			continue
+		}
+		merged.Lines = append(merged.Lines, line)
+	}
+	merged.Expired = later.Expired
+	return merged
 }
 
 func (h *Handle) sendProcessNotification(
 	ctx context.Context,
 	row executiondb.ReadExecutionProcessOwnerRow,
 	kind, key, text string,
-) error {
+) (uuid.UUID, error) {
 	identity, err := executiondb.New().ReadExecutionAgentIdentity(ctx, h.unit.DB(),
 		executiondb.ReadExecutionAgentIdentityParams{ProjectID: h.route.ProjectID, ID: h.route.AgentID})
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	if identity.State == "archived" {
-		return nil
+		return uuid.Nil, nil
 	}
 	processID, err := publicid.Encode(publicid.KindProcess, row.ID)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	actorID, err := h.processNotificationActor(ctx, row)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	metadata, err := json.Marshal(map[string]any{
 		processNotificationScope: map[string]any{"kind": kind, "process_id": processID},
 	})
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
-	_, err = h.ReceiveContent(ctx, ReceiveContentInput{
+	received, err := h.ReceiveContent(ctx, ReceiveContentInput{
 		capacityExempt:   true,
 		ActorID:          actorID,
 		DeliveryMode:     "steering",
@@ -132,7 +171,7 @@ func (h *Handle) sendProcessNotification(
 		Metadata:         metadata,
 		Content:          []Content{{Kind: "text", Text: text}},
 	})
-	return err
+	return received.ID, err
 }
 
 func (h *Handle) processNotificationActor(

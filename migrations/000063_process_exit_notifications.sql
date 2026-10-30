@@ -14,6 +14,8 @@ ALTER TABLE process_actions
 CREATE TABLE process_watch_reports (
     watch_action_id uuid NOT NULL REFERENCES process_actions(id) ON DELETE CASCADE,
     report_seq bigint NOT NULL,
+    agent_input_id uuid REFERENCES agent_inputs(id),
+    matched jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
     PRIMARY KEY (watch_action_id, report_seq),
     CHECK (report_seq > 0)
