@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +38,7 @@ func TestGitCredentialsCompileAndReferenceIndependently(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, want, contract.GitCredentials)
 			require.Equal(t, []uuid.UUID{want.IntegrationID}, contract.ReferencedIntegrationIDs())
-			require.Equal(t, tools != "", contract.RequiresModelToolSupport())
+			require.True(t, contract.RequiresModelToolSupport())
 			parsed, err := ParseSource(SourceFormatYAML, []byte(result.Source))
 			require.NoError(t, err)
 			require.Equal(t, &GitCredentialsSource{Integration: "reviews"}, parsed.GitCredentials)
@@ -194,4 +195,22 @@ func TestGitCredentialsAreStrippedFromSubagents(t *testing.T) {
 			require.NotNil(t, base.GitCredentials)
 		}
 	}
+}
+
+func TestGitCredentialsAddRepositoryListing(t *testing.T) {
+	opts := gitCredentialsTestOptions(t)
+	hasTool := func(compiled Compiled) bool {
+		_, ok := compiled.Tools[toolcatalog.ToolNameListGitHubRepositories]
+		return ok
+	}
+	require.False(t, hasTool(compileIntegrationTest(t, "", opts).Compiled))
+	base := compileIntegrationTest(t, "git_credentials: {integration: reviews}", opts).Compiled
+	require.True(t, hasTool(base))
+	require.False(t, hasTool(SubagentCompiledFrom(base, SubagentCompiled{Type: SubagentTypeSelf}, SubagentDepth{})))
+
+	addition := IntegrationCapabilitiesSource{GitCredentials: &GitCredentialsSource{Integration: "reviews"}}
+	derived, err := DeriveWithIntegrationCapabilities(compileIntegrationTest(t, "", opts).Compiled, addition, opts)
+	require.NoError(t, err)
+	require.True(t, hasTool(derived))
+	require.Contains(t, derived.Tools, toolcatalog.ToolNameStorageList)
 }

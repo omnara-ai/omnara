@@ -26,10 +26,11 @@ func TestDefaultSystemPromptUsesProductVocabulary(t *testing.T) {
 
 func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 	tests := []struct {
-		name      string
-		specs     []ToolSpec
-		want      []string
-		forbidden []string
+		name           string
+		specs          []ToolSpec
+		gitCredentials bool
+		want           []string
+		forbidden      []string
 	}{
 		{
 			name:      "no tools",
@@ -39,7 +40,13 @@ func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 			name:      "command only",
 			specs:     []ToolSpec{{Name: toolcatalog.ToolNameRunCommand}},
 			want:      []string{"daemon-backed machine", "run_command"},
-			forbidden: []string{"write_process", "read_process", "stop_process"},
+			forbidden: []string{"write_process", "read_process", "stop_process", "github.com"},
+		},
+		{
+			name:           "command with git credentials",
+			specs:          []ToolSpec{{Name: toolcatalog.ToolNameRunCommand}},
+			gitCredentials: true,
+			want:           []string{"run_command", "authenticated to github.com", "don't cover SSH remotes or the `gh` CLI"},
 		},
 		{
 			name: "process controls",
@@ -51,10 +58,15 @@ func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 			want:      []string{"write_process", "read_process", "stop_process"},
 			forbidden: []string{"run_command", "daemon-backed machine"},
 		},
+		{
+			name:           "git credentials without command",
+			gitCredentials: true,
+			forbidden:      []string{"run_command", "github.com"},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			prompt := capabilityGuidance(test.specs)
+			prompt := capabilityGuidance(test.specs, test.gitCredentials)
 			for _, want := range test.want {
 				if !strings.Contains(prompt, want) {
 					t.Fatalf("capability guidance missing %q: %s", want, prompt)

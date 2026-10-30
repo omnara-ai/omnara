@@ -91,6 +91,23 @@ func DeriveWithIntegrationCapabilities(
 	if err != nil {
 		return Compiled{}, err
 	}
+	if additions.GitCredentials != nil {
+		name := toolcatalog.ToolNameListGitHubRepositories
+		if _, configured := base.Tools[name]; !configured {
+			catalog, err := toolcatalog.Default()
+			if err != nil {
+				return Compiled{}, err
+			}
+			entry, err := compileBuiltInTool(name, AgentConfigToolSource{}, true, catalog)
+			if err != nil {
+				return Compiled{}, err
+			}
+			if additions.Tools == nil {
+				additions.Tools = map[string]ToolCompiled{}
+			}
+			additions.Tools[name] = entry
+		}
+	}
 	raw, err := json.Marshal(base)
 	if err != nil {
 		return Compiled{}, err
