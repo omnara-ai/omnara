@@ -114,7 +114,7 @@ function CronTriggerFormDialog({
   open,
   onOpenChange,
   title,
-  description,
+  targetLabel,
   submitLabel,
   errorFallback,
   target,
@@ -127,7 +127,7 @@ function CronTriggerFormDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
-  description: string
+  targetLabel?: string
   submitLabel: string
   errorFallback: string
   target: CronTriggerTarget
@@ -143,6 +143,10 @@ function CronTriggerFormDialog({
     projectId,
     target.type === 'integration' ? target.integration_id : '',
   )
+  const description =
+    target.type === 'integration'
+      ? integrationSchedule.integration.data?.capabilities.schedule?.description
+      : targetDescription(target, targetLabel)
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
@@ -196,21 +200,6 @@ function CronTriggerFormDialog({
                 </Field>
               )}
             </form.Field>
-            {target.type === 'integration' && (
-              <form.Field name="integrationTarget">
-                {(field) =>
-                  field.state.value && (
-                    <IntegrationCronTriggerFields
-                      orgId={orgId}
-                      projectId={projectId}
-                      schedule={integrationSchedule}
-                      value={field.state.value}
-                      onChange={field.handleChange}
-                    />
-                  )
-                }
-              </form.Field>
-            )}
             <form.Field name="cron">
               {(field) => (
                 <Field>
@@ -227,7 +216,7 @@ function CronTriggerFormDialog({
                   />
                   <FieldDescription>
                     {cronDescription(field.state.value) ??
-                      'Five fields: minute, hour, day of month, month, day of week.'}
+                      'Standard cron syntax, like 0 9 * * 1-5 for 9 AM on weekdays.'}
                   </FieldDescription>
                 </Field>
               )}
@@ -260,10 +249,24 @@ function CronTriggerFormDialog({
                       </ComboboxList>
                     </ComboboxContent>
                   </Combobox>
-                  <FieldDescription>The schedule is evaluated in this timezone.</FieldDescription>
                 </Field>
               )}
             </form.Field>
+            {target.type === 'integration' && (
+              <form.Field name="integrationTarget">
+                {(field) =>
+                  field.state.value && (
+                    <IntegrationCronTriggerFields
+                      orgId={orgId}
+                      projectId={projectId}
+                      schedule={integrationSchedule}
+                      value={field.state.value}
+                      onChange={field.handleChange}
+                    />
+                  )
+                }
+              </form.Field>
+            )}
             {target.type !== 'integration' && (
               <form.Field name="messageTemplate">
                 {(field) => (
@@ -341,10 +344,10 @@ function CronTriggerFormDialog({
   )
 }
 
-function targetDescription(target: CronTriggerTarget, targetLabel?: string) {
-  if (target.type === 'integration') {
-    return `Each run asks ${targetLabel ?? 'this integration'} to perform its scheduled action using these settings. Changes apply to future runs; work already prepared keeps its saved settings.`
-  }
+function targetDescription(
+  target: Exclude<CronTriggerTarget, { type: 'integration' }>,
+  targetLabel?: string,
+) {
   if (target.type === 'profile') {
     return `Each firing launches a new agent from ${targetLabel ?? 'this profile'} and sends the message as its initial prompt. To message an agent that already exists, add a schedule from that agent's page instead.`
   }
@@ -376,7 +379,7 @@ export function CreateCronTriggerDialog({
       open={open}
       onOpenChange={onOpenChange}
       title="Add cron schedule"
-      description={targetDescription(target, targetLabel)}
+      targetLabel={targetLabel}
       submitLabel="Create schedule"
       errorFallback="Could not create schedule"
       target={target}
@@ -428,7 +431,6 @@ export function EditCronTriggerDialog({
       open={open}
       onOpenChange={onOpenChange}
       title="Edit cron schedule"
-      description={targetDescription(trigger.target)}
       submitLabel="Save changes"
       errorFallback="Could not update schedule"
       target={trigger.target}

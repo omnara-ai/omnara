@@ -32,7 +32,7 @@ export async function exerciseDiscordIntegrationSchedule(
   await createDialog.getByLabel('Cron expression').fill('0 9 1 1 *')
   await createDialog.getByRole('combobox', { name: 'Timezone', exact: true }).fill('UTC')
   await page.getByRole('option', { name: 'UTC (GMT+00:00)', exact: true }).click()
-  await createDialog.getByLabel('Task instructions').fill('Summarize this channel.')
+  await createDialog.getByLabel('Message', { exact: true }).fill('Summarize this channel.')
   const createdResponse = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
@@ -66,7 +66,9 @@ export async function exerciseDiscordIntegrationSchedule(
   await expect(
     editDialog.getByRole('combobox', { name: 'Agent profile', exact: true }),
   ).toBeEnabled()
-  await expect(editDialog.getByLabel('Task instructions')).toHaveValue('Summarize this channel.')
+  await expect(editDialog.getByLabel('Message', { exact: true })).toHaveValue(
+    'Summarize this channel.',
+  )
   await editDialog.getByLabel('Channel ID', { exact: true }).fill('334')
   const opening = 'Channel update\n{{.trigger.local_date}}'
   await editDialog.getByLabel('Opening message').fill(opening)
