@@ -157,7 +157,7 @@ func (s *runnerServerState) startOutputWatch(
 		if previous != nil {
 			<-previous.done
 		}
-		if ctx.Err() != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
 			return
 		}
 		s.watchOutputMatches(ctx, parent, runner, watchID, pattern, cursor)
