@@ -99,7 +99,7 @@ WHERE project_id = sqlc.arg(project_id)
 FOR UPDATE;
 
 -- name: LockProcessForActionCreation :one
-SELECT id
+SELECT default_output_cursor
 FROM processes
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)

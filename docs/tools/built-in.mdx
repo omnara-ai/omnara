@@ -69,10 +69,10 @@ Runs a shell command on a [machine attached to the agent](/machines/overview#bin
 | `machine_id` | string | Public ID (`mch_...`) of the [machine](#picking-a-machine) to use; omit when the agent has exactly one |
 | `shell` | enum | `default`, `sh`, `bash`, `zsh`, `pwsh`, `powershell`, `cmd` |
 | `cwd` | string | Overrides the binding's working directory |
-| `wait_ms` | integer | 0–30000 (default 10000); how long to wait for the command to exit before returning. `0` returns as soon as the command starts |
+| `wait_ms` | integer | 0–30000 (default 5000); how long to wait for the command to exit before returning. `0` returns as soon as the command starts |
 | `io_mode` | enum | `pipe` (default) or `pty`. Only `pty` commands take input. See [input](#input) |
 
-Every command returns a `process_id` (`prc_…`). `run_command` waits up to `wait_ms` (10 seconds by default) for the command to exit. If it does, the result includes its exit code and output:
+Every command returns a `process_id` (`prc_…`). `run_command` waits up to `wait_ms` (5 seconds by default) for the command to exit. If it does, the result includes its exit code and output:
 
 ```json
 {
@@ -152,7 +152,7 @@ Sends the agent a message with the output lines that match a regular expression,
 | `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
 | `pattern` | string | RE2 regular expression, up to 500 bytes, matched against each output line. Required unless `timeout_seconds` is `0` |
 | `timeout_seconds` | integer | 0–3600 (default 300); when the watch expires. `0` cancels the current watch and takes no `pattern` or `offset_byte` |
-| `offset_byte` | integer | ≥ 0; byte position to watch from, such as `next_offset_byte` from `run_command`. Omit to watch only output written after the watch starts |
+| `offset_byte` | integer | ≥ 0; byte position to watch from, such as `next_offset_byte` from `run_command`. Omit to watch from the end of the output returned by `run_command` or the last `read_process` call that omitted it, so output written in between is not missed |
 
 Matches that arrive together are batched into one message of up to 20 lines, and messages are at least 10 seconds apart. If the agent has not read the watch's last message yet, for example while it waits for an approval, new matches are merged into that message instead of adding another one. When the process ends, matches still pending are sent before its exit message. A process has one watch at a time: calling `watch_process` again replaces the pattern and restarts the timeout, so call it again to keep watching after a watch expires. When a watch expires, the agent gets a message saying so, so it can watch again or move on. Calling `watch_process` with `timeout_seconds: 0` cancels the watch without that message; matches it already found are still sent.
 

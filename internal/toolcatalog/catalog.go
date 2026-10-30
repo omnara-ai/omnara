@@ -45,7 +45,7 @@ func IsPlatformManagedToolType(toolType string) bool {
 }
 
 const (
-	runCommandToolDescription = "Run a shell command on an attached machine. Waits up to wait_ms (default 10 seconds) for it to exit " +
+	runCommandToolDescription = "Run a shell command on an attached machine. Waits up to wait_ms (default 5 seconds) for it to exit " +
 		"and returns its output, keeping the start and end of long output. If it is still running, it keeps " +
 		"running and you get a message when it ends; use its process_id with the process tools to read " +
 		"output, send input, or stop it."
@@ -163,7 +163,7 @@ func buildDefaultCatalog() (Catalog, error) {
 				"type":    "integer",
 				"minimum": 0,
 				"maximum": processaction.MaxWaitMilliseconds,
-				"description": "How long to wait for the command to exit before returning (default 10000, up to 30000 ms). " +
+				"description": "How long to wait for the command to exit before returning (default 5000, up to 30000 ms). " +
 					"Set it only to how long you expect the command to take, for a command that should finish within " +
 					"30 seconds. For a long-running command, or one whose duration you do not know, such as a build, " +
 					"test suite, install, or server, use 0 to return as soon as it starts: it keeps running and you get " +
@@ -226,7 +226,8 @@ func buildDefaultCatalog() (Catalog, error) {
 					"type":    "integer",
 					"minimum": 0,
 					"description": "Byte position to watch from, such as next_offset_byte from run_command or " +
-						"read_process, so output since then is not missed. Omit to watch only new output.",
+						"read_process. Omit to watch from the end of the output returned by run_command or the last " +
+						"read_process call that omitted offset_byte, so output written since then is not missed.",
 				},
 			},
 		},

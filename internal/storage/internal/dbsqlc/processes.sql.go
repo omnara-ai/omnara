@@ -1698,7 +1698,7 @@ func (q *Queries) LockDaemonProcessForAccept(ctx context.Context, arg LockDaemon
 }
 
 const lockProcessForActionCreation = `-- name: LockProcessForActionCreation :one
-SELECT id
+SELECT default_output_cursor
 FROM processes
 WHERE project_id = $1
   AND agent_id = $2
@@ -1712,11 +1712,11 @@ type LockProcessForActionCreationParams struct {
 	ID        uuid.UUID
 }
 
-func (q *Queries) LockProcessForActionCreation(ctx context.Context, arg LockProcessForActionCreationParams) (uuid.UUID, error) {
+func (q *Queries) LockProcessForActionCreation(ctx context.Context, arg LockProcessForActionCreationParams) (int64, error) {
 	row := q.db.QueryRow(ctx, lockProcessForActionCreation, arg.ProjectID, arg.AgentID, arg.ID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var default_output_cursor int64
+	err := row.Scan(&default_output_cursor)
+	return default_output_cursor, err
 }
 
 const machineReachableForProjectMachine = `-- name: MachineReachableForProjectMachine :one

@@ -636,3 +636,40 @@ func TestCreateProcessActionRejectsInvalidWatchPayload(t *testing.T) {
 		require.ErrorIs(t, err, storeerr.ErrInvalidRequest, name)
 	}
 }
+
+func TestWatchWithoutOffsetStartsAtTheLastReadCursor(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "watch_read_cursor")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "watch_read_cursor")
+	_, err := fixture.Store.pool.Exec(ctx,
+		`UPDATE processes SET default_output_cursor = 42 WHERE id = $1`, process.ID)
+	require.NoError(t, err)
+	transaction := executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    createToolCallForProcessTest(t, ctx, fixture, "watch_read_cursor_watch", "watch_process"),
+		RuntimeLockID: fixture.Lock.ID,
+	}
+	input := executionstore.CreateProcessActionInput{
+		ProcessID:  process.ID,
+		ActionKind: executionstore.ProcessActionKindWatch,
+		Payload:    json.RawMessage(`{"pattern":"ready","timeout_seconds":60}`),
+	}
+	action, err := createProcessActionForTest(ctx, fixture.Store, transaction, input)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"pattern":"ready","timeout_seconds":60,"cursor":42}`, string(action.Payload),
+		"output written after the last read is matched")
+
+	_, err = fixture.Store.pool.Exec(ctx,
+		`UPDATE processes SET default_output_cursor = 50 WHERE id = $1`, process.ID)
+	require.NoError(t, err)
+	replayed, err := createProcessActionForTest(ctx, fixture.Store, transaction, input)
+	require.NoError(t, err)
+	require.Equal(t, action.ID, replayed.ID)
+	require.JSONEq(t, string(action.Payload), string(replayed.Payload))
+
+	input.Payload = json.RawMessage(`{"pattern":"ready","timeout_seconds":60,"cursor":7}`)
+	_, err = createProcessActionForTest(ctx, fixture.Store, transaction, input)
+	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict, "a replay naming another offset conflicts")
+}

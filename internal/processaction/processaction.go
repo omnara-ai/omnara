@@ -22,7 +22,7 @@ const (
 
 	AgentOutputBytes               = 16 * 1024
 	AgentHeadBytes                 = 2 * 1024
-	DefaultCommandWaitMilliseconds = 10 * 1000
+	DefaultCommandWaitMilliseconds = 5 * 1000
 	InteractiveQuietMilliseconds   = 1000
 	OutputWindowDaemonVersion      = "0.2.15"
 )
