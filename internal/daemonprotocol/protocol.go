@@ -374,6 +374,7 @@ type OutputMatchResult struct {
 	Pattern string   `json:"pattern"`
 	Lines   []string `json:"lines"`
 	Dropped int      `json:"dropped,omitempty"`
+	Expired bool     `json:"expired,omitempty"`
 }
 
 type FileTransferResult struct {

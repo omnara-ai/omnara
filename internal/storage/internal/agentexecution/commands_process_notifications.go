@@ -68,12 +68,9 @@ func (h *Handle) NotifyProcessOutputMatch(
 		if err != nil {
 			return struct{}{}, fmt.Errorf("%w: output match watch id", storeerr.ErrInvalidProcessOutputMatch)
 		}
-		keyPrefix := fmt.Sprintf("match:%s:", watchID)
-		key := fmt.Sprintf("%s%d", keyPrefix, seq)
 		allowance, err := executiondb.New().ReadProcessWatchAllowance(ctx, h.unit.DB(),
 			executiondb.ReadProcessWatchAllowanceParams{
-				AgentID: h.route.AgentID, ProcessID: row.ID, ID: watchID, Pattern: matched.Pattern,
-				KeyPrefix: keyPrefix, Key: key,
+				AgentID: h.route.AgentID, ProcessID: row.ID, ID: watchID, Pattern: matched.Pattern, Seq: seq,
 			})
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && !allowance.Eligible {
 			return struct{}{}, fmt.Errorf("%w: output match has no eligible watch", storeerr.ErrInvalidProcessOutputMatch)
@@ -81,16 +78,20 @@ func (h *Handle) NotifyProcessOutputMatch(
 		if err != nil {
 			return struct{}{}, err
 		}
-		if !allowance.Replay &&
+		if allowance.Replay ||
 			int(allowance.ReportCount) >= processaction.MaxWatchReports(int(allowance.TimeoutSeconds)) {
 			return struct{}{}, nil
+		}
+		if err := executiondb.New().RecordProcessWatchReport(ctx, h.unit.DB(),
+			executiondb.RecordProcessWatchReportParams{WatchActionID: watchID, ReportSeq: seq}); err != nil {
+			return struct{}{}, err
 		}
 		processID, err := publicid.Encode(publicid.KindProcess, row.ID)
 		if err != nil {
 			return struct{}{}, err
 		}
-		return struct{}{}, h.sendProcessNotification(ctx, row, "output_match", key,
-			renderProcessOutputMatch(processID, row, matched))
+		return struct{}{}, h.sendProcessNotification(ctx, row, "output_match",
+			fmt.Sprintf("match:%s:%d", watchID, seq), renderProcessOutputMatch(processID, row, matched))
 	})
 	return err
 }
@@ -225,13 +226,21 @@ func renderProcessOutputMatch(
 	matched daemonprotocol.OutputMatchResult,
 ) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Background process %s (`%s`) printed lines matching `%s`:\n\n", processID,
-		truncateRunes(row.ExecutionSpec.Label(), processNotificationLabelChars), matched.Pattern)
+	label := truncateRunes(row.ExecutionSpec.Label(), processNotificationLabelChars)
+	if len(matched.Lines) == 0 && matched.Dropped == 0 {
+		fmt.Fprintf(&b, "The watch for `%s` on background process %s (`%s`) expired with no new matching lines. "+
+			"Call watch_process again to keep watching.", matched.Pattern, processID, label)
+		return b.String()
+	}
+	fmt.Fprintf(&b, "Background process %s (`%s`) printed lines matching `%s`:\n\n", processID, label, matched.Pattern)
 	text := strings.Join(matched.Lines, "\n")
 	fence := codeFence(text)
 	b.WriteString(fence + "\n" + text + "\n" + fence)
 	if matched.Dropped > 0 {
 		fmt.Fprintf(&b, "\n\n%d more matching lines are not shown; use read_process to read them.", matched.Dropped)
+	}
+	if matched.Expired {
+		b.WriteString("\n\nThe watch has expired. Call watch_process again to keep watching.")
 	}
 	return b.String()
 }

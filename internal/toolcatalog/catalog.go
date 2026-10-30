@@ -53,7 +53,9 @@ const (
 	stopProcessToolDescription  = "Interrupt or terminate a running process."
 	watchProcessToolDescription = "Watch a running process's output and get a message with the lines that match a " +
 		"regular expression, such as a server's ready line or errors, until the watch expires or the process ends. " +
-		"Matches are batched and rate limited. A new watch replaces the process's current one."
+		"You also get a message when the watch expires. " +
+		"Matches are batched and rate limited. A new watch replaces the process's current one; " +
+		"timeout_seconds 0 cancels it."
 	readProcessToolDescription = "Read retained process output, optionally waiting for the process to end. " +
 		"Long output keeps the start and end."
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
@@ -156,11 +158,14 @@ func buildDefaultCatalog() (Catalog, error) {
 			},
 			"wait_ms": map[string]any{
 				"type":    "integer",
-				"minimum": 1,
+				"minimum": 0,
 				"maximum": processaction.MaxWaitMilliseconds,
-				"description": "How long to wait for the command to exit before returning (default 10000, up to 300000 ms). " +
-					"This is not a lifetime timeout: a command still running then keeps running and you get a message " +
-					"when it ends, so keep this short and do other work or end your turn instead of waiting.",
+				"description": "How long to wait for the command to exit before returning (default 10000, up to 30000 ms). " +
+					"Set it only to how long you expect the command to take, for a command that should finish within " +
+					"30 seconds. For a long-running command, or one whose duration you do not know, such as a build, " +
+					"test suite, install, or server, use 0 to return as soon as it starts: it keeps running and you get " +
+					"a message when it ends, so do other work or end your turn instead of waiting. " +
+					"This is not a lifetime timeout.",
 			},
 			"io_mode": map[string]any{
 				"type": "string",
@@ -196,21 +201,23 @@ func buildDefaultCatalog() (Catalog, error) {
 		{
 			ToolNameWatchProcess,
 			watchProcessToolDescription,
-			[]string{"process_id", "pattern"},
+			[]string{"process_id"},
 			map[string]any{
 				"process_id": processID,
 				"pattern": map[string]any{
-					"type":        "string",
-					"minLength":   1,
-					"maxLength":   processaction.MaxWatchPatternBytes,
-					"description": "RE2 regular expression matched against each output line.",
+					"type":      "string",
+					"minLength": 1,
+					"maxLength": processaction.MaxWatchPatternBytes,
+					"description": "RE2 regular expression matched against each output line. " +
+						"Required unless timeout_seconds is 0.",
 				},
 				"timeout_seconds": map[string]any{
 					"type":    "integer",
-					"minimum": 1,
+					"minimum": 0,
 					"maximum": processaction.MaxWatchSeconds,
 					"description": fmt.Sprintf("How long the watch lasts, in seconds (default %d). "+
-						"Call watch_process again to keep watching.", processaction.DefaultWatchSeconds),
+						"Call watch_process again to keep watching. Use 0 with no pattern or offset_byte "+
+						"to cancel the current watch.", processaction.DefaultWatchSeconds),
 				},
 				"offset_byte": map[string]any{
 					"type":    "integer",
@@ -252,10 +259,11 @@ func buildDefaultCatalog() (Catalog, error) {
 			"type":    "integer",
 			"minimum": 1,
 			"maximum": processaction.MaxWaitMilliseconds,
-			"description": fmt.Sprintf("Wait up to this long for the process to end before returning (up to 300000 ms). "+
+			"description": fmt.Sprintf("Wait up to this long for the process to end before returning (up to 30000 ms). "+
 				"A pty process also returns after %d ms with no new output, as a program waiting at a prompt does. "+
 				"With offset_byte, returns once output exists there. Omit to return immediately. "+
-				"You get a message when a background process ends, so there is no need to wait for it here.",
+				"Use it only when you expect the process to end or print what you need within that time. "+
+				"You get a message when a background process ends, so do not use this to wait for one that may take longer.",
 				processaction.InteractiveQuietMilliseconds),
 		},
 	}

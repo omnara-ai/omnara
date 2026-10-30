@@ -11,6 +11,14 @@ ALTER TABLE process_actions
     ADD CONSTRAINT process_actions_action_kind_check
         CHECK (action_kind IN ('write', 'read', 'interrupt', 'terminate', 'watch'));
 
+CREATE TABLE process_watch_reports (
+    watch_action_id uuid NOT NULL REFERENCES process_actions(id) ON DELETE CASCADE,
+    report_seq bigint NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    PRIMARY KEY (watch_action_id, report_seq),
+    CHECK (report_seq > 0)
+);
+
 -- +goose StatementBegin
 CREATE FUNCTION agent_background_processes(project_id uuid, agent_id uuid)
 RETURNS TABLE (id uuid, created_at timestamptz)

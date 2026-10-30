@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -27,6 +28,11 @@ func (t *toolCallTransaction) createProcessAction(
 	}
 	if !input.ActionKind.Valid() {
 		return ProcessActionRecord{}, fmt.Errorf("unsupported process action kind %q", input.ActionKind)
+	}
+	if input.ActionKind == ProcessActionKindWatch {
+		if _, err := processaction.DecodeWatchPayload(input.Payload); err != nil {
+			return ProcessActionRecord{}, fmt.Errorf("%w: %w", storeerr.ErrInvalidRequest, err)
+		}
 	}
 	projectID := t.input.ProjectID
 	agentID := t.input.AgentID

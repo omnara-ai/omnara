@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	MaxWaitMilliseconds        = 5 * 60 * 1000
+	MaxWaitMilliseconds        = 30 * 1000
 	MaxPayloadWaitMilliseconds = 24 * 60 * 60 * 1000
 	LegacyMaxWaitMilliseconds  = 10 * 1000
 	LongWaitDaemonVersion      = "0.2.6"
@@ -90,7 +90,7 @@ func DecodeWritePayload(raw json.RawMessage) (WritePayload, error) {
 }
 
 type WatchPayload struct {
-	Pattern        string `json:"pattern"`
+	Pattern        string `json:"pattern,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Cursor         *int64 `json:"cursor,omitempty"`
 }
@@ -113,16 +113,26 @@ func DecodeWatchPayload(raw json.RawMessage) (WatchPayload, error) {
 	if err := decodeObject(raw, &payload); err != nil {
 		return WatchPayload{}, err
 	}
+	if payload.TimeoutSeconds < 0 || payload.TimeoutSeconds > MaxWatchSeconds {
+		return WatchPayload{}, fmt.Errorf("timeout_seconds must be between 0 and %d", MaxWatchSeconds)
+	}
+	if payload.Cancels() {
+		if payload.Pattern != "" || payload.Cursor != nil {
+			return WatchPayload{}, errors.New("timeout_seconds 0 cancels the watch and takes no pattern or offset")
+		}
+		return payload, nil
+	}
 	if err := ValidateWatchPattern(payload.Pattern); err != nil {
 		return WatchPayload{}, err
-	}
-	if payload.TimeoutSeconds < 1 || payload.TimeoutSeconds > MaxWatchSeconds {
-		return WatchPayload{}, fmt.Errorf("timeout_seconds must be between 1 and %d", MaxWatchSeconds)
 	}
 	if payload.Cursor != nil && *payload.Cursor < 0 {
 		return WatchPayload{}, errors.New("cursor cannot be negative")
 	}
 	return payload, nil
+}
+
+func (payload WatchPayload) Cancels() bool {
+	return payload.TimeoutSeconds == 0
 }
 
 func ValidateWatchPattern(pattern string) error {

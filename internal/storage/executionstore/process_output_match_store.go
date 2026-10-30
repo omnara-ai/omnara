@@ -77,7 +77,7 @@ func DecodeOutputMatchResult(raw json.RawMessage) (daemonprotocol.OutputMatchRes
 	if matched.Pattern == "" || len(matched.Pattern) > processaction.MaxWatchPatternBytes {
 		return invalid("output match result has an invalid pattern")
 	}
-	if len(matched.Lines) == 0 && matched.Dropped == 0 {
+	if len(matched.Lines) == 0 && matched.Dropped == 0 && !matched.Expired {
 		return invalid("output match result has no matches")
 	}
 	if len(matched.Lines) > maxOutputMatchLines || matched.Dropped < 0 {

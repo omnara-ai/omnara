@@ -2,8 +2,7 @@
 SELECT p.id,p.org_id,p.machine_id,p.tool_call_id,p.state,p.state_reason_code,p.state_reason_message,p.exit_code,
  p.exit_signal,p.execution_spec,p.execution_granted_at,p.source_started_at,p.source_ended_at,p.default_output_cursor,p.exit_notice_decided,
  EXISTS(SELECT 1 FROM process_actions a WHERE a.agent_id=p.agent_id AND a.process_id=p.id
- AND a.action_kind IN ('interrupt','terminate') AND (a.state IN ('queued','accepted')
- OR a.state='applied' AND (a.action_kind='terminate' OR a.updated_at>statement_timestamp()-interval '30 seconds'))) AS stop_requested,
+ AND a.action_kind='terminate' AND a.state IN ('queued','accepted','applied')) AS stop_requested,
  EXISTS(SELECT 1 FROM process_actions a JOIN tool_calls t ON t.agent_id=a.agent_id AND t.id=a.tool_call_id
  WHERE a.agent_id=p.agent_id AND a.process_id=p.id AND a.action_kind='read' AND t.state<>'completed') AS read_pending
 FROM processes p WHERE p.agent_id=sqlc.arg(agent_id) AND p.id=sqlc.arg(id) FOR UPDATE;
@@ -21,8 +20,9 @@ FROM process_actions a WHERE a.agent_id=sqlc.arg(agent_id) AND a.id=sqlc.arg(id)
 SELECT coalesce(a.action_kind='watch' AND a.state IN ('accepted','applied')
  AND a.payload->>'pattern'=sqlc.arg(pattern)::text AND a.payload ? 'timeout_seconds',false)::boolean AS eligible,
  coalesce((a.payload->>'timeout_seconds')::int,0)::integer AS timeout_seconds,
- (SELECT count(*) FROM agent_inputs i WHERE i.agent_id=a.agent_id AND i.idempotency_scope='process_notification'
- AND starts_with(i.input_idempotency_key,sqlc.arg(key_prefix)::text))::integer AS report_count,
- EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.agent_id AND i.idempotency_scope='process_notification'
- AND i.input_idempotency_key=sqlc.arg(key)::text) AS replay
+ (SELECT count(*) FROM process_watch_reports r WHERE r.watch_action_id=a.id)::integer AS report_count,
+ EXISTS(SELECT 1 FROM process_watch_reports r WHERE r.watch_action_id=a.id AND r.report_seq=sqlc.arg(seq)::bigint) AS replay
 FROM process_actions a WHERE a.agent_id=sqlc.arg(agent_id) AND a.process_id=sqlc.arg(process_id) AND a.id=sqlc.arg(id);
+
+-- name: RecordProcessWatchReport :exec
+INSERT INTO process_watch_reports(watch_action_id, report_seq) VALUES (sqlc.arg(watch_action_id), sqlc.arg(report_seq));

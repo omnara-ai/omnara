@@ -32,6 +32,7 @@ type outputMatcher struct {
 	dropped      int
 	firstPending time.Time
 	lastReport   time.Time
+	expired      bool
 	seq          int64
 }
 
@@ -81,6 +82,9 @@ func (m *outputMatcher) consider(line string) {
 }
 
 func (m *outputMatcher) due(final bool) bool {
+	if m.expired {
+		return true
+	}
 	if len(m.pending) == 0 && m.dropped == 0 {
 		return false
 	}
@@ -99,9 +103,11 @@ func (m *outputMatcher) take() (int64, daemonprotocol.OutputMatchResult) {
 		Pattern: m.pattern.String(),
 		Lines:   m.pending,
 		Dropped: m.dropped,
+		Expired: m.expired,
 	}
 	m.pending = nil
 	m.dropped = 0
+	m.expired = false
 	m.lastReport = m.now()
 	return m.seq, result
 }
@@ -116,10 +122,6 @@ func (s *runnerServerState) startOutputWatch(
 	watchID string,
 	payload processaction.WatchPayload,
 ) error {
-	pattern, err := regexp.Compile(payload.Pattern)
-	if err != nil {
-		return err
-	}
 	s.watchMu.Lock()
 	defer s.watchMu.Unlock()
 	if s.watchClosed {
@@ -128,6 +130,13 @@ func (s *runnerServerState) startOutputWatch(
 	previous := s.watch
 	if previous != nil {
 		previous.cancel()
+	}
+	if payload.Cancels() {
+		return nil
+	}
+	pattern, err := regexp.Compile(payload.Pattern)
+	if err != nil {
+		return err
 	}
 	cursor := runner.output.End()
 	if payload.Cursor != nil {
@@ -199,11 +208,15 @@ func (s *runnerServerState) watchOutputMatches(
 				break
 			}
 			matcher.scan(window)
+			if !terminal && (ctx.Err() != nil || matcher.due(false)) {
+				break
+			}
 		}
 		if terminal {
 			matcher.finish()
 		}
 		stopping := terminal || ctx.Err() != nil
+		matcher.expired = !terminal && errors.Is(ctx.Err(), context.DeadlineExceeded)
 		if matcher.due(stopping) && !s.freezeOutputMatch(parent, runner, matcher) {
 			return
 		}

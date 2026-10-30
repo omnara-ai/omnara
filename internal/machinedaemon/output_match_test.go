@@ -40,6 +40,14 @@ func TestOutputMatcherBatchesCompleteMatchingLines(t *testing.T) {
 	require.True(t, matcher.due(true), "a final flush does not wait")
 	clock = clock.Add(outputMatchMinInterval)
 	require.True(t, matcher.due(false))
+	matcher.take()
+
+	matcher.expired = true
+	require.True(t, matcher.due(false), "an expired watch reports even without matches")
+	_, result = matcher.take()
+	require.True(t, result.Expired)
+	require.Empty(t, result.Lines)
+	require.False(t, matcher.expired)
 }
 
 func TestOutputMatcherLimitsLinesAndFinishesPartialLine(t *testing.T) {
@@ -117,4 +125,27 @@ func TestReplacingWatchDoesNotWaitForOldWatcherUnderApplyLocks(t *testing.T) {
 	<-old.done
 	<-replacement.done
 	require.True(t, oldFlushed.Load())
+}
+
+func TestZeroTimeoutWatchCancelsCurrentWatch(t *testing.T) {
+	t.Parallel()
+
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	state := &runnerServerState{runCtx: runCtx}
+	oldCtx, cancelOld := context.WithCancel(runCtx)
+	old := &outputWatch{cancel: cancelOld, done: make(chan struct{})}
+	go func() {
+		defer close(old.done)
+		<-oldCtx.Done()
+	}()
+	state.watch = old
+
+	require.NoError(t, state.startOutputWatch(&localProcessRunner{}, "pact_cancel", processaction.WatchPayload{}))
+	select {
+	case <-old.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a zero timeout watch did not cancel the current watch")
+	}
+	require.Same(t, old, state.watch)
 }

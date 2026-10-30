@@ -283,13 +283,19 @@ func TestWatchProcessPayload(t *testing.T) {
 	if err != nil || string(payload) != `{"pattern":"x","timeout_seconds":60,"cursor":42}` {
 		t.Fatalf("watch payload with timeout and offset = %s, %v", payload, err)
 	}
+	_, payload, err = watchProcessPayload(json.RawMessage(`{"process_id":"prc","timeout_seconds":0}`))
+	if err != nil || string(payload) != `{"timeout_seconds":0}` {
+		t.Fatalf("cancel watch payload = %s, %v", payload, err)
+	}
 	for _, tc := range []struct{ raw, want string }{
 		{`{"pattern":"x"}`, "requires process_id"},
 		{`{"process_id":"prc"}`, "pattern must be 1 to 500 bytes"},
 		{`{"process_id":"prc","pattern":"(listening"}`, "not a valid regular expression"},
 		{`{"process_id":"prc","pattern":"listening\u0000"}`, "cannot contain NUL"},
-		{`{"process_id":"prc","pattern":"x","timeout_seconds":0}`, "timeout_seconds must be between 1 and 3600"},
-		{`{"process_id":"prc","pattern":"x","timeout_seconds":3601}`, "timeout_seconds must be between 1 and 3600"},
+		{`{"process_id":"prc","pattern":"x","timeout_seconds":0}`, "takes no pattern or offset"},
+		{`{"process_id":"prc","timeout_seconds":0,"offset_byte":3}`, "takes no pattern or offset"},
+		{`{"process_id":"prc","pattern":"x","timeout_seconds":-1}`, "timeout_seconds must be between 0 and 3600"},
+		{`{"process_id":"prc","pattern":"x","timeout_seconds":3601}`, "timeout_seconds must be between 0 and 3600"},
 		{`{"process_id":"prc","pattern":"x","offset_byte":-1}`, "cursor cannot be negative"},
 		{`{"process_id":"prc","pattern":"x","timeout_seconds":null}`, "cannot be null"},
 	} {

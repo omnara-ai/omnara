@@ -75,8 +75,7 @@ const readExecutionProcessOwner = `-- name: ReadExecutionProcessOwner :one
 SELECT p.id,p.org_id,p.machine_id,p.tool_call_id,p.state,p.state_reason_code,p.state_reason_message,p.exit_code,
  p.exit_signal,p.execution_spec,p.execution_granted_at,p.source_started_at,p.source_ended_at,p.default_output_cursor,p.exit_notice_decided,
  EXISTS(SELECT 1 FROM process_actions a WHERE a.agent_id=p.agent_id AND a.process_id=p.id
- AND a.action_kind IN ('interrupt','terminate') AND (a.state IN ('queued','accepted')
- OR a.state='applied' AND (a.action_kind='terminate' OR a.updated_at>statement_timestamp()-interval '30 seconds'))) AS stop_requested,
+ AND a.action_kind='terminate' AND a.state IN ('queued','accepted','applied')) AS stop_requested,
  EXISTS(SELECT 1 FROM process_actions a JOIN tool_calls t ON t.agent_id=a.agent_id AND t.id=a.tool_call_id
  WHERE a.agent_id=p.agent_id AND a.process_id=p.id AND a.action_kind='read' AND t.state<>'completed') AS read_pending
 FROM processes p WHERE p.agent_id=$1 AND p.id=$2 FOR UPDATE
@@ -136,17 +135,14 @@ const readProcessWatchAllowance = `-- name: ReadProcessWatchAllowance :one
 SELECT coalesce(a.action_kind='watch' AND a.state IN ('accepted','applied')
  AND a.payload->>'pattern'=$1::text AND a.payload ? 'timeout_seconds',false)::boolean AS eligible,
  coalesce((a.payload->>'timeout_seconds')::int,0)::integer AS timeout_seconds,
- (SELECT count(*) FROM agent_inputs i WHERE i.agent_id=a.agent_id AND i.idempotency_scope='process_notification'
- AND starts_with(i.input_idempotency_key,$2::text))::integer AS report_count,
- EXISTS(SELECT 1 FROM agent_inputs i WHERE i.agent_id=a.agent_id AND i.idempotency_scope='process_notification'
- AND i.input_idempotency_key=$3::text) AS replay
-FROM process_actions a WHERE a.agent_id=$4 AND a.process_id=$5 AND a.id=$6
+ (SELECT count(*) FROM process_watch_reports r WHERE r.watch_action_id=a.id)::integer AS report_count,
+ EXISTS(SELECT 1 FROM process_watch_reports r WHERE r.watch_action_id=a.id AND r.report_seq=$2::bigint) AS replay
+FROM process_actions a WHERE a.agent_id=$3 AND a.process_id=$4 AND a.id=$5
 `
 
 type ReadProcessWatchAllowanceParams struct {
 	Pattern   string
-	KeyPrefix string
-	Key       string
+	Seq       int64
 	AgentID   uuid.UUID
 	ProcessID uuid.UUID
 	ID        uuid.UUID
@@ -162,8 +158,7 @@ type ReadProcessWatchAllowanceRow struct {
 func (q *Queries) ReadProcessWatchAllowance(ctx context.Context, db DBTX, arg ReadProcessWatchAllowanceParams) (ReadProcessWatchAllowanceRow, error) {
 	row := db.QueryRow(ctx, readProcessWatchAllowance,
 		arg.Pattern,
-		arg.KeyPrefix,
-		arg.Key,
+		arg.Seq,
 		arg.AgentID,
 		arg.ProcessID,
 		arg.ID,
@@ -176,4 +171,18 @@ func (q *Queries) ReadProcessWatchAllowance(ctx context.Context, db DBTX, arg Re
 		&i.Replay,
 	)
 	return i, err
+}
+
+const recordProcessWatchReport = `-- name: RecordProcessWatchReport :exec
+INSERT INTO process_watch_reports(watch_action_id, report_seq) VALUES ($1, $2)
+`
+
+type RecordProcessWatchReportParams struct {
+	WatchActionID uuid.UUID
+	ReportSeq     int64
+}
+
+func (q *Queries) RecordProcessWatchReport(ctx context.Context, db DBTX, arg RecordProcessWatchReportParams) error {
+	_, err := db.Exec(ctx, recordProcessWatchReport, arg.WatchActionID, arg.ReportSeq)
+	return err
 }

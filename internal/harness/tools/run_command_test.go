@@ -81,7 +81,7 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 		},
 		{
 			name:     "max wait",
-			input:    json.RawMessage(`{"command":"make test","wait_ms":300000}`),
+			input:    json.RawMessage(`{"command":"make test","wait_ms":30000}`),
 			command:  "make test",
 			selector: "default",
 			waitMs:   processaction.MaxWaitMilliseconds,
@@ -104,6 +104,14 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 				t.Fatalf("unexpected resolution: %+v", resolved)
 			}
 		})
+	}
+}
+
+func TestResolveRunCommandRequestAllowsZeroWait(t *testing.T) {
+	t.Parallel()
+	resolved, err := resolveRunCommandRequest(json.RawMessage(`{"command":"make test","wait_ms":0}`))
+	if err != nil || resolved.WaitMs != 0 {
+		t.Fatalf("zero wait resolution = %+v, %v", resolved, err)
 	}
 }
 
@@ -152,10 +160,9 @@ func TestResolveRunCommandRequestRejectsInvalidInput(t *testing.T) {
 			raw:  json.RawMessage("{\"command\":\"echo ok\",\"cwd\":\"/tmp\\u0000x\"}"),
 			want: "cwd cannot contain NUL",
 		},
-		{name: "zero wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":0}`), want: "wait_ms must be positive"},
-		{name: "negative wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":-1}`), want: "wait_ms must be positive"},
+		{name: "negative wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":-1}`), want: "wait_ms must be non-negative"},
 		{name: "null wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":null}`), want: "wait_ms cannot be null"},
-		{name: "huge wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":300001}`), want: "wait_ms must be at most"},
+		{name: "huge wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":30001}`), want: "wait_ms must be at most"},
 		{
 			name: "removed notify_match",
 			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":"listening"}`),

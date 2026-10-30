@@ -712,7 +712,7 @@ func assertRunCommandInputSchema(t *testing.T, raw json.RawMessage) {
 		t.Fatalf("shell selector enum = %v, want %v", got, wantSelectors)
 	}
 	waitMS := schema.Properties["wait_ms"]
-	if waitMS.Type != "integer" || waitMS.Minimum != 1 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
+	if waitMS.Type != "integer" || waitMS.Minimum != 0 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
 		t.Fatalf("run_command wait_ms schema = %+v", waitMS)
 	}
 	for _, removed := range []string{"detach", "notify_match"} {

@@ -83,8 +83,8 @@ func resolveRunCommandRequest(raw json.RawMessage) (resolvedRunCommandRequest, e
 			return resolvedRunCommandRequest{}, errors.New("wait_ms cannot be null")
 		}
 		waitMs = *rawWait
-		if waitMs <= 0 {
-			return resolvedRunCommandRequest{}, errors.New("wait_ms must be positive")
+		if waitMs < 0 {
+			return resolvedRunCommandRequest{}, errors.New("wait_ms must be non-negative")
 		}
 		if waitMs > processaction.MaxWaitMilliseconds {
 			return resolvedRunCommandRequest{}, fmt.Errorf(

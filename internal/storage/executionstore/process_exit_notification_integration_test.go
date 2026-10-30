@@ -167,7 +167,7 @@ func TestPendingReadSuppressesExitNotification(t *testing.T) {
 	}
 }
 
-func TestOnlyEffectiveStopSuppressesExitNotification(t *testing.T) {
+func TestOnlyTerminateSuppressesExitNotification(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name   string
@@ -175,18 +175,14 @@ func TestOnlyEffectiveStopSuppressesExitNotification(t *testing.T) {
 		update string
 		notify bool
 	}{
-		{name: "queued_interrupt", kind: executionstore.ProcessActionKindInterrupt},
+		{name: "queued_interrupt", kind: executionstore.ProcessActionKindInterrupt, notify: true},
 		{
-			name:   "recent_interrupt",
+			name:   "applied_interrupt",
 			kind:   executionstore.ProcessActionKindInterrupt,
 			update: `state = 'applied', updated_at = now()`,
-		},
-		{
-			name:   "survived_interrupt",
-			kind:   executionstore.ProcessActionKindInterrupt,
-			update: `state = 'applied', updated_at = now() - interval '1 minute'`,
 			notify: true,
 		},
+		{name: "queued_terminate", kind: executionstore.ProcessActionKindTerminate},
 		{
 			name:   "old_terminate",
 			kind:   executionstore.ProcessActionKindTerminate,
@@ -428,17 +424,34 @@ func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
 	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
 		t.Fatalf("notify second output match: %v", err)
 	}
+	match.Sequence = 3
+	match.Result = outputMatchResultForTest(t, watchID, "listening|ERROR", `"lines":[],"expired":true`)
+	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
+		t.Fatalf("notify watch expiry: %v", err)
+	}
 
 	texts := processNotificationTexts(t, ctx, fixture)
-	if len(texts) != 2 {
-		t.Fatalf("process notifications = %d, want 2: %q", len(texts), texts)
+	if len(texts) != 3 {
+		t.Fatalf("process notifications = %d, want 3: %q", len(texts), texts)
 	}
 	if !strings.Contains(texts[0], "printed lines matching `listening|ERROR`") ||
 		!strings.Contains(texts[0], "listening on :3000") ||
 		!strings.Contains(texts[1], "ERROR boom") ||
-		!strings.Contains(texts[1], "3 more matching lines") {
+		!strings.Contains(texts[1], "3 more matching lines") ||
+		!strings.Contains(texts[2], "expired with no new matching lines") {
 		t.Fatalf("output match notifications = %q", texts)
 	}
+	var reports []int64
+	rows, err := fixture.Store.pool.Query(ctx,
+		`SELECT report_seq FROM process_watch_reports WHERE watch_action_id = $1 ORDER BY report_seq`, watchID)
+	require.NoError(t, err)
+	for rows.Next() {
+		var seq int64
+		require.NoError(t, rows.Scan(&seq))
+		reports = append(reports, seq)
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, []int64{1, 2, 3}, reports)
 }
 
 func TestProcessExecutionReportsTheAcceptingSupervisorVersion(t *testing.T) {
@@ -564,4 +577,30 @@ func outputMatchResultForTest(t *testing.T, watchID uuid.UUID, pattern, fields s
 	quotedPattern, err := json.Marshal(pattern)
 	require.NoError(t, err)
 	return json.RawMessage(`{"watch_id":"` + publicWatchID + `","pattern":` + string(quotedPattern) + `,` + fields + `}`)
+}
+
+func TestCreateProcessActionRejectsInvalidWatchPayload(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "invalid_watch_payload")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "invalid_watch_payload")
+	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "invalid_watch_payload_watch", "watch_process")
+	for name, payload := range map[string]string{
+		"bad_regex":       `{"pattern":"(","timeout_seconds":60}`,
+		"missing_pattern": `{"timeout_seconds":60}`,
+		"cancel_pattern":  `{"pattern":"x","timeout_seconds":0}`,
+		"long_timeout":    `{"pattern":"x","timeout_seconds":3601}`,
+	} {
+		_, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+			ProjectID:     testProjectID,
+			AgentID:       fixture.AgentID,
+			ToolCallID:    toolCallID,
+			RuntimeLockID: fixture.Lock.ID,
+		}, executionstore.CreateProcessActionInput{
+			ProcessID:  process.ID,
+			ActionKind: executionstore.ProcessActionKindWatch,
+			Payload:    json.RawMessage(payload),
+		})
+		require.ErrorIs(t, err, storeerr.ErrInvalidRequest, name)
+	}
 }
