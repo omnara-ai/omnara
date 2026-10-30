@@ -380,7 +380,7 @@ func TestProcessReadinessAndAgentCancellationResolveAtomically(t *testing.T) {
 			fixture.Store,
 			fixture.AgentID,
 			toolCall,
-			"next_action",
+			`"state": "running"`,
 		)
 	case executionstore.ProcessStateUnknown:
 		if start.application.ToolResultCommitted ||
