@@ -106,7 +106,6 @@ func rejectUnexpectedOpenAPIRequestBody(r *http.Request) error {
 		return nil
 	}
 	raw, err := io.ReadAll(r.Body)
-	_ = r.Body.Close()
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	r.ContentLength = int64(len(raw))
 	if err != nil {
@@ -123,7 +122,6 @@ func rejectTrailingJSONRequestBody(r *http.Request) error {
 		return nil
 	}
 	raw, err := io.ReadAll(r.Body)
-	_ = r.Body.Close()
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	r.ContentLength = int64(len(raw))
 	if err != nil {

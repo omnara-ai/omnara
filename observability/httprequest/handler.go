@@ -39,7 +39,11 @@ func Handler(config Config, next http.Handler) http.Handler {
 				event.Attach(wideevent.Fields{"http.route": pattern})
 			}
 			event.Done(ctx)
-			observe(request.Method, pattern, recorder.TelemetryStatusCode())
+			status := recorder.TelemetryStatusCode()
+			observe(request.Method, pattern, status)
+			if recorder.Canceled() {
+				config.Metrics.RecordCanceled(request.Method, pattern, status)
+			}
 		}()
 		defer config.recoverPanic(ctx, recorder)
 		next.ServeHTTP(recorder, routed)

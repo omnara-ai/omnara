@@ -1287,7 +1287,10 @@ func TestBearerAuthCancellationPreservesResponseContract(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 
-	handler := newIntegrationServer(pool)
+	server := &Server{store: storage.NewStore(pool)}
+	handler := server.auth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("canceled bearer auth reached the next handler")
+	}))
 	token, err := bearertoken.Generate(bearertoken.KindPersonalAccess)
 	if err != nil {
 		t.Fatalf("format valid personal access token: %v", err)
@@ -4245,7 +4248,7 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 						handlerCalls, rec.Code, rec.Body.String(),
 					)
 				}
-				if event["http.status_code"] != float64(499) || event["level"] != "info" {
+				if event["http.status_code"] != float64(http.StatusOK) || event["level"] != "info" {
 					t.Fatalf("canceled auth misclassified: %+v", event)
 				}
 				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), "timeout") {

@@ -90,7 +90,7 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		apierror.Write(w, openapi.ErrorCodeNotFound)
 		return
 	}
-	raw, ok := readIntegrationCallbackBody(w, r, integrationstore.IntegrationInboxMaxPayloadBytes)
+	raw, ok := readIntegrationCallbackBody(w, r)
 	if !ok {
 		return
 	}

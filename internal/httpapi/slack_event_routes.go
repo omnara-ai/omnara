@@ -27,7 +27,7 @@ func (s *Server) slackEventsRoute(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), integrationIntakeTimeout)
 	defer cancel()
 	r = r.WithContext(ctx)
-	raw, ok := readIntegrationCallbackBody(w, r, slack.EventBodyMaxBytes)
+	raw, ok := readIntegrationCallbackBody(w, r)
 	if !ok {
 		return
 	}
