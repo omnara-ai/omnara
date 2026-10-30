@@ -13,18 +13,41 @@ import (
 )
 
 func TestExternalLoginServerErrorRedirectsToLogin(t *testing.T) {
-	handler := New(Config{Store: failingConnectorStore{}, PublicURL: "https://example.com"})
-	mux := http.NewServeMux()
-	handler.RegisterRoutes(mux)
-	for path, want := range map[string]string{
-		"/api/auth/connectors/github/login?return_to=/after": "/login?auth_connector=github&auth_error=server_error&return_to=%2Fafter",
-		"/api/auth/connectors/github/callback":               "/login?auth_connector=github&auth_error=server_error",
+	const login = "/api/auth/connectors/github/login?return_to=/after"
+	const loginWant = "/login?auth_connector=github&auth_error=server_error&return_to=%2Fafter"
+	for _, tc := range []struct {
+		name       string
+		config     Config
+		path, want string
+	}{
+		{"login connector lookup", Config{Store: failingConnectorStore{}}, login, loginWant},
+		{
+			"callback connector lookup",
+			Config{Store: failingConnectorStore{}},
+			"/api/auth/connectors/github/callback",
+			"/login?auth_connector=github&auth_error=server_error",
+		},
+		{
+			"login rate limiter",
+			Config{
+				Store:       rateLimitConnectorStore{},
+				OAuthStates: struct{ OAuthStateStore }{},
+				Limiter:     oauthTestLimiter{err: errors.New("redis unavailable")},
+			},
+			login,
+			loginWant,
+		},
 	} {
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "https://example.com"+path, nil))
-		if rec.Code != http.StatusFound || rec.Header().Get("Location") != want {
-			t.Fatalf("%s: status=%d location=%q, want 302 %q", path, rec.Code, rec.Header().Get("Location"), want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			tc.config.PublicURL = "https://example.com"
+			mux := http.NewServeMux()
+			New(tc.config).RegisterRoutes(mux)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "https://example.com"+tc.path, nil))
+			if rec.Code != http.StatusFound || rec.Header().Get("Location") != tc.want {
+				t.Fatalf("status=%d location=%q, want 302 %q", rec.Code, rec.Header().Get("Location"), tc.want)
+			}
+		})
 	}
 }
 
