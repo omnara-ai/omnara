@@ -15,14 +15,15 @@ const discordRuntimeMetricsInterval = 30 * time.Second
 func recordDiscordRuntimeDemand(
 	log *slog.Logger, sample func(context.Context) (int64, error),
 	recorder *metrics.DiscordRuntimeDemandRecorder,
-) func(context.Context) bool {
-	return func(ctx context.Context) bool {
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
 		count, err := sampleDiscordRuntimeDemand(ctx, log, sample)
 		recorder.RecordUnclaimed(count, err)
 		if err != nil && ctx.Err() == nil {
 			log.Warn("sample unclaimed Discord integrations", "error", err)
+			return maintenanceResult{err: err}
 		}
-		return false
+		return maintenanceResult{}
 	}
 }
 

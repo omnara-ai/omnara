@@ -1,16 +1,22 @@
 package maintenance
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/omnara-ai/omnara/observability/metrics"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func TestJitteredMaintenanceDelayStaysWithinTenPercent(t *testing.T) {
@@ -41,12 +47,12 @@ func TestMaintenanceJobDoesNotOverlapItself(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			runMaintenanceJob(ctx, slog.New(slog.DiscardHandler), time.Second, maintenanceJob{
-				"test", time.Second, func(context.Context) bool {
+			runMaintenanceJob(ctx, time.Second, nil, maintenanceJob{
+				"test", time.Second, func(context.Context) maintenanceResult {
 					if calls.Add(1) == 1 {
 						<-release
 					}
-					return false
+					return maintenanceResult{}
 				},
 			})
 		}()
@@ -61,18 +67,27 @@ func TestMaintenanceJobDoesNotOverlapItself(t *testing.T) {
 }
 
 func TestMaintenanceJobRecoversAndContinuesAfterPanic(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
+	var output bytes.Buffer
+	ctx, cancel := context.WithCancel(logpkg.WithLogger(t.Context(), slog.New(slog.NewJSONHandler(&output, nil))))
+	set := metrics.New()
 	var calls atomic.Int32
-	runMaintenanceJob(ctx, slog.New(slog.DiscardHandler), time.Millisecond, maintenanceJob{
-		"test", time.Millisecond, func(context.Context) bool {
+	runMaintenanceJob(ctx, time.Millisecond, metrics.NewJobRecorder(set, metrics.SubsystemMaintenance), maintenanceJob{
+		"test", time.Millisecond, func(context.Context) maintenanceResult {
 			if calls.Add(1) == 1 {
 				panic("test panic")
 			}
 			cancel()
-			return false
+			return maintenanceResult{}
 		},
 	})
 	require.EqualValues(t, 2, calls.Load())
+	require.Contains(t, output.String(), `"maintenance.job.name":"test"`)
+	require.Contains(t, output.String(), "maintenance job panicked: test panic")
+	require.Contains(t, output.String(), `"error.stack"`)
+	response := httptest.NewRecorder()
+	set.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	require.Contains(t, response.Body.String(), `omnara_maintenance_job_runs_total{job="test",result="error"} 1`)
+	require.Contains(t, response.Body.String(), `omnara_maintenance_job_runs_total{job="test",result="canceled"} 1`)
 }
 
 func TestMaintenanceJobRerunsWhileBehindThenWaitsItsInterval(t *testing.T) {
@@ -83,10 +98,10 @@ func TestMaintenanceJobRerunsWhileBehindThenWaitsItsInterval(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			runMaintenanceJob(ctx, slog.New(slog.DiscardHandler), time.Second, maintenanceJob{
-				"test", time.Hour, func(context.Context) bool {
+			runMaintenanceJob(ctx, time.Second, nil, maintenanceJob{
+				"test", time.Hour, func(context.Context) maintenanceResult {
 					runs = append(runs, time.Since(start))
-					return len(runs) < 3
+					return maintenanceResult{more: len(runs) < 3}
 				},
 			})
 		}()
@@ -100,6 +115,35 @@ func TestMaintenanceJobRerunsWhileBehindThenWaitsItsInterval(t *testing.T) {
 	})
 }
 
+func TestMaintenanceJobBacksOffAfterFailuresThenWaitsItsInterval(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(logpkg.WithLogger(t.Context(), slog.New(slog.DiscardHandler)))
+		start := time.Now()
+		var runs []time.Duration
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			runMaintenanceJob(ctx, time.Second, nil, maintenanceJob{
+				"test", time.Hour, func(context.Context) maintenanceResult {
+					runs = append(runs, time.Since(start))
+					if len(runs) < 5 || len(runs) == 6 {
+						return maintenanceResult{err: errors.New("store failed")}
+					}
+					return maintenanceResult{}
+				},
+			})
+		}()
+		time.Sleep(67 * time.Minute) //nolint:omnaralint // Advance synctest's virtual clock.
+		cancel()
+		<-done
+		require.Len(t, runs, 7)
+		require.Equal(t, []time.Duration{0, time.Second, 3 * time.Second, 7 * time.Second, 15 * time.Second}, runs[:5])
+		require.GreaterOrEqual(t, runs[5]-runs[4], 54*time.Minute)
+		require.LessOrEqual(t, runs[5]-runs[4], 66*time.Minute)
+		require.Equal(t, time.Second, runs[6]-runs[5], "a success must reset the backoff")
+	})
+}
+
 func TestMaintenanceJobBehindNeverWaitsLongerThanItsInterval(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
@@ -107,8 +151,8 @@ func TestMaintenanceJobBehindNeverWaitsLongerThanItsInterval(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			runMaintenanceJob(ctx, slog.New(slog.DiscardHandler), time.Hour, maintenanceJob{
-				"test", time.Second, func(context.Context) bool { calls.Add(1); return true },
+			runMaintenanceJob(ctx, time.Hour, nil, maintenanceJob{
+				"test", time.Second, func(context.Context) maintenanceResult { calls.Add(1); return maintenanceResult{more: true} },
 			})
 		}()
 		time.Sleep(10 * time.Second) //nolint:omnaralint // Advance synctest's virtual clock.
@@ -126,9 +170,9 @@ func TestMaintenanceJobsDoNotWaitOnEachOther(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			runMaintenanceJobs(ctx, slog.New(slog.DiscardHandler), time.Second, []maintenanceJob{
-				{"blocked", time.Second, func(context.Context) bool { <-release; return false }},
-				{"fast", time.Second, func(context.Context) bool { fastCalls.Add(1); return false }},
+			runMaintenanceJobs(ctx, time.Second, nil, []maintenanceJob{
+				{"blocked", time.Second, func(context.Context) maintenanceResult { <-release; return maintenanceResult{} }},
+				{"fast", time.Second, func(context.Context) maintenanceResult { fastCalls.Add(1); return maintenanceResult{} }},
 			})
 		}()
 		time.Sleep(10 * time.Second) //nolint:omnaralint // Advance synctest's virtual clock.
@@ -142,10 +186,10 @@ func TestMaintenanceJobsDoNotWaitOnEachOther(t *testing.T) {
 func TestMaintenanceJobsReturnWithoutRunningWhenCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	runMaintenanceJobs(ctx, slog.New(slog.DiscardHandler), time.Millisecond, []maintenanceJob{
-		{"never", time.Millisecond, func(context.Context) bool {
+	runMaintenanceJobs(ctx, time.Millisecond, nil, []maintenanceJob{
+		{"never", time.Millisecond, func(context.Context) maintenanceResult {
 			t.Error("canceled maintenance ran a job")
-			return false
+			return maintenanceResult{}
 		}},
 	})
 }

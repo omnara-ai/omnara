@@ -2,6 +2,7 @@ package maintenance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
@@ -17,19 +18,19 @@ func reconcileProviderRuntimes(
 	recorder *metrics.ProviderRuntimeRecorder,
 	operation metrics.ProviderRuntimeOperation,
 	run func(context.Context) (machinepool.RuntimeReconciliationStats, error),
-) func(context.Context) bool {
-	return func(ctx context.Context) bool {
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
 		started := time.Now()
 		stats, err := runProviderRuntimeMaintenanceTick(ctx, log, operation, run)
 		outcome := completedMaintenanceOutcome(ctx, err)
 		recordProviderRuntimePass(recorder, operation, stats, outcome, time.Since(started))
+		worked := stats.Targets > 0 || stats.MarkersSet > 0 || stats.DeletionClaims > 0
 		if outcome.err != nil {
 			log.Error("provider runtime reconciliation", "operation", operation, "error", outcome.err, "stats", stats)
-		} else if !outcome.interrupted &&
-			(stats.Targets > 0 || stats.MarkersSet > 0 || stats.DeletionClaims > 0) {
+		} else if !outcome.interrupted && worked {
 			log.Info("provider runtime reconciliation", "operation", operation, "stats", stats)
 		}
-		return false
+		return maintenanceResult{worked: worked, err: outcome.err}
 	}
 }
 
@@ -95,8 +96,11 @@ func providerRuntimeResult(outcome maintenanceOutcome) metrics.ProviderRuntimeRe
 	return metrics.ProviderRuntimeResultSuccess
 }
 
-func provisionPoolMachines(log *slog.Logger, machinePoolManager *machinepool.Manager) func(context.Context) bool {
-	return func(ctx context.Context) bool {
+func provisionPoolMachines(
+	log *slog.Logger,
+	machinePoolManager *machinepool.Manager,
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
 		provisioned, err := machinePoolManager.ReconcileProvisioning(ctx, machinepool.DefaultReconcileBatchSize)
 		outcome := completedMaintenanceOutcome(ctx, err)
 		if outcome.err != nil {
@@ -104,12 +108,15 @@ func provisionPoolMachines(log *slog.Logger, machinePoolManager *machinepool.Man
 		} else if !outcome.interrupted && provisioned > 0 {
 			log.Info("attempted machine provisioning reconcile", "attempted_count", provisioned)
 		}
-		return false
+		return maintenanceResult{worked: provisioned > 0, err: outcome.err}
 	}
 }
 
-func cleanupPoolMachines(log *slog.Logger, machinePoolManager *machinepool.Manager) func(context.Context) bool {
-	return func(ctx context.Context) bool {
+func cleanupPoolMachines(
+	log *slog.Logger,
+	machinePoolManager *machinepool.Manager,
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
 		cleaned, err := machinePoolManager.ReconcileCleanup(ctx, machinepool.DefaultReconcileBatchSize)
 		outcome := completedMaintenanceOutcome(ctx, err)
 		if outcome.err != nil {
@@ -117,15 +124,15 @@ func cleanupPoolMachines(log *slog.Logger, machinePoolManager *machinepool.Manag
 		} else if !outcome.interrupted && cleaned > 0 {
 			log.Info("attempted machine cleanup reconcile", "attempted_count", cleaned)
 		}
-		return false
+		return maintenanceResult{worked: cleaned > 0, err: outcome.err}
 	}
 }
 
 func deleteIdlePoolMachines(
 	log *slog.Logger,
 	reconcile func(context.Context, int32) (int, error),
-) func(context.Context) bool {
-	return func(ctx context.Context) bool {
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
 		candidateCount, err := reconcile(ctx, machinepool.DefaultReconcileBatchSize)
 		outcome := completedMaintenanceOutcome(ctx, err)
 		if outcome.err != nil {
@@ -133,12 +140,19 @@ func deleteIdlePoolMachines(
 		} else if !outcome.interrupted && candidateCount > 0 {
 			log.Info("reconciled idle machine deletion", "candidate_count", candidateCount)
 		}
-		return candidateCount >= machinepool.DefaultReconcileBatchSize
+		return maintenanceResult{
+			worked: candidateCount > 0,
+			more:   candidateCount >= machinepool.DefaultReconcileBatchSize,
+			err:    outcome.err,
+		}
 	}
 }
 
-func deleteDeniedPoolMachines(log *slog.Logger, machinePoolManager *machinepool.Manager) func(context.Context) bool {
-	return func(ctx context.Context) bool {
+func deleteDeniedPoolMachines(
+	log *slog.Logger,
+	machinePoolManager *machinepool.Manager,
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
 		candidateCount, err := machinePoolManager.ReconcileManagedWorkDeniedDeletion(
 			ctx,
 			log,
@@ -150,17 +164,21 @@ func deleteDeniedPoolMachines(log *slog.Logger, machinePoolManager *machinepool.
 		} else if !outcome.interrupted && candidateCount > 0 {
 			log.Info("reconciled managed work denied machine deletion", "candidate_count", candidateCount)
 		}
-		return candidateCount >= machinepool.DefaultReconcileBatchSize
+		return maintenanceResult{
+			worked: candidateCount > 0,
+			more:   candidateCount >= machinepool.DefaultReconcileBatchSize,
+			err:    outcome.err,
+		}
 	}
 }
 
 func archiveIdleAgents(
 	log *slog.Logger,
-	execution *executionstore.Store,
-	machinePoolManager *machinepool.Manager,
-) func(context.Context) bool {
-	return func(ctx context.Context) bool {
-		machines, archived, full, err := execution.ArchiveIdleAgents(ctx, machinepool.DefaultReconcileBatchSize)
+	archive func(context.Context, int) ([]executionstore.MachineRecord, int, bool, error),
+	deleteMachines func(context.Context, []executionstore.MachineRecord) (int, error),
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
+		machines, archived, full, err := archive(ctx, machinepool.DefaultReconcileBatchSize)
 		outcome := completedMaintenanceOutcome(ctx, err)
 		if outcome.err != nil {
 			log.Error("archive idle agents", "archived_count", archived, "error", outcome.err)
@@ -168,10 +186,12 @@ func archiveIdleAgents(
 			log.Info("archived idle agents", "archived_count", archived)
 		}
 		if len(machines) > 0 {
-			if _, err := machinePoolManager.DeleteMachines(ctx, machines); err != nil {
+			_, err = deleteMachines(ctx, machines)
+			if err = completedMaintenanceOutcome(ctx, err).err; err != nil {
 				log.Error("delete idle agent machines", "machine_count", len(machines), "error", err)
+				outcome.err = errors.Join(outcome.err, err)
 			}
 		}
-		return err == nil && full
+		return maintenanceResult{worked: archived > 0, more: full, err: outcome.err}
 	}
 }

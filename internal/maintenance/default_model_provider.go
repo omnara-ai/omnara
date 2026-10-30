@@ -11,14 +11,18 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func provisionDefaultModelProviders(log *slog.Logger, runner *defaultprovider.Runner) func(context.Context) bool {
-	return func(ctx context.Context) bool {
+func provisionDefaultModelProviders(
+	log *slog.Logger,
+	runner *defaultprovider.Runner,
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
 		attempted, orgID, err := runner.RunNext(ctx)
 		switch {
 		case err == nil && attempted:
 			log.Info("provisioned default model provider", "org_id", orgID)
 		case errors.Is(err, defaultprovider.ErrRetrySchedule):
 			log.Error("schedule default model provider provisioning retry", "org_id", orgID, "error", err)
+			return maintenanceResult{err: err}
 		case errors.Is(err, orglifecycle.ErrDefaultModelProviderProvisioningSuperseded):
 			log.Warn("default model provider provisioning superseded", "org_id", orgID, "error", err)
 		case errors.Is(err, storeerr.ErrStateTransitionConflict):
@@ -29,7 +33,8 @@ func provisionDefaultModelProviders(log *slog.Logger, runner *defaultprovider.Ru
 			log.Info("default model provider provisioning pending", "org_id", orgID)
 		case err != nil && ctx.Err() == nil:
 			log.Error("provision default model provider", "org_id", orgID, "error", err)
+			return maintenanceResult{err: err}
 		}
-		return false
+		return maintenanceResult{worked: attempted}
 	}
 }

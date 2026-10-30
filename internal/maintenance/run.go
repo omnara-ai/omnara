@@ -3,6 +3,7 @@ package maintenance
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"runtime/debug"
@@ -11,9 +12,11 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/defaultprovider"
 	"github.com/omnara-ai/omnara/internal/errutil"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/observability/metrics"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (
@@ -42,6 +45,7 @@ func Run(ctx context.Context, options Options) {
 	execution := options.Store.Execution()
 	integrations := options.Store.Integrations()
 	runtimeRecorder := metrics.NewProviderRuntimeRecorder(options.Metrics)
+	jobRecorder := metrics.NewJobRecorder(options.Metrics, metrics.SubsystemMaintenance)
 	jobs := []maintenanceJob{
 		{"reap_runtime_locks", interval, reapRuntimeLocks(log, execution.ReapExpiredAgentRuntimeLocks)},
 		{"expire_daemon_runtimes", interval, expireDaemonRuntimes(log, execution.EndExpiredDaemonRuntimes)},
@@ -62,7 +66,8 @@ func Run(ctx context.Context, options Options) {
 		{"delete_idle_pool_machines", idleMachineReconcileInterval,
 			deleteIdlePoolMachines(log, machinePools.ReconcileIdleDeletion)},
 		{"delete_denied_pool_machines", deniedMachineReconcileInterval, deleteDeniedPoolMachines(log, machinePools)},
-		{"archive_idle_agents", idleAgentArchiveInterval, archiveIdleAgents(log, execution, machinePools)},
+		{"archive_idle_agents", idleAgentArchiveInterval,
+			archiveIdleAgents(log, execution.ArchiveIdleAgents, machinePools.DeleteMachines)},
 		{"discover_provider_runtimes", providerRuntimeDiscoveryInterval, reconcileProviderRuntimes(
 			log, runtimeRecorder, metrics.ProviderRuntimeOperationDiscovery,
 			func(ctx context.Context) (machinepool.RuntimeReconciliationStats, error) {
@@ -75,8 +80,8 @@ func Run(ctx context.Context, options Options) {
 				return machinePools.ConfirmProviderRuntimeMismatches(ctx, machinepool.RuntimeReconciliationConfig{})
 			},
 		)},
-		{"sample_execution_heads", executionHeadInterval, sampleExecutionHeads(
-			log, metrics.NewJobRecorder(options.Metrics, metrics.SubsystemMaintenance), execution.SampleExecutionHeads,
+		{executionHeadJob, executionHeadInterval, sampleExecutionHeads(
+			log, jobRecorder, execution.SampleExecutionHeads,
 		)},
 		{"sample_discord_demand", discordRuntimeMetricsInterval, recordDiscordRuntimeDemand(
 			log, integrations.CountUnclaimedDiscordIntegrations, metrics.NewDiscordRuntimeDemandRecorder(options.Metrics),
@@ -91,28 +96,51 @@ func Run(ctx context.Context, options Options) {
 			provisionDefaultModelProviders(log, options.DefaultModelProvider),
 		})
 	}
-	runMaintenanceJobs(ctx, log, interval, jobs)
+	runMaintenanceJobs(ctx, interval, jobRecorder, jobs)
 }
 
 type maintenanceJob struct {
 	name     string
 	interval time.Duration
-	run      func(context.Context) (more bool)
+	run      func(context.Context) maintenanceResult
 }
 
-func runMaintenanceJobs(ctx context.Context, log *slog.Logger, busyInterval time.Duration, jobs []maintenanceJob) {
+type maintenanceResult struct {
+	worked bool
+	more   bool
+	err    error
+}
+
+func runMaintenanceJobs(
+	ctx context.Context,
+	busyInterval time.Duration,
+	recorder *metrics.JobRecorder,
+	jobs []maintenanceJob,
+) {
 	var running sync.WaitGroup
 	for _, job := range jobs {
-		running.Go(func() { runMaintenanceJob(ctx, log, busyInterval, job) })
+		running.Go(func() { runMaintenanceJob(ctx, busyInterval, recorder, job) })
 	}
 	running.Wait()
 }
 
-func runMaintenanceJob(ctx context.Context, log *slog.Logger, busyInterval time.Duration, job maintenanceJob) {
+func runMaintenanceJob(
+	ctx context.Context,
+	busyInterval time.Duration,
+	recorder *metrics.JobRecorder,
+	job maintenanceJob,
+) {
+	retry := busyInterval
 	for ctx.Err() == nil {
 		delay := jitteredMaintenanceDelay(job.interval)
-		if runMaintenanceJobOnce(ctx, log, job) {
-			delay = min(delay, busyInterval)
+		result := runMaintenanceJobOnce(ctx, recorder, job)
+		if result.err != nil {
+			delay, retry = min(delay, retry), min(2*retry, job.interval)
+		} else {
+			retry = busyInterval
+			if result.more {
+				delay = min(delay, busyInterval)
+			}
 		}
 		timer := time.NewTimer(delay)
 		select {
@@ -123,13 +151,34 @@ func runMaintenanceJob(ctx context.Context, log *slog.Logger, busyInterval time.
 	}
 }
 
-func runMaintenanceJobOnce(ctx context.Context, log *slog.Logger, job maintenanceJob) (more bool) {
+func runMaintenanceJobOnce(
+	ctx context.Context,
+	recorder *metrics.JobRecorder,
+	job maintenanceJob,
+) (result maintenanceResult) {
+	started := time.Now()
+	ctx, event := logent.MaintenanceJob(ctx, job.name, job.interval)
+	defer event.Done(ctx)
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			log.Error("maintenance job panicked", "job", job.name, "error", recovered, "stack", string(debug.Stack()))
+			result = maintenanceResult{err: fmt.Errorf("maintenance job panicked: %v", recovered)}
+			logpkg.Attach(ctx, logpkg.Fields{"error.stack": string(debug.Stack())})
 		}
+		logent.MaintenanceJobResult(ctx, result.worked, result.more, result.err)
+		recorder.RecordRun(job.name, jobRunResult(ctx, result.err), time.Since(started))
 	}()
 	return job.run(ctx)
+}
+
+func jobRunResult(ctx context.Context, err error) metrics.JobResult {
+	switch {
+	case err != nil:
+		return metrics.JobResultError
+	case ctx.Err() != nil:
+		return metrics.JobResultCanceled
+	default:
+		return metrics.JobResultSuccess
+	}
 }
 
 func jitteredMaintenanceDelay(interval time.Duration) time.Duration {

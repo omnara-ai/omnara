@@ -20,14 +20,15 @@ func recordAgentBacklog(
 	log *slog.Logger,
 	sample func(context.Context) (executionstore.ReadyAgentBacklog, error),
 	recorder *metrics.AgentBacklogRecorder,
-) func(context.Context) bool {
-	return func(ctx context.Context) bool {
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
 		backlog, err := sampleAgentBacklog(ctx, log, sample)
 		recorder.Record(metrics.AgentBacklogSample{Ready: backlog.Ready, OldestReadyAge: backlog.OldestReadyAge}, err)
 		if err != nil && ctx.Err() == nil {
 			log.Warn("sample ready agent backlog", "error", err)
+			return maintenanceResult{err: err}
 		}
-		return false
+		return maintenanceResult{}
 	}
 }
 

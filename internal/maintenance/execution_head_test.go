@@ -13,18 +13,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/observability/metrics"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 	"github.com/stretchr/testify/require"
 )
 
 func TestExecutionHeadTickOutcomes(t *testing.T) {
 	for _, outcome := range []string{"success", "error", "canceled"} {
 		t.Run(outcome, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(t.Context())
+			ctx, cancel := context.WithCancel(logpkg.WithLogger(t.Context(), slog.New(slog.DiscardHandler)))
 			defer cancel()
 			var logs bytes.Buffer
 			set := metrics.New()
 			recorder := metrics.NewJobRecorder(set, metrics.SubsystemMaintenance)
-			runExecutionHeadTick(ctx, slog.New(slog.NewJSONHandler(&logs, nil)), recorder, uuid.Nil,
+			run := sampleExecutionHeads(slog.New(slog.NewJSONHandler(&logs, nil)), recorder,
 				func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error) {
 					report := executionstore.ExecutionHeadSampleReport{
 						Samples: []executionstore.ExecutionHeadSample{{AgentID: uuid.New(), ProjectID: uuid.New()}}}
@@ -32,11 +33,16 @@ func TestExecutionHeadTickOutcomes(t *testing.T) {
 					case "error":
 						report.Samples[0].Err = errors.New("timeout")
 					case "canceled":
+						report.Samples[0].Err = context.Canceled
 						cancel()
 						return report, context.Canceled
 					}
 					return report, nil
 				})
+			runMaintenanceJobOnce(ctx, recorder, maintenanceJob{executionHeadJob, executionHeadInterval, run})
+			if outcome == "canceled" {
+				require.Empty(t, logs.String(), "shutdown is not a sampling failure")
+			}
 
 			response := httptest.NewRecorder()
 			set.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
@@ -54,12 +60,13 @@ func TestExecutionHeadTickMismatch(t *testing.T) {
 	sample.ProjectID = uuid.New()
 	set := metrics.New()
 	var logs bytes.Buffer
-	runExecutionHeadTick(t.Context(), slog.New(slog.NewJSONHandler(&logs, nil)),
+	_, err := runExecutionHeadTick(t.Context(), slog.New(slog.NewJSONHandler(&logs, nil)),
 		metrics.NewJobRecorder(set, metrics.SubsystemMaintenance), uuid.Nil,
 		func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error) {
 			return executionstore.ExecutionHeadSampleReport{
 				Samples: []executionstore.ExecutionHeadSample{sample}}, nil
 		})
+	require.NoError(t, err, "drift is a finding, not a failed run")
 	require.Contains(t, logs.String(), `"level":"ERROR"`)
 	require.Contains(t, logs.String(), sample.AgentID.String())
 	require.Contains(t, logs.String(), sample.ProjectID.String())
@@ -78,12 +85,14 @@ func TestExecutionHeadTickCursor(t *testing.T) {
 	var cursor uuid.UUID
 	for range 3 {
 		previous, next := cursor, uuid.New()
-		cursor = runExecutionHeadTick(t.Context(), slog.New(slog.NewJSONHandler(&logs, nil)), nil, cursor,
+		var err error
+		cursor, err = runExecutionHeadTick(t.Context(), slog.New(slog.NewJSONHandler(&logs, nil)), nil, cursor,
 			func(_ context.Context, after uuid.UUID, n int32) (executionstore.ExecutionHeadSampleReport, error) {
 				require.Equal(t, previous, after)
 				require.EqualValues(t, 10, n)
 				return executionstore.ExecutionHeadSampleReport{Cursor: next}, nil
 			})
+		require.NoError(t, err)
 		require.Equal(t, next, cursor)
 	}
 }
@@ -105,7 +114,7 @@ func TestExecutionHeadJobInitializesItemsAndCarriesCursor(t *testing.T) {
 			}
 			return executionstore.ExecutionHeadSampleReport{Cursor: next}, nil
 		})
-	require.False(t, run(t.Context()))
-	require.False(t, run(t.Context()))
+	require.Zero(t, run(t.Context()))
+	require.Zero(t, run(t.Context()))
 	require.Equal(t, []uuid.UUID{uuid.Nil, next}, calls)
 }

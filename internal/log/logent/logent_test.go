@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -279,6 +280,62 @@ func TestWorkerLoopFailureIsError(t *testing.T) {
 	record := oneRecord(t, &buf)
 	if got := record["level"]; got != "error" {
 		t.Fatalf("level = %v, want error in %+v", got, record)
+	}
+}
+
+func TestMaintenanceJobCreatesWideEvent(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLogger(&buf))
+	ctx, event := MaintenanceJob(ctx, "reap_runtime_locks", time.Second)
+	MaintenanceJobCount(ctx, 3)
+	MaintenanceJobResult(ctx, true, true, nil)
+	event.Done(context.Background())
+
+	record := oneRecord(t, &buf)
+	for key, want := range map[string]any{
+		"level":                    "info",
+		"message":                  "maintenance.job",
+		"event.name":               "maintenance.job",
+		"maintenance.job.name":     "reap_runtime_locks",
+		"maintenance.job.interval": float64(time.Second),
+		"maintenance.job.count":    float64(3),
+		"maintenance.job.worked":   true,
+		"maintenance.job.more":     true,
+	} {
+		if got := record[key]; got != want {
+			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
+		}
+	}
+}
+
+func TestMaintenanceJobIdleSuccessIsDebug(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLoggerAtLevel(&buf, slog.LevelDebug))
+	ctx, event := MaintenanceJob(ctx, "reap_runtime_locks", time.Second)
+	MaintenanceJobResult(ctx, false, false, nil)
+	event.Done(context.Background())
+
+	record := oneRecord(t, &buf)
+	if got := record["level"]; got != "debug" {
+		t.Fatalf("level = %v, want debug in %+v", got, record)
+	}
+}
+
+func TestMaintenanceJobFailureIsError(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLogger(&buf))
+	ctx, event := MaintenanceJob(ctx, "reap_runtime_locks", time.Second)
+	MaintenanceJobResult(ctx, false, false, errors.New("reap failed"))
+	event.Done(context.Background())
+
+	record := oneRecord(t, &buf)
+	for key, want := range map[string]any{
+		"level":         "error",
+		"error.message": "reap failed",
+	} {
+		if got := record[key]; got != want {
+			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
+		}
 	}
 }
 
