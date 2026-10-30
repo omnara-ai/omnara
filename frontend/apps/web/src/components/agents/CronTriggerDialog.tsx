@@ -216,7 +216,7 @@ function CronTriggerFormDialog({
                   />
                   <FieldDescription>
                     {cronDescription(field.state.value) ??
-                      'Five fields: minute, hour, day of month, month, day of week.'}
+                      'Standard cron syntax, like 0 9 * * 1-5 for 9 AM on weekdays.'}
                   </FieldDescription>
                 </Field>
               )}
@@ -249,7 +249,6 @@ function CronTriggerFormDialog({
                       </ComboboxList>
                     </ComboboxContent>
                   </Combobox>
-                  <FieldDescription>The schedule is evaluated in this timezone.</FieldDescription>
                 </Field>
               )}
             </form.Field>
