@@ -12,7 +12,7 @@ func DefaultSystemPrompt() string {
 		"and summarize the result clearly."
 }
 
-func capabilityGuidance(specs []ToolSpec) string {
+func capabilityGuidance(specs []ToolSpec, gitCredentials bool) string {
 	var guidance []string
 	if HasTool(specs, toolcatalog.ToolNameRunCommand) {
 		guidance = append(guidance,
@@ -22,6 +22,14 @@ func capabilityGuidance(specs []ToolSpec) string {
 				"and a positive `wait_ms` only for a command you expect to finish within that time; then do other work "+
 				"or finish your turn. To wait a set time, run `sleep <seconds>` with `wait_ms: 0` and finish your turn; "+
 				"its exit message wakes you.")
+		if gitCredentials {
+			guidance = append(guidance,
+				"Git commands you run with `run_command` on any attached machine are already authenticated to "+
+					"github.com over HTTPS. Use https://github.com/OWNER/REPO.git URLs; these credentials don't "+
+					"cover SSH remotes or the `gh` CLI. Never retrieve, print, or copy these credentials, or put "+
+					"tokens in URLs. When the work needs code from a GitHub repository you can access, clone it onto "+
+					"an attached machine unless it's already checked out there.")
+		}
 	}
 	processActions := make([]string, 0, 4)
 	if HasTool(specs, toolcatalog.ToolNameWriteProcess) {

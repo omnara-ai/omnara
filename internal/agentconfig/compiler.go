@@ -352,6 +352,9 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 	if len(source.Skills) > 0 {
 		names = append(names, toolcatalog.ToolNameSkill)
 	}
+	if source.GitCredentials != nil {
+		names = append(names, toolcatalog.ToolNameListGitHubRepositories)
+	}
 	if len(source.Subagents) > 0 {
 		names = append(names, toolcatalog.SubagentToolNames()...)
 	}

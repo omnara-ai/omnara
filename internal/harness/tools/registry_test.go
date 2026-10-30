@@ -57,7 +57,7 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 	)
 	add(
 		[]string{
-			"web_search", "web_fetch", "skill",
+			"web_search", "web_fetch", "skill", "list_github_repositories",
 			"storage_list", "storage_read", "storage_write", "storage_search",
 		},
 		expectedTopology{async: true},

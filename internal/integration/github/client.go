@@ -18,12 +18,13 @@ import (
 )
 
 const (
-	APIURL           = "https://api.github.com"
-	APIVersion       = "2026-03-10"
-	OperationTimeout = 15 * time.Second
-	ResponseMaxBytes = 2 * 1024 * 1024
-	ErrorMaxBytes    = 8 * 1024
-	jsonMediaType    = "application/vnd.github+json"
+	APIURL                      = "https://api.github.com"
+	APIVersion                  = "2026-03-10"
+	OperationTimeout            = 15 * time.Second
+	ResponseMaxBytes            = 2 * 1024 * 1024
+	accessTokenResponseMaxBytes = 8 * 1024 * 1024
+	ErrorMaxBytes               = 8 * 1024
+	jsonMediaType               = "application/vnd.github+json"
 )
 
 type Config struct {
@@ -236,10 +237,14 @@ func (c *appClient) attempt(req *http.Request, mutation bool) ([]byte, http.Head
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, ErrorMaxBytes))
 		return nil, nil, responseError(resp.StatusCode, resp.Header, body, mutation, c.now())
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, ResponseMaxBytes+1))
-	if err != nil || len(body) > ResponseMaxBytes {
+	limit := ResponseMaxBytes
+	if strings.HasSuffix(req.URL.Path, "/access_tokens") {
+		limit = accessTokenResponseMaxBytes
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
+	if err != nil || len(body) > limit {
 		code := InvalidResponse
-		if len(body) > ResponseMaxBytes {
+		if len(body) > limit {
 			code = ResponseTooLarge
 		}
 		if mutation {

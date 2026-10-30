@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	gitCredentialExpiryMargin = 15 * time.Minute
-	gitCredentialCacheSize    = 1024
+	gitCredentialExpiryMargin        = 15 * time.Minute
+	gitCredentialCacheSize           = 1024
+	InstallationRepositoriesPageSize = 100
 )
 
 var ErrContentsPermissionRequired = errors.New(
@@ -86,11 +87,13 @@ func (c *Client) InstallationGitCredentials(
 	return result.InstallationCredentials, nil
 }
 
-func (c *Client) InstallationRepositories(ctx context.Context, page int) ([]Repository, int, error) {
+func (c *Client) InstallationRepositories(
+	ctx context.Context, write bool, repositoryIDs []int64, page int,
+) ([]Repository, int, error) {
 	if page < 1 {
 		return nil, 0, errors.New("github repository page must be positive")
 	}
-	credentials, err := c.InstallationGitCredentials(ctx, false, nil)
+	credentials, err := c.InstallationGitCredentials(ctx, write, repositoryIDs)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -99,12 +102,13 @@ func (c *Client) InstallationRepositories(ctx context.Context, page int) ([]Repo
 	var listing struct {
 		Repositories []Repository `json:"repositories"`
 	}
-	path := "/installation/repositories?per_page=100&page=" + strconv.Itoa(page)
+	path := "/installation/repositories?per_page=" + strconv.Itoa(InstallationRepositoriesPageSize) +
+		"&page=" + strconv.Itoa(page)
 	header, err := c.doJSON(ctx, http.MethodGet, path, credentials.Token, nil, &listing, false)
 	if err != nil {
 		return nil, 0, err
 	}
-	if listing.Repositories == nil || len(listing.Repositories) > 100 {
+	if listing.Repositories == nil || len(listing.Repositories) > InstallationRepositoriesPageSize {
 		return nil, 0, &APIError{Code: InvalidResponse}
 	}
 	for _, repository := range listing.Repositories {
@@ -112,7 +116,8 @@ func (c *Client) InstallationRepositories(ctx context.Context, page int) ([]Repo
 			return nil, 0, &APIError{Code: InvalidResponse}
 		}
 	}
-	next, err := c.nextPage(header.Values("Link"), PageOptions{Page: page, PerPage: 100}, "/installation/repositories")
+	next, err := c.nextPage(header.Values("Link"), PageOptions{Page: page, PerPage: InstallationRepositoriesPageSize},
+		"/installation/repositories")
 	if err != nil {
 		return nil, 0, err
 	}

@@ -204,7 +204,7 @@ func TestInstallationRepositoriesReturnsOnePageAndTheNext(t *testing.T) {
 		repository Repository
 		next       int
 	}{1: {Repository{ID: 1, Name: "repo-1"}, 2}, 2: {Repository{ID: 2, Name: "repo-2"}, 0}} {
-		repositories, next, err := client.InstallationRepositories(t.Context(), page)
+		repositories, next, err := client.InstallationRepositories(t.Context(), false, nil, page)
 		if err != nil || len(repositories) != 1 || repositories[0] != want.repository || next != want.next {
 			t.Fatalf("page %d = %v, next %d, %v", page, repositories, next, err)
 		}
@@ -224,11 +224,24 @@ func TestInstallationRepositoriesRejectsInvalidPages(t *testing.T) {
 				fmt.Fprint(w, page)
 			})
 			var apiErr *APIError
-			if _, _, err := client.InstallationRepositories(t.Context(), 1); !errors.As(err, &apiErr) ||
+			if _, _, err := client.InstallationRepositories(t.Context(), false, nil, 1); !errors.As(err, &apiErr) ||
 				apiErr.Code != InvalidResponse {
 				t.Fatalf("invalid repository page accepted: %v", err)
 			}
 		})
+	}
+}
+
+func TestInstallationGitCredentialsAcceptsLargeRepositorySelections(t *testing.T) {
+	client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprintf(w, `{"token":"git-token","expires_at":%q,"permissions":{"contents":"read"},`+
+			`"repositories":[{"id":1,"name":"app","description":%q}]}`,
+			time.Now().Add(time.Hour).Format(time.RFC3339), strings.Repeat("x", ResponseMaxBytes))
+	})
+	credentials, err := client.InstallationGitCredentials(t.Context(), false, []int64{1})
+	if err != nil || credentials.Token != "git-token" {
+		t.Fatalf("large token response = %v, %v", credentials, err)
 	}
 }
 
