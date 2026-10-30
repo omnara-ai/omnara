@@ -137,10 +137,37 @@ func TestMaintenanceJobBacksOffAfterFailuresThenWaitsItsInterval(t *testing.T) {
 		cancel()
 		<-done
 		require.Len(t, runs, 7)
-		require.Equal(t, []time.Duration{0, time.Second, 3 * time.Second, 7 * time.Second, 15 * time.Second}, runs[:5])
+		for i, want := range []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second} {
+			require.GreaterOrEqual(t, runs[i+1]-runs[i], want*9/10)
+			require.LessOrEqual(t, runs[i+1]-runs[i], want*11/10)
+		}
 		require.GreaterOrEqual(t, runs[5]-runs[4], 54*time.Minute)
 		require.LessOrEqual(t, runs[5]-runs[4], 66*time.Minute)
-		require.Equal(t, time.Second, runs[6]-runs[5], "a success must reset the backoff")
+		require.LessOrEqual(t, runs[6]-runs[5], 1100*time.Millisecond, "a success must reset the backoff")
+	})
+}
+
+func TestMaintenanceJobScheduledFailureSkipsTheErrorRetry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(logpkg.WithLogger(t.Context(), slog.New(slog.DiscardHandler)))
+		start := time.Now()
+		var runs []time.Duration
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			runMaintenanceJob(ctx, time.Second, nil, maintenanceJob{
+				"test", time.Hour, func(context.Context) maintenanceResult {
+					runs = append(runs, time.Since(start))
+					return maintenanceResult{err: errors.New("provider failed"), retryScheduled: true, more: len(runs) == 1}
+				},
+			})
+		}()
+		time.Sleep(67 * time.Minute) //nolint:omnaralint // Advance synctest's virtual clock.
+		cancel()
+		<-done
+		require.Len(t, runs, 3)
+		require.Equal(t, time.Second, runs[1], "a scheduled failure still catches up")
+		require.GreaterOrEqual(t, runs[2]-runs[1], 54*time.Minute, "a scheduled failure waits its interval")
 	})
 }
 

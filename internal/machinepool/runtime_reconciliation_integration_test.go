@@ -497,7 +497,7 @@ WHERE org_id = $1 AND id = $2
 		RuntimeReconciliationConfig{PageSize: 1},
 	)
 	if !errors.Is(err, providerErr) || stats.Confirmations != 1 || stats.ProviderErrors != 1 ||
-		stats.DeletionClaims != 0 {
+		!stats.OnlyCooldownFailures() || stats.DeletionClaims != 0 {
 		t.Fatalf("exact provider failure = stats %+v error %v", stats, err)
 	}
 	machine, err := fixture.store.Execution().GetMachine(ctx, fixture.orgID, fixture.machineID)
@@ -894,7 +894,8 @@ func TestProviderRuntimeReconciliationProviderErrorUsesScopeCooldown(t *testing.
 		Concurrency:       1,
 	}
 	stats, err := fixture.manager.ConfirmProviderRuntimeMismatches(ctx, config)
-	if !errors.Is(err, providerErr) || stats.ProviderErrors != 1 || stats.Confirmations != 1 {
+	if !errors.Is(err, providerErr) || stats.ProviderErrors != 1 || !stats.OnlyCooldownFailures() ||
+		stats.Confirmations != 1 {
 		t.Fatalf("provider failure = stats %+v error %v", stats, err)
 	}
 	stats, err = fixture.manager.ConfirmProviderRuntimeMismatches(ctx, config)

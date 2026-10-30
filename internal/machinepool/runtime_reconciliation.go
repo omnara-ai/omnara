@@ -50,6 +50,7 @@ type RuntimeReconciliationStats struct {
 	Terminated            int
 	Unknown               int
 	ProviderErrors        int
+	Failures              int
 	MarkersSet            int
 	MarkersCleared        int
 	WakeAttemptsCleared   int
@@ -170,12 +171,24 @@ func (s *RuntimeReconciliationStats) add(other RuntimeReconciliationStats) {
 	s.Terminated += other.Terminated
 	s.Unknown += other.Unknown
 	s.ProviderErrors += other.ProviderErrors
+	s.Failures += other.Failures
 	s.MarkersSet += other.MarkersSet
 	s.MarkersCleared += other.MarkersCleared
 	s.WakeAttemptsCleared += other.WakeAttemptsCleared
 	s.Confirmations += other.Confirmations
 	s.DeletionClaims += other.DeletionClaims
 	s.DeletionClaimsSkipped += other.DeletionClaimsSkipped
+}
+
+func (s *RuntimeReconciliationStats) addOperation(other RuntimeReconciliationStats, err error) {
+	s.add(other)
+	if err != nil {
+		s.Failures++
+	}
+}
+
+func (s *RuntimeReconciliationStats) OnlyCooldownFailures() bool {
+	return s.ProviderErrors > 0 && s.Failures == s.ProviderErrors
 }
 
 func (m Manager) DiscoverProviderRuntimeMismatches(
@@ -234,7 +247,7 @@ func (m Manager) DiscoverProviderRuntimeMismatches(
 				scopeCandidates[scopeOrder[index]],
 			)
 			statsMu.Lock()
-			stats.add(scopeStats)
+			stats.addOperation(scopeStats, err)
 			statsMu.Unlock()
 			exactTasksByScope[index] = scopeExactTasks
 			return err
@@ -258,7 +271,7 @@ func (m Manager) DiscoverProviderRuntimeMismatches(
 				exactTasks[index],
 			)
 			statsMu.Lock()
-			stats.add(taskStats)
+			stats.addOperation(taskStats, err)
 			statsMu.Unlock()
 			return err
 		},
@@ -536,11 +549,13 @@ func (m Manager) ConfirmProviderRuntimeMismatches(
 			}
 			runtimeProvider, err := m.providerForRuntimeScope(ctx, candidates[0])
 			if err != nil {
+				var failed RuntimeReconciliationStats
 				if m.recordProviderRuntimeFailure(ctx, scopeKey, err) {
-					statsMu.Lock()
-					stats.ProviderErrors++
-					statsMu.Unlock()
+					failed.ProviderErrors++
 				}
+				statsMu.Lock()
+				stats.addOperation(failed, err)
+				statsMu.Unlock()
 				return err
 			}
 			prepared[index] = &runtimeConfirmationScope{
@@ -595,7 +610,7 @@ func (m Manager) ConfirmProviderRuntimeMismatches(
 					)
 				}
 				statsMu.Lock()
-				stats.add(scopeStats)
+				stats.addOperation(scopeStats, err)
 				statsMu.Unlock()
 				return err
 			},

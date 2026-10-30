@@ -106,9 +106,10 @@ type maintenanceJob struct {
 }
 
 type maintenanceResult struct {
-	worked bool
-	more   bool
-	err    error
+	worked         bool
+	more           bool
+	err            error
+	retryScheduled bool
 }
 
 func runMaintenanceJobs(
@@ -134,8 +135,8 @@ func runMaintenanceJob(
 	for ctx.Err() == nil {
 		delay := jitteredMaintenanceDelay(job.interval)
 		result := runMaintenanceJobOnce(ctx, recorder, job)
-		if result.err != nil {
-			delay, retry = min(delay, retry), min(2*retry, job.interval)
+		if result.err != nil && !result.retryScheduled {
+			delay, retry = min(delay, jitteredMaintenanceDelay(retry)), min(2*retry, job.interval)
 		} else {
 			retry = busyInterval
 			if result.more {

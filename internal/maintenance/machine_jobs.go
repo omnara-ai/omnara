@@ -30,7 +30,7 @@ func reconcileProviderRuntimes(
 		} else if !outcome.interrupted && worked {
 			log.Info("provider runtime reconciliation", "operation", operation, "stats", stats)
 		}
-		return maintenanceResult{worked: worked, err: outcome.err}
+		return maintenanceResult{worked: worked, err: outcome.err, retryScheduled: stats.OnlyCooldownFailures()}
 	}
 }
 
@@ -185,13 +185,15 @@ func archiveIdleAgents(
 		} else if !outcome.interrupted && archived > 0 {
 			log.Info("archived idle agents", "archived_count", archived)
 		}
+		result := maintenanceResult{worked: archived > 0, more: full, err: outcome.err}
 		if len(machines) > 0 {
 			_, err = deleteMachines(ctx, machines)
 			if err = completedMaintenanceOutcome(ctx, err).err; err != nil {
 				log.Error("delete idle agent machines", "machine_count", len(machines), "error", err)
-				outcome.err = errors.Join(outcome.err, err)
+				result.retryScheduled = result.err == nil
+				result.err = errors.Join(result.err, err)
 			}
 		}
-		return maintenanceResult{worked: archived > 0, more: full, err: outcome.err}
+		return result
 	}
 }
