@@ -11,26 +11,25 @@ import (
 
 type toolCallCommandFunc func(context.Context, *toolCallTransaction) (any, error)
 
-func (f toolCallCommandFunc) apply(ctx context.Context, tx *toolCallTransaction) (any, error) {
-	return f(ctx, tx)
-}
-
 type ToolCallCompletionBuilder[T any] func(T) (ToolCallCompletionInput, error)
 
 func CompleteToolCallInExecution(input ToolCallCompletionInput) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replayCompletion(input)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		return tx.completeToolCall(ctx, input)
 	})
 }
 
 func StartToolCallAsync() ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replayAsyncTool
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		return nil, tx.startToolCall(ctx, true)
 	})
 }
 
 func StartProcessForToolCall(input CreateProcessInput) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replayProcessCommand(input)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		record, err := tx.startProcess(ctx, input)
 		if err != nil {
 			return nil, err
@@ -40,7 +39,8 @@ func StartProcessForToolCall(input CreateProcessInput) ToolCallCommand {
 }
 
 func CreateProcessActionForToolCall(input CreateProcessActionInput) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replayProcessActionCommand(input, nil)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		record, err := tx.createProcessAction(ctx, input)
 		if err != nil {
 			return nil, err
@@ -53,9 +53,13 @@ func StopProcessForToolCall(
 	input CreateProcessActionInput,
 	alreadyStoppedCompletion ToolCallCompletionInput,
 ) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replayProcessActionCommand(input, &alreadyStoppedCompletion)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		record, err := tx.createProcessAction(ctx, input)
 		if errors.Is(err, storeerr.ErrProcessAlreadyStopped) {
+			if tx.disposition == ToolCallDispositionCompleted {
+				return tx.completeToolCall(ctx, alreadyStoppedCompletion)
+			}
 			if err := tx.q.TouchProcessActivity(ctx, dbsqlc.TouchProcessActivityParams{
 				ProjectID: tx.input.ProjectID,
 				AgentID:   tx.input.AgentID,
@@ -73,7 +77,8 @@ func StopProcessForToolCall(
 }
 
 func CreateQuestionForToolCall(input CreateQuestionInteractionInput) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replayQuestionCommand
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		record, err := tx.createQuestionInteraction(ctx, input)
 		if err != nil {
 			return nil, err
@@ -86,7 +91,8 @@ func CreatePoolMachineForToolCall(
 	input CreatePoolMachineInput,
 	completion ToolCallCompletionBuilder[CreatePoolMachineResult],
 ) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replayCreateMachine(input, completion)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		if completion == nil {
 			return nil, errors.New("pool machine completion builder is required")
 		}
@@ -109,7 +115,8 @@ func DeletePoolMachineForToolCall(
 	input DeletePoolMachineInput,
 	completion ToolCallCompletionBuilder[PoolMachineRecord],
 ) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
+	replay := replayDeleteMachine(input, completion)
+	return replayableToolCommand(replay, func(ctx context.Context, tx *toolCallTransaction) (any, error) {
 		if completion == nil {
 			return nil, errors.New("pool machine completion builder is required")
 		}

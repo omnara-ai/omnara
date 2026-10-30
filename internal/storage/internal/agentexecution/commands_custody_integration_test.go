@@ -89,14 +89,7 @@ func TestExecutionToolCustody(t *testing.T) {
 			require.True(t, result.Changed)
 			snapshot := assertCommandState(t, u, h)
 			require.Equal(t, agentexecution.WorkModel, snapshot.Selection.Work)
-			if kind == "custom" {
-				require.NoError(t, u.Commit(t.Context(), "complete custom tool"))
-				u, h = f.handle(t, a)
-				_, err = complete()
-				require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
-				require.NoError(t, u.Rollback(t.Context()))
-				return
-			}
+
 			replay, err := complete()
 			require.NoError(t, err)
 			require.False(t, replay.Changed)
@@ -116,8 +109,10 @@ func TestExecutionToolCustody(t *testing.T) {
 			require.NoError(t, u.Rollback(t.Context()))
 			u, h = f.handle(t, a)
 			ref.RuntimeLockID = uuid.New()
-			_, err = complete()
-			require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
+			replay, err = complete()
+			require.NoError(t, err)
+			require.False(t, replay.Changed)
+			require.Equal(t, result.ResultID, replay.ResultID)
 			require.NoError(t, u.Rollback(t.Context()))
 		})
 	}

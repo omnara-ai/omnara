@@ -22,10 +22,14 @@ func (e AgentExecutor) recordToolCallSourceEvent(
 	specs []modelcontext.ToolSpec,
 	streamedToolCallIDs map[string]uuid.UUID,
 ) (events.Event, error) {
+	finish := input.Completion.Begin(ctx, input.finishClaim)
+	finished := false
+	defer func() { finish(finished) }()
 	bindings := toolCallBindings(envelope, specs, streamedToolCallIDs)
 	event, _, err := e.Store.Execution().RecordToolCallSourceAndCompleteContext(
 		ctx,
 		executionstore.RecordToolCallSourceAndCompleteContextInput{
+			RootAgentID: input.RootAgentID, FinishClaim: input.finishClaim,
 			ProjectID:          input.ProjectID,
 			AgentID:            input.AgentID,
 			RuntimeLockID:      input.RuntimeLockID,
@@ -35,6 +39,10 @@ func (e AgentExecutor) recordToolCallSourceEvent(
 			ToolCallBindings:   bindings,
 		},
 	)
+	finished = err == nil && input.finishClaim
+	if finished && input.disposition != nil {
+		*input.disposition = executionstore.StepFinished
+	}
 	return event, err
 }
 

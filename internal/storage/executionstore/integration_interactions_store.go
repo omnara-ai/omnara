@@ -132,7 +132,8 @@ func SetInteractionHandlerForToolCall(
 	input SelectInteractionHandlerInput,
 	completion ToolCallCompletionBuilder[InteractionSelection],
 ) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, t *toolCallTransaction) (any, error) {
+	replay := replayInteractionSelection(input, completion)
+	return replayableToolCommand(replay, func(ctx context.Context, t *toolCallTransaction) (any, error) {
 		if completion == nil {
 			return nil, errors.New("interaction selection completion builder is required")
 		}
@@ -146,9 +147,21 @@ func SetInteractionHandlerForToolCall(
 		if err != nil {
 			return nil, err
 		}
-		var handler resolvedInteractionHandler
+		replay := func() (any, error) {
+			result, err := completion(selected)
+			if err != nil {
+				return nil, err
+			}
+			_, err = t.completeToolCall(ctx, result)
+			return nil, err
+		}
+		if call.State == ToolCallStateCompleted {
+			return replay()
+		}
+		var capability agentconfig.IntegrationCapabilityCompiled
 		if selected.HandlerKey != "" {
-			capability, found := original.InteractionHandlers[selected.HandlerKey]
+			var found bool
+			capability, found = original.InteractionHandlers[selected.HandlerKey]
 			if !found {
 				return nil, storeerr.ErrUnauthorized
 			}
@@ -172,20 +185,6 @@ func SetInteractionHandlerForToolCall(
 			); err != nil {
 				return nil, err
 			}
-			handlers, err := prepareInteractionHandlers(
-				ctx,
-				t.q,
-				t.input.ProjectID,
-				map[string]agentconfig.IntegrationCapabilityCompiled{selected.HandlerKey: capability},
-			)
-			if err != nil {
-				return nil, err
-			}
-			var ok bool
-			handler, ok = handlers[selected.HandlerKey]
-			if !ok {
-				return nil, storeerr.ErrUnauthorized
-			}
 		} else {
 			if len(input.Args) > 0 &&
 				!jsoncanonical.Equal(input.Args, json.RawMessage(`{}`)) {
@@ -194,8 +193,11 @@ func SetInteractionHandlerForToolCall(
 				)
 			}
 		}
-		if err := t.lockForMutation(ctx); err != nil {
+		if err := t.lockOrAcceptExisting(ctx); err != nil {
 			return nil, err
+		}
+		if t.disposition == ToolCallDispositionCompleted {
+			return replay()
 		}
 		previous, current, err := loadInteractionContract(ctx, t.q, t.input.ProjectID, t.input.AgentID)
 		if err != nil {
@@ -205,6 +207,19 @@ func SetInteractionHandlerForToolCall(
 			return nil, storeerr.ErrUnauthorized
 		}
 		if selected.HandlerKey != "" {
+			handlers, err := prepareInteractionHandlers(
+				ctx,
+				t.q,
+				t.input.ProjectID,
+				map[string]agentconfig.IntegrationCapabilityCompiled{selected.HandlerKey: capability},
+			)
+			if err != nil {
+				return nil, err
+			}
+			handler, ok := handlers[selected.HandlerKey]
+			if !ok {
+				return nil, storeerr.ErrUnauthorized
+			}
 			// A replacement handler integration would require an earlier lock class than the held agent lock.
 			integrations := map[uuid.UUID]agentconfig.IntegrationResolution{
 				handler.prepared.IntegrationID: {
@@ -212,7 +227,7 @@ func SetInteractionHandlerForToolCall(
 					IntegrationKind: handler.definition.IntegrationKind,
 				},
 			}
-			_, err := agentconfig.ResolveInteractionHandlerAuthority(
+			_, err = agentconfig.ResolveInteractionHandlerAuthority(
 				original,
 				current, selected.HandlerKey, integrations)
 			if err != nil {
@@ -592,7 +607,11 @@ func (s *Store) ResolveAgentInteractionFromHandler(
 				return AgentInteractionRecord{}, err
 			}
 			if err := unit.Commit(ctx, "resolve interaction from handler"); err != nil {
-				return AgentInteractionRecord{}, err
+				if resolved, resolveErr := s.resolveInteractionCommit(ctx, record, err); resolved {
+					return record, nil
+				} else {
+					return AgentInteractionRecord{}, resolveErr
+				}
 			}
 			return record, nil
 		})

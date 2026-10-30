@@ -44,7 +44,7 @@ SELECT a.org_id,a.project_id,a.id,sqlc.arg(id),sqlc.arg(turn_id),sqlc.arg(operat
 FROM agents a WHERE a.id=sqlc.arg(agent_id) AND a.project_id=sqlc.arg(project_id)
  AND EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=a.id AND r.id=sqlc.arg(runtime_id)
  AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp())
-RETURNING id;
+RETURNING id,org_id,project_id,agent_id,created_at;
 
 -- name: FinishExecutionAttempt :execrows
 UPDATE model_call_contexts c SET state=sqlc.arg(state),recovery_kind=sqlc.narg(recovery),

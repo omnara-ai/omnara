@@ -50,7 +50,16 @@ func (e AgentExecutor) executeModelStep(
 	var snapshot executionstore.AgentConfigSnapshotRecord
 	var claim executionstore.ModelCallClaim
 	var err error
-	if input.Kind == executionstore.ModelWorkResume {
+	if input.Prepared != nil {
+		claim, snapshot = input.Prepared.Claim, input.Prepared.Snapshot
+		if claim.Claimed {
+			if err := e.Store.Execution().CheckPreparedModelCall(
+				ctx, input.ProjectID, input.AgentID, claim.Context.ID, input.RuntimeLockID,
+			); err != nil {
+				return modelStep{}, err
+			}
+		}
+	} else if input.Kind == executionstore.ModelWorkResume {
 		claim, err = e.Store.Execution().ClaimNextModelCallContext(ctx, executionstore.ClaimNextModelCallContextInput{
 			ProjectID:                     input.ProjectID,
 			AgentID:                       input.AgentID,
@@ -367,9 +376,13 @@ func (e AgentExecutor) recordSuccessfulModelOutput(
 	input ModelWorkExecution,
 	step modelStep,
 ) (modelStep, error) {
+	finish := input.Completion.Begin(ctx, input.finishClaim)
+	finished := false
+	defer func() { finish(finished) }()
 	_, err := e.Store.Execution().RecordModelOutputAndCompleteContext(
 		ctx,
 		executionstore.RecordModelOutputAndCompleteContextInput{
+			RootAgentID: input.RootAgentID, FinishClaim: input.finishClaim,
 			ProjectID:          input.ProjectID,
 			AgentID:            input.AgentID,
 			RuntimeLockID:      input.RuntimeLockID,
@@ -380,6 +393,10 @@ func (e AgentExecutor) recordSuccessfulModelOutput(
 	)
 	if err != nil {
 		return modelStep{}, err
+	}
+	finished = input.finishClaim
+	if finished && input.disposition != nil {
+		*input.disposition = executionstore.StepFinished
 	}
 	step.State = modelStepDone
 	return step, nil

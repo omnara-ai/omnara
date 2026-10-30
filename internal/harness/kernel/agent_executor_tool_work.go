@@ -13,6 +13,16 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
+func (e AgentExecutor) ExecuteToolWorkStep(
+	ctx context.Context, input ToolWorkExecution,
+) (executionstore.StepDisposition, error) {
+	disposition := executionstore.StepRetained
+	input.finishClaim = true
+	input.disposition = &disposition
+	err := e.ExecuteToolWork(ctx, input)
+	return disposition, err
+}
+
 func (e AgentExecutor) ExecuteToolWork(ctx context.Context, input ToolWorkExecution) error {
 	return e.executeToolWork(ctx, input, e.configuredToolExecutor())
 }
@@ -21,7 +31,7 @@ type toolWorkExecutor interface {
 	FailRunnableToolCall(context.Context, tools.Turn, model.ToolCall, error) error
 	PrepareRecordedToolCallPermission(
 		context.Context, tools.Turn, executionstore.ToolCallRecord,
-	) (executionstore.ToolCallRecord, error)
+	) (tools.ToolPermissionPreparation, error)
 	DispatchRecordedToolCall(context.Context, tools.Turn, executionstore.ToolCallRecord) (tools.Result, error)
 }
 
@@ -58,6 +68,13 @@ func (e AgentExecutor) executeToolWork(
 	}
 	first := input.Prepared.FirstCall
 	turn := toolWorkTurn(input, contextRecord.OrgID, specs)
+	turn.RootAgentID = input.RootAgentID
+	if input.finishClaim {
+		turn.MergeAuthorization = true
+		turn.BatchOutputID = input.ModelOutputID
+		turn.Completion = input.Completion
+		turn.StepDisposition = input.disposition
+	}
 	deferredToolCallIDs := make([]uuid.UUID, 0)
 	for {
 		var record executionstore.ToolCallRecord
@@ -89,19 +106,23 @@ func (e AgentExecutor) executeToolWork(
 				storeerr.ErrStateTransitionConflict,
 			)
 		}
+		turn.AuthorizeOnDispatch = false
 		call := modelToolCallFromRecord(record)
 		if record.State == executionstore.ToolCallStateAwaitingAuthorization {
-			prepared, err := executor.PrepareRecordedToolCallPermission(ctx, turn, record)
+			preparation, err := executor.PrepareRecordedToolCallPermission(ctx, turn, record)
 			if err != nil {
 				return fmt.Errorf("prepare permission for tool %q: %w", call.ID, err)
 			}
+			prepared := preparation.Record
 			if prepared.ID == uuid.Nil {
 				prepared, err = e.Store.Execution().GetToolCall(ctx, input.ProjectID, input.AgentID, record.ID)
 				if err != nil {
 					return err
 				}
 			}
-			if prepared.State == record.State {
+			if preparation.Authorization == tools.AuthorizationOnDispatch {
+				turn.AuthorizeOnDispatch = true
+			} else if prepared.State == record.State {
 				if err := executor.FailRunnableToolCall(ctx, turn, call,
 					fmt.Errorf("tool coordinator returned without moving tool call out of %s", record.State)); err != nil {
 					return err
@@ -110,15 +131,20 @@ func (e AgentExecutor) executeToolWork(
 			}
 			record = prepared
 		}
-		if record.State != executionstore.ToolCallStateReady || !toolcatalog.IsPlatformManagedToolType(record.Type) {
+		if record.State != executionstore.ToolCallStateReady && !turn.AuthorizeOnDispatch ||
+			!toolcatalog.IsPlatformManagedToolType(record.Type) {
 			continue
 		}
 		result, err := executor.DispatchRecordedToolCall(ctx, turn, record)
 		if err != nil {
 			return fmt.Errorf("dispatch tool %q: %w", call.ID, err)
 		}
+		if input.disposition != nil && *input.disposition != executionstore.StepRetained {
+			return nil
+		}
 		switch result.Disposition {
 		case tools.DispatchDeferred:
+			turn.BatchOutputID = uuid.Nil
 			deferredToolCallIDs = append(deferredToolCallIDs, record.ID)
 		case tools.DispatchCompleted:
 		default:

@@ -39,13 +39,19 @@ type SkillStore interface {
 }
 
 type Turn struct {
-	OrgID              uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	SourceEventID      uuid.UUID
-	RuntimeLockID      uuid.UUID
-	ModelCallContextID uuid.UUID
-	Tools              map[string]ToolSpec
+	RootAgentID         uuid.UUID
+	MergeAuthorization  bool
+	AuthorizeOnDispatch bool
+	BatchOutputID       uuid.UUID
+	Completion          *executionstore.StepCompletion
+	StepDisposition     *executionstore.StepDisposition
+	OrgID               uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	SourceEventID       uuid.UUID
+	RuntimeLockID       uuid.UUID
+	ModelCallContextID  uuid.UUID
+	Tools               map[string]ToolSpec
 }
 
 type ToolSpec struct {

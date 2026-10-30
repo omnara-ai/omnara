@@ -49,3 +49,28 @@ func lockExecution(ctx context.Context, unit *agentexecution.Unit, projectID, ag
 	}
 	return unit.Handle(projectID, agentID)
 }
+
+func beginStepExecution(
+	ctx context.Context, s *Store, projectID, agentID, rootID uuid.UUID, includeParent bool, runtimeID uuid.UUID,
+) (*agentexecution.Unit, *agentexecution.Handle, error) {
+	if rootID == uuid.Nil || includeParent {
+		return beginExecution(ctx, s, projectID, agentID, includeParent, runtimeID)
+	}
+	unit, err := s.cell.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	plan := unit.PlanKnownAgents([]agentexecution.AgentRoute{
+		{ProjectID: projectID, AgentID: agentID, RootAgentID: rootID},
+	})
+	if err := unit.LockAgents(ctx, plan); err != nil {
+		_ = unit.Rollback(ctx)
+		return nil, nil, err
+	}
+	h, err := unit.Handle(projectID, agentID)
+	if err != nil {
+		_ = unit.Rollback(ctx)
+		return nil, nil, err
+	}
+	return unit, h, nil
+}

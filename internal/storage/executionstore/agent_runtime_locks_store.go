@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
 type AgentRuntimeLockRecord struct {
@@ -69,19 +68,11 @@ func (s *Store) RenewAgentRuntimeLock(
 			if err != nil {
 				return AgentRuntimeLockRenewal{}, err
 			}
-			row, err := dbsqlc.New(unit.DB()).
-				GetAgentRuntimeLockForRelease(ctx,
-					dbsqlc.GetAgentRuntimeLockForReleaseParams{ProjectID: projectID,
-						AgentID: agentID,
-						ID:      runtimeLockID})
-			if err != nil {
-				return AgentRuntimeLockRenewal{}, err
-			}
 			if err = unit.Commit(ctx, "renew runtime"); err != nil {
 				return AgentRuntimeLockRenewal{}, err
 			}
 			return AgentRuntimeLockRenewal{
-				RuntimeLock:               agentRuntimeLockRecordFromSQLC(row),
+				RuntimeLock:               AgentRuntimeLockRecord(renewal.Runtime),
 				LocalLeaseBudgetStartedAt: renewal.LocalStartedAt,
 			}, nil
 		})

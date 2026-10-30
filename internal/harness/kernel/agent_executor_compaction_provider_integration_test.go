@@ -985,20 +985,10 @@ func TestManagedCompactionSourceReplacementStopsAfterAdmissionCloses(t *testing.
 		t.Fatalf("load managed replacement frontier: %v", err)
 	}
 
-	prepared1, err := journey.fixture.Store.Execution().PrepareNormalModelCall(
-		ctx,
-		executionstore.PrepareNormalModelCallInput{
-			ProjectID:       kernelTestProjectID,
-			AgentID:         journey.agentID,
-			RuntimeLockID:   journey.turn.RuntimeLockID,
-			OpeningInputIDs: journey.turn.InputIDs,
-		},
-	)
-	parent := prepared1.Claim
-
-	if err != nil {
-		t.Fatalf("claim managed replacement parent: %v", err)
+	if journey.turn.Prepared == nil {
+		t.Fatal("claim has no prepared model attempt")
 	}
+	parent := journey.turn.Prepared.Claim
 	sourceEnd := journey.turn.OpeningEventSequence - 1
 	handoff, err := journey.fixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(
 		ctx,
@@ -1294,18 +1284,10 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 	}
 
 	runNow := fixture.Now.Add(4 * time.Second)
-	prepared2, err := fixture.Store.Execution().
-		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
-			ProjectID:       kernelTestProjectID,
-			AgentID:         agentID,
-			RuntimeLockID:   turn.RuntimeLockID,
-			OpeningInputIDs: turn.InputIDs,
-		})
-	parent := prepared2.Claim
-
-	if err != nil {
-		t.Fatalf("claim malformed compaction parent: %v", err)
+	if turn.Prepared == nil {
+		t.Fatal("claim has no prepared model attempt")
 	}
+	parent := turn.Prepared.Claim
 	handoff, err := fixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(
 		ctx,
 		executionstore.RecordModelCallFailureAndClaimCompactionInput{

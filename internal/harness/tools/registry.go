@@ -19,7 +19,26 @@ type toolImplementation struct {
 	permissionDescriptors []toolpermission.ModeDescriptor
 }
 
+type toolCompletionCapability uint8
+
+const (
+	completionUnspecified toolCompletionCapability = iota
+	completionBoundedDatabase
+	completionDatabaseWithBackground
+)
+
+type toolLockRequirements uint8
+
+const (
+	locksUnspecified toolLockRequirements = iota
+	locksCallingAgent
+	locksAgentFamily
+	locksResourcesBeforeAgents
+)
+
 type toolRegistration struct {
+	completion             toolCompletionCapability
+	locks                  toolLockRequirements
 	name                   string
 	semanticInputValidator semanticToolInputValidator
 	handler                toolHandler
@@ -94,6 +113,10 @@ func newToolImplementationRegistry(
 				registration.name,
 			)
 		}
+		if err := validateCompletionCapability(registration); err != nil {
+			return toolImplementationRegistry{}, fmt.Errorf("tool implementation %q completion: %w", registration.name, err)
+		}
+		registration.handler.completion = registration.completion
 		if err := validatePermissionModeHandlers(
 			registration.permissionModes,
 			definition.PermissionModes,
@@ -231,6 +254,8 @@ func builtInToolRegistrations() []toolRegistration {
 		},
 		{
 			name:                   toolcatalog.ToolNameListProcesses,
+			completion:             completionBoundedDatabase,
+			locks:                  locksCallingAgent,
 			semanticInputValidator: processObservationInputValidator(processObservationList),
 			handler:                toolHandler{Transactional: processObservation(processObservationList)},
 			permissionModes: commonPermissionModeHandlers(
@@ -239,6 +264,8 @@ func builtInToolRegistrations() []toolRegistration {
 		},
 		{
 			name:                   toolcatalog.ToolNameCreateMachine,
+			completion:             completionDatabaseWithBackground,
+			locks:                  locksResourcesBeforeAgents,
 			semanticInputValidator: validateCreateMachineInput,
 			handler: toolHandler{
 				Transactional: createMachine,
@@ -248,6 +275,8 @@ func builtInToolRegistrations() []toolRegistration {
 		},
 		{
 			name:                   toolcatalog.ToolNameDeleteMachine,
+			completion:             completionDatabaseWithBackground,
+			locks:                  locksResourcesBeforeAgents,
 			semanticInputValidator: validateDeleteMachineInput,
 			handler: toolHandler{
 				Transactional: deleteMachine,
@@ -263,18 +292,24 @@ func builtInToolRegistrations() []toolRegistration {
 		},
 		{
 			name:                   toolcatalog.ToolNameListMachines,
+			completion:             completionBoundedDatabase,
+			locks:                  locksCallingAgent,
 			semanticInputValidator: validateListMachinesInput,
 			handler:                toolHandler{Transactional: listMachines},
 			permissionModes:        commonPermissionModeHandlers(listMachinesPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameInspectMachine,
+			completion:             completionBoundedDatabase,
+			locks:                  locksCallingAgent,
 			semanticInputValidator: validateInspectMachineInput,
 			handler:                toolHandler{Transactional: inspectMachine},
 			permissionModes:        commonPermissionModeHandlers(inspectMachinePermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameSpawnAgent,
+			completion:             completionDatabaseWithBackground,
+			locks:                  locksResourcesBeforeAgents,
 			semanticInputValidator: validateSpawnAgentInput,
 			handler: toolHandler{
 				Transactional: spawnAgent,
@@ -284,18 +319,24 @@ func builtInToolRegistrations() []toolRegistration {
 		},
 		{
 			name:                   toolcatalog.ToolNameReadAgent,
+			completion:             completionBoundedDatabase,
+			locks:                  locksCallingAgent,
 			semanticInputValidator: validateReadAgentInput,
 			handler:                toolHandler{Transactional: readAgent},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameSendAgentMessage,
+			completion:             completionBoundedDatabase,
+			locks:                  locksAgentFamily,
 			semanticInputValidator: validateSendAgentMessageInput,
 			handler:                toolHandler{Transactional: sendAgentMessage},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameStopAgent,
+			completion:             completionDatabaseWithBackground,
+			locks:                  locksResourcesBeforeAgents,
 			semanticInputValidator: validateStopAgentInput,
 			handler: toolHandler{
 				Transactional: stopAgent,
@@ -305,12 +346,16 @@ func builtInToolRegistrations() []toolRegistration {
 		},
 		{
 			name:                   toolcatalog.ToolNameListAgents,
+			completion:             completionBoundedDatabase,
+			locks:                  locksCallingAgent,
 			semanticInputValidator: validateListAgentsInput,
 			handler:                toolHandler{Transactional: listAgents},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameToolSearch,
+			completion:             completionBoundedDatabase,
+			locks:                  locksCallingAgent,
 			semanticInputValidator: validateToolSearchInput,
 			handler:                toolHandler{Transactional: runToolSearch},
 			permissionModes:        alwaysAllowPermissionModeHandlers(),
@@ -379,6 +424,33 @@ func validatePermissionModeHandlers(
 		if handlers[descriptor.Name] == nil {
 			return fmt.Errorf("mode %q has no handler", descriptor.Name)
 		}
+	}
+	return nil
+}
+
+func validateCompletionCapability(registration toolRegistration) error {
+	if registration.completion == completionUnspecified {
+		return nil
+	}
+	if registration.handler.Transactional == nil || registration.handler.Async != nil {
+		return errors.New("database completion requires only a transactional execution phase")
+	}
+	switch registration.locks {
+	case locksCallingAgent, locksAgentFamily, locksResourcesBeforeAgents:
+	default:
+		return errors.New("database completion requires verified command lock requirements")
+	}
+	switch registration.completion {
+	case completionBoundedDatabase:
+		if registration.handler.Background != nil {
+			return errors.New("bounded database completion cannot schedule background effects")
+		}
+	case completionDatabaseWithBackground:
+		if registration.handler.Background == nil {
+			return errors.New("background completion requires a background phase")
+		}
+	default:
+		return errors.New("unknown completion capability")
 	}
 	return nil
 }

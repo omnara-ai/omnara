@@ -2,6 +2,7 @@ package agentexecution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"time"
@@ -9,12 +10,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type PreparedModel struct {
+	Record        *dbsqlc.GetModelCallContextRow
 	Context       ModelContext
 	ConfigID      uuid.UUID
 	RevisionID    uuid.UUID
@@ -171,7 +174,7 @@ func (h *Handle) createAttempt(
 		return PreparedModel{}, err
 	}
 	c := cloneModel(desired.Context)
-	_, err = q.CreateExecutionAttempt(
+	created, err := q.CreateExecutionAttempt(
 		ctx,
 		h.unit.DB(),
 		executiondb.CreateExecutionAttemptParams{ID: c.ID, AgentID: h.route.AgentID,
@@ -232,10 +235,18 @@ func (h *Handle) createAttempt(
 	if err := m.updated(snapshot); err != nil {
 		return PreparedModel{}, err
 	}
+	desired.Record = &dbsqlc.GetModelCallContextRow{
+		ID: created.ID, OrgID: created.OrgID, ProjectID: created.ProjectID, AgentID: created.AgentID,
+		OperationKind: string(c.Operation), AttemptNumber: c.Attempt, AgentConfigID: desired.ConfigID,
+		ConfiguredModelRevisionID: revision.CurrentRevisionID, InputEventSequence: c.InputEventSequence,
+		SourceEventSequenceEnd: optionalSequence(c.SourceEventSequenceEnd), RuntimeLockID: desired.RuntimeLockID,
+		State: "started", CreatedAt: created.CreatedAt, ErrorDetails: json.RawMessage(`{}`),
+	}
 	desired.RevisionID = revision.CurrentRevisionID
 	desired.Created = true
 	desired.Claimed = revision.Allowed
 	if !revision.Allowed {
+		desired.Record = nil
 		_, err := h.terminalFailure(ctx, m, ModelFailure{ContextID: c.ID, RuntimeLockID: desired.RuntimeLockID,
 			ErrorKind:    "runtime",
 			ErrorCode:    storeerr.ManagedWorkAdmissionDeniedCode,

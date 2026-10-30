@@ -1,5 +1,5 @@
 -- name: ReadExecutionTool :one
-SELECT c.id,c.agent_id,c.model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
+SELECT c.id,c.agent_id,c.created_at,c.model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
  m.turn_id,m.id AS context_id,e.id AS source_event_id,e.sequence AS source_sequence,
  r.id AS result_id,r.outcome,r.completed_at,re.id AS result_event_id,re.sequence AS result_sequence
 FROM tool_calls c JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
@@ -21,7 +21,7 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.state=sqlc.arg(p
 INSERT INTO tool_call_results(agent_id,tool_call_id,outcome,completed_at)
 SELECT c.agent_id,c.id,sqlc.arg(outcome),statement_timestamp() FROM tool_calls c
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.state='completed'
-RETURNING id;
+RETURNING id,completed_at;
 
 -- name: CloseExecutionToolInteractions :many
 UPDATE agent_interactions SET state='canceled',resolution=jsonb_build_object('reason','tool_call_completed'),resolved_at=statement_timestamp()
@@ -38,3 +38,10 @@ SELECT EXISTS(SELECT 1 FROM agent_interactions i WHERE i.agent_id=sqlc.arg(agent
 
 -- name: ReadExecutionToolDispatch :one
 SELECT state FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(id);
+
+-- name: ExecutionToolBatchOwnership :one
+SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.arg(output_id)) AS present,
+ EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.arg(output_id)
+ AND (c.state='awaiting_authorization' OR c.state='ready' AND c.type IN ('built_in','mcp') OR c.state='running')) AS retained,
+ EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.arg(output_id) AND c.state<>'completed') AS transferred,
+ EXISTS(SELECT 1 FROM model_call_contexts attempt WHERE attempt.agent_id=sqlc.arg(agent_id) AND attempt.state='started') AS model_started;

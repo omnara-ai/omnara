@@ -6,16 +6,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
+	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -26,12 +30,15 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationredis"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/omnara-ai/omnara/internal/webaccess"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -2862,5 +2869,251 @@ func assertNoOpenInteractions(t *testing.T, ctx context.Context, store *storage.
 	}
 	if len(page.Interactions) != 0 {
 		t.Fatalf("expected no open interactions, got %+v", page.Interactions)
+	}
+}
+
+type workerResolutionFaultTx struct {
+	pgx.Tx
+	armed     *atomic.Bool
+	lost      *atomic.Bool
+	resolving chan context.Context
+	proceed   <-chan struct{}
+}
+
+func (tx workerResolutionFaultTx) Commit(ctx context.Context) error {
+	if err := tx.Tx.Commit(ctx); err != nil {
+		return err
+	}
+	if tx.armed.CompareAndSwap(true, false) {
+		tx.lost.Store(true)
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+func (tx workerResolutionFaultTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if tx.lost.CompareAndSwap(true, false) {
+		tx.resolving <- ctx
+		select {
+		case <-ctx.Done():
+			return workerResolutionErrorRow{err: ctx.Err()}
+		case <-tx.proceed:
+		}
+	}
+	return tx.Tx.QueryRow(ctx, sql, args...)
+}
+
+type workerResolutionErrorRow struct{ err error }
+
+func (r workerResolutionErrorRow) Scan(...any) error { return r.err }
+
+func TestWorkerShutdownPreservesIndependentResolutionTimeout(t *testing.T) {
+	for _, mode := range []string{"resolved", "timeout"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := t.Context()
+			pool := openWorkerIntegrationDB(t, ctx)
+			store := storage.NewStore(pool, storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)))
+			now := time.Date(2026, 5, 16, 21, 30, 0, 0, time.UTC)
+			agentID, userID := createWorkerAgentWithUser(t, ctx, store, now)
+			createWorkerInput(t, ctx, store, agentID, userID, "finish during shutdown", now.Add(time.Second))
+			modelClient := drainingModelClient{
+				fixedModelClient: fixedModelClient{providerModelSlug: "worker-kernel-test", text: "committed before shutdown"},
+				responding:       make(chan struct{}, 1), release: make(chan struct{}),
+			}
+			var armed, lost atomic.Bool
+			resolving := make(chan context.Context, 1)
+			proceed := make(chan struct{})
+			store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+				return workerResolutionFaultTx{Tx: tx, armed: &armed, lost: &lost, resolving: resolving, proceed: proceed}
+			})
+			worker := NewWorker(store.Execution(), kernel.AgentExecutor{
+				Store: store, ModelResolver: liveWorkerTestModelResolver(store, modelClient),
+			}, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1, ControlSubscriber: noopControlSubscriber{}})
+			executionCtx, cancelExecution := context.WithCancel(ctx)
+			defer cancelExecution()
+			drain := make(chan struct{})
+			done := make(chan error, 1)
+			go func() { done <- worker.Run(executionCtx, drain) }()
+			select {
+			case <-modelClient.responding:
+			case <-time.After(3 * time.Second):
+				t.Fatal("worker did not start model execution")
+			}
+			armed.Store(true)
+			close(modelClient.release)
+			var resolutionCtx context.Context
+			select {
+			case resolutionCtx = <-resolving:
+			case <-time.After(3 * time.Second):
+				t.Fatal("worker did not reach automatic store resolution")
+			}
+			close(drain)
+			require.NoError(t, resolutionCtx.Err())
+			deadline, bounded := resolutionCtx.Deadline()
+			require.True(t, bounded)
+			require.WithinDuration(t, time.Now().Add(10*time.Second), deadline, time.Second)
+			select {
+			case <-done:
+				t.Fatal("worker exited with unresolved completion")
+			case <-time.After(25 * time.Millisecond):
+			}
+			cancelExecution()
+			require.NoError(t, resolutionCtx.Err())
+			if mode == "resolved" {
+				close(proceed)
+			}
+			select {
+			case err := <-done:
+				require.ErrorIs(t, err, context.Canceled)
+			case <-time.After(15 * time.Second):
+				t.Fatal("resolution exceeded its cleanup timeout")
+			}
+			if mode == "timeout" {
+				require.ErrorIs(t, resolutionCtx.Err(), context.DeadlineExceeded)
+			}
+			outputID := assertAssistantEventRecorded(t, ctx, pool, agentID, "committed before shutdown")
+			assertCompletedModelContext(t, ctx, pool, agentID, outputID)
+			waitNoRuntimeLock(t, ctx, pool, agentID)
+		})
+	}
+}
+
+type leaseLossSearch struct {
+	started chan context.Context
+}
+
+func (s *leaseLossSearch) Search(ctx context.Context, _ webaccess.SearchRequest) (webaccess.SearchResponse, error) {
+	s.started <- ctx
+	<-ctx.Done()
+	return webaccess.SearchResponse{}, ctx.Err()
+}
+
+type blockedFollowupTrace struct {
+	armed   atomic.Bool
+	blocked chan struct{}
+	unblock <-chan struct{}
+}
+
+func (tr *blockedFollowupTrace) TraceQueryStart(
+	ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData,
+) context.Context {
+	if strings.Contains(data.SQL, "name: ListActiveProcesses ") && tr.armed.CompareAndSwap(true, false) {
+		close(tr.blocked)
+		<-tr.unblock
+	}
+	return ctx
+}
+
+func (*blockedFollowupTrace) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+type exhaustedToolRenewalStore struct {
+	*executionstore.Store
+	mode      string
+	blocked   <-chan struct{}
+	exhausted chan struct{}
+}
+
+func (s *exhaustedToolRenewalStore) ClaimNextAgentWork(
+	ctx context.Context, input executionstore.ClaimNextAgentWorkInput,
+) (executionstore.ClaimedAgentWork, bool, error) {
+	claim, found, err := s.Store.ClaimNextAgentWork(ctx, input)
+	claim.LocalLeaseBudgetStartedAt = time.Now().Add(-9 * time.Second)
+	return claim, found, err
+}
+
+func (s *exhaustedToolRenewalStore) RenewAgentRuntimeLock(
+	ctx context.Context, _, _, _ uuid.UUID, _ time.Duration,
+) (executionstore.AgentRuntimeLockRenewal, error) {
+	defer close(s.exhausted)
+	<-s.blocked
+	if s.mode == "inactive" {
+		return executionstore.AgentRuntimeLockRenewal{}, storeerr.ErrRuntimeLockInactive
+	}
+	<-ctx.Done()
+	return executionstore.AgentRuntimeLockRenewal{}, ctx.Err()
+}
+
+func TestWorkerLeaseLossCancelsAsyncToolDuringBlockedFollowup(t *testing.T) {
+	for _, mode := range []string{"timeout", "inactive"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := t.Context()
+			pool := openWorkerIntegrationDB(t, ctx)
+			blocked, unblock := make(chan struct{}), make(chan struct{})
+			defer close(unblock)
+			trace := &blockedFollowupTrace{blocked: blocked, unblock: unblock}
+			config := pool.Config()
+			config.ConnConfig.Tracer = trace
+			tracedPool, err := pgxpool.NewWithConfig(ctx, config)
+			require.NoError(t, err)
+			t.Cleanup(tracedPool.Close)
+			store := storage.NewStore(tracedPool, storage.WithSecretKeyWrapper(workerTestKeyWrapper(t)))
+			now := time.Now()
+			agentID, userID := createWorkerAgentWithTools(t, ctx, store, now, "web_search", "list_processes")
+			createWorkerInput(t, ctx, store, agentID, userID, "search then list processes", now)
+			client := &sequenceModelClient{providerModelSlug: "worker-kernel-test", responses: []model.Response{{
+				ID: "async-followup", StopReason: model.StopReasonToolUse,
+				Content: modeltest.ResponsePartsForToolCalls([]model.ToolCall{
+					{ID: "async", Name: "web_search", Input: json.RawMessage(`{"query":"test"}`)},
+					{ID: "followup", Name: "list_processes", Input: json.RawMessage(`{}`)},
+				}),
+			}}}
+			search := &leaseLossSearch{started: make(chan context.Context, 1)}
+			executor := kernel.AgentExecutor{Store: store, ModelResolver: liveWorkerTestModelResolver(store, client),
+				ToolExecutor: tools.Executor{Store: store, WebSearch: search}}
+			modelWorker := NewWorker(store.Execution(), executor, Options{RuntimeLockLeaseDuration: time.Minute, Capacity: 1})
+			worked, err := modelWorker.RunOnce(ctx)
+			require.NoError(t, err)
+			require.True(t, worked)
+			trace.armed.Store(true)
+			renewal := &exhaustedToolRenewalStore{Store: store.Execution(), mode: mode,
+				blocked: blocked, exhausted: make(chan struct{})}
+			worker := NewWorker(renewal, executor, Options{RuntimeLockLeaseDuration: 15 * time.Second, Capacity: 1})
+			done := integrationdb.RunAsyncError(func() error { _, err := worker.RunOnce(ctx); return err })
+			var asyncCtx context.Context
+			select {
+			case asyncCtx = <-search.started:
+			case err := <-done:
+				t.Fatalf("worker returned before async tool started: %v", err)
+			case <-time.After(15 * time.Second):
+				t.Fatal("async tool did not start")
+			}
+			select {
+			case <-renewal.exhausted:
+			case <-time.After(15 * time.Second):
+				t.Fatal("renewal did not run out while the follow-up dispatch was blocked")
+			}
+			select {
+			case <-asyncCtx.Done():
+			case <-time.After(250 * time.Millisecond):
+				t.Fatal("lease loss did not promptly cancel the running async tool")
+			}
+			select {
+			case <-done:
+				t.Fatal("follow-up dispatch returned before its barrier was released")
+			default:
+			}
+			unblock <- struct{}{}
+			require.Error(t, integrationdb.Await(t, done, "worker after lease loss"))
+			worker.retained.Wait()
+		})
+	}
+}
+
+type drainingModelClient struct {
+	fixedModelClient
+	responding chan struct{}
+	release    chan struct{}
+}
+
+func (c drainingModelClient) Respond(ctx context.Context, request model.Request) (model.Response, error) {
+	select {
+	case c.responding <- struct{}{}:
+	default:
+	}
+	select {
+	case <-c.release:
+		return c.fixedModelClient.Respond(ctx, request)
+	case <-ctx.Done():
+		return model.Response{}, ctx.Err()
 	}
 }

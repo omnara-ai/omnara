@@ -62,7 +62,7 @@ func (e Executor) DispatchRecordedToolCall(
 		errorCode = "unsupported"
 	}
 	if execErr == nil &&
-		(proposal.State == executionstore.ToolCallStateAwaitingAuthorization ||
+		(proposal.State == executionstore.ToolCallStateAwaitingAuthorization && !turn.AuthorizeOnDispatch ||
 			proposal.State == executionstore.ToolCallStateAwaitingPermission) {
 		return Result{}, ErrActionRequired
 	}
@@ -71,7 +71,7 @@ func (e Executor) DispatchRecordedToolCall(
 			ctx,
 			turn,
 			call,
-			proposal.ID,
+			proposal,
 			implementation.handler,
 		)
 		if err != nil {

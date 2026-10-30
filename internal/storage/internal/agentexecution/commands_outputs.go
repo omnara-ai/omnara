@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -18,6 +19,7 @@ type ToolProposal struct {
 	Type           string
 }
 type AcceptOutputInput struct {
+	FinishClaim   bool
 	RuntimeLockID uuid.UUID
 	ContextID     uuid.UUID
 	RequestID     string
@@ -26,10 +28,11 @@ type AcceptOutputInput struct {
 }
 
 type AcceptedOutput struct {
-	ID      uuid.UUID
-	Event   ExecutionEvent
-	Tools   []ToolProposal
-	Created bool
+	Projections map[uuid.UUID]dbsqlc.GetToolCallRow
+	ID          uuid.UUID
+	Event       ExecutionEvent
+	Tools       []ToolProposal
+	Created     bool
 }
 
 type outputProposal struct {
@@ -101,9 +104,6 @@ func outputParts(
 
 func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (AcceptedOutput, error) {
 	return executeCommand(ctx, h, func(m *executionMutation) (AcceptedOutput, error) {
-		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
-			return AcceptedOutput{}, err
-		}
 		q := executiondb.New()
 		source, err := q.ReadExecutionAttempt(
 			ctx,
@@ -119,11 +119,14 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		if source.RuntimeLockID != input.RuntimeLockID {
 			return AcceptedOutput{}, storeerr.ErrRuntimeLockInactive
 		}
-		if source.State != "started" && source.State != "succeeded" {
-			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
-		}
 		if source.State == "succeeded" {
 			return h.replayOutput(ctx, source.ID, input.Tools)
+		}
+		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
+			return AcceptedOutput{}, err
+		}
+		if source.State != "started" {
+			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
 		}
 		if err := input.Response.Validate(); err != nil {
 			return AcceptedOutput{}, err
@@ -167,12 +170,22 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		if err != nil {
 			return AcceptedOutput{}, err
 		}
-		result := AcceptedOutput{ID: output.ID, Event: event, Created: true}
+		result := AcceptedOutput{ID: output.ID, Event: event, Created: true,
+			Projections: make(map[uuid.UUID]dbsqlc.GetToolCallRow)}
 		for _, call := range proposals {
-			if err = q.CreateExecutionToolProposal(ctx, h.unit.DB(), executiondb.CreateExecutionToolProposalParams{
+			proposal, err := q.CreateExecutionToolProposal(ctx, h.unit.DB(), executiondb.CreateExecutionToolProposalParams{
 				ID: call.ID, AgentID: h.route.AgentID, OutputID: output.ID, ProviderCallID: call.ProviderCallID,
-				Name: call.Name, Input: call.Input, Type: call.Type}); err != nil {
+				Name: call.Name, Input: call.Input, Type: call.Type})
+			if err != nil {
 				return AcceptedOutput{}, err
+			}
+			if call.Error == "" {
+				result.Projections[call.ID] = dbsqlc.GetToolCallRow{
+					ID: proposal.ID, ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, TurnID: source.TurnID,
+					SourceEventID: event.ID, ModelCallContextID: source.ID, ProviderCallID: call.ProviderCallID,
+					Name: call.Name, Input: call.Input, Type: call.Type, CreatedAt: proposal.CreatedAt,
+					State: proposal.State, ResultContentParts: []byte(`[]`),
+				}
 			}
 			h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, call.ID, "awaiting_authorization", nil)
 			result.Tools = append(result.Tools, call.ToolProposal)
@@ -218,6 +231,11 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 				strings.TrimSpace(input.Response.Text()),
 				"model_output:"+output.ID.String(),
 				uuid.Nil); err != nil {
+				return AcceptedOutput{}, err
+			}
+		}
+		if input.FinishClaim {
+			if err := h.finishRuntime(ctx, m, input.RuntimeLockID); err != nil {
 				return AcceptedOutput{}, err
 			}
 		}
@@ -335,4 +353,21 @@ func successfulInputFingerprint(response modelenvelope.ResponseEnvelope) string 
 		return ""
 	}
 	return response.InputFingerprint
+}
+
+func (h *Handle) ResolveOutput(ctx context.Context, input AcceptOutputInput) (AcceptedOutput, bool, error) {
+	source, err := executiondb.New().ReadExecutionAttempt(ctx, h.unit.DB(), executiondb.ReadExecutionAttemptParams{
+		AgentID: h.route.AgentID, ID: input.ContextID,
+	})
+	if err != nil {
+		return AcceptedOutput{}, false, err
+	}
+	if source.RuntimeLockID != input.RuntimeLockID {
+		return AcceptedOutput{}, false, storeerr.ErrRuntimeLockInactive
+	}
+	if source.State != "succeeded" || source.OperationKind != "normal" {
+		return AcceptedOutput{}, false, nil
+	}
+	result, err := h.replayOutput(ctx, source.ID, input.Tools)
+	return result, err == nil, err
 }

@@ -360,7 +360,7 @@ func IntegrationRenewAgentRuntimeLockTx(
 				AgentID: agentID,
 				ID:      runtimeID})
 	return AgentRuntimeLockRenewal{
-		RuntimeLock:               agentRuntimeLockRecordFromSQLC(row),
+		RuntimeLock:               AgentRuntimeLockRecord(row),
 		LocalLeaseBudgetStartedAt: renewal.LocalStartedAt,
 	}, err
 }

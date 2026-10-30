@@ -60,6 +60,7 @@ const (
 )
 
 type ClaimedModelWork struct {
+	Prepared                 *PreparedNormalModelCall
 	Kind                     ModelWorkKind
 	ModelCallContextID       uuid.UUID
 	SourceModelCallContextID uuid.UUID
@@ -79,6 +80,7 @@ type ClaimedToolWork struct {
 }
 
 type ClaimedAgentWork struct {
+	RootAgentID               uuid.UUID
 	LocalLeaseBudgetStartedAt time.Time
 	OrgID                     uuid.UUID
 	ProjectID                 uuid.UUID
@@ -98,6 +100,12 @@ type AdmittedAgentInputTurn struct {
 func (s *Store) ClaimNextAgentWork(
 	ctx context.Context,
 	input ClaimNextAgentWorkInput,
+) (ClaimedAgentWork, bool, error) {
+	return s.claimNextAgentWork(ctx, input, true)
+}
+
+func (s *Store) claimNextAgentWork(
+	ctx context.Context, input ClaimNextAgentWorkInput, prepare bool,
 ) (ClaimedAgentWork, bool, error) {
 	type executionResult struct {
 		work  ClaimedAgentWork
@@ -142,6 +150,17 @@ func (s *Store) ClaimNextAgentWork(
 			claim, err := shapeClaimedWork(ctx, unit, route.ProjectID, route.AgentID, work)
 			if err != nil {
 				return executionResult{ClaimedAgentWork{}, false}, err
+			}
+			if prepare && claim.Kind == AgentWorkModel && claim.Model.Kind != ModelWorkResume {
+				prepared, err := prepareExecutionModel(ctx, unit, PrepareNormalModelCallInput{
+					ProjectID: claim.ProjectID, AgentID: claim.AgentID, RuntimeLockID: claim.RuntimeLock.ID,
+					OpeningInputIDs: claim.Model.InputIDs, SourceModelCallContextID: claim.Model.SourceModelCallContextID,
+					SourceModelOutputID: claim.Model.SourceModelOutputID,
+				})
+				if err != nil {
+					return executionResult{}, err
+				}
+				claim.Model.Prepared = &prepared
 			}
 			claim.LocalLeaseBudgetStartedAt = started
 			if err = unit.Commit(ctx, "claim agent work"); err != nil {

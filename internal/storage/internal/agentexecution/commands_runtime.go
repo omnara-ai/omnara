@@ -17,6 +17,7 @@ import (
 
 type ClaimedWork struct {
 	RuntimeID uuid.UUID
+	Runtime   RuntimeRecord
 	Selection Selection
 	Admission InputAdmission
 }
@@ -68,7 +69,7 @@ func (h *Handle) Claim(
 		if result.Selection.Work == WorkNone {
 			return result, nil
 		}
-		result.RuntimeID, err = q.AcquireExecutionRuntime(
+		runtime, err := q.AcquireExecutionRuntime(
 			ctx,
 			h.unit.DB(),
 			executiondb.AcquireExecutionRuntimeParams{
@@ -80,6 +81,8 @@ func (h *Handle) Claim(
 		if err != nil {
 			return ClaimedWork{}, err
 		}
+		result.RuntimeID = runtime.ID
+		result.Runtime = RuntimeRecord(runtime)
 		h.unit.runtimeLocked = true
 		h.lockedRuntimeID = result.RuntimeID
 		m.dirty = true
@@ -158,7 +161,18 @@ func (h *Handle) Reap(ctx context.Context, id uuid.UUID) (bool, error) {
 	})
 }
 
+type RuntimeRecord struct {
+	ID                uuid.UUID
+	AgentID           uuid.UUID
+	WorkerProcessID   uuid.UUID
+	StartedAt         time.Time
+	RenewedAt         time.Time
+	LeaseExpiresAt    time.Time
+	CancelRequestedAt *time.Time
+}
+
 type RuntimeRenewal struct {
+	Runtime        RuntimeRecord
 	LeaseExpiresAt time.Time
 	LocalStartedAt time.Time
 }
@@ -194,7 +208,8 @@ func (u *Unit) RenewRuntime(
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RuntimeRenewal{}, storeerr.ErrRuntimeLockInactive
 	}
-	return RuntimeRenewal{LeaseExpiresAt: expires, LocalStartedAt: started}, err
+	return RuntimeRenewal{Runtime: RuntimeRecord(expires),
+		LeaseExpiresAt: expires.LeaseExpiresAt, LocalStartedAt: started}, err
 }
 
 func (h *Handle) releaseRuntime(
@@ -351,4 +366,21 @@ func (h *Handle) releaseRuntime(
 	m.loaded.databaseNow = runtime.DatabaseNow
 	m.dirty = true
 	return m.selectLoaded()
+}
+
+func (h *Handle) finishRuntime(ctx context.Context, m *executionMutation, id uuid.UUID) error {
+	if h.lockedRuntimeID != id {
+		return storeerr.ErrRuntimeLockInactive
+	}
+	n, err := executiondb.New().DeleteExecutionRuntime(ctx, h.unit.DB(), executiondb.DeleteExecutionRuntimeParams{
+		AgentID: h.route.AgentID, ID: id,
+	})
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return storeerr.ErrRuntimeLockInactive
+	}
+	m.dirty = true
+	return nil
 }

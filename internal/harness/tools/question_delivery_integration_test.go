@@ -6,14 +6,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -312,6 +315,129 @@ func TestQuestionPresentationReplayAndTakeoverDoNotResend(t *testing.T) {
 			assertDispatchTestToolState(t, ctx, f, call.ID, "waiting", false)
 			assertDispatchTestResultCount(t, ctx, f, call.ID, 0)
 			resolveDashboardQuestion(t, ctx, f, interaction)
+		})
+	}
+}
+
+type questionReplayFaultTx struct {
+	pgx.Tx
+	armed   *atomic.Bool
+	after   func()
+	read    chan struct{}
+	proceed chan struct{}
+}
+
+func (tx questionReplayFaultTx) Commit(ctx context.Context) error {
+	if err := tx.Tx.Commit(ctx); err != nil {
+		return err
+	}
+	if tx.read == nil && tx.armed.CompareAndSwap(true, false) {
+		if tx.after != nil {
+			tx.after()
+		}
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+func (tx questionReplayFaultTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if tx.read != nil && strings.Contains(sql, "name: LockAgentInProject ") && tx.armed.CompareAndSwap(true, false) {
+		close(tx.read)
+		select {
+		case <-tx.proceed:
+		case <-ctx.Done():
+		}
+	}
+	return tx.Tx.QueryRow(ctx, sql, args...)
+}
+
+func TestQuestionClaimReplayPresentsAfterLeaseDeletion(t *testing.T) {
+	for _, scenario := range []string{"lost_ack", "overlap"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+			defer cancel()
+			f := newIntegrationToolFixture(t, ctx, "question-claim-"+scenario)
+			prepareInteractionPromptFixture(t, ctx, f)
+			call := f.recordToolCall(t, ctx, "question-claim", "ask_question",
+				`{"questions":[{"prompt":"Continue?","options":[{"label":"Yes"},{"label":"No"}]}]}`, f.Now)
+			turn := f.turn()
+			turn.RootAgentID = turn.AgentID
+			require.NoError(t, f.Pool.QueryRow(ctx, `SELECT model_output_id FROM tool_calls WHERE id=$1`,
+				f.toolCallID(t, ctx, call.ID)).Scan(&turn.BatchOutputID))
+			var posts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSlackToolIdentity(w, r) {
+					return
+				}
+				if r.URL.Path != "/chat.postMessage" {
+					t.Errorf("unexpected request %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				posts.Add(1)
+				writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
+			}))
+			defer server.Close()
+			runner, wait := newQuestionPresentationRunner(t, ctx)
+			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server),
+				BackgroundRunner: runner}
+			armed := &atomic.Bool{}
+			armed.Store(true)
+			executionCtx, cancelExecution := context.WithCancel(ctx)
+			defer cancelExecution()
+			read, proceed := make(chan struct{}), make(chan struct{})
+			f.Store.Execution().IntegrationWrapTransactions(func(tx pgx.Tx) pgx.Tx {
+				fault := questionReplayFaultTx{Tx: tx, armed: armed}
+				if scenario == "overlap" {
+					fault.read, fault.proceed = read, proceed
+				}
+				if scenario == "lost_ack" {
+					fault.after = cancelExecution
+				}
+				return fault
+			})
+			var done chan error
+			if scenario == "overlap" {
+				done = make(chan error, 1)
+				go func() { _, err := executor.Dispatch(ctx, turn, call); done <- err }()
+				select {
+				case <-read:
+				case <-ctx.Done():
+					t.Fatal("replay did not reach the question mutation lock")
+				}
+			}
+			result, err := executor.Dispatch(executionCtx, turn, call)
+			require.NoError(t, err)
+			require.Equal(t, DispatchDeferred, result.Disposition)
+			var newer uuid.UUID
+			err = f.Pool.QueryRow(ctx, `INSERT INTO agent_runtime_locks
+ (agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
+ VALUES($1,$2,statement_timestamp(),statement_timestamp(),statement_timestamp()+interval '1 minute') RETURNING id`,
+				turn.AgentID, uuid.New()).Scan(&newer)
+			require.NoError(t, err)
+			if scenario == "overlap" {
+				close(proceed)
+				select {
+				case err := <-done:
+					require.NoError(t, err)
+				case <-ctx.Done():
+					t.Fatal("question replay did not finish")
+				}
+			} else {
+				result, err = executor.Dispatch(ctx, turn, call)
+				require.NoError(t, err)
+				require.Equal(t, DispatchDeferred, result.Disposition)
+			}
+			require.NoError(t, wait())
+			require.EqualValues(t, 1, posts.Load())
+			interaction := integrationToolInteraction(t, ctx, f, f.toolCallID(t, ctx, call.ID),
+				executionstore.AgentInteractionKindQuestion)
+			require.Equal(t, executionstore.AgentInteractionStateOpen, interaction.State)
+			require.NotEmpty(t, interaction.PresentationReceipt)
+			var exists bool
+			require.NoError(t, f.Pool.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM agent_runtime_locks WHERE id=$1)`, newer).Scan(&exists))
+			require.True(t, exists)
 		})
 	}
 }

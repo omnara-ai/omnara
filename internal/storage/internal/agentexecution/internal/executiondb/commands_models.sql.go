@@ -23,7 +23,7 @@ SELECT a.org_id,a.project_id,a.id,$1,$2,$3,$4,
 FROM agents a WHERE a.id=$12 AND a.project_id=$13
  AND EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=a.id AND r.id=$9
  AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp())
-RETURNING id
+RETURNING id,org_id,project_id,agent_id,created_at
 `
 
 type CreateExecutionAttemptParams struct {
@@ -42,7 +42,15 @@ type CreateExecutionAttemptParams struct {
 	ProjectID       uuid.UUID
 }
 
-func (q *Queries) CreateExecutionAttempt(ctx context.Context, db DBTX, arg CreateExecutionAttemptParams) (uuid.UUID, error) {
+type CreateExecutionAttemptRow struct {
+	ID        uuid.UUID
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	CreatedAt time.Time
+}
+
+func (q *Queries) CreateExecutionAttempt(ctx context.Context, db DBTX, arg CreateExecutionAttemptParams) (CreateExecutionAttemptRow, error) {
 	row := db.QueryRow(ctx, createExecutionAttempt,
 		arg.ID,
 		arg.TurnID,
@@ -58,9 +66,15 @@ func (q *Queries) CreateExecutionAttempt(ctx context.Context, db DBTX, arg Creat
 		arg.AgentID,
 		arg.ProjectID,
 	)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var i CreateExecutionAttemptRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const executionCompactionBoundary = `-- name: ExecutionCompactionBoundary :one

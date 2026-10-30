@@ -16,7 +16,7 @@ import (
 const acquireExecutionRuntime = `-- name: AcquireExecutionRuntime :one
 INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
 VALUES($1,$2,$3,statement_timestamp(),statement_timestamp(),
- statement_timestamp()+$4::bigint*interval '1 microsecond') RETURNING id
+ statement_timestamp()+$4::bigint*interval '1 microsecond') RETURNING id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at,cancel_requested_at
 `
 
 type AcquireExecutionRuntimeParams struct {
@@ -26,16 +26,24 @@ type AcquireExecutionRuntimeParams struct {
 	LeaseMicroseconds int64
 }
 
-func (q *Queries) AcquireExecutionRuntime(ctx context.Context, db DBTX, arg AcquireExecutionRuntimeParams) (uuid.UUID, error) {
+func (q *Queries) AcquireExecutionRuntime(ctx context.Context, db DBTX, arg AcquireExecutionRuntimeParams) (AgentRuntimeLock, error) {
 	row := db.QueryRow(ctx, acquireExecutionRuntime,
 		arg.ID,
 		arg.AgentID,
 		arg.WorkerID,
 		arg.LeaseMicroseconds,
 	)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var i AgentRuntimeLock
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.WorkerProcessID,
+		&i.StartedAt,
+		&i.RenewedAt,
+		&i.LeaseExpiresAt,
+		&i.CancelRequestedAt,
+	)
+	return i, err
 }
 
 const cancelExecutionInputs = `-- name: CancelExecutionInputs :execrows
@@ -228,7 +236,7 @@ UPDATE agent_runtime_locks r SET renewed_at=greatest(r.renewed_at,statement_time
  lease_expires_at=greatest(r.lease_expires_at,greatest(r.renewed_at,statement_timestamp())+$1::bigint*interval '1 microsecond')
 WHERE r.agent_id=$2 AND r.id=$3
  AND EXISTS(SELECT 1 FROM agents a WHERE a.id=r.agent_id AND a.project_id=$4)
-RETURNING r.lease_expires_at
+RETURNING r.id,r.agent_id,r.worker_process_id,r.started_at,r.renewed_at,r.lease_expires_at,r.cancel_requested_at
 `
 
 type RenewExecutionRuntimeParams struct {
@@ -238,16 +246,24 @@ type RenewExecutionRuntimeParams struct {
 	ProjectID         uuid.UUID
 }
 
-func (q *Queries) RenewExecutionRuntime(ctx context.Context, db DBTX, arg RenewExecutionRuntimeParams) (time.Time, error) {
+func (q *Queries) RenewExecutionRuntime(ctx context.Context, db DBTX, arg RenewExecutionRuntimeParams) (AgentRuntimeLock, error) {
 	row := db.QueryRow(ctx, renewExecutionRuntime,
 		arg.LeaseMicroseconds,
 		arg.AgentID,
 		arg.ID,
 		arg.ProjectID,
 	)
-	var lease_expires_at time.Time
-	err := row.Scan(&lease_expires_at)
-	return lease_expires_at, err
+	var i AgentRuntimeLock
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.WorkerProcessID,
+		&i.StartedAt,
+		&i.RenewedAt,
+		&i.LeaseExpiresAt,
+		&i.CancelRequestedAt,
+	)
+	return i, err
 }
 
 const requestExecutionCancel = `-- name: RequestExecutionCancel :one

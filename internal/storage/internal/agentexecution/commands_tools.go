@@ -5,8 +5,10 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -22,15 +24,17 @@ type ToolOwner struct {
 	ActionID      uuid.UUID
 }
 type ToolCompletion struct {
+	Authorize bool
 	ToolRef
 	Outcome string
 	Content []Content
 }
 type CompletedTool struct {
-	ID       uuid.UUID
-	ResultID uuid.UUID
-	Event    ExecutionEvent
-	Changed  bool
+	Projection dbsqlc.GetToolCallRow
+	ID         uuid.UUID
+	ResultID   uuid.UUID
+	Event      ExecutionEvent
+	Changed    bool
 }
 
 func (h *Handle) tool(ctx context.Context, id uuid.UUID) (executiondb.ReadExecutionToolRow, error) {
@@ -180,12 +184,21 @@ func (h *Handle) WaitForTool(ctx context.Context, ref ToolRef, owner ToolOwner) 
 
 func (h *Handle) CompleteTool(ctx context.Context, input ToolCompletion) (CompletedTool, error) {
 	return executeCommand(ctx, h, func(m *executionMutation) (CompletedTool, error) {
-		if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
-			return CompletedTool{}, err
-		}
 		row, err := h.tool(ctx, input.ID)
 		if err != nil {
 			return CompletedTool{}, err
+		}
+		if row.State != "completed" {
+			if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
+				return CompletedTool{}, err
+			}
+		}
+		if input.Authorize && row.State == "awaiting_authorization" {
+			if err := h.transitionTool(ctx, m, row, "ready", uuid.Nil, input.RuntimeLockID); err != nil {
+				return CompletedTool{}, err
+			}
+			h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, row.ID, "ready", nil)
+			row.State = "ready"
 		}
 		allowed := row.State == "completed" || (row.State == "ready" && row.Type != "custom") ||
 			(row.State == "running" && storeutil.ValueOrZero(row.RuntimeLockID) == input.RuntimeLockID) ||
@@ -210,7 +223,8 @@ func (h *Handle) CompleteCustomTool(
 		if err != nil {
 			return CompletedTool{}, err
 		}
-		if row.Type != "custom" || row.State != "ready" || (outcome != "succeeded" && outcome != "failed") {
+		if row.Type != "custom" || row.State != "ready" && row.State != "completed" ||
+			(outcome != "succeeded" && outcome != "failed") {
 			return CompletedTool{}, storeerr.ErrStateTransitionConflict
 		}
 		return h.completeTool(ctx, m, row, outcome, content, uuid.Nil, nil)
@@ -254,11 +268,12 @@ func (h *Handle) completeTool(
 		return CompletedTool{}, err
 	}
 	q := executiondb.New()
-	id, err := q.InsertExecutionToolResult(ctx, h.unit.DB(), executiondb.InsertExecutionToolResultParams{
+	inserted, err := q.InsertExecutionToolResult(ctx, h.unit.DB(), executiondb.InsertExecutionToolResultParams{
 		AgentID: h.route.AgentID, ID: row.ID, Outcome: outcome})
 	if err != nil {
 		return CompletedTool{}, err
 	}
+	id := inserted.ID
 	if err = h.writeContent(ctx, "tool_call_result", id, content); err != nil {
 		return CompletedTool{}, err
 	}
@@ -299,7 +314,14 @@ func (h *Handle) completeTool(
 	}
 	h.unit.Notifications().AddAgentEvent(h.route.AgentID, event.Sequence, "tool_result")
 	h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, row.ID, "completed", interaction)
-	return CompletedTool{ID: row.ID, ResultID: id, Event: admitted, Changed: true}, nil
+	return CompletedTool{ID: row.ID, ResultID: id, Event: admitted, Changed: true,
+		Projection: dbsqlc.GetToolCallRow{
+			ID: row.ID, ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, TurnID: row.TurnID,
+			SourceEventID: row.SourceEventID, ModelCallContextID: row.ContextID, ProviderCallID: row.ProviderCallID,
+			Name:  row.Name,
+			Input: row.Input, Type: row.Type, CreatedAt: row.CreatedAt, State: "completed", Outcome: outcome,
+			CompletedAt: &inserted.CompletedAt},
+	}, nil
 }
 
 type ToolDispatch uint8
@@ -310,32 +332,77 @@ const (
 	ToolDispatchCompleted
 )
 
-func (h *Handle) DispatchTool(ctx context.Context, ref ToolRef, acceptExisting bool) (ToolDispatch, error) {
+func (h *Handle) DispatchTool(ctx context.Context, ref ToolRef, acceptExisting, authorize bool) (ToolDispatch, error) {
+	state, stateErr := executiondb.New().ReadExecutionToolDispatch(
+		ctx, h.unit.DB(), executiondb.ReadExecutionToolDispatchParams{AgentID: h.route.AgentID, ID: ref.ID},
+	)
+	if stateErr != nil && !errors.Is(stateErr, pgx.ErrNoRows) {
+		return 0, stateErr
+	}
+	if acceptExisting && state == "completed" {
+		return ToolDispatchCompleted, nil
+	}
+	if acceptExisting && state == "waiting" {
+		return ToolDispatchWaiting, nil
+	}
+	if authorize && state == "awaiting_authorization" {
+		if _, err := h.AuthorizeTool(ctx, ref); err != nil {
+			return 0, err
+		}
+		state = "ready"
+	}
 	if err := h.unit.LockAgentRefs(ctx,
 		[]lifecyclelock.AgentRef{{ProjectID: h.route.ProjectID, AgentID: h.route.AgentID}},
 		&RuntimeAuthority{AgentID: h.route.AgentID, RuntimeLockID: ref.RuntimeLockID},
 	); err != nil {
 		return 0, err
 	}
-	state, err := executiondb.New().ReadExecutionToolDispatch(
-		ctx, h.unit.DB(), executiondb.ReadExecutionToolDispatchParams{AgentID: h.route.AgentID, ID: ref.ID},
-	)
-	if err != nil {
-		return 0, err
+	if stateErr != nil {
+		return 0, stateErr
 	}
 	switch state {
 	case "ready":
 		return ToolDispatchReady, nil
 	case "running":
 		return 0, storeerr.ErrToolCallInProgress
-	case "waiting":
-		if acceptExisting {
-			return ToolDispatchWaiting, nil
-		}
-	case "completed":
-		if acceptExisting {
-			return ToolDispatchCompleted, nil
-		}
 	}
 	return 0, storeerr.ErrIdempotencyConflict
+}
+
+func (h *Handle) FinishToolBatch(ctx context.Context, runtimeID, outputID uuid.UUID) (bool, bool, error) {
+	type result struct{ finished, transferred bool }
+	r, err := executeCommand(ctx, h, func(m *executionMutation) (result, error) {
+		if err := h.FenceRuntime(ctx, runtimeID); err != nil {
+			return result{}, err
+		}
+		ownership, err := executiondb.New().ExecutionToolBatchOwnership(
+			ctx, h.unit.DB(), executiondb.ExecutionToolBatchOwnershipParams{
+				AgentID: h.route.AgentID, OutputID: outputID,
+			},
+		)
+		if err != nil {
+			return result{}, err
+		}
+		if !ownership.Present || ownership.Retained || ownership.ModelStarted {
+			return result{}, nil
+		}
+		if m.head.PendingToolOutputID != outputID {
+			return result{}, storeerr.ErrStateTransitionConflict
+		}
+		if err := h.finishRuntime(ctx, m, runtimeID); err != nil {
+			return result{}, err
+		}
+		return result{true, ownership.Transferred}, nil
+	})
+	return r.finished, r.transferred, err
+}
+
+func (h *Handle) ResolveToolBatch(ctx context.Context, outputID uuid.UUID) (bool, bool, error) {
+	ownership, err := executiondb.New().ExecutionToolBatchOwnership(
+		ctx, h.unit.DB(), executiondb.ExecutionToolBatchOwnershipParams{AgentID: h.route.AgentID, OutputID: outputID},
+	)
+	if err != nil {
+		return false, false, err
+	}
+	return ownership.Present && !ownership.Retained, ownership.Transferred, nil
 }

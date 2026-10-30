@@ -9,10 +9,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type CompleteToolCallInput struct {
+	requireRuntime     bool
+	Authorize          bool
 	ProjectID          uuid.UUID
 	AgentID            uuid.UUID
 	ID                 uuid.UUID
@@ -44,6 +48,7 @@ type CompleteCustomToolCallInput struct {
 }
 
 type CompleteCustomToolCallResult struct {
+	Applied       bool
 	ToolCall      ToolCallRecord
 	Event         TypedAgentEventRecord
 	ContentBlocks json.RawMessage
@@ -152,12 +157,19 @@ func (s *Store) CompleteToolCall(
 			}
 			defer func() { _ = unit.Rollback(ctx) }()
 
-			record, err := completeExecutionTool(ctx, unit, input)
+			record, completed, err := completeExecutionTool(ctx, unit, input)
 			if err != nil {
 				return ToolCallRecord{}, err
 			}
+			if !completed.Changed {
+				return record, nil
+			}
 			if err := unit.Commit(ctx, "complete tool call"); err != nil {
-				return ToolCallRecord{}, err
+				if resolved, resolveErr := s.resolveToolCompletionCommit(ctx, record, completed.ResultID, err); resolved {
+					return record, nil
+				} else {
+					return ToolCallRecord{}, resolveErr
+				}
 			}
 			return record, nil
 		})
@@ -211,25 +223,47 @@ func completeExecutionTool(
 	ctx context.Context,
 	unit *agentexecution.Unit,
 	input CompleteToolCallInput,
-) (ToolCallRecord, error) {
+) (ToolCallRecord, agentexecution.CompletedTool, error) {
 	h, err := lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, input.RuntimeLockID)
 	if err != nil {
-		return ToolCallRecord{}, err
+		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
+	}
+	if input.requireRuntime {
+		record, readErr := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
+		if readErr != nil {
+			return ToolCallRecord{}, agentexecution.CompletedTool{}, readErr
+		}
+		if record.State != ToolCallStateCompleted || record.Outcome != input.Outcome {
+			if err := h.FenceRuntime(ctx, input.RuntimeLockID); err != nil {
+				return ToolCallRecord{}, agentexecution.CompletedTool{}, err
+			}
+		}
 	}
 	blocks, err := parseToolResultContentBlocks(input.ResultContentParts)
 	if err != nil {
-		return ToolCallRecord{}, err
+		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
 	}
 	parts, err := executionContent(blocks)
 	if err != nil {
-		return ToolCallRecord{}, err
+		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
 	}
-	_, err = h.CompleteTool(ctx, agentexecution.ToolCompletion{ToolRef: agentexecution.ToolRef{ID: input.ID,
-		RuntimeLockID: input.RuntimeLockID}, Outcome: string(input.Outcome), Content: parts})
+	completed, err := h.CompleteTool(ctx, agentexecution.ToolCompletion{
+		Authorize: input.Authorize, ToolRef: agentexecution.ToolRef{ID: input.ID, RuntimeLockID: input.RuntimeLockID},
+		Outcome: string(input.Outcome), Content: parts,
+	})
 	if err != nil {
-		return ToolCallRecord{}, err
+		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
 	}
-	return getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
+	if !completed.Changed {
+		record, err := getToolCallTx(ctx, unit.DB(), input.ProjectID, input.AgentID, input.ID)
+		return record, completed, err
+	}
+	canonical, err := marshalToolResultContentBlocks(blocks)
+	if err != nil {
+		return ToolCallRecord{}, agentexecution.CompletedTool{}, err
+	}
+	completed.Projection.ResultContentParts = canonical
+	return toolCallRecordFromGetSQLC(completed.Projection), completed, nil
 }
 
 func (s *Store) CompleteCustomToolCall(
@@ -254,8 +288,16 @@ func (s *Store) CompleteCustomToolCall(
 			if err != nil {
 				return CompleteCustomToolCallResult{}, err
 			}
+			if !result.Applied {
+				return result, nil
+			}
 			if err := unit.Commit(ctx, "complete custom tool call"); err != nil {
-				return CompleteCustomToolCallResult{}, err
+				resolved, resolveErr := s.resolveToolCompletionCommit(ctx, result.ToolCall, result.Event.ToolCallResultID, err)
+				if resolved {
+					return result, nil
+				} else {
+					return CompleteCustomToolCallResult{}, resolveErr
+				}
 			}
 			return result, nil
 		})
@@ -286,7 +328,7 @@ func completeCustomToolCallTx(
 	if err != nil {
 		return CompleteCustomToolCallResult{}, err
 	}
-	return CompleteCustomToolCallResult{ToolCall: record, Event: TypedAgentEventRecord{
+	return CompleteCustomToolCallResult{Applied: completed.Changed, ToolCall: record, Event: TypedAgentEventRecord{
 		Event: executionEvent(
 			input.AgentID,
 			completed.Event,
@@ -301,7 +343,25 @@ func (s *Store) CompleteRuntimeToolCall(
 	if !input.Outcome.IsTerminal() || input.Outcome == ToolResultOutcomeDenied {
 		return ToolCallRecord{}, errors.New("invalid runtime tool outcome")
 	}
-	return s.CompleteToolCall(ctx, CompleteToolCallInput{ProjectID: input.ProjectID, AgentID: input.AgentID,
+	return s.CompleteToolCall(ctx, CompleteToolCallInput{
+		requireRuntime: true, ProjectID: input.ProjectID, AgentID: input.AgentID,
 		ID: input.ID, RuntimeLockID: input.RuntimeLockID, Outcome: input.Outcome,
 		ResultContentParts: input.ResultContentParts})
+}
+
+func (s *Store) resolveToolCompletionCommit(
+	ctx context.Context, record ToolCallRecord, resultID uuid.UUID, commitErr error,
+) (bool, error) {
+	if !errors.Is(commitErr, storeerr.ErrCommitOutcomeUnknown) {
+		return false, commitErr
+	}
+	resolveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	receipt, err := s.q.GetCommittedToolResult(resolveCtx, dbsqlc.GetCommittedToolResultParams{
+		ProjectID: record.ProjectID, AgentID: record.AgentID, ToolCallID: record.ID,
+	})
+	if err == nil && receipt.ID == resultID && receipt.Outcome == string(record.Outcome) {
+		return true, nil
+	}
+	return false, errors.Join(commitErr, err)
 }
