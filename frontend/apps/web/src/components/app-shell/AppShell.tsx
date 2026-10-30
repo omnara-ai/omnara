@@ -1,13 +1,11 @@
-import { useParams } from '@tanstack/react-router'
 import { type ReactNode, useState } from 'react'
 
 import { agentPaneWidth } from '@/components/agents/agent-pane'
 import { NavUser } from '@/components/app-shell/NavUser'
-import { OrganizationNav } from '@/components/app-shell/OrganizationNav'
 import { OrgSwitcher } from '@/components/app-shell/OrgSwitcher'
 import { PendingInvitationsNav } from '@/components/app-shell/PendingInvitationsNav'
-import { ProjectNav } from '@/components/app-shell/ProjectNav'
 import { ProjectSwitcher } from '@/components/app-shell/ProjectSwitcher'
+import { SidebarNav } from '@/components/app-shell/SidebarNav'
 import { ArrowUpRight, BookOpen } from '@/components/icons'
 import { BreadcrumbSlotContext } from '@/components/layout/breadcrumb-slot-context'
 import {
@@ -46,11 +44,6 @@ function AppSidebar({ children }: { children: ReactNode }) {
 
 const insetStyle: CssVariables = { '--agent-pane-width': agentPaneWidth }
 
-function ScopedNav() {
-  const projectId = useParams({ strict: false, select: (params) => params.projectId })
-  return projectId ? <ProjectNav projectId={projectId} /> : <OrganizationNav />
-}
-
 export function AppShell({ children }: { children: ReactNode }) {
   const [breadcrumbSlot, setBreadcrumbSlot] = useState<HTMLDivElement | null>(null)
   const [scrolled, setScrolled] = useState(false)
@@ -63,7 +56,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </SidebarHeader>
         <SidebarContent className="pt-2">
           <PendingInvitationsNav />
-          <ScopedNav />
+          <SidebarNav />
         </SidebarContent>
         <SidebarFooter>
           <SidebarMenu className="gap-1">
