@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -137,6 +138,109 @@ func TestDetectAuthNoChallengeMeansAuthNotRequired(t *testing.T) {
 	}
 }
 
+func TestDetectAuthFindsWellKnownMetadataWhenProbeSucceeds(t *testing.T) {
+	ts := newToolCallChallengeMCPServer(t, toolCallChallengeConfig{})
+
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp/v1", mcp.AuthOptions{HTTPClient: ts.client})
+	if err != nil {
+		t.Fatalf("DetectAuth: %v", err)
+	}
+	if !req.Required {
+		t.Fatal("Required = false, want true")
+	}
+	if req.Resource != ts.URL+"/mcp/v1" {
+		t.Fatalf("Resource = %q, want %q", req.Resource, ts.URL+"/mcp/v1")
+	}
+	if got, want := strings.Join(req.Scopes, " "), "calendar.readonly calendar.events"; got != want {
+		t.Fatalf("Scopes = %q, want %q", got, want)
+	}
+	if req.AuthorizationServer == nil || req.AuthorizationServer.TokenEndpoint != ts.URL+"/token" {
+		t.Fatalf("unexpected authorization server metadata: %+v", req.AuthorizationServer)
+	}
+}
+
+func TestDetectAuthAfterSuccessfulProbeWithoutUsableMetadata(t *testing.T) {
+	tests := []struct {
+		name               string
+		cfg                toolCallChallengeConfig
+		wantRetryable      bool
+		wantMetadataFailed bool
+	}{
+		{name: "no metadata", cfg: toolCallChallengeConfig{OmitResourceMetadata: true}},
+		{name: "metadata without authorization servers", cfg: toolCallChallengeConfig{OmitAuthorizationServers: true}},
+		{
+			name:          "metadata unreachable",
+			cfg:           toolCallChallengeConfig{ResourceMetadataDialError: true},
+			wantRetryable: true,
+		},
+		{
+			name:               "authorization server metadata missing",
+			cfg:                toolCallChallengeConfig{OmitAuthorizationServerMetadata: true},
+			wantMetadataFailed: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := newToolCallChallengeMCPServer(t, tt.cfg)
+
+			req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp/v1", mcp.AuthOptions{HTTPClient: ts.client})
+			if tt.wantRetryable || tt.wantMetadataFailed {
+				if got := mcp.IsRetryableConnectionFailure(err); got != tt.wantRetryable {
+					t.Fatalf("IsRetryableConnectionFailure(%v) = %v, want %v", err, got, tt.wantRetryable)
+				}
+				if got := errors.Is(err, mcp.ErrOAuthMetadataUnavailable); got != tt.wantMetadataFailed {
+					t.Fatalf("errors.Is(%v, ErrOAuthMetadataUnavailable) = %v, want %v", err, got, tt.wantMetadataFailed)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("DetectAuth: %v", err)
+			}
+			if req.Required {
+				t.Fatal("Required = true, want false")
+			}
+		})
+	}
+}
+
+func TestStartOAuthRequestsRefreshTokenFromGoogle(t *testing.T) {
+	metadata := mcp.AuthRequirement{
+		Required:    true,
+		EndpointURL: "https://calendarmcp.googleapis.com/mcp/v1",
+		Resource:    "https://calendarmcp.googleapis.com/mcp/v1",
+		AuthorizationServer: &oauthex.AuthServerMeta{
+			Issuer:                "https://accounts.google.com",
+			AuthorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+			TokenEndpoint:         "https://oauth2.googleapis.com/token",
+		},
+	}
+
+	authURL, err := mcp.StartOAuth(context.Background(), mcp.OAuthStartInput{
+		ClientID:     "client-123.apps.googleusercontent.com",
+		ClientSecret: "secret-456",
+		RedirectURI:  "https://app.omnara.com/api/mcp-oauth/callback",
+		Scopes:       []string{"https://www.googleapis.com/auth/calendar.events"},
+		AuthMetadata: &metadata,
+		ExpiresAt:    time.Now().UTC().Add(time.Minute),
+		KeyWrapper:   oauthTestKeyWrapper(t),
+	})
+	if err != nil {
+		t.Fatalf("StartOAuth: %v", err)
+	}
+	parsed, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("parse authorization URL: %v", err)
+	}
+	if !strings.Contains(parsed.RawQuery, "access_type=offline") || !strings.Contains(parsed.RawQuery, "prompt=consent") {
+		t.Fatalf("authorization URL %q does not request offline access with consent", authURL)
+	}
+	values := parsed.Query()
+	assertQuery(t, values, "access_type", "offline")
+	assertQuery(t, values, "prompt", "consent")
+	assertQuery(t, values, "resource", "https://calendarmcp.googleapis.com/mcp/v1")
+	assertQuery(t, values, "code_challenge_method", "S256")
+}
+
 func TestStartOAuthBuildsAuthorizationURLWithSealedStateAndPKCE(t *testing.T) {
 	ts := newOAuthMCPTestServer(t, oauthMCPTestConfig{ChallengeScope: "files:read", PKCE: true})
 	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
@@ -170,6 +274,9 @@ func TestStartOAuthBuildsAuthorizationURLWithSealedStateAndPKCE(t *testing.T) {
 	assertQuery(t, values, "scope", "files:read")
 	assertQuery(t, values, "resource", ts.URL+"/mcp")
 	assertQuery(t, values, "code_challenge_method", "S256")
+	if values.Has("access_type") || values.Has("prompt") {
+		t.Fatalf("authorization URL %q has Google-only parameters for a non-Google server", authURL)
+	}
 
 	flow, err := mcp.OpenOAuthState(context.Background(), keyWrapper, values.Get("state"))
 	if err != nil {
@@ -1006,6 +1113,67 @@ func newOAuthMCPTestServer(t *testing.T, cfg oauthMCPTestConfig) *oauthMCPTestSe
 	return ts
 }
 
+type toolCallChallengeConfig struct {
+	OmitResourceMetadata            bool
+	OmitAuthorizationServers        bool
+	ResourceMetadataDialError       bool
+	OmitAuthorizationServerMetadata bool
+}
+
+type toolCallChallengeMCPServer struct {
+	*httptest.Server
+	client *http.Client
+}
+
+// newToolCallChallengeMCPServer mirrors Google's Calendar MCP server: the auth
+// probe succeeds without credentials, protected resource metadata is served
+// only at the path-inserted well-known URL, and the authorization server is
+// listed as a root URL with a trailing slash that its own metadata omits.
+func newToolCallChallengeMCPServer(t *testing.T, cfg toolCallChallengeConfig) *toolCallChallengeMCPServer {
+	t.Helper()
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	mux.HandleFunc("/mcp/v1", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":-2,"result":{"supportedVersions":["2025-06-18"]}}`))
+	})
+	if !cfg.OmitResourceMetadata {
+		mux.HandleFunc("/.well-known/oauth-protected-resource/mcp/v1", func(w http.ResponseWriter, _ *http.Request) {
+			metadata := map[string]any{
+				"resource":              server.URL + "/mcp/v1",
+				"authorization_servers": []string{server.URL + "/"},
+				"scopes_supported":      []string{"calendar.readonly", "calendar.events"},
+			}
+			if cfg.OmitAuthorizationServers {
+				delete(metadata, "authorization_servers")
+			}
+			writeJSON(t, w, metadata)
+		})
+	}
+	if !cfg.OmitAuthorizationServerMetadata {
+		mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(t, w, map[string]any{
+				"issuer":                           server.URL,
+				"authorization_endpoint":           server.URL + "/authorize",
+				"token_endpoint":                   server.URL + "/token",
+				"code_challenge_methods_supported": []string{"plain", "S256"},
+			})
+		})
+	}
+
+	client := *server.Client()
+	baseTransport := client.Transport
+	client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if cfg.ResourceMetadataDialError && strings.HasPrefix(request.URL.Path, "/.well-known/oauth-protected-resource") {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+		}
+		return baseTransport.RoundTrip(request)
+	})
+	return &toolCallChallengeMCPServer{Server: server, client: &client}
+}
+
 func (s *oauthMCPTestServer) lastTokenForm(t *testing.T) url.Values {
 	t.Helper()
 	select {
@@ -1069,6 +1237,10 @@ func TestDetectAuthProbesStatelessServersWithoutInitialize(t *testing.T) {
 	var methods []string
 	var mu sync.Mutex
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
 		body, _ := readBody(r)
 		var envelope struct {
 			Method string `json:"method"`
@@ -1109,6 +1281,10 @@ func TestDetectAuthFallsBackToInitializeForSessionBasedServers(t *testing.T) {
 	var methods []string
 	var mu sync.Mutex
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
 		body, _ := readBody(r)
 		var envelope struct {
 			Method string `json:"method"`
