@@ -104,7 +104,11 @@ func (h *Handler) requireOAuthLoginRateLimits(w http.ResponseWriter, r *http.Req
 		{scope: "pair", subject: connectorSlug + ":" + client, limit: h.clientRateLimits.OAuthLoginConnector},
 		{scope: "client", subject: client, limit: h.clientRateLimits.OAuthLogin},
 	}, authShortWindow); err != nil {
-		h.writeAuthRateLimitError(w, err)
+		if errors.Is(err, ErrRateLimited) {
+			h.writeAuthRateLimitError(w, err)
+		} else {
+			h.redirectAuthServerError(w, r, connectorSlug, r.URL.Query().Get("return_to"), err)
+		}
 		return false
 	}
 	return true

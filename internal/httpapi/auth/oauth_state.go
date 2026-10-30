@@ -13,7 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-const oauthStateTTL = 10 * time.Minute
+const oauthStateTTL = 30 * time.Minute
 
 type OAuthStateStore interface {
 	Create(context.Context, OAuthStateCreateInput) (OAuthStateRecord, error)
