@@ -33,7 +33,7 @@ func TestPreparedAdaptersReuseMeasuredInputBeforeOutputClamping(t *testing.T) {
 			first, err := model.PrepareForSend(context.Background(), tc.client, input)
 			require.NoError(t, err)
 			require.True(t, first.InputBudget.OverBudget(), "fixture must overestimate the static input")
-			input.Context.InputEventSequence = 3
+			input.Context.InputEventSequence = 4
 			input.Context.Messages = append(input.Context.Messages, modelcontext.Message{
 				InputFingerprint: first.InputFingerprint,
 				ID:               "answer", Role: modelprotocol.RoleAssistant, Sequence: 2,
@@ -44,7 +44,11 @@ func TestPreparedAdaptersReuseMeasuredInputBeforeOutputClamping(t *testing.T) {
 				Usage:                     modelenvelope.Usage{InputTokens: 1000, OutputTokens: 8000, ReasoningTokens: 7990},
 				StopReason:                modelenvelope.StopReasonEndTurn,
 			}, modelcontext.Message{
-				ID: "next", Role: modelprotocol.RoleUser, Sequence: 3,
+				ID: "error", Role: modelprotocol.RoleAssistant, Sequence: 3,
+				StopReason: modelenvelope.StopReasonError,
+				Content:    json.RawMessage(`[{"type":"error","text":"request failed"}]`),
+			}, modelcontext.Message{
+				ID: "next", Role: modelprotocol.RoleUser, Sequence: 4,
 				Content: json.RawMessage(`[{"type":"text","text":"next"}]`),
 			})
 			next, err := model.PrepareForSend(context.Background(), tc.client, input)
@@ -98,6 +102,15 @@ func TestLatestIneligibleAssistantCannotResurrectOlderUsage(t *testing.T) {
 			next, err := model.PrepareForSend(context.Background(), tc.client, input)
 			require.NoError(t, err)
 			require.False(t, next.UsesProviderInputUsage)
+
+			input.Context.InputEventSequence = 4
+			input.Context.Messages = append(input.Context.Messages, modelcontext.Message{
+				Role: modelprotocol.RoleAssistant, Sequence: 4, StopReason: modelenvelope.StopReasonError,
+				Content: json.RawMessage(`[{"type":"error","text":"retry failed"}]`),
+			})
+			next, err = model.PrepareForSend(t.Context(), tc.client, input)
+			require.NoError(t, err)
+			require.False(t, next.UsesProviderInputUsage, "an error cannot make an older ineligible output safe to skip")
 		})
 	}
 }
