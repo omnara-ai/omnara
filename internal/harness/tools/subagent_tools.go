@@ -260,6 +260,7 @@ func spawnAgent(ctx context.Context, call transactionalToolContext) (transaction
 			Name:                    &name,
 			Message:                 input.Task,
 			MessageActor:            actor,
+			InputSource:             executionstore.AgentInputSourceSubagent,
 			IdempotencyKey:          "spawn:" + call.ToolCallID.String(),
 			ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
 			Subagent: &executionstore.SubagentLaunch{

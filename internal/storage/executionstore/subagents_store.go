@@ -517,6 +517,7 @@ func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input Sen
 		Actor:                  actor,
 		ContentBlocks:          contentBlocksJSON,
 		Metadata:               metadata,
+		Source:                 AgentInputSourceSubagent,
 		DeliveryMode:           DeliveryModeSteering,
 		CancelOpenInteractions: true,
 		IdempotencyScope:       subagentMessageIdempotencyScope,

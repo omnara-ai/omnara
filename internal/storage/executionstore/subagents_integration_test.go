@@ -936,18 +936,18 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 		tree.Interactions[0].AgentName != "asker" || tree.Interactions[0].SubagentKey != "fork" {
 		t.Fatalf("tree interactions = %+v", tree.Interactions)
 	}
-	var kind string
+	var kind, source string
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT metadata->'subagent_message'->>'kind' FROM agent_inputs
+		`SELECT metadata->'subagent_message'->>'kind', coalesce(source, '') FROM agent_inputs
 		 WHERE project_id = $1 AND agent_id = $2 AND idempotency_scope = 'subagent_message'`,
 		testProjectID,
 		parent.ID,
-	).Scan(&kind); err != nil {
+	).Scan(&kind, &source); err != nil {
 		t.Fatalf("load parent question notification: %v", err)
 	}
-	if kind != "question" {
-		t.Fatalf("parent notification kind = %q", kind)
+	if kind != "question" || source != string(executionstore.AgentInputSourceSubagent) {
+		t.Fatalf("parent notification kind = %q, source = %q", kind, source)
 	}
 
 	var pending executionstore.AgentInputRecord
@@ -1021,20 +1021,23 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 	); err != nil {
 		t.Fatalf("send message to child: %v", err)
 	}
-	var interactionState, deliveryMode string
+	var interactionState, deliveryMode, inputSource string
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT interaction.state, input.delivery_mode
+		`SELECT interaction.state, input.delivery_mode, coalesce(input.source, '')
 		 FROM agent_interaction_read_projection interaction
 		 JOIN agent_inputs input ON input.id = interaction.resolved_by_input_id
 		 WHERE interaction.project_id = $1 AND interaction.agent_id = $2`,
 		testProjectID,
 		child.Agent.ID,
-	).Scan(&interactionState, &deliveryMode); err != nil {
+	).Scan(&interactionState, &deliveryMode, &inputSource); err != nil {
 		t.Fatalf("load child question after parent message: %v", err)
 	}
 	if interactionState != string(executionstore.AgentInteractionStateCanceled) || deliveryMode != "steering" {
 		t.Fatalf("child question state = %q resolved by %q input, want canceled by steering", interactionState, deliveryMode)
+	}
+	if inputSource != string(executionstore.AgentInputSourceSubagent) {
+		t.Fatalf("parent message source = %q, want subagent", inputSource)
 	}
 	subagents, err := store.Execution().ListSubagents(ctx, testProjectID, parent.ID)
 	if err != nil {

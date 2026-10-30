@@ -36,6 +36,7 @@ func (s *Store) CreateCronTriggerAgentInput(ctx context.Context, input CreateCro
 		ProjectID:      trigger.ProjectID,
 		AgentID:        trigger.Target.ID,
 		Actor:          input.Actor,
+		Source:         AgentInputSourceCron,
 		DeliveryMode:   AgentInputDeliveryMode(trigger.Target.DeliveryMode),
 		IdempotencyKey: input.IdempotencyKey,
 	})

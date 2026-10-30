@@ -64,6 +64,20 @@ const (
 
 type AgentInputDeliveryMode string
 
+// AgentInputSource is the surface that sent a content input. It is recorded for
+// usage analytics and never read back by the product.
+const (
+	AgentInputSourceWeb         AgentInputSource = "web"
+	AgentInputSourceAPI         AgentInputSource = "api"
+	AgentInputSourceMCP         AgentInputSource = "mcp"
+	AgentInputSourceIntegration AgentInputSource = "integration"
+	AgentInputSourceCron        AgentInputSource = "cron"
+	AgentInputSourceSubagent    AgentInputSource = "subagent"
+	AgentInputSourceProcess     AgentInputSource = "process"
+)
+
+type AgentInputSource string
+
 func loadAgentInputByIdempotencyMaybeTx(
 	ctx context.Context,
 	tx dbsqlc.DBTX,
