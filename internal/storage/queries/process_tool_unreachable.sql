@@ -5,6 +5,13 @@ WITH cutoff AS MATERIALIZED (
            - (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second') AS unreachable_before,
          transaction_timestamp()
            - (sqlc.arg(queue_timeout_seconds)::int * interval '1 second') AS queued_before
+), open_process AS MATERIALIZED (
+  SELECT process.id, process.org_id, process.machine_id, process.agent_id, process.tool_call_id,
+         process.state, process.created_at
+  FROM processes process
+  CROSS JOIN cutoff
+  WHERE process.state IN ('queued', 'starting', 'running')
+    AND process.created_at <= greatest(cutoff.unreachable_before, cutoff.queued_before)
 ), process_work AS MATERIALIZED (
   SELECT process.org_id, process.machine_id,
          CASE
@@ -13,7 +20,7 @@ WITH cutoff AS MATERIALIZED (
            ELSE greatest(process.created_at, latest_runtime.unreachable_at)
              + (sqlc.arg(machine_unreachable_grace_seconds)::int * interval '1 second')
          END AS expires_at
-  FROM processes process
+  FROM open_process process
   JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
     AND tool_call.id = process.tool_call_id
   JOIN machines machine ON machine.org_id = process.org_id

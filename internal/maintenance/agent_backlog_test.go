@@ -2,6 +2,7 @@ package maintenance
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -34,5 +35,26 @@ func TestAgentBacklogRecoversAndCancelsSample(t *testing.T) {
 		func(context.Context) (executionstore.ReadyAgentBacklog, error) { return want, nil })
 	if err != nil || backlog != want {
 		t.Fatalf("next sample failed after recovery: backlog=%+v, err=%v", backlog, err)
+	}
+}
+
+func TestAgentBacklogJobReturnsSampleFailure(t *testing.T) {
+	failure := errors.New("store failed")
+	run := func(ctx context.Context, err error) maintenanceResult {
+		return recordAgentBacklog(slog.New(slog.DiscardHandler),
+			func(context.Context) (executionstore.ReadyAgentBacklog, error) {
+				return executionstore.ReadyAgentBacklog{}, err
+			}, nil)(ctx)
+	}
+	if result := run(t.Context(), nil); result.err != nil {
+		t.Fatalf("successful sample returned %v", result.err)
+	}
+	if result := run(t.Context(), failure); !errors.Is(result.err, failure) {
+		t.Fatalf("failed sample returned %v, want %v", result.err, failure)
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if result := run(canceled, context.Canceled); result.err != nil {
+		t.Fatalf("shutdown returned %v, want nil", result.err)
 	}
 }

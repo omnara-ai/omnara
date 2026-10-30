@@ -635,7 +635,7 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	}
 	asOf := time.Now().Add(2 * time.Hour)
 
-	_, archived, err := store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
+	_, archived, _, err := store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents while leaf is running: %v", err)
 	}
@@ -651,7 +651,7 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	); err != nil {
 		t.Fatalf("mark leaf wakeup: %v", err)
 	}
-	_, archived, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
+	_, archived, _, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents while leaf has a wakeup: %v", err)
 	}
@@ -662,14 +662,14 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	if err := store.Execution().DeleteAgentWakeup(ctx, testProjectID, leaf.Agent.ID); err != nil {
 		t.Fatalf("clear leaf wakeup: %v", err)
 	}
-	_, archived, err = store.Execution().ArchiveIdleAgents(ctx, 10)
+	_, archived, _, err = store.Execution().ArchiveIdleAgents(ctx, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents before the idle window: %v", err)
 	}
 	if archived != 0 {
 		t.Fatalf("archived %d subagents before the idle window elapsed, want 0", archived)
 	}
-	_, archived, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
+	_, archived, _, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents: %v", err)
 	}
@@ -765,7 +765,7 @@ func TestIdleArchiveAndStatusTreatPendingToolCallsAsRunning(t *testing.T) {
 	if len(subagents) != 1 || subagents[0].State != executionstore.SubagentStateRunning {
 		t.Fatalf("subagents with a pending tool call = %+v, want one running subagent", subagents)
 	}
-	_, archived, err := store.Execution().ArchiveIdleAgentsAsOf(ctx, time.Now().Add(2*time.Hour), 10)
+	_, archived, _, err := store.Execution().ArchiveIdleAgentsAsOf(ctx, time.Now().Add(2*time.Hour), 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents with a pending tool call: %v", err)
 	}

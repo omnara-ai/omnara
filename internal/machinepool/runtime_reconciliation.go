@@ -50,6 +50,7 @@ type RuntimeReconciliationStats struct {
 	Terminated            int
 	Unknown               int
 	ProviderErrors        int
+	Failures              int
 	MarkersSet            int
 	MarkersCleared        int
 	WakeAttemptsCleared   int
@@ -170,12 +171,17 @@ func (s *RuntimeReconciliationStats) add(other RuntimeReconciliationStats) {
 	s.Terminated += other.Terminated
 	s.Unknown += other.Unknown
 	s.ProviderErrors += other.ProviderErrors
+	s.Failures += other.Failures
 	s.MarkersSet += other.MarkersSet
 	s.MarkersCleared += other.MarkersCleared
 	s.WakeAttemptsCleared += other.WakeAttemptsCleared
 	s.Confirmations += other.Confirmations
 	s.DeletionClaims += other.DeletionClaims
 	s.DeletionClaimsSkipped += other.DeletionClaimsSkipped
+}
+
+func (s *RuntimeReconciliationStats) OnlyCooldownFailures() bool {
+	return s.ProviderErrors > 0 && s.Failures == s.ProviderErrors
 }
 
 func (m Manager) DiscoverProviderRuntimeMismatches(
@@ -223,7 +229,7 @@ func (m Manager) DiscoverProviderRuntimeMismatches(
 	stats.Scopes = len(scopeOrder)
 	var statsMu sync.Mutex
 	exactTasksByScope := make([][]runtimeExactObservationTask, len(scopeOrder))
-	_, reconcileErr := runBoundedReconcile(
+	_, scopeFailures, reconcileErr := runBoundedReconcile(
 		ctx,
 		len(scopeOrder),
 		config.Concurrency,
@@ -240,6 +246,7 @@ func (m Manager) DiscoverProviderRuntimeMismatches(
 			return err
 		},
 	)
+	stats.Failures += scopeFailures
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		if reconcileErr != nil {
 			return stats, reconcileErr
@@ -247,7 +254,7 @@ func (m Manager) DiscoverProviderRuntimeMismatches(
 		return stats, ctxErr
 	}
 	exactTasks := interleaveExactRuntimeObservationTasks(exactTasksByScope)
-	_, exactErr := runBoundedReconcile(
+	_, exactFailures, exactErr := runBoundedReconcile(
 		ctx,
 		len(exactTasks),
 		config.Concurrency,
@@ -263,6 +270,7 @@ func (m Manager) DiscoverProviderRuntimeMismatches(
 			return err
 		},
 	)
+	stats.Failures += exactFailures
 	if reconcileErr != nil {
 		return stats, reconcileErr
 	}
@@ -521,7 +529,7 @@ func (m Manager) ConfirmProviderRuntimeMismatches(
 
 	prepared := make([]*runtimeConfirmationScope, len(scopeOrder))
 	var statsMu sync.Mutex
-	_, prepareErr := runBoundedReconcile(
+	_, prepareFailures, prepareErr := runBoundedReconcile(
 		ctx,
 		len(scopeOrder),
 		config.Concurrency,
@@ -555,6 +563,7 @@ func (m Manager) ConfirmProviderRuntimeMismatches(
 			return nil
 		},
 	)
+	stats.Failures += prepareFailures
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		if prepareErr != nil {
 			return stats, prepareErr
@@ -574,7 +583,7 @@ func (m Manager) ConfirmProviderRuntimeMismatches(
 		if len(tasks) == 0 {
 			break
 		}
-		_, stripeErr := runBoundedReconcile(
+		_, stripeFailures, stripeErr := runBoundedReconcile(
 			ctx,
 			len(tasks),
 			config.Concurrency,
@@ -600,6 +609,7 @@ func (m Manager) ConfirmProviderRuntimeMismatches(
 				return err
 			},
 		)
+		stats.Failures += stripeFailures
 		if firstErr == nil {
 			firstErr = stripeErr
 		}

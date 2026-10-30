@@ -35,6 +35,11 @@ type AuthStateCleanupResult struct {
 	DeletedOAuthTokens     int64
 }
 
+func (result AuthStateCleanupResult) FilledBatch() bool {
+	return max(result.DeletedInactiveTokens, result.DeletedBrowserSessions, result.DeletedAbandonedUsers,
+		result.DeletedDeviceFlows, result.DeletedOAuthCodes, result.DeletedOAuthTokens) >= authCleanupBatchSize
+}
+
 func (s *Store) StartPasswordSignup(
 	ctx context.Context,
 	input PasswordSignupStartInput,
