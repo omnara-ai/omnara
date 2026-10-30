@@ -503,6 +503,28 @@ func TestFetchTruncatesExtractedContent(t *testing.T) {
 	}
 }
 
+func TestFetchDoesNotMarkMultibyteContentWithinCapTruncated(t *testing.T) {
+	body := strings.Repeat("é", fetchExtractedCapChars-5)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	result, err := devFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if result.Truncated || result.Content != body {
+		t.Fatalf(
+			"truncated=%v runes=%d, want untruncated %d runes",
+			result.Truncated,
+			utf8.RuneCountInString(result.Content),
+			utf8.RuneCountInString(body),
+		)
+	}
+}
+
 func TestFetchTruncatesExtractedContentOnRuneBoundary(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
