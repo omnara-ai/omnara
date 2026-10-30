@@ -25,7 +25,6 @@ const (
 	maxOAuthResponseBytes   = 1024 * 1024
 	oauthFlowCookieName     = "omnara_oauth_flow"
 	oauthFlowHostCookieName = "__Host-omnara_oauth_flow"
-	oauthFlowCookieTTL      = 10 * time.Minute
 	googleOIDCIssuer        = "https://accounts.google.com"
 )
 
@@ -51,23 +50,23 @@ func (h *Handler) startExternalLogin(w http.ResponseWriter, r *http.Request, slu
 		return
 	}
 	now := time.Now().UTC()
+	returnTo := SafeReturnTo(r.URL.Query().Get("return_to"))
 	state, err := RandomURLToken(32)
 	if err != nil {
-		h.writeAuthServerError(w, r, err)
+		h.redirectAuthServerError(w, r, slug, returnTo, err)
 		return
 	}
 	nonce, err := RandomURLToken(32)
 	if err != nil {
-		h.writeAuthServerError(w, r, err)
+		h.redirectAuthServerError(w, r, slug, returnTo, err)
 		return
 	}
 	browserBinding, err := RandomURLToken(32)
 	if err != nil {
-		h.writeAuthServerError(w, r, err)
+		h.redirectAuthServerError(w, r, slug, returnTo, err)
 		return
 	}
 	codeVerifier := oauth2.GenerateVerifier()
-	returnTo := SafeReturnTo(r.URL.Query().Get("return_to"))
 	if !h.requireOAuthLoginRateLimits(w, r, connector.Slug) {
 		return
 	}
@@ -82,12 +81,12 @@ func (h *Handler) startExternalLogin(w http.ResponseWriter, r *http.Request, slu
 			ReturnTo:            returnTo,
 		},
 	); err != nil {
-		h.writeAuthServerError(w, r, err)
+		h.redirectAuthServerError(w, r, slug, returnTo, err)
 		return
 	}
 	oauthConfig, err := h.oauthConfig(r.Context(), connector, callbackPath(slug), nil)
 	if err != nil {
-		h.writeAuthServerError(w, r, err)
+		h.redirectAuthServerError(w, r, slug, returnTo, err)
 		return
 	}
 	options := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(codeVerifier)}
@@ -98,7 +97,7 @@ func (h *Handler) startExternalLogin(w http.ResponseWriter, r *http.Request, slu
 	if connector.Kind == identitystore.AuthConnectorKindOIDC {
 		options = append(options, oauth2.SetAuthURLParam("nonce", nonce))
 	}
-	setOAuthFlowCookie(w, r, h.publicURL, browserBinding, now.Add(oauthFlowCookieTTL))
+	setOAuthFlowCookie(w, r, h.publicURL, browserBinding, now.Add(oauthStateTTL))
 	http.Redirect(w, r, oauthConfig.AuthCodeURL(state, options...), http.StatusFound)
 }
 
@@ -111,66 +110,69 @@ func (h *Handler) completeExternalLogin(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
+	redirectAuthError := func(returnTo, authError string) {
+		redirectAuthOutcome(w, r, returnTo, url.Values{"auth_error": {authError}, "auth_connector": {connector.Slug}})
+	}
 	if h.oauthStates == nil {
 		apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
 		return
 	}
 	stateValue := r.URL.Query().Get("state")
 	if stateValue == "" {
-		redirectAuthOutcome(w, r, "/", url.Values{"auth_error": []string{"invalid_callback"}})
+		redirectAuthError("/", "invalid_callback")
 		return
 	}
 	browserBinding, err := oauthFlowCookie(r, h.publicURL)
 	if err != nil {
-		redirectAuthOutcome(w, r, "/", url.Values{"auth_error": []string{"invalid_state"}})
+		redirectAuthError("/", "invalid_state")
 		return
 	}
 	state, err := h.oauthStates.Consume(r.Context(), connector.ID, stateValue, browserBinding.Value)
 	if errors.Is(err, storeerr.ErrUnauthorized) {
-		redirectAuthOutcome(w, r, "/", url.Values{"auth_error": []string{"invalid_state"}})
+		redirectAuthError("/", "invalid_state")
 		return
 	}
 	if err != nil {
-		h.writeAuthServerError(w, r, err)
+		h.redirectAuthServerError(w, r, slug, "/", err)
 		return
 	}
 	clearOAuthFlowCookie(w, r, h.publicURL)
 	if providerError := r.URL.Query().Get("error"); providerError != "" {
-		redirectAuthOutcome(w, r, state.ReturnTo, url.Values{"auth_error": []string{providerError}})
+		redirectAuthError(state.ReturnTo, providerError)
 		return
 	}
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		redirectAuthOutcome(w, r, state.ReturnTo, url.Values{"auth_error": []string{"invalid_callback"}})
+		redirectAuthError(state.ReturnTo, "invalid_callback")
 		return
 	}
 	var provider *oidc.Provider
 	if connector.Kind == identitystore.AuthConnectorKindOIDC {
 		provider, err = oidc.NewProvider(h.oauthContext(r.Context()), connector.Issuer)
 		if err != nil {
-			h.writeAuthServerError(w, r, fmt.Errorf("discover oidc provider: %w", err))
+			h.redirectAuthServerError(w, r, slug, state.ReturnTo, fmt.Errorf("discover oidc provider: %w", err))
 			return
 		}
 	}
 	oauthConfig, err := h.oauthConfig(r.Context(), connector, callbackPath(slug), provider)
 	if err != nil {
-		h.writeAuthServerError(w, r, err)
+		h.redirectAuthServerError(w, r, slug, state.ReturnTo, err)
 		return
 	}
 	ctx := h.oauthContext(r.Context())
 	token, err := oauthConfig.Exchange(ctx, code, oauth2.VerifierOption(state.CodeVerifier))
 	if err != nil {
-		redirectAuthOutcome(w, r, state.ReturnTo, url.Values{"auth_error": []string{"token_exchange_failed"}})
+		redirectAuthError(state.ReturnTo, "token_exchange_failed")
 		return
 	}
 	identity, err := h.externalIdentity(ctx, connector, token, state.Nonce, provider)
 	if err != nil {
-		redirectAuthOutcome(w, r, state.ReturnTo, url.Values{"auth_error": []string{"identity_failed"}})
+		redirectAuthError(state.ReturnTo, "identity_failed")
 		return
 	}
 	sessionToken, csrfToken, err := newBrowserSessionTokens()
 	if err != nil {
-		h.writeAuthServerError(w, r, err)
+		h.redirectAuthServerError(w, r, slug, state.ReturnTo, err)
 		return
 	}
 	if _, err := h.store.ResolveAuthIdentityUserAndCreateSession(
@@ -190,10 +192,14 @@ func (h *Handler) completeExternalLogin(w http.ResponseWriter, r *http.Request, 
 		},
 	); err != nil {
 		if errors.Is(err, storeerr.ErrUnauthorized) {
-			redirectAuthOutcome(w, r, state.ReturnTo, url.Values{"auth_error": []string{"identity_failed"}})
+			authError := "identity_failed"
+			if !identity.EmailVerified {
+				authError = "email_not_verified"
+			}
+			redirectAuthError(state.ReturnTo, authError)
 			return
 		}
-		h.writeAuthServerError(w, r, err)
+		h.redirectAuthServerError(w, r, slug, state.ReturnTo, err)
 		return
 	}
 	SetBrowserSessionCookies(w, r, h.publicURL, sessionToken, csrfToken, browserSessionTTL)
@@ -456,7 +462,7 @@ func (h *Handler) enabledConnector(
 		return identitystore.AuthConnectorRecord{}, false
 	}
 	if err != nil {
-		h.writeAuthServerError(w, r, err)
+		h.redirectAuthServerError(w, r, slug, r.URL.Query().Get("return_to"), err)
 		return identitystore.AuthConnectorRecord{}, false
 	}
 	return connector, true
@@ -468,6 +474,13 @@ func (h *Handler) oauthContext(ctx context.Context) context.Context {
 
 func callbackPath(slug string) string {
 	return authConnectorsPath + "/" + url.PathEscape(slug) + "/callback"
+}
+
+func (h *Handler) redirectAuthServerError(w http.ResponseWriter, r *http.Request, slug, returnTo string, err error) {
+	if h.log != nil {
+		h.log.ErrorContext(r.Context(), "auth request failed", "error", err)
+	}
+	redirectAuthOutcome(w, r, returnTo, url.Values{"auth_error": {"server_error"}, "auth_connector": {slug}})
 }
 
 func redirectAuthOutcome(w http.ResponseWriter, r *http.Request, returnTo string, values url.Values) {

@@ -1,4 +1,10 @@
-import { getLastUsedAuthMethod, sessionLogin } from '@omnara/sdk/browser'
+import {
+  type AuthConnector,
+  getLastUsedAuthMethod,
+  listAuthConnectors,
+  sessionLogin,
+} from '@omnara/sdk/browser'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import type { SyntheticEvent } from 'react'
 import { useState } from 'react'
@@ -13,10 +19,26 @@ import { isDeviceApprovalReturnTo, safeReturnTo } from '@/lib/auth-return-to'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
 
-function oauthErrorMessage(value: string | null): string | null {
+function oauthErrorMessage(
+  value: string | null,
+  connector: AuthConnector | undefined,
+): string | null {
   if (!value) return null
   if (value === 'access_denied') return 'Sign-in was cancelled or denied.'
-  return 'Could not sign in with that provider. Please try again.'
+  if (value === 'email_not_verified') {
+    if (connector?.kind === 'github') {
+      return `Your ${connector.displayName} account doesn’t have a verified primary email. Verify it in your ${connector.displayName} email settings, then try again, or sign up with email.`
+    }
+    if (connector?.slug === 'google') {
+      return 'We can only sign you in with a Gmail or Google Workspace account. Try another Google account or sign up with email.'
+    }
+    return 'That account doesn’t have a verified email we can use. Try another account or sign up with email.'
+  }
+  if (!connector) return 'Couldn’t sign in with that provider. Please try again.'
+  if (value === 'invalid_state') {
+    return `Your ${connector.displayName} sign-in expired. Please try again.`
+  }
+  return `Couldn’t sign in with ${connector.displayName}. Please try again.`
 }
 
 interface LoginState {
@@ -34,11 +56,14 @@ export function Login() {
     password: '',
     status: idle,
   })
-  const [oauthError, setOAuthError] = useState(() => oauthErrorMessage(params.get('auth_error')))
+  const [oauthError, setOAuthError] = useState(() => params.get('auth_error'))
   const [lastUsedMethod] = useState(getLastUsedAuthMethod)
+  const connectorsQuery = useQuery({ queryKey: ['auth-connectors'], queryFn: listAuthConnectors })
+  const connector = connectorsQuery.data?.find((c) => c.slug === params.get('auth_connector'))
   const isSubmitting = state.status.phase === 'submitting'
   const formError = statusError(state.status)
-  const errorMessage = formError ?? oauthError
+  const errorMessage =
+    formError ?? (connectorsQuery.isPending ? null : oauthErrorMessage(oauthError, connector))
 
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()

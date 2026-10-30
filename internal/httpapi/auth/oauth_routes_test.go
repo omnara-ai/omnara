@@ -1,12 +1,40 @@
 package auth
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"sync/atomic"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
+
+func TestExternalLoginServerErrorRedirectsToLogin(t *testing.T) {
+	handler := New(Config{Store: failingConnectorStore{}, PublicURL: "https://example.com"})
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+	for path, want := range map[string]string{
+		"/api/auth/connectors/github/login?return_to=/after": "/login?auth_connector=github&auth_error=server_error&return_to=%2Fafter",
+		"/api/auth/connectors/github/callback":               "/login?auth_connector=github&auth_error=server_error",
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "https://example.com"+path, nil))
+		if rec.Code != http.StatusFound || rec.Header().Get("Location") != want {
+			t.Fatalf("%s: status=%d location=%q, want 302 %q", path, rec.Code, rec.Header().Get("Location"), want)
+		}
+	}
+}
+
+type failingConnectorStore struct{ Store }
+
+func (failingConnectorStore) GetEnabledAuthConnectorBySlug(
+	context.Context, string,
+) (identitystore.AuthConnectorRecord, error) {
+	return identitystore.AuthConnectorRecord{}, errors.New("database unavailable")
+}
 
 func TestHTTPClientWithoutRedirects(t *testing.T) {
 	var redirectedRequests atomic.Int32
