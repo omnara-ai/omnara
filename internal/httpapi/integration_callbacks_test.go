@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/stretchr/testify/require"
 )
 
@@ -122,6 +124,54 @@ func TestRejectedRequestsCloseHTTP1Connection(t *testing.T) {
 			require.Equal(t, "canceled=false", string(body))
 		})
 	}
+}
+
+func TestServerHandlerClosesOnlyRejectedWebhookConnections(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(mustNewUnitServer(t).Handler())
+	t.Cleanup(server.Close)
+	dial := func(t *testing.T) (net.Conn, *bufio.Reader) {
+		t.Helper()
+		conn, err := net.Dial("tcp", server.Listener.Addr().String())
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.Close() })
+		require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+		return conn, bufio.NewReader(conn)
+	}
+	head := func(contentLength int) string {
+		return fmt.Sprintf("POST %s HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n",
+			slackEventsPath, contentLength)
+	}
+
+	t.Run("successful request keeps the connection", func(t *testing.T) {
+		t.Parallel()
+		conn, reader := dial(t)
+		body := `{"type":"url_verification","challenge":"ok"}`
+		for range 2 {
+			_, err := io.WriteString(conn, head(len(body))+body)
+			require.NoError(t, err)
+			response, err := http.ReadResponse(reader, nil)
+			require.NoError(t, err)
+			_, _ = io.Copy(io.Discard, response.Body)
+			require.Equal(t, http.StatusOK, response.StatusCode)
+			require.False(t, response.Close)
+		}
+	})
+	t.Run("oversized upload that stops early", func(t *testing.T) {
+		t.Parallel()
+		conn, reader := dial(t)
+		_, err := io.WriteString(conn, head(slack.EventBodyMaxBytes+64*1024))
+		require.NoError(t, err)
+		_, err = conn.Write(bytes.Repeat([]byte(" "), slack.EventBodyMaxBytes+1))
+		require.NoError(t, err)
+		response, err := http.ReadResponse(reader, nil)
+		require.NoError(t, err)
+		_, _ = io.Copy(io.Discard, response.Body)
+		require.Equal(t, http.StatusRequestEntityTooLarge, response.StatusCode)
+		require.True(t, response.Close)
+		_, err = reader.ReadByte()
+		require.ErrorIs(t, err, io.EOF)
+	})
 }
 
 func TestIntegrationCallbackBodyFailureKeepsHTTP2Connection(t *testing.T) {

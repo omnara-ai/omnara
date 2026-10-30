@@ -190,6 +190,40 @@ func serveRecovering(handler http.Handler, request *http.Request) (recovered any
 	return nil
 }
 
+type cancelOnLogHandler struct {
+	slog.Handler
+	cancel context.CancelFunc
+}
+
+func (h cancelOnLogHandler) Handle(ctx context.Context, record slog.Record) error {
+	h.cancel()
+	return h.Handler.Handle(ctx, record)
+}
+
+func TestHandlerCountsOnlyCancellationTheLogRecorded(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var logs bytes.Buffer
+	set := metrics.New(metrics.WithNamespace("test"))
+	handler := Handler(Config{
+		Logger:  slog.New(cancelOnLogHandler{Handler: wideevent.NewJSONHandler(&logs, nil), cancel: cancel}),
+		Metrics: metrics.NewHTTPRecorder(set, metrics.SubsystemAPI),
+	}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodGet, "/ok", nil))
+
+	if record := oneLogRecord(t, &logs); record["http.request.cancel_cause"] != nil {
+		t.Fatalf("request was canceled before its log was finalized: %v", record)
+	}
+	scrape := httptest.NewRecorder()
+	set.Handler().ServeHTTP(scrape, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+	if strings.Contains(scrape.Body.String(), "test_api_requests_canceled_total{") {
+		t.Fatalf("canceled counter disagrees with the log:\n%s", scrape.Body.String())
+	}
+}
+
 func testLogger(output *bytes.Buffer) *slog.Logger {
 	return slog.New(wideevent.NewJSONHandler(output, nil))
 }

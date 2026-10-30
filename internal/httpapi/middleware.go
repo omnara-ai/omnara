@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -115,11 +116,26 @@ func maxBody(limit func(*http.Request) int64) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Body != nil {
-				r.Body = http.MaxBytesReader(w, r.Body, limit(r))
+				r.Body = limitedBody{ReadCloser: http.MaxBytesReader(w, r.Body, limit(r)), w: w, r: r}
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+type limitedBody struct {
+	io.ReadCloser
+	w http.ResponseWriter
+	r *http.Request
+}
+
+func (b limitedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		closeHTTP1Connection(b.w, b.r)
+	}
+	return n, err
 }
 
 func (s *Server) auth(next http.Handler) http.Handler {

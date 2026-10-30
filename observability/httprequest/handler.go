@@ -41,7 +41,7 @@ func Handler(config Config, next http.Handler) http.Handler {
 			event.Done(ctx)
 			status := recorder.TelemetryStatusCode()
 			observe(request.Method, pattern, status)
-			if errors.Is(ctx.Err(), context.Canceled) {
+			if recorder.Canceled() {
 				config.Metrics.RecordCanceled(request.Method, pattern, status)
 			}
 		}()

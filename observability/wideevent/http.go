@@ -21,6 +21,7 @@ func HTTPRequest(
 		status := rec.StatusCode()
 		canceledOnly := false
 		if errors.Is(ctx.Err(), context.Canceled) {
+			rec.canceled = true
 			fields := Fields{
 				"http.request.cancel_cause":  context.Cause(ctx).Error(),
 				"http.request.cancel_source": "request_context",
@@ -67,6 +68,7 @@ type ResponseRecorder struct {
 	telemetryStatus int
 	bytes           int64
 	aborted         bool
+	canceled        bool
 }
 
 func NewResponseRecorder(w http.ResponseWriter) *ResponseRecorder {
@@ -119,6 +121,8 @@ func (r *ResponseRecorder) TelemetryStatusCode() int {
 	}
 	return r.telemetryStatus
 }
+
+func (r *ResponseRecorder) Canceled() bool { return r.canceled }
 
 func (r *ResponseRecorder) BytesWritten() int64 { return r.bytes }
 
