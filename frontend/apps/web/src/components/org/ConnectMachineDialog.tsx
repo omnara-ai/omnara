@@ -39,14 +39,10 @@ type ConnectMachineAction =
   | { type: 'submitFail'; message: string }
   | { type: 'connected'; machineToken: string }
   | { type: 'copied'; target: 'command' | 'token' }
-  | { type: 'reset' }
+  | { type: 'reset'; projectGrantIds: string[] }
 
-const initialState: ConnectMachineState = {
-  step: 'form',
-  name: '',
-  projectGrantIds: [],
-  submitting: false,
-  error: '',
+function formState(projectGrantIds: string[]): ConnectMachineState {
+  return { step: 'form', name: '', projectGrantIds, submitting: false, error: '' }
 }
 
 function reducer(state: ConnectMachineState, action: ConnectMachineAction): ConnectMachineState {
@@ -68,7 +64,7 @@ function reducer(state: ConnectMachineState, action: ConnectMachineAction): Conn
     case 'copied':
       return state.step === 'result' ? { ...state, copied: action.target } : state
     case 'reset':
-      return initialState
+      return formState(action.projectGrantIds)
   }
 }
 
@@ -76,22 +72,25 @@ export function ConnectMachineDialog({
   open,
   onOpenChange,
   orgId,
+  defaultProjectIds = [],
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orgId: string
+  /** Projects the machine is shared with unless deselected. */
+  defaultProjectIds?: string[]
 }) {
   const idPrefix = useId()
   const connectMachine = useConnectMachine(orgId)
   const { data: webConfig } = useWebConfig()
-  const [state, dispatch] = useReducer(reducer, initialState)
+  const [state, dispatch] = useReducer(reducer, defaultProjectIds, formState)
   const apiURL = webConfig?.apiURL ?? `${window.location.origin}/api/v1`
   const installerURL = new URL('/install/omnarad.sh', apiURL)
   const installCommand = `curl -fsSL ${installerURL.toString()} | sh`
 
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen) {
-      dispatch({ type: 'reset' })
+      dispatch({ type: 'reset', projectGrantIds: defaultProjectIds })
     }
     onOpenChange(nextOpen)
   }

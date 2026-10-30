@@ -13,6 +13,7 @@ import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { ModelPricingSummary } from '@/components/models/ModelPricing'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
+import { CreateModelButton } from '@/components/projects/CreateModelButton'
 import { EditModelGrantDialog } from '@/components/projects/EditModelGrantDialog'
 import { modelGrantOverrides } from '@/components/projects/grant-override-diffs'
 import { GrantModelButton } from '@/components/projects/GrantModelButton'
@@ -25,7 +26,8 @@ import { modelPricingDetailItems } from '@/lib/model-pricing'
 
 /**
  * Models shared with the project, one page at a time. Anyone who can read the project can
- * view them; sharing, editing and revoking grants requires project access management.
+ * view them; sharing, editing and revoking grants requires project access management, and
+ * creating a model for the project also requires org management.
  */
 export function ProjectModelsView({
   orgId,
@@ -72,6 +74,7 @@ export function ProjectModelsView({
         }
       >
         <GrantModelButton />
+        <CreateModelButton />
       </SearchHeader>
       <DataTable
         columns={[
@@ -151,7 +154,7 @@ export function ProjectModelsView({
         }}
         emptyMessage={
           canManageAccess
-            ? 'No shared models. Share an organization model so agents in this project can use it.'
+            ? 'No shared models. Create a model or share an organization model so agents in this project can use it.'
             : 'No models are shared with this project yet. Ask a project admin to share one.'
         }
         emptyAction={<GrantModelButton />}

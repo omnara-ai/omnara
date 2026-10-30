@@ -1,5 +1,8 @@
-import type { CSSProperties, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
+import type { Blob } from '@/components/aurora/aurora'
+import { AuroraPanel } from '@/components/aurora/AuroraPanel'
+import { DitherBackdrop } from '@/components/aurora/DitherBackdrop'
 import { BrandMark } from '@/components/brand/OmnaraMark'
 
 function Wordmark() {
@@ -11,45 +14,33 @@ function Wordmark() {
   )
 }
 
-const dotGrid: CSSProperties = {
-  backgroundImage: 'radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0)',
-  backgroundSize: '22px 22px',
-  maskImage: 'radial-gradient(ellipse at top, black, transparent 75%)',
-  WebkitMaskImage: 'radial-gradient(ellipse at top, black, transparent 75%)',
-}
-
-const glow: CSSProperties = {
-  background: 'radial-gradient(circle, var(--primary), transparent 60%)',
-}
+/** A glow either side of the centred panel, drifting like the overview's backdrop. */
+const backdropBlobs: Blob[] = [
+  { cx: 0.3, cy: 0.42, ax: 0.12, ay: 0.12, wx: 0.31, wy: 0.23, r: 0.34, peak: 0.55 },
+  { cx: 0.72, cy: 0.56, ax: 0.1, ay: 0.12, wx: 0.19, wy: 0.29, r: 0.3, peak: 0.4 },
+]
 
 export function AuthLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="grid min-h-svh lg:grid-cols-2">
-      <aside className="relative hidden flex-col justify-between overflow-hidden p-10 lg:flex">
-        <div className="from-primary/10 via-card to-card absolute inset-0 bg-linear-to-br" />
-        <div aria-hidden className="absolute inset-0 opacity-40" style={dotGrid} />
-        <div
-          aria-hidden
-          className="absolute -top-24 left-1/2 size-[28rem] -translate-x-1/2 rounded-full opacity-[0.12] blur-3xl"
-          style={glow}
-        />
-        <div className="relative z-10">
-          <Wordmark />
-        </div>
-        <div className="relative z-10 space-y-3">
-          <p className="text-foreground type-title">The API for production-grade agents.</p>
-          <p className="text-muted-foreground text-base">Omnara console</p>
-        </div>
-      </aside>
-
-      <main className="flex flex-col p-6 sm:p-10">
-        <div className="lg:hidden">
-          <Wordmark />
-        </div>
-        <div className="flex flex-1 items-center justify-center py-10">
-          <div className="w-full max-w-sm">{children}</div>
-        </div>
+    <div className="bg-background relative flex min-h-svh flex-col overflow-hidden p-6 sm:p-10">
+      <DitherBackdrop
+        className="absolute inset-0"
+        blobs={backdropBlobs}
+        fadeFrom={0.85}
+        source="auth"
+      />
+      <header className="relative">
+        <Wordmark />
+      </header>
+      <main className="relative flex flex-1 items-center justify-center py-10">
+        <AuroraPanel source="auth" className="w-full max-w-md p-6 sm:p-8">
+          {children}
+        </AuroraPanel>
       </main>
+      <footer className="relative hidden space-y-3 lg:block">
+        <p className="text-foreground type-title">The API for production-grade agents.</p>
+        <p className="text-muted-foreground text-base">Omnara console</p>
+      </footer>
     </div>
   )
 }

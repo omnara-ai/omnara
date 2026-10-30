@@ -54,15 +54,21 @@ export function CreateMachinePoolDialog({
   open,
   onOpenChange,
   orgId,
+  defaultProjectIds = [],
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orgId: string
+  /** Projects the new pool is shared with unless deselected. */
+  defaultProjectIds?: string[]
 }) {
   const createMachinePool = useCreateMachinePool(orgId)
   const grantMachinePool = useGrantMachinePoolToProject(orgId)
   const [phase, setPhase] = useState<RetryGrantsPhase<MachinePool>>({ kind: 'form', error: '' })
-  const [values, setValues] = useState<MachinePoolFormValues>(machinePoolFormDefaults)
+  const [values, setValues] = useState<MachinePoolFormValues>(() => ({
+    ...machinePoolFormDefaults,
+    projectGrantIds: defaultProjectIds,
+  }))
   const [current, setCurrent] = useState(0)
   const [reached, setReached] = useState(0)
   // The current step's card can be folded away without leaving the step.
@@ -125,6 +131,7 @@ export function CreateMachinePoolDialog({
       // Keep the machine sizing so consecutive pools reuse it.
       setValues({
         ...machinePoolFormDefaults,
+        projectGrantIds: defaultProjectIds,
         cpu: values.cpu,
         memoryGb: values.memoryGb,
         maxMachines: values.maxMachines,
