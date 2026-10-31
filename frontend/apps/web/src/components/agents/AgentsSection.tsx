@@ -57,6 +57,7 @@ function useAgentListControls() {
   return {
     list,
     filters,
+    isFiltering: list.isFiltering || activity !== 'all',
     includeSubagents,
     setIncludeSubagents,
     includeArchived,
@@ -208,7 +209,7 @@ function AgentList({
             canManage={canManage(agent)}
           />
         )}
-        isFiltered={list.isFiltering}
+        isFiltered={controls.isFiltering}
         pagination={pagination}
         isPending={isPending}
         isError={isError}
