@@ -4,6 +4,7 @@ import * as z from 'zod'
 
 import { agentChatOp, agentEventsStreamOp } from './agent-commands.ts'
 import { formatAgentEventList } from './agent-rendering.ts'
+import { agentWaitOp } from './agent-wait.ts'
 import {
   currentProfileConfigId,
   renderConfigSource,
@@ -51,6 +52,7 @@ export const commandGroups: CommandGroup[] = [
         format: formatRecord(),
         path: schemas.zGetAgentPath,
       }),
+      agentWaitOp,
       op({
         verb: 'launch',
         summary: 'Launch a new agent',
