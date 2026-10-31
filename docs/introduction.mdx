@@ -5,16 +5,34 @@ description: A self-hostable alternative to Claude Managed Agents and OpenAI's A
 icon: "hand-wave"
 ---
 
-Omnara is an open-source managed agent platform and a self-hostable alternative to Claude Managed Agents and OpenAI's Agents API. Use the API to run AI agents on any model and any machine, with tools, secrets, permissions, and streaming built in. Self-host it for free under Apache 2.0, or use [Omnara Cloud](https://app.omnara.com).
+Omnara is an open-source managed agent platform and a self-hostable alternative to Claude Managed Agents and OpenAI's Agents API. Use the API to run AI agents on any model and any machine, with tools, secrets, permissions, and streaming built in. Use [Omnara Cloud](https://app.omnara.com), where Omnara runs the workers, database, and sandboxes and there's nothing for you to operate, or self-host it for free under Apache 2.0.
 
-## Use cases
+## What Omnara runs for you
 
-Omnara can be used to build agents for internal use cases or external use cases, such as:
-* Internal slack bots
-* Code review agents
-* Agents integrated in a product dashboard
+You describe an agent in a config: its instructions, model, tools, and machines. Omnara runs the agent loop on its own workers and keeps the agent's full history in Postgres.
 
-Omnara exposes a web interface, CLI, and REST API to enable these use cases.
+- **Durable agents.** Every step is saved as it happens, so an agent picks up where it left off after a worker crash, a restart, or a machine disconnect. [Failure handling](/agents/failure-handling) covers exactly what happens in each case.
+- **Scaling.** Workers are stateless and an agent only uses one while it's taking a turn, so you add workers to run more agents at once.
+- **Agents as API objects.** Launch one agent per customer, ticket, or thread with an API call. Change a running agent's model, tools, permissions, or instructions by posting a new config, and the change applies at its next model call without restarting the conversation.
+- **Your logic, in your code.** [Custom tools](/tools/custom) run in your own backend, in any language, and post their results back. Omnara holds each call until you answer, so your services can restart or redeploy without breaking a running agent.
+- **Configs you can review.** A [config](/agents/configuration) is a YAML or JSON file you can keep in your repository, review in pull requests, and apply from CI with `omnara profiles update <profile-id> --file agent.yaml`. Configs are immutable, and earlier versions stay in the profile's history.
+
+## What you control
+
+Most of an agent's behavior can change while it runs, through the API, without a deploy:
+
+- **[Config changes mid-conversation.](/events/sending-input#change-the-config-mid-conversation)** Swap the model, tools, permissions, or instructions; the change applies at the agent's next model call.
+- **[Steering messages.](/events/sending-input#queued-vs-steering)** Send a correction that reaches the agent at its next model call, ahead of queued work, or reorder and cancel queued messages.
+- **[Per-tool permissions.](/tools/permissions)** Let each tool run, require a person's approval, or block it.
+- **[Subagents.](/agents/configuration#subagents)** Let an agent start subagents with their own model and instructions, read their progress, message them, and stop them, with caps on how many and how deep.
+- **[Context and models.](/agents/configuration#model)** Set the context budget that triggers compaction, the output cap, reasoning effort, and which tools load only when needed.
+- **Your own code.** [Custom tools](/tools/custom) and [MCP servers](/tools/mcp) run whatever logic you need, and the agent loop itself is open source if you self-host and want to change it.
+
+## When to use Omnara
+
+Use Omnara for agents that have to keep working: agents in your product, internal bots in Slack or GitHub, code review, and long-running background work, whether you run one agent or thousands.
+
+Agent frameworks such as LangGraph, Mastra, or Vercel's eve are libraries: the agent is code in your app, and its durability and scaling depend on the runtime and hosting you pair it with. With Omnara, the loop runs on Omnara's workers, so agents survive crashes and your app's deploys, and your application controls the user experience through the API. A single stateless model request may only need a model API.
 
 ## Build an agent
 
@@ -37,15 +55,33 @@ machine_sources:
 
 You can create and launch the agent in two ways:
 
-- **Dashboard** — click **New agent** in your project in the dashboard.
-- **Programmatically** - Omnara provides an **API**, **Typescript SDK**, and **CLI** to interact with Omnara
+- **Dashboard**: click **New agent** in your project in the dashboard.
+- **Programmatically**: Omnara provides an **API**, **TypeScript SDK**, and **CLI**. Your code can generate configs too, for example one per customer.
 
 The [quickstart](/quickstart) provides a more detailed guide to setting up your first agent.
+
+## What's included
+
+- **[Any model](/organization/model-providers).** OpenAI, Anthropic, OpenRouter, Amazon Bedrock, LiteLLM, Ollama, or any compatible endpoint, on your own keys, including models you host yourself.
+- **[Tools](/tools/built-in).** Built-in tools for shell commands, files, web search and fetch, and asking a person a question, plus [MCP servers](/tools/mcp) and [custom tools](/tools/custom).
+- **[Permissions and approvals](/tools/permissions).** Each tool can run immediately, ask a person first, or be blocked. The agent waits for an answer as long as it takes.
+- **[Machines](/machines/overview).** Your own laptops, VMs, and containers through the Omnara daemon, or sandboxes from twelve providers. An agent can use several at once.
+- **[Secrets](/organization/secrets).** Encrypted credentials for model providers, machines, and MCP servers, shared with projects through grants. MCP servers are called from Omnara's workers, so their credentials never reach the agent's machines.
+- **[Skills](/tools/skills), [memory](/agents/configuration#memory-stores), and [subagents](/agents/configuration#subagents).** Reusable instructions and files, memory that persists between conversations, and subagents that are full agents you can inspect.
+- **[Schedules](/api-reference/endpoints/configs-and-profiles/create-cron-trigger).** Cron triggers that message an agent or launch a new one.
+- **[Integrations](/integrations/overview).** Slack, Discord, and GitHub, plus [custom integrations](/integrations/custom-integrations) on the same public API.
+- **[Streaming](/events/streaming) and [webhooks](/events/webhooks).** Every event as it happens. After a reconnect, a stream resumes from the last saved event.
+
+## Open source and Omnara Cloud
+
+The whole control plane is in the [omnara-ai/omnara](https://github.com/omnara-ai/omnara) repository under Apache 2.0, including the agent loop, recovery, and the tests that cover them. If you self-host, you can read and change any of it, and the [self-hosting guide](/self-hosting/deployment) covers a production deployment.
+
+Omnara Cloud runs the same open-source control plane for you. Enterprise plans add deployment and maintenance in your own cloud, SSO and audit logs, and custom SLAs. The platform has no fee: you pay the provider's token rates for models bought through Omnara and for the Omnara-managed machines your agents use, and your own keys and machines are free. See [pricing](https://www.omnara.com/pricing) and the [Trust Center](https://trust.omnara.com) for security and compliance details.
 
 ## Core concepts
 
 1. An **organization** owns shared resources for your team: **projects**, **secrets**, **model providers**, and **machines**.
-2. **Projects** contains agents. **Grants** decide which shared resources the project can use.
+2. **Projects** contain agents. **Grants** decide which shared resources the project can use.
 3. An **agent** is one durable conversation with its config, tool calls, and history. **Profiles** provide reusable agent configurations.
 4. You send **inputs**, stream **events**, and resolve **interactions** in an agent.
 
@@ -59,5 +95,11 @@ The [concepts](/concepts) page gives a short overview of this model.
   </Card>
   <Card title="Concepts" icon="sitemap" href="/concepts">
     The object model, the agent loop, and access control
+  </Card>
+  <Card title="Failure handling" icon="shield-check" href="/agents/failure-handling">
+    What happens to a running agent when a worker, model call, tool, or machine fails
+  </Card>
+  <Card title="Self-hosting" icon="server" href="/self-hosting/deployment">
+    Run the whole platform on your own infrastructure
   </Card>
 </CardGroup>

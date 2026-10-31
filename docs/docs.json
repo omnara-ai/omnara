@@ -114,7 +114,8 @@
             "group": "Agents",
             "pages": [
               "agents/overview",
-              "agents/configuration"
+              "agents/configuration",
+              "agents/failure-handling"
             ]
           },
           {

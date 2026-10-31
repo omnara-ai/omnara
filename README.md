@@ -28,8 +28,9 @@
 
 Omnara is an open-source managed agent platform. Use the API to run AI agents
 on any model and any machine, with tools, secrets, permissions, and streaming
-built in. Self-host it for free under Apache 2.0, or use
-[Omnara Cloud](https://app.omnara.com).
+built in. Use [Omnara Cloud](https://app.omnara.com), where Omnara runs the
+workers, database, and sandboxes for you, or self-host it for free under
+Apache 2.0.
 
 ## Quickstart
 
@@ -135,9 +136,11 @@ In `agent.yaml`, use your provider and model names, and replace the
 `machine_pool_name` entry with `machine_name: <your machine>`. Then launch it
 with the same command as above.
 
-The local defaults are intentionally insecure. For a real deployment, follow
-the [self-hosting guide](https://docs.omnara.com/self-hosting/deployment) and
-the [configuration reference](https://docs.omnara.com/self-hosting/configuration).
+This Compose setup uses local development defaults, such as built-in
+encryption keys and email links printed to the logs. For production, set your
+own keys and follow the
+[self-hosting guide](https://docs.omnara.com/self-hosting/deployment) and the
+[configuration reference](https://docs.omnara.com/self-hosting/configuration).
 
 ## How it works
 
@@ -227,7 +230,7 @@ memory filesystem. The
   at once (for example, a set of GPU servers) and move between them. If your
   laptop goes offline, the agent can continue in a sandbox and sync its work
   back with git.
-- **[Durable state](https://docs.omnara.com/agents/overview).** Every step is
+- **[Durable state](https://docs.omnara.com/agents/failure-handling).** Every step is
   saved, so agents pick up where they left off after crashes, restarts, and
   machine disconnects.
 - **[Schedules](https://docs.omnara.com/api-reference/endpoints/configs-and-profiles/create-cron-trigger).**
