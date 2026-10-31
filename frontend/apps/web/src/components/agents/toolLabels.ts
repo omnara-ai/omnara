@@ -182,38 +182,30 @@ export function describeReasoning(status: ToolStatus) {
  * own phrase, up to three before "and N more".
  */
 export function summarizeActivity(items: ActivityItem[]) {
-  const calls = items.filter((item) => item.kind === 'tool')
-  const reasoning = items.filter((item) => item.kind === 'reasoning')
-  const phrases: string[] = []
-  const counted = new Set<string>()
+  const thinking = items.some((item) => item.kind === 'reasoning' && item.status === 'running')
+  const callCounts = new Map<string, number>()
+  const countKey = (call: ToolCallItem) => `${call.name}\u0000${call.status}`
+  for (const item of items) {
+    if (item.kind === 'tool')
+      callCounts.set(countKey(item), (callCounts.get(countKey(item)) ?? 0) + 1)
+  }
+  // A Set keeps first-seen order and drops repeats, so each phrase reads once.
+  const phrases = new Set<string>()
   for (const item of items) {
     if (item.kind === 'reasoning') {
-      const thinking = reasoning.some((step) => step.status === 'running')
-      const phrase = describeReasoning(thinking ? 'running' : 'done')
-      if (!phrases.includes(phrase)) phrases.push(phrase)
+      phrases.add(describeReasoning(thinking ? 'running' : 'done'))
       continue
     }
     const { noun } = toolDef(item.name)
-    const sameTool = calls.filter(
-      (other) => other.name === item.name && other.status === item.status,
-    )
-    if (noun && sameTool.length > 1) {
-      const key = `${item.name}\u0000${item.status}`
-      if (counted.has(key)) continue
-      counted.add(key)
-      const { verb } = describeTool(item.name, item.input, item.status)
-      phrases.push(`${verb} ${String(sameTool.length)} ${noun[1]}`)
-      continue
-    }
+    const count = callCounts.get(countKey(item)) ?? 1
     const { verb, target } = describeTool(item.name, item.input, item.status)
-    const phrase = `${verb} ${target}`
-    if (!phrases.includes(phrase)) phrases.push(phrase)
+    phrases.add(noun && count > 1 ? `${verb} ${String(count)} ${noun[1]}` : `${verb} ${target}`)
   }
-  const shown = phrases
+  const shown = [...phrases]
     .slice(0, 3)
     .map((phrase, index) =>
       index === 0 ? phrase : phrase.charAt(0).toLowerCase() + phrase.slice(1),
     )
-  const more = phrases.length - shown.length
+  const more = phrases.size - shown.length
   return shown.join(', ') + (more > 0 ? ` and ${String(more)} more` : '')
 }
