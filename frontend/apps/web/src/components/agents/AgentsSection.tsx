@@ -36,7 +36,11 @@ import { type PaginationControls, usePagedQuery } from '@/hooks/use-paged-query'
 import { useProjectDirectory } from '@/hooks/use-project-directory'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
-import { agentStatusLabel } from '@/lib/agent-status'
+import {
+  activityFilterOptions,
+  type ActivityFilterValue,
+  agentStatusLabel,
+} from '@/lib/agent-status'
 
 type AgentListControls = ReturnType<typeof useAgentListControls>
 
@@ -44,18 +48,23 @@ function useAgentListControls() {
   const list = useResourceList<AgentListSort>('-updated_at')
   const [includeSubagents, setIncludeSubagents] = useState(false)
   const [includeArchived, setIncludeArchived] = useState(false)
+  const [activity, setActivity] = useState<ActivityFilterValue>('all')
   // Each card's cost, with its subagents, comes with the list rather than a request per card.
   const filters: AgentListFilters = { ...list.apiFilters, include_usage: true }
   if (includeSubagents) filters.include_subagents = true
   if (includeArchived) filters.include_archived = true
+  if (activity !== 'all') filters.activity_state = activity
   return {
     list,
     filters,
+    isFiltering: list.isFiltering || activity !== 'all',
     includeSubagents,
     setIncludeSubagents,
     includeArchived,
     setIncludeArchived,
-    resetKey: `${list.queryKey}:${includeSubagents ? 'all' : 'top'}:${includeArchived ? 'archived' : 'active'}`,
+    activity,
+    setActivity,
+    resetKey: `${list.queryKey}:${includeSubagents ? 'all' : 'top'}:${includeArchived ? 'archived' : 'active'}:${activity}`,
   }
 }
 
@@ -172,6 +181,14 @@ function AgentList({
           showSearch
           sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
           filters={{
+            activity: {
+              value: controls.activity,
+              options: activityFilterOptions,
+              onChange: (value) => {
+                const option = activityFilterOptions.find((candidate) => candidate.value === value)
+                if (option) controls.setActivity(option.value)
+              },
+            },
             subagents: {
               checked: controls.includeSubagents,
               onChange: controls.setIncludeSubagents,
@@ -192,7 +209,7 @@ function AgentList({
             canManage={canManage(agent)}
           />
         )}
-        isFiltered={list.isFiltering}
+        isFiltered={controls.isFiltering}
         pagination={pagination}
         isPending={isPending}
         isError={isError}

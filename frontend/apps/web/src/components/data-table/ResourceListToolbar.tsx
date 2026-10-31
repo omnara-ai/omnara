@@ -4,12 +4,12 @@ import { FiltersMenu } from '@/components/data-table/FiltersMenu'
 import { Input } from '@/components/ui/input'
 import type { SortOption } from '@/hooks/use-resource-list'
 
-type FilterProps<TSort extends string> = Omit<
-  ComponentProps<typeof FiltersMenu<TSort>>,
+type FilterProps<TSort extends string, TActivity extends string = string> = Omit<
+  ComponentProps<typeof FiltersMenu<TSort, TActivity>>,
   'label' | 'sort'
 >
 
-export function ResourceListToolbar<TSort extends string>({
+export function ResourceListToolbar<TSort extends string, TActivity extends string = string>({
   search,
   onSearchChange,
   placeholder,
@@ -22,7 +22,7 @@ export function ResourceListToolbar<TSort extends string>({
   placeholder: string
   showSearch: boolean
   sort?: { value: TSort; options: readonly SortOption<TSort>[]; onChange: (sort: TSort) => void }
-  filters?: FilterProps<TSort>
+  filters?: FilterProps<TSort, TActivity>
 }) {
   const hasFilters = filters !== undefined && Object.values(filters).some(Boolean)
   if (!showSearch && !hasFilters) return null
