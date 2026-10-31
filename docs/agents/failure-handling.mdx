@@ -1,0 +1,89 @@
+---
+title: Failure handling
+description: What happens to a running agent when a worker, model call, tool, or machine fails
+icon: "shield-check"
+---
+
+An agent's state is its event log in Postgres. Workers keep nothing of their own, so any worker can continue any agent from its last saved step. This page covers what happens in each failure case and what your own code should handle.
+
+## What's saved, and when
+
+A worker claims one agent, runs one step (a model call or a batch of tool calls), saves it, and releases the agent. The next step starts from a fresh claim built from what's in Postgres.
+
+- A model response is saved once it's complete, in the same transaction as its tool calls and timeline event.
+- A tool result is saved in the same transaction as its event.
+- [Event webhooks](/events/webhooks) are queued in the same transaction as the event they describe.
+
+Streamed text deltas are sent live and never saved. A client that reconnects reads the finished response from the event log.
+
+## When a worker dies
+
+Each claim is a lease that the worker renews about every 30 seconds. A worker that can't renew within 60 seconds of its last renewal stops its own turn. When a lease expires, the maintenance service releases the agent and another worker claims it, usually within 60 to 90 seconds of the crash.
+
+A worker that has lost its lease can't write anything afterward. Every write checks, in the same transaction, that the lease is still current and the agent hasn't been stopped, so a slow or partitioned worker can't overwrite the work of the worker that replaced it.
+
+On a normal shutdown, a worker stops claiming new work and gives the work in progress [`OMNARA_WORKER_DRAIN_TIMEOUT`](/self-hosting/configuration) (20 seconds by default) to finish before handing it back.
+
+## Model calls
+
+A model call cut off by a crash, a shutdown, or a lost lease is sent again from the start, with the same history. Partial output from the interrupted attempt isn't kept.
+
+Errors that can succeed later, like rate limits, timeouts, and provider outages, are retried with exponential backoff, honoring `Retry-After`, up to eight times. Authentication, billing, and invalid-request errors stop the turn. When the context is too long for the model, Omnara compacts it instead of failing.
+
+Because an interrupted call is sent again, the provider can bill for an attempt that finished on its side before the worker died.
+
+## Built-in tools and commands
+
+- **Commands.** `run_command` hands a command to a machine once, and it's never run again automatically. The command keeps running if the worker that started it dies, and the agent gets the result when it exits. If the machine loses the process itself, the result comes back as unknown.
+- **Tools that call outside services**, like web search, web fetch, [MCP servers](/tools/mcp), and integrations, run at most once automatically. If one is cut off, the agent gets "Tool call was interrupted; its external outcome is unknown." and decides whether to check or call it again.
+- **Tools that change only Omnara's own state**, like starting subagents or [asking a question](/events/interactions), save their effect and their result in one transaction.
+
+## Custom tools
+
+A [custom tool](/tools/custom) call waits in Postgres until your backend posts a result, without holding a worker. Omnara worker crashes don't affect it, and neither do restarts or deploys of your own services.
+
+The first result accepted for a call completes it, and later submissions return `409`. Event webhooks are delivered at least once, so deduplicate custom work by tool-call ID.
+
+## Approvals and questions
+
+[Approvals and questions](/events/interactions) wait in Postgres for as long as it takes and survive worker crashes and restarts. The first answer wins: sending the same answer again is safe, and a conflicting answer is rejected. They end when someone answers, when an input cancels open interactions, or when the agent is stopped or archived.
+
+## Machines going offline
+
+A machine is online while its daemon's session is current.
+
+- A command the machine hasn't accepted yet never runs late. It fails if the machine doesn't accept it within five minutes, or 30 seconds after the machine goes offline.
+- If the machine goes offline while the agent is waiting on a command it already accepted, the agent gets a retryable `machine_unreachable` result after 30 seconds, so it can move on, for example to [another machine](/machines/overview).
+
+## What your code should handle
+
+- Deduplicate [event webhooks](/events/webhooks) by `Webhook-Id`, and custom tool work by tool-call ID.
+- Treat a `409` on a custom tool result as "check the call's state": your earlier submission may have succeeded with its response lost.
+- Make custom tools and MCP servers safe to receive the same request twice.
+- Send an `Idempotency-Key` when you create inputs, so a retried request doesn't deliver a message twice.
+- After a [stream](/events/streaming) reconnects, re-read pending tool calls with `GET /tool-calls`, since lifecycle updates aren't replayed.
+
+## Limits
+
+- Recovery after a worker crash waits for the lease to expire, about 60 to 90 seconds.
+- The maintenance service releases expired leases and times out machine work, so a self-hosted deployment needs it running.
+- Event webhooks are retried for up to ten minutes.
+
+## How it's tested
+
+This behavior is covered by tests in the [repository](https://github.com/omnara-ai/omnara), including:
+
+| Behavior | Tests |
+| --- | --- |
+| Lease claims, fencing, and recovery | [`TestExecutionClaimInvalidLease`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/internal/agentexecution/commands_runtime_integration_test.go), [`TestExecutionCommandFencing`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/internal/agentexecution/commands_integration_test.go), [`TestExecutionRuntimeRecoveryCommands`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/internal/agentexecution/commands_custody_integration_test.go), [`TestAgentRuntimeLockReaperWinningRaceFencesOldWorker`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/executionstore/agent_runtime_locks_integration_test.go) |
+| Crashed model calls and worker shutdown | [`TestServiceE2EMaintenanceRecoversCrashedModelCall`](https://github.com/omnara-ai/omnara/blob/main/internal/e2e/service_e2e_maintenance_recovery_test.go), [`TestServiceE2EWorkerDrainCompletesInFlightModelCall`](https://github.com/omnara-ai/omnara/blob/main/internal/e2e/service_e2e_worker_drain_test.go), [`TestDecideStopsAfterEightRetries`](https://github.com/omnara-ai/omnara/blob/main/internal/modelretry/policy_test.go) |
+| Interrupted tools and waiting interactions | [`TestExpiredRuntimeFailsOwnedToolAndFencesLateCompletion`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/executionstore/process_runtime_lease_recovery_integration_test.go), [`TestExpiredRuntimePreservesDurablyWaitingQuestionInteraction`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/executionstore/process_runtime_lease_recovery_integration_test.go), [`TestPublicCustomToolCallLifecycle`](https://github.com/omnara-ai/omnara/blob/main/internal/httpapi/agent_tool_calls_integration_test.go) |
+| Machine and daemon crashes | [`TestServiceE2EDaemonContainerCrashDoesNotRepeatAcceptedProcess`](https://github.com/omnara-ai/omnara/blob/main/internal/e2e/service_e2e_daemon_process_tools_test.go), [`TestAbruptSupervisorDeathNeverRepeatsCommittedEffects`](https://github.com/omnara-ai/omnara/blob/main/internal/machinedaemon/supervisor_crash_unix_test.go), [`TestMachineUnreachableProcessToolCallUnblocksWithoutTerminalizingProcess`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/executionstore/process_machine_unreachable_integration_test.go) |
+
+To run the database-backed and end-to-end suites locally with Docker:
+
+```sh
+make db-up
+make test-integration
+make test-service-e2e
+```
