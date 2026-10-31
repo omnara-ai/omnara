@@ -133,14 +133,23 @@ async function waitForConnectionCheck() {
   }
 }
 
-async function render(api: FakeApi, onOpenChange: (open: boolean) => void) {
+async function render(
+  api: FakeApi,
+  onOpenChange: (open: boolean) => void,
+  defaultProjectIds?: string[],
+) {
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   await interact(() => {
     root.render(
       <OmnaraClientProvider client={client}>
         <QueryClientProvider client={queryClient}>
-          <CreateMachinePoolDialog open onOpenChange={onOpenChange} orgId={orgId} />
+          <CreateMachinePoolDialog
+            open
+            onOpenChange={onOpenChange}
+            orgId={orgId}
+            defaultProjectIds={defaultProjectIds}
+          />
         </QueryClientProvider>
       </OmnaraClientProvider>,
     )
@@ -253,6 +262,26 @@ it('walks through each step, summarizing finished ones, and creates the pool ear
     default_machine_memory_mb: 1024,
     default_machine_provider_options: { image: 'omnara/agent-sandbox', region: 'us-pdx-1' },
   })
+  expect(api.requestsTo('POST', grantPath).map((request) => request.body)).toEqual([
+    { machine_pool_id: createdPool.id },
+  ])
+  expect(onOpenChange).toHaveBeenCalledWith(false)
+})
+
+it('shares the pool with the projects it opens with', async () => {
+  const api = poolApi()
+  const onOpenChange = vi.fn()
+  await render(api, onOpenChange, [project.id])
+
+  expect(button('Remove cli-agent')).toBeDefined()
+  await type('#mpool-name', 'default')
+  await chooseSecret('BLAXEL_TOKEN')
+  await type('#mpool-provider-scope', 'acme')
+  await click('Continue')
+  await type('#mpool-image', 'omnara/agent-sandbox')
+  await click('Continue')
+  await click('Skip & create')
+
   expect(api.requestsTo('POST', grantPath).map((request) => request.body)).toEqual([
     { machine_pool_id: createdPool.id },
   ])

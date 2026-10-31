@@ -1,6 +1,7 @@
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
+import { subagentModelSelection, withSubagentModel } from './agentConfigSubagents'
 import { createBasicConfigSession } from './useAgentBuilderForm'
 
 it.each([
@@ -55,5 +56,54 @@ subagents:
         model: { provider_config: 'anthropic', name: 'claude-haiku' },
       },
     },
+  })
+})
+
+describe('withSubagentModel', () => {
+  const pick = { providerConfig: 'anthropic', modelName: 'sonnet', reasoningEffort: '' }
+
+  it('sets the model and reasoning effort', () => {
+    expect(withSubagentModel(undefined, { ...pick, reasoningEffort: 'high' })).toEqual({
+      provider_config: 'anthropic',
+      name: 'sonnet',
+      reasoning: { effort: 'high' },
+    })
+  })
+
+  it('keeps fields the builder does not edit', () => {
+    expect(
+      withSubagentModel(
+        { provider_config: 'openai', name: 'gpt', context_window_tokens: 4096 },
+        pick,
+      ),
+    ).toEqual({ provider_config: 'anthropic', name: 'sonnet', context_window_tokens: 4096 })
+  })
+
+  it('drops the override once the model is cleared and nothing else is left', () => {
+    const cleared = { providerConfig: '', modelName: '', reasoningEffort: '' }
+    expect(withSubagentModel({ provider_config: 'openai', name: 'gpt' }, cleared)).toBeUndefined()
+    expect(
+      withSubagentModel(
+        { provider_config: 'openai', name: 'gpt', cache_retention: 'long' },
+        cleared,
+      ),
+    ).toEqual({
+      cache_retention: 'long',
+    })
+  })
+
+  it('round-trips through the picker selection', () => {
+    expect(
+      subagentModelSelection({
+        provider_config: 'anthropic',
+        name: 'sonnet',
+        reasoning: { effort: 'low' },
+      }),
+    ).toEqual({ providerConfig: 'anthropic', modelName: 'sonnet', reasoningEffort: 'low' })
+    expect(subagentModelSelection(undefined)).toEqual({
+      providerConfig: '',
+      modelName: '',
+      reasoningEffort: '',
+    })
   })
 })

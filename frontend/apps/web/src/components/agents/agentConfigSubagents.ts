@@ -3,6 +3,7 @@ import {
   type SubagentEntry,
   type SubagentModelEntry,
 } from '@/components/agents/agentConfigBasicExtract'
+import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import { optionalPositiveInt32Valid } from '@/components/machines/machineOverrides'
 import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
 
@@ -18,6 +19,34 @@ export interface BasicSubagent {
   maxInstances: string
   archiveAfterIdleMinutes: string
   modelOverride?: SubagentModelEntry
+}
+
+/** The model picker's view of a subagent's model override; empty fields mean no override. */
+export function subagentModelSelection(override: SubagentModelEntry | undefined): ModelSelection {
+  return {
+    providerConfig: override?.provider_config ?? '',
+    modelName: override?.name ?? '',
+    reasoningEffort: override?.reasoning?.effort ?? '',
+  }
+}
+
+/**
+ * Applies a model picker choice to a subagent's override, keeping fields the builder doesn't
+ * edit (token limits, cache retention). Clearing the model drops the override when nothing
+ * else is left in it.
+ */
+export function withSubagentModel(
+  override: SubagentModelEntry | undefined,
+  selection: ModelSelection,
+): SubagentModelEntry | undefined {
+  const { provider_config: _provider, name: _name, reasoning: _reasoning, ...rest } = override ?? {}
+  const next: SubagentModelEntry = { ...rest }
+  if (selection.providerConfig !== '' && selection.modelName !== '') {
+    next.provider_config = selection.providerConfig
+    next.name = selection.modelName
+    if (selection.reasoningEffort !== '') next.reasoning = { effort: selection.reasoningEffort }
+  }
+  return Object.keys(next).length > 0 ? next : undefined
 }
 
 export function newSubagent(): BasicSubagent {

@@ -117,3 +117,71 @@ it.each(actorLabelCases)(
     }
   },
 )
+
+it('collapses a turn of tool calls and reasoning into one line across steps', () => {
+  const restoreActEnvironment = enableReactActEnvironment()
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const client = createOmnaraClient({
+    baseUrl: 'https://omnara.test/api/v1',
+    fetch: () => Promise.reject(new Error('unexpected request')),
+  })
+  const queryClient = new QueryClient()
+  queryClient.setQueryData(['web-config'], {})
+  const activeOrg = currentUserOrg({ id: 'org_test' })
+  const succeeded = { outcome: 'succeeded', contentBlocks: [] }
+  const tool = (id: string, toolName: string) =>
+    ({
+      type: 'dynamic-tool',
+      id,
+      toolCallId: id,
+      toolName,
+      state: 'output-available',
+      input: {},
+      output: succeeded,
+    }) as const
+  const reasoning = (id: string) =>
+    ({ type: 'reasoning', id, text: 'Thinking it over', state: 'done' }) as const
+  try {
+    act(() => {
+      root.render(
+        <OmnaraClientProvider client={client}>
+          <QueryClientProvider client={queryClient}>
+            <ActiveOrgContext value={{ activeOrg, orgs: [activeOrg], setActiveOrgId: vi.fn() }}>
+              <AgentChatMessage
+                orgID="org_test"
+                projectID="proj_test"
+                agentID="agt_test"
+                message={{
+                  id: 'turn:trn_test',
+                  role: 'assistant',
+                  parts: [
+                    reasoning('r1'),
+                    tool('t1', 'mcp__omnara__whoami'),
+                    { type: 'step-start', id: 's1' },
+                    reasoning('r2'),
+                    tool('t2', 'ask_question'),
+                    { type: 'step-start', id: 's2' },
+                    tool('t3', 'mcp__omnara__projects_list'),
+                    { type: 'step-start', id: 's3' },
+                    reasoning('r3'),
+                    { type: 'text', id: 'x1', text: 'All done.', state: 'done' },
+                  ],
+                }}
+              />
+            </ActiveOrgContext>
+          </QueryClientProvider>
+        </OmnaraClientProvider>,
+      )
+    })
+    const summaries = [...container.querySelectorAll('button')].map((button) => button.textContent)
+    expect(summaries).toEqual(['Reasoned, used whoami on omnara, asked you a question and 1 more'])
+    expect(container.textContent).toContain('All done.')
+  } finally {
+    act(() => {
+      root.unmount()
+    })
+    queryClient.clear()
+    restoreActEnvironment()
+  }
+})
