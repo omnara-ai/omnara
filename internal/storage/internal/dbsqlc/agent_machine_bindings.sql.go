@@ -1082,6 +1082,7 @@ SELECT binding.id,
        coalesce(machine.idempotency_key, '') AS machine_idempotency_key,
        coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code,
        machine.lifecycle_reason_message,
+       coalesce(machine.delete_reason_code, '') AS delete_reason_code,
        machine.next_reconcile_after,
        machine.provision_attempts,
        machine.delete_attempts,
@@ -1157,6 +1158,7 @@ type SelectPoolMachinesRow struct {
 	MachineIdempotencyKey        string
 	LifecycleReasonCode          string
 	LifecycleReasonMessage       string
+	DeleteReasonCode             string
 	NextReconcileAfter           *time.Time
 	ProvisionAttempts            int32
 	DeleteAttempts               int32
@@ -1223,6 +1225,7 @@ func (q *Queries) SelectPoolMachines(ctx context.Context, arg SelectPoolMachines
 			&i.MachineIdempotencyKey,
 			&i.LifecycleReasonCode,
 			&i.LifecycleReasonMessage,
+			&i.DeleteReasonCode,
 			&i.NextReconcileAfter,
 			&i.ProvisionAttempts,
 			&i.DeleteAttempts,

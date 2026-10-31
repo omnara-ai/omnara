@@ -2031,6 +2031,17 @@ VALUES ($1, false, statement_timestamp() - interval '2 hours', 60)
 	if machine.LifecycleState != "deleted" || machine.DeletedAt == nil {
 		t.Fatalf("machine was not deleted after reconcile cleanup: %+v", machine)
 	}
+	var deleteReasonCode string
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT delete_reason_code FROM machines WHERE id = $1`,
+		machineID,
+	).Scan(&deleteReasonCode); err != nil {
+		t.Fatalf("load delete reason: %v", err)
+	}
+	if deleteReasonCode != "managed_work_admission_denied" {
+		t.Fatalf("delete reason = %q, want managed_work_admission_denied", deleteReasonCode)
+	}
 }
 
 func openManagerIntegrationDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
@@ -2264,7 +2275,7 @@ func insertPoolMachineForManagerTestWithFields(
 				org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
 				lifecycle_changed_at, provider_resource_id, provider_provision_attempted_at,
 				cpu, memory_mb, cwd, env, secret_env, provider_options, next_reconcile_after,
-				metadata, created_at, updated_at
+				metadata, created_at, updated_at, delete_reason_code
 			)
 			VALUES (
 				$1, $2, 'pool', 'pool machine', $3, $4, $12, nullif($5, ''),
@@ -2274,7 +2285,8 @@ func insertPoolMachineForManagerTestWithFields(
 				coalesce(nullif($10::jsonb, 'null'::jsonb), '{}'::jsonb),
 				coalesce(nullif($11::jsonb, 'null'::jsonb), '{}'::jsonb),
 				CASE WHEN $4 IN ('active', 'deleted') THEN NULL::timestamptz ELSE $12::timestamptz END,
-				'{}'::jsonb, $12, $12
+				'{}'::jsonb, $12, $12,
+				CASE WHEN $4 IN ('deleting', 'delete_failed') THEN 'test_cleanup' END
 			)
 			RETURNING id
 			`,

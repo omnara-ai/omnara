@@ -501,15 +501,7 @@ func (m Manager) DeleteMachines(ctx context.Context, machines []executionstore.M
 		len(machines),
 		poolMachineReconcileConcurrency,
 		func(ctx context.Context, i int) error {
-			machine := machines[i]
-			return m.DeleteMachine(
-				ctx,
-				executionstore.PoolMachineCleanupCandidate{
-					Machine:       machine,
-					ReasonCode:    machine.LifecycleReasonCode,
-					ReasonMessage: machine.LifecycleReasonMessage,
-				},
-			)
+			return m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{Machine: machines[i]})
 		},
 	)
 	return started, err
@@ -908,11 +900,7 @@ func (m Manager) cleanupFailedProvision(
 	if !marked {
 		return cause
 	}
-	if err := m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{
-		Machine:       deleting,
-		ReasonCode:    deleting.LifecycleReasonCode,
-		ReasonMessage: deleting.LifecycleReasonMessage,
-	}); err != nil {
+	if err := m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{Machine: deleting}); err != nil {
 		return err
 	}
 	return cause

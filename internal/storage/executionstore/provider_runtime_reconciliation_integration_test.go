@@ -1286,8 +1286,6 @@ WHERE org_id = $1 AND id = $2
 		executionstore.MachineDeletingInput{
 			OrgID:                    testOrgID,
 			MachineID:                machine.machineID,
-			LifecycleReasonCode:      "deleting_retry",
-			LifecycleReasonMessage:   "retrying machine deletion",
 			ExpectedLifecycleVersion: deleting.LifecycleVersion,
 		},
 	); err != nil || !retried {
