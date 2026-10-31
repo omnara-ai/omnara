@@ -29,6 +29,9 @@ export function CreateMachinePoolButton() {
         New pool
       </Button>
       <CreateMachinePoolDialog
+        // Keyed by project: the page stays mounted when switching projects, and the dialog's
+        // share defaults are only read when it mounts.
+        key={projectId}
         open={open}
         onOpenChange={setOpen}
         orgId={activeOrg.id}

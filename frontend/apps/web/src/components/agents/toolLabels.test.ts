@@ -18,6 +18,16 @@ describe('describeTool', () => {
     })
   })
 
+  it('says when a call was denied or canceled instead of describing it as done', () => {
+    expect(describeTool('run_command', { command: 'rm -rf build' }, 'denied').verb).toBe(
+      "Wasn't allowed to run",
+    )
+    expect(describeTool('storage_read', { path: 'a.md' }, 'canceled')).toEqual({
+      verb: "Didn't read",
+      target: 'a.md',
+    })
+  })
+
   it('keeps long and multi-line commands to one line', () => {
     expect(describeTool('run_command', { command: 'cd app\nnpm test' }, 'done').target).toBe(
       'cd app…',

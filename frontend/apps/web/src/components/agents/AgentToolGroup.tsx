@@ -27,7 +27,9 @@ const toolOutputSchema = z
 function toolStatus(part: ToolPart): ToolStatus {
   if (part.state === 'output-error') return 'failed'
   if (part.state !== 'output-available') return 'running'
-  return toolOutputSchema.parse(part.output).outcome === 'failed' ? 'failed' : 'done'
+  const { outcome } = toolOutputSchema.parse(part.output)
+  if (outcome === 'failed' || outcome === 'denied' || outcome === 'canceled') return outcome
+  return 'done'
 }
 
 function activityItem(part: ToolPart | ReasoningPart): ActivityItem {
@@ -96,7 +98,9 @@ function ToolRow({ part, status }: { part: ToolPart; status: ToolStatus }) {
         <span
           className={cn(
             'min-w-0 truncate',
-            status === 'failed' ? 'text-destructive' : 'text-muted-foreground',
+            status === 'failed' || status === 'denied'
+              ? 'text-destructive'
+              : 'text-muted-foreground',
           )}
         >
           {verb} <span className="text-foreground font-medium">{target}</span>

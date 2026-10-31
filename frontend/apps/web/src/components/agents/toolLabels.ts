@@ -2,7 +2,7 @@
 // Covers Omnara's built-in tools; MCP and integration tools fall back to their humanized name.
 import * as z from 'zod'
 
-export type ToolStatus = 'running' | 'done' | 'failed'
+export type ToolStatus = 'running' | 'done' | 'failed' | 'denied' | 'canceled'
 
 // The input fields the descriptions read; a field of another shape counts as missing.
 const field = z.string().optional().catch(undefined)
@@ -155,7 +155,13 @@ export interface ToolDescription {
 export function describeTool(name: string, input: ToolInput, status: ToolStatus): ToolDescription {
   const { verbs, target } = toolDef(name)
   const [base, present, past] = verbs
-  const verb = { running: present, done: past, failed: `Couldn't ${base}` }[status]
+  const verb = {
+    running: present,
+    done: past,
+    failed: `Couldn't ${base}`,
+    denied: `Wasn't allowed to ${base}`,
+    canceled: `Didn't ${base}`,
+  }[status]
   return { verb, target: target(input) }
 }
 

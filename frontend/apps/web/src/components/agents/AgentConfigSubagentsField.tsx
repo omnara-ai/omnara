@@ -205,7 +205,8 @@ function SubagentFields({
         <PillTabs
           value={subagent.type}
           onValueChange={(type) => {
-            edit({ type })
+            // A model picked for one type must not carry over to the other, where it's hidden.
+            edit({ type, modelOverride: undefined })
           }}
           tabs={subagentTypeOptions}
         />

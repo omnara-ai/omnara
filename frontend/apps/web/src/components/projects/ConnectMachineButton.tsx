@@ -30,6 +30,9 @@ export function ConnectMachineButton() {
         Connect machine
       </Button>
       <ConnectMachineDialog
+        // Keyed by project: the page stays mounted when switching projects, and the dialog's
+        // share defaults are only read when it mounts.
+        key={projectId}
         open={open}
         onOpenChange={setOpen}
         orgId={activeOrg.id}
