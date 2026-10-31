@@ -9,6 +9,7 @@ import {
   type ScopedSection,
 } from '@/components/app-shell/scoped-sections'
 import {
+  ArrowLeft,
   BoltIcon,
   Bot,
   Box,
@@ -85,6 +86,20 @@ export function SidebarNav() {
 
   return (
     <>
+      {projectId && (
+        <NavSection
+          items={[
+            {
+              id: 'back',
+              // Back to the organization's version of this page, so the section stays put.
+              to: section ? organizationPaths[section] : '/',
+              label: 'Back to organization',
+              icon: ArrowLeft,
+              isActive: false,
+            },
+          ]}
+        />
+      )}
       <NavSection
         label={projectId ? 'Project' : 'Organization'}
         items={[

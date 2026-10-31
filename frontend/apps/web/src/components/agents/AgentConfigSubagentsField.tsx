@@ -1,12 +1,15 @@
 import { useAgentProfiles } from '@omnara/react'
 import { useState } from 'react'
 
+import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import {
   type BasicSubagent,
   newSubagent,
   subagentKeyError,
+  subagentModelSelection,
   type SubagentType,
+  withSubagentModel,
 } from '@/components/agents/agentConfigSubagents'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { ChevronRightIcon, PlusIcon, Trash2Icon } from '@/components/icons'
@@ -295,10 +298,23 @@ function SubagentFields({
               />
             </Field>
           </div>
-          {subagent.modelOverride !== undefined && (
-            <p className="text-muted-foreground text-xs">
-              This subagent overrides the model in YAML; edit that in the YAML view.
-            </p>
+          {subagent.type === 'self' ? (
+            <AgentConfigModelField
+              orgId={orgId}
+              projectId={projectId}
+              id={fieldId('model')}
+              inheritLabel="Same as this agent"
+              value={subagentModelSelection(subagent.modelOverride)}
+              onChange={(selection) => {
+                onChange({ modelOverride: withSubagentModel(subagent.modelOverride, selection) })
+              }}
+            />
+          ) : (
+            subagent.modelOverride !== undefined && (
+              <p className="text-muted-foreground text-xs">
+                This subagent overrides the model in YAML; edit that in the YAML view.
+              </p>
+            )
           )}
         </div>
       </CollapseBody>

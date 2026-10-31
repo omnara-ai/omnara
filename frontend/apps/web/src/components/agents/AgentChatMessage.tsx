@@ -4,10 +4,14 @@ import { useQuery } from '@tanstack/react-query'
 import { Streamdown } from 'streamdown'
 
 import { AgentArtifactCard } from '@/components/agents/AgentArtifactCard'
+import {
+  AgentToolGroup,
+  type ReasoningPart,
+  type ToolPart,
+} from '@/components/agents/AgentToolGroup'
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
-import { Brain, Check, ChevronRight, CircleDashed, Terminal } from '@/components/icons'
+import { CircleDashed } from '@/components/icons'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Message, MessageContent, MessageHeader } from '@/components/ui/message'
 import {
   isInsufficientCreditsModelError,
@@ -47,14 +51,6 @@ function ActorLabel({
   )
 }
 
-function JsonValue({ value }: { value: unknown }) {
-  return (
-    <pre className="bg-background/60 type-code max-h-72 overflow-auto rounded-md border p-3">
-      {JSON.stringify(value, null, 2)}
-    </pre>
-  )
-}
-
 function AssistantMarkdown({ children }: { children: string }) {
   return (
     <Streamdown
@@ -84,39 +80,34 @@ function AgentConfigDivider({ action }: { action: 'initialized' | 'changed' }) {
   )
 }
 
-function ToolPart({
-  part,
-}: {
-  part: Extract<OmnaraUIMessage['parts'][number], { type: 'dynamic-tool' }>
-}) {
-  const complete = part.state === 'output-available'
-  return (
-    <Collapsible className="group/tool bg-muted/35 overflow-hidden rounded-lg border">
-      <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium">
-        <Terminal className="text-muted-foreground size-3.5" />
-        <span className="min-w-0 flex-1 truncate">{part.toolName}</span>
-        {complete ? (
-          <Check className="text-muted-foreground size-3.5" />
-        ) : (
-          <CircleDashed className="text-primary size-3.5 motion-safe:animate-spin" />
-        )}
-        <ChevronRight className="text-muted-foreground size-3.5 transition-transform group-data-[state=open]/tool:rotate-90" />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-2 border-t p-2">
-        <p className="text-muted-foreground px-1 text-xs font-medium">Input</p>
-        <JsonValue value={part.input} />
-        {part.state === 'output-available' && (
-          <>
-            <p className="text-muted-foreground px-1 pt-1 text-xs font-medium">Output</p>
-            <JsonValue value={part.output} />
-          </>
-        )}
-        {part.state === 'output-error' && (
-          <p className="text-destructive text-xs">{part.errorText}</p>
-        )}
-      </CollapsibleContent>
-    </Collapsible>
-  )
+type MessagePart = OmnaraUIMessage['parts'][number]
+
+type Step = ToolPart | ReasoningPart
+
+function rendersNothing(part: MessagePart) {
+  if (part.type === 'step-start') return true
+  if (part.type === 'data-thinking') return !part.data.active
+  return part.type === 'text' && part.text.trim() === ''
+}
+
+/**
+ * Consecutive tool calls and reasoning become one group, so a burst of work reads as a single
+ * line, whether or not it includes a tool call.
+ */
+function groupToolRuns(parts: MessagePart[]): (MessagePart | Step[])[] {
+  const runs: (MessagePart | Step[])[] = []
+  for (const part of parts) {
+    // Step boundaries and other parts that draw nothing must not split a run.
+    if (rendersNothing(part)) continue
+    if (part.type !== 'dynamic-tool' && part.type !== 'reasoning') {
+      runs.push(part)
+      continue
+    }
+    const last = runs.at(-1)
+    if (Array.isArray(last)) last.push(part)
+    else runs.push([part])
+  }
+  return runs
 }
 
 export function AgentChatMessage({
@@ -151,7 +142,10 @@ export function AgentChatMessage({
         {message.role === 'user' && !mine && metadata?.actorId != null ? (
           <ActorLabel actorID={metadata.actorId} orgID={orgID} projectID={projectID} />
         ) : null}
-        {message.parts.map((part) => {
+        {groupToolRuns(message.parts).map((part) => {
+          if (Array.isArray(part)) {
+            return <AgentToolGroup key={part[0]?.id} parts={part} />
+          }
           if (part.type === 'text') {
             if (message.role === 'assistant') {
               return <AssistantMarkdown key={part.id}>{part.text}</AssistantMarkdown>
@@ -164,19 +158,6 @@ export function AgentChatMessage({
               >
                 <BubbleContent className="whitespace-pre-wrap">{part.text}</BubbleContent>
               </Bubble>
-            )
-          }
-          if (part.type === 'reasoning') {
-            return (
-              <Collapsible key={part.id} className="group/reasoning max-w-[90%]">
-                <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-xs">
-                  <Brain className="size-3.5" /> Reasoning
-                  <ChevronRight className="size-3.5 transition-transform group-data-[state=open]/reasoning:rotate-90" />
-                </CollapsibleTrigger>
-                <CollapsibleContent className="text-muted-foreground mt-2 border-l pl-3 text-sm whitespace-pre-wrap">
-                  {part.text}
-                </CollapsibleContent>
-              </Collapsible>
             )
           }
           if (part.type === 'data-thinking') {
@@ -219,9 +200,6 @@ export function AgentChatMessage({
                 sizeBytes={part.data.sizeBytes}
               />
             )
-          }
-          if (part.type === 'dynamic-tool') {
-            return <ToolPart key={part.id} part={part} />
           }
           return null
         })}

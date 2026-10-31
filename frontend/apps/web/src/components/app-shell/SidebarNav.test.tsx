@@ -117,10 +117,14 @@ const adminLabels = [
   'API Tokens',
 ]
 
-it.each(['/', projectPath])('keeps every item in place at %s', async (path) => {
-  await renderAt(path, 'owner')
+it('keeps every item in place, with a way back above the project items', async () => {
+  await renderAt('/', 'owner')
   await waitForUI(() => {
     expect(labels()).toEqual(adminLabels)
+  })
+  await renderAt(projectPath, 'owner')
+  await waitForUI(() => {
+    expect(labels()).toEqual(['Back to organization', ...adminLabels])
   })
 })
 
@@ -129,6 +133,7 @@ it('points scoped items at the project and org-wide items at the organization', 
   await waitForUI(() => {
     expect(links()).toEqual(
       expect.arrayContaining([
+        { label: 'Back to organization', href: '/models' },
         { label: 'Overview', href: projectPath },
         { label: 'Models', href: `${projectPath}/models` },
         { label: 'Members', href: '/members' },
@@ -143,8 +148,9 @@ it('points scoped items at the project and org-wide items at the organization', 
 it('hides API tokens and credits from members', async () => {
   await renderAt(projectPath, 'member')
   await waitForUI(() => {
-    expect(labels()).toEqual(
-      adminLabels.filter((label) => label !== 'API Tokens' && label !== 'Credits'),
-    )
+    expect(labels()).toEqual([
+      'Back to organization',
+      ...adminLabels.filter((label) => label !== 'API Tokens' && label !== 'Credits'),
+    ])
   })
 })

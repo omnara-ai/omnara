@@ -12,7 +12,7 @@ import { PlusIcon } from '@/components/icons'
 import { ModelPricingSummary } from '@/components/models/ModelPricing'
 import { GrantProjectModelDialog } from '@/components/projects/GrantProjectModelDialog'
 import { Button } from '@/components/ui/button'
-import { Field, RequiredFieldLabel } from '@/components/ui/field'
+import { Field, FieldLabel, RequiredFieldLabel } from '@/components/ui/field'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import {
@@ -255,12 +255,19 @@ export function AgentConfigModelField({
   value,
   onChange,
   onUnavailableChange,
+  id = 'agent-config-model',
+  label = 'Model',
+  inheritLabel,
 }: {
   orgId: string
   projectId: string
   value: ModelSelection
   onChange: (selection: ModelSelection) => void
   onUnavailableChange?: (unavailable: boolean) => void
+  id?: string
+  label?: string
+  /** Makes the model optional, naming what an empty choice falls back to, e.g. "Same as this agent". */
+  inheritLabel?: string
 }) {
   const { project } = useProjectPage()
   const [grantOpen, setGrantOpen] = useState(false)
@@ -286,14 +293,18 @@ export function AgentConfigModelField({
   return (
     <>
       <Field>
-        <RequiredFieldLabel htmlFor="agent-config-model">Model</RequiredFieldLabel>
+        {inheritLabel === undefined ? (
+          <RequiredFieldLabel htmlFor={id}>{label}</RequiredFieldLabel>
+        ) : (
+          <FieldLabel htmlFor={id}>{label}</FieldLabel>
+        )}
         <div role="group" aria-label="Model and reasoning effort" className="flex min-w-0">
           <div className="min-w-0 flex-1">
             <ModelCombobox
-              id="agent-config-model"
+              id={id}
               triggerRef={modelTriggerRef}
               triggerClassName="rounded-r-none focus-visible:z-10"
-              required
+              required={inheritLabel === undefined}
               items={displayedModels}
               value={selected}
               onValueChange={(model) => {
@@ -301,10 +312,14 @@ export function AgentConfigModelField({
               }}
               search={search}
               query={grantsQuery}
-              placeholder={modelPlaceholder(
-                grantsQuery.isPending,
-                models.length === 0 && search.search === '',
-              )}
+              placeholder={
+                inheritLabel !== undefined && !grantsQuery.isPending
+                  ? inheritLabel
+                  : modelPlaceholder(
+                      grantsQuery.isPending,
+                      models.length === 0 && search.search === '',
+                    )
+              }
               disabled={grantsQuery.isError || selectedQuery.isError}
               action={
                 project?.access.can_manage_access && (
