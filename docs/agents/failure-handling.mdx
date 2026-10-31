@@ -4,7 +4,7 @@ description: What happens to a running agent when a worker, model call, tool, or
 icon: "shield-check"
 ---
 
-An agent's state is its event log in Postgres. Workers keep nothing of their own, so any worker can continue any agent from its last saved step. This page covers what happens in each failure case and what your own code should handle.
+An agent's history and execution state live in Postgres. Workers keep nothing of their own, so any worker can continue any agent from its last saved step. This page covers what happens in each failure case and what your own code should handle.
 
 ## What's saved, and when
 
@@ -18,41 +18,41 @@ Streamed text deltas are sent live and never saved. A client that reconnects rea
 
 ## When a worker dies
 
-Each claim is a lease that the worker renews about every 30 seconds. A worker that can't renew within 60 seconds of its last renewal stops its own turn. When a lease expires, the maintenance service releases the agent and another worker claims it, usually within 60 to 90 seconds of the crash.
+Each claim is a lease that the worker renews about every 30 seconds. A worker that can't renew within 60 seconds of its last renewal stops its own turn. If a worker crashes outright, its lease expires, the maintenance service releases the agent, and another worker claims it, usually within 60 to 90 seconds of the crash.
 
-A worker that has lost its lease can't write anything afterward. Every write checks, in the same transaction, that the lease is still current and the agent hasn't been stopped, so a slow or partitioned worker can't overwrite the work of the worker that replaced it.
+A worker that has lost its lease can't commit model responses or tool results afterward. Those writes check, in the same transaction, that the lease is still current and the agent hasn't been stopped, so a slow or partitioned worker can't overwrite the work of the worker that replaced it.
 
-On a normal shutdown, a worker stops claiming new work and gives the work in progress [`OMNARA_WORKER_DRAIN_TIMEOUT`](/self-hosting/configuration) (20 seconds by default) to finish before handing it back.
+Planned shutdowns and deploys don't wait for a lease to expire. A stopping worker stops claiming new work and gives the work in progress [`OMNARA_WORKER_DRAIN_TIMEOUT`](/self-hosting/configuration) (20 seconds by default) to finish. Then it cancels what's left and releases its claims so another worker can pick them up. If that cleanup fails, the lease expires as it would after a crash.
 
 ## Model calls
 
-A model call cut off by a crash, a shutdown, or a lost lease is sent again from the start, with the same history. Partial output from the interrupted attempt isn't kept.
+A model call cut off by a crash, a shutdown, or a lost lease is retried from saved state, counting against the same retry limit. Partial output from the interrupted attempt isn't kept, and a steering message or config change that arrived in the meantime applies to the retry.
 
-Errors that can succeed later, like rate limits, timeouts, and provider outages, are retried with exponential backoff, honoring `Retry-After`, up to eight times. Authentication, billing, and invalid-request errors stop the turn. When the context is too long for the model, Omnara compacts it instead of failing.
+Errors that can succeed later, like rate limits, timeouts, and provider outages, are retried with exponential backoff, honoring `Retry-After`, up to eight times. Authentication, billing, and invalid-request errors normally stop the turn. When the context is too long for the model, Omnara compacts it, and the turn fails only if compaction can't make it fit.
 
 Because an interrupted call is sent again, the provider can bill for an attempt that finished on its side before the worker died.
 
 ## Built-in tools and commands
 
 - **Commands.** `run_command` hands a command to a machine once, and it's never run again automatically. The command keeps running if the worker that started it dies, and the agent gets the result when it exits. If the machine loses the process itself, the result comes back as unknown.
-- **Tools that call outside services**, like web search, web fetch, [MCP servers](/tools/mcp), and integrations, run at most once automatically. If one is cut off, the agent gets "Tool call was interrupted; its external outcome is unknown." and decides whether to check or call it again.
-- **Tools that change only Omnara's own state**, like starting subagents or [asking a question](/events/interactions), save their effect and their result in one transaction.
+- **Tools that call outside services**, like web search, web fetch, [MCP servers](/tools/mcp), and integrations, aren't rerun after a crash. If one is cut off, the agent gets "Tool call was interrupted; its external outcome is unknown." and decides whether to check or call it again.
+- **Tools that change only Omnara's own state**, like starting subagents, save their effect and their result in one transaction. [Asking a question](/events/interactions) saves its waiting state, and the answer is saved when someone responds.
 
 ## Custom tools
 
 A [custom tool](/tools/custom) call waits in Postgres until your backend posts a result, without holding a worker. Omnara worker crashes don't affect it, and neither do restarts or deploys of your own services.
 
-The first result accepted for a call completes it, and later submissions return `409`. Event webhooks are delivered at least once, so deduplicate custom work by tool-call ID.
+The first result accepted for a call completes it, and later submissions return `409`. Event webhooks are retried for up to ten minutes and can arrive more than once, so deduplicate custom work by tool-call ID, and list ready calls with `GET /tool-calls` to catch any you missed.
 
 ## Approvals and questions
 
-[Approvals and questions](/events/interactions) wait in Postgres for as long as it takes and survive worker crashes and restarts. The first answer wins: sending the same answer again is safe, and a conflicting answer is rejected. They end when someone answers, when an input cancels open interactions, or when the agent is stopped or archived.
+[Approvals and questions](/events/interactions) wait in Postgres for as long as it takes and survive worker crashes and restarts. The first answer wins: the same answer sent again by the same person is safe, and a different answer is rejected. They end when someone answers, when an input cancels open interactions, or when the agent is stopped or archived.
 
 ## Machines going offline
 
 A machine is online while its daemon's session is current.
 
-- A command the machine hasn't accepted yet never runs late. It fails if the machine doesn't accept it within five minutes, or 30 seconds after the machine goes offline.
+- A command the machine hasn't accepted yet never runs late. It fails if the machine doesn't accept it within five minutes, or once the machine has been offline for 30 seconds with no wake attempt in progress.
 - If the machine goes offline while the agent is waiting on a command it already accepted, the agent gets a retryable `machine_unreachable` result after 30 seconds, so it can move on, for example to [another machine](/machines/overview).
 
 ## What your code should handle
@@ -63,11 +63,13 @@ A machine is online while its daemon's session is current.
 - Send an `Idempotency-Key` when you create inputs, so a retried request doesn't deliver a message twice.
 - After a [stream](/events/streaming) reconnects, re-read pending tool calls with `GET /tool-calls`, since lifecycle updates aren't replayed.
 
-## Limits
+## Guarantees and limits
 
-- Recovery after a worker crash waits for the lease to expire, about 60 to 90 seconds.
-- The maintenance service releases expired leases and times out machine work, so a self-hosted deployment needs it running.
-- Event webhooks are retried for up to ten minutes.
+- **Crash recovery doesn't rerun tools.** When a crash cuts off a command, built-in tool, or MCP call, Omnara doesn't run it again. The agent sees that its outcome is unknown and decides whether to try again.
+- **Finished steps never run again.** Only the step that was in progress is affected by a crash. A model call that was cut off is sent again, which the provider can bill twice, the same as any system that retries an interrupted request.
+- **Recovery after an outright crash waits for the lease to expire**, about 60 to 90 seconds. Planned shutdowns and deploys release their work after the drain window.
+- **The maintenance service** releases expired leases and times out machine work, so a self-hosted deployment needs it running.
+- **Event webhooks** are retried for up to ten minutes.
 
 ## How it's tested
 
