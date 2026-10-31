@@ -44,7 +44,13 @@ describe('agentStatusLabel', () => {
     expect(
       agentStatusLabel(
         agent({
-          activity: { state: 'waiting_on_interaction', last_activity_at: timestamp },
+          activity: {
+            state: 'waiting_on_interaction',
+            last_activity_at: timestamp,
+            open_interactions: { question_count: 1, permission_request_count: 0 },
+            running_processes: { count: 0, process_ids: [] },
+            working_subagents: { count: 0, agent_ids: [] },
+          },
         }),
       ),
     ).toBe('Waiting')

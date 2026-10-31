@@ -9,6 +9,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -272,6 +273,10 @@ func daemonProcessOfferMessage(processID string, offer executionstore.DaemonProc
 			WaitMs:         offer.Process.InitialWaitMS,
 			TimeoutSeconds: offer.Process.TimeoutSeconds,
 		}
+		if wait, ok := offer.Process.ExecutionSpec.AgentOutputWait(); ok {
+			processOffer.OutputBytes = processaction.AgentOutputBytes
+			processOffer.OutputWait = wait
+		}
 	}
 	message := daemonprotocol.Message{
 		Type:         daemonprotocol.MessageProcessOffer,
@@ -343,5 +348,6 @@ func (s *daemonSocket) forgetAcceptedWork(event *daemonprotocol.ReportedEvent) {
 		if actionErr == nil {
 			delete(s.acceptedActions, actionID)
 		}
+	case daemonprotocol.EventProcessOutputMatched:
 	}
 }

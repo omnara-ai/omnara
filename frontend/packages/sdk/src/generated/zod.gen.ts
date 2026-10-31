@@ -1433,7 +1433,7 @@ export const zCronTriggerLastRun = z.object({
 });
 
 /**
- * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived.
+ * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived. Running processes and working subagents do not change it; see running_processes and working_subagents.
  */
 export const zAgentActivityState = z.enum([
     'running',
@@ -1442,9 +1442,36 @@ export const zAgentActivityState = z.enum([
     'archived'
 ]);
 
+/**
+ * The agent's open questions and permission requests.
+ */
+export const zAgentOpenInteractions = z.object({
+    question_count: z.int().gte(0),
+    permission_request_count: z.int().gte(0)
+});
+
+/**
+ * Commands the agent left running that will send it a message when they end. process_ids lists the first 20, oldest first.
+ */
+export const zAgentRunningProcesses = z.object({
+    count: z.int().gte(0),
+    process_ids: z.array(zProcessId).max(20)
+});
+
+/**
+ * Active subagents that are still working, including through their own subagents or processes. agent_ids lists the first 20, oldest first.
+ */
+export const zAgentWorkingSubagents = z.object({
+    count: z.int().gte(0),
+    agent_ids: z.array(zAgentId).max(20)
+});
+
 export const zAgentActivity = z.object({
     state: zAgentActivityState,
-    last_activity_at: zTimestamp
+    last_activity_at: zTimestamp,
+    open_interactions: zAgentOpenInteractions,
+    running_processes: zAgentRunningProcesses,
+    working_subagents: zAgentWorkingSubagents
 });
 
 export const zAgentModel = z.object({
@@ -2513,6 +2540,7 @@ export const zCreateMachinePoolRequestBase = z.object({
 export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.union([
     z.object({
         provider: z.enum([
+            'agent37',
             'arker',
             'freestyle',
             'modal',
@@ -2897,7 +2925,8 @@ export const zProcessActionReconciliationClaim = z.object({
     action_kind: z.enum([
         'write',
         'interrupt',
-        'terminate'
+        'terminate',
+        'watch'
     ]),
     position: z.enum(['effect_committed', 'terminal'])
 });
@@ -2925,7 +2954,8 @@ export const zProcessActionReconciliationDirective = z.object({
         'write',
         'read',
         'interrupt',
-        'terminate'
+        'terminate',
+        'watch'
     ]),
     disposition: z.enum([
         'apply',

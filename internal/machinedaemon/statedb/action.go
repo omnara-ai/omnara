@@ -377,7 +377,8 @@ func validateAction(action Action, processID string) error {
 	switch action.Kind {
 	case daemonprotocol.ProcessActionWrite,
 		daemonprotocol.ProcessActionInterrupt,
-		daemonprotocol.ProcessActionTerminate:
+		daemonprotocol.ProcessActionTerminate,
+		daemonprotocol.ProcessActionWatch:
 		return nil
 	default:
 		return fmt.Errorf("unsupported process action kind %q", action.Kind)

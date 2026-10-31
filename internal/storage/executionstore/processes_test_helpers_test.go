@@ -856,7 +856,7 @@ func createToolCallBatchForProcessTest(
 		return ids
 	}
 	require.ErrorIs(t, err, pgx.ErrNoRows)
-	input, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
+	_, _, _, err = fixture.Store.Execution().CreateAgentContentInput(
 		ctx,
 		executionstore.CreateAgentContentInputInput{
 			ProjectID:      testProjectID,
@@ -878,7 +878,15 @@ func createToolCallBatchForProcessTest(
 		fixture.AgentID,
 		fixture.Lock.ID,
 	)
-	if !found || len(admitted.Events) != 1 {
+	sourceInputs := 0
+	openingInputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
+	for _, admittedInput := range admitted.Inputs {
+		openingInputIDs = append(openingInputIDs, admittedInput.ID)
+		if admittedInput.IdempotencyScope != "process_notification" {
+			sourceInputs++
+		}
+	}
+	if !found || sourceInputs != 1 {
 		t.Fatalf("admit source agent input: found=%v admitted=%+v", found, admitted)
 	}
 	prepared1, err := fixture.Store.Execution().
@@ -886,7 +894,7 @@ func createToolCallBatchForProcessTest(
 			ProjectID:       testProjectID,
 			AgentID:         fixture.AgentID,
 			RuntimeLockID:   fixture.Lock.ID,
-			OpeningInputIDs: []uuid.UUID{input.ID},
+			OpeningInputIDs: openingInputIDs,
 		})
 	claim := prepared1.Claim
 
@@ -1453,9 +1461,9 @@ func assertProcessActionToolResultUsesPublicIDs(
 	}
 	toolCall := completedToolCallForTest(t, store, agentID, turnID, toolCallID)
 	body := string(toolCall.ResultContentParts)
-	if !strings.Contains(body, processPublicID) || !strings.Contains(body, actionPublicID) {
+	if !strings.Contains(body, processPublicID) || strings.Contains(body, actionPublicID) {
 		t.Fatalf(
-			"tool result must expose public process/action ids; body=%s process=%s action=%s",
+			"tool result must expose the public process id and not the action id; body=%s process=%s action=%s",
 			body,
 			processPublicID,
 			actionPublicID,

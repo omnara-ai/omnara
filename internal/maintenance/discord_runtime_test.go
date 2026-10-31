@@ -1,7 +1,8 @@
-package main
+package maintenance
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -31,5 +32,24 @@ func TestDiscordRuntimeDemandRecoversAndCancelsSample(t *testing.T) {
 	})
 	if err != nil || count != 3 {
 		t.Fatalf("next sample failed after recovery: count=%d, err=%v", count, err)
+	}
+}
+
+func TestDiscordRuntimeDemandJobReturnsSampleFailure(t *testing.T) {
+	failure := errors.New("store failed")
+	run := func(ctx context.Context, err error) maintenanceResult {
+		return recordDiscordRuntimeDemand(slog.New(slog.DiscardHandler),
+			func(context.Context) (int64, error) { return 0, err }, nil)(ctx)
+	}
+	if result := run(t.Context(), nil); result.err != nil {
+		t.Fatalf("successful sample returned %v", result.err)
+	}
+	if result := run(t.Context(), failure); !errors.Is(result.err, failure) {
+		t.Fatalf("failed sample returned %v, want %v", result.err, failure)
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if result := run(canceled, context.Canceled); result.err != nil {
+		t.Fatalf("shutdown returned %v, want nil", result.err)
 	}
 }

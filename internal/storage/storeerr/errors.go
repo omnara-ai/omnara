@@ -54,6 +54,7 @@ var (
 	ErrDaemonRuntimeUnregistered     = errors.New("daemon runtime is no longer registered for this machine")
 	ErrDaemonInstanceSuperseded      = errors.New("daemon instance has been superseded")
 	ErrProcessExecutionNotGranted    = errors.New("process execution was not granted")
+	ErrInvalidProcessOutputMatch     = errors.New("invalid process output match")
 	ErrMachineSleepPendingWork       = errors.New("machine has pending daemon work")
 	ErrMachineNotWakeCapable         = errors.New("machine is not wake capable")
 	ErrMachineWakeUnresolved         = errors.New("machine wake outcome is unresolved")

@@ -34,7 +34,7 @@ func callbackID(t *testing.T) string {
 }
 
 func signedRequest(private ed25519.PrivateKey, body string, timestamp time.Time) *http.Request {
-	r := httptest.NewRequest(http.MethodPost, "/discord/interactions", strings.NewReader(body))
+	r := httptest.NewRequest(http.MethodPost, "/discord/interactions", nil)
 	ts := strconv.FormatInt(timestamp.Unix(), 10)
 	sig := ed25519.Sign(private, []byte(ts+body))
 	r.Header.Set("X-Signature-Timestamp", ts)
@@ -78,7 +78,7 @@ func TestInteractionSignaturePingAndActor(t *testing.T) {
 			`{"id":"999","application_id":"111","type":3,"channel_id":"555","user":{"id":"777"},"data":{"custom_id":%q}}`, callbackID(t)), 6, "777"},
 	} {
 		w := httptest.NewRecorder()
-		handler.ServeHTTP(w, signedRequest(private, test.body, time.Now()))
+		handler.Serve(w, signedRequest(private, test.body, time.Now()), []byte(test.body))
 		var response InteractionResponse
 		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &response) != nil || response.Type != test.responseType {
 			t.Fatalf("status=%d, response=%s", w.Code, w.Body.String())
@@ -114,7 +114,6 @@ func TestInteractionsRejectUnverifiedOrWrongIdentity(t *testing.T) {
 				want = http.StatusBadRequest
 			case "oversized":
 				payload = strings.Repeat("x", InteractionMaxBytes+1)
-				want = http.StatusBadRequest
 			case "bad custom ID":
 				payload = `{"id":"999","application_id":"111","type":3,"channel_id":"555",` +
 					`"user":{"id":"777"},"data":{"custom_id":"scope:other"}}`
@@ -131,7 +130,7 @@ func TestInteractionsRejectUnverifiedOrWrongIdentity(t *testing.T) {
 				r.Header.Set("X-Signature-Timestamp", strconv.FormatInt(time.Now().Unix()+1, 10))
 			}
 			w := httptest.NewRecorder()
-			handler.ServeHTTP(w, r)
+			handler.Serve(w, r, []byte(payload))
 			if w.Code != want || calls != 0 {
 				t.Fatalf("status=%d, intake calls=%d", w.Code, calls)
 			}
@@ -165,10 +164,10 @@ func TestInteractionAckWaitsForDurableIntake(t *testing.T) {
 				}
 				return Acknowledge(i), nil
 			})
-			r := signedRequest(private,
-				`{"id":"999","application_id":"111","type":2,"channel_id":"555","user":{"id":"777"}}`, time.Now())
+			body := `{"id":"999","application_id":"111","type":2,"channel_id":"555","user":{"id":"777"}}`
+			r := signedRequest(private, body, time.Now())
 			w := &ackRecorder{ResponseRecorder: httptest.NewRecorder()}
-			go func() { handler.ServeHTTP(w, r); close(done) }()
+			go func() { handler.Serve(w, r, []byte(body)); close(done) }()
 			select {
 			case <-entered:
 			case <-time.After(time.Second):
@@ -201,10 +200,10 @@ func TestExpiredIntakeDoesNotAckSuccess(t *testing.T) {
 		cancel()
 		return Acknowledge(i), nil
 	})
-	r := signedRequest(private,
-		`{"id":"999","application_id":"111","type":2,"channel_id":"555","user":{"id":"777"}}`, time.Now())
+	body := `{"id":"999","application_id":"111","type":2,"channel_id":"555","user":{"id":"777"}}`
+	r := signedRequest(private, body, time.Now())
 	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	handler.Serve(w, r.WithContext(ctx), []byte(body))
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatal("acknowledged after deadline/cancellation")
 	}

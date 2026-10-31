@@ -33,6 +33,7 @@ const toolDescriptions = new Map([
   ['run_command', 'Run shell commands on an attached machine.'],
   ['write_process', 'Send input to a command that is still running.'],
   ['stop_process', 'Stop a command that is still running.'],
+  ['watch_process', 'Get a message when a running command prints matching output.'],
   ['read_process', 'Read output from a command, including after it finishes.'],
   ['list_processes', 'List commands and processes that are currently running.'],
   ['create_machine', 'Create another machine for the agent to use.'],

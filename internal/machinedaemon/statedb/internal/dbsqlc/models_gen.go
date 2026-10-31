@@ -13,6 +13,7 @@ type FrozenReport struct {
 	ProcessID  string
 	ActionID   sql.NullString
 	ReportKind string
+	ReportSeq  int64
 	Body       []byte
 	State      string
 	ErrorCode  string
@@ -32,6 +33,7 @@ type Process struct {
 	ActionAdmissionClosed int64
 	LocalClosed           int64
 	ServerReleased        int64
+	LastOutputMatchSeq    int64
 }
 
 type ProcessAction struct {

@@ -1,0 +1,675 @@
+//go:build integration
+
+package executionstore_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processaction"
+	"github.com/omnara-ai/omnara/internal/processcmd"
+	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/stretchr/testify/require"
+)
+
+func TestBackgroundProcessExitNotifiesAgent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "background_exit_notifies")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "background_exit_notifies")
+
+	exitCode := 1
+	complete := executionstore.CompleteDaemonProcessInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ID:            process.ID,
+		Authority:     fixture.authority(),
+		State:         executionstore.ProcessStateExited,
+		ExitCode:      &exitCode,
+		Result:        json.RawMessage(`{"state":"exited","output":"building\nerror: missing semicolon\n","cursor":0,"next_cursor":34,"truncated":false,"done":true}`),
+		SourceEndedAt: fixture.Now.Add(65 * time.Second),
+	}
+	if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, complete); err != nil {
+		t.Fatalf("complete background process: %v", err)
+	}
+	if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, complete); err != nil {
+		t.Fatalf("replay background process completion: %v", err)
+	}
+
+	texts := processNotificationTexts(t, ctx, fixture)
+	if len(texts) != 1 {
+		t.Fatalf("process notifications = %d, want 1: %q", len(texts), texts)
+	}
+	processID, err := publicid.Encode(publicid.KindProcess, process.ID)
+	if err != nil {
+		t.Fatalf("encode process id: %v", err)
+	}
+	for _, want := range []string{
+		"Background process " + processID + " (`sleep 60`) exited with code 1 after 1m3s.",
+		"Output: 34 bytes.",
+		"error: missing semicolon",
+	} {
+		if !strings.Contains(texts[0], want) {
+			t.Fatalf("notification %q does not contain %q", texts[0], want)
+		}
+	}
+	var readyAt *time.Time
+	if err := fixture.Store.pool.QueryRow(ctx,
+		`SELECT logical_ready_at FROM agent_execution_state WHERE agent_id = $1`,
+		fixture.AgentID,
+	).Scan(&readyAt); err != nil {
+		t.Fatalf("load readiness: %v", err)
+	}
+	if readyAt == nil {
+		t.Fatal("process notification did not make the agent ready")
+	}
+}
+
+func TestFileTransferProcessExitDoesNotNotifyAgent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "file_transfer_exit_silent")
+	process := startBackgroundProcessWithInputForTest(t, ctx, fixture, "file_transfer_exit_silent",
+		executionstore.CreateProcessInput{ExecutionSpec: processcmd.ForFileTransfer(processcmd.FileTransfer{
+			Direction: processcmd.FileTransferUpload,
+			LocalPath: "/work/report.txt",
+			Target:    processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
+		})})
+
+	exitCode := 0
+	if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, executionstore.CompleteDaemonProcessInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ID:            process.ID,
+		Authority:     fixture.authority(),
+		State:         executionstore.ProcessStateExited,
+		ExitCode:      &exitCode,
+		Result:        json.RawMessage(`{"state":"exited","output":"","cursor":0,"next_cursor":0,"truncated":false,"done":true}`),
+		SourceEndedAt: fixture.Now.Add(65 * time.Second),
+	}); err != nil {
+		t.Fatalf("complete file transfer process: %v", err)
+	}
+	if texts := processNotificationTexts(t, ctx, fixture); len(texts) != 0 {
+		t.Fatalf("file transfer process sent notifications: %q", texts)
+	}
+}
+
+func TestPendingReadSuppressesExitNotification(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "pending_read_exit_silent")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "pending_read_exit_silent")
+
+	readToolCallID := createToolCallForProcessTest(t, ctx, fixture, "pending_read_exit_silent_read", "read_process")
+	read, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    readToolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, executionstore.CreateProcessActionInput{
+		ProcessID:  process.ID,
+		ActionKind: executionstore.ProcessActionKindRead,
+		Payload:    json.RawMessage(`{"wait_ms":300000}`),
+	})
+	if err != nil {
+		t.Fatalf("create read action: %v", err)
+	}
+	accept := executionstore.AcceptDaemonProcessActionInput{
+		Authority: fixture.authority(),
+		ProcessID: process.ID,
+		ID:        read.ID,
+	}
+	if _, found, err := fixture.Store.Execution().AcceptDaemonProcessAction(ctx, accept); err != nil || !found {
+		t.Fatalf("accept read found=%t err=%v", found, err)
+	}
+
+	exitCode := 0
+	completion := executionstore.CompleteDaemonProcessInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ID:            process.ID,
+		Authority:     fixture.authority(),
+		State:         executionstore.ProcessStateExited,
+		ExitCode:      &exitCode,
+		Result:        json.RawMessage(`{"state":"exited","output":"done\n","cursor":0,"next_cursor":5,"truncated":false,"done":true}`),
+		SourceEndedAt: fixture.Now.Add(65 * time.Second),
+	}
+	if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completion); err != nil {
+		t.Fatalf("complete process: %v", err)
+	}
+	if texts := processNotificationTexts(t, ctx, fixture); len(texts) != 0 {
+		t.Fatalf("process with a pending read sent notifications: %q", texts)
+	}
+
+	if _, err := fixture.Store.Execution().FailDaemonProcessAction(ctx, executionstore.CompleteDaemonProcessActionInput{
+		ProjectID:          testProjectID,
+		AgentID:            fixture.AgentID,
+		ProcessID:          process.ID,
+		ID:                 read.ID,
+		Authority:          fixture.authority(),
+		StateReasonCode:    "output_unavailable",
+		StateReasonMessage: "the retained output file is missing",
+	}); err != nil {
+		t.Fatalf("finish read: %v", err)
+	}
+	if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completion); err != nil {
+		t.Fatalf("replay completion: %v", err)
+	}
+	if texts := processNotificationTexts(t, ctx, fixture); len(texts) != 0 {
+		t.Fatalf("replay after the read finished sent notifications: %q", texts)
+	}
+}
+
+func TestOnlyTerminateSuppressesExitNotification(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		kind   executionstore.ProcessActionKind
+		update string
+		notify bool
+	}{
+		{name: "queued_interrupt", kind: executionstore.ProcessActionKindInterrupt, notify: true},
+		{
+			name:   "applied_interrupt",
+			kind:   executionstore.ProcessActionKindInterrupt,
+			update: `state = 'applied', updated_at = now()`,
+			notify: true,
+		},
+		{name: "queued_terminate", kind: executionstore.ProcessActionKindTerminate},
+		{
+			name:   "old_terminate",
+			kind:   executionstore.ProcessActionKindTerminate,
+			update: `state = 'applied', updated_at = now() - interval '1 minute'`,
+		},
+		{
+			name:   "failed_terminate",
+			kind:   executionstore.ProcessActionKindTerminate,
+			update: `state = 'failed', state_reason_code = 'process_not_running'`,
+			notify: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			name := "stop_exit_" + tc.name
+			fixture := newProcessDaemonFixture(t, ctx, name)
+			process := startBackgroundProcessForTest(t, ctx, fixture, name)
+			stopToolCallID := createToolCallForProcessTest(t, ctx, fixture, name+"_stop", "stop_process")
+			action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+				ProjectID:     testProjectID,
+				AgentID:       fixture.AgentID,
+				ToolCallID:    stopToolCallID,
+				RuntimeLockID: fixture.Lock.ID,
+			}, executionstore.CreateProcessActionInput{
+				ProcessID:  process.ID,
+				ActionKind: tc.kind,
+			})
+			if err != nil {
+				t.Fatalf("create stop action: %v", err)
+			}
+			if tc.update != "" {
+				if _, err := fixture.Store.pool.Exec(ctx,
+					`UPDATE process_actions SET `+tc.update+` WHERE agent_id = $1 AND id = $2`,
+					fixture.AgentID, action.ID,
+				); err != nil {
+					t.Fatalf("update stop action: %v", err)
+				}
+			}
+
+			exitCode := 0
+			completion := executionstore.CompleteDaemonProcessInput{
+				ProjectID:     testProjectID,
+				AgentID:       fixture.AgentID,
+				ID:            process.ID,
+				Authority:     fixture.authority(),
+				State:         executionstore.ProcessStateExited,
+				ExitCode:      &exitCode,
+				Result:        json.RawMessage(`{"state":"exited","output":"","cursor":0,"next_cursor":0,"truncated":false,"done":true}`),
+				SourceEndedAt: fixture.Now.Add(65 * time.Second),
+			}
+			if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completion); err != nil {
+				t.Fatalf("complete process: %v", err)
+			}
+			if texts := processNotificationTexts(t, ctx, fixture); (len(texts) == 1) != tc.notify {
+				t.Fatalf("notify = %v, notifications = %q", tc.notify, texts)
+			}
+
+			if _, err := fixture.Store.pool.Exec(ctx,
+				`UPDATE process_actions SET state = 'failed', updated_at = now() - interval '1 minute',
+				 state_reason_code = coalesce(state_reason_code, 'process_not_running')
+				 WHERE agent_id = $1 AND id = $2`, fixture.AgentID, action.ID,
+			); err != nil {
+				t.Fatalf("age stop action: %v", err)
+			}
+			if _, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completion); err != nil {
+				t.Fatalf("replay completion: %v", err)
+			}
+			if texts := processNotificationTexts(t, ctx, fixture); (len(texts) == 1) != tc.notify {
+				t.Fatalf("after replay notify = %v, notifications = %q", tc.notify, texts)
+			}
+		})
+	}
+}
+
+func startBackgroundProcessForTest(
+	t *testing.T,
+	ctx context.Context,
+	fixture processDaemonFixture,
+	name string,
+) executionstore.ProcessRecord {
+	t.Helper()
+	return startBackgroundProcessWithInputForTest(t, ctx, fixture, name, executionstore.CreateProcessInput{})
+}
+
+func startBackgroundProcessWithInputForTest(
+	t *testing.T,
+	ctx context.Context,
+	fixture processDaemonFixture,
+	name string,
+	input executionstore.CreateProcessInput,
+) executionstore.ProcessRecord {
+	t.Helper()
+	if input.ExecutionSpec.Kind == "" {
+		input.ExecutionSpec = processcmd.ForShell("sleep 60", "sh", "")
+	}
+	input.AgentMachineBindingID = fixture.BindingID
+	input.Cwd = "/work"
+	toolCallID := createToolCallForProcessTest(t, ctx, fixture, name, "run_command")
+	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    toolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, input)
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	if _, found, err := acceptDaemonProcessForTest(
+		ctx, fixture.Store, testOrgID, fixture.MachineID, fixture.RuntimeID, uuid.Nil,
+	); err != nil || !found {
+		t.Fatalf("accept process found=%v err=%v", found, err)
+	}
+	if _, err := fixture.Store.Execution().MarkProcessStarted(ctx, executionstore.MarkProcessStartedInput{
+		ProjectID:       testProjectID,
+		AgentID:         fixture.AgentID,
+		ID:              process.ID,
+		Authority:       fixture.authority(),
+		SourceStartedAt: fixture.Now.Add(2 * time.Second),
+		Result:          json.RawMessage(`{"output":"","cursor":0,"next_cursor":0,"truncated":false,"done":false}`),
+	}); err != nil {
+		t.Fatalf("mark process started: %v", err)
+	}
+	return process
+}
+
+func processNotificationTexts(t *testing.T, ctx context.Context, fixture processDaemonFixture) []string {
+	t.Helper()
+	rows, err := fixture.Store.pool.Query(ctx, `
+SELECT block.text_content
+FROM agent_inputs input
+JOIN content_blocks block ON block.agent_id = input.agent_id AND block.owner_agent_input_id = input.id
+WHERE input.project_id = $1 AND input.agent_id = $2 AND input.idempotency_scope = 'process_notification'
+  AND input.delivery_mode = 'steering' AND input.state <> 'canceled'
+ORDER BY input.queued_at`, testProjectID, fixture.AgentID)
+	if err != nil {
+		t.Fatalf("query process notifications: %v", err)
+	}
+	defer rows.Close()
+	var texts []string
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text); err != nil {
+			t.Fatalf("scan process notification: %v", err)
+		}
+		texts = append(texts, text)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read process notifications: %v", err)
+	}
+	return texts
+}
+
+func TestAgentActivityListsRunningProcessWhileIdle(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "background_activity")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "background_activity")
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx, testProjectID, fixture.AgentID, fixture.Lock.ID,
+	); err != nil {
+		t.Fatalf("release runtime lock: %v", err)
+	}
+	if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = false WHERE agent_id = $1;
+`, fixture.AgentID); err != nil {
+		t.Fatalf("settle agent: %v", err)
+	}
+	if _, err := fixture.Store.pool.Exec(ctx,
+		`DELETE FROM agent_wakeups WHERE agent_id = $1`, fixture.AgentID,
+	); err != nil {
+		t.Fatalf("clear wakeups: %v", err)
+	}
+
+	activity, err := fixture.Store.Execution().GetAgentActivity(ctx, testProjectID, fixture.AgentID)
+	if err != nil {
+		t.Fatalf("get activity: %v", err)
+	}
+	if activity.State != executionstore.SubagentStateIdle || activity.RunningProcesses.Count != 1 ||
+		len(activity.RunningProcesses.IDs) != 1 || activity.RunningProcesses.IDs[0] != process.ID {
+		t.Fatalf("activity = %+v, want idle with process %s", activity, process.ID)
+	}
+
+	if _, err := fixture.Store.pool.Exec(ctx,
+		`UPDATE processes SET created_at = statement_timestamp() - interval '2 hours' WHERE id = $1`, process.ID,
+	); err != nil {
+		t.Fatalf("age process: %v", err)
+	}
+	activity, err = fixture.Store.Execution().GetAgentActivity(ctx, testProjectID, fixture.AgentID)
+	if err != nil {
+		t.Fatalf("get activity: %v", err)
+	}
+	if activity.RunningProcesses.Count != 1 {
+		t.Fatalf("activity after two hours = %+v, want the process listed", activity)
+	}
+}
+
+func TestAgentActivityListsRunningProcessBesideOpenQuestion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "question_activity")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "question_activity")
+	questionCallID := createToolCallForProcessTest(t, ctx, fixture, "question_activity_question", "ask_question")
+	createQuestionInteractionForTest(t, ctx, fixture, questionCallID)
+	activity, err := fixture.Store.Execution().GetAgentActivity(ctx, testProjectID, fixture.AgentID)
+	if err != nil {
+		t.Fatalf("get activity: %v", err)
+	}
+	if activity.State != executionstore.SubagentStateWaitingOnInteraction ||
+		activity.OpenQuestionCount != 1 || activity.OpenPermissionRequestCount != 0 ||
+		activity.RunningProcesses.Count != 1 || activity.RunningProcesses.IDs[0] != process.ID {
+		t.Fatalf("activity = %+v, want waiting_on_interaction with process %s", activity, process.ID)
+	}
+}
+
+func TestBackgroundProcessOutputMatchNotifiesAgent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "background_output_match")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "background_output_match")
+	watchID := startWatchForTest(t, ctx, fixture, process.ID, "background_output_match_watch", "listening|ERROR", 60)
+
+	match := executionstore.NotifyProcessOutputMatchInput{
+		Authority: fixture.authority(),
+		ProjectID: testProjectID,
+		AgentID:   fixture.AgentID,
+		ID:        process.ID,
+		Sequence:  1,
+		Result:    outputMatchResultForTest(t, watchID, "listening|ERROR", `"lines":["listening on :3000"]`),
+	}
+	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
+		t.Fatalf("notify output match: %v", err)
+	}
+	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
+		t.Fatalf("replay output match: %v", err)
+	}
+	match.Sequence = 2
+	match.Result = outputMatchResultForTest(t, watchID, "listening|ERROR", `"lines":["ERROR boom"],"dropped":3`)
+	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
+		t.Fatalf("notify second output match: %v", err)
+	}
+
+	texts := processNotificationTexts(t, ctx, fixture)
+	if len(texts) != 1 {
+		t.Fatalf("waiting process notifications = %d, want 1: %q", len(texts), texts)
+	}
+	if !strings.Contains(texts[0], "printed lines matching `listening|ERROR`") ||
+		!strings.Contains(texts[0], "listening on :3000\nERROR boom") ||
+		!strings.Contains(texts[0], "3 more matching lines") {
+		t.Fatalf("merged output match notification = %q", texts[0])
+	}
+	merged := texts[0]
+	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+		t, ctx, fixture.Store, testProjectID, fixture.AgentID, fixture.Lock.ID,
+	)
+	require.True(t, found)
+	require.Len(t, admitted.Inputs, 1)
+
+	match.Sequence = 3
+	match.Result = outputMatchResultForTest(t, watchID, "listening|ERROR", `"lines":[],"expired":true`)
+	if err := fixture.Store.Execution().NotifyProcessOutputMatch(ctx, match); err != nil {
+		t.Fatalf("notify watch expiry: %v", err)
+	}
+	texts = processNotificationTexts(t, ctx, fixture)
+	if len(texts) != 2 || texts[0] != merged || !strings.Contains(texts[1], "expired with no new matching lines") ||
+		strings.Contains(texts[1], "ERROR boom") {
+		t.Fatalf("process notifications after the merged one was admitted = %q", texts)
+	}
+	var pending []uuid.UUID
+	rows, err := fixture.Store.pool.Query(ctx, `SELECT id FROM agent_inputs
+WHERE agent_id = $1 AND idempotency_scope = 'process_notification' AND state = 'received'`, fixture.AgentID)
+	require.NoError(t, err)
+	for rows.Next() {
+		var id uuid.UUID
+		require.NoError(t, rows.Scan(&id))
+		pending = append(pending, id)
+	}
+	require.NoError(t, rows.Err())
+	require.Len(t, pending, 1)
+	require.NotEqual(t, admitted.Inputs[0].ID, pending[0])
+	var reports []int64
+	rows, err = fixture.Store.pool.Query(ctx,
+		`SELECT report_seq FROM process_watch_reports WHERE watch_action_id = $1 ORDER BY report_seq`, watchID)
+	require.NoError(t, err)
+	for rows.Next() {
+		var seq int64
+		require.NoError(t, rows.Scan(&seq))
+		reports = append(reports, seq)
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, []int64{1, 2, 3}, reports)
+}
+
+func TestProcessExecutionReportsTheAcceptingSupervisorVersion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "supervisor_version")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "supervisor_version")
+	_, err := fixture.Store.pool.Exec(ctx,
+		`UPDATE daemon_runtimes SET daemon_version = '9.9.9' WHERE id = $1`, fixture.RuntimeID)
+	require.NoError(t, err)
+
+	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "supervisor_version_watch", "watch_process")
+	var execution executionstore.ProcessExecution
+	errRead := errors.New("read only")
+	_, err = fixture.Store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    toolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, func(reader *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+		var found bool
+		var readErr error
+		execution, found, readErr = reader.ProcessExecution(ctx, process.ID)
+		require.NoError(t, readErr)
+		require.True(t, found)
+		return nil, errRead
+	})
+	require.ErrorIs(t, err, errRead)
+	require.True(t, execution.Accepted)
+	require.Equal(t, "1.0.0", execution.DaemonVersion)
+	require.False(t, execution.SupervisorSupports("9.9.9"))
+}
+
+func TestOutputMatchesNeedAnEligibleWatch(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "output_match_allowance")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "output_match_allowance")
+	notify := func(watchID uuid.UUID, pattern string, seq int64) error {
+		return fixture.Store.Execution().NotifyProcessOutputMatch(ctx, executionstore.NotifyProcessOutputMatchInput{
+			Authority: fixture.authority(),
+			ProjectID: testProjectID,
+			AgentID:   fixture.AgentID,
+			ID:        process.ID,
+			Sequence:  seq,
+			Result:    outputMatchResultForTest(t, watchID, pattern, `"lines":["ready"]`),
+		})
+	}
+
+	require.ErrorIs(t, notify(uuid.New(), "ready", 1), storeerr.ErrInvalidProcessOutputMatch)
+	watchID := startWatchForTest(t, ctx, fixture, process.ID, "output_match_allowance_watch", "ready", 10)
+	require.ErrorIs(t, notify(watchID, "other", 1), storeerr.ErrInvalidProcessOutputMatch)
+
+	allowance := processaction.MaxWatchReports(10)
+	for seq := int64(1); seq <= int64(allowance)+2; seq++ {
+		require.NoError(t, notify(watchID, "ready", seq))
+	}
+	require.NoError(t, notify(watchID, "ready", 1), "a replay within the allowance is accepted")
+	reports := func(watchID uuid.UUID) int {
+		var n int
+		require.NoError(t, fixture.Store.pool.QueryRow(ctx,
+			`SELECT count(*) FROM process_watch_reports WHERE watch_action_id = $1`, watchID).Scan(&n))
+		return n
+	}
+	require.Equal(t, allowance, reports(watchID))
+	texts := processNotificationTexts(t, ctx, fixture)
+	require.Len(t, texts, 1, "reports the agent has not read are merged")
+	require.Equal(t, allowance, strings.Count(texts[0], "\nready"))
+
+	other := startBackgroundProcessForTest(t, ctx, fixture, "output_match_delayed")
+	delayedID := startWatchForTest(t, ctx, fixture, other.ID, "output_match_delayed_watch", "ready", 10)
+	_, err := fixture.Store.pool.Exec(ctx,
+		`UPDATE process_actions SET updated_at = statement_timestamp() - interval '2 hours' WHERE id = $1`, delayedID)
+	require.NoError(t, err)
+	delayed := executionstore.NotifyProcessOutputMatchInput{
+		Authority: fixture.authority(),
+		ProjectID: testProjectID,
+		AgentID:   fixture.AgentID,
+		ID:        other.ID,
+		Sequence:  int64(allowance) + 10,
+		Result:    outputMatchResultForTest(t, delayedID, "ready", `"lines":["ready"]`),
+	}
+	require.NoError(t, fixture.Store.Execution().NotifyProcessOutputMatch(ctx, delayed))
+	require.Equal(t, 1, reports(delayedID),
+		"a match captured during the watch is delivered after a reconnect past its deadline")
+	require.Len(t, processNotificationTexts(t, ctx, fixture), 2)
+}
+
+func startWatchForTest(
+	t *testing.T,
+	ctx context.Context,
+	fixture processDaemonFixture,
+	processID uuid.UUID,
+	name, pattern string,
+	timeoutSeconds int,
+) uuid.UUID {
+	t.Helper()
+	toolCallID := createToolCallForProcessTest(t, ctx, fixture, name, "watch_process")
+	payload, err := json.Marshal(processaction.WatchPayload{Pattern: pattern, TimeoutSeconds: timeoutSeconds})
+	require.NoError(t, err)
+	action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    toolCallID,
+		RuntimeLockID: fixture.Lock.ID,
+	}, executionstore.CreateProcessActionInput{
+		ProcessID:  processID,
+		ActionKind: executionstore.ProcessActionKindWatch,
+		Payload:    payload,
+	})
+	require.NoError(t, err)
+	_, found, err := acceptDaemonProcessActionForTest(
+		ctx, fixture.Store, fixture.OrgID, fixture.MachineID, fixture.RuntimeID, processID, uuid.Nil,
+	)
+	require.NoError(t, err)
+	require.True(t, found)
+	_, err = fixture.Store.Execution().ApplyDaemonProcessAction(ctx, executionstore.CompleteDaemonProcessActionInput{
+		ProjectID: testProjectID,
+		AgentID:   fixture.AgentID,
+		ProcessID: processID,
+		ID:        action.ID,
+		Authority: fixture.authority(),
+		Result:    json.RawMessage(`{}`),
+	})
+	require.NoError(t, err)
+	return action.ID
+}
+
+func outputMatchResultForTest(t *testing.T, watchID uuid.UUID, pattern, fields string) json.RawMessage {
+	t.Helper()
+	publicWatchID, err := publicid.Encode(publicid.KindProcessAction, watchID)
+	require.NoError(t, err)
+	quotedPattern, err := json.Marshal(pattern)
+	require.NoError(t, err)
+	return json.RawMessage(`{"watch_id":"` + publicWatchID + `","pattern":` + string(quotedPattern) + `,` + fields + `}`)
+}
+
+func TestCreateProcessActionRejectsInvalidWatchPayload(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "invalid_watch_payload")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "invalid_watch_payload")
+	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "invalid_watch_payload_watch", "watch_process")
+	for name, payload := range map[string]string{
+		"bad_regex":       `{"pattern":"(","timeout_seconds":60}`,
+		"missing_pattern": `{"timeout_seconds":60}`,
+		"cancel_pattern":  `{"pattern":"x","timeout_seconds":0}`,
+		"long_timeout":    `{"pattern":"x","timeout_seconds":3601}`,
+	} {
+		_, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+			ProjectID:     testProjectID,
+			AgentID:       fixture.AgentID,
+			ToolCallID:    toolCallID,
+			RuntimeLockID: fixture.Lock.ID,
+		}, executionstore.CreateProcessActionInput{
+			ProcessID:  process.ID,
+			ActionKind: executionstore.ProcessActionKindWatch,
+			Payload:    json.RawMessage(payload),
+		})
+		require.ErrorIs(t, err, storeerr.ErrInvalidRequest, name)
+	}
+}
+
+func TestWatchWithoutOffsetStartsAtTheLastReadCursor(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "watch_read_cursor")
+	process := startBackgroundProcessForTest(t, ctx, fixture, "watch_read_cursor")
+	_, err := fixture.Store.pool.Exec(ctx,
+		`UPDATE processes SET default_output_cursor = 42 WHERE id = $1`, process.ID)
+	require.NoError(t, err)
+	transaction := executionstore.ExecuteToolCallInput{
+		ProjectID:     testProjectID,
+		AgentID:       fixture.AgentID,
+		ToolCallID:    createToolCallForProcessTest(t, ctx, fixture, "watch_read_cursor_watch", "watch_process"),
+		RuntimeLockID: fixture.Lock.ID,
+	}
+	input := executionstore.CreateProcessActionInput{
+		ProcessID:  process.ID,
+		ActionKind: executionstore.ProcessActionKindWatch,
+		Payload:    json.RawMessage(`{"pattern":"ready","timeout_seconds":60}`),
+	}
+	action, err := createProcessActionForTest(ctx, fixture.Store, transaction, input)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"pattern":"ready","timeout_seconds":60,"cursor":42}`, string(action.Payload),
+		"output written after the last read is matched")
+
+	_, err = fixture.Store.pool.Exec(ctx,
+		`UPDATE processes SET default_output_cursor = 50 WHERE id = $1`, process.ID)
+	require.NoError(t, err)
+	replayed, err := createProcessActionForTest(ctx, fixture.Store, transaction, input)
+	require.NoError(t, err)
+	require.Equal(t, action.ID, replayed.ID)
+	require.JSONEq(t, string(action.Payload), string(replayed.Payload))
+
+	input.Payload = json.RawMessage(`{"pattern":"ready","timeout_seconds":60,"cursor":7}`)
+	_, err = createProcessActionForTest(ctx, fixture.Store, transaction, input)
+	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict, "a replay naming another offset conflicts")
+}

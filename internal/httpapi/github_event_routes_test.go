@@ -409,7 +409,9 @@ func TestGitHubHTTPIntakePingIsSignedAndIntegrationScoped(t *testing.T) {
 func TestGitHubHTTPIntakeBoundsAndWiring(t *testing.T) {
 	t.Parallel()
 	f := newGitHubIntakeFixture()
-	h := &githubIntakeHandler{store: f, secrets: f, credentialIntegrations: f.credentialIntegrations}
+	h := maxBody(requestBodyLimit, uploadBudget)(
+		&githubIntakeHandler{store: f, secrets: f, credentialIntegrations: f.credentialIntegrations},
+	)
 	for _, tc := range []struct {
 		body   string
 		status int

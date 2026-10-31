@@ -37,6 +37,7 @@ tools:
   write_process: {}
   read_process: {}
   stop_process: {}
+  watch_process: {}
   list_processes: {}
   list_machines: {}
   inspect_machine: {}
@@ -123,7 +124,7 @@ tools:
 
 Permission modes decide whether a tool runs immediately, asks a person first, or is denied. See [Tools & permissions](/tools/permissions) for defaults and supported modes.
 
-When `machine_sources` is nonempty, Omnara adds missing entries for `run_command`, `write_process`, `read_process`, `stop_process`, `list_processes`, `list_machines`, `inspect_machine`, `storage_upload`, and `storage_download` to the compiled config. If any source is a machine pool, it also adds `create_machine` and `delete_machine`, regardless of pool counts or machine availability. Attached skills similarly add `skill`. Compilation leaves your YAML or JSON source unchanged. Explicit disables and permissions take precedence.
+When `machine_sources` is nonempty, Omnara adds missing entries for `run_command`, `write_process`, `read_process`, `stop_process`, `watch_process`, `list_processes`, `list_machines`, `inspect_machine`, `storage_upload`, and `storage_download` to the compiled config. If any source is a machine pool, it also adds `create_machine` and `delete_machine`, regardless of pool counts or machine availability. Attached skills similarly add `skill`. Compilation leaves your YAML or JSON source unchanged. Explicit disables and permissions take precedence.
 
 The builder displays these defaults under **Tools → Other tools** without writing them into your source. Changing a permission or selecting **Disabled** saves an explicit override. Defaults disappear when their relevant source is removed; explicitly configured tools remain.
 

@@ -81,8 +81,8 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 		},
 		{
 			name:     "max wait",
-			input:    json.RawMessage(`{"command":"echo ok","wait_ms":300000}`),
-			command:  "echo ok",
+			input:    json.RawMessage(`{"command":"make test","wait_ms":30000}`),
+			command:  "make test",
 			selector: "default",
 			waitMs:   processaction.MaxWaitMilliseconds,
 			ioMode:   "pipe",
@@ -94,11 +94,24 @@ func TestResolveRunCommandRequestKeepsShellIntentUnresolved(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolve run_command: %v", err)
 			}
-			if resolved.Command != tc.command || resolved.Selector != tc.selector || resolved.WaitMs != tc.waitMs ||
+			wantWait := tc.waitMs
+			if wantWait == 0 {
+				wantWait = processaction.DefaultCommandWaitMilliseconds
+			}
+			if resolved.Command != tc.command || resolved.Selector != tc.selector ||
+				resolved.WaitMs != wantWait ||
 				resolved.IOMode != tc.ioMode {
 				t.Fatalf("unexpected resolution: %+v", resolved)
 			}
 		})
+	}
+}
+
+func TestResolveRunCommandRequestAllowsZeroWait(t *testing.T) {
+	t.Parallel()
+	resolved, err := resolveRunCommandRequest(json.RawMessage(`{"command":"make test","wait_ms":0}`))
+	if err != nil || resolved.WaitMs != 0 {
+		t.Fatalf("zero wait resolution = %+v, %v", resolved, err)
 	}
 }
 
@@ -147,10 +160,14 @@ func TestResolveRunCommandRequestRejectsInvalidInput(t *testing.T) {
 			raw:  json.RawMessage("{\"command\":\"echo ok\",\"cwd\":\"/tmp\\u0000x\"}"),
 			want: "cwd cannot contain NUL",
 		},
-		{name: "zero wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":0}`), want: "wait_ms must be positive"},
-		{name: "negative wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":-1}`), want: "wait_ms must be positive"},
+		{name: "negative wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":-1}`), want: "wait_ms must be non-negative"},
 		{name: "null wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":null}`), want: "wait_ms cannot be null"},
-		{name: "huge wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":300001}`), want: "wait_ms must be at most"},
+		{name: "huge wait", raw: json.RawMessage(`{"command":"echo ok","wait_ms":30001}`), want: "wait_ms must be at most"},
+		{
+			name: "removed notify_match",
+			raw:  json.RawMessage(`{"command":"npm run dev","notify_match":"listening"}`),
+			want: "notify_match",
+		},
 		{name: "null io mode", raw: json.RawMessage(`{"command":"echo ok","io_mode":null}`), want: "io_mode cannot be null"},
 		{
 			name: "unsupported io mode",
@@ -253,5 +270,61 @@ func TestToolCallApprovalPinsResolvedMachineBinding(t *testing.T) {
 		otherBindingInput,
 	) {
 		t.Fatal("expected a different machine binding to reject authorization input")
+	}
+}
+
+func TestRunCommandExecutionSpecGivesOnlyPTYStdin(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		noStdin bool
+	}{
+		{name: "pipe", input: `{"command":"apt-get install jq"}`, noStdin: true},
+		{name: "pty", input: `{"command":"python3","io_mode":"pty"}`, noStdin: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resolved, err := resolveRunCommandRequest(json.RawMessage(tc.input))
+			if err != nil {
+				t.Fatalf("resolve run_command: %v", err)
+			}
+			spec := resolved.executionSpec()
+			if spec.Shell.NoStdin != tc.noStdin {
+				t.Fatalf("no_stdin = %t, want %t", spec.Shell.NoStdin, tc.noStdin)
+			}
+			if err := spec.ValidateLocal(); err != nil {
+				t.Fatalf("validate spec: %v", err)
+			}
+		})
+	}
+}
+
+func TestProcessHasNoStdinTrustsOnlySupervisorsThatHonorIt(t *testing.T) {
+	noStdin := processcmd.ForShell("apt-get install foo", processcmd.ShellDefault, processcmd.IOModePipe)
+	noStdin.Shell.NoStdin = true
+	withStdin := processcmd.ForShell("python3", processcmd.ShellDefault, processcmd.IOModePipe)
+	current := processaction.OutputWindowDaemonVersion
+	for _, test := range []struct {
+		name          string
+		spec          processcmd.ExecutionSpec
+		daemonVersion string
+		accepted      bool
+		want          bool
+	}{
+		{name: "current supervisor", spec: noStdin, daemonVersion: current, accepted: true, want: true},
+		{name: "queued on current daemon", spec: noStdin, daemonVersion: current, want: true},
+		{name: "queued with no daemon connected", spec: noStdin, want: true},
+		{name: "released supervisor keeps stdin", spec: noStdin, daemonVersion: "0.2.14", accepted: true},
+		{name: "supervisor from before versions were recorded", spec: noStdin, accepted: true},
+		{name: "stdin requested", spec: withStdin, daemonVersion: current, accepted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			execution := executionstore.ProcessExecution{
+				Spec: test.spec, DaemonVersion: test.daemonVersion, Accepted: test.accepted,
+			}
+			if got := processHasNoStdin(execution); got != test.want {
+				t.Fatalf("processHasNoStdin = %t, want %t", got, test.want)
+			}
+		})
 	}
 }

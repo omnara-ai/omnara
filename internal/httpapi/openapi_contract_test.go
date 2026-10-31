@@ -993,6 +993,20 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			want: http.StatusBadRequest,
 		},
 		{
+			name: "agent37",
+			body: `{"provider":"agent37",` + common +
+				`,"default_machine_cpu":2,"default_machine_memory_mb":4096,` +
+				`"max_total_cpu":8,"max_total_memory_mb":16384,"max_machine_cpu":4,"max_machine_memory_mb":8192}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "agent37 missing memory",
+			body: `{"provider":"agent37",` + common +
+				`,"default_machine_cpu":2,"max_total_cpu":8,"max_total_memory_mb":16384,` +
+				`"max_machine_cpu":4,"max_machine_memory_mb":8192}`,
+			want: http.StatusBadRequest,
+		},
+		{
 			name: "arker",
 			body: `{"provider":"arker",` + common +
 				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +

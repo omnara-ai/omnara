@@ -283,39 +283,36 @@ func TestWorkerLoopFailureIsError(t *testing.T) {
 	}
 }
 
-func TestMaintenanceLoopCreatesWideEvent(t *testing.T) {
+func TestMaintenanceJobCreatesWideEvent(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := log.WithLogger(context.Background(), testLogger(&buf))
-	pollAt := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
-
-	ctx, event := MaintenanceLoop(ctx, 5*time.Second, pollAt)
-	MaintenanceLoopResult(ctx, 0, nil, true, nil)
+	ctx, event := MaintenanceJob(ctx, "reap_runtime_locks", time.Second)
+	MaintenanceJobCount(ctx, 3)
+	MaintenanceJobResult(ctx, true, true, nil)
 	event.Done(context.Background())
 
 	record := oneRecord(t, &buf)
 	for key, want := range map[string]any{
-		"level":                                "info",
-		"message":                              "maintenance.loop",
-		"event.name":                           "maintenance.loop",
-		"maintenance.loop.interval":            float64(5_000_000_000),
-		"maintenance.reap_runtime_locks.count": float64(0),
-		"maintenance.loop.worked":              true,
+		"level":                    "info",
+		"message":                  "maintenance.job",
+		"event.name":               "maintenance.job",
+		"maintenance.job.name":     "reap_runtime_locks",
+		"maintenance.job.interval": float64(time.Second),
+		"maintenance.job.count":    float64(3),
+		"maintenance.job.worked":   true,
+		"maintenance.job.more":     true,
 	} {
 		if got := record[key]; got != want {
 			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
 		}
 	}
-	if record["maintenance.loop.poll_at"] == "" {
-		t.Fatalf("maintenance.loop.poll_at missing in %+v", record)
-	}
 }
 
-func TestMaintenanceLoopIdleSuccessIsDebug(t *testing.T) {
+func TestMaintenanceJobIdleSuccessIsDebug(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := log.WithLogger(context.Background(), testLoggerAtLevel(&buf, slog.LevelDebug))
-
-	ctx, event := MaintenanceLoop(ctx, time.Second, time.Now().UTC())
-	MaintenanceLoopResult(ctx, 0, nil, false, nil)
+	ctx, event := MaintenanceJob(ctx, "reap_runtime_locks", time.Second)
+	MaintenanceJobResult(ctx, false, false, nil)
 	event.Done(context.Background())
 
 	record := oneRecord(t, &buf)
@@ -324,29 +321,17 @@ func TestMaintenanceLoopIdleSuccessIsDebug(t *testing.T) {
 	}
 }
 
-func TestMaintenanceLoopAttachesTaskErrors(t *testing.T) {
+func TestMaintenanceJobFailureIsError(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := log.WithLogger(context.Background(), testLogger(&buf))
-
-	ctx, event := MaintenanceLoop(ctx, time.Second, time.Now().UTC())
-	reapErr := errors.New("reap failed")
-	cleanupErr := errors.New("cleanup failed")
-	MaintenanceLoopResult(
-		ctx,
-		0,
-		reapErr,
-		false,
-		errors.Join(reapErr, cleanupErr),
-	)
+	ctx, event := MaintenanceJob(ctx, "reap_runtime_locks", time.Second)
+	MaintenanceJobResult(ctx, false, false, errors.New("reap failed"))
 	event.Done(context.Background())
 
 	record := oneRecord(t, &buf)
 	for key, want := range map[string]any{
-		"level":                                "error",
-		"error.message":                        "reap failed\ncleanup failed",
-		"maintenance.reap_runtime_locks.count": float64(0),
-		"maintenance.reap_runtime_locks.error": "reap failed",
-		"maintenance.loop.worked":              false,
+		"level":         "error",
+		"error.message": "reap failed",
 	} {
 		if got := record[key]; got != want {
 			t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)

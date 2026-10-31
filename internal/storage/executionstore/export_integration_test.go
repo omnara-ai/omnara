@@ -654,7 +654,7 @@ func (s *Store) ArchiveIdleAgentsAsOf(
 	ctx context.Context,
 	asOf time.Time,
 	limit int,
-) ([]MachineRecord, int, error) {
+) ([]MachineRecord, int, bool, error) {
 	return s.archiveIdleAgents(ctx, &asOf, limit)
 }
 

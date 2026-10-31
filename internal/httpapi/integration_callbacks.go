@@ -11,20 +11,16 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func readIntegrationCallbackBody(
-	w http.ResponseWriter,
-	r *http.Request,
-	maxBodyBytes int64,
-) ([]byte, bool) {
+func readIntegrationCallbackBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 	deadline := time.Now().Add(integrationIntakeTimeout)
 	if requestDeadline, ok := r.Context().Deadline(); ok && requestDeadline.Before(deadline) {
 		deadline = requestDeadline
 	}
 	controller := http.NewResponseController(w)
 	_ = controller.SetReadDeadline(deadline)
-	defer func() { _ = controller.SetReadDeadline(time.Time{}) }()
-	raw, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
+	raw, err := io.ReadAll(r.Body)
 	if err != nil {
+		closeHTTP1Connection(w, r)
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
@@ -33,10 +29,7 @@ func readIntegrationCallbackBody(
 		}
 		return nil, false
 	}
-	if int64(len(raw)) > maxBodyBytes {
-		apierror.Write(w, openapi.ErrorCodeRequestTooLarge)
-		return nil, false
-	}
+	_ = controller.SetReadDeadline(time.Time{})
 	return raw, true
 }
 

@@ -16,7 +16,7 @@ func TestDefaultMachineTools(t *testing.T) {
 	machineTools := []string{
 		"create_machine", "delete_machine", "storage_download", "inspect_machine",
 		"list_machines", "list_processes", "read_process", "run_command",
-		"stop_process", "storage_upload", "write_process",
+		"stop_process", "storage_upload", "watch_process", "write_process",
 	}
 	allDisabled := "tools:\n"
 	byoDisabled := "tools:\n"
@@ -74,7 +74,7 @@ func TestDefaultMachineTools(t *testing.T) {
 			wantTools: []string{
 				"storage_download", "inspect_machine",
 				"list_machines", "list_processes", "read_process", "run_command", "skill",
-				"stop_process", "storage_upload", "write_process",
+				"stop_process", "storage_upload", "watch_process", "write_process",
 			},
 		},
 	}

@@ -18,6 +18,12 @@ export const activityFilterOptions = [
 export type ActivityFilterValue = (typeof activityFilterOptions)[number]['value']
 
 export function agentStatusLabel(agent: Agent) {
-  const state = agent.activity?.state ?? (agent.state === 'archived' ? 'archived' : undefined)
+  const activity = agent.activity
+  if (activity?.state === 'idle' && hasBackgroundWork(activity)) return 'Background work'
+  const state = activity?.state ?? (agent.state === 'archived' ? 'archived' : undefined)
   return state && statusLabels[state]
+}
+
+export function hasBackgroundWork(activity: AgentActivity) {
+  return activity.running_processes.count > 0 || activity.working_subagents.count > 0
 }

@@ -170,7 +170,6 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				map[string]any{
 					"command": "echo should-not-run",
 					"cwd":     missingCwd,
-					"wait_ms": 1000,
 				},
 			)
 		case 2:
@@ -191,17 +190,16 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 			}
 			writeOpenAIFunctionCall(w, failModelRequest, "resp_run_command", "call_run_command", "run_command", map[string]any{
 				"command": fmt.Sprintf("printf '%%s|%%s|%%s|%%s\\n' '%s' \"$SERVICE_E2E_LITERAL\" \"$SERVICE_E2E_SECRET\" \"${SERVICE_E2E_DELETED_SECRET-absent}\" > quick-command.txt", nonce),
-				"wait_ms": 1000,
 			})
 		case 3:
 			if _, ok := fakeModelToolProcessID(w, body, failModelRequest, "call_run_command"); !ok {
 				return
 			}
 			writeOpenAIFunctionCall(w, failModelRequest, "resp_start", "call_start", "run_command", map[string]any{
-				"command": "while IFS= read -r line; do case \"$line\" in CREATE*) printf created > stdin-file.txt; printf C;; DELETE*) rm -f stdin-file.txt; printf D;; esac; done",
+				"command": "stty -echo; while IFS= read -r line; do case \"$line\" in CREATE*) printf created > stdin-file.txt; printf C;; DELETE*) rm -f stdin-file.txt; printf D;; END*) break;; esac; done",
 				"shell":   "sh",
 				"cwd":     "/work",
-				"wait_ms": 1000,
+				"io_mode": "pty",
 			})
 		case 4:
 			id, ok := fakeModelToolProcessID(w, body, failModelRequest, "call_start")
@@ -233,7 +231,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"resp_read_create",
 				"call_read_create",
 				"read_process",
-				map[string]any{"process_id": id, "offset_byte": 0, "limit_bytes": 4096, "wait_ms": 1000},
+				map[string]any{"process_id": id, "offset_byte": 0, "wait_ms": 1000},
 			)
 		case 6:
 			result, ok := fakeModelProcessResult(w, body, failModelRequest, "call_read_create")
@@ -269,7 +267,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"resp_read_delete",
 				"call_read_delete",
 				"read_process",
-				map[string]any{"process_id": id, "offset_byte": offset, "limit_bytes": 4096, "wait_ms": 1000},
+				map[string]any{"process_id": id, "offset_byte": offset, "wait_ms": 1000},
 			)
 		case 8:
 			result, ok := fakeModelProcessResult(w, body, failModelRequest, "call_read_delete")
@@ -293,7 +291,6 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				map[string]any{
 					"process_id":  id,
 					"offset_byte": offset,
-					"limit_bytes": 4096,
 					"wait_ms":     100,
 				},
 			)
@@ -312,13 +309,13 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 			writeOpenAIFunctionCall(
 				w,
 				failModelRequest,
-				"resp_close_stdin",
-				"call_close_stdin",
+				"resp_end_input",
+				"call_end_input",
 				"write_process",
-				map[string]any{"process_id": id, "close_stdin": true},
+				map[string]any{"process_id": id, "data": "END\n"},
 			)
 		case 10:
-			if !fakeModelProcessActionAccepted(w, body, failModelRequest, "call_close_stdin") {
+			if !fakeModelProcessActionAccepted(w, body, failModelRequest, "call_end_input") {
 				return
 			}
 			mu.Lock()
@@ -334,7 +331,6 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				map[string]any{
 					"process_id":  id,
 					"offset_byte": offset,
-					"limit_bytes": 4096,
 					"wait_ms":     1000,
 				},
 			)
@@ -352,7 +348,6 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 					"command": "trap 'printf interrupted > /work/interrupted.txt; exit 130' INT; printf R; sleep 20; printf M",
 					"shell":   "sh",
 					"cwd":     "/work",
-					"wait_ms": 1000,
 				},
 			)
 		case 12:
@@ -369,7 +364,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"resp_read_ready",
 				"call_read_ready",
 				"read_process",
-				map[string]any{"process_id": id, "offset_byte": 0, "limit_bytes": 4096, "wait_ms": 1000},
+				map[string]any{"process_id": id, "offset_byte": 0, "wait_ms": 1000},
 			)
 		case 13:
 			if !fakeModelToolOutputContains(w, body, failModelRequest, "call_read_ready", "R") {
@@ -401,7 +396,6 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 					"command": "echo TERMINATE_READY; while :; do sleep 1; done",
 					"shell":   "sh",
 					"cwd":     "/work",
-					"wait_ms": 1000,
 				},
 			)
 		case 15:
@@ -696,9 +690,8 @@ func TestServiceE2ECancelAcceptedRunCommandStopsProcessWithoutReoffer(
 					"printf '%s\\n' \"$child\" > /work/cancel-child.pid; " +
 					"printf x >> /work/cancel-effect.txt; " +
 					"wait \"$child\"; printf y >> /work/cancel-effect.txt",
-				"shell":   "sh",
-				"cwd":     "/work",
-				"wait_ms": 10000,
+				"shell": "sh",
+				"cwd":   "/work",
 			},
 		)
 	}))
@@ -1015,7 +1008,6 @@ func runServiceE2ERecoveryFaultJourney(
 					"command": scenario.command,
 					"shell":   "sh",
 					"cwd":     "/work",
-					"wait_ms": 10000,
 				},
 			)
 		case 2:
@@ -1039,7 +1031,6 @@ func runServiceE2ERecoveryFaultJourney(
 						"command": scenario.freshWork.command,
 						"shell":   "sh",
 						"cwd":     "/work",
-						"wait_ms": 1000,
 					},
 				)
 				return
@@ -2352,9 +2343,6 @@ func validateServiceE2EProcessToolResult(
 		if result.Outcome != "succeeded" {
 			return fmt.Errorf("outcome=%q, want succeeded", result.Outcome)
 		}
-		if result.Done == nil || !*result.Done {
-			return errors.New("done is not true")
-		}
 		if result.ExitCode == nil || *result.ExitCode != 0 {
 			return fmt.Errorf("exit_code=%v, want 0", result.ExitCode)
 		}
@@ -2365,9 +2353,6 @@ func validateServiceE2EProcessToolResult(
 	case "failed":
 		if result.Outcome != "failed" {
 			return fmt.Errorf("outcome=%q, want failed", result.Outcome)
-		}
-		if result.Done == nil || !*result.Done {
-			return errors.New("done is not true")
 		}
 	default:
 		return fmt.Errorf("unsupported expected process state %q", wantState)
@@ -2383,7 +2368,6 @@ type serviceE2EProcessResult struct {
 	OffsetByte     *int64 `json:"offset_byte"`
 	NextOffsetByte *int64 `json:"next_offset_byte"`
 	Truncated      *bool  `json:"truncated"`
-	Done           *bool  `json:"done"`
 	ExitCode       *int   `json:"exit_code"`
 }
 

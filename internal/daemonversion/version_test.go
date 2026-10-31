@@ -55,3 +55,21 @@ func TestValidateDevelopment(t *testing.T) {
 		t.Fatalf("Validate(%q): %v", Development, err)
 	}
 }
+
+func TestAtLeast(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		version string
+		want    bool
+	}{
+		{version: "0.2.11", want: true},
+		{version: "0.3.0", want: true},
+		{version: "0.2.10", want: false},
+		{version: Development, want: true},
+		{version: "", want: false},
+	} {
+		if got := AtLeast(test.version, "0.2.11"); got != test.want {
+			t.Fatalf("AtLeast(%q, 0.2.11) = %t, want %t", test.version, got, test.want)
+		}
+	}
+}

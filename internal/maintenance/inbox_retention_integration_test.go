@@ -1,9 +1,10 @@
 //go:build integration
 
-package main
+package maintenance
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"testing"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	webhookconfig "github.com/omnara-ai/omnara/internal/eventwebhook/config"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
-	"github.com/omnara-ai/omnara/internal/maintenance"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -26,7 +26,7 @@ import (
 
 func TestMain(m *testing.M) { integrationdb.RunTestMain(m) }
 
-func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *testing.T) {
+func TestRetentionJobsCleanInboxInBoundedBatchesAndPreserveHistory(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	pool := integrationdb.OpenMigratedPool(t, ctx, "../../migrations")
@@ -122,7 +122,7 @@ model:
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	until := time.Now().Add(10 * time.Second)
 	for {
-		runCoreMaintenanceTick(ctx, logger, store)
+		runRetentionJobs(ctx, logger, store)
 		var obsolete int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox
  WHERE (integration_id=$1 AND receipt_key LIKE 'old:%') OR integration_id=$2`, live, deleted).Scan(&obsolete))
@@ -132,7 +132,7 @@ model:
 		require.True(t, time.Now().Before(until), "retention must make progress across ticks")
 	}
 	for range 2 {
-		runCoreMaintenanceTick(ctx, logger, store)
+		runRetentionJobs(ctx, logger, store)
 		var completedCount, deletedCount int
 		require.NoError(t, pool.QueryRow(ctx,
 			`SELECT count(*) FROM integration_inbox WHERE integration_id=$1 AND receipt_key LIKE 'old:%'`,
@@ -162,7 +162,7 @@ model:
 	require.NotContains(t, logs.String(), `"level":"ERROR"`)
 }
 
-func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
+func TestInboxRetentionJobResumesAfterBatchTimeout(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	pool := integrationdb.OpenMigratedPool(t, ctx, "../../migrations")
@@ -178,7 +178,7 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
  SELECT $1,$2,'old:'||n,'x'::bytea,'completed',statement_timestamp()-interval '8 days'
  FROM generate_series(1,202) n`, ids.ProjectID, integration)
 	require.NoError(t, err)
-	count, err := store.Integrations().CleanupTerminalIntegrationInbox(ctx, maintenance.IntegrationInboxRetention, 100)
+	count, err := store.Integrations().CleanupTerminalIntegrationInbox(ctx, integrationInboxRetention, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 100, count)
 	// Sequence increments survive rollback, so only the first maintenance attempt stalls.
@@ -193,7 +193,7 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
 	require.NoError(t, err)
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	runCoreMaintenanceTick(ctx, logger, store)
+	runRetentionJobs(ctx, logger, store)
 	var remaining int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox`).Scan(&remaining))
 	require.Equal(t, 102, remaining, "timed-out batch rolls back every delete; the first batch stays committed")
@@ -202,7 +202,7 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
 	logs.Reset()
 	until := time.Now().Add(10 * time.Second)
 	for {
-		runCoreMaintenanceTick(ctx, logger, store)
+		runRetentionJobs(ctx, logger, store)
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox`).Scan(&remaining))
 		if remaining == 0 {
 			break
@@ -210,6 +210,12 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
 		require.True(t, time.Now().Before(until), "later ticks must retry and drain the timed-out batch")
 	}
 	require.NotContains(t, logs.String(), `"level":"ERROR"`)
+}
+
+func runRetentionJobs(ctx context.Context, logger *slog.Logger, store *storage.Store) {
+	cleanupCompletedInbox(logger, store.Integrations().CleanupTerminalIntegrationInbox)(ctx)
+	cleanupDeletedInbox(logger, store.Integrations().CleanupDeletedIntegrationInbox)(ctx)
+	deleteExpiredWebhookDeliveries(logger, store.Execution().DeleteExpiredEventWebhookDeliveries)(ctx)
 }
 
 func newMaintenanceInboxStore(t *testing.T, pool *pgxpool.Pool, ids storagefixture.ProjectIDs) *storage.Store {

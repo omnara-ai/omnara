@@ -6,8 +6,6 @@ import (
 	"net/http"
 )
 
-const statusClientClosedRequest = 499
-
 func HTTPRequest(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -21,7 +19,9 @@ func HTTPRequest(
 	rec := NewResponseRecorder(w)
 	event.beforeDoneFunc(func(f Finalizer) {
 		status := rec.StatusCode()
+		canceledOnly := false
 		if errors.Is(ctx.Err(), context.Canceled) {
+			rec.canceled = true
 			fields := Fields{
 				"http.request.cancel_cause":  context.Cause(ctx).Error(),
 				"http.request.cancel_source": "request_context",
@@ -31,7 +31,7 @@ func HTTPRequest(
 			}
 			f.Attach(fields)
 			if OnlyCanceled(f.e.err) {
-				status = statusClientClosedRequest
+				canceledOnly = true
 				f.e.err = nil
 				f.e.level = InfoLevel
 				f.e.levelSet = true
@@ -52,7 +52,7 @@ func HTTPRequest(
 			"http.response_bytes": rec.BytesWritten(),
 		})
 		switch {
-		case status >= http.StatusInternalServerError:
+		case status >= http.StatusInternalServerError && (!canceledOnly || rec.aborted):
 			f.Escalate(ErrorLevel)
 		case status >= http.StatusBadRequest:
 			f.Level(WarnLevel)
@@ -68,6 +68,7 @@ type ResponseRecorder struct {
 	telemetryStatus int
 	bytes           int64
 	aborted         bool
+	canceled        bool
 }
 
 func NewResponseRecorder(w http.ResponseWriter) *ResponseRecorder {
@@ -120,6 +121,8 @@ func (r *ResponseRecorder) TelemetryStatusCode() int {
 	}
 	return r.telemetryStatus
 }
+
+func (r *ResponseRecorder) Canceled() bool { return r.canceled }
 
 func (r *ResponseRecorder) BytesWritten() int64 { return r.bytes }
 

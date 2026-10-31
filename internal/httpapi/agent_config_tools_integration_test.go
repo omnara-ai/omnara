@@ -46,8 +46,8 @@ func TestResolveAgentConfigTools(t *testing.T) {
 		}
 	}
 	tools := testutil.RequireType[[]any](t, preview["tools"])
-	if len(tools) != 19 {
-		t.Fatalf("expected 11 pool tools, 5 subagent tools, and 3 retrieval tools, got %v", tools)
+	if len(tools) != 20 {
+		t.Fatalf("expected 12 pool tools, 5 subagent tools, and 3 retrieval tools, got %v", tools)
 	}
 	for _, item := range tools {
 		tool := testutil.RequireType[map[string]any](t, item)

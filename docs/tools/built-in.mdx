@@ -15,7 +15,7 @@ The tools are grouped by what they do:
 | Web | `web_search`, `web_fetch` |
 | Questions | `ask_question` |
 | Commands | `run_command` |
-| Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
+| Processes | `read_process`, `write_process`, `watch_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
 | Files | `storage_list`, `storage_upload`, `storage_download`, `storage_read`, `storage_search`, `storage_write` |
 | Integrations | Integration-specific tools; `list_interaction_handlers`, `set_interaction_handler` |
@@ -69,23 +69,36 @@ Runs a shell command on a [machine attached to the agent](/machines/overview#bin
 | `machine_id` | string | Public ID (`mch_...`) of the [machine](#picking-a-machine) to use; omit when the agent has exactly one |
 | `shell` | enum | `default`, `sh`, `bash`, `zsh`, `pwsh`, `powershell`, `cmd` |
 | `cwd` | string | Overrides the binding's working directory |
-| `wait_ms` | integer | 1–300000; how long to wait for early output or exit before returning |
-| `io_mode` | enum | `pipe` (default) or `pty` |
+| `wait_ms` | integer | 0–30000 (default 5000); how long to wait for the command to exit before returning. `0` returns as soon as the command starts |
+| `io_mode` | enum | `pipe` (default) or `pty`. Only `pty` commands take input. See [input](#input) |
 
-Every command returns a `process_id` (`prc_…`). `wait_ms` controls how long `run_command` waits for the command to finish before returning. If it finishes in time, the result includes its output:
+Every command returns a `process_id` (`prc_…`). `run_command` waits up to `wait_ms` (5 seconds by default) for the command to exit. If it does, the result includes its exit code and output:
 
 ```json
 {
   "process_id": "prc_rwz3jehcyd5n6a2bfgik7mv4qt",
   "state": "exited",
-  "command": "git log -1 --format=%H",
+  "exit_code": 0,
   "output": "8c41d2e9f0a3b7c6d5e4f3a2b1c0d9e8f7a6b5c4\n",
-  "done": true,
-  "exit_code": 0
+  "next_offset_byte": 41
 }
 ```
 
-If the command is still running after `wait_ms`, the tool returns `"state": "running"`. The agent can then read its output, send input, or stop it with the process tools below.
+Results carry at most 16 KiB of output. Longer output keeps the first 2 KiB in `output` and the rest from the end in `output_tail`; `omitted_offset_byte` and `tail_offset_byte` mark the bytes left out, which [`read_process`](#read_process) can page through.
+
+If the command is still running when `wait_ms` passes, the result has `"state": "running"` and the output so far. The command keeps running; the agent can read its output, send input, or stop it with the process tools below, and receives a message when it ends. Agents are told to set a positive `wait_ms` only for commands they expect to finish within that time, and to use `0` for long-running commands or ones of unknown duration, then do other work or end their turn. To wait a set time, an agent can run `sleep` with `wait_ms: 0` and let the exit message wake it.
+
+#### Input
+
+A `pipe` command gets no input: its stdin is `/dev/null`, so a program that prompts, such as a package manager asking for confirmation, reads end of input and fails at once instead of waiting until `wait_ms` passes. To send input with `write_process`, start the command with `io_mode: pty`. Daemons older than 0.2.15 keep stdin open for `pipe` commands.
+
+#### Background processes
+
+When a command outlives its `run_command` call, Omnara sends the agent a message when it ends, with its exit status, how long it ran, how much output it wrote, and its last lines of output. The agent does not need to poll with `read_process`; it can do other work or end its turn, and the message wakes it. Like other messages, it waits for any open question or permission request to be answered instead of canceling it.
+
+There is no message when the agent terminated the process with `stop_process`. After an interrupt the message still comes, since a program can handle the interrupt and keep running.
+
+To hear about specific output while a command runs, such as a development server's ready line or its errors, use [`watch_process`](#watch_process).
 
 Set `run_command` to `always_ask` to require approval before execution. The prompt shows the command, machine, shell, and working directory.
 
@@ -105,26 +118,45 @@ Use these tools to follow or control commands that are still running. A process 
 
 ### `read_process`
 
-Reads process output from a byte offset and can briefly wait for new output.
+Reads process output from a byte offset and can wait for the process to end.
 
 | Input | Type | Notes |
 | --- | --- | --- |
 | `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
 | `offset_byte` | integer | ≥ 0; byte position in the output stream. Omit to continue after the output returned by `run_command` or the last `read_process` call that omitted it |
-| `limit_bytes` | integer | 1–65536 (default 8192) |
-| `wait_ms` | integer | 1–300000; returns as soon as output arrives or the process exits. |
+| `wait_ms` | integer | 1–30000; wait for the process to end before returning |
+
+Without `wait_ms`, `read_process` returns the retained output immediately. With it, the read returns when the process ends or `wait_ms` passes. A `pty` process also returns after one second with no new output, as an interactive program does at a prompt. A read with `offset_byte` returns as soon as there is output at that position.
+
+Without `offset_byte`, a read returns at most 16 KiB of output, keeping the start and end like `run_command`. With `offset_byte`, it returns one contiguous page of up to 16 KiB from that position; pass `next_offset_byte` to continue, or `omitted_offset_byte` to read output an earlier result left out.
+
+Daemons older than omnarad 0.2.15 return as soon as output arrives and do not keep the end of long output.
 
 `run_command` and `read_process` results include `offset_byte` and `next_offset_byte`. To continue from a specific point, pass `next_offset_byte` as `offset_byte`.
 
 ### `write_process`
 
-Sends input to a running process or closes its standard input.
+Sends input to a running process. The process must have been started with `io_mode: pty`; otherwise the call fails with `process_stdin_unavailable`.
 
 | Input | Type | Notes |
 | --- | --- | --- |
 | `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
-| `data` | string | Max 128 KiB per write |
-| `close_stdin` | boolean | Pipe mode only |
+| `data`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Max 128 KiB per write |
+
+### `watch_process`
+
+Sends the agent a message with the output lines that match a regular expression, until the watch expires or the process ends.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `process_id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | |
+| `pattern` | string | RE2 regular expression, up to 500 bytes, matched against each output line. Required unless `timeout_seconds` is `0` |
+| `timeout_seconds` | integer | 0–3600 (default 300); when the watch expires. `0` cancels the current watch and takes no `pattern` or `offset_byte` |
+| `offset_byte` | integer | ≥ 0; byte position to watch from, such as `next_offset_byte` from `run_command`. Omit to watch from the end of the output returned by `run_command` or the last `read_process` call that omitted it, so output written in between is not missed |
+
+Matches that arrive together are batched into one message of up to 20 lines, and messages are at least 10 seconds apart. If the agent has not read the watch's last message yet, for example while it waits for an approval, new matches are merged into that message instead of adding another one. When the process ends, matches still pending are sent before its exit message. A process has one watch at a time: calling `watch_process` again replaces the pattern and restarts the timeout, so call it again to keep watching after a watch expires. When a watch expires, the agent gets a message saying so, so it can watch again or move on. Calling `watch_process` with `timeout_seconds: 0` cancels the watch without that message; matches it already found are still sent.
+
+For example, `run_command` starts a development server, then `watch_process` with `pattern: "listening on|error"` tells the agent when it is ready or fails. Watches suit rare lines the agent wants to be told about; it reads the surrounding output with `read_process`. A pattern that matches frequent lines, such as progress output, sends a message every 10 seconds, so the agent should narrow or cancel a watch that reports too often. `watch_process` needs omnarad 0.2.15 or later.
 
 ### `stop_process`
 

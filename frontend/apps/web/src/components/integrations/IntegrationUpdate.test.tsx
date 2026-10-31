@@ -407,11 +407,11 @@ it.each(['before the PUT returns', 'during the save refresh'] as const)(
     }
     await waitForUI(() => {
       expect(api.requestsTo('GET', detailPath)).toHaveLength(2)
+      expect(cache.isMutating()).toBe(1)
+      expect(field('PR opened')).toHaveProperty('checked', true)
+      expect(field('Bot mentioned')).toHaveProperty('checked', false)
+      expect(field('PR opened').disabled).toBe(true)
     })
-    expect(cache.isMutating()).toBe(1)
-    expect(field('PR opened')).toHaveProperty('checked', true)
-    expect(field('Bot mentioned')).toHaveProperty('checked', false)
-    expect(field('PR opened').disabled).toBe(true)
     await act(async () => {
       refreshed = true
       releaseRefresh(Response.json(latest))

@@ -277,6 +277,7 @@ it('keeps included tools out of normal rows and preserves their overrides', asyn
     'write_process',
     'read_process',
     'stop_process',
+    'watch_process',
     'list_processes',
     'create_machine',
     'delete_machine',

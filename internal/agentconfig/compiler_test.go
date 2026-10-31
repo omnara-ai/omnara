@@ -162,7 +162,7 @@ func TestDefaultCatalogRunCommandSchemaMatchesModelFacingContract(t *testing.T) 
 	}
 	assertRunCommandInputSchema(t, entry.InputSchema)
 	for _, name := range []string{
-		"write_process", "read_process", "stop_process", "list_processes",
+		"write_process", "read_process", "stop_process", "watch_process", "list_processes",
 	} {
 		entry, ok := catalog.Lookup(name)
 		if !ok {
@@ -663,9 +663,8 @@ func assertReadProcessInputSchema(t *testing.T, raw json.RawMessage) {
 	if !ok || offsetByte.Type != "integer" || offsetByte.Minimum != 0 {
 		t.Fatalf("read_process offset_byte schema = %+v", offsetByte)
 	}
-	limitBytes := schema.Properties["limit_bytes"]
-	if limitBytes.Type != "integer" || limitBytes.Minimum != 1 || limitBytes.Maximum != processaction.MaxObservationBytes {
-		t.Fatalf("read_process limit_bytes schema = %+v", limitBytes)
+	if _, ok := schema.Properties["limit_bytes"]; ok {
+		t.Fatalf("read_process schema must not expose limit_bytes: %s", string(raw))
 	}
 	waitMS := schema.Properties["wait_ms"]
 	if waitMS.Type != "integer" || waitMS.Minimum != 1 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
@@ -713,8 +712,13 @@ func assertRunCommandInputSchema(t *testing.T, raw json.RawMessage) {
 		t.Fatalf("shell selector enum = %v, want %v", got, wantSelectors)
 	}
 	waitMS := schema.Properties["wait_ms"]
-	if waitMS.Type != "integer" || waitMS.Minimum != 1 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
+	if waitMS.Type != "integer" || waitMS.Minimum != 0 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
 		t.Fatalf("run_command wait_ms schema = %+v", waitMS)
+	}
+	for _, removed := range []string{"detach", "notify_match"} {
+		if _, ok := schema.Properties[removed]; ok {
+			t.Fatalf("run_command schema must not expose %s: %s", removed, string(raw))
+		}
 	}
 	if ioMode := schema.Properties["io_mode"]; ioMode.Type != "string" ||
 		!sameStringSliceForAgentConfig(ioMode.Enum, []string{"pipe", "pty"}) {

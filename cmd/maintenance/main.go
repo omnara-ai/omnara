@@ -2,21 +2,14 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
-	"math/rand/v2"
 	"net/http"
 	"os"
 	"os/signal"
-	"runtime/debug"
 	"syscall"
-	"time"
 
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/defaultprovider"
-	"github.com/omnara-ai/omnara/internal/errutil"
-	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/maintenance"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
@@ -27,30 +20,6 @@ import (
 	"github.com/omnara-ai/omnara/observability/metrics"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
-
-const (
-	providerRuntimeDiscoveryInterval = 5 * time.Minute
-	providerRuntimeRecheckInterval   = 30 * time.Second
-	idleMachineReconcileInterval     = time.Minute
-	deniedMachineReconcileInterval   = time.Hour
-	memoryCleanupInterval            = time.Hour
-)
-
-type maintenanceOutcome struct {
-	interrupted bool
-	err         error
-}
-
-func completedMaintenanceOutcome(ctx context.Context, err error) maintenanceOutcome {
-	outcome := maintenanceOutcome{
-		interrupted: errors.Is(ctx.Err(), context.Canceled),
-		err:         err,
-	}
-	if outcome.interrupted && errutil.OnlyMatches(err, context.Canceled) {
-		outcome.err = nil
-	}
-	return outcome
-}
 
 func main() {
 	logger := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
@@ -142,87 +111,14 @@ func main() {
 		metricSet,
 		metrics.ReadyAll(db.Ping, redisClient.Ping),
 	)
-	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
-	runtimeRecorder := metrics.NewProviderRuntimeRecorder(metricSet)
-	discordRuntimeRecorder := metrics.NewDiscordRuntimeDemandRecorder(metricSet)
-	discordRuntimeDone := make(chan struct{})
-	go func() {
-		defer close(discordRuntimeDone)
-		runDiscordRuntimeMetricsLoop(ctx, logger, store.Integrations(),
-			discordRuntimeRecorder)
-	}()
-	agentBacklogDone := make(chan struct{})
-	go func() {
-		defer close(agentBacklogDone)
-		maintenance.RunAgentBacklogMetrics(ctx, logger, store.Execution().SampleReadyAgentBacklog,
-			metrics.NewAgentBacklogRecorder(metricSet))
-	}()
-
-	machineLoopDone := make(chan struct{})
-	go func() {
-		defer close(machineLoopDone)
-		runMachinePoolMaintenanceLoop(ctx, logger, machinePoolManager, cfg.MaintenanceInterval)
-	}()
-	idleAgentArchiveLoopDone := make(chan struct{})
-	go func() {
-		defer close(idleAgentArchiveLoopDone)
-		runIdleAgentArchiveLoop(ctx, logger, store, machinePoolManager, cfg.MaintenanceInterval)
-	}()
-	memoryCleanupDone := make(chan struct{})
-	go func() {
-		defer close(memoryCleanupDone)
-		runMemoryCleanupLoop(ctx, logger, memoryCleanupInterval, store.Memories().CleanupFiles)
-	}()
-	executionHeadDone := make(chan struct{})
-	jobRecorder := metrics.NewJobRecorder(metricSet, metrics.SubsystemMaintenance)
-	go func() {
-		defer close(executionHeadDone)
-		runExecutionHeadLoop(ctx, logger, jobRecorder, store.Execution().SampleExecutionHeads)
-	}()
-	runtimeDiscoveryDone := make(chan struct{})
-	go func() {
-		defer close(runtimeDiscoveryDone)
-		runProviderRuntimeMaintenanceLoop(
-			ctx,
-			logger,
-			runtimeRecorder,
-			providerRuntimeDiscoveryInterval,
-			metrics.ProviderRuntimeOperationDiscovery,
-			func(ctx context.Context) (machinepool.RuntimeReconciliationStats, error) {
-				return machinePoolManager.DiscoverProviderRuntimeMismatches(
-					ctx,
-					machinepool.RuntimeReconciliationConfig{},
-				)
-			},
-		)
-	}()
-	runtimeRecheckDone := make(chan struct{})
-	go func() {
-		defer close(runtimeRecheckDone)
-		runProviderRuntimeMaintenanceLoop(
-			ctx,
-			logger,
-			runtimeRecorder,
-			providerRuntimeRecheckInterval,
-			metrics.ProviderRuntimeOperationConfirmation,
-			func(ctx context.Context) (machinepool.RuntimeReconciliationStats, error) {
-				return machinePoolManager.ConfirmProviderRuntimeMismatches(
-					ctx,
-					machinepool.RuntimeReconciliationConfig{},
-				)
-			},
-		)
-	}()
-	defaultModelProviderDone := make(chan struct{})
-	if cfg.DefaultModelProvider == nil {
-		close(defaultModelProviderDone)
-	} else {
+	var defaultModelProvider *defaultprovider.Runner
+	if cfg.DefaultModelProvider != nil {
 		hostedHTTPClient := metrics.NewObservedHTTPClient(
 			&http.Client{Timeout: modelprovider.HostedCredentialProvisionTimeout},
 			metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient),
 			metrics.WithHTTPClientPathLabel(modelprovider.HostedCredentialPath),
 		)
-		runner := defaultprovider.NewRunner(
+		defaultModelProvider = defaultprovider.NewRunner(
 			store.Organizations(),
 			modelprovider.HTTPHostedCredentialProvisioner{
 				BaseURL:    cfg.HostedAPIURL,
@@ -231,468 +127,33 @@ func main() {
 			},
 			*cfg.DefaultModelProvider,
 		)
-		go func() {
-			defer close(defaultModelProviderDone)
-			runDefaultModelProviderProvisioningLoop(
-				ctx,
-				logger,
-				runner,
-				cfg.MaintenanceInterval,
-			)
-		}()
 	}
 
-	exitCode := runCoreMaintenanceLoop(
-		ctx,
-		cancel,
-		logger,
-		store,
-		cfg.MaintenanceInterval,
-		healthErr,
-	)
+	jobsDone := make(chan struct{})
+	go func() {
+		defer close(jobsDone)
+		maintenance.Run(ctx, maintenance.Options{
+			Log:                  logger,
+			Store:                store,
+			MachinePools:         machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL),
+			Metrics:              metricSet,
+			Interval:             cfg.MaintenanceInterval,
+			DefaultModelProvider: defaultModelProvider,
+		})
+	}()
+	exitCode := 0
+	select {
+	case <-ctx.Done():
+		<-healthErr
+	case err := <-healthErr:
+		if err != nil {
+			logger.Error("maintenance health and metrics server failed", "error", err)
+			exitCode = 1
+		}
+	}
 	cancel()
-	<-machineLoopDone
-	<-idleAgentArchiveLoopDone
-	<-memoryCleanupDone
-	<-executionHeadDone
-	<-runtimeDiscoveryDone
-	<-runtimeRecheckDone
-	<-discordRuntimeDone
-	<-agentBacklogDone
-	<-defaultModelProviderDone
+	<-jobsDone
 	if exitCode != 0 {
 		os.Exit(exitCode)
-	}
-}
-
-func runProviderRuntimeMaintenanceLoop(
-	ctx context.Context,
-	log *slog.Logger,
-	recorder *metrics.ProviderRuntimeRecorder,
-	interval time.Duration,
-	operation metrics.ProviderRuntimeOperation,
-	run func(context.Context) (machinepool.RuntimeReconciliationStats, error),
-) {
-	for {
-		started := time.Now()
-		stats, err := runProviderRuntimeMaintenanceTick(ctx, log, operation, run)
-		outcome := completedMaintenanceOutcome(ctx, err)
-		recordProviderRuntimePass(recorder, operation, stats, outcome, time.Since(started))
-		if outcome.err != nil {
-			log.Error("provider runtime reconciliation", "operation", operation, "error", outcome.err, "stats", stats)
-		} else if !outcome.interrupted &&
-			(stats.Targets > 0 || stats.MarkersSet > 0 || stats.DeletionClaims > 0) {
-			log.Info("provider runtime reconciliation", "operation", operation, "stats", stats)
-		}
-		timer := time.NewTimer(jitteredMaintenanceDelay(interval))
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return
-		case <-timer.C:
-		}
-	}
-}
-
-func runProviderRuntimeMaintenanceTick(
-	ctx context.Context,
-	log *slog.Logger,
-	operation metrics.ProviderRuntimeOperation,
-	run func(context.Context) (machinepool.RuntimeReconciliationStats, error),
-) (stats machinepool.RuntimeReconciliationStats, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("provider runtime %s reconciliation panicked: %v", operation, recovered)
-			log.Error(
-				"provider runtime reconciliation tick panicked",
-				"operation", operation,
-				"error", recovered,
-				"stack", string(debug.Stack()),
-			)
-		}
-	}()
-	return run(ctx)
-}
-
-func recordProviderRuntimePass(
-	recorder *metrics.ProviderRuntimeRecorder,
-	operation metrics.ProviderRuntimeOperation,
-	stats machinepool.RuntimeReconciliationStats,
-	outcome maintenanceOutcome,
-	duration time.Duration,
-) {
-	result := providerRuntimeResult(outcome)
-	recorder.RecordPass(operation, result, duration)
-	for event, count := range map[metrics.ProviderRuntimeEvent]int{
-		metrics.ProviderRuntimeEventPages:                 stats.Pages,
-		metrics.ProviderRuntimeEventScopes:                stats.Scopes,
-		metrics.ProviderRuntimeEventScopeCooldownSkips:    stats.ScopesSkipped,
-		metrics.ProviderRuntimeEventTargets:               stats.Targets,
-		metrics.ProviderRuntimeEventObservations:          stats.Observed,
-		metrics.ProviderRuntimeEventRunning:               stats.Running,
-		metrics.ProviderRuntimeEventInactive:              stats.Inactive,
-		metrics.ProviderRuntimeEventTransitional:          stats.Transitional,
-		metrics.ProviderRuntimeEventTerminated:            stats.Terminated,
-		metrics.ProviderRuntimeEventUnknown:               stats.Unknown,
-		metrics.ProviderRuntimeEventProviderErrors:        stats.ProviderErrors,
-		metrics.ProviderRuntimeEventMarkersSet:            stats.MarkersSet,
-		metrics.ProviderRuntimeEventMarkersCleared:        stats.MarkersCleared,
-		metrics.ProviderRuntimeEventWakeAttemptsCleared:   stats.WakeAttemptsCleared,
-		metrics.ProviderRuntimeEventConfirmations:         stats.Confirmations,
-		metrics.ProviderRuntimeEventDeletionClaims:        stats.DeletionClaims,
-		metrics.ProviderRuntimeEventDeletionClaimsSkipped: stats.DeletionClaimsSkipped,
-	} {
-		recorder.RecordEvents(operation, event, count)
-	}
-}
-
-func providerRuntimeResult(outcome maintenanceOutcome) metrics.ProviderRuntimeResult {
-	if outcome.err != nil {
-		return metrics.ProviderRuntimeResultError
-	}
-	if outcome.interrupted {
-		return metrics.ProviderRuntimeResultCanceled
-	}
-	return metrics.ProviderRuntimeResultSuccess
-}
-
-func jitteredMaintenanceDelay(interval time.Duration) time.Duration {
-	spread := interval / 10
-	if spread <= 0 {
-		return interval
-	}
-	return interval - spread + time.Duration(rand.Int64N(int64(2*spread)+1))
-}
-
-func runCoreMaintenanceLoop(
-	ctx context.Context,
-	cancel context.CancelFunc,
-	log *slog.Logger,
-	store *storage.Store,
-	interval time.Duration,
-	healthErr <-chan error,
-) int {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		now := time.Now().UTC()
-		loopCtx, event := logent.MaintenanceLoop(ctx, interval, now)
-		runCoreMaintenanceTick(loopCtx, log, store)
-		event.Done(loopCtx)
-		select {
-		case <-ctx.Done():
-			<-healthErr
-			return 0
-		case err := <-healthErr:
-			cancel()
-			if err != nil {
-				log.Error("maintenance health and metrics server failed", "error", err)
-				return 1
-			}
-			return 0
-		case <-ticker.C:
-		}
-	}
-}
-
-func runCoreMaintenanceTick(
-	ctx context.Context,
-	log *slog.Logger,
-	store *storage.Store,
-) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			logpkg.Error(ctx, fmt.Errorf("core maintenance tick panicked: %v", recovered))
-			logpkg.Attach(ctx, logpkg.Fields{"error.stack": string(debug.Stack())})
-		}
-	}()
-	result := maintenance.RunCore(ctx, store)
-	reportCoreMaintenanceResult(ctx, log, result)
-}
-
-func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result maintenance.CoreResult) {
-	reapRuntimeLocksOutcome := completedMaintenanceOutcome(ctx, result.ReapRuntimeLocksErr)
-	expireDaemonRuntimesOutcome := completedMaintenanceOutcome(ctx, result.ExpireDaemonRuntimesErr)
-	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, result.ExpireProcessToolsErr)
-	webhookDeliveryCleanupOutcome := completedMaintenanceOutcome(ctx, result.WebhookDeliveryCleanupErr)
-	authCleanupOutcome := completedMaintenanceOutcome(ctx, result.AuthCleanupErr)
-	statesOutcome := completedMaintenanceOutcome(ctx, result.IntegrationStatesCleanupErr)
-	completedInboxOutcome := completedMaintenanceOutcome(ctx, result.CompletedInboxCleanupErr)
-	deletedInboxOutcome := completedMaintenanceOutcome(ctx, result.DeletedInboxCleanupErr)
-	authCleanupDeleted := result.AuthCleanup.DeletedInactiveTokens > 0 ||
-		result.AuthCleanup.DeletedBrowserSessions > 0 ||
-		result.AuthCleanup.DeletedAbandonedUsers > 0 ||
-		result.AuthCleanup.DeletedDeviceFlows > 0 ||
-		result.AuthCleanup.DeletedOAuthCodes > 0 ||
-		result.AuthCleanup.DeletedOAuthTokens > 0
-	worked := result.ReapedRuntimeLocks > 0 ||
-		result.ExpiredDaemonRuntimes > 0 ||
-		result.ExpiredProcessTools > 0 ||
-		authCleanupDeleted ||
-		result.DeletedWebhookDeliveries > 0 ||
-		result.DeletedIntegrationStates > 0 ||
-		result.CompletedInbox > 0 ||
-		result.DeletedInbox > 0
-	logent.MaintenanceLoopResult(
-		ctx,
-		result.ReapedRuntimeLocks,
-		reapRuntimeLocksOutcome.err,
-		worked,
-		errors.Join(
-			reapRuntimeLocksOutcome.err,
-			expireDaemonRuntimesOutcome.err,
-			expireProcessToolsOutcome.err,
-			authCleanupOutcome.err,
-			completedInboxOutcome.err,
-			deletedInboxOutcome.err,
-			statesOutcome.err,
-			webhookDeliveryCleanupOutcome.err,
-		),
-	)
-	if statesOutcome.err != nil {
-		log.Error("cleanup integration states", "error", statesOutcome.err)
-	} else if !statesOutcome.interrupted && result.DeletedIntegrationStates > 0 {
-		log.Info("cleaned integration states", "count", result.DeletedIntegrationStates)
-	}
-	if completedInboxOutcome.err != nil {
-		log.Error("cleanup completed integration inbox", "count", result.CompletedInbox, "error", completedInboxOutcome.err)
-	} else if !completedInboxOutcome.interrupted && (result.CompletedInbox > 0 || result.CompletedInboxBudgetExhausted) {
-		log.Info("cleaned completed integration inbox", "count", result.CompletedInbox,
-			"retention", maintenance.IntegrationInboxRetention, "budget_exhausted", result.CompletedInboxBudgetExhausted)
-	}
-	if deletedInboxOutcome.err != nil {
-		log.Error("cleanup deleted integration inbox", "count", result.DeletedInbox, "error", deletedInboxOutcome.err)
-	} else if !deletedInboxOutcome.interrupted && (result.DeletedInbox > 0 || result.DeletedInboxBudgetExhausted) {
-		log.Info("cleaned deleted integration inbox", "count", result.DeletedInbox,
-			"budget_exhausted", result.DeletedInboxBudgetExhausted)
-	}
-	if expireDaemonRuntimesOutcome.err != nil {
-		log.Error("expire daemon runtimes", "error", expireDaemonRuntimesOutcome.err)
-	} else if !expireDaemonRuntimesOutcome.interrupted && result.ExpiredDaemonRuntimes > 0 {
-		log.Info("expired daemon runtimes", "count", result.ExpiredDaemonRuntimes)
-	}
-	if expireProcessToolsOutcome.err != nil {
-		log.Error("expire process tool calls", "error", expireProcessToolsOutcome.err)
-	} else if !expireProcessToolsOutcome.interrupted && result.ExpiredProcessTools > 0 {
-		log.Info("expired process tool calls", "count", result.ExpiredProcessTools)
-	}
-	if webhookDeliveryCleanupOutcome.err != nil {
-		log.Error("cleanup expired event webhook deliveries", "error", webhookDeliveryCleanupOutcome.err)
-	} else if !webhookDeliveryCleanupOutcome.interrupted && result.DeletedWebhookDeliveries > 0 {
-		log.Info("cleaned expired event webhook deliveries", "count", result.DeletedWebhookDeliveries)
-	}
-	if authCleanupOutcome.err != nil {
-		log.Error("cleanup inactive auth state", "error", authCleanupOutcome.err)
-	} else if !authCleanupOutcome.interrupted && authCleanupDeleted {
-		log.Info(
-			"cleaned inactive auth state",
-			"deleted_inactive_tokens",
-			result.AuthCleanup.DeletedInactiveTokens,
-			"deleted_browser_sessions",
-			result.AuthCleanup.DeletedBrowserSessions,
-			"deleted_abandoned_users",
-			result.AuthCleanup.DeletedAbandonedUsers,
-			"deleted_device_flows",
-			result.AuthCleanup.DeletedDeviceFlows,
-			"deleted_oauth_codes",
-			result.AuthCleanup.DeletedOAuthCodes,
-			"deleted_oauth_tokens",
-			result.AuthCleanup.DeletedOAuthTokens,
-		)
-	}
-}
-
-func runMachinePoolMaintenanceLoop(
-	ctx context.Context,
-	log *slog.Logger,
-	machinePoolManager *machinepool.Manager,
-	interval time.Duration,
-) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	var nextIdleReconcileAt time.Time
-	var nextDeniedReconcileAt time.Time
-	for {
-		if now := time.Now(); !now.Before(nextDeniedReconcileAt) {
-			if runDeniedMachineDeletionTick(ctx, log, machinePoolManager) < machinepool.DefaultReconcileBatchSize {
-				nextDeniedReconcileAt = now.Add(deniedMachineReconcileInterval)
-			}
-		}
-		runMachinePoolMaintenanceTick(ctx, log, machinePoolManager)
-		if now := time.Now(); !now.Before(nextIdleReconcileAt) {
-			candidateCount, err := runIdleMachineDeletionMaintenanceTick(
-				ctx,
-				log,
-				machinePoolManager.ReconcileIdleDeletion,
-			)
-			outcome := completedMaintenanceOutcome(ctx, err)
-			if outcome.err != nil {
-				log.Error("reconcile idle machine deletion", "candidate_count", candidateCount, "error", outcome.err)
-			} else if !outcome.interrupted && candidateCount > 0 {
-				log.Info("reconciled idle machine deletion", "candidate_count", candidateCount)
-			}
-			if candidateCount < machinepool.DefaultReconcileBatchSize {
-				nextIdleReconcileAt = now.Add(idleMachineReconcileInterval)
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func runIdleMachineDeletionMaintenanceTick(
-	ctx context.Context,
-	log *slog.Logger,
-	reconcile func(context.Context, int32) (int, error),
-) (candidateCount int, err error) {
-	defer recoverMachinePoolMaintenancePanic(log)
-	return reconcile(ctx, machinepool.DefaultReconcileBatchSize)
-}
-
-func runDeniedMachineDeletionTick(
-	ctx context.Context,
-	log *slog.Logger,
-	machinePoolManager *machinepool.Manager,
-) (candidateCount int) {
-	defer recoverMachinePoolMaintenancePanic(log)
-	candidateCount, err := machinePoolManager.ReconcileManagedWorkDeniedDeletion(
-		ctx,
-		log,
-		machinepool.DefaultReconcileBatchSize,
-	)
-	outcome := completedMaintenanceOutcome(ctx, err)
-	if outcome.err != nil {
-		log.Error("reconcile managed work denied machine deletion", "candidate_count", candidateCount, "error", outcome.err)
-	} else if !outcome.interrupted && candidateCount > 0 {
-		log.Info("reconciled managed work denied machine deletion", "candidate_count", candidateCount)
-	}
-	return candidateCount
-}
-
-func recoverMachinePoolMaintenancePanic(log *slog.Logger) {
-	if recovered := recover(); recovered != nil {
-		log.Error("machine pool maintenance tick panicked", "error", recovered, "stack", string(debug.Stack()))
-	}
-}
-
-func runMachinePoolMaintenanceTick(
-	ctx context.Context,
-	log *slog.Logger,
-	machinePoolManager *machinepool.Manager,
-) {
-	defer recoverMachinePoolMaintenancePanic(log)
-	provisioned, provisionErr := machinePoolManager.ReconcileProvisioning(
-		ctx,
-		machinepool.DefaultReconcileBatchSize,
-	)
-	provisionOutcome := completedMaintenanceOutcome(ctx, provisionErr)
-	if provisionOutcome.err != nil {
-		log.Error("reconcile machine provisioning", "attempted_count", provisioned, "error", provisionOutcome.err)
-	} else if !provisionOutcome.interrupted && provisioned > 0 {
-		log.Info("attempted machine provisioning reconcile", "attempted_count", provisioned)
-	}
-	cleaned, cleanupErr := machinePoolManager.ReconcileCleanup(
-		ctx,
-		machinepool.DefaultReconcileBatchSize,
-	)
-	cleanupOutcome := completedMaintenanceOutcome(ctx, cleanupErr)
-	if cleanupOutcome.err != nil {
-		log.Error("reconcile machine cleanup", "attempted_count", cleaned, "error", cleanupOutcome.err)
-	} else if !cleanupOutcome.interrupted && cleaned > 0 {
-		log.Info("attempted machine cleanup reconcile", "attempted_count", cleaned)
-	}
-}
-
-func runIdleAgentArchiveLoop(
-	ctx context.Context,
-	log *slog.Logger,
-	store *storage.Store,
-	machinePoolManager *machinepool.Manager,
-	interval time.Duration,
-) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		runIdleAgentArchiveTick(ctx, log, store, machinePoolManager)
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func runIdleAgentArchiveTick(
-	ctx context.Context,
-	log *slog.Logger,
-	store *storage.Store,
-	machinePoolManager *machinepool.Manager,
-) {
-	defer recoverMachinePoolMaintenancePanic(log)
-	machines, archived, err := store.Execution().ArchiveIdleAgents(ctx, machinepool.DefaultReconcileBatchSize)
-	outcome := completedMaintenanceOutcome(ctx, err)
-	if outcome.err != nil {
-		log.Error("archive idle agents", "archived_count", archived, "error", outcome.err)
-	} else if !outcome.interrupted && archived > 0 {
-		log.Info("archived idle agents", "archived_count", archived)
-	}
-	if len(machines) == 0 {
-		return
-	}
-	if _, err := machinePoolManager.DeleteMachines(ctx, machines); err != nil {
-		log.Error("delete idle agent machines", "machine_count", len(machines), "error", err)
-	}
-}
-
-func runMemoryCleanupLoop(
-	ctx context.Context,
-	log *slog.Logger,
-	interval time.Duration,
-	cleanup func(context.Context) (memorystore.FileCleanupResult, error),
-) {
-	for {
-		runMemoryCleanupTick(ctx, log, cleanup)
-		timer := time.NewTimer(jitteredMaintenanceDelay(interval))
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return
-		case <-timer.C:
-		}
-	}
-}
-
-func runMemoryCleanupTick(
-	ctx context.Context,
-	log *slog.Logger,
-	cleanup func(context.Context) (memorystore.FileCleanupResult, error),
-) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			log.Error("memory cleanup tick panicked", "error", recovered, "stack", string(debug.Stack()))
-		}
-	}()
-	result, err := cleanup(ctx)
-	outcome := completedMaintenanceOutcome(ctx, err)
-	if outcome.err != nil {
-		log.Error(
-			"cleanup memory files",
-			"removed_stores", result.RemovedStores,
-			"discarded_staged_files", result.DiscardedStagedFiles,
-			"error", outcome.err,
-		)
-	} else if !outcome.interrupted && result != (memorystore.FileCleanupResult{}) {
-		log.Info(
-			"cleaned memory files",
-			"removed_stores", result.RemovedStores,
-			"discarded_staged_files", result.DiscardedStagedFiles,
-		)
 	}
 }
