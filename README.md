@@ -9,7 +9,7 @@
 
 <h1 align="center">The open-source managed agent platform</h1>
 
-<p align="center">A self-hostable alternative to Claude Managed Agents and OpenAI's Agents API.</p>
+<p align="center">The open-source, self-hostable alternative to Claude Managed Agents and OpenAI's Agents API. Any model, any machine, your data.</p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/github/license/omnara-ai/omnara"></a>
@@ -26,11 +26,15 @@
   <a href="https://discord.gg/Dc46sYk6e3">Discord</a>
 </p>
 
-Omnara is an open-source managed agent platform. Use the API to run AI agents
-on any model and any machine, with tools, secrets, permissions, and streaming
-built in. Use [Omnara Cloud](https://app.omnara.com), where Omnara runs the
-workers, database, and sandboxes for you, or self-host it for free under
-Apache 2.0.
+Omnara is the open-source managed agent platform for running AI agents in
+production. Launch agents through one API, on any model and any machine, with
+tools, secrets, permissions, approvals, and streaming built in. Every step is
+saved to Postgres, so agents pick up where they left off after crashes and
+deploys, and you can change a running agent's model, tools, permissions, or
+instructions through the API without restarting the conversation. Use
+[Omnara Cloud](https://app.omnara.com) with no platform fee, where Omnara runs
+the workers, database, and sandboxes for you, or self-host the whole platform
+for free under Apache 2.0.
 
 ## Quickstart
 
@@ -232,7 +236,11 @@ memory filesystem. The
   back with git.
 - **[Durable state](https://docs.omnara.com/agents/failure-handling).** Every step is
   saved, so agents pick up where they left off after crashes, restarts, and
-  machine disconnects.
+  machine disconnects, and crash recovery doesn't rerun tools.
+- **[Live config changes](https://docs.omnara.com/events/sending-input#change-the-config-mid-conversation).**
+  Change a running agent's model, tools, permissions, or instructions through
+  the API. The change applies at its next model call, without restarting the
+  conversation or redeploying.
 - **[Schedules](https://docs.omnara.com/api-reference/endpoints/configs-and-profiles/create-cron-trigger).**
   Cron triggers with time zones can message an existing agent, launch a new one
   from a profile, or
@@ -277,8 +285,10 @@ memory filesystem. The
 
 [Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/overview)
 and OpenAI's [Agents API](https://developers.openai.com/api/docs/guides/agents-api/overview)
-are hosted services for running agents on one company's models. Omnara does the
-same job as an open-source platform you can run anywhere, with any model.
+are proprietary hosted services that run one company's models on that
+company's cloud, with your agent history stored by the vendor. Omnara does the
+same job as an open-source platform you can run anywhere, with any model, and
+keep every agent's history in your own Postgres.
 
 | | Omnara | Claude Managed Agents | OpenAI's Agents API |
 | --- | --- | --- | --- |
@@ -291,10 +301,11 @@ same job as an open-source platform you can run anywhere, with any model.
 | Agent history | Stored by Omnara on Omnara Cloud and queryable through the API. In your own Postgres when self-hosted. | Stored by Anthropic, readable and deletable through the API. Not currently eligible for Zero Data Retention or HIPAA BAA coverage. | Stored by OpenAI. No Zero Data Retention support. US data residency only. |
 | Pricing | Free to self-host. On Omnara Cloud, free with your own keys and machines, or pay as you go for our models and sandboxes. | Claude token rates plus $0.08 per active session-hour | OpenAI model rates, plus standard rates for OpenAI tools and hosted sandboxes |
 
-Choose Claude Managed Agents or the Agents API if you use one company's models
-and want that company to run everything for you. Choose Omnara if you want to
-pick your models and machines, run the platform yourself, or keep agent data in
-your own database.
+For production agents, choose Omnara. It's the only one of the three whose
+whole platform is open source, the only one that runs any model, and the only
+one you can self-host in full, and Omnara Cloud has no platform fee. Choose a
+lab's service only if you'll stay on that company's models and are fine with it
+holding your agents' history.
 
 ## Where Omnara fits
 
@@ -359,8 +370,15 @@ coding agent through setting up Omnara for your project.
 
 ## FAQ
 
-**What is Omnara?** An open-source managed agent platform for running AI agents
-on any model and any machine.
+**What is Omnara?** The open-source managed agent platform for running AI
+agents in production on any model and any machine, hosted on Omnara Cloud or
+self-hosted.
+
+**How is Omnara different from Claude Managed Agents and OpenAI's Agents API?**
+Those are proprietary services that run one company's models and store your agents'
+history on that company's cloud. Omnara is open source under Apache 2.0, works
+with any model on your own keys, runs on any machine, and can be self-hosted in
+full, so the agent loop and its history stay on your infrastructure.
 
 **How much does it cost?** Nothing to self-host. Omnara Cloud has no platform
 fee. You can bring your own model keys and machines for free, or pay as you go

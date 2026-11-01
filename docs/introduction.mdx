@@ -1,19 +1,21 @@
 ---
 title: "The open-source managed agent platform"
 sidebarTitle: Introduction
-description: A self-hostable alternative to Claude Managed Agents and OpenAI's Agents API. Run durable AI agents on any model and any machine.
+description: The open-source alternative to Claude Managed Agents and OpenAI's Agents API. Run durable AI agents in production on any model and any machine, hosted or self-hosted.
 icon: "hand-wave"
 ---
 
-Omnara is an open-source managed agent platform and a self-hostable alternative to Claude Managed Agents and OpenAI's Agents API. Use the API to run AI agents on any model and any machine, with tools, secrets, permissions, and streaming built in. Use [Omnara Cloud](https://app.omnara.com), where Omnara runs the workers, database, and sandboxes and there's nothing for you to operate, or self-host it for free under Apache 2.0.
+Omnara is the open-source managed agent platform: the self-hostable alternative to Claude Managed Agents and OpenAI's Agents API. Launch production AI agents through one API, on any model and any machine, with tools, secrets, permissions, approvals, and streaming built in. Use [Omnara Cloud](https://app.omnara.com), where Omnara runs the workers, database, and sandboxes and there's nothing for you to operate, or self-host the whole platform for free under Apache 2.0.
+
+The managed agent services from the AI labs and clouds are proprietary: the vendor runs the platform on its own infrastructure, and the labs' services run only their own models. Open-source frameworks such as LangGraph and Mastra are libraries you still have to host and build a platform around. Omnara gives you the managed platform and the source code: any model on your own keys, agents that survive crashes and deploys, and agent history you can keep in your own Postgres.
 
 ## What Omnara runs for you
 
 You describe an agent in a config: its instructions, model, tools, and machines. Omnara runs the agent loop on its own workers and keeps the agent's full history in Postgres.
 
-- **Durable agents.** Every step is saved as it happens, so an agent picks up where it left off after a worker crash, a restart, or a machine disconnect. [Failure handling](/agents/failure-handling) covers exactly what happens in each case.
+- **Durable agents.** Every step is saved as it happens, so an agent picks up where it left off after a worker crash, a restart, or a machine disconnect, and crash recovery doesn't rerun tools. [Failure handling](/agents/failure-handling) covers exactly what happens in each case.
 - **Scaling.** Workers are stateless and an agent only uses one while it's taking a turn, so you add workers to run more agents at once.
-- **Agents as API objects.** Launch one agent per customer, ticket, or thread with an API call. Change a running agent's model, tools, permissions, or instructions by posting a new config, and the change applies at its next model call without restarting the conversation.
+- **Agents as API objects.** Launch one agent per customer, ticket, or thread with an API call. Change a running agent's model, tools, permissions, or instructions by posting a new config, and the change applies at its next model call without restarting the conversation or redeploying anything.
 - **Your logic, in your code.** [Custom tools](/tools/custom) run in your own backend, in any language, and post their results back. Omnara holds each call until you answer, so your services can restart or redeploy without breaking a running agent.
 - **Configs you can review.** A [config](/agents/configuration) is a YAML or JSON file you can keep in your repository, review in pull requests, and apply from CI with `omnara profiles update <profile-id> --file agent.yaml`. Configs are immutable, and earlier versions stay in the profile's history.
 
@@ -23,16 +25,16 @@ Most of an agent's behavior can change while it runs, through the API, without a
 
 - **[Config changes mid-conversation.](/events/sending-input#change-the-config-mid-conversation)** Swap the model, tools, permissions, or instructions; the change applies at the agent's next model call.
 - **[Steering messages.](/events/sending-input#queued-vs-steering)** Send a correction that reaches the agent at its next model call, ahead of queued work, or reorder and cancel queued messages.
-- **[Per-tool permissions.](/tools/permissions)** Let each tool run, require a person's approval, or block it.
+- **[Per-tool permissions.](/tools/permissions)** Let each tool run, require a person's approval, or block it. The platform enforces the setting.
 - **[Subagents.](/agents/configuration#subagents)** Let an agent start subagents with their own model and instructions, read their progress, message them, and stop them, with caps on how many and how deep.
 - **[Context and models.](/agents/configuration#model)** Set the context budget that triggers compaction, the output cap, reasoning effort, and which tools load only when needed.
-- **Your own code.** [Custom tools](/tools/custom) and [MCP servers](/tools/mcp) run whatever logic you need, and the agent loop itself is open source if you self-host and want to change it.
+- **Your own code.** [Custom tools](/tools/custom) and [MCP servers](/tools/mcp) run whatever logic you need, and when you self-host, the agent loop itself is open source and yours to change.
 
 ## When to use Omnara
 
 Use Omnara for agents that have to keep working: agents in your product, internal bots in Slack or GitHub, code review, and long-running background work, whether you run one agent or thousands.
 
-Agent frameworks such as LangGraph, Mastra, or Vercel's eve are libraries: the agent is code in your app, and its durability and scaling depend on the runtime and hosting you pair it with. With Omnara, the loop runs on Omnara's workers, so agents survive crashes and your app's deploys, and your application controls the user experience through the API. A single stateless model request may only need a model API.
+Agent frameworks such as LangGraph, Mastra, or Vercel's eve are libraries: the agent is code in your app, and its durability and scaling depend on the runtime and hosting you build around it, and changing the agent's code means redeploying your app. With Omnara, the loop runs on Omnara's workers, so agents survive crashes and your app's deploys, you change them through the API, and your application keeps full control of the user experience.
 
 ## Build an agent
 
@@ -58,14 +60,14 @@ You can create and launch the agent in two ways:
 - **Dashboard**: click **New agent** in your project in the dashboard.
 - **Programmatically**: Omnara provides an **API**, **TypeScript SDK**, and **CLI**. Your code can generate configs too, for example one per customer.
 
-The [quickstart](/quickstart) provides a more detailed guide to setting up your first agent.
+The [quickstart](/quickstart) walks through setting up your first agent.
 
 ## What's included
 
 - **[Any model](/organization/model-providers).** OpenAI, Anthropic, OpenRouter, Amazon Bedrock, LiteLLM, Ollama, or any compatible endpoint, on your own keys, including models you host yourself.
 - **[Tools](/tools/built-in).** Built-in tools for shell commands, files, web search and fetch, and asking a person a question, plus [MCP servers](/tools/mcp) and [custom tools](/tools/custom).
 - **[Permissions and approvals](/tools/permissions).** Each tool can run immediately, ask a person first, or be blocked. The agent waits for an answer as long as it takes.
-- **[Machines](/machines/overview).** Your own laptops, VMs, and containers through the Omnara daemon, or sandboxes from twelve providers. An agent can use several at once.
+- **[Machines](/machines/overview).** Your own laptops, VMs, and containers through the Omnara daemon, which only makes outbound connections, or sandboxes from twelve providers, including E2B, Daytona, and Modal. An agent can use several at once and keeps going when one goes offline.
 - **[Secrets](/organization/secrets).** Encrypted credentials for model providers, machines, and MCP servers, shared with projects through grants. MCP servers are called from Omnara's workers, so their credentials never reach the agent's machines.
 - **[Skills](/tools/skills), [memory](/agents/configuration#memory-stores), and [subagents](/agents/configuration#subagents).** Reusable instructions and files, memory that persists between conversations, and subagents that are full agents you can inspect.
 - **[Schedules](/api-reference/endpoints/configs-and-profiles/create-cron-trigger).** Cron triggers that message an agent or launch a new one.
@@ -74,9 +76,9 @@ The [quickstart](/quickstart) provides a more detailed guide to setting up your 
 
 ## Open source and Omnara Cloud
 
-The whole control plane is in the [omnara-ai/omnara](https://github.com/omnara-ai/omnara) repository under Apache 2.0, including the agent loop, recovery, and the tests that cover them, so you can check how Omnara behaves instead of relying on its docs. If you self-host, you can read and change any of it, and the [self-hosting guide](/self-hosting/deployment) covers a production deployment.
+The whole control plane is in the [omnara-ai/omnara](https://github.com/omnara-ai/omnara) repository under Apache 2.0, including the agent loop, recovery, and the tests that cover them, so you can verify how Omnara behaves in the code itself. If you self-host, you can read and change any of it, and the [self-hosting guide](/self-hosting/deployment) covers a production deployment.
 
-Omnara Cloud runs the same open-source control plane for you. Enterprise plans add deployment and maintenance in your own cloud, SSO and audit logs, and custom SLAs. The platform has no fee: you pay the provider's token rates for models bought through Omnara and for the Omnara-managed machines your agents use, and your own keys and machines are free. See [pricing](https://www.omnara.com/pricing) and the [Trust Center](https://trust.omnara.com) for security and compliance details.
+Omnara Cloud runs the same open-source control plane for you, with no platform fee. You pay the provider's token rates for models bought through Omnara and usage rates for the Omnara-managed machines your agents use, and Omnara charges nothing for your own keys and machines. Enterprise plans add deployment and maintenance in your own cloud, SSO and audit logs, and custom SLAs. See [pricing](https://www.omnara.com/pricing) and the [Trust Center](https://trust.omnara.com) for security and compliance details.
 
 ## Core concepts
 

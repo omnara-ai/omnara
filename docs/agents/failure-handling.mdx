@@ -4,7 +4,9 @@ description: What happens to a running agent when a worker, model call, tool, or
 icon: "shield-check"
 ---
 
-An agent's history and execution state live in Postgres. Workers keep nothing of their own, so any worker can continue any agent from its last saved step. This page covers what happens in each failure case and what your own code should handle.
+Omnara agents survive worker crashes, deploys, and machines going offline, and they retry model errors that can succeed later. An agent's history and execution state live in Postgres, and workers keep nothing of their own, so any worker can continue any agent from its last saved step. Finished steps never run again, crash recovery doesn't rerun tools, and approvals and custom tool calls wait as long as they need to.
+
+This page covers what happens in each failure case, the few things your own code should handle, and the tests behind this behavior.
 
 ## What's saved, and when
 
@@ -28,9 +30,9 @@ Planned shutdowns and deploys don't wait for a lease to expire. A stopping worke
 
 A model call cut off by a crash, a shutdown, or a lost lease is retried from saved state, counting against the same retry limit. Partial output from the interrupted attempt isn't kept, and a steering message or config change that arrived in the meantime applies to the retry.
 
-Errors that can succeed later, like rate limits, timeouts, and provider outages, are retried with exponential backoff, honoring `Retry-After`, up to eight times. Authentication, billing, and invalid-request errors normally stop the turn. When the context is too long for the model, Omnara compacts it, and the turn fails only if compaction can't make it fit.
+Errors that can succeed later, like rate limits, timeouts, and provider outages, are retried with exponential backoff, honoring `Retry-After`, up to eight times. Authentication, billing, and invalid-request errors normally stop the turn. When the context is too long for the model, Omnara compacts it automatically, and the turn fails only if compaction can't make it fit.
 
-Because an interrupted call is sent again, the provider can bill for an attempt that finished on its side before the worker died.
+As with any system that retries an interrupted request, the provider can bill for an attempt that finished on its side before the worker died.
 
 ## Built-in tools and commands
 
@@ -63,17 +65,19 @@ A machine is online while its daemon's session is current.
 - Send an `Idempotency-Key` when you create inputs, so a retried request doesn't deliver a message twice.
 - After a [stream](/events/streaming) reconnects, re-read pending tool calls with `GET /tool-calls`, since lifecycle updates aren't replayed.
 
-## Guarantees and limits
+## Guarantees
 
-- **Crash recovery doesn't rerun tools.** When a crash cuts off a command, built-in tool, or MCP call, Omnara doesn't run it again. The agent sees that its outcome is unknown and decides whether to try again.
-- **Finished steps never run again.** Only the step that was in progress is affected by a crash. A model call that was cut off is sent again, which the provider can bill twice, the same as any system that retries an interrupted request.
-- **Recovery after an outright crash waits for the lease to expire**, about 60 to 90 seconds. Planned shutdowns and deploys release their work after the drain window.
-- **The maintenance service** releases expired leases and times out machine work, so a self-hosted deployment needs it running.
+- **Crash recovery doesn't rerun tools.** When a crash cuts off a command, built-in tool, or MCP call, Omnara never runs it again on its own. The agent sees that its outcome is unknown and decides whether to try again.
+- **Finished steps never run again.** A crash affects only the step that was in progress. A model call that was cut off is sent again, which the provider can bill twice, the same as any system that retries an interrupted request.
+- **A stale worker can't overwrite a live one.** Model responses and tool results commit only while the worker still holds the agent's lease, so a slow or partitioned worker is fenced out.
+- **Deploys don't lose agents.** Planned shutdowns give work in progress 20 seconds by default to finish and then release their agents to other workers. After an outright crash, another worker takes over when the lease expires, about 60 to 90 seconds later.
+- **Waiting is durable.** Approvals, questions, and custom tool calls wait in Postgres for as long as they need and survive worker crashes and restarts. A waiting custom tool call doesn't hold a worker.
+- **The maintenance service** releases expired leases and times out machine work, so a self-hosted deployment runs it alongside the API and workers.
 - **Event webhooks** are retried for up to ten minutes.
 
 ## How it's tested
 
-This behavior is covered by tests in the [repository](https://github.com/omnara-ai/omnara), including:
+This behavior is covered by tests in the open-source [repository](https://github.com/omnara-ai/omnara), so you can read and run them yourself instead of taking the docs on trust. They include:
 
 | Behavior | Tests |
 | --- | --- |
