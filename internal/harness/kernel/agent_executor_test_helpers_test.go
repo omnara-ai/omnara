@@ -912,6 +912,7 @@ type sequenceKernelModel struct {
 	errs                                 []error
 	afterRespond                         func(model.Response)
 	streamEvents                         []model.StreamEvent
+	bodyIncludesMaxOutputTokens          bool
 }
 
 type modelcontextSnapshot struct {
@@ -960,13 +961,17 @@ func (m *sequenceKernelModel) Prepare(_ context.Context, input model.PrepareInpu
 	if input.Context.ContextCheckpoint != nil {
 		checkpointCount = 1
 	}
-	body := mustKernelJSON(map[string]any{
+	fields := map[string]any{
 		"api_format":         m.APIFormat(),
 		"model":              m.providerModelSlug,
 		"messages":           input.Context.Messages,
 		"tool_results":       input.Context.ToolResults,
 		"context_checkpoint": input.Context.ContextCheckpoint,
-	})
+	}
+	if m.bodyIncludesMaxOutputTokens {
+		fields["max_output_tokens"] = input.Policy.MaxOutputTokens
+	}
+	body := mustKernelJSON(fields)
 	providerReplays := make([]json.RawMessage, 0, len(input.Context.Messages))
 	providerReplaySequences := make([]int64, 0, len(input.Context.Messages))
 	for _, message := range input.Context.Messages {

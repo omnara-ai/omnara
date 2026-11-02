@@ -18,8 +18,9 @@ func TestCreditRefusalRetriesWithAffordableOutputTokens(t *testing.T) {
 	agentID, userID := f.createAgent(t, ctx, "openai/affordable", f.Now)
 	input := f.admitContentInputTurn(t, ctx, agentID, userID, "start", f.Now.Add(time.Millisecond))
 	client := &sequenceKernelModel{
-		providerModelSlug: "affordable",
-		capabilities:      model.Capabilities{ContextWindowTokens: 1_000_000, MaxOutputTokens: new(128_000)},
+		providerModelSlug:           "affordable",
+		capabilities:                model.Capabilities{ContextWindowTokens: 1_000_000, MaxOutputTokens: new(128_000)},
+		bodyIncludesMaxOutputTokens: true,
 		errs: []error{model.ProviderError{
 			Kind: model.ErrorKindBillingAccount, Source: "fixture",
 			Message: "This request requires more credits, or fewer max_tokens. " +
@@ -47,11 +48,17 @@ func TestCreditRefusalRetriesWithAffordableOutputTokens(t *testing.T) {
 func TestBillingFailureSaysWhoseCreditsRanOut(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name    string
-		managed bool
-		want    string
+		name      string
+		managed   bool
+		admission bool
+		want      string
 	}{
-		{name: "omnara", managed: true, want: storeerr.InsufficientOmnaraCreditsMessage},
+		{name: "omnara", managed: true, admission: true, want: storeerr.InsufficientOmnaraCreditsMessage},
+		{
+			name:    "operator-key",
+			managed: true,
+			want:    `Model provider "operator-key-prod" returned a billing error: requires more credits`,
+		},
 		{
 			name: "own-key",
 			want: `Model provider "own-key-prod" returned a billing error: requires more credits`,
@@ -63,6 +70,9 @@ func TestBillingFailureSaysWhoseCreditsRanOut(t *testing.T) {
 			f := newKernelFixture(t, ctx)
 			if test.managed {
 				f.provisionClusterModel(t, ctx, test.name+"-prod", "billing-model")
+			}
+			if test.admission {
+				f.setManagedWorkAdmission(t, ctx, true)
 			}
 			agentID, userID := f.createAgent(t, ctx, test.name+"/billing-model", f.Now)
 			input := f.admitContentInputTurn(t, ctx, agentID, userID, "start", f.Now.Add(time.Millisecond))
