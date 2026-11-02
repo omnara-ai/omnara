@@ -280,6 +280,11 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes:        commonPermissionModeHandlers(inspectMachinePermissionChallenge),
 		},
 		{
+			name:            toolcatalog.ToolNameListGitHubRepositories,
+			handler:         toolHandler{Async: runListGitHubRepositories},
+			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameSpawnAgent,
 			semanticInputValidator: validateSpawnAgentInput,
 			handler: toolHandler{

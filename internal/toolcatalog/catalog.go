@@ -22,22 +22,24 @@ const (
 )
 
 const (
-	FilePageBytes            = 4 * 1024
-	MaxReadableArtifactBytes = 48 * 1024 * 1024
-	StorageListDefaultLimit  = 50
-	StorageListMaxLimit      = 100
-	StorageListMaxOffset     = 1_000_000
-	ListMachinesDefaultLimit = 50
-	ListMachinesMaxLimit     = 100
-	StorageReadDefaultLines  = 100
-	StorageReadMaxLines      = 200
-	StorageReadDefaultChars  = 512
-	StorageReadMaxChars      = 4096
-	SearchDefaultMatches     = 20
-	SearchMaxMatches         = 100
-	SearchMaxContextLines    = 5
-	SearchMaxPatternBytes    = 1024
-	SearchMaxArgs            = 64
+	FilePageBytes                      = 4 * 1024
+	MaxReadableArtifactBytes           = 48 * 1024 * 1024
+	StorageListDefaultLimit            = 50
+	StorageListMaxLimit                = 100
+	StorageListMaxOffset               = 1_000_000
+	ListMachinesDefaultLimit           = 50
+	ListMachinesMaxLimit               = 100
+	ListGitHubRepositoriesDefaultLimit = 50
+	ListGitHubRepositoriesMaxLimit     = 100
+	StorageReadDefaultLines            = 100
+	StorageReadMaxLines                = 200
+	StorageReadDefaultChars            = 512
+	StorageReadMaxChars                = 4096
+	SearchDefaultMatches               = 20
+	SearchMaxMatches                   = 100
+	SearchMaxContextLines              = 5
+	SearchMaxPatternBytes              = 1024
+	SearchMaxArgs                      = 64
 )
 
 func IsPlatformManagedToolType(toolType string) bool {
@@ -61,12 +63,13 @@ const (
 		"A new watch replaces the process's current one; timeout_seconds 0 cancels it."
 	readProcessToolDescription = "Read retained process output, optionally waiting for the process to end. " +
 		"Long output keeps the start and end."
-	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
-	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
-	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
-	listMachinesToolDescription   = "List this agent's machines and available pools for creating new machines."
-	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_id is only needed when multiple machines are available."
-	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
+	listProcessesToolDescription          = "List active processes in the current agent, including process_id values."
+	createMachineToolDescription          = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
+	deleteMachineToolDescription          = "Request deletion of a pool-backed machine."
+	listMachinesToolDescription           = "List this agent's machines and available pools for creating new machines."
+	inspectMachineToolDescription         = "Inspect a BYO or pool-backed machine. machine_id is only needed when multiple machines are available."
+	listGitHubRepositoriesToolDescription = "List GitHub repositories this agent has access to, and whether it can push to them."
+	askQuestionToolDescription            = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
 	webSearchToolDescription = "Search the public web for up-to-date information beyond your training data. " +
 		"Returns results with URLs, titles, and snippets; use web_fetch to read a result in full. " +
@@ -364,6 +367,26 @@ func buildDefaultCatalog() (Catalog, error) {
 		inspectMachineToolDescription,
 		nil,
 		map[string]any{"machine_id": machineID},
+	); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameListGitHubRepositories], err = toolEntry(
+		ToolNameListGitHubRepositories,
+		listGitHubRepositoriesToolDescription,
+		nil,
+		map[string]any{
+			"offset": map[string]any{
+				"type":        "integer",
+				"minimum":     0,
+				"description": "Number of entries to skip; defaults to 0. To continue, use next_offset from the previous result.",
+			},
+			"limit": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     ListGitHubRepositoriesMaxLimit,
+				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", ListGitHubRepositoriesDefaultLimit),
+			},
+		},
 	); err != nil {
 		return Catalog{}, err
 	}

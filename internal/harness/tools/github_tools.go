@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -183,27 +185,37 @@ func (e Executor) githubToolClient(
 	tool executionstore.ToolCallRecord,
 	access integrationToolAccess,
 ) (*github.Client, error) {
-	appID, err := strconv.ParseInt(access.Credential[secrets.KeyAppID], 10, 64)
-	if err != nil || appID <= 0 || access.Integration.ProviderTenantID != strconv.FormatInt(appID, 10) {
+	return e.githubClient(access.Integration, access.Credential, access.CredentialVersion,
+		func(ctx context.Context) error {
+			return e.recheckIntegrationToolAccess(ctx, turn, tool, access)
+		})
+}
+
+func (e Executor) githubClient(
+	integration integrationstore.IntegrationRecord,
+	credential secrets.Payload,
+	credentialVersion uuid.UUID,
+	beforeRequest func(context.Context) error,
+) (*github.Client, error) {
+	appID, err := strconv.ParseInt(credential[secrets.KeyAppID], 10, 64)
+	if err != nil || appID <= 0 || integration.ProviderTenantID != strconv.FormatInt(appID, 10) {
 		return nil, errors.New("GitHub App credentials do not match the integration")
 	}
-	installationID, err := strconv.ParseInt(access.Integration.ProviderAccountRef, 10, 64)
+	installationID, err := strconv.ParseInt(integration.ProviderAccountRef, 10, 64)
 	if err != nil || installationID <= 0 {
 		return nil, errors.New("GitHub installation identity is invalid")
 	}
 	return github.NewClient(github.Config{
 		Credentials: github.Credentials{
 			AppID:         appID,
-			PrivateKeyPEM: access.Credential[secrets.KeyPrivateKey],
-			WebhookSecret: access.Credential[secrets.KeyWebhookSecret],
+			PrivateKeyPEM: credential[secrets.KeyPrivateKey],
+			WebhookSecret: credential[secrets.KeyWebhookSecret],
 		},
 		InstallationID:      installationID,
 		HTTPClient:          e.IntegrationHTTPClient,
-		CredentialSecretID:  access.Integration.CredentialSecretID,
-		CredentialVersionID: access.CredentialVersion,
-		BeforeRequest: func(ctx context.Context) error {
-			return e.recheckIntegrationToolAccess(ctx, turn, tool, access)
-		},
+		CredentialSecretID:  integration.CredentialSecretID,
+		CredentialVersionID: credentialVersion,
+		BeforeRequest:       beforeRequest,
 	})
 }
 
