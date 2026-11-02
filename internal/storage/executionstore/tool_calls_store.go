@@ -73,11 +73,13 @@ type ListToolCallsInput struct {
 }
 
 type ListUnfinishedProjectToolCallsInput struct {
-	ProjectID uuid.UUID
-	State     ToolCallState
-	Type      string
-	Limit     int
-	After     listing.KeysetCursor
+	ProjectID      uuid.UUID
+	AgentProfileID *uuid.UUID
+	State          ToolCallState
+	Type           string
+	Names          []string
+	Limit          int
+	After          listing.KeysetCursor
 }
 
 type ListToolCallsResult struct {

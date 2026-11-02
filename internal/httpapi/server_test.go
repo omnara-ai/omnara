@@ -2124,7 +2124,7 @@ func TestWriteToolCallUpdateFrameIncludesInteraction(t *testing.T) {
 		if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
 			AgentID: httpTestAgentID, ToolCallID: httpTestToolCallID, State: "awaiting_permission",
 			InteractionUpdate: interaction,
-		}) {
+		}, nil) {
 			t.Fatal("writeToolCallUpdateFrame returned false")
 		}
 		body := rec.Body.String()
@@ -2151,12 +2151,49 @@ func TestWriteToolCallUpdateFrameIncludesInteraction(t *testing.T) {
 	}
 }
 
+func TestWriteToolCallUpdateFrameIncludesReadyCustomCall(t *testing.T) {
+	input := json.RawMessage(`{"email":"ada@example.com"}`)
+	blob := func(size int) json.RawMessage {
+		return json.RawMessage(`{"blob":"` + strings.Repeat("x", size-len(`{"blob":""}`)) + `"}`)
+	}
+	escaped := json.RawMessage(`{"html":"` + strings.Repeat("<", publicevents.MaxToolCallUpdateInputBytes/4) + `"}`)
+	for _, tc := range []struct {
+		state     string
+		toolType  string
+		input     json.RawMessage
+		wantInput bool
+	}{
+		{"ready", "custom", input, true},
+		{"ready", "custom", blob(publicevents.MaxToolCallUpdateInputBytes), true},
+		{"ready", "custom", blob(publicevents.MaxToolCallUpdateInputBytes + 1), false},
+		{"ready", "custom", escaped, false},
+		{"ready", "built_in", input, false},
+		{"completed", "custom", input, false},
+	} {
+		rec := httptest.NewRecorder()
+		if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
+			AgentID: httpTestAgentID, ToolCallID: httpTestToolCallID, State: tc.state,
+		}, &executionstore.ToolCallRecord{Name: "lookup_customer", Input: tc.input, Type: tc.toolType}) {
+			t.Fatal("writeToolCallUpdateFrame returned false")
+		}
+		var payload openapi.ToolCallUpdate
+		body := strings.TrimPrefix(rec.Body.String(), "event: tool_call_update\ndata: ")
+		if err := json.Unmarshal([]byte(body), &payload); err != nil {
+			t.Fatal(err)
+		}
+		gotInput := payload.Name != nil && *payload.Name == "lookup_customer" && string(payload.Input) == string(tc.input)
+		if gotInput != tc.wantInput || (!tc.wantInput && (payload.Name != nil || payload.Input != nil)) {
+			t.Fatalf("%s %s update = %+v, want name and input %v", tc.state, tc.toolType, payload, tc.wantInput)
+		}
+	}
+}
+
 func TestWriteToolCallUpdateFrameSkipsUnknownState(t *testing.T) {
 	rec := httptest.NewRecorder()
 	if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
 		ToolCallID: httpTestToolCallID,
 		State:      "unknown",
-	}) {
+	}, nil) {
 		t.Fatal("writeToolCallUpdateFrame returned false for unknown state")
 	}
 	if rec.Body.Len() != 0 {

@@ -35,6 +35,10 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 				}
 				delivery.EventSequence = &store.record.Sequence
 				delivery.ToolCallID, delivery.ToolState = nil, nil
+			} else {
+				store.toolCall = executionstore.ToolCallRecord{
+					Name: "lookup_customer", Input: json.RawMessage(`{"email":"ada@example.com"}`), Type: "custom",
+				}
 			}
 			requests := 0
 			sender.client = &http.Client{Transport: testTransport(func(req *http.Request) (*http.Response, error) {
@@ -43,6 +47,12 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 				require.NoError(t, json.NewDecoder(req.Body).Decode(&payload))
 				require.Equal(t, kind, payload["event"])
 				require.NoError(t, schema.VisitJSON(payload))
+				if kind == "tool_call_update" {
+					data, ok := payload["data"].(map[string]any)
+					require.True(t, ok)
+					require.Equal(t, "lookup_customer", data["name"])
+					require.Equal(t, map[string]any{"email": "ada@example.com"}, data["input"])
+				}
 				payload["event"] = "unknown"
 				require.Error(t, schema.VisitJSON(payload))
 				payload["event"] = "tool_call_update"

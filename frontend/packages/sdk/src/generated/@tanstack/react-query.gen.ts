@@ -2755,7 +2755,7 @@ export const listProjectToolCallsQueryKey = (options: Options<ListProjectToolCal
 /**
  * List unfinished tool calls across agents
  *
- * Lists unfinished tool calls from every agent in the project, including subagents. Items are ordered by created_at ascending, then id ascending. Submit custom tool results against each call's agent_id.
+ * Lists unfinished tool calls from every agent in the project, including subagents. Archived agents are excluded. Items are ordered by created_at ascending, then id ascending. Submit custom tool results against each call's agent_id.
  */
 export const listProjectToolCallsOptions = (options: Options<ListProjectToolCallsData>) => queryOptions<ListProjectToolCallsResponse, ListProjectToolCallsError, ListProjectToolCallsResponse, ReturnType<typeof listProjectToolCallsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2775,7 +2775,7 @@ export const listProjectToolCallsInfiniteQueryKey = (options: Options<ListProjec
 /**
  * List unfinished tool calls across agents
  *
- * Lists unfinished tool calls from every agent in the project, including subagents. Items are ordered by created_at ascending, then id ascending. Submit custom tool results against each call's agent_id.
+ * Lists unfinished tool calls from every agent in the project, including subagents. Archived agents are excluded. Items are ordered by created_at ascending, then id ascending. Submit custom tool results against each call's agent_id.
  */
 export const listProjectToolCallsInfiniteOptions = (options: Options<ListProjectToolCallsData>) => {
     const opts = infiniteQueryOptions<ListProjectToolCallsResponse, ListProjectToolCallsError, InfiniteData<ListProjectToolCallsResponse>, QueryKey<Options<ListProjectToolCallsData>>, string | Pick<QueryKey<Options<ListProjectToolCallsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -2957,7 +2957,7 @@ export const listProjectInteractionsQueryKey = (options: Options<ListProjectInte
 /**
  * List open interactions across agents
  *
- * Lists open permission prompts and ask_question questions from every agent in the project, including subagents, oldest first. Resolve each one against its agent_id.
+ * Lists open permission prompts and ask_question questions from every agent in the project, including subagents, oldest first. Archived agents are excluded. Resolve each one against its agent_id.
  */
 export const listProjectInteractionsOptions = (options: Options<ListProjectInteractionsData>) => queryOptions<ListProjectInteractionsResponse, ListProjectInteractionsError, ListProjectInteractionsResponse, ReturnType<typeof listProjectInteractionsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2977,7 +2977,7 @@ export const listProjectInteractionsInfiniteQueryKey = (options: Options<ListPro
 /**
  * List open interactions across agents
  *
- * Lists open permission prompts and ask_question questions from every agent in the project, including subagents, oldest first. Resolve each one against its agent_id.
+ * Lists open permission prompts and ask_question questions from every agent in the project, including subagents, oldest first. Archived agents are excluded. Resolve each one against its agent_id.
  */
 export const listProjectInteractionsInfiniteOptions = (options: Options<ListProjectInteractionsData>) => {
     const opts = infiniteQueryOptions<ListProjectInteractionsResponse, ListProjectInteractionsError, InfiniteData<ListProjectInteractionsResponse>, QueryKey<Options<ListProjectInteractionsData>>, string | Pick<QueryKey<Options<ListProjectInteractionsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(

@@ -85,10 +85,19 @@ func (s strictOpenAPIServer) ListProjectInteractions(
 	if request.Params.InteractionKind != nil {
 		kind = executionstore.AgentInteractionKind(*request.Params.InteractionKind)
 	}
+	var agentProfileID *uuid.UUID
+	if request.Params.AgentProfileId != nil {
+		id, err := publicid.Decode(publicid.KindAgentProfile, *request.Params.AgentProfileId)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent profile filter")
+		}
+		agentProfileID = &id
+	}
 	page, err := s.server.store.Execution().ListOpenProjectInteractions(
 		ctx,
 		executionstore.ListOpenProjectInteractionsInput{
 			ProjectID:       scope.project.ID,
+			AgentProfileID:  agentProfileID,
 			InteractionKind: kind,
 			Limit:           limit,
 			After:           after,

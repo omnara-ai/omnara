@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -404,9 +405,8 @@ func TestListProjectInteractionsAndToolCalls(t *testing.T) {
 			"/interactions/"+testPublicID(t, publicid.KindAgentInteraction, resolvedID)+"/resolve",
 		httpQuestionResolutionRequest(0), "", http.StatusOK, authHeaders(project.AdminToken),
 	)
-	readyCallID := createHTTPCustomToolCallForAgent(
-		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, launch("pending-caller").Agent,
-	)
+	caller := launch("pending-caller").Agent
+	readyCallID := createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, caller)
 	done := launch("pending-done").Agent
 	doneCallID := createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, done)
 	if _, err := store.Execution().CompleteCustomToolCall(ctx, executionstore.CompleteCustomToolCallInput{
@@ -417,6 +417,14 @@ func TestListProjectInteractionsAndToolCalls(t *testing.T) {
 		ContentBlocks: json.RawMessage(`[{"type":"text","text":"done"}]`),
 	}); err != nil {
 		t.Fatalf("complete custom tool call: %v", err)
+	}
+	archived := launch("pending-archived").Agent
+	createHTTPInteractionForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, archived, "question", "", question,
+	)
+	archive := `UPDATE agents SET state='archived',archived_at=now() WHERE id=$1`
+	if _, err := pool.Exec(ctx, archive, archived.ID); err != nil {
+		t.Fatalf("archive agent: %v", err)
 	}
 	otherAsker := createHTTPRuntimeAgent(t, ctx, store, other.OrgUUID, other.ProjectUUID, otherUser.ID, "other-asker")
 	createHTTPInteractionForAgent(
@@ -451,39 +459,65 @@ func TestListProjectInteractionsAndToolCalls(t *testing.T) {
 			t.Fatalf("project interaction %d = %+v, want %+v", i, row, want[i])
 		}
 	}
-	permissions := requestJSONWithHeaders(
-		t, handler, http.MethodGet, project.ProjectPath+"/interactions?interaction_kind=permission",
-		"", "", http.StatusOK, authHeaders(project.AdminToken),
-	)
-	if data := testutil.RequireType[[]any](t, permissions["data"]); len(data) != 1 ||
-		testutil.RequireType[map[string]any](t, data[0])["id"] != want[1].id {
-		t.Fatalf("project permission interactions = %+v, want %s", data, want[1].id)
+	rowIDs := func(rows []map[string]any) []string {
+		ids := make([]string, 0, len(rows))
+		for _, row := range rows {
+			ids = append(ids, testutil.RequireType[string](t, row["id"]))
+		}
+		return ids
+	}
+	listedIDs := func(path string) []string {
+		t.Helper()
+		listed := requestJSONWithHeaders(
+			t, handler, http.MethodGet, path, "", "", http.StatusOK, authHeaders(project.AdminToken),
+		)
+		rows := make([]map[string]any, 0)
+		for _, row := range testutil.RequireType[[]any](t, listed["data"]) {
+			rows = append(rows, testutil.RequireType[map[string]any](t, row))
+		}
+		return rowIDs(rows)
+	}
+	parentProfile := "agent_profile_id=" + testPublicID(t, publicid.KindAgentProfile, parent.AgentProfileID)
+	callerProfile := "agent_profile_id=" + testPublicID(t, publicid.KindAgentProfile, caller.AgentProfileID)
+	for query, wantIDs := range map[string][]string{
+		"interaction_kind=permission": {want[1].id},
+		parentProfile:                 {want[0].id, want[1].id},
+		callerProfile:                 {},
+	} {
+		if got := listedIDs(project.ProjectPath + "/interactions?" + query); !slices.Equal(got, wantIDs) {
+			t.Fatalf("project interactions ?%s = %v, want %v", query, got, wantIDs)
+		}
 	}
 
+	interactionCall := func(agentID, interactionID uuid.UUID) string {
+		t.Helper()
+		interaction, found, err := store.Execution().GetAgentInteraction(ctx, project.ProjectUUID, agentID, interactionID)
+		if err != nil || !found {
+			t.Fatalf("load interaction %s: found=%v err=%v", interactionID, found, err)
+		}
+		return testPublicID(t, publicid.KindToolCall, interaction.ToolCallID)
+	}
 	readyCallPublicID := testPublicID(t, publicid.KindToolCall, readyCallID)
-	for _, query := range []string{"type=custom", "state=ready&type=custom"} {
-		listed := requestJSONWithHeaders(
-			t, handler, http.MethodGet, project.ProjectPath+"/tool-calls?"+query,
-			"", "", http.StatusOK, authHeaders(project.AdminToken),
-		)
-		if data := testutil.RequireType[[]any](t, listed["data"]); len(data) != 1 ||
-			testutil.RequireType[map[string]any](t, data[0])["id"] != readyCallPublicID {
-			t.Fatalf("project tool calls ?%s = %+v, want only %s", query, data, readyCallPublicID)
+	wantCalls := []string{
+		interactionCall(parent.ID, questionID), interactionCall(child.ID, permissionID), readyCallPublicID,
+	}
+	for query, wantIDs := range map[string][]string{
+		"":                                     wantCalls,
+		"type=custom":                          {readyCallPublicID},
+		"state=ready&type=custom":              {readyCallPublicID},
+		"names=ask_question&names=run_command": wantCalls[:2],
+		parentProfile:                          wantCalls[:2],
+		callerProfile:                          {readyCallPublicID},
+	} {
+		if got := listedIDs(project.ProjectPath + "/tool-calls?" + query); !slices.Equal(got, wantIDs) {
+			t.Fatalf("project tool calls ?%s = %v, want %v", query, got, wantIDs)
 		}
 	}
-	unpaged := requestJSONWithHeaders(
-		t, handler, http.MethodGet, project.ProjectPath+"/tool-calls",
-		"", "", http.StatusOK, authHeaders(project.AdminToken),
+	paged := rowIDs(
+		pageThroughAgentInteractionRows(t, handler, project.ProjectPath+"/tool-calls?", project.AdminToken, 1),
 	)
-	allCalls := testutil.RequireType[[]any](t, unpaged["data"])
-	pagedCalls := pageThroughAgentInteractionRows(t, handler, project.ProjectPath+"/tool-calls?", project.AdminToken, 1)
-	if len(allCalls) < 2 || len(pagedCalls) != len(allCalls) {
-		t.Fatalf("paged project tool calls = %+v, want %+v", pagedCalls, allCalls)
-	}
-	for i, row := range pagedCalls {
-		if row["id"] != testutil.RequireType[map[string]any](t, allCalls[i])["id"] {
-			t.Fatalf("paged project tool calls = %+v, want %+v", pagedCalls, allCalls)
-		}
+	if !slices.Equal(paged, wantCalls) {
+		t.Fatalf("paged project tool calls = %v, want %v", paged, wantCalls)
 	}
 	requestJSONWithHeaders(
 		t, handler, http.MethodGet, project.ProjectPath+"/tool-calls?state=completed",
@@ -2089,6 +2123,7 @@ func copyHTTPInteractionForTest(
 	var id uuid.UUID
 	if err := pool.QueryRow(ctx, `
 	INSERT INTO agent_interactions(
+	  project_id,
 	  agent_id,
   tool_call_id,
   interaction_kind,
@@ -2096,7 +2131,8 @@ func copyHTTPInteractionForTest(
   request,
   created_at
 )
-	SELECT agent_id,
+	SELECT project_id,
+       agent_id,
        tool_call_id,
        $4,
        'open',

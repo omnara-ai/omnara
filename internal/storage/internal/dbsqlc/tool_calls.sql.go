@@ -438,20 +438,27 @@ const listUnfinishedToolCallsForProject = `-- name: ListUnfinishedToolCallsForPr
 WITH page AS (
   SELECT tool_call.agent_id, tool_call.id
   FROM tool_calls tool_call
-  JOIN agents agent ON agent.id = tool_call.agent_id
-  WHERE agent.project_id = $1
+  WHERE tool_call.project_id = $1
     AND tool_call.state <> 'completed'
     AND ($2::text = '' OR tool_call.state = $2)
     AND ($3::text = '' OR tool_call.type = $3)
+    AND ($4::text[] IS NULL OR tool_call.name = ANY($4::text[]))
     AND (
-      $4::timestamptz IS NULL
+      SELECT agent.state = 'active'
+        AND ($5::uuid IS NULL OR root.agent_profile_id = $5::uuid)
+      FROM agents agent
+      JOIN agents root ON root.id = agent.root_agent_id
+      WHERE agent.id = tool_call.agent_id
+    )
+    AND (
+      $6::timestamptz IS NULL
       OR (tool_call.created_at, tool_call.id) > (
-        $4::timestamptz,
-        $5::uuid
+        $6::timestamptz,
+        $7::uuid
       )
     )
   ORDER BY tool_call.created_at ASC, tool_call.id ASC
-  LIMIT $6::bigint
+  LIMIT $8::bigint
 )
 SELECT call.id, call.project_id, call.agent_id,
   call.turn_id, call.source_event_id,
@@ -471,6 +478,8 @@ type ListUnfinishedToolCallsForProjectParams struct {
 	ProjectID       uuid.UUID
 	State           string
 	Type            string
+	Names           []string
+	AgentProfileID  *uuid.UUID
 	CursorCreatedAt *time.Time
 	CursorID        *uuid.UUID
 	RowLimit        int64
@@ -500,6 +509,8 @@ func (q *Queries) ListUnfinishedToolCallsForProject(ctx context.Context, arg Lis
 		arg.ProjectID,
 		arg.State,
 		arg.Type,
+		arg.Names,
+		arg.AgentProfileID,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.RowLimit,

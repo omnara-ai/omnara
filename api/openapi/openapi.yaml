@@ -5064,8 +5064,8 @@ paths:
       summary: List unfinished tool calls across agents
       description: >-
         Lists unfinished tool calls from every agent in the project, including subagents.
-        Items are ordered by created_at ascending, then id ascending. Submit custom tool results
-        against each call's agent_id.
+        Archived agents are excluded. Items are ordered by created_at ascending, then id ascending.
+        Submit custom tool results against each call's agent_id.
       parameters:
         - name: state
           in: query
@@ -5079,6 +5079,24 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/ToolCallType'
+        - name: names
+          in: query
+          required: false
+          description: Return only calls to these tools.
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              type: string
+              minLength: 1
+              maxLength: 64
+        - name: agent_profile_id
+          in: query
+          required: false
+          description: Return only calls from top-level agents launched from this agent profile, and from their subagents.
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -5645,13 +5663,20 @@ paths:
       summary: List open interactions across agents
       description: >-
         Lists open permission prompts and ask_question questions from every agent in the project,
-        including subagents, oldest first. Resolve each one against its agent_id.
+        including subagents, oldest first. Archived agents are excluded. Resolve each one against
+        its agent_id.
       parameters:
         - name: interaction_kind
           in: query
           required: false
           schema:
             $ref: '#/components/schemas/AgentInteractionKind'
+        - name: agent_profile_id
+          in: query
+          required: false
+          description: Return only interactions from top-level agents launched from this agent profile, and from their subagents.
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -13981,6 +14006,12 @@ components:
           $ref: '#/components/schemas/AgentID'
         state:
           $ref: '#/components/schemas/ToolCallState'
+        name:
+          type: string
+          description: The tool name. Present with input when a custom tool call becomes ready and its JSON-encoded input is at most 64 KiB; otherwise fetch the tool call.
+        input:
+          description: The tool arguments. Present with name under the same conditions.
+          $ref: '#/components/schemas/ToolInput'
         interaction_update:
           description: Only present when this transition opens, resolves, or cancels an interaction.
           $ref: '#/components/schemas/AgentInteractionUpdate'

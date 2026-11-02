@@ -81,14 +81,28 @@ func (s strictOpenAPIServer) ListProjectToolCalls(
 	if request.Params.Type != nil {
 		toolType = string(*request.Params.Type)
 	}
+	var names []string
+	if request.Params.Names != nil {
+		names = *request.Params.Names
+	}
+	var agentProfileID *uuid.UUID
+	if request.Params.AgentProfileId != nil {
+		id, err := publicid.Decode(publicid.KindAgentProfile, *request.Params.AgentProfileId)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent profile filter")
+		}
+		agentProfileID = &id
+	}
 	page, err := s.server.store.Execution().ListUnfinishedProjectToolCalls(
 		ctx,
 		executionstore.ListUnfinishedProjectToolCallsInput{
-			ProjectID: scope.project.ID,
-			State:     state,
-			Type:      toolType,
-			Limit:     limit,
-			After:     after,
+			ProjectID:      scope.project.ID,
+			AgentProfileID: agentProfileID,
+			State:          state,
+			Type:           toolType,
+			Names:          names,
+			Limit:          limit,
+			After:          after,
 		},
 	)
 	if err != nil {

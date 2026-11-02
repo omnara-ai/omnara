@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func publicID(kind publicid.Kind, id uuid.UUID) (string, error) {
@@ -789,7 +790,12 @@ func publicJSONValue(
 	return json.RawMessage(bytes.Clone(trimmed)), nil
 }
 
-func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted) (openapi.ToolCallUpdate, error) {
+const MaxToolCallUpdateInputBytes = 64 * 1024
+
+func ToolCallUpdate(
+	update notifications.ToolCallUpdatedCommitted,
+	call *executionstore.ToolCallRecord,
+) (openapi.ToolCallUpdate, error) {
 	state := openapi.ToolCallState(update.State)
 	if !state.Valid() {
 		return openapi.ToolCallUpdate{}, fmt.Errorf("invalid tool call state %q", update.State)
@@ -803,6 +809,12 @@ func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted) (openapi.Tool
 		return openapi.ToolCallUpdate{}, err
 	}
 	response := openapi.ToolCallUpdate{ToolCallId: toolCallID, AgentId: &agentID, State: state}
+	if call != nil && state == openapi.ToolCallStateReady && call.Type == toolcatalog.ToolTypeCustom {
+		if input, err := json.Marshal(call.Input); err == nil && len(input) <= MaxToolCallUpdateInputBytes {
+			response.Name = &call.Name
+			response.Input = input
+		}
+	}
 	if interaction := update.InteractionUpdate; interaction != nil {
 		kind := openapi.AgentInteractionKind(interaction.InteractionKind)
 		interactionState := openapi.AgentInteractionState(interaction.State)

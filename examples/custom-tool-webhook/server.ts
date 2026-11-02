@@ -63,7 +63,7 @@ export function createWebhookApp(options: {
   }
 
   const app = new Hono()
-  app.post('/webhook', bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
+  app.post('/webhook', bodyLimit({ maxSize: 128 * 1024 }), async (c) => {
     let payload
     try {
       const verified = verifier.verify(await c.req.text(), c.req.header())

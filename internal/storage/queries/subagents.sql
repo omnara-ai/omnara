@@ -123,12 +123,18 @@ LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ListOpenAgentInteractionsForProject :many
 WITH page AS (
-  SELECT interaction.agent_id, interaction.id, agent.name AS agent_name, agent.subagent_key
+  SELECT interaction.agent_id, interaction.id
   FROM agent_interactions interaction
-  JOIN agents agent ON agent.id = interaction.agent_id
-  WHERE agent.project_id = sqlc.arg(project_id)
+  WHERE interaction.project_id = sqlc.arg(project_id)
     AND interaction.state = 'open'
     AND (sqlc.arg(interaction_kind)::text = '' OR interaction.interaction_kind = sqlc.arg(interaction_kind))
+    AND (
+      SELECT agent.state = 'active'
+        AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR root.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
+      FROM agents agent
+      JOIN agents root ON root.id = agent.root_agent_id
+      WHERE agent.id = interaction.agent_id
+    )
     AND (
       sqlc.narg(cursor_created_at)::timestamptz IS NULL
       OR (interaction.created_at, interaction.id) > (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
@@ -141,10 +147,11 @@ SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction
        interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
        interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
        interaction.destination, interaction.presentation_receipt,
-       page.agent_name, page.subagent_key
+       agent.name AS agent_name, agent.subagent_key
 FROM page
 JOIN agent_interaction_read_projection interaction ON interaction.agent_id = page.agent_id
   AND interaction.id = page.id
+JOIN agents agent ON agent.id = page.agent_id
 ORDER BY interaction.created_at ASC, interaction.id ASC;
 
 -- name: ListIdleAgentsForArchive :many

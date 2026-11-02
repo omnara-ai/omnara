@@ -114,10 +114,12 @@ func (s *Store) ListUnfinishedProjectToolCalls(
 		return ListToolCallsResult{}, errors.New("limit must be positive")
 	}
 	params := dbsqlc.ListUnfinishedToolCallsForProjectParams{
-		ProjectID: input.ProjectID,
-		State:     string(input.State),
-		Type:      input.Type,
-		RowLimit:  int64(input.Limit) + 1,
+		ProjectID:      input.ProjectID,
+		AgentProfileID: input.AgentProfileID,
+		State:          string(input.State),
+		Type:           input.Type,
+		Names:          input.Names,
+		RowLimit:       int64(input.Limit) + 1,
 	}
 	if input.After.Set {
 		createdAt := input.After.CreatedAt

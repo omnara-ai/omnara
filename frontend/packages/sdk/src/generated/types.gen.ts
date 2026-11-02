@@ -2586,6 +2586,14 @@ export type ToolCallUpdate = {
     agent_id?: AgentId;
     state: ToolCallState;
     /**
+     * The tool name. Present with input when a custom tool call becomes ready and its JSON-encoded input is at most 64 KiB; otherwise fetch the tool call.
+     */
+    name?: string;
+    /**
+     * The tool arguments. Present with name under the same conditions.
+     */
+    input?: ToolInput;
+    /**
      * Only present when this transition opens, resolves, or cancels an interaction.
      */
     interaction_update?: AgentInteractionUpdate;
@@ -13201,6 +13209,14 @@ export type ListProjectToolCallsData = {
         state?: 'awaiting_authorization' | 'awaiting_permission' | 'ready' | 'running' | 'waiting';
         type?: ToolCallType;
         /**
+         * Return only calls to these tools.
+         */
+        names?: Array<string>;
+        /**
+         * Return only calls from top-level agents launched from this agent profile, and from their subagents.
+         */
+        agent_profile_id?: AgentProfileId;
+        /**
          * Maximum number of items to return in one page.
          */
         limit?: number;
@@ -13869,6 +13885,10 @@ export type ListProjectInteractionsData = {
     };
     query?: {
         interaction_kind?: AgentInteractionKind;
+        /**
+         * Return only interactions from top-level agents launched from this agent profile, and from their subagents.
+         */
+        agent_profile_id?: AgentProfileId;
         /**
          * Maximum number of items to return in one page.
          */

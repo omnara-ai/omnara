@@ -2452,7 +2452,7 @@ export const createAgentInput = <ThrowOnError extends boolean = true>(options: O
 /**
  * List unfinished tool calls across agents
  *
- * Lists unfinished tool calls from every agent in the project, including subagents. Items are ordered by created_at ascending, then id ascending. Submit custom tool results against each call's agent_id.
+ * Lists unfinished tool calls from every agent in the project, including subagents. Archived agents are excluded. Items are ordered by created_at ascending, then id ascending. Submit custom tool results against each call's agent_id.
  */
 export const listProjectToolCalls = <ThrowOnError extends boolean = true>(options: Options<ListProjectToolCallsData, ThrowOnError>): RequestResult<ListProjectToolCallsResponses, ListProjectToolCallsErrors, ThrowOnError> => (options.client ?? client).get<ListProjectToolCallsResponses, ListProjectToolCallsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListProjectToolCallsResponse),
@@ -2626,7 +2626,7 @@ export const cancelAgent = <ThrowOnError extends boolean = true>(options: Option
 /**
  * List open interactions across agents
  *
- * Lists open permission prompts and ask_question questions from every agent in the project, including subagents, oldest first. Resolve each one against its agent_id.
+ * Lists open permission prompts and ask_question questions from every agent in the project, including subagents, oldest first. Archived agents are excluded. Resolve each one against its agent_id.
  */
 export const listProjectInteractions = <ThrowOnError extends boolean = true>(options: Options<ListProjectInteractionsData, ThrowOnError>): RequestResult<ListProjectInteractionsResponses, ListProjectInteractionsErrors, ThrowOnError> => (options.client ?? client).get<ListProjectInteractionsResponses, ListProjectInteractionsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListProjectInteractionsResponse),

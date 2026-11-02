@@ -109,11 +109,18 @@ LIMIT sqlc.arg(row_limit)::bigint;
 WITH page AS (
   SELECT tool_call.agent_id, tool_call.id
   FROM tool_calls tool_call
-  JOIN agents agent ON agent.id = tool_call.agent_id
-  WHERE agent.project_id = sqlc.arg(project_id)
+  WHERE tool_call.project_id = sqlc.arg(project_id)
     AND tool_call.state <> 'completed'
     AND (sqlc.arg(state)::text = '' OR tool_call.state = sqlc.arg(state))
     AND (sqlc.arg(type)::text = '' OR tool_call.type = sqlc.arg(type))
+    AND (sqlc.narg(names)::text[] IS NULL OR tool_call.name = ANY(sqlc.narg(names)::text[]))
+    AND (
+      SELECT agent.state = 'active'
+        AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR root.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
+      FROM agents agent
+      JOIN agents root ON root.id = agent.root_agent_id
+      WHERE agent.id = tool_call.agent_id
+    )
     AND (
       sqlc.narg(cursor_created_at)::timestamptz IS NULL
       OR (tool_call.created_at, tool_call.id) > (

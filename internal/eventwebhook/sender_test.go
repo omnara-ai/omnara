@@ -35,6 +35,7 @@ type testStore struct {
 	retryResult executionstore.EventWebhookDeliveryRetryResult
 	endpoint    executionstore.EventWebhookEndpoint
 	record      executionstore.AgentEventReadRecord
+	toolCall    executionstore.ToolCallRecord
 	secret      string
 	secretErr   error
 	pending     chan executionstore.EventWebhookDelivery
@@ -57,6 +58,12 @@ func (s *testStore) GetAgentEventForWebhook(
 		return executionstore.AgentEventReadRecord{}, storeerr.ErrNotFound
 	}
 	return s.record, nil
+}
+
+func (s *testStore) GetToolCall(
+	context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
+) (executionstore.ToolCallRecord, error) {
+	return s.toolCall, nil
 }
 
 func (s *testStore) ReadEventWebhookSigningSecret(
@@ -156,6 +163,28 @@ func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 		Id: publicInteractionID, InteractionKind: openapi.AgentInteractionKindPermission,
 		State: openapi.AgentInteractionStateResolved,
 	}, payload.Data.InteractionUpdate)
+}
+
+func TestSenderKeepsLargestToolCallUpdateUnderReceiverLimit(t *testing.T) {
+	const expressDefaultBodyLimit = 100 * 1024
+	sender, store, delivery := testSender()
+	input := `{"blob":"` + strings.Repeat("x", publicevents.MaxToolCallUpdateInputBytes-len(`{"blob":""}`)) + `"}`
+	store.toolCall = executionstore.ToolCallRecord{
+		Name: strings.Repeat("t", 64), Input: json.RawMessage(input), Type: "custom",
+	}
+	delivery.InteractionUpdate = &notifications.AgentInteractionUpdate{
+		ID: uuid.New(), InteractionKind: "permission", State: "resolved",
+	}
+	var body []byte
+	sender.client = &http.Client{Transport: testTransport(func(req *http.Request) (*http.Response, error) {
+		var err error
+		body, err = io.ReadAll(req.Body)
+		require.NoError(t, err)
+		return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
+	})}
+	sender.deliver(t.Context(), delivery)
+	require.Contains(t, string(body), input)
+	require.LessOrEqual(t, len(body), expressDefaultBodyLimit)
 }
 
 func TestSenderRetryUsesCurrentWebhookConfiguration(t *testing.T) {

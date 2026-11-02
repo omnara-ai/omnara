@@ -401,6 +401,7 @@ func (s *Store) ListAgentInteractions(
 
 type ListOpenProjectInteractionsInput struct {
 	ProjectID       uuid.UUID
+	AgentProfileID  *uuid.UUID
 	InteractionKind AgentInteractionKind
 	Limit           int
 	After           listing.KeysetCursor
@@ -418,6 +419,7 @@ func (s *Store) ListOpenProjectInteractions(
 	}
 	params := dbsqlc.ListOpenAgentInteractionsForProjectParams{
 		ProjectID:       input.ProjectID,
+		AgentProfileID:  input.AgentProfileID,
 		InteractionKind: string(input.InteractionKind),
 		RowLimit:        int64(input.Limit) + 1,
 	}

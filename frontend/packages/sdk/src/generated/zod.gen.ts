@@ -2112,6 +2112,8 @@ export const zToolCallUpdate = z.object({
     tool_call_id: zToolCallId,
     agent_id: zAgentId.optional(),
     state: zToolCallState,
+    name: z.string().optional(),
+    input: zToolInput.optional(),
     interaction_update: zAgentInteractionUpdate.optional()
 });
 
@@ -5219,6 +5221,8 @@ export const zListProjectToolCallsQuery = z.object({
         'waiting'
     ]).optional(),
     type: zToolCallType.optional(),
+    names: z.array(z.string().min(1).max(64)).min(1).max(100).optional(),
+    agent_profile_id: zAgentProfileId.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });
@@ -5351,6 +5355,7 @@ export const zListProjectInteractionsPath = z.object({
 
 export const zListProjectInteractionsQuery = z.object({
     interaction_kind: zAgentInteractionKind.optional(),
+    agent_profile_id: zAgentProfileId.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });

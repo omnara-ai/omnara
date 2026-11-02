@@ -121,7 +121,8 @@ func (h *Handle) OpenInteraction(ctx context.Context, input OpenInteractionInput
 			ctx,
 			h.unit.DB(),
 			executiondb.InsertExecutionInteractionParams{
-				AgentID: h.route.AgentID, ToolID: call.ID, Kind: kind, Request: request, Destination: destination},
+				ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, ToolID: call.ID, Kind: kind, Request: request,
+				Destination: destination},
 		)
 		if err != nil {
 			return Interaction{}, err

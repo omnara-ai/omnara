@@ -530,34 +530,42 @@ func (q *Queries) ListIdleAgentsForArchive(ctx context.Context, arg ListIdleAgen
 
 const listOpenAgentInteractionsForProject = `-- name: ListOpenAgentInteractionsForProject :many
 WITH page AS (
-  SELECT interaction.agent_id, interaction.id, agent.name AS agent_name, agent.subagent_key
+  SELECT interaction.agent_id, interaction.id
   FROM agent_interactions interaction
-  JOIN agents agent ON agent.id = interaction.agent_id
-  WHERE agent.project_id = $1
+  WHERE interaction.project_id = $1
     AND interaction.state = 'open'
     AND ($2::text = '' OR interaction.interaction_kind = $2)
     AND (
-      $3::timestamptz IS NULL
-      OR (interaction.created_at, interaction.id) > ($3::timestamptz, $4::uuid)
+      SELECT agent.state = 'active'
+        AND ($3::uuid IS NULL OR root.agent_profile_id = $3::uuid)
+      FROM agents agent
+      JOIN agents root ON root.id = agent.root_agent_id
+      WHERE agent.id = interaction.agent_id
+    )
+    AND (
+      $4::timestamptz IS NULL
+      OR (interaction.created_at, interaction.id) > ($4::timestamptz, $5::uuid)
     )
   ORDER BY interaction.created_at ASC, interaction.id ASC
-  LIMIT $5::bigint
+  LIMIT $6::bigint
 )
 SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction.turn_id,
        interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
        interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
        interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
        interaction.destination, interaction.presentation_receipt,
-       page.agent_name, page.subagent_key
+       agent.name AS agent_name, agent.subagent_key
 FROM page
 JOIN agent_interaction_read_projection interaction ON interaction.agent_id = page.agent_id
   AND interaction.id = page.id
+JOIN agents agent ON agent.id = page.agent_id
 ORDER BY interaction.created_at ASC, interaction.id ASC
 `
 
 type ListOpenAgentInteractionsForProjectParams struct {
 	ProjectID       uuid.UUID
 	InteractionKind string
+	AgentProfileID  *uuid.UUID
 	CursorCreatedAt *time.Time
 	CursorID        *uuid.UUID
 	RowLimit        int64
@@ -588,6 +596,7 @@ func (q *Queries) ListOpenAgentInteractionsForProject(ctx context.Context, arg L
 	rows, err := q.db.Query(ctx, listOpenAgentInteractionsForProject,
 		arg.ProjectID,
 		arg.InteractionKind,
+		arg.AgentProfileID,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.RowLimit,
