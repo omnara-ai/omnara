@@ -50,8 +50,8 @@ const (
 	runCommandToolDescription = "Run a shell command on an attached machine. Waits up to wait_ms (default 5 seconds, " +
 		"at most 30 seconds) for it to exit and returns its output, keeping the start and end of long output. " +
 		"If it is still running, it keeps running and you get a message when it ends; use its process_id with " +
-		"the process tools to read output, send input, or stop it. To wait longer than 30 seconds, call " +
-		"read_process again rather than asking for a longer wait_ms."
+		"the process tools to read output, send input, or stop it. To wait longer than 30 seconds, use " +
+		"watch_process rather than a longer wait_ms."
 	writeProcessToolDescription = "Write exact bytes to a running process started with io_mode: pty."
 	stopProcessToolDescription  = "Interrupt or terminate a running process."
 	watchProcessToolDescription = "Watch a running process's output and get a message with the lines that match a " +
@@ -62,8 +62,8 @@ const (
 		"a pattern that matches frequent lines, such as progress or every log line, floods you with messages. " +
 		"If a watch reports too often, replace it with a narrower pattern or cancel it. " +
 		"A new watch replaces the process's current one; timeout_seconds 0 cancels it."
-	readProcessToolDescription = "Read retained process output, optionally waiting up to 30 seconds for the process to end. " +
-		"Long output keeps the start and end."
+	readProcessToolDescription = "Read retained process output, optionally waiting up to 30 seconds for the process to end; " +
+		"to wait longer, use watch_process. Long output keeps the start and end."
 	listProcessesToolDescription          = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription          = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
 	deleteMachineToolDescription          = "Request deletion of a pool-backed machine."
