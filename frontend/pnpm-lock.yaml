@@ -95,8 +95,8 @@ importers:
         specifier: ^4.4.0
         version: 4.4.0
       lucide-react:
-        specifier: ^0.460.0
-        version: 0.460.0(react@19.3.0-canary-eb8feb71-20260814)
+        specifier: ^1.61.0
+        version: 1.61.0(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
       modern-tar:
         specifier: ^0.8.5
         version: 0.8.5
@@ -4012,10 +4012,14 @@ packages:
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
-  lucide-react@0.460.0:
-    resolution: {integrity: sha512-BVtq/DykVeIvRTJvRAgCsOwaGL8Un3Bxh8MbDxMhEWlZay3T4IpEKDEpwt5KZ0KJMHzgm6jrltxlT5eXOWXDHg==}
+  lucide-react@1.61.0:
+    resolution: {integrity: sha512-v2SQPPPNjnr+BlhL9Spuzmo5yR+hLkftfuE4E3jaxdNPgSH0hJKPcLJBP7yAta87jQNPsSERS59PJjCJ/CorBA==}
     peerDependencies:
+      '@types/react': '*'
       react: 19.3.0-canary-eb8feb71-20260814
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -8481,9 +8485,11 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
-  lucide-react@0.460.0(react@19.3.0-canary-eb8feb71-20260814):
+  lucide-react@1.61.0(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814):
     dependencies:
       react: 19.3.0-canary-eb8feb71-20260814
+    optionalDependencies:
+      '@types/react': 19.2.17
 
   magic-string@0.30.21:
     dependencies:

@@ -31,7 +31,7 @@
     "clsx": "^2.1.1",
     "cronstrue": "^3.24.0",
     "date-fns": "^4.4.0",
-    "lucide-react": "^0.460.0",
+    "lucide-react": "^1.61.0",
     "modern-tar": "^0.8.5",
     "monaco-editor": "^0.52.2",
     "monaco-yaml": "^5.5.1",
