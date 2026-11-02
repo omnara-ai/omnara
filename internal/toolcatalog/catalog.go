@@ -63,8 +63,8 @@ const (
 		"a pattern that matches frequent lines, such as progress or every log line, floods you with messages. " +
 		"If a watch reports too often, replace it with a narrower pattern or cancel it. " +
 		"A new watch replaces the process's current one; timeout_seconds 0 cancels it."
-	readProcessToolDescription = "Read retained process output, optionally waiting up to 30 seconds for the process to end. " +
-		"Long output keeps the start and end."
+	readProcessToolDescription = "Read retained process output, optionally waiting up to 30 seconds for the " +
+		"process to end. Long output keeps the start and end."
 	listProcessesToolDescription          = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription          = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
 	deleteMachineToolDescription          = "Request deletion of a pool-backed machine."

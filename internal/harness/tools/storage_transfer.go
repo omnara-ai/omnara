@@ -75,7 +75,9 @@ func resolveStorageUploadRequest(raw json.RawMessage) (resolvedStorageUploadRequ
 		return resolvedStorageUploadRequest{}, errors.New("force only applies to memory uploads")
 	}
 	if !isMemory && input.Path != toolcatalog.ArtifactVFSRoot {
-		return resolvedStorageUploadRequest{}, errors.New("upload path must be /artifacts exactly, with no file name after it, or /memory/<store>/<path>")
+		return resolvedStorageUploadRequest{}, errors.New(
+			"upload path must be /artifacts exactly, with no file name after it, or /memory/<store>/<path>",
+		)
 	}
 	if input.Source == "" {
 		return resolvedStorageUploadRequest{}, errors.New("source is required")
