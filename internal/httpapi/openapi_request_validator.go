@@ -20,12 +20,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
+	sjsonschema "github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 )
-
-// Configure the process-wide error policy before concurrent construction or validation.
-func init() {
-	openapi3.SchemaErrorDetailsDisabled = true
-}
 
 func newOpenAPIRequestValidator() (middleware, error) {
 	spec, err := openapi.GetSpec()
@@ -40,10 +37,10 @@ func newOpenAPIRequestValidator() (middleware, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build openapi query validator: %w", err)
 	}
+	options := openapi3filter.Options{AuthenticationFunc: openapi3filter.NoopAuthenticationFunc}
+	options.WithCustomSchemaErrorFunc(openAPISchemaErrorMessage)
 	validator := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
-		Options: openapi3filter.Options{
-			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
-		},
+		Options:               options,
 		SilenceServersWarning: true,
 		ErrorHandlerWithOpts:  openAPIValidationErrorHandler,
 	})
@@ -143,6 +140,35 @@ func isJSONContentType(value string) bool {
 		return false
 	}
 	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
+}
+
+func openAPISchemaErrorMessage(err *openapi3.SchemaError) string {
+	var cause *sjsonschema.ValidationError
+	if !errors.As(err, &cause) {
+		var prefix string
+		if path := err.JSONPointer(); len(path) > 0 {
+			prefix = fmt.Sprintf("Error at %q: ", "/"+strings.Join(path, "/"))
+		}
+		if err.Reason == "" {
+			return prefix + fmt.Sprintf("doesn't match schema %q", err.SchemaField)
+		}
+		return prefix + err.Reason
+	}
+	detail := fmt.Sprintf("doesn't match %q", err.SchemaField)
+	switch k := cause.ErrorKind.(type) {
+	case *kind.AdditionalProperties:
+		if err.SchemaField == "additionalProperties" {
+			detail = fmt.Sprintf("unsupported properties %q", k.Properties)
+		}
+	case *kind.Required:
+		if err.SchemaField == "required" {
+			detail = fmt.Sprintf("missing properties %q", k.Missing)
+		}
+	}
+	if err.SchemaField == "" {
+		detail = "doesn't match the schema"
+	}
+	return fmt.Sprintf("Error at %q: %s", "/"+strings.Join(err.JSONPointer(), "/"), detail)
 }
 
 func openAPIValidationErrorHandler(

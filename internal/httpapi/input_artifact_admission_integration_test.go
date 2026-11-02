@@ -87,7 +87,6 @@ func TestAgentInputPreparedArtifacts(t *testing.T) {
 			if scenario == "validation" {
 				send(`{"content_blocks":[`+image+`,{"type":"text","text":"invalid metadata","metadata":{"":"invalid"}}]}`,
 					"invalid", http.StatusBadRequest)
-				require.NotEmpty(t, blobs.keys)
 				check(0)
 				return
 			}

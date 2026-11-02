@@ -349,7 +349,7 @@ func soleComponentReference(decoded map[string]any) (string, bool) {
 		target = member
 	}
 	ref, ok := target["$ref"].(string)
-	if !ok || len(target) != 1 || !strings.HasPrefix(ref, componentSchemaRef) {
+	if !ok || !hasOnlyKeys(target, "$ref", "description") || !strings.HasPrefix(ref, componentSchemaRef) {
 		return "", false
 	}
 	return strings.TrimPrefix(ref, componentSchemaRef), true
