@@ -279,11 +279,22 @@ func (e AgentExecutor) executeModelStep(
 			defer streamSink.Close()
 		}
 	}
-	response, err := client.Respond(model.WithCallScope(ctx, model.CallScope{
+	callCtx := model.WithCallScope(ctx, model.CallScope{
 		Purpose:            model.CallPurposeAgentTurn,
 		ModelCallContextID: claim.Context.ID.String(),
 		Attempt:            claim.Context.AttemptNumber,
-	}), request)
+	})
+	response, err := client.Respond(callCtx, request)
+	if affordable, ok := model.AffordableOutputTokens(err); ok {
+		retryPolicy := policy
+		retryPolicy.MaxOutputTokens = affordable
+		if retry, retryErr := model.PrepareForSend(ctx, client, model.PrepareForSendInput{
+			Context: bundle, Policy: retryPolicy, ErrorSource: modelErrorSourceForClient(client),
+		}); retryErr == nil {
+			prepared, request.ProviderRequest = retry, retry.Body
+			response, err = client.Respond(callCtx, request)
+		}
+	}
 	if err != nil {
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return modelStep{}, err
