@@ -47,10 +47,11 @@ func IsPlatformManagedToolType(toolType string) bool {
 }
 
 const (
-	runCommandToolDescription = "Run a shell command on an attached machine. Waits up to wait_ms (default 5 seconds) for it to exit " +
-		"and returns its output, keeping the start and end of long output. If it is still running, it keeps " +
-		"running and you get a message when it ends; use its process_id with the process tools to read " +
-		"output, send input, or stop it."
+	runCommandToolDescription = "Run a shell command on an attached machine. Waits up to wait_ms (default 5 seconds, " +
+		"at most 30 seconds) for it to exit and returns its output, keeping the start and end of long output. " +
+		"If it is still running, it keeps running and you get a message when it ends; use its process_id with " +
+		"the process tools to read output, send input, or stop it. To wait longer than 30 seconds, call " +
+		"read_process again rather than asking for a longer wait_ms."
 	writeProcessToolDescription = "Write exact bytes to a running process started with io_mode: pty."
 	stopProcessToolDescription  = "Interrupt or terminate a running process."
 	watchProcessToolDescription = "Watch a running process's output and get a message with the lines that match a " +
@@ -61,7 +62,7 @@ const (
 		"a pattern that matches frequent lines, such as progress or every log line, floods you with messages. " +
 		"If a watch reports too often, replace it with a narrower pattern or cancel it. " +
 		"A new watch replaces the process's current one; timeout_seconds 0 cancels it."
-	readProcessToolDescription = "Read retained process output, optionally waiting for the process to end. " +
+	readProcessToolDescription = "Read retained process output, optionally waiting up to 30 seconds for the process to end. " +
 		"Long output keeps the start and end."
 	listProcessesToolDescription          = "List active processes in the current agent, including process_id values."
 	createMachineToolDescription          = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
@@ -90,6 +91,7 @@ const (
 	storageListToolDescription = "List files and directories in Omnara matching a glob. " +
 		"Returns paths and metadata without file contents. When has_more is true, call again with next_offset to continue."
 	storageUploadToolDescription = "Copy a file from an attached machine into Omnara. " +
+		"To create an artifact, set path to exactly /artifacts, with no file name after it. " +
 		"Set view to load an uploaded image, such as a screenshot, into your context. " +
 		"Replacing a memory file fails unless you read, wrote, uploaded, or downloaded its current content. " +
 		"Returns path."
@@ -751,7 +753,8 @@ func storageUploadTool(machineID map[string]any) (Entry, error) {
 				"type":      "string",
 				"minLength": 1,
 				"pattern":   "^(/artifacts|/memory/[^/]+/.+)$",
-				"description": "Destination path in Omnara: /artifacts creates an artifact; " +
+				"description": "Destination path in Omnara: exactly /artifacts creates an artifact " +
+					"(not /artifacts/<name>; the file to copy goes in source); " +
 					"/memory/<store>/<path> creates or replaces a memory file. " +
 					"Memory files may be empty; artifacts must be non-empty.",
 			},
@@ -766,7 +769,7 @@ func storageUploadTool(machineID map[string]any) (Entry, error) {
 			"view": map[string]any{
 				"type": "boolean",
 				"description": "Load the uploaded file into your context so you can see it, " +
-					"when it is a PNG, JPEG, GIF, or WebP image. Defaults to false. Artifacts only.",
+					"when it is a PNG, JPEG, GIF, or WebP image. Defaults to false. Artifacts only: path must be /artifacts.",
 			},
 		},
 	)
