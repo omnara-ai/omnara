@@ -131,6 +131,7 @@ func (c *Client) mintInstallationToken(ctx context.Context, repositoryID int64, 
 }
 
 func (c *Client) invalidateToken(ctx context.Context, token string) {
+	c.gitCredentials.invalidate(token)
 	if c.sharedTokens != nil {
 		c.sharedTokens.invalidate(c.tokenIdentity, token)
 		return

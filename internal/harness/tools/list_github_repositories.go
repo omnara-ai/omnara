@@ -72,14 +72,11 @@ func runListGitHubRepositories(ctx context.Context, call asyncToolContext) (asyn
 	if err != nil {
 		return nil, err
 	}
-	config, err := call.Executor.githubClientConfig(integration, credential.Payload)
-	if err != nil {
-		return integrationToolFailure(err)
-	}
-	config.BeforeRequest = func(ctx context.Context) error {
-		return call.Executor.recheckGitCredentialAccess(ctx, call.Turn, credentials, integration, credential.CurrentVersionID)
-	}
-	client, err := github.NewClient(config)
+	client, err := call.Executor.githubClient(integration, credential.Payload, credential.CurrentVersionID,
+		func(ctx context.Context) error {
+			return call.Executor.recheckGitCredentialAccess(ctx, call.Turn, credentials, integration,
+				credential.CurrentVersionID)
+		})
 	if err != nil {
 		return integrationToolFailure(err)
 	}
