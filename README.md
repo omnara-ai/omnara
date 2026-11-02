@@ -295,9 +295,9 @@ keep every agent's history in your own Postgres.
 | Source | Open source (Apache 2.0) | Closed | Open-source harness (Codex). The hosted service is OpenAI's. |
 | Models | Any compatible model | Claude | OpenAI |
 | Agent loop | Omnara's, works with any model | Anthropic's, built for Claude | Codex, run and updated by OpenAI |
-| Where the platform runs | Omnara Cloud, or your own infrastructure | Anthropic's cloud | OpenAI's cloud |
+| Where the platform runs | Omnara Cloud, or your own cloud account or data center | Anthropic's cloud | OpenAI's cloud |
 | Where agents run | Sandboxes from many providers, or your own machines | Anthropic sandboxes, or your own sandboxes | OpenAI sandboxes, partner sandboxes, or your own machines |
-| Operations | Managed on Omnara Cloud. You operate it when self-hosting. | Managed by Anthropic. You run the sandbox side if you self-host sandboxes. | Managed by OpenAI. You run the environment if you bring your own. |
+| Operations | Managed on Omnara Cloud, or by Omnara's team in your own cloud or on premises on enterprise plans. You operate it if you self-host it yourself. | Managed by Anthropic. You run the sandbox side if you self-host sandboxes. | Managed by OpenAI. You run the environment if you bring your own. |
 | Agent history | Stored by Omnara on Omnara Cloud and queryable through the API. In your own Postgres when self-hosted. | Stored by Anthropic, readable and deletable through the API. Not currently eligible for Zero Data Retention or HIPAA BAA coverage. | Stored by OpenAI. No Zero Data Retention support. US data residency only. |
 | Pricing | Free to self-host. On Omnara Cloud, free with your own keys and machines, or pay as you go for our models and sandboxes. | Claude token rates plus $0.08 per active session-hour | OpenAI model rates, plus standard rates for OpenAI tools and hosted sandboxes |
 
@@ -387,8 +387,9 @@ retained storage. See [pricing](https://www.omnara.com/pricing).
 
 **Can I self-host it?** Yes. Run it with Docker Compose locally, then follow
 the [self-hosting guide](https://docs.omnara.com/self-hosting/deployment) for
-production. The API, CLI, SDK, and config format are the same on Omnara Cloud
-and self-hosted deployments.
+production, or have Omnara's team deploy and maintain it in your own cloud or
+on premises on an enterprise plan. The API, CLI, SDK, and config format are the
+same on Omnara Cloud and self-hosted deployments.
 
 **Which models work?** Any model behind an OpenAI Responses, OpenAI Chat
 Completions, or Anthropic Messages compatible endpoint, including OpenAI,
