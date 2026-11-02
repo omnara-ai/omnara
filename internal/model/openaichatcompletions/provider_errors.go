@@ -247,6 +247,7 @@ func (e chatProviderError) codeText() string {
 
 func (e chatProviderError) classificationValues() []string {
 	return []string{
+		e.Metadata.LimitSource,
 		e.Metadata.ErrorType,
 		e.Metadata.ProviderCode,
 		providererrors.CodeText(e.Code),
@@ -257,5 +258,6 @@ func (e chatProviderError) classificationValues() []string {
 type chatProviderErrorMetadata struct {
 	ErrorType    string          `json:"error_type"`
 	ProviderCode string          `json:"provider_code"`
+	LimitSource  string          `json:"limit_source"`
 	Raw          json.RawMessage `json:"raw"`
 }

@@ -378,3 +378,28 @@ func (q *Queries) ReadExecutionAttempt(ctx context.Context, db DBTX, arg ReadExe
 	)
 	return i, err
 }
+
+const readExecutionModelProvider = `-- name: ReadExecutionModelProvider :one
+SELECT p.management_kind,p.name
+FROM model_call_contexts c JOIN configured_model_revisions r ON r.org_id=c.org_id AND r.id=c.configured_model_revision_id
+JOIN model_provider_configs p ON p.org_id=r.org_id AND p.id=r.model_provider_config_id
+WHERE c.agent_id=$1 AND c.id=$2
+`
+
+type ReadExecutionModelProviderParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+type ReadExecutionModelProviderRow struct {
+	ManagementKind string
+	Name           string
+}
+
+// @sqlc-vet-disable model-provider-configs-deleted-at
+func (q *Queries) ReadExecutionModelProvider(ctx context.Context, db DBTX, arg ReadExecutionModelProviderParams) (ReadExecutionModelProviderRow, error) {
+	row := db.QueryRow(ctx, readExecutionModelProvider, arg.AgentID, arg.ID)
+	var i ReadExecutionModelProviderRow
+	err := row.Scan(&i.ManagementKind, &i.Name)
+	return i, err
+}
