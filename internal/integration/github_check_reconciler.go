@@ -52,18 +52,18 @@ type githubCheckWork struct {
 	retry githubCheckRetry
 }
 
-func (r *GitHubCheckReconciler) Reconcile(ctx context.Context) error {
+func (r *GitHubCheckReconciler) Reconcile(ctx context.Context) (bool, error) {
 	if r.claim == uuid.Nil {
 		r.claim, r.retries = uuid.New(), make(map[uuid.UUID]githubCheckRetry)
 	}
 	pageSize := cmp.Or(r.pageSize, githubCheckRunBatchSize)
 	runs, err := r.Store.Integrations().ListGitHubCheckRuns(ctx, r.claim, r.after, pageSize)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if len(runs) == 0 {
 		r.after = uuid.Nil
-		return nil
+		return false, nil
 	}
 	projectIDs := make([]uuid.UUID, 0, len(runs))
 	agentIDs := make([]uuid.UUID, 0, len(runs))
@@ -73,7 +73,7 @@ func (r *GitHubCheckReconciler) Reconcile(ctx context.Context) error {
 	}
 	activity, err := r.Store.Execution().ListAgentTreeActivity(ctx, projectIDs, agentIDs)
 	if err != nil {
-		return err
+		return false, err
 	}
 	r.after = runs[len(runs)-1].ID
 	if len(runs) < int(pageSize) {
@@ -85,7 +85,7 @@ func (r *GitHubCheckReconciler) Reconcile(ctx context.Context) error {
 	})
 	var work []githubCheckWork
 	for _, run := range runs {
-		retry, state := r.retries[run.ID], activity[run.AgentID].State
+		retry, state := r.retries[run.ID], githubCheckState(activity[run.AgentID])
 		if githubCheckDue(run, state, retry, now) {
 			work = append(work, githubCheckWork{run: run, state: state, retry: retry})
 		}
@@ -127,7 +127,7 @@ func (r *GitHubCheckReconciler) Reconcile(ctx context.Context) error {
 		})
 	}
 	_ = group.Wait()
-	return errors.Join(failures...)
+	return len(work) > 0, errors.Join(failures...)
 }
 
 func githubCheckGiveUp(err error, retry githubCheckRetry, open bool, now time.Time) bool {
@@ -143,6 +143,14 @@ func githubCheckGiveUp(err error, retry githubCheckRetry, open bool, now time.Ti
 
 func githubCheckDue(run integrationstore.GitHubCheckRun, state string, retry githubCheckRetry, now time.Time) bool {
 	return !now.Before(retry.at) && (run.Unfinished || !githubCheckCurrent(run, state))
+}
+
+func githubCheckState(activity executionstore.AgentActivity) string {
+	if activity.State == executionstore.SubagentStateIdle &&
+		(activity.RunningProcesses.Count > 0 || activity.WorkingSubagents.Count > 0) {
+		return executionstore.SubagentStateRunning
+	}
+	return activity.State
 }
 
 func githubCheckCurrent(run integrationstore.GitHubCheckRun, state string) bool {
@@ -254,7 +262,12 @@ func (r *GitHubCheckReconciler) client(
 func (r *GitHubCheckReconciler) check(
 	ctx context.Context, run integrationstore.GitHubCheckRun, setup integrationstore.IntegrationRecord,
 ) github.CheckRun {
-	check := github.CheckRun{Name: cmp.Or(strings.TrimSpace(setup.ProviderAgentDisplayName), "Omnara")}
+	var oldest uuid.UUID
+	if shared, err := r.Store.Integrations().ListIntegrationsByProviderIdentity(ctx, setup.Provider,
+		setup.ProviderTenantID, setup.ProviderAccountRef, uuid.Nil, 1); err == nil && len(shared) == 1 {
+		oldest = shared[0].ID
+	}
+	check := github.CheckRun{Name: githubCheckName(setup, oldest)}
 	project, _ := publicid.Encode(publicid.KindProject, run.ProjectID)
 	agentID, _ := publicid.Encode(publicid.KindAgent, run.AgentID)
 	facts := []string{"- **Agent:** `" + agentID + "`"}
@@ -270,6 +283,14 @@ func (r *GitHubCheckReconciler) check(
 	}
 	check.Summary = strings.Join(facts, "\n")
 	return check
+}
+
+func githubCheckName(setup integrationstore.IntegrationRecord, oldest uuid.UUID) string {
+	name := cmp.Or(strings.TrimSpace(setup.ProviderAgentDisplayName), "Omnara")
+	if oldest != uuid.Nil && oldest != setup.ID {
+		return name + " (" + setup.Name + ")"
+	}
+	return name
 }
 
 func ignoreConflict(err error) error {

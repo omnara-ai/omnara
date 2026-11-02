@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -55,6 +56,57 @@ func TestGitHubCheckCurrent(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if got := githubCheckCurrent(test.run, test.state); got != test.want {
 				t.Fatalf("githubCheckCurrent() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestGitHubCheckState(t *testing.T) {
+	idle, running := executionstore.SubagentStateIdle, executionstore.SubagentStateRunning
+	waiting, archived := executionstore.SubagentStateWaitingOnInteraction, executionstore.SubagentStateArchived
+	busy := executionstore.AgentActivityIDs{Count: 1}
+	for _, test := range []struct {
+		name     string
+		activity executionstore.AgentActivity
+		want     string
+	}{
+		{"idle", executionstore.AgentActivity{State: idle}, idle},
+		{"idle with a running process", executionstore.AgentActivity{
+			State: idle, AgentActivityWork: executionstore.AgentActivityWork{RunningProcesses: busy},
+		}, running},
+		{"idle with a working subagent", executionstore.AgentActivity{
+			State: idle, AgentActivityWork: executionstore.AgentActivityWork{WorkingSubagents: busy},
+		}, running},
+		{"waiting with a running process", executionstore.AgentActivity{
+			State: waiting, AgentActivityWork: executionstore.AgentActivityWork{RunningProcesses: busy},
+		}, waiting},
+		{"running", executionstore.AgentActivity{State: running}, running},
+		{"archived", executionstore.AgentActivity{State: archived}, archived},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := githubCheckState(test.activity); got != test.want {
+				t.Fatalf("githubCheckState() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestGitHubCheckName(t *testing.T) {
+	setup := integrationstore.IntegrationRecord{ID: uuid.New(), Name: "reviews", ProviderAgentDisplayName: "my-app"}
+	for _, test := range []struct {
+		name   string
+		setup  integrationstore.IntegrationRecord
+		oldest uuid.UUID
+		want   string
+	}{
+		{"only integration on the App", setup, setup.ID, "my-app"},
+		{"later integration sharing the App", setup, uuid.New(), "my-app (reviews)"},
+		{"sharing lookup unavailable", setup, uuid.Nil, "my-app"},
+		{"App without a display name", integrationstore.IntegrationRecord{ID: setup.ID}, setup.ID, "Omnara"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := githubCheckName(test.setup, test.oldest); got != test.want {
+				t.Fatalf("githubCheckName() = %q, want %q", got, test.want)
 			}
 		})
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -128,7 +129,7 @@ func TestGitHubCheckReconcilerTracksAgentActivity(t *testing.T) {
 	reconciler := &integrationruntime.GitHubCheckReconciler{
 		Store: f.project.Store, GitHub: api, PublicURL: "https://omnara.test",
 	}
-	reconcile := func() { require.NoError(t, reconciler.Reconcile(t.Context())) }
+	reconcile := func() { requireReconciled(t, reconciler) }
 	makeIdle := func(agentID any) {
 		pool := integrationPoolForHandler(t, f.handler)
 		_, err := pool.Exec(t.Context(), `DELETE FROM agent_wakeups WHERE agent_id=$1`, agentID)
@@ -292,16 +293,19 @@ func TestGitHubCheckReconcilersShareOneCheck(t *testing.T) {
 	}
 	first, second := reconciler(), reconciler()
 	done := make(chan error, 1)
-	go func() { done <- first.Reconcile(t.Context()) }()
+	go func() {
+		_, err := first.Reconcile(t.Context())
+		done <- err
+	}()
 	select {
 	case <-entered:
 	case err := <-done:
 		t.Fatalf("first reconciler finished without creating a check: %v", err)
 	}
-	require.NoError(t, second.Reconcile(t.Context()))
+	requireReconciled(t, second)
 	unblock.Do(func() { close(release) })
 	require.NoError(t, <-done)
-	require.NoError(t, second.Reconcile(t.Context()))
+	requireReconciled(t, second)
 	require.Equal(t, int32(1), creates.Load(), "only the reconciler holding the claim may publish the check")
 
 	integrations := f.project.Store.Integrations()
@@ -309,7 +313,7 @@ func TestGitHubCheckReconcilersShareOneCheck(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, runs, 1)
 	require.NoError(t, integrations.ClaimGitHubCheckRun(t.Context(), &runs[0], uuid.New(), 0))
-	require.NoError(t, second.Reconcile(t.Context()))
+	requireReconciled(t, second)
 	require.Equal(t, int32(1), closes.Load(), "a claim abandoned by a lost owner forces a repair")
 	require.Equal(t, int32(2), creates.Load())
 	runs, err = integrations.ListGitHubCheckRuns(t.Context(), uuid.Nil, uuid.Nil, 1)
@@ -337,13 +341,49 @@ func TestGitHubCheckReconcilerUpdatesTheWaitingCheck(t *testing.T) {
 			return map[string]any{"id": 1}
 		})
 	reconciler := &integrationruntime.GitHubCheckReconciler{Store: f.project.Store, GitHub: api}
-	require.NoError(t, reconciler.Reconcile(ctx))
+	requireReconciled(t, reconciler)
 	requestJSONWithHeaders(t, f.handler, http.MethodPost,
 		f.project.ProjectPath+"/agents/"+testPublicID(t, publicid.KindAgent, agentID)+"/archive", "", "",
 		http.StatusOK, authHeaders(f.project.AdminToken))
-	require.NoError(t, reconciler.Reconcile(ctx))
+	requireReconciled(t, reconciler)
 	require.Equal(t, []string{
 		"POST /repos/owner/repository/check-runs completedaction_required",
 		"PATCH /repos/owner/repository/check-runs/1 neutral",
 	}, calls, "finishing after a question updates the waiting check instead of adding another")
+}
+
+func TestGitHubCheckNamesLaterIntegrationsSharingTheApp(t *testing.T) {
+	t.Parallel()
+	f := newGitHubHTTPJourney(t, "github-check-shared-app")
+	ctx := t.Context()
+	later := createSetupHTTPIntegration(t, f.handler, f.project, "reviews", integrationdefinition.GitHubPR)
+	body := integrationSetupHTTPBody("123", "456")
+	body["credential_secret_id"], body["expected_setup_revision"] = f.secretID, later.SetupRevision
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, later),
+		integrationHTTPJSON(t, body), "", http.StatusOK, authHeaders(f.project.AdminToken))
+	address := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}
+	for _, integrationID := range []uuid.UUID{f.integration.ID, later.ID} {
+		require.NoError(t, f.project.Store.Integrations().MarkGitHubCheckRun(
+			ctx, f.project.ProjectUUID, integrationID, uuid.New(), address, false))
+	}
+	var mu sync.Mutex
+	var names []string
+	api := newGitHubChecksAPI(t, func() string { return strings.Repeat("b", 40) }, nil,
+		func(_ *http.Request, body githubCheckRunRequest) any {
+			mu.Lock()
+			defer mu.Unlock()
+			names = append(names, body.Name)
+			return map[string]any{"id": len(names)}
+		})
+	reconciler := &integrationruntime.GitHubCheckReconciler{Store: f.project.Store, GitHub: api}
+	requireReconciled(t, reconciler)
+	app := f.integration.ProviderAgentDisplayName
+	require.ElementsMatch(t, []string{app, app + " (reviews)"}, names,
+		"the first integration on an App keeps its name; later ones add theirs")
+}
+
+func requireReconciled(t *testing.T, reconciler *integrationruntime.GitHubCheckReconciler) {
+	t.Helper()
+	_, err := reconciler.Reconcile(t.Context())
+	require.NoError(t, err)
 }

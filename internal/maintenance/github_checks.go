@@ -7,13 +7,14 @@ import (
 
 func reconcileGitHubChecks(
 	log *slog.Logger,
-	reconcile func(context.Context) error,
+	reconcile func(context.Context) (bool, error),
 ) func(context.Context) maintenanceResult {
 	return func(ctx context.Context) maintenanceResult {
-		outcome := completedMaintenanceOutcome(ctx, reconcile(ctx))
+		worked, err := reconcile(ctx)
+		outcome := completedMaintenanceOutcome(ctx, err)
 		if outcome.err != nil {
 			log.Error("reconcile GitHub checks", "error", outcome.err)
 		}
-		return maintenanceResult{err: outcome.err}
+		return maintenanceResult{worked: worked, err: outcome.err}
 	}
 }

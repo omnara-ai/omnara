@@ -35,19 +35,27 @@ func TestGitHubCheckReconcilerReadsOnePagePerTick(t *testing.T) {
 		require.NoError(t, integrations.SaveGitHubCheckRun(ctx, run))
 	}
 	reconciler := &GitHubCheckReconciler{Store: store, pageSize: 2}
-	require.NoError(t, reconciler.Reconcile(ctx))
+	tick := func(wantWorked bool) {
+		t.Helper()
+		worked, err := reconciler.Reconcile(ctx)
+		require.NoError(t, err)
+		require.Equal(t, wantWorked, worked)
+	}
+	tick(true)
 	require.Len(t, remaining(), 3, "a tick finishes one page of idle checks")
 	require.Equal(t, tracked[1].ID, reconciler.after)
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	require.Error(t, reconciler.Reconcile(canceled))
+	_, err := reconciler.Reconcile(canceled)
+	require.Error(t, err)
 	require.Equal(t, tracked[1].ID, reconciler.after, "a failed read keeps the cursor")
-	require.NoError(t, reconciler.Reconcile(ctx))
+	tick(true)
 	require.Len(t, remaining(), 1)
 	require.Equal(t, tracked[3].ID, reconciler.after)
-	require.NoError(t, reconciler.Reconcile(ctx))
+	tick(true)
 	require.Empty(t, remaining())
 	require.Equal(t, uuid.Nil, reconciler.after, "a short page wraps the cursor to the start")
+	tick(false)
 }
 
 func TestGitHubCheckReconcilerRepublishesUnfinishedFinishedChecks(t *testing.T) {
@@ -77,7 +85,8 @@ func TestGitHubCheckReconcilerRepublishesUnfinishedFinishedChecks(t *testing.T) 
 	reconciler := &GitHubCheckReconciler{
 		Store: store, GitHub: github.Config{APIURL: server.URL, HTTPClient: server.Client()},
 	}
-	require.Error(t, reconciler.Reconcile(ctx))
+	_, err := reconciler.Reconcile(ctx)
+	require.Error(t, err)
 	require.Positive(t, requests.Load(), "a finished check left unfinished is republished instead of deleted")
 	require.True(t, tracked(reconciler.claim).Unfinished)
 }
