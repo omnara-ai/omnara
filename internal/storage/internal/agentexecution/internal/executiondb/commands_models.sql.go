@@ -380,7 +380,8 @@ func (q *Queries) ReadExecutionAttempt(ctx context.Context, db DBTX, arg ReadExe
 }
 
 const readExecutionModelProvider = `-- name: ReadExecutionModelProvider :one
-SELECT p.management_kind,p.name
+SELECT p.name,(p.management_kind='cluster'
+ AND EXISTS(SELECT 1 FROM org_managed_work_admission w WHERE w.org_id=c.org_id))::boolean AS omnara_credits
 FROM model_call_contexts c JOIN configured_model_revisions r ON r.org_id=c.org_id AND r.id=c.configured_model_revision_id
 JOIN model_provider_configs p ON p.org_id=r.org_id AND p.id=r.model_provider_config_id
 WHERE c.agent_id=$1 AND c.id=$2
@@ -392,14 +393,14 @@ type ReadExecutionModelProviderParams struct {
 }
 
 type ReadExecutionModelProviderRow struct {
-	ManagementKind string
-	Name           string
+	Name          string
+	OmnaraCredits bool
 }
 
 // @sqlc-vet-disable model-provider-configs-deleted-at
 func (q *Queries) ReadExecutionModelProvider(ctx context.Context, db DBTX, arg ReadExecutionModelProviderParams) (ReadExecutionModelProviderRow, error) {
 	row := db.QueryRow(ctx, readExecutionModelProvider, arg.AgentID, arg.ID)
 	var i ReadExecutionModelProviderRow
-	err := row.Scan(&i.ManagementKind, &i.Name)
+	err := row.Scan(&i.Name, &i.OmnaraCredits)
 	return i, err
 }

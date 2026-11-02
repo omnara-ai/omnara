@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
-	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -222,9 +221,9 @@ func (h *Handle) publishTerminalFailure(ctx context.Context, m *executionMutatio
 		if err != nil {
 			return false, err
 		}
-		text = storeerr.InsufficientOmnaraCreditsMessage
-		if management.Kind(provider.ManagementKind) != management.Cluster {
-			text = fmt.Sprintf("Model provider %q returned a billing error: %s", provider.Name, input.ErrorMessage)
+		text = fmt.Sprintf("Model provider %q returned a billing error: %s", provider.Name, input.ErrorMessage)
+		if provider.OmnaraCredits {
+			text = storeerr.InsufficientOmnaraCreditsMessage
 		}
 	}
 	parts := []Content{{Kind: "error", Text: text}}
