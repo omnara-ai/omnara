@@ -2371,9 +2371,12 @@ func TestPoolTeardownCompletionDestroysDeletedOrgSecretVersions(t *testing.T) {
 			id, org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
 			lifecycle_changed_at,
 			memory_mb, provider_options, next_reconcile_after, delete_attempts,
-			created_at, updated_at
+			created_at, updated_at, delete_reason_code
 		)
-		VALUES ($1, $2, $3, 'pool', 'Teardown Machine', 'test', 'deleting', $4, 1024, '{}'::jsonb, $4, 1, $4, $4)
+		VALUES (
+			$1, $2, $3, 'pool', 'Teardown Machine', 'test', 'deleting', $4, 1024, '{}'::jsonb, $4, 1, $4, $4,
+			'test_cleanup'
+		)
 	`, machineID, testOrgID, poolID, now); err != nil {
 		t.Fatalf("insert deleting pool machine: %v", err)
 	}
@@ -6796,7 +6799,7 @@ func TestMachineDaemonTokenRequiresEligibleMachineLifecycle(t *testing.T) {
 	}
 	if _, err := pool.Exec(
 		ctx,
-		`UPDATE machines SET lifecycle_state = 'deleting', next_reconcile_after = $1, updated_at = $1 WHERE id = $2`,
+		`UPDATE machines SET lifecycle_state = 'deleting', lifecycle_reason_code = 'test_cleanup', next_reconcile_after = $1, updated_at = $1 WHERE id = $2`,
 		now.Add(6*time.Second),
 		machineID,
 	); err != nil {
