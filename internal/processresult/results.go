@@ -328,10 +328,16 @@ func terminalOutcome(process Process) string {
 	return "failed"
 }
 
+// StillRunningNote tells the model that a command still running when run_command returns sends a message when it
+// ends, so ending the turn does not end the task.
+const StillRunningNote = "Still running. You get a message when it ends, so do other work or end your turn; " +
+	"that message wakes you to continue."
+
 func Started(process Process, observed json.RawMessage) (json.RawMessage, error) {
 	result := map[string]any{
 		"process_id": publicID(publicid.KindProcess, process.ID),
 		"state":      process.State,
+		"note":       StillRunningNote,
 	}
 	if observed = NormalizeObservation(observed); len(observed) != 0 {
 		output, err := decodeObservation(observed)

@@ -283,7 +283,12 @@ func TestProcessResultsLeaveOutEmptyFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := `{"next_offset_byte":0,"output":"","process_id":"` + id + `","state":"running"}`; string(started) != want {
+	note, err := json.Marshal(StillRunningNote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"next_offset_byte":0,"note":` + string(note) + `,"output":"","process_id":"` + id +
+		`","state":"running"}`; string(started) != want {
 		t.Fatalf("Started = %s, want %s", started, want)
 	}
 }

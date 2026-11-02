@@ -158,6 +158,13 @@ func mcpToolImplementation(name string) (toolImplementation, bool) {
 func (tool toolImplementation) validateInput(input json.RawMessage) error {
 	if tool.inputSchemaValidator != nil {
 		if err := tool.inputSchemaValidator.Validate(input); err != nil {
+			// The semantic validator explains tool-specific mistakes, such as a file name after /artifacts,
+			// better than the schema error, so lead with its explanation when it also rejects the input.
+			if tool.semanticInputValidator != nil {
+				if semanticErr := tool.semanticInputValidator(input); semanticErr != nil {
+					return fmt.Errorf("tool %q input: %w\n%w", tool.name, semanticErr, err)
+				}
+			}
 			return fmt.Errorf("tool %q input: %w", tool.name, err)
 		}
 	}
