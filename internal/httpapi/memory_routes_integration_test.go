@@ -67,16 +67,6 @@ func TestMemoryStoreManagementAPI(t *testing.T) {
 	}
 	for _, access := range []string{`""`, `"write"`, `true`, `null`} {
 		for _, method := range []string{http.MethodPost, http.MethodPatch} {
-			if method == http.MethodPost && access == `null` {
-				defaulted := requestJSONWithHeaders(
-					t, handler, method, path, `{"name":"null-access","agent_access":null}`,
-					"", http.StatusCreated, authHeaders(project.AdminToken),
-				)
-				if defaulted["agent_access"] != "read_write" {
-					t.Fatalf("null agent access: %+v", defaulted)
-				}
-				continue
-			}
 			target, body := path, fmt.Sprintf(`{"name":"invalid","agent_access":%s}`, access)
 			if method == http.MethodPatch {
 				target, body = path+"/"+id, fmt.Sprintf(`{"agent_access":%s}`, access)

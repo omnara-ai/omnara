@@ -33,6 +33,9 @@ func newOpenAPIRequestValidator() (middleware, error) {
 	if err := relaxAgentConfigDefinitionValidation(spec); err != nil {
 		return nil, err
 	}
+	if err := dropMemoryStoreAccessDefault(spec); err != nil {
+		return nil, err
+	}
 	queryRouter, err := gorillamux.NewRouter(spec)
 	if err != nil {
 		return nil, fmt.Errorf("build openapi query validator: %w", err)
@@ -95,6 +98,19 @@ func relaxAgentConfigDefinitionValidation(spec *openapi3.T) error {
 		// Overwrite in place: resolved $refs share this schema value.
 		*ref.Value = openapi3.Schema{Type: &openapi3.Types{openapi3.TypeObject}}
 	}
+	return nil
+}
+
+func dropMemoryStoreAccessDefault(spec *openapi3.T) error {
+	store, ok := spec.Components.Schemas["CreateMemoryStore"]
+	if !ok || store.Value == nil {
+		return errors.New("openapi spec has no CreateMemoryStore schema")
+	}
+	access, ok := store.Value.Properties["agent_access"]
+	if !ok || access.Value == nil {
+		return errors.New("openapi spec has no CreateMemoryStore agent_access property")
+	}
+	access.Value.Default = nil
 	return nil
 }
 
