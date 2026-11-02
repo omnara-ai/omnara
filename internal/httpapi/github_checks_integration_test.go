@@ -387,3 +387,30 @@ func requireReconciled(t *testing.T, reconciler *integrationruntime.GitHubCheckR
 	_, err := reconciler.Reconcile(t.Context())
 	require.NoError(t, err)
 }
+
+func TestGitHubCheckTrackingSurvivesReceiptReplay(t *testing.T) {
+	t.Parallel()
+	f, _ := newGitHubChecksJourney(t, "github-check-replay")
+	ctx := t.Context()
+	integrations := f.project.Store.Integrations()
+	raw := githubHTTPPullRequest(t, 42, "opened")
+	githubHTTPWebhook(t, f.handler, "pull_request", "opened", githubJourneyWebhookSecret, raw, http.StatusNoContent)
+	results := f.consume(t, raw)
+	require.Len(t, results, 1)
+	runs, err := integrations.ListGitHubCheckRuns(ctx, uuid.Nil, uuid.Nil, 10)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.NoError(t, integrations.DeleteGitHubCheckRun(ctx, runs[0]))
+	_, err = integrationPoolForHandler(t, f.handler).Exec(ctx, `UPDATE integration_inbox
+		SET state = 'queued', completed_at = NULL, claim_token = NULL, claim_expires_at = NULL,
+		    next_attempt_at = statement_timestamp()
+		WHERE project_id = $1 AND receipt_key = 'github:pull_request:opened'`, f.project.ProjectUUID)
+	require.NoError(t, err)
+	replayed := f.consume(t, raw)
+	require.Len(t, replayed, 1)
+	require.False(t, replayed[0].Launch.Created, "the replay finds the agent admitted before the crash")
+	runs, err = integrations.ListGitHubCheckRuns(ctx, uuid.Nil, uuid.Nil, 10)
+	require.NoError(t, err)
+	require.Len(t, runs, 1, "a replayed receipt still tracks its admitted agent")
+	require.Equal(t, results[0].Launch.Agent.ID, runs[0].AgentID)
+}

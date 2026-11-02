@@ -191,7 +191,10 @@ func (r *GitHubCheckReconciler) reconcile(
 	if err != nil {
 		return err
 	}
-	base := r.check(ctx, run, setup)
+	base, err := r.check(ctx, run, setup)
+	if err != nil {
+		return err
+	}
 	check := func(outcome githubCheckOutcome) github.CheckRun {
 		base.Conclusion, base.Title = outcome.conclusion, outcome.title
 		return base
@@ -261,10 +264,14 @@ func (r *GitHubCheckReconciler) client(
 
 func (r *GitHubCheckReconciler) check(
 	ctx context.Context, run integrationstore.GitHubCheckRun, setup integrationstore.IntegrationRecord,
-) github.CheckRun {
+) (github.CheckRun, error) {
+	shared, err := r.Store.Integrations().ListIntegrationsByProviderIdentity(ctx, setup.Provider,
+		setup.ProviderTenantID, setup.ProviderAccountRef, uuid.Nil, 1)
+	if err != nil {
+		return github.CheckRun{}, err
+	}
 	var oldest uuid.UUID
-	if shared, err := r.Store.Integrations().ListIntegrationsByProviderIdentity(ctx, setup.Provider,
-		setup.ProviderTenantID, setup.ProviderAccountRef, uuid.Nil, 1); err == nil && len(shared) == 1 {
+	if len(shared) == 1 {
 		oldest = shared[0].ID
 	}
 	check := github.CheckRun{Name: githubCheckName(setup, oldest)}
@@ -282,7 +289,7 @@ func (r *GitHubCheckReconciler) check(
 		facts = append([]string{"Open in Omnara: " + check.DetailsURL, ""}, facts...)
 	}
 	check.Summary = strings.Join(facts, "\n")
-	return check
+	return check, nil
 }
 
 func githubCheckName(setup integrationstore.IntegrationRecord, oldest uuid.UUID) string {

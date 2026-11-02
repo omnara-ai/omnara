@@ -101,7 +101,7 @@ func TestGitHubCheckName(t *testing.T) {
 	}{
 		{"only integration on the App", setup, setup.ID, "my-app"},
 		{"later integration sharing the App", setup, uuid.New(), "my-app (reviews)"},
-		{"sharing lookup unavailable", setup, uuid.Nil, "my-app"},
+		{"no active integration found", setup, uuid.Nil, "my-app"},
 		{"App without a display name", integrationstore.IntegrationRecord{ID: setup.ID}, setup.ID, "Omnara"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
