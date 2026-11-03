@@ -78,7 +78,6 @@ machine_sources:
       expect(parse(applyToSource(source, config))).toHaveProperty(['tools', name, 'enabled'], false)
       config.tools = config.tools.map((tool) => ({ ...tool, enabled: true }))
       expect(parse(applyToSource(source, config))).toHaveProperty(['tools', name], {
-        type: 'built_in',
         permission: { mode: 'always_ask' },
       })
     },
