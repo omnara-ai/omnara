@@ -1,17 +1,8 @@
 import type { AgentConfigDefinition, AgentConfigDefinitionInteractionHandler } from '@omnara/sdk'
 import { useMemo, useState } from 'react'
-import { Document } from 'yaml'
 
-import {
-  type BasicMemoryStore,
-  parseBasicConfigSource,
-} from '@/components/agents/agentConfigBasicExtract'
-import { applyToDocument } from '@/components/agents/agentConfigBasicWrite'
-import {
-  type AdvancedConfigEntry,
-  type ConfigDiagnostic,
-  validateAdvancedEntry,
-} from '@/components/agents/agentConfigCompatibility'
+import { type BasicMemoryStore } from '@/components/agents/agentConfigBasicExtract'
+import { type AdvancedConfigEntry } from '@/components/agents/agentConfigCompatibility'
 import {
   type BasicMcpServer,
   type BasicMcpTool,
@@ -20,7 +11,7 @@ import {
   mcpServerValid,
 } from '@/components/agents/agentConfigMcp'
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
-import { basicConfigProblems } from '@/components/agents/agentConfigProblems'
+import type { BasicConfigSession } from '@/components/agents/agentConfigSession'
 import {
   type BasicSubagent,
   maxDepthValid,
@@ -40,6 +31,7 @@ import { memoryGbDraftValid } from '@/lib/machine-memory'
 import { resourceNameValid } from '@/lib/resource-name'
 
 export { toolWire } from '@/components/agents/agentConfigBasicWrite'
+export { createBasicConfigSession } from '@/components/agents/agentConfigSession'
 export { type BasicMcpServer, type BasicMcpTool, type McpAuthType }
 export {
   mcpRuntimeToolName,
@@ -56,6 +48,7 @@ export {
 export type MachineSourceKind = 'pool' | 'machine'
 
 export interface BasicMachineSource {
+  sourceIndex?: number
   id: string
   kind: MachineSourceKind
   name: string
@@ -74,6 +67,7 @@ export interface BasicMachineSource {
 
 export interface BasicConfig {
   originalSource?: string
+  savedSource?: string
   advancedEntries?: AdvancedConfigEntry[]
   instruction: string
   providerConfig: string
@@ -127,80 +121,6 @@ export const emptyBasicConfig: BasicConfig = {
   maxDepth: '',
 }
 
-export interface ConfigEvaluation {
-  yaml: string
-  issues: ConfigDiagnostic[]
-}
-
-export interface BasicConfigSession {
-  readonly initialDraft: BasicConfig | null
-  readonly diagnostics: ConfigDiagnostic[]
-  validate(config: BasicConfig): ConfigDiagnostic[]
-  evaluate(config: BasicConfig): ConfigEvaluation
-  apply(config: BasicConfig): string
-}
-
-export function createBasicConfigSession(source: string): BasicConfigSession {
-  const { doc, initialDraft, diagnostics, advancedEntries } = parseBasicConfigSource(source)
-  const validate = (config: BasicConfig) => {
-    const issues = [
-      ...diagnostics.filter((issue) => issue.error && issue.kind === 'opaque'),
-      ...(config.advancedEntries ?? []).flatMap(validateAdvancedEntry),
-    ]
-    const named = [
-      ['tools', config.tools.map((tool) => tool.name)],
-      ['mcp', config.mcpServers.map((server) => server.name)],
-      ['subagents', config.subagents.map((agent) => agent.key)],
-    ] as const
-    for (const [key, names] of named) {
-      for (const name of names) {
-        if (advancedEntries.some((entry) => entry.path[0] === key && entry.path[1] === name)) {
-          issues.push({
-            path: [key, name],
-            kind: 'opaque',
-            error: true,
-            message: 'This name is already used by a preserved definition.',
-          })
-        }
-      }
-    }
-    return issues
-  }
-  const evaluate = (config: BasicConfig): ConfigEvaluation => {
-    // OAuth can restore a draft into the create form's empty session. Retain its AST baseline.
-    if (source === '' && config.originalSource)
-      return createBasicConfigSession(config.originalSource).evaluate(config)
-    const issues = validate(config)
-    if ((source !== '' && initialDraft == null) || issues.length > 0)
-      return { yaml: source, issues }
-    try {
-      return {
-        yaml: applyToDocument(
-          source === '' ? new Document({}) : doc.clone(),
-          source,
-          initialDraft,
-          config,
-        ),
-        issues,
-      }
-    } catch (error) {
-      return {
-        yaml: source,
-        issues: [
-          {
-            path: [],
-            kind: 'fatal',
-            error: true,
-            message:
-              error instanceof Error ? error.message : 'The Builder cannot safely patch this edit.',
-          } satisfies ConfigDiagnostic,
-        ],
-      }
-    }
-  }
-  return { initialDraft, diagnostics, validate, evaluate, apply: (config) => evaluate(config).yaml }
-}
-
 export type AgentBuilderForm = ReturnType<typeof useAgentBuilderForm>
 
 export function useAgentBuilderForm(
@@ -216,12 +136,17 @@ export function useAgentBuilderForm(
         }
       : (session.initialDraft ?? emptyBasicConfig),
   )
+  const [initialDraft] = useState(draft)
   const tools = useAgentBuilderTools(draft, scope)
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
   const [modelUnavailable, setModelUnavailable] = useState(false)
 
   const evaluated = useMemo(() => session.evaluate(draft), [session, draft])
+  const initialYaml = useMemo(
+    () => session.apply(session.initialDraft ?? initialDraft),
+    [session, initialDraft],
+  )
   const validationIssues = evaluated.issues
   const blocked =
     validationIssues.length > 0 ||
@@ -236,13 +161,11 @@ export function useAgentBuilderForm(
 
   return {
     draft,
+    dirty:
+      evaluated.yaml !== initialYaml ||
+      (validationIssues.length > 0 &&
+        draftFingerprint(draft) !== draftFingerprint(session.initialDraft ?? initialDraft)),
     validationIssues,
-    advancedDirty: (draft.advancedEntries ?? []).some(
-      (entry) =>
-        session.initialDraft?.advancedEntries?.find(
-          (base) => base.path.join('\0') === entry.path.join('\0'),
-        )?.source !== entry.source,
-    ),
     advancedEntries: draft.advancedEntries ?? [],
     reservedToolNames: (draft.advancedEntries ?? [])
       .filter((entry) => entry.path[0] === 'tools')
@@ -266,6 +189,7 @@ export function useAgentBuilderForm(
         ...(config ?? emptyBasicConfig),
         advancedEntries: config?.advancedEntries ?? previous.advancedEntries,
         originalSource: config?.originalSource ?? previous.originalSource,
+        savedSource: previous.savedSource,
       }))
     },
     instruction: draft.instruction,
@@ -342,9 +266,13 @@ export function basicConfigValid(draft: BasicConfig) {
     (entry) => entry.path[0] === 'subagents',
   )
   return (
-    ((draft.advancedEntries ?? []).some((entry) => entry.path[0] === 'instruction') ||
+    ((draft.advancedEntries ?? []).some(
+      (entry) => entry.path.length === 1 && entry.path[0] === 'instruction',
+    ) ||
       draft.instruction.trim() !== '') &&
-    ((draft.advancedEntries ?? []).some((entry) => entry.path[0] === 'model') ||
+    ((draft.advancedEntries ?? []).some(
+      (entry) => entry.path.length === 1 && entry.path[0] === 'model',
+    ) ||
       (resourceNameValid(draft.providerConfig) && resourceNameValid(draft.modelName))) &&
     draft.machineSources.every(machineSourceValid) &&
     mcpServerNamesUnique(draft.mcpServers) &&
@@ -372,4 +300,8 @@ function machineSourceValid(source: BasicMachineSource) {
         optionalPositiveInt32Valid(source.machineCpu) &&
         memoryGbDraftValid(source.machineMemoryGb, { optional: true })))
   )
+}
+
+function draftFingerprint(draft: BasicConfig) {
+  return JSON.stringify({ ...draft, originalSource: undefined, savedSource: undefined })
 }

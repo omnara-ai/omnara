@@ -1,0 +1,189 @@
+import { type Document, isMap, isNode, isScalar, isSeq, type Node, parseDocument } from 'yaml'
+import { z } from 'zod'
+
+import { configPath, parseConfigDocument } from '@/components/agents/agentConfigCompatibility'
+import {
+  type ConfigEdit,
+  type ConfigPath,
+  isJsonSource,
+  patchConfigSource,
+} from '@/components/agents/agentConfigSourcePatch'
+
+export type ConfigValue =
+  string | number | boolean | null | undefined | ConfigValue[] | ConfigObject
+export interface ConfigObject {
+  [key: string]: ConfigValue
+}
+export type ConfigNodeInput = ConfigValue | Node | ConfigNodeInput[]
+
+export class ConfigEditError extends Error {
+  constructor(
+    readonly path: ConfigPath,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+export function editConfigDocument(source: string, original: Document, preservedPaths: string[][]) {
+  const document = original.clone()
+  const edits: ConfigEdit[] = []
+  const protectedPaths: ConfigPath[] = preservedPaths.map((path) => [...path])
+
+  function protectedPathAt(path: ConfigPath) {
+    return protectedPaths.find(
+      (protectedPath) =>
+        protectedPath.every((part, index) => String(path[index]) === String(part)) ||
+        path.every((part, index) => String(protectedPath[index]) === String(part)),
+    )
+  }
+
+  function requireManaged(path: ConfigPath) {
+    const protectedPath = protectedPathAt(path)
+    if (protectedPath)
+      throw new ConfigEditError(
+        path,
+        `${configPath(protectedPath.map(String))} is preserved. Edit that definition explicitly in YAML.`,
+      )
+  }
+
+  function orderSequence(path: ConfigPath, currentIds: string[], desiredIds: string[]) {
+    if (deepEqual(currentIds, desiredIds)) return
+    const sequence = document.getIn(path, true)
+    if (!isSeq(sequence)) throw new ConfigEditError(path, 'Missing sequence.')
+    const owned = sequence.items.flatMap((_, index) =>
+      protectedPathAt([...path, index]) ? [] : [index],
+    )
+    const byId = new Map<string, number[]>()
+    currentIds.forEach((id, index) => {
+      const indices = byId.get(id) ?? []
+      const sourceIndex = owned[index]
+      if (sourceIndex !== undefined) indices.push(sourceIndex)
+      byId.set(id, indices)
+    })
+    const order = sequence.items.map((_, index) => index)
+    desiredIds.forEach((id, index) => {
+      const sourceIndex = byId.get(id)?.shift()
+      const targetIndex = owned[index]
+      if (sourceIndex === undefined || targetIndex === undefined)
+        throw new ConfigEditError(path, 'Cannot identify the reordered entry.')
+      order[targetIndex] = sourceIndex
+    })
+    if (new Set(order).size !== order.length)
+      throw new ConfigEditError(path, 'Cannot identify the reordered entries.')
+    sequence.items = order.map((index) => sequence.items[index])
+    edits.push({ type: 'reorder', path, order })
+  }
+
+  function write(path: ConfigPath, value: ConfigNodeInput, preserveComments: boolean) {
+    const node = document.createNode(value)
+    const previous = document.getIn(path, true)
+    if (preserveComments && isNode(previous)) {
+      node.commentBefore = previous.commentBefore
+      node.comment = previous.comment
+      if (isScalar(node) && isScalar(previous)) node.type = previous.type
+    }
+    const snapshot = node.clone()
+    if (!isNode(snapshot)) throw new ConfigEditError(path, 'Cannot copy the edited field.')
+    document.setIn(path, node)
+    edits.push({ type: 'set', path, value: snapshot })
+  }
+
+  function set(path: ConfigPath, value: ConfigNodeInput) {
+    requireManaged(path)
+    for (let length = 1; length < path.length; length += 1) {
+      const parentPath = path.slice(0, length)
+      const parent = document.getIn(parentPath, true)
+      if (parent == null || (isScalar(parent) && parent.value === null)) write(parentPath, {}, true)
+    }
+    write(path, value, true)
+  }
+
+  function remove(path: ConfigPath) {
+    requireManaged(path)
+    if (!document.deleteIn(path)) return
+    edits.push({ type: 'delete', path })
+    const parentPath = path.slice(0, -1)
+    const parent = document.getIn(parentPath, true)
+    if (isSeq(parent)) {
+      for (const protectedPath of protectedPaths) {
+        if (
+          parentPath.every((part, index) => String(part) === String(protectedPath[index])) &&
+          Number(protectedPath[parentPath.length]) > Number(path.at(-1))
+        ) {
+          protectedPath[parentPath.length] = Number(protectedPath[parentPath.length]) - 1
+        }
+      }
+    }
+    if (path.length === 2 && isMap(parent) && parent.items.length === 0) {
+      document.deleteIn(parentPath)
+      edits.push({ type: 'delete', path: parentPath })
+    }
+  }
+
+  function replaceDefinition(path: string[], raw: string) {
+    if (!protectedPaths.some((entry) => configPath(entry.map(String)) === configPath(path)))
+      throw new ConfigEditError(path, 'This definition is not owned by the advanced editor.')
+    const { doc: parsed, diagnostics } = parseConfigDocument(raw)
+    const parent = document.getIn(path.slice(0, -1), true)
+    const needsConversion =
+      (isJsonSource(source) && !isJsonSource(raw)) ||
+      (isMap(parent) && parent.flow && !(isMap(parsed.contents) && parsed.contents.flow))
+    if (needsConversion && diagnostics.some((issue) => issue.kind === 'opaque'))
+      throw new ConfigEditError(
+        path,
+        'Quote version-dependent YAML scalars or use explicit decimal values before editing this definition in a flow collection.',
+      )
+    if (parsed.errors.length > 0 || !parsed.contents)
+      throw new ConfigEditError(path, 'Invalid advanced definition.')
+    write(path, parsed.contents, false)
+    const edit = edits.at(-1)
+    if (edit?.type === 'set') edit.raw = raw
+  }
+
+  function serialize() {
+    if (edits.length === 0) return source
+    if (source === '') return document.toString()
+    let result: string
+    try {
+      result = patchConfigSource(source, original, edits)
+    } catch (error) {
+      if (error instanceof ConfigEditError) throw error
+      throw new ConfigEditError(
+        edits.at(-1)?.path ?? [],
+        error instanceof Error ? error.message : 'Cannot patch this field.',
+      )
+    }
+    const parsed = parseDocument(result)
+    if (
+      parsed.errors.length > 0 ||
+      !deepEqual(z.json().parse(parsed.toJS()), z.json().parse(document.toJS()))
+    )
+      throw new ConfigEditError(
+        edits.at(-1)?.path ?? [],
+        'The Builder cannot safely patch this edit. Use YAML to edit this definition.',
+      )
+    return result
+  }
+
+  return { document, set, remove, orderSequence, replaceDefinition, serialize }
+}
+
+export function deepEqual(a: ConfigValue, b: ConfigValue): boolean {
+  if (Object.is(a, b)) return true
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((value, index) => deepEqual(value, b[index]))
+  }
+  if (!isConfigObject(a) || !isConfigObject(b)) return false
+  const left = Object.entries(a)
+  const right = new Map(Object.entries(b))
+  return (
+    left.length === right.size &&
+    left.every(([key, value]) => right.has(key) && deepEqual(value, right.get(key)))
+  )
+}
+
+function isConfigObject(value: ConfigValue): value is ConfigObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}

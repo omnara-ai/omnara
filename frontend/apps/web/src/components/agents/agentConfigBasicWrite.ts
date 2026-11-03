@@ -1,5 +1,4 @@
-import { type Document, isMap, isNode, isScalar, type Node, parseDocument } from 'yaml'
-import { z } from 'zod'
+import { type Document, isMap, isSeq, type Node } from 'yaml'
 
 import {
   type MachineEntry,
@@ -7,8 +6,8 @@ import {
   type PoolEntry,
   type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
+import { deepEqual, editConfigDocument } from '@/components/agents/agentConfigDocument'
 import { mcpWire, permissionWire } from '@/components/agents/agentConfigMcp'
-import { patchConfigSource } from '@/components/agents/agentConfigSourcePatch'
 import { subagentWire } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import type { BasicConfig, BasicMachineSource } from '@/components/agents/useAgentBuilderForm'
@@ -30,50 +29,49 @@ type Setter = (path: string[], value: YamlInput) => void
 type Deleter = (path: (string | number)[]) => void
 
 export function applyToDocument(
-  doc: Document,
+  original: Document,
   baselineSource: string,
   baseline: BasicConfig | null,
   config: BasicConfig,
 ): string {
-  const original = doc.clone()
-  const edits = { count: 0 }
-  const protectedPaths = baseline?.advancedEntries?.map((entry) => entry.path) ?? []
-  const protectedPath = (path: (string | number)[]) =>
-    protectedPaths.some(
-      (owned) =>
-        owned.every((part, index) => path[index] === part) ||
-        path.every((part, index) => owned[index] === part),
-    )
-  const set: Setter = (path, value) => {
-    if (protectedPath(path)) return
-    for (let length = 1; length < path.length; length += 1) {
-      const parentPath = path.slice(0, length)
-      const parent = doc.getIn(parentPath, true)
-      if (isScalar(parent) && parent.value === null) doc.setIn(parentPath, doc.createNode({}))
-    }
-    const node = doc.createNode(value)
-    const previous = doc.getIn(path, true)
-    if (isNode(previous) && isNode(node)) {
-      node.commentBefore = previous.commentBefore
-      node.comment = previous.comment
-    }
-    doc.setIn(path, node)
-    edits.count += 1
-  }
-  const del: Deleter = (path) => {
-    if (protectedPath(path)) return
-    if (doc.deleteIn(path)) {
-      edits.count += 1
-      const parent = doc.getIn(path.slice(0, -1), true)
-      if (path.length === 2 && isMap(parent) && parent.items.length === 0)
-        doc.deleteIn(path.slice(0, -1))
-    }
-  }
+  const transaction = editConfigDocument(
+    baselineSource,
+    original,
+    baseline?.advancedEntries?.map((entry) => entry.path) ?? [],
+  )
+  const { document: doc, set, remove: del } = transaction
 
-  const applyList = (key: string, items: WireValue[], baseline: WireValue[] | null) => {
-    if (baseline != null && deepEqual(items, baseline)) return
-    if (items.length === 0) del([key])
-    else set([key], items)
+  const applyList = (key: string, items: WireValue[], base: WireValue[] | null) => {
+    if (base == null) {
+      if (items.length > 0) set([key], items)
+      return
+    }
+    const identity = (value: WireValue) => JSON.stringify(isWireObject(value) ? value.name : value)
+    const desired = new Map(items.map((value) => [identity(value), value]))
+    const baselineIds = new Set(base.map(identity))
+    const removed: number[] = []
+    base.forEach((value, index) => {
+      const next = desired.get(identity(value))
+      if (next === undefined) removed.push(index)
+      else applyWireChanges([key, String(index)], value, next, set, del)
+    })
+    for (const index of removed.reverse()) del([key, index])
+    for (const value of items) {
+      if (baselineIds.has(identity(value))) continue
+      const sequence = doc.getIn([key], true)
+      if (isSeq(sequence)) set([key, String(sequence.items.length)], value)
+      else set([key], [value])
+    }
+    const sequence = doc.getIn([key], true)
+    if (removed.length > 0 && isSeq(sequence) && sequence.items.length === 0) del([key])
+    transaction.orderSequence(
+      [key],
+      [
+        ...base.filter((value) => desired.has(identity(value))),
+        ...items.filter((value) => !baselineIds.has(identity(value))),
+      ].map(identity),
+      items.map(identity),
+    )
   }
 
   const instruction = normalizeMultiline(config.instruction)
@@ -94,7 +92,7 @@ export function applyToDocument(
     } else set(['model', 'reasoning', 'effort'], reasoningEffort)
   }
 
-  applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
+  applyMachineSources(transaction, config.machineSources, baseline?.machineSources ?? null)
   applyNamedEntries(
     'tools',
     config.tools.map((tool) => [tool.name, toolWire(tool)]),
@@ -140,28 +138,15 @@ export function applyToDocument(
     del,
   )
 
-  const rawEdits: string[][] = []
   for (const entry of config.advancedEntries ?? []) {
     const previous = baseline?.advancedEntries?.find(
       (item) => item.path.join('\0') === entry.path.join('\0'),
     )
     if (previous && previous.source !== entry.source) {
-      rawEdits.push(entry.path)
-      doc.setIn(entry.path, parseDocument(entry.source).contents)
-      edits.count += 1
+      transaction.replaceDefinition(entry.path, entry.source)
     }
   }
-  if (edits.count === 0) return baselineSource
-  if (baseline == null) return doc.toString()
-  const result = patchConfigSource(baselineSource, original, doc, rawEdits)
-  const reparsed = parseDocument(result)
-  if (
-    reparsed.errors.length > 0 ||
-    !deepEqual(z.json().parse(reparsed.toJS()), z.json().parse(doc.toJS()))
-  ) {
-    throw new Error('The Builder cannot safely patch this edit. Use YAML to edit this definition.')
-  }
-  return result
+  return transaction.serialize()
 }
 
 function applyNamedEntries(
@@ -183,8 +168,6 @@ function applyNamedEntries(
   }
 }
 
-// Compare against the draft projection, not defaults serialized from it. A permission
-// edit must not add type/default_enabled or normalize other untouched fields.
 function applyWireChanges(
   path: string[],
   baseline: WireValue,
@@ -205,27 +188,53 @@ function applyWireChanges(
 }
 
 function applyMachineSources(
-  doc: Document,
+  transaction: ReturnType<typeof editConfigDocument>,
   rows: BasicMachineSource[],
   baselineRows: BasicMachineSource[] | null,
-  set: Setter,
-  del: Deleter,
 ) {
-  const desired = rows.map(machineSourceComparable)
-  const baseline = baselineRows?.map(machineSourceComparable) ?? null
-  if (baseline != null && deepEqual(desired, baseline)) return
-  if (rows.length === 0) {
-    del(['machine_sources'])
+  const { document: doc, set, remove: del } = transaction
+  if (baselineRows == null) {
+    if (rows.length > 0) set(['machine_sources'], rows.map(machineSourceWire))
     return
   }
-  const items = rows.map((row, index): YamlInput => {
-    if (baseline != null && index < baseline.length && deepEqual(desired[index], baseline[index])) {
-      const existing = doc.getIn(['machine_sources', index], true)
-      if (isNode(existing)) return existing
-    }
-    return machineSourceWire(row)
-  })
-  set(['machine_sources'], items)
+  const baselineById = new Map(baselineRows.map((row) => [row.id, row]))
+  const desiredIds = new Set(rows.map((row) => row.id))
+  for (const row of rows) {
+    const base = baselineById.get(row.id)
+    if (!base) continue
+    if (deepEqual(machineSourceComparable(base), machineSourceComparable(row))) continue
+    if (base.sourceIndex === undefined) throw new Error('Missing machine source identity.')
+    applyWireChanges(
+      ['machine_sources', String(base.sourceIndex)],
+      machineSourceWire(base),
+      machineSourceWire(row),
+      set,
+      del,
+    )
+  }
+  const removed = baselineRows
+    .filter((row) => !desiredIds.has(row.id))
+    .sort((a, b) => (b.sourceIndex ?? 0) - (a.sourceIndex ?? 0))
+  for (const row of removed) {
+    if (row.sourceIndex !== undefined) del(['machine_sources', row.sourceIndex])
+  }
+  for (const row of rows) {
+    if (baselineById.has(row.id)) continue
+    const sequence = doc.getIn(['machine_sources'], true)
+    if (isSeq(sequence))
+      set(['machine_sources', String(sequence.items.length)], machineSourceWire(row))
+    else set(['machine_sources'], [machineSourceWire(row)])
+  }
+  const sequence = doc.getIn(['machine_sources'], true)
+  if (removed.length > 0 && isSeq(sequence) && sequence.items.length === 0) del(['machine_sources'])
+  transaction.orderSequence(
+    ['machine_sources'],
+    [
+      ...baselineRows.filter((row) => desiredIds.has(row.id)),
+      ...rows.filter((row) => !baselineById.has(row.id)),
+    ].map((row) => row.id),
+    rows.map((row) => row.id),
+  )
 }
 
 function machineSourceComparable(source: BasicMachineSource) {
@@ -246,18 +255,6 @@ function machineSourceComparable(source: BasicMachineSource) {
 
 function isWireObject(value: WireValue): value is WireObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function deepEqual(a: WireValue, b: WireValue): boolean {
-  if (Object.is(a, b)) return true
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
-    return a.every((item, index) => deepEqual(item, b[index]))
-  }
-  if (!isWireObject(a) || !isWireObject(b)) return false
-  const keys = Object.keys(a)
-  if (keys.length !== Object.keys(b).length) return false
-  return keys.every((key) => key in b && deepEqual(a[key], b[key]))
 }
 
 function machineSourceWire(source: BasicMachineSource): PoolEntry | MachineEntry {

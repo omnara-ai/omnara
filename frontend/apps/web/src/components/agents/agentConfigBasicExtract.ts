@@ -3,6 +3,7 @@ import {
   zAgentConfigDefinition,
   zAgentConfigDefinitionGitCredentials,
   zAgentConfigDefinitionInteractionHandler,
+  zAgentConfigDefinitionMachineSource,
   zAgentConfigDefinitionMcpServer,
   zAgentConfigDefinitionMcpTool,
   zAgentConfigDefinitionMemoryStore,
@@ -13,7 +14,7 @@ import {
   zAgentConfigDefinitionTool,
   zAgentConfigDefinitionToolPermission,
 } from '@omnara/sdk/zod'
-import { Document, isMap, isNode } from 'yaml'
+import { isMap } from 'yaml'
 import { z } from 'zod'
 
 import {
@@ -22,6 +23,7 @@ import {
   parseConfigDocument,
   validateAdvancedEntry,
 } from '@/components/agents/agentConfigCompatibility'
+import { configNodeSource } from '@/components/agents/agentConfigSourcePatch'
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import type {
@@ -38,8 +40,6 @@ import {
 } from '@/components/machines/machineOverrides'
 import { machinePoolProviderDefinitions } from '@/components/org/machinePoolProviders'
 import { memoryGbDraft } from '@/lib/machine-memory'
-
-// Strict projections identify the paths the visual controls own; other paths stay in the AST.
 
 const permissionParameters = z.record(z.string(), z.json())
 
@@ -175,13 +175,12 @@ const basicDocument = z.looseObject({
   mcp: z.record(z.string(), mcpEntry).nullish(),
   subagents: z.record(z.string(), subagentEntry).nullish(),
   max_subagents: definitionFields.max_subagents,
-  // Out-of-range depths still load so the form can flag them; maxDepthValid enforces the limit.
   max_depth: positiveCount,
 })
 
 export function parseBasicConfigSource(source: string) {
   const { doc, diagnostics } = parseConfigDocument(source)
-  if (!isMap(doc.contents) && diagnostics.length === 0) {
+  if (!isMap(doc.contents) && !diagnostics.some((issue) => issue.kind === 'fatal')) {
     diagnostics.push({
       path: [],
       kind: 'fatal',
@@ -189,7 +188,11 @@ export function parseBasicConfigSource(source: string) {
       message: 'The configuration must be a YAML or JSON mapping.',
     })
   }
-  if (diagnostics.length > 0) return { doc, initialDraft: null, diagnostics, advancedEntries: [] }
+  if (diagnostics.some((issue) => issue.kind === 'fatal'))
+    return { doc, initialDraft: null, diagnostics, advancedEntries: [] }
+  const scalarDiagnostics = diagnostics.filter((issue) => issue.kind === 'opaque')
+  const hasOpaqueScalar = (path: string[]) =>
+    scalarDiagnostics.some((issue) => path.every((part, index) => part === issue.path[index]))
   const advancedEntries: AdvancedConfigEntry[] = []
   const rawResult = z.record(z.string(), z.json()).safeParse(doc.toJS())
   if (!rawResult.success) {
@@ -205,12 +208,9 @@ export function parseBasicConfigSource(source: string) {
   }
   const raw = rawResult.data
   const projection: typeof raw = {}
+  const machineSources: BasicMachineSource[] = []
   const preserve = (path: string[], kind: AdvancedConfigEntry['kind'] = 'opaque') => {
-    const node = doc.getIn(path, true)
-    // Render a standalone editor value. The original node remains the source of truth until edited.
-    const fragment = new Document()
-    fragment.contents = isNode(node) ? node : null
-    const entry = { path, kind, source: fragment.toString() }
+    const entry = { path, kind, source: configNodeSource(source, doc, path) }
     advancedEntries.push(entry)
     diagnostics.push({
       path,
@@ -248,6 +248,21 @@ export function parseBasicConfigSource(source: string) {
     ['interaction_handlers', zAgentConfigDefinitionInteractionHandler],
   ])
   for (const [key, value] of Object.entries(raw)) {
+    if (key === 'machine_sources' && Array.isArray(value)) {
+      value.forEach((entry, index) => {
+        const parsed = z.union([poolEntry, machineEntry]).safeParse(entry)
+        const ambiguous = hasOpaqueScalar([key, String(index)])
+        const draft = parsed.success && !ambiguous ? machineSourceDraft(parsed.data) : null
+        if (draft)
+          machineSources.push({ ...draft, id: `machine-source-${index}`, sourceIndex: index })
+        else {
+          preserve([key, String(index)])
+          if (!ambiguous)
+            invalid([key, String(index)], zAgentConfigDefinitionMachineSource.safeParse(entry))
+        }
+      })
+      continue
+    }
     const namedSchema = namedSchemas.get(key)
     const entries = z.record(z.string(), z.json()).safeParse(value)
     if (namedSchema && entries.success) {
@@ -255,12 +270,12 @@ export function parseBasicConfigSource(source: string) {
       for (const [name, entry] of Object.entries(entries.data)) {
         if (key === 'tools' && z.object({ type: z.literal('custom') }).safeParse(entry).success) {
           preserve([key, name], 'custom')
-        } else if (namedSchema.safeParse(entry).success) managed[name] = entry
+        } else if (hasOpaqueScalar([key, name])) preserve([key, name])
+        else if (namedSchema.safeParse(entry).success) managed[name] = entry
         else {
           preserve([key, name])
           const authoritative = authoritativeEntries.get(key)
           if (authoritative) invalid([key, name], authoritative.safeParse(entry))
-          // The generated schema omits the conditional provider/name requirement.
           const projected = namedSchema.safeParse(entry)
           if (!projected.success)
             diagnostics.push(
@@ -278,6 +293,10 @@ export function parseBasicConfigSource(source: string) {
       projection[key] = managed
       continue
     }
+    if (hasOpaqueScalar([key])) {
+      preserve([key])
+      continue
+    }
     const field = Object.entries(basicDocument.shape).find(([name]) => name === key)?.[1]
     if (field?.safeParse(value).success) projection[key] = value
     else {
@@ -286,29 +305,12 @@ export function parseBasicConfigSource(source: string) {
       if (authoritative) invalid([key], authoritative.safeParse(value))
     }
   }
-  // A provider-specific overlay may be valid without having visual controls for its keys.
   const parsed = basicDocument.parse(projection)
-  const machineSources: BasicMachineSource[] = []
-  for (const entry of parsed.machine_sources ?? []) {
-    const source = machineSourceDraft(entry)
-    if (source == null) {
-      preserve(['machine_sources'])
-      parsed.machine_sources = []
-      machineSources.length = 0
-      break
-    }
-    machineSources.push(source)
-  }
-  // Model extensions are preserved by leaf edits, but still explain their ownership.
   const model = z.record(z.string(), z.unknown()).safeParse(raw.model)
   if (model.success) {
     for (const key of Object.keys(model.data)) {
       if (!['provider_config', 'name', 'reasoning'].includes(key)) {
-        diagnostics.push({
-          path: ['model', key],
-          kind: 'opaque',
-          message: 'Preserved without changes. Edit this field in YAML.',
-        })
+        preserve(['model', key])
       }
     }
   }

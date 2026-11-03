@@ -1,4 +1,5 @@
 import { configPath, validateAdvancedEntry } from '@/components/agents/agentConfigCompatibility'
+import { AgentConfigDiagnostics } from '@/components/agents/AgentConfigDiagnostics'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import type { AgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
 import { Field, FieldLabel } from '@/components/ui/field'
@@ -43,11 +44,7 @@ export function AgentConfigAdvancedFields({ form }: { form: AgentBuilderForm }) 
                     )
                   }}
                 />
-                {issues.map((issue, index) => (
-                  <p key={index} role="alert" className="text-destructive text-sm">
-                    {configPath(issue.path)}: {issue.message}
-                  </p>
-                ))}
+                <AgentConfigDiagnostics issues={issues} />
               </Field>
             </details>
           )
