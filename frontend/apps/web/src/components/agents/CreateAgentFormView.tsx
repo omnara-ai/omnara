@@ -2,10 +2,9 @@ import { type ConfiguredModelSummary, type MachinePoolSummary, type ToolCatalog 
 import type { SyntheticEvent } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
-import { configPath } from '@/components/agents/agentConfigCompatibility'
+import { AgentConfigDiagnostics } from '@/components/agents/AgentConfigDiagnostics'
 import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
-import { yamlDiverged } from '@/components/agents/agentConfigModeMachine'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { AgentTemplateMenu } from '@/components/agents/AgentTemplateMenu'
 import type { AgentTemplate } from '@/components/agents/agentTemplates'
@@ -56,6 +55,9 @@ export function CreateAgentFormView({
     applyTemplate,
     suppressUnsavedChangesWarning,
     compatibility,
+    saveBlocked,
+    showBuilder,
+    yaml,
   } = useAgentDraft(catalog, defaultPool, defaultModel, initialTemplate, {
     orgId: activeOrg.id,
     projectId,
@@ -63,15 +65,8 @@ export function CreateAgentFormView({
 
   if (project == null) return null
 
-  const showBuilder = mode.mode === 'builder'
   const isSubmitting = status.phase === 'submitting'
-  const yaml = mode.editorYaml ?? form.yaml
-  const canSubmit =
-    !isSubmitting &&
-    !compatibility.some((issue) => issue.error) &&
-    resourceNameValid(name) &&
-    yaml.trim() !== '' &&
-    !(form.blocked && (showBuilder || !yamlDiverged(mode)))
+  const canSubmit = !isSubmitting && resourceNameValid(name) && !saveBlocked
 
   async function submit(action: SubmitAction) {
     if (!canSubmit) return
@@ -87,7 +82,6 @@ export function CreateAgentFormView({
         void submit('launch')
       }}
     >
-      {/* Negative margins offset the page padding so the scroll region and the pinned bar reach the pane edges. */}
       <div className="surface-page relative z-10 -mx-4 -mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-bl-xl px-4 pt-6 sm:-mx-6 sm:-mt-9 sm:px-6 sm:pt-9">
         <div className="flex min-h-full w-full flex-col gap-6 pb-6">
           <PageBreadcrumb
@@ -170,19 +164,7 @@ export function CreateAgentFormView({
                 }}
               />
             )}
-            {compatibility
-              .filter((issue) => issue.kind !== 'advanced' || issue.error)
-              .map((issue, index) => (
-                <p
-                  key={index}
-                  className={
-                    issue.error ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'
-                  }
-                  role={issue.error ? 'alert' : undefined}
-                >
-                  {configPath(issue.path)}: {issue.message}
-                </p>
-              ))}
+            <AgentConfigDiagnostics issues={compatibility} />
           </FieldGroup>
         </div>
       </div>

@@ -111,7 +111,9 @@ it('restores the YAML baseline and inline tools across an OAuth redirect', () =>
   visit('/projects/p1/agents/new', '?mcp_oauth=success&secret_id=sec_custom_restore')
   const restored = takeMcpBuilderOAuthRestore()
   if (!restored) throw new Error('Expected restored draft')
-  const result = createBasicConfigSession('').evaluate(restored.draft)
+  const result = createBasicConfigSession(restored.draft.originalSource ?? '').evaluate(
+    restored.draft,
+  )
   expect(result.issues).toEqual([])
   expect(result.yaml).toContain(fixture.trimEnd())
   expect(result.yaml).toContain('sec_custom_restore')

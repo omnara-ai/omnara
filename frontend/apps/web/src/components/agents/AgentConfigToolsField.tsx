@@ -66,11 +66,12 @@ export function AgentConfigToolsField({
 }) {
   const catalogTools = catalog?.built_in_tools ?? []
   const catalogByName = new Map(catalogTools.map((entry) => [entry.name, entry]))
+  const reserved = new Set(reservedNames)
+  const configured = new Set(tools.map((tool) => tool.name))
   const displayedTools: BasicTool[] = [
-    ...tools.filter((tool) => !reservedNames.includes(tool.name)),
+    ...tools.filter((tool) => !reserved.has(tool.name)),
     ...(resolvedTools ?? [])
-      .filter((tool) => !reservedNames.includes(tool.name))
-      .filter((tool) => !tools.some((configured) => configured.name === tool.name))
+      .filter((tool) => !reserved.has(tool.name) && !configured.has(tool.name))
       .map((tool) => ({ name: tool.name, enabled: tool.enabled, permission: null })),
   ]
   const includedTools = displayedTools
@@ -80,10 +81,7 @@ export function AgentConfigToolsField({
     ? tools.filter((tool) => !catalogByName.get(tool.name)?.implicit)
     : []
   const availableTools = catalogTools.filter(
-    (entry) =>
-      !reservedNames.includes(entry.name) &&
-      !entry.implicit &&
-      tools.every((tool) => tool.name !== entry.name),
+    (entry) => !reserved.has(entry.name) && !entry.implicit && !configured.has(entry.name),
   )
 
   return (

@@ -21,8 +21,6 @@ export function configPath(path: readonly string[]) {
     : '/' + path.map((key) => key.replaceAll('~', '~0').replaceAll('/', '~1')).join('/')
 }
 
-// These are the API's generated schema and compileCustomTool's required-property check.
-// Do not constrain arbitrary nested JSON Schema keywords to a visual form's vocabulary.
 const customTool = z
   .looseObject({
     ...zAgentConfigDefinitionTool.shape,
@@ -43,7 +41,7 @@ const customTool = z
   })
 
 export function parseConfigDocument(source: string) {
-  const doc = parseDocument(source)
+  const doc = parseDocument(source, { keepSourceTokens: true })
   const diagnostics: ConfigDiagnostic[] = doc.errors.map((error) => ({
     path: [],
     kind: 'fatal',
@@ -52,6 +50,22 @@ export function parseConfigDocument(source: string) {
   }))
   function inspect(node: Document['contents'], path: string[]) {
     if (node == null) return
+    if (
+      isScalar(node) &&
+      node.type === 'PLAIN' &&
+      node.tag !== 'tag:yaml.org,2002:str' &&
+      node.source &&
+      /^(?:[+-]?(?:0[0-9_]+|0[bB][01_]+|[0-9][0-9_.eE+-]*_[0-9_.eE+-]+)|[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[Tt ].*)?)$/.test(
+        node.source,
+      )
+    ) {
+      diagnostics.push({
+        path,
+        kind: 'opaque',
+        message:
+          'This plain YAML scalar has version-dependent meaning. It is preserved; use a quoted string or an explicit decimal value to edit it in Builder.',
+      })
+    }
     let blocker: string | undefined
     if (isAlias(node)) blocker = 'YAML aliases'
     else if (node.anchor) blocker = 'YAML anchors'
@@ -104,8 +118,9 @@ export function parseConfigDocument(source: string) {
 
 export function validateAdvancedEntry(entry: AdvancedConfigEntry): ConfigDiagnostic[] {
   const { doc, diagnostics } = parseConfigDocument(entry.source)
-  if (diagnostics.length > 0)
-    return diagnostics.map((issue) => ({
+  const blockers = diagnostics.filter((issue) => issue.kind === 'fatal')
+  if (blockers.length > 0)
+    return blockers.map((issue) => ({
       ...issue,
       error: true,
       path: [...entry.path, ...issue.path],

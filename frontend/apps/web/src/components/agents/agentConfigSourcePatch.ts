@@ -1,236 +1,213 @@
-import {
-  type Document,
-  isMap,
-  isNode,
-  isScalar,
-  isSeq,
-  type Node,
-  type Pair,
-  parseDocument,
-} from 'yaml'
+import { CST, Document, isMap, isNode, isScalar, type Node, parseDocument } from 'yaml'
 
-interface SourceEdit {
-  start: number
-  end: number
-  text: string
+export type ConfigPath = (string | number)[]
+export type ConfigEdit =
+  | { type: 'set'; path: ConfigPath; value: Node; raw?: string }
+  | { type: 'delete'; path: ConfigPath }
+  | { type: 'reorder'; path: ConfigPath; order: number[] }
+
+type Collection = CST.BlockMap | CST.BlockSequence | CST.FlowCollection
+
+export function patchConfigSource(source: string, original: Document, edits: ConfigEdit[]) {
+  if (edits.length === 0) return source
+  const root = original.contents
+  if (!isMap(root) || !root.srcToken || !root.range)
+    throw new Error('Missing document source tokens.')
+  const json = isJsonSource(source)
+  const newline = source.includes('\r\n') ? '\r\n' : '\n'
+  let token = structuredClone(root.srcToken)
+  if (!CST.isCollection(token)) throw new Error('The configuration must be a mapping.')
+  for (const edit of edits) {
+    if (!CST.isCollection(token)) throw new Error('The configuration must be a mapping.')
+    token = applyEdit(token, edit.path, edit, json, newline)
+  }
+  return source.slice(0, root.range[0]) + CST.stringify(token) + source.slice(root.range[2])
 }
 
-// Serialize only changed subtrees. Untouched nodes retain their original bytes, including
-// comments, flow spacing, quotes, and long schemas that the YAML serializer would reflow.
-export function patchConfigSource(
-  source: string,
-  original: Document,
-  updated: Document,
-  rawEdits: string[][] = [],
-) {
-  function retainCollectionStyles(before: Node | null, after: Node | null) {
-    if (isMap(before) && isMap(after)) {
-      after.flow = before.flow
-      for (const pair of before.items) {
-        if (isScalar(pair.key)) {
-          const nextValue = after.get(pair.key.value, true)
-          retainCollectionStyles(
-            isNode(pair.value) ? pair.value : null,
-            isNode(nextValue) ? nextValue : null,
-          )
-        }
-      }
-    } else if (isSeq(before) && isSeq(after)) {
-      after.flow = before.flow
-      before.items.forEach((item, index) => {
-        const nextItem = after.items[index]
-        retainCollectionStyles(isNode(item) ? item : null, isNode(nextItem) ? nextItem : null)
-      })
-    }
+function applyEdit(
+  parent: Collection,
+  path: ConfigPath,
+  edit: ConfigEdit,
+  json: boolean,
+  newline: string,
+): Collection {
+  const key = path[0]
+  if (key === undefined) throw new Error('An edit must identify a configuration field.')
+  const sequence = isSequence(parent)
+  const index = sequence
+    ? Number(key)
+    : parent.items.findIndex((item) => CST.resolveAsScalar(item.key)?.value === key)
+  const previous = parent.items[index]
+  if (path.length > 1) {
+    if (!previous?.value || !CST.isCollection(previous.value))
+      throw new Error(`Cannot edit missing collection ${String(key)}.`)
+    previous.value = applyEdit(previous.value, path.slice(1), edit, json, newline)
+  } else if (edit.type === 'reorder') {
+    if (!previous?.value || !CST.isCollection(previous.value) || !isSequence(previous.value))
+      throw new Error('Cannot reorder a missing sequence.')
+    const collection = previous.value
+    const originalItems = collection.items
+    const reordered = edit.order.map((index, position) => {
+      const item = originalItems[index]
+      if (!item) throw new Error('Missing sequence item.')
+      if (collection.type === 'flow-collection')
+        return { ...item, start: originalItems[position]?.start ?? [] }
+      const start = [...item.start]
+      if (position === 0 && start[0]?.type === 'space') start.shift()
+      else if (position > 0 && start[0]?.type === 'seq-item-ind')
+        start.unshift(sourceToken('space', ' '.repeat(collection.indent)))
+      return { ...item, start }
+    })
+    const items: CST.CollectionItem[] = collection.items
+    items.splice(0, edit.order.length, ...reordered)
+  } else if (edit.type === 'delete') {
+    if (index >= 0 && previous) removeItem(parent, index)
+  } else {
+    const replacement = renderItem(parent, key, edit.value, edit.raw, json, newline)
+    if (previous && (previous.key || previous.value)) {
+      replacement.start = previous.start
+      if (previous.key) replacement.key = previous.key
+      parent.items[index] = replacement
+    } else appendItem(parent, replacement, newline)
   }
-  retainCollectionStyles(original.contents, updated.contents)
-  const rendered = updated.toString({ lineWidth: 0 })
-  const next = parseDocument(rendered)
-  const edits: SourceEdit[] = []
-  const lineStart = (text: string, offset: number) => text.lastIndexOf('\n', offset - 1) + 1
-  const column = (text: string, offset: number) => offset - lineStart(text, offset)
-  const fragment = (node: Node, indent: number) => {
-    if (!node.range) throw new Error('Missing YAML source range')
-    const text = rendered.slice(node.range[0], node.range[1])
-    const delta = indent - column(rendered, node.range[0])
-    return text.replace(
-      /\n( +)/g,
-      (_, spaces: string) => '\n' + ' '.repeat(Math.max(0, spaces.length + delta)),
-    )
+  if (parent.type !== 'flow-collection' && parent.items.length === 0) {
+    const empty = parseDocument((isSequence(parent) ? '[]' : '{}') + newline, {
+      keepSourceTokens: true,
+    }).contents?.srcToken
+    if (!empty || !CST.isCollection(empty)) throw new Error('Cannot render empty collection.')
+    return empty
   }
-  const explicitlyEdited = (path: string[]) =>
-    rawEdits.some((edited) => edited.join('\0') === path.join('\0'))
-  function pairFragment(pair: Pair, indent: number) {
-    if (!isNode(pair.key) || !pair.key.range || !isNode(pair.value) || !pair.value.range)
-      throw new Error('Missing YAML mapping range')
-    const delta = indent - column(rendered, pair.key.range[0])
-    return rendered
-      .slice(pair.key.range[0], pair.value.range[2])
-      .replace(
-        /\n( +)/g,
-        (_, spaces: string) => '\n' + ' '.repeat(Math.max(0, spaces.length + delta)),
-      )
-  }
-  function diff(before: Node | null, after: Node | null, path: string[] = []) {
-    if (!before?.range || !after?.range) return
-    if (
-      before.toString() === after.toString() &&
-      !rawEdits.some((edited) => path.every((part, index) => edited[index] === part))
-    )
-      return
-    const [start, end] = before.range
-    if (isMap(before) && isMap(after) && before.flow === after.flow) {
-      const keyOf = (pair: Pair) => (isScalar(pair.key) ? String(pair.key.value) : '')
-      const nextByKey = new Map(after.items.map((pair) => [keyOf(pair), pair]))
-      const oldByKey = new Map(before.items.map((pair) => [keyOf(pair), pair]))
-      const sameKeys =
-        before.items.length === after.items.length &&
-        before.items.every((pair) => nextByKey.has(keyOf(pair)))
-      if (before.flow && !sameKeys) {
-        // Preserve each retained flow entry verbatim; only separators and explicit edits change.
-        const entries: string[] = []
-        let previousEnd = start + 1
-        let pendingGap = ''
-        for (const previous of before.items) {
-          if (
-            !isNode(previous.key) ||
-            !previous.key.range ||
-            !isNode(previous.value) ||
-            !previous.value.range
-          )
-            throw new Error('Missing YAML mapping range')
-          // Gaps contain separators, whitespace and comments. Remove only the separator;
-          // comments around an opaque sibling must survive additions and deletions too.
-          const gap = source
-            .slice(previousEnd, previous.key.range[0])
-            .replace(/(^|\n)([^#\n]*),/, '$1$2')
-          pendingGap += gap
-          previousEnd = previous.value.range[1]
-          const pair = nextByKey.get(keyOf(previous))
-          if (!pair) continue
-          if (explicitlyEdited([...path, keyOf(previous)])) {
-            entries.push(
-              pendingGap + pairFragment(pair, column(source, previous.key.range[0])).trimEnd(),
-            )
-            pendingGap = ''
-            continue
-          }
-          const offset = edits.length
-          diff(previous.value, isNode(pair.value) ? pair.value : null, [...path, keyOf(previous)])
-          const local = edits.splice(offset)
-          entries.push(
-            pendingGap +
-              spliceSource(source, local, previous.key.range[0], previous.value.range[1]),
-          )
-          pendingGap = ''
-        }
-        for (const pair of after.items) {
-          if (oldByKey.has(keyOf(pair))) continue
-          if (!isNode(pair.key) || !pair.key.range || !isNode(pair.value) || !pair.value.range)
-            throw new Error('Missing YAML mapping range')
-          entries.push(pendingGap + ' ' + rendered.slice(pair.key.range[0], pair.value.range[1]))
-          pendingGap = ''
-        }
-        const suffix = source.slice(previousEnd, end - 1).replace(/(^|\n)([^#\n]*),/, '$1$2')
-        edits.push({ start, end, text: '{' + entries.join(',') + pendingGap + suffix + '}' })
-        return
-      }
-      for (const pair of before.items) {
-        const nextPair = nextByKey.get(keyOf(pair))
-        if (nextPair) {
-          if (
-            explicitlyEdited([...path, keyOf(pair)]) &&
-            isNode(pair.key) &&
-            pair.key.range &&
-            isNode(pair.value) &&
-            pair.value.range
-          ) {
-            edits.push({
-              start: pair.key.range[0],
-              end: pair.value.range[2],
-              text: pairFragment(nextPair, column(source, pair.key.range[0])),
-            })
-            continue
-          }
-          const oldValue = isNode(pair.value) ? pair.value : null
-          const newValue = isNode(nextPair.value) ? nextPair.value : null
-          if (
-            isScalar(oldValue) &&
-            (isMap(newValue) || isSeq(newValue)) &&
-            !newValue.flow &&
-            oldValue.range &&
-            isNode(pair.key) &&
-            pair.key.range
-          ) {
-            const indent = column(source, pair.key.range[0]) + 2
-            edits.push({
-              start: oldValue.range[0],
-              end: oldValue.range[1],
-              text: '\n' + ' '.repeat(indent) + fragment(newValue, indent).trimEnd(),
-            })
-          } else diff(oldValue, newValue, [...path, keyOf(pair)])
-        } else if (isNode(pair.key) && pair.key.range && isNode(pair.value) && pair.value.range) {
-          edits.push({
-            start: lineStart(source, pair.key.range[0]),
-            end: pair.value.range[2],
-            text: '',
-          })
-        }
-      }
-      const firstKey = before.items[0]?.key
-      const indent =
-        isNode(firstKey) && firstKey.range
-          ? column(source, firstKey.range[0])
-          : column(source, start)
-      const additions = after.items
-        .filter((pair) => !oldByKey.has(keyOf(pair)))
-        .map((pair) => {
-          if (!isNode(pair.key) || !pair.key.range || !isNode(pair.value) || !pair.value.range)
-            throw new Error('Missing YAML mapping range')
-          const text = rendered.slice(pair.key.range[0], pair.value.range[2])
-          const delta = indent - column(rendered, pair.key.range[0])
-          return (
-            ' '.repeat(indent) +
-            text.replace(
-              /\n( +)/g,
-              (_, spaces: string) => '\n' + ' '.repeat(Math.max(0, spaces.length + delta)),
-            ) +
-            (text.endsWith('\n') ? '' : '\n')
-          )
-        })
-        .join('')
-      if (additions)
-        edits.push({ start: end, end, text: (source[end - 1] === '\n' ? '' : '\n') + additions })
-      return
-    }
-    if (
-      isSeq(before) &&
-      isSeq(after) &&
-      before.items.length === after.items.length &&
-      before.flow === after.flow
-    ) {
-      before.items.forEach((item, index) => {
-        const nextItem = after.items[index]
-        diff(isNode(item) ? item : null, isNode(nextItem) ? nextItem : null, [
-          ...path,
-          String(index),
-        ])
-      })
-      return
-    }
-    let text = fragment(after, column(source, start))
-    if (source.slice(start, end).endsWith('\n') && !text.endsWith('\n')) text += '\n'
-    if (!source.slice(start, end).endsWith('\n') && text.endsWith('\n')) text = text.slice(0, -1)
-    edits.push({ start, end, text })
-  }
-  diff(original.contents, next.contents)
-  return spliceSource(source, edits, 0, source.length)
+  return parent
 }
 
-function spliceSource(source: string, edits: SourceEdit[], start: number, end: number) {
-  let text = source.slice(start, end)
-  for (const edit of [...edits].reverse().sort((a, b) => b.start - a.start || b.end - a.end)) {
-    text = text.slice(0, edit.start - start) + edit.text + text.slice(edit.end - start)
+function isSequence(token: Collection) {
+  return (
+    token.type === 'block-seq' ||
+    (token.type === 'flow-collection' && token.start.type === 'flow-seq-start')
+  )
+}
+
+function renderItem(
+  parent: Collection,
+  key: string | number,
+  value: Node,
+  raw: string | undefined,
+  json: boolean,
+  newline: string,
+): CST.CollectionItem {
+  const sequence = isSequence(parent)
+  const flow = parent.type === 'flow-collection'
+  let rendered: string
+  if (raw !== undefined && !flow && !sequence) {
+    const indent = ' '.repeat(parent.indent + 2)
+    const definition = raw
+      .replace(/\r?\n/g, '\n')
+      .split('\n')
+      .map((line) => (line ? indent + line : ''))
+      .join('\n')
+    rendered =
+      ' '.repeat(parent.indent) +
+      JSON.stringify(key) +
+      ':\n' +
+      definition +
+      '\n' +
+      ' '.repeat(parent.indent) +
+      '__end__: null\n'
+  } else if (
+    raw !== undefined &&
+    flow &&
+    !sequence &&
+    (json ? isJsonSource(raw) : rawStartsWithFlowMap(raw))
+  ) {
+    rendered = '{' + JSON.stringify(key) + ': ' + raw + '\n}'
+    rendered = rendered.replace(/^/gm, ' '.repeat(parent.indent))
+  } else {
+    const doc = new Document(sequence ? [] : {})
+    doc.set(sequence ? 0 : key, value.clone())
+    rendered = json
+      ? JSON.stringify(doc.toJS())
+      : doc.toString({ lineWidth: 0, collectionStyle: flow ? 'flow' : 'any' })
+    rendered = rendered.replace(/^/gm, ' '.repeat(parent.indent))
   }
-  return text
+  rendered = rendered.replace(/\r?\n/g, newline)
+  const token = parseDocument(rendered, { keepSourceTokens: true }).contents?.srcToken
+  if (!token || !CST.isCollection(token) || !token.items[0])
+    throw new Error('Cannot render the edited configuration field.')
+  const item = token.items[0]
+  if (raw !== undefined && !flow && !sequence && item.value && CST.isCollection(item.value)) {
+    const tail = token.items[1]?.start ?? []
+    if (tail.at(-1)?.type === 'space') tail.pop()
+    if (item.value.type === 'flow-collection') item.value.end.push(...tail)
+    else {
+      const items: CST.CollectionItem[] = item.value.items
+      items.push({ start: tail })
+    }
+  }
+  return item
+}
+
+export function configNodeSource(source: string, doc: Document, path: string[]) {
+  const node = doc.getIn(path, true)
+  if (!isNode(node) || !node.range) throw new Error('Missing definition source range.')
+  const parent = doc.getIn(path.slice(0, -1), true)
+  const pair = isMap(parent)
+    ? parent.items.find((pair) => isScalar(pair.key) && pair.key.value === path.at(-1))
+    : undefined
+  const start =
+    pair?.srcToken?.sep?.find((token) => token.type === 'comment')?.offset ?? node.range[0]
+  const indent = node.srcToken && 'indent' in node.srcToken ? node.srcToken.indent : 0
+  return source.slice(start, node.range[2]).replace(new RegExp(`(^|\\n) {${indent}}`, 'g'), '$1')
+}
+
+function rawStartsWithFlowMap(source: string) {
+  const node = parseDocument(source).contents
+  return isMap(node) && node.flow === true
+}
+
+export function isJsonSource(source: string) {
+  try {
+    JSON.parse(source)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function sourceToken(type: CST.SourceToken['type'], source: string): CST.SourceToken {
+  return { type, source, indent: 0, offset: -1 }
+}
+
+function appendItem(parent: Collection, item: CST.CollectionItem, lineEnding: string) {
+  if (parent.type === 'flow-collection') {
+    const last = parent.items.at(-1)
+    const trailing = last && !last.key && !last.value ? parent.items.pop() : undefined
+    item.start =
+      parent.items.length > 0
+        ? [sourceToken('comma', ','), sourceToken('space', ' '), ...item.start]
+        : item.start
+    parent.items.push(item)
+    if (trailing) parent.items.push(trailing)
+    return
+  }
+  if (parent.items.length > 0) {
+    const newline = CST.stringify(parent).endsWith('\n') ? [] : [sourceToken('newline', lineEnding)]
+    item.start = [...newline, sourceToken('space', ' '.repeat(parent.indent)), ...item.start]
+  }
+  const items: CST.CollectionItem[] = parent.items
+  items.push(item)
+}
+
+function removeItem(parent: Collection, index: number) {
+  const [removed] = parent.items.splice(index, 1)
+  if (!removed) return
+  const next = parent.items[index]
+  if (parent.type === 'flow-collection') {
+    const gap = removed.start.filter((token) => token.type !== 'comma')
+    if (next) next.start = [...gap, ...next.start]
+    else parent.end.unshift(...gap)
+    if (parent.items[0])
+      parent.items[0].start = parent.items[0].start.filter((token) => token.type !== 'comma')
+    return
+  }
+  if (index === 0 && next?.start[0]?.type === 'space') next.start.shift()
 }

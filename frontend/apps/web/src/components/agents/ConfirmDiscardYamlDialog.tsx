@@ -23,8 +23,7 @@ export function ConfirmDiscardYamlDialog({
         <DialogHeader>
           <DialogTitle>Discard YAML edits?</DialogTitle>
           <DialogDescription>
-            These YAML edits use fields the builder can’t represent. Switching back discards them
-            and regenerates the config from the builder’s fields.
+            This returns to the previous Builder configuration and discards the current YAML edits.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
