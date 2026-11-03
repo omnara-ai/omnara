@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isNode, parse, parseDocument } from 'yaml'
+import { isNode, isScalar, parse, parseDocument } from 'yaml'
 
 import { parseConfigDocument } from './agentConfigCompatibility'
 import { editConfigDocument } from './agentConfigDocument'
@@ -269,5 +269,159 @@ it('distinguishes string and number permission parameters when editing a scalar'
   expect(parse(result.yaml)).toHaveProperty(
     ['tools', 'web_search', 'permission', 'parameters', 'count'],
     5,
+  )
+})
+
+it.each(['tools: {web_search}', 'mcp: {docs}', 'subagents: {helper}', 'max_depth:'])(
+  'reports value-less entries without throwing: %s',
+  (entry) => {
+    const source = header + entry + '\n'
+    const session = createBasicConfigSession(source)
+    expect(session.initialDraft).not.toBeNull()
+    expect(session.diagnostics.some((issue) => issue.error)).toBe(true)
+    if (session.initialDraft) expect(session.apply(session.initialDraft)).toBe(source)
+  },
+)
+
+it.each(['2026-01-02', '2026-1-2', '1_000', '0b1', '-0x1F', '0x1_F'])(
+  'quotes strings consistently with backend scalar parsing: %s',
+  (value) => {
+    const { session, draft } = draftFor(header + 'machine_sources: [{machine_name: example}]\n')
+    const changed = {
+      ...draft,
+      machineSources: draft.machineSources.map((row) => ({
+        ...row,
+        envRows: [{ id: 'example', key: 'VALUE', value }],
+      })),
+    }
+    for (const result of [
+      session.evaluate(changed),
+      createBasicConfigSession('').evaluate(changed),
+    ]) {
+      expect(result.issues).toEqual([])
+      expect(parse(result.yaml)).toHaveProperty(
+        ['machine_sources', 0, 'env_overlay', 'VALUE'],
+        value,
+      )
+      const scalar = parseDocument(result.yaml).getIn(
+        ['machine_sources', 0, 'env_overlay', 'VALUE'],
+        true,
+      )
+      expect(isScalar(scalar) && scalar.type !== 'PLAIN').toBe(true)
+      expect(createBasicConfigSession(result.yaml).diagnostics).toEqual([])
+    }
+  },
+)
+
+it.each(['2026-1-2', '-0x1F', '0x1_F'])(
+  'preserves backend-specific scalar forms on read: %s',
+  (value) => {
+    const source =
+      header + `machine_sources: [{machine_name: example, env_overlay: {VALUE: ${value}}}]\n`
+    const { session, draft } = draftFor(source)
+    expect(draft.machineSources).toHaveLength(0)
+    expect(session.diagnostics.some((issue) => issue.message.includes('version-dependent'))).toBe(
+      true,
+    )
+    expect(session.apply({ ...draft, instruction: 'Updated.' })).toContain(`VALUE: ${value}`)
+  },
+)
+
+it('uses block style for multiline edits to a plain instruction', () => {
+  const { session, draft } = draftFor(header)
+  const result = session.evaluate({ ...draft, instruction: 'Line one.\nLine two.' })
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toContain('instruction: |-\n  Line one.\n  Line two.\n')
+})
+
+it('retains unrelated Builder edits and the collision diagnostic', () => {
+  const source = header + 'mcp: {docs: {url: "https://example.com", future: true}}\n'
+  const { session, draft } = draftFor(source)
+  const result = session.evaluate({
+    ...draft,
+    instruction: 'Updated.',
+    mcpServers: [
+      {
+        id: 'new',
+        name: 'docs',
+        url: 'https://other.example.com',
+        permission: null,
+        defaultEnabled: true,
+        authType: 'none',
+        secretId: '',
+        service: '',
+        region: '',
+        tools: [],
+      },
+    ],
+  })
+  expect(result.issues).toMatchObject([
+    { path: ['mcp', 'docs'], message: 'This name is already used by a preserved definition.' },
+  ])
+  expect(parse(result.yaml)).toHaveProperty('instruction', 'Updated.')
+  expect(nodeSource(result.yaml, ['mcp', 'docs'])).toBe(nodeSource(source, ['mcp', 'docs']))
+})
+
+it('reorders a final machine row that has no trailing newline', () => {
+  const source = header + 'machine_sources:\n  - machine_name: first\n  - machine_name: last'
+  const { session, draft } = draftFor(source)
+  const result = session.evaluate({ ...draft, machineSources: [...draft.machineSources].reverse() })
+  expect(result.issues).toEqual([])
+  expect(parse(result.yaml)).toHaveProperty('machine_sources', [
+    { machine_name: 'last' },
+    { machine_name: 'first' },
+  ])
+})
+
+it('keeps a machine row in block style when changing its kind', () => {
+  const { session, draft } = draftFor(header + 'machine_sources:\n  - machine_pool_name: pool\n')
+  const result = session.evaluate({
+    ...draft,
+    machineSources: draft.machineSources.map((row) => ({
+      ...newMachineSource('machine'),
+      id: row.id,
+      name: 'example',
+    })),
+  })
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toContain('  - machine_name: example\n')
+})
+
+it('puts an emptied tool definition on the same line as its key', () => {
+  const { session, draft } = draftFor(
+    header + 'tools:\n  web_search:\n    permission: {mode: always_ask}\n',
+  )
+  const result = session.evaluate({
+    ...draft,
+    tools: draft.tools.map((tool) => ({ ...tool, permission: null })),
+  })
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toContain('  web_search: {}\n')
+})
+
+it('preserves large schema integers exactly when editing a flow definition', () => {
+  const source =
+    header +
+    'tools: {example: {type: custom, description: Example, input_schema: {type: object, properties: {value: {const: 9007199254740993}}}}}\n'
+  const { session, draft } = draftFor(source)
+  const result = session.evaluate({
+    ...draft,
+    advancedEntries: draft.advancedEntries?.map((entry) => ({
+      ...entry,
+      source: entry.source.replace('Example', 'Updated'),
+    })),
+  })
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toContain('const: 9007199254740993')
+  expect(result.yaml).toContain('description: Updated')
+})
+
+it('explains explicit YAML 1.1 documents without rewriting them', () => {
+  const source = '%YAML 1.1\n---\n' + header
+  const session = createBasicConfigSession(source)
+  expect(session.initialDraft).toBeNull()
+  expect(session.diagnostics.some((issue) => issue.kind === 'fatal')).toBe(true)
+  expect(session.diagnostics.map((issue) => issue.message).join('\n')).toContain(
+    'declares YAML 1.1',
   )
 })

@@ -38,17 +38,30 @@ export function useAgentConfigMode({
   )
   const showBuilder = mode.mode === 'builder' && builderAvailable
   const editorYaml = mode.editorYaml ?? builderYaml
-  const compatibility =
-    yamlSession?.diagnostics ??
-    (builderAvailable
-      ? [...session.diagnostics.filter((issue) => !issue.error), ...form.validationIssues]
-      : session.diagnostics)
+  const compatibility = [
+    ...(yamlSession?.diagnostics ??
+      (builderAvailable
+        ? [...session.diagnostics.filter((issue) => !issue.error), ...form.validationIssues]
+        : session.diagnostics)),
+  ]
+  if (form.unappliedChanges)
+    compatibility.push({
+      path: [],
+      kind: 'advanced',
+      error: true,
+      message:
+        'Some Builder edits cannot be applied yet. Fix or discard those edits before switching to YAML.',
+    })
   const saveBlocked =
     editorYaml.trim() === '' ||
-    compatibility.some((issue) => issue.error) ||
-    (builderAvailable && form.blocked && (showBuilder || !yamlDiverged(mode)))
+    form.unappliedChanges ||
+    compatibility.some((issue) => issue.syntaxError) ||
+    (showBuilder
+      ? form.blocked
+      : !yamlDiverged(mode) && form.dirty && form.validationIssues.length > 0)
 
   function switchMode(nextMode: AgentConfigMode) {
+    if (form.unappliedChanges) return
     if (nextMode === 'builder') {
       if (yamlSession) {
         if (!yamlSession.initialDraft) {

@@ -76,7 +76,7 @@ export function useAgentConfigEditor({
             kind: 'fatal' as const,
             error: true,
             message:
-              'The configuration changed during OAuth authorization. Copy your pending edits, then reload to edit the latest version.',
+              'The configuration changed during OAuth authorization. This restored draft cannot be saved. Review your pending changes, reload the latest configuration, and reapply only your intended edits.',
           },
         ]
       : controller.compatibility,
