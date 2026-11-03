@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -276,6 +277,105 @@ func TestReviewThreadGraphQLErrorsAndHTTPFailuresAreReads(t *testing.T) {
 			if scenario == "secondary rate limit" {
 				require.EqualValues(t, 23, apiErr.RetryAfter.Seconds())
 			}
+		})
+	}
+}
+
+func TestResolveReviewThreadOnlyResolvesBotThreadsOnSelectedPR(t *testing.T) {
+	for _, mode := range []string{
+		"own", "already-resolved", "other-author", "other-pr", "forbidden", "rejected", "ambiguous",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			var mutations atomic.Int32
+			var contentsGrant map[string]string
+			client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/app/installations/456/access_tokens" {
+					var input struct {
+						Permissions map[string]string `json:"permissions"`
+					}
+					_ = json.NewDecoder(r.Body).Decode(&input)
+					token := "installation-token"
+					if input.Permissions["contents"] != "" {
+						contentsGrant, token = input.Permissions, "contents-token"
+					}
+					fmt.Fprintf(w, `{"token":%q,"expires_at":%q}`, token, time.Now().Add(time.Hour).Format(time.RFC3339))
+					return
+				}
+				if servePreparedPull(w, r) {
+					return
+				}
+				if r.URL.Path == repoPath(testRepository())+"/pulls/comments/31" {
+					author, pull := 999, 42
+					if mode == "other-author" {
+						author = 5
+					}
+					if mode == "other-pr" {
+						pull = 43
+					}
+					fmt.Fprintf(w, `{"id":31,"user":{"id":%d},"pull_request_url":%q}`,
+						author, "http://"+r.Host+pullPath(testRepository(), pull))
+					return
+				}
+				var input struct {
+					Query     string            `json:"query"`
+					Variables map[string]string `json:"variables"`
+				}
+				if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&input)) {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				assert.Equal(t, "/graphql", r.URL.Path)
+				assert.Equal(t, map[string]string{"id": "PRRT_1"}, input.Variables)
+				if strings.HasPrefix(input.Query, "mutation ") {
+					mutations.Add(1)
+					assert.Equal(t, "Bearer contents-token", r.Header.Get("Authorization"))
+					switch mode {
+					case "forbidden":
+						fmt.Fprint(w, `{"data":{"resolveReviewThread":null},"errors":[{"type":"FORBIDDEN"}]}`)
+						return
+					case "rejected":
+						fmt.Fprint(w, `{"errors":[{"message":"invalid"}]}`)
+						return
+					case "ambiguous":
+						fmt.Fprint(w, `{"data":{"resolveReviewThread":{"thread":null}}}`)
+						return
+					}
+					fmt.Fprint(w, `{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}`)
+					return
+				}
+				assert.Equal(t, "Bearer installation-token", r.Header.Get("Authorization"))
+				fmt.Fprintf(w, `{"data":{"node":{"__typename":"PullRequestReviewThread","isResolved":%t,`+
+					`"comments":{"nodes":[{"fullDatabaseId":"31"}]}}}}`, mode == "already-resolved")
+			})
+			result, err := client.ResolveReviewThread(t.Context(), testScope(), "PRRT_1", 999)
+			switch mode {
+			case "own", "already-resolved":
+				require.NoError(t, err)
+				require.Equal(t, ResolvedReviewThread{ID: "PRRT_1", IsResolved: true}, result)
+			case "other-author":
+				require.ErrorContains(t, err, "started by this bot")
+			case "other-pr":
+				var apiErr *APIError
+				require.ErrorAs(t, err, &apiErr)
+				require.Equal(t, ScopeMismatch, apiErr.Code)
+			case "forbidden":
+				require.ErrorContains(t, err, "Contents: Read & write")
+			case "rejected":
+				requireAPIError(t, err, PermanentFailure)
+				require.NotContains(t, err.Error(), "Contents")
+			case "ambiguous":
+				requireAPIError(t, err, DeliveryUnknown)
+			}
+			wantMutations := int32(0)
+			if mode == "own" || mode == "forbidden" || mode == "rejected" || mode == "ambiguous" {
+				wantMutations = 1
+				require.Equal(t, map[string]string{
+					"pull_requests": "write", "contents": "write", "metadata": "read",
+				}, contentsGrant)
+			} else {
+				require.Nil(t, contentsGrant)
+			}
+			require.Equal(t, wantMutations, mutations.Load())
 		})
 	}
 }

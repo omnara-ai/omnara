@@ -102,18 +102,24 @@ func (c *Client) installationToken(ctx context.Context, repositoryID int64, writ
 }
 
 func (c *Client) mintInstallationToken(ctx context.Context, repositoryID int64, write bool) (cachedToken, error) {
-	jwt, err := c.appJWT()
-	if err != nil {
-		return cachedToken{}, err
-	}
 	permission := "read"
 	if write {
 		permission = "write"
 	}
+	return c.mintRepositoryToken(ctx, repositoryID, map[string]string{"pull_requests": permission, "metadata": "read"})
+}
+
+func (c *Client) mintRepositoryToken(
+	ctx context.Context, repositoryID int64, permissions map[string]string,
+) (cachedToken, error) {
+	jwt, err := c.appJWT()
+	if err != nil {
+		return cachedToken{}, err
+	}
 	input := struct {
 		RepositoryIDs []int64           `json:"repository_ids"`
 		Permissions   map[string]string `json:"permissions"`
-	}{[]int64{repositoryID}, map[string]string{"pull_requests": permission, "metadata": "read"}}
+	}{[]int64{repositoryID}, permissions}
 	var result struct {
 		Token     string    `json:"token"`
 		ExpiresAt time.Time `json:"expires_at"`

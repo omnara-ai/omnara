@@ -57,8 +57,9 @@ not narrow the installation access granted through [Git credentials](#git-creden
 
 1. [Register a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
    you control. Give it repository **Pull requests: Read-only**, or **Read & write**
-   if agents will comment, and **Issues: Read-only** for incoming PR conversation
-   comments. For Git credentials, also request **Contents: Read & write**.
+   if agents will comment or resolve threads, and **Issues: Read-only** for incoming PR conversation
+   comments. For Git credentials or resolving review threads, also request
+   **Contents: Read & write**.
 2. Enable webhooks with URL `https://YOUR_OMNARA_HOST/api/integrations/github/events`
    and a webhook secret. Subscribe to the [events](https://docs.github.com/en/webhooks/webhook-events-and-payloads)
    `pull_request`, `issue_comment`,
@@ -135,6 +136,8 @@ tools:
     permission: {mode: always_ask}
   int__reviews__discard_review:
     permission: {mode: always_ask}
+  int__reviews__resolve_thread:
+    permission: {mode: always_ask}
 ```
 
 The GitHub launcher assigns one pull request to the agent. Every tool operates on
@@ -165,6 +168,12 @@ and accept a `limit` of 1–100. Oversized `diff` reads fail with guidance to us
 `side` (`LEFT` or `RIGHT`); provide `start_line` and `start_side` together for a
 multiline comment. `reply` uses `comment_id` and `body` to reply to an existing
 review comment. These publish individual comments.
+
+`resolve_thread` resolves a review thread this bot started. Pass the thread's `id`
+from `review_threads` as `review_thread_id`. Threads started by anyone else are
+rejected, and already resolved threads are left unchanged. Resolving requires the App's
+**Pull requests: Read & write** and **Contents: Read & write** permissions, which Apps
+registered through Omnara have.
 
 To build a review incrementally, first use `read` with `section: pending_review`.
 It returns this bot's pending review, or `null`. GitHub allows one pending review
