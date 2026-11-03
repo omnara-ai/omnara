@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -60,9 +61,8 @@ func TestAgentProcessLimitSerializesConcurrentStartsAndPreservesReplay(
 				RuntimeLockID: fixture.Lock.ID,
 			},
 			executionstore.CreateProcessInput{
+				ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 				AgentMachineBindingID: fixture.BindingID,
-				Command:               "sleep 3600",
-				ShellSelector:         "sh",
 				Cwd:                   "/work",
 			},
 		)

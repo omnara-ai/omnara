@@ -67,18 +67,18 @@ tools:
 	if first.Hash == "" || first.Hash != second.Hash {
 		t.Fatalf("expected stable hash, got %q and %q", first.Hash, second.Hash)
 	}
-	contract, err := RuntimeContractFromCompiled(json.RawMessage(first.CanonicalJSON), CompilerVersion, first.Hash)
+	contract, err := RuntimeContractFromCompiled(json.RawMessage(first.CanonicalJSON), first.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
-	if contract.Model.ConfiguredModelID != "" {
+	if contract.Model.ConfiguredModelID != uuid.Nil {
 		t.Fatalf("unexpected model contract: %+v", contract.Model)
 	}
-	if len(contract.Tools) != 3 || contract.Tools[1].Name != "run_command" ||
-		contract.Tools[1].Permission.Mode != toolpermission.ModeAlwaysAsk {
+	if len(contract.Tools) != 4 || contract.Tools[0].Name != "run_command" ||
+		contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAsk {
 		t.Fatalf("unexpected tool contract: %+v", contract.Tools)
 	}
-	assertRunCommandInputSchema(t, contract.Tools[1].InputSchema)
+	assertRunCommandInputSchema(t, contract.Tools[0].InputSchema)
 }
 
 func TestCompilePreservesSourceWhileCanonicalizingResourceReferences(t *testing.T) {
@@ -162,7 +162,7 @@ func TestDefaultCatalogRunCommandSchemaMatchesModelFacingContract(t *testing.T) 
 	}
 	assertRunCommandInputSchema(t, entry.InputSchema)
 	for _, name := range []string{
-		"write_process", "read_process", "stop_process", "list_processes",
+		"write_process", "read_process", "stop_process", "watch_process", "list_processes",
 	} {
 		entry, ok := catalog.Lookup(name)
 		if !ok {
@@ -177,27 +177,24 @@ func TestDefaultCatalogRunCommandSchemaMatchesModelFacingContract(t *testing.T) 
 	}
 }
 
-func TestIntegrationSendPermissionIsAlwaysAllowOnly(t *testing.T) {
-	catalog, err := toolcatalog.Default()
-	if err != nil {
-		t.Fatalf("default tool catalog: %v", err)
-	}
-	entry, ok := catalog.Lookup("send_integration_message")
-	if !ok {
-		t.Fatal("send_integration_message catalog entry missing")
-	}
-	if len(entry.PermissionModes) != 1 ||
-		entry.PermissionModes[0].Name != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("send_integration_message permission modes = %+v", entry.PermissionModes)
-	}
-	_, err = Compile(SourceFormatYAML, []byte(validAgentSource(`
-tools:
-  send_integration_message:
-    permission:
-      mode: always_ask
-`)), CompileOptions{})
-	if err == nil {
-		t.Fatal("expected always_ask send_integration_message permission to be rejected")
+func TestIntegrationSendPreservesConfiguredPermissionPolicy(t *testing.T) {
+	opts, _ := integrationTestOptions(t)
+	for _, mode := range []string{
+		toolpermission.ModeAlwaysAllow,
+		toolpermission.ModeAlwaysAsk,
+		toolpermission.ModeAlwaysDeny,
+	} {
+		result, err := Compile(
+			SourceFormatYAML,
+			[]byte(validAgentSource("tools:\n  int__engineering-team__post_message:\n    permission:\n      mode: "+mode+"\n")),
+			opts,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Compiled.Tools["int__engineering-team__post_message"].Permission.Mode != mode {
+			t.Fatal("integration tool changed explicit permission")
+		}
 	}
 }
 
@@ -218,11 +215,11 @@ tools:
 	if string(tool.Permission.Parameters) != "{}" {
 		t.Fatalf("run_command permission parameters = %s, want {}", tool.Permission.Parameters)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
-	if len(contract.Tools) != 3 || contract.Tools[1].Permission.Mode != toolpermission.ModeAlwaysAllow {
+	if len(contract.Tools) != 4 || contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAllow {
 		t.Fatalf("runtime tool permission = %+v, want %s", contract.Tools, toolpermission.ModeAlwaysAllow)
 	}
 }
@@ -246,7 +243,7 @@ mcp:
 	if err != nil {
 		t.Fatalf("compile mcp config: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -290,7 +287,7 @@ mcp:
 	if err != nil {
 		t.Fatalf("compile mcp config: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -336,7 +333,7 @@ mcp:
 			if err != nil {
 				t.Fatalf("compile mcp config: %v", err)
 			}
-			contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+			contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 			if err != nil {
 				t.Fatalf("runtime contract: %v", err)
 			}
@@ -455,7 +452,7 @@ mcp:
 	if err != nil {
 		t.Fatalf("compile mcp config with userinfo URL: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -477,10 +474,10 @@ mcp:
       type: bearer
       secret_id: ` + secretID + `
 `)
-	var validatedSecretID string
+	var validatedSecretID uuid.UUID
 	var validatedKind secrets.Kind
 	compiled, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
-		ValidateSecretID: func(secretID string, expectedKind secrets.Kind) error {
+		ValidateSecretID: func(secretID uuid.UUID, expectedKind secrets.Kind) error {
 			validatedSecretID = secretID
 			validatedKind = expectedKind
 			return nil
@@ -489,16 +486,16 @@ mcp:
 	if err != nil {
 		t.Fatalf("compile mcp auth config: %v", err)
 	}
-	if validatedSecretID != secretID || validatedKind != "generic" {
+	if validatedSecretID != uuid.Must(publicid.Decode(publicid.KindSecret, secretID)) || validatedKind != "generic" {
 		t.Fatalf("secret validation = %q/%q, want %q/generic", validatedSecretID, validatedKind, secretID)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
 	if len(contract.MCPServers) != 1 || contract.MCPServers[0].Auth == nil ||
 		contract.MCPServers[0].Auth.Type != MCPAuthTypeBearer ||
-		contract.MCPServers[0].Auth.SecretID != secretID {
+		contract.MCPServers[0].Auth.SecretID != uuid.Must(publicid.Decode(publicid.KindSecret, secretID)) {
 		t.Fatalf("unexpected mcp server auth: %+v", contract.MCPServers)
 	}
 }
@@ -518,7 +515,7 @@ mcp:
 `)
 	var validatedKind secrets.Kind
 	_, err = Compile(SourceFormatYAML, []byte(source), CompileOptions{
-		ValidateSecretID: func(_ string, expectedKind secrets.Kind) error {
+		ValidateSecretID: func(_ uuid.UUID, expectedKind secrets.Kind) error {
 			validatedKind = expectedKind
 			return nil
 		},
@@ -548,7 +545,7 @@ mcp:
 `)
 	var validatedKind secrets.Kind
 	compiled, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
-		ValidateSecretID: func(_ string, expectedKind secrets.Kind) error {
+		ValidateSecretID: func(_ uuid.UUID, expectedKind secrets.Kind) error {
 			validatedKind = expectedKind
 			return nil
 		},
@@ -559,7 +556,7 @@ mcp:
 	if validatedKind != secrets.KindAWSCredentials {
 		t.Fatalf("validated kind = %q, want %q", validatedKind, secrets.KindAWSCredentials)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -611,7 +608,7 @@ mcp:
 	if err != nil {
 		t.Fatalf("compile local http mcp config with dev option: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -662,9 +659,12 @@ func assertReadProcessInputSchema(t *testing.T, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &schema); err != nil {
 		t.Fatalf("decode read_process schema: %v", err)
 	}
-	maxBytes := schema.Properties["max_bytes"]
-	if maxBytes.Type != "integer" || maxBytes.Minimum != 1 || maxBytes.Maximum != processaction.MaxObservationBytes {
-		t.Fatalf("read_process max_bytes schema = %+v", maxBytes)
+	offsetByte, ok := schema.Properties["offset_byte"]
+	if !ok || offsetByte.Type != "integer" || offsetByte.Minimum != 0 {
+		t.Fatalf("read_process offset_byte schema = %+v", offsetByte)
+	}
+	if _, ok := schema.Properties["limit_bytes"]; ok {
+		t.Fatalf("read_process schema must not expose limit_bytes: %s", string(raw))
 	}
 	waitMS := schema.Properties["wait_ms"]
 	if waitMS.Type != "integer" || waitMS.Minimum != 1 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
@@ -712,8 +712,13 @@ func assertRunCommandInputSchema(t *testing.T, raw json.RawMessage) {
 		t.Fatalf("shell selector enum = %v, want %v", got, wantSelectors)
 	}
 	waitMS := schema.Properties["wait_ms"]
-	if waitMS.Type != "integer" || waitMS.Minimum != 1 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
+	if waitMS.Type != "integer" || waitMS.Minimum != 0 || waitMS.Maximum != processaction.MaxWaitMilliseconds {
 		t.Fatalf("run_command wait_ms schema = %+v", waitMS)
+	}
+	for _, removed := range []string{"detach", "notify_match"} {
+		if _, ok := schema.Properties[removed]; ok {
+			t.Fatalf("run_command schema must not expose %s: %s", removed, string(raw))
+		}
 	}
 	if ioMode := schema.Properties["io_mode"]; ioMode.Type != "string" ||
 		!sameStringSliceForAgentConfig(ioMode.Enum, []string{"pipe", "pty"}) {
@@ -736,11 +741,11 @@ func sameStringSliceForAgentConfig(got, want []string) bool {
 func testMachineSourceCompileOptions(t *testing.T) CompileOptions {
 	t.Helper()
 	return CompileOptions{
-		ResolveMachineName: func(machineName string) (string, error) {
-			return testMachineSourcePublicID(t, publicid.KindMachine, machineName), nil
+		ResolveMachineName: func(machineName string) (uuid.UUID, error) {
+			return uuid.NewSHA1(uuid.NameSpaceOID, []byte(string(publicid.KindMachine)+":"+machineName)), nil
 		},
-		ResolveMachinePoolName: func(machinePoolName string) (string, error) {
-			return testMachineSourcePublicID(t, publicid.KindMachinePool, machinePoolName), nil
+		ResolveMachinePoolName: func(machinePoolName string) (uuid.UUID, error) {
+			return uuid.NewSHA1(uuid.NameSpaceOID, []byte(string(publicid.KindMachinePool)+":"+machinePoolName)), nil
 		},
 	}
 }
@@ -778,19 +783,21 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with machine sources: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
 	if contract.Instruction != "Help the user make progress." {
 		t.Fatalf("unexpected instruction: %q", contract.Instruction)
 	}
-	if contract.MachineSources[0].MachineID != machineID || contract.MachineSources[0].Cwd != "/workspace" ||
+	if contract.MachineSources[0].MachineID != uuid.Must(publicid.Decode(publicid.KindMachine, machineID)) ||
+		contract.MachineSources[0].Cwd != "/workspace" ||
 		contract.MachineSources[0].Description != "Primary dev machine" ||
 		contract.MachineSources[0].EnvOverlay["APP_ENV"] == nil ||
 		*contract.MachineSources[0].EnvOverlay["APP_ENV"] != "test" ||
 		contract.MachineSources[0].SecretEnvOverlay["API_TOKEN"] == nil ||
-		*contract.MachineSources[0].SecretEnvOverlay["API_TOKEN"] != secretID {
+		*contract.MachineSources[0].SecretEnvOverlay["API_TOKEN"] !=
+			uuid.Must(publicid.Decode(publicid.KindSecret, secretID)) {
 		t.Fatalf("unexpected machine source contract: %+v", contract.MachineSources[0])
 	}
 }
@@ -811,11 +818,12 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with pool machine source: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
-	if contract.MachineSources[0].MachinePoolID != poolID || contract.MachineSources[0].MachineID != "" ||
+	if contract.MachineSources[0].MachinePoolID != uuid.Must(publicid.Decode(publicid.KindMachinePool, poolID)) ||
+		contract.MachineSources[0].MachineID != uuid.Nil ||
 		contract.MachineSources[0].MaxMachines != 5 ||
 		contract.MachineSources[0].InitialNumMachines != 3 ||
 		contract.MachineSources[0].Cwd != "/workspace" ||
@@ -842,7 +850,7 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with pool machine source config: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -867,13 +875,13 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with pool machine source secret_env: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
 	source := contract.MachineSources[0]
 	if source.SecretEnvOverlay["API_TOKEN"] == nil ||
-		*source.SecretEnvOverlay["API_TOKEN"] != secretID {
+		*source.SecretEnvOverlay["API_TOKEN"] != uuid.Must(publicid.Decode(publicid.KindSecret, secretID)) {
 		t.Fatalf("machine source secret_env_overlay = %+v", source.SecretEnvOverlay)
 	}
 }
@@ -881,9 +889,9 @@ tools:
 func TestCompileYAMLValidatesMachinePoolSourceSecretEnv(t *testing.T) {
 	secretID := testMachineSourcePublicID(t, publicid.KindSecret, "Pool Secret")
 	opts := testMachineSourceCompileOptions(t)
-	var validatedSecretID string
+	var validatedSecretID uuid.UUID
 	var validatedKind secrets.Kind
-	opts.ValidateSecretID = func(secretID string, expectedKind secrets.Kind) error {
+	opts.ValidateSecretID = func(secretID uuid.UUID, expectedKind secrets.Kind) error {
 		validatedSecretID = secretID
 		validatedKind = expectedKind
 		return nil
@@ -899,7 +907,7 @@ tools:
 `)), opts); err != nil {
 		t.Fatalf("compile with pool machine source secret_env: %v", err)
 	}
-	if validatedSecretID != secretID || validatedKind != "generic" {
+	if validatedSecretID != uuid.Must(publicid.Decode(publicid.KindSecret, secretID)) || validatedKind != "generic" {
 		t.Fatalf("secret validation = %q/%q, want %q/generic", validatedSecretID, validatedKind, secretID)
 	}
 }
@@ -908,7 +916,7 @@ func TestCompileYAMLRejectsInvalidMachinePoolSourceSecretEnv(t *testing.T) {
 	secretID := testMachineSourcePublicID(t, publicid.KindSecret, "Pool Secret")
 	opts := testMachineSourceCompileOptions(t)
 	validationErr := errors.New("secret is not available")
-	opts.ValidateSecretID = func(string, secrets.Kind) error {
+	opts.ValidateSecretID = func(uuid.UUID, secrets.Kind) error {
 		return validationErr
 	}
 	_, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
@@ -949,12 +957,13 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with named machine pool source: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
 	source := contract.MachineSources[0]
-	if source.MachinePoolID != poolID || source.MachineID != "" || source.MaxMachines != 3 ||
+	if source.MachinePoolID != uuid.Must(publicid.Decode(publicid.KindMachinePool, poolID)) ||
+		source.MachineID != uuid.Nil || source.MaxMachines != 3 ||
 		source.InitialNumMachines != 2 ||
 		source.Cwd != "/workspace" ||
 		source.Description != "Hosted machine" {
@@ -1011,7 +1020,7 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with multiple byo machines and pools: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -1019,17 +1028,19 @@ tools:
 		t.Fatalf("machine source count = %d, want 4: %+v", len(contract.MachineSources), contract.MachineSources)
 	}
 	want := []RuntimeMachine{
-		{MachineID: firstMachineID, Cwd: "/workspace/primary", Description: "Primary dev machine"},
+		{MachineID: uuid.Must(publicid.Decode(publicid.KindMachine, firstMachineID)),
+			Cwd: "/workspace/primary", Description: "Primary dev machine"},
 		{
-			MachinePoolID:      firstPoolID,
+			MachinePoolID:      uuid.Must(publicid.Decode(publicid.KindMachinePool, firstPoolID)),
 			MaxMachines:        1,
 			InitialNumMachines: 1,
 			Cwd:                "/workspace/build",
 			Description:        "Build pool machine",
 		},
-		{MachineID: secondMachineID, Cwd: "/workspace/secondary", Description: "Secondary dev machine"},
+		{MachineID: uuid.Must(publicid.Decode(publicid.KindMachine, secondMachineID)),
+			Cwd: "/workspace/secondary", Description: "Secondary dev machine"},
 		{
-			MachinePoolID:      secondPoolID,
+			MachinePoolID:      uuid.Must(publicid.Decode(publicid.KindMachinePool, secondPoolID)),
 			MaxMachines:        1,
 			InitialNumMachines: 1,
 			Cwd:                "/workspace/test",
@@ -1332,12 +1343,12 @@ tools:
 		schema.Properties["email"].Description == "" {
 		t.Fatalf("unexpected custom schema: %s", string(tool.InputSchema))
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
-	if len(contract.Tools) != 3 {
-		t.Fatalf("runtime tools = %+v, want custom tool and two retrieval tools", contract.Tools)
+	if len(contract.Tools) != 4 {
+		t.Fatalf("runtime tools = %+v, want custom tool and three retrieval tools", contract.Tools)
 	}
 	runtimeTool := contract.Tools[0]
 	if runtimeTool.Name != "lookup_customer" || runtimeTool.Type != toolcatalog.ToolTypeCustom ||
@@ -1479,7 +1490,7 @@ tools:
 		if err != nil {
 			t.Fatalf("marshal mutated %s: %v", name, err)
 		}
-		if _, err := RuntimeContractFromCompiled(raw, CompilerVersion, hashJSON(raw)); err == nil {
+		if _, err := RuntimeContractFromCompiled(raw, hashJSON(raw)); err == nil {
 			t.Fatalf("expected mutated %s contract to be rejected", name)
 		}
 	}
@@ -1531,9 +1542,18 @@ tools:
 	if err != nil {
 		t.Fatalf("marshal mutated compiled: %v", err)
 	}
-	if _, err := RuntimeContractFromCompiled(raw, CompilerVersion, hashJSON(raw)); err == nil {
+	if _, err := RuntimeContractFromCompiled(raw, hashJSON(raw)); err == nil {
 		t.Fatal("expected built-in name marked custom to be rejected")
 	}
+}
+
+func TestRuntimeContractRejectsPublicMachineID(t *testing.T) {
+	machineID, err := publicid.Encode(publicid.KindMachine, uuid.New())
+	require.NoError(t, err)
+	raw := json.RawMessage(`{"instruction":"test","model":{},"machine_sources":[{"machine_id":"` + machineID + `"}]}`)
+	_, err = RuntimeContractFromCompiled(raw, hashJSON(raw))
+	require.ErrorContains(t, err, "parse compiled agent config")
+	require.ErrorContains(t, err, "invalid UUID")
 }
 
 func TestRuntimeContractRejectsDefinitionHashMismatch(t *testing.T) {
@@ -1543,7 +1563,6 @@ func TestRuntimeContractRejectsDefinitionHashMismatch(t *testing.T) {
 	}
 	if _, err := RuntimeContractFromCompiled(
 		json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion,
 		"not-the-real-hash",
 	); err == nil {
 		t.Fatal("expected definition hash mismatch")
@@ -1634,7 +1653,7 @@ model:
 `), CompileOptions{
 		ResolveModelSelection: func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error) {
 			return ResolvedModelSelection{
-				ConfiguredModelID: "configured_model_test",
+				ConfiguredModelID: publicidTestID(90),
 				SupportsTools:     &supportsTools,
 			}, nil
 		},
@@ -1643,10 +1662,11 @@ model:
 		t.Fatalf("compile config: %v", err)
 	}
 	model := result.Compiled.Model
-	if model.ConfiguredModelID != "configured_model_test" {
+	if model.ConfiguredModelID != publicidTestID(90) {
 		t.Fatalf("compiled model did not persist resolved configured model: %+v", model)
 	}
-	if model.ContextWindowTokens == nil || *model.ContextWindowTokens != 100000 || model.DefaultMaxOutputTokens == nil ||
+	if model.ContextWindowTokens == nil || *model.ContextWindowTokens != 100000 ||
+		model.DefaultMaxOutputTokens == nil ||
 		*model.DefaultMaxOutputTokens != 16000 ||
 		model.CacheRetention != "short" ||
 		model.Reasoning == nil ||
@@ -1673,7 +1693,7 @@ model:
   provider_config: openai-prod
   name: gpt-test
 `
-	configuredModelID := "configured_model_original"
+	configuredModelID := publicidTestID(91)
 	resolve := func(string, string) (ResolvedModelSelection, error) {
 		return ResolvedModelSelection{ConfiguredModelID: configuredModelID}, nil
 	}
@@ -1682,15 +1702,15 @@ model:
 	})
 	require.NoError(t, err)
 
-	configuredModelID = "configured_model_reusing_name"
+	configuredModelID = publicidTestID(92)
 	second, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
 		ResolveModelSelection: resolve,
 	})
 	require.NoError(t, err)
-	if first.Compiled.Model.ConfiguredModelID != "configured_model_original" {
+	if first.Compiled.Model.ConfiguredModelID != publicidTestID(91) {
 		t.Fatalf("first compiled model ID changed: %+v", first.Compiled.Model)
 	}
-	if second.Compiled.Model.ConfiguredModelID != "configured_model_reusing_name" {
+	if second.Compiled.Model.ConfiguredModelID != publicidTestID(92) {
 		t.Fatalf("recompiled model did not use current name resolution: %+v", second.Compiled.Model)
 	}
 }
@@ -1710,7 +1730,7 @@ tools:
 		CompileOptions{
 			ResolveModelSelection: func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error) {
 				return ResolvedModelSelection{
-					ConfiguredModelID: "configured_model_test",
+					ConfiguredModelID: publicidTestID(90),
 					SupportsTools:     &supportsTools,
 				}, nil
 			},
@@ -1736,12 +1756,12 @@ skills:
 `)), CompileOptions{
 		ResolveModelSelection: func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error) {
 			return ResolvedModelSelection{
-				ConfiguredModelID: "configured_model_test",
+				ConfiguredModelID: publicidTestID(90),
 				SupportsTools:     &supportsTools,
 			}, nil
 		},
 		ResolveSkillID: func(id string) (SkillResolution, error) {
-			return SkillResolution{PublicID: id, Name: "pdf-tools"}, nil
+			return SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "pdf-tools"}, nil
 		},
 	})
 	if err == nil {
@@ -1768,15 +1788,14 @@ tools:
 	}
 	contract, err := RuntimeContractFromCompiled(
 		explicit.CanonicalJSON,
-		CompilerVersion,
 		explicit.Hash,
 	)
 	if err != nil {
 		t.Fatalf("load explicit skill runtime contract: %v", err)
 	}
-	if len(contract.Tools) != 3 ||
-		contract.Tools[2].Name != "skill" ||
-		contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAsk {
+	if len(contract.Tools) != 4 ||
+		contract.Tools[0].Name != "skill" ||
+		contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAsk {
 		t.Fatalf("unexpected explicit skill runtime contract: %+v", contract)
 	}
 
@@ -1800,12 +1819,12 @@ skills:
 				configuredModelName string,
 			) (ResolvedModelSelection, error) {
 				return ResolvedModelSelection{
-					ConfiguredModelID: "configured_model_without_tools",
+					ConfiguredModelID: uuid.NewSHA1(uuid.NameSpaceOID, []byte("configured_model_without_tools")),
 					SupportsTools:     &supportsTools,
 				}, nil
 			},
 			ResolveSkillID: func(id string) (SkillResolution, error) {
-				return SkillResolution{PublicID: id, Name: "pdf-tools"}, nil
+				return SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "pdf-tools"}, nil
 			},
 		},
 	)
@@ -1814,7 +1833,6 @@ skills:
 	}
 	contract, err = RuntimeContractFromCompiled(
 		disabled.CanonicalJSON,
-		CompilerVersion,
 		disabled.Hash,
 	)
 	if err != nil {
@@ -1832,7 +1850,7 @@ func TestCompileSkillsAllowedWithoutMachineSources(t *testing.T) {
 	}
 	opts := CompileOptions{
 		ResolveSkillID: func(id string) (SkillResolution, error) {
-			return SkillResolution{PublicID: id, Name: "pdf-tools"}, nil
+			return SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "pdf-tools"}, nil
 		},
 	}
 	result, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
@@ -1842,7 +1860,8 @@ skills:
 	if err != nil {
 		t.Fatalf("compile without machine_sources: %v", err)
 	}
-	if len(result.Compiled.Skills) != 1 || result.Compiled.Skills[0].PublicID != skillID {
+	if len(result.Compiled.Skills) != 1 ||
+		result.Compiled.Skills[0].ID != uuid.Must(publicid.Decode(publicid.KindSkill, skillID)) {
 		t.Fatalf("unexpected compiled skills: %+v", result.Compiled.Skills)
 	}
 }
@@ -1860,7 +1879,7 @@ skills:
 `)),
 		CompileOptions{
 			ResolveSkillID: func(id string) (SkillResolution, error) {
-				return SkillResolution{PublicID: id, Name: "pdf-tools"}, nil
+				return SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "pdf-tools"}, nil
 			},
 		},
 	)
@@ -1869,7 +1888,6 @@ skills:
 	}
 	contract, err := RuntimeContractFromCompiled(
 		compiled.CanonicalJSON,
-		CompilerVersion,
 		compiled.Hash,
 	)
 	if err != nil {
@@ -1878,9 +1896,9 @@ skills:
 	if !contract.RequiresModelToolSupport() {
 		t.Fatal("skill-only runtime contract must require model tool support")
 	}
-	if len(contract.Tools) != 3 ||
-		contract.Tools[2].Name != "skill" ||
-		contract.Tools[2].Permission.Mode != toolpermission.ModeAlwaysAllow {
+	if len(contract.Tools) != 4 ||
+		contract.Tools[0].Name != "skill" ||
+		contract.Tools[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
 		t.Fatalf("compiled skill tool is missing: %+v", contract.Tools)
 	}
 }
@@ -1895,7 +1913,7 @@ mcp:
 `)), CompileOptions{
 		ResolveModelSelection: func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error) {
 			return ResolvedModelSelection{
-				ConfiguredModelID: "configured_model_test",
+				ConfiguredModelID: publicidTestID(90),
 				SupportsTools:     &supportsTools,
 			}, nil
 		},
@@ -1917,7 +1935,7 @@ tools:
 `)), CompileOptions{
 		ResolveModelSelection: func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error) {
 			return ResolvedModelSelection{
-				ConfiguredModelID: "configured_model_test",
+				ConfiguredModelID: publicidTestID(90),
 				SupportsTools:     &supportsTools,
 			}, nil
 		},
@@ -1925,10 +1943,10 @@ tools:
 	if err != nil {
 		t.Fatalf("compile config: %v", err)
 	}
-	if result.Compiled.Model.ConfiguredModelID != "configured_model_test" {
+	if result.Compiled.Model.ConfiguredModelID != publicidTestID(90) {
 		t.Fatalf("compiled configured model = %q", result.Compiled.Model.ConfiguredModelID)
 	}
-	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -1979,8 +1997,8 @@ func TestCompileSkillsResolverInvokedAndPopulatesContract(t *testing.T) {
 			t.Fatalf("resolver got unexpected id: %s", id)
 		}
 		return SkillResolution{
-			PublicID: skillID,
-			Name:     "pdf-tools",
+			ID:   uuid.Must(publicid.Decode(publicid.KindSkill, skillID)),
+			Name: "pdf-tools",
 		}, nil
 	}
 	result, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
@@ -1995,11 +2013,11 @@ skills:
 	if !reflect.DeepEqual(resolved, []string{skillID}) {
 		t.Fatalf("resolver calls = %v, want [%s]", resolved, skillID)
 	}
-	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
-	if len(contract.Skills) != 1 || contract.Skills[0].PublicID != skillID {
+	if len(contract.Skills) != 1 || contract.Skills[0].ID != uuid.Must(publicid.Decode(publicid.KindSkill, skillID)) {
 		t.Fatalf("unexpected skills contract: %+v", contract.Skills)
 	}
 }
@@ -2033,8 +2051,8 @@ func TestCompileSkillsRejectsDuplicateNames(t *testing.T) {
 	opts := testMachineSourceCompileOptions(t)
 	opts.ResolveSkillID = func(id string) (SkillResolution, error) {
 		return SkillResolution{
-			PublicID: id,
-			Name:     "deploy",
+			ID:   uuid.Must(publicid.Decode(publicid.KindSkill, id)),
+			Name: "deploy",
 		}, nil
 	}
 	_, err = Compile(SourceFormatYAML, []byte(validAgentSource(`
@@ -2069,25 +2087,25 @@ func TestFileRetrievalHonorsExplicitConfiguration(t *testing.T) {
 	compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
 tools:
   web_fetch: {}
-  read_file:
+  storage_read:
     enabled: false
-  search_files:
+  storage_search:
     permission:
       mode: always_ask
 `)), CompileOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatal(err)
 	}
 	found := false
 	for _, tool := range contract.Tools {
-		if tool.Name == toolcatalog.ToolNameReadFile {
-			t.Fatal("disabled read_file was enabled")
+		if tool.Name == toolcatalog.ToolNameStorageRead {
+			t.Fatal("disabled storage_read was enabled")
 		}
-		if tool.Name == toolcatalog.ToolNameSearchFiles {
+		if tool.Name == toolcatalog.ToolNameStorageSearch {
 			found = true
 			if tool.Permission.Mode != toolpermission.ModeAlwaysAsk {
 				t.Fatal("search permission changed")
@@ -2095,14 +2113,7 @@ tools:
 		}
 	}
 	if !found {
-		t.Fatal("search_files missing")
-	}
-	implicit, err := (RuntimeContract{}).WithImplicitBuiltInTool(toolcatalog.ToolNameSendIntegrationMessage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(implicit.Tools) != 1 || implicit.Tools[0].Name != toolcatalog.ToolNameSendIntegrationMessage {
-		t.Fatal("late implicit tool must not add retrieval tools")
+		t.Fatal("storage_search missing")
 	}
 }
 

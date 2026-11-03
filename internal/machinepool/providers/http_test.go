@@ -52,15 +52,24 @@ func TestDoHTTPResponsePreservesHeaders(t *testing.T) {
 	}
 }
 
-func TestRetryAfterErrorPreservesCauseAndHint(t *testing.T) {
+func TestResponseErrorPreservesCauseStatusAndRetryAfter(t *testing.T) {
 	cause := errors.New("rate limited")
-	err := WithRetryAfter(cause, http.Header{"Retry-After": []string{"3"}})
+	err := WithResponse(cause, HTTPResponse{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{"Retry-After": []string{"3"}},
+	})
 	if !errors.Is(err, cause) {
 		t.Fatalf("wrapped error = %v, want original cause", err)
+	}
+	if status, ok := HTTPStatus(err); !ok || status != http.StatusTooManyRequests {
+		t.Fatalf("status = (%d, %t), want (429, true)", status, ok)
 	}
 	delay, ok := RetryAfter(err)
 	if !ok || delay != 3*time.Second {
 		t.Fatalf("retry delay = (%s, %t), want (3s, true)", delay, ok)
+	}
+	if _, ok := RetryAfter(WithResponse(cause, HTTPResponse{StatusCode: http.StatusBadGateway})); ok {
+		t.Fatal("retry delay was reported without a Retry-After header")
 	}
 }
 

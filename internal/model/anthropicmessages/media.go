@@ -18,6 +18,15 @@ const anthropicMessagesRequestBodyLimit = 32_000_000 - 1024
 // Anthropic applies its 10 MB image limit after base64 encoding.
 const anthropicMessagesImageBase64Limit = 10_000_000
 
+const anthropicBedrockImageBase64Limit = 5_000_000
+
+func (c Client) imageBase64Limit() int {
+	if c.ModelAPIVariant() == modelprotocol.APIVariantBedrock {
+		return anthropicBedrockImageBase64Limit
+	}
+	return anthropicMessagesImageBase64Limit
+}
+
 func (c Client) prepareWithinRequestBodyLimit(
 	ctx context.Context,
 	input model.PrepareInput,
@@ -35,10 +44,11 @@ func (c Client) prepareWithinRequestBodyLimit(
 		input.Context.ToolResults = append([]modelcontext.ToolResultRef(nil), input.Context.ToolResults...)
 		contextCloned = true
 	}
+	imageLimit := c.imageBase64Limit()
 	for _, occurrence := range anthropicMediaOccurrences(input.Context) {
 		media := occurrence.Media
 		if media.Kind != modelcontext.AttachmentKindImage ||
-			base64.StdEncoding.EncodedLen(len(media.Data)) <= anthropicMessagesImageBase64Limit {
+			base64.StdEncoding.EncodedLen(len(media.Data)) <= imageLimit {
 			continue
 		}
 		if occurrence.Opening {
@@ -47,7 +57,7 @@ func (c Client) prepareWithinRequestBodyLimit(
 				Err: fmt.Errorf(
 					"current image %s exceeds Anthropic's %d byte base64 image limit",
 					media.ArtifactID,
-					anthropicMessagesImageBase64Limit,
+					imageLimit,
 				),
 			}
 		}

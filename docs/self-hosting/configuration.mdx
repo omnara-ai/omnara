@@ -25,10 +25,117 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_MAINTENANCE_METRICS_ADDR` | `maintenance` health/metrics listener | `:8083` | No |
 | `OMNARA_LOG_LEVEL` | `debug`, `info`, `warn`, or `error` | `info` | No |
 | `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS` | `1` enables local-development fallbacks | unset | No |
+| `OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY` | Maximum event webhook deliveries in flight per worker process | `128` | No |
+| `OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY` | Soft cap on concurrent event webhook deliveries per org across workers; use the same value on every worker | `128` | No |
 | `OMNARA_WORKER_CAPACITY` | Maximum agent turns executed concurrently by each worker process | `4` | No |
+| `OMNARA_WORKER_CLAIM_CONCURRENCY` | Concurrent claim loops per worker process | `16` | No |
+| `OMNARA_WORKER_INBOX_CAPACITY` | Maximum integration inbox receipts processed concurrently per worker process; integer from 1 through 100 | `4` | No |
 | `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
 | `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
-| `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |
+| `OMNARA_WORKER_DRAIN_TIMEOUT` | On the first SIGTERM or SIGINT, the worker stops claiming agent work and lets in-flight agent work and background tool tasks finish for up to this long. It then cancels what is left and tries to record interrupted tool calls and release runtime leases. A second signal cancels at once. `0s` skips draining. Set the orchestrator's stop timeout (ECS `stopTimeout`, Kubernetes `terminationGracePeriodSeconds` including any `preStop` time, Compose `OMNARA_WORKER_STOP_GRACE_PERIOD`) to at least this value plus 10s to leave time for that cleanup; the default fits the common 30s. Cleanup is best effort: leases a stopped worker did not release expire on their own. The health and metrics endpoints stop at the first signal. | `20s` | No |
+| `OMNARA_WORKER_STOP_GRACE_PERIOD` | Compose only: the worker container's `stop_grace_period`. Keep it at least `OMNARA_WORKER_DRAIN_TIMEOUT` plus 10s | `30s` | No |
+| `OMNARA_MAINTENANCE_INTERVAL` | Interval for maintenance's fastest jobs, such as clearing expired agent locks (Go duration) | `1s` | No |
+
+### Monitoring agent execution
+
+Alert on these counters:
+
+- `increase(omnara_maintenance_job_items_total{outcome="mismatch"}[1h]) > 0`: an agent's stored execution state disagrees with its history.
+- `increase(omnara_worker_claim_deferrals_total[15m]) > 0`: a worker could not claim an agent and retried it a minute later. Worker error logs name the agent.
+
+Each worker reports `omnara_worker_capacity` (configured `OMNARA_WORKER_CAPACITY`),
+`omnara_worker_slots_used` (occupied slots, including ones reserved while claiming or
+backing off after a failure), and `omnara_worker_executions_active` (claimed work currently
+executing). Graph cluster utilization as
+`100 * sum(omnara_worker_slots_used) / sum(omnara_worker_capacity)`.
+
+Maintenance samples the agent backlog about every 15 seconds:
+`omnara_agent_ready_backlog` counts due wakeups for non-archived agents without a runtime
+lock, and `omnara_agent_oldest_ready_age_seconds` is how long the oldest one has been
+claimable (zero when empty). A wakeup becomes claimable at its ready time or when its
+agent's previous runtime lock was released, whichever is later. Both report `NaN` before
+the first sample or after a failed one; check
+`omnara_agent_backlog_sample_last_success_timestamp_seconds` for freshness. Use the maximum
+across maintenance replicas rather than summing.
+
+Alert on sustained `omnara_agent_oldest_ready_age_seconds` with a fresh sample. High
+utilization alongside the backlog means workers are at capacity; low utilization points to
+a claiming or scheduling problem instead.
+
+### Integration inbox operation
+
+Inbox concurrency is independent of agent-turn concurrency. All worker activity
+shares the database pool; raising inbox capacity does not raise its connection
+limit. Measure queue lag and database contention before increasing concurrency
+or replica counts.
+
+Workers sample `omnara_integration_inbox_oldest_ready_lag_seconds` about every 30 seconds,
+including while every consumer is busy. This measures time since `next_attempt_at`
+for the oldest due queued receipt, including inactive integrations awaiting recovery;
+future retry delays and processing leases are excluded. Scrapes read cached
+values and never query the inbox. The metric has no integration or project labels and
+reports zero for an empty ready queue, or `NaN` before sampling or after a failed
+sample. Check `omnara_integration_inbox_lag_sample_last_success_timestamp_seconds` for
+freshness; it remains unchanged on failure. Each worker observes the same global
+queue, so compare the maximum lag across workers rather than summing it.
+
+When processing confirms that a provider receipt has a content-free plan with no
+recipients, completion discards its raw message payload. The receipt and duplicate-detection
+key remain until normal cleanup. Pending or failed receipts retain their payloads, as do
+receipts with message content in their plan and scheduled receipts whose payload is
+needed to validate retries. This does not filter events before durable intake.
+
+Inbox retention runs about every five minutes. Completed/failed receipts
+become eligible for deletion seven days after finishing, measured by the database
+clock. Locks or cleanup backlogs can delay deletion. Deleting the integration, project or
+organization can purge receipts earlier; disconnecting an integration preserves normal
+retention.
+Failed receipts are terminal, release unfinished launch
+reservations, and follow the same retention policy. Queued and processing
+receipts are never removed by terminal retention. Deleting a receipt ends its
+transport deduplication window; exceptionally late replays can be accepted again.
+Accepted agent history is independent and remains intact. Newer messages may pass
+an older receipt waiting to retry.
+
+Size database capacity for retained receipts as well as peak processing. Retained
+row counts grow with incoming event rate and retention time. Measure representative
+routing, payloads and competing workloads before sizing the deployment.
+
+## Failed integration events
+
+Accepted events retry automatically up to eight attempts with exponential delay.
+A terminal failure releases unfinished launch reservations. Already committed agents
+and inputs remain intact. A new mention or message can retry transient failures, but
+a removed subscription must be restored before that conversation can forward messages.
+
+The worker makes a best-effort failure notice for unfinished human requests when
+provider access still works. Empty or fully admitted plans do not produce an
+error message. Scheduled failures remain visible in the schedule's latest run;
+a known opening thread can also receive a notice. Crash recovery can miss notices
+and unused-upload cleanup without blocking new work. Inspect `integration inbox admission
+failed` logs using the receipt, integration and project IDs. See the
+[inbox operation and retention](#integration-inbox-operation).
+
+### Shared-webhook setup failures
+
+Independent saved integrations can share a physical bot and webhook endpoint. Known
+invalid signatures and revoked/missing setups are skipped, but unknown secret,
+decryption/KMS or database errors still return non-2xx. Healthy siblings commit
+their receipts before that response; redelivery deduplicates those receipts.
+
+Find `provider event integration failed` logs and use `integration_id`, `project_id`, provider,
+`setup_revision`, `stage` and `retryable` to identify the affected setup. Logs
+include the error type, not raw error text, payloads or credentials. Restore a
+shared database/KMS outage first. For a persistently corrupt setup, reconnect
+that saved integration with valid credentials for the same provider identity, or
+disconnect it until repaired so independent healthy integrations can continue. Do not
+acknowledge unknown failures merely because another integration succeeded.
+
+After repair, recover events that failed before intake persisted them. Use the
+provider's redelivery where available; otherwise, ask the sender to resend the message
+or action. See the [integration guides](/integrations/overview) for provider-specific
+setup. Disconnecting preserves retained inbox diagnostics. Reconnect before sending
+fresh requests; previously failed work remains terminal.
 
 ## Database and Redis
 
@@ -39,11 +146,13 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_MIGRATIONS_DIR` | Directory containing schema migrations; used only by `cmd/migrate` | `migrations` | No |
 | `OMNARA_MIGRATION_TIMEOUT` | Overall deadline for the one-shot migration process (Go duration) | `30m` | No |
 
-PostgreSQL 18 or newer is required. The API, worker, and maintenance services
-default to a pool of 1–10 connections, a 30-minute idle timeout, a 30-minute
-connection lifetime, and five minutes of lifetime jitter. Override these with
-`pool_*` settings in `OMNARA_DATABASE_URL`, and budget connections across all
-service replicas.
+PostgreSQL 18 or newer is required. API and maintenance pools default to a maximum
+of 10 connections per process. Worker pools default to
+`max(10, ceil(OMNARA_WORKER_CAPACITY / 8))` maximum connections (256 capacity gives
+32 connections). All three default to a minimum of 1 connection, a 30-minute idle
+timeout, a 30-minute connection lifetime, and five minutes of lifetime jitter.
+Explicit `pool_*` settings in `OMNARA_DATABASE_URL` override these defaults. Budget
+connections across all service replicas.
 
 Direct PostgreSQL, RDS Proxy, and PgBouncer session pooling work with these
 settings. PgBouncer transaction pooling requires `max_prepared_statements > 0`;
@@ -59,6 +168,16 @@ timeout. Explicit values in `OMNARA_DATABASE_URL` take precedence.
 | `OMNARA_WEB_SERVING` | `embedded` serves a SPA compiled into `cmd/api`; `disabled` leaves web assets to a separate service. The official cluster API image contains no frontend assets and sets this to `disabled`; the cluster web image serves only static assets and does not proxy API traffic. | `disabled` | No |
 | `OMNARA_TRUSTED_PROXY_CIDRS` | Comma-separated proxy/load-balancer hop CIDRs whose `X-Forwarded-For`/`X-Real-IP` are trusted for auth rate limiting. Only hops you control. | — | No |
 
+## API rate limits
+
+Limits apply per user, per org for org API keys, and per machine for machine daemons.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_API_RATE_LIMIT_READS_PER_HOUR` | `GET` requests per hour for each user, org or machine; `0` leaves reads unlimited. | `100000` | No |
+| `OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR` | Other requests per hour for each user, org or machine; `0` leaves writes unlimited. | `50000` | No |
+| `OMNARA_API_RATE_LIMIT_BURST` | Requests each user, org or machine can make at once, for reads and writes separately. | `1000` | No |
+
 ## Email
 
 Signup and password reset send email through `OMNARA_EMAIL_DRIVER`. In production, use `smtp` or `sendgrid` — or disable both flows with `OMNARA_AUTH_SIGNUP_ENABLED=0` and `OMNARA_AUTH_PASSWORD_RESET_ENABLED=0`.
@@ -71,6 +190,25 @@ Signup and password reset send email through `OMNARA_EMAIL_DRIVER`. In productio
 | `OMNARA_SMTP_USERNAME` / `OMNARA_SMTP_PASSWORD` | SMTP credentials; set both or neither | — | No |
 | `OMNARA_SMTP_REQUIRE_TLS` | Require STARTTLS; disabling is dev-only | `1` | No |
 | `SENDGRID_API_KEY` | SendGrid API key | — | With `sendgrid` |
+
+## Authentication rate limits
+
+These API settings accept positive integers and count requests per client IP.
+Per-email, per-token, per-device-code, and per-account limits are fixed. Limits are
+tracked separately for each operation in Redis and replenish continuously over
+the listed window. Set the same values on every API replica. Behind a proxy,
+configure `OMNARA_TRUSTED_PROXY_CIDRS` so limits use the client IP.
+
+| Variable | Purpose | Default | Window |
+| --- | --- | --- | --- |
+| `OMNARA_AUTH_SIGNUP_CLIENT_LIMIT` | Signup and verification email requests (shared budget) | `500` | 1 hour |
+| `OMNARA_AUTH_LOGIN_CLIENT_LIMIT` | Password login | `1000` | 15 minutes |
+| `OMNARA_AUTH_PASSWORD_RESET_CLIENT_LIMIT` | Password reset requests, password changes, and token revocation (separate budgets) | `500` | 1 hour |
+| `OMNARA_AUTH_TOKEN_CLIENT_LIMIT` | Email verification, password reset completion, OAuth grants, and device/OAuth authorization lookups and decisions (separate budgets) | `5000` | 15 minutes |
+| `OMNARA_AUTH_OAUTH_LOGIN_CONNECTOR_CLIENT_LIMIT` | OAuth login starts per connector | `1000` | 15 minutes |
+| `OMNARA_AUTH_OAUTH_LOGIN_CLIENT_LIMIT` | OAuth login starts across connectors | `2000` | 15 minutes |
+| `OMNARA_AUTH_DEVICE_AUTHORIZATION_CLIENT_LIMIT` | Device authorization starts | `1000` | 15 minutes |
+| `OMNARA_AUTH_DEVICE_POLL_CLIENT_LIMIT` | Device token polling | `30000` | 15 minutes |
 
 ## Auth and SSO connectors
 
@@ -108,17 +246,42 @@ Skill archive offers use a short-lived capability bound to one machine, skill, a
 | --- | --- | --- | --- |
 | `OMNARA_SKILL_DOWNLOAD_SIGNING_KEY` | Base64-encoded 32-byte HMAC key for machine-bound skill download capabilities; generate with `openssl rand -base64 32` and set the same value on API and worker | *dev:* insecure local key | Yes |
 
+## Model safety identifiers
+
+Requests to OpenAI, OpenRouter, and Anthropic carry a hashed identifier for the organization, so the provider can restrict one organization instead of the whole account.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_SAFETY_IDENTIFIER_KEY` | Base64-encoded 32-byte HMAC key for those identifiers; generate with `openssl rand -base64 32` and set it on the worker. Unset sends none; changing it gives every organization a new identifier | — | No |
+
 ## Blob storage
 
 Artifact content lives in S3-compatible object storage; a bucket is required.
 
+Grant the service credentials `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject`
+on the bucket's `artifacts/*` and `skills/*` objects.
+
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
-| `OMNARA_BLOB_S3_BUCKET` | Bucket for artifact content | *dev:* Compose MinIO bucket `omnara` | Yes |
+| `OMNARA_BLOB_S3_BUCKET` | Bucket for artifact content | *dev:* Compose RustFS bucket `omnara` | Yes |
 | `OMNARA_BLOB_S3_REGION` | Bucket region | — | No |
-| `OMNARA_BLOB_S3_ENDPOINT` | Custom endpoint for MinIO or other S3-compatible stores; HTTPS outside localhost | — | No |
+| `OMNARA_BLOB_S3_ENDPOINT` | Custom endpoint for S3-compatible stores; HTTPS outside localhost | — | No |
 | `OMNARA_BLOB_S3_ACCESS_KEY_ID` / `OMNARA_BLOB_S3_SECRET_ACCESS_KEY` | Static credentials; set both or neither. Leave empty to use the AWS default credential chain. | — | No |
-| `OMNARA_BLOB_S3_USE_PATH_STYLE` | `1` for path-style addressing (MinIO) | `0` | No |
+| `OMNARA_BLOB_S3_USE_PATH_STYLE` | `1` for path-style addressing (RustFS) | `0` | No |
+
+## Memory storage
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_MEMORY_DIR` | Absolute directory on the same persistent filesystem for API, every worker, and maintenance | *dev:* `.local/memory`; Compose: `/var/lib/omnara/memory` | API, worker, and maintenance |
+
+The directory must be writable by the service user and support case-sensitive paths, atomic rename, file/directory sync, and shared advisory locks. File search and scripted edits require a Linux worker with Landlock ABI 2 or newer and seccomp; on macOS, use Compose with its named volume. See [deployment](/self-hosting/deployment#memory-storage) for shared mounts and backups.
+
+Native workers need `rg`, `omnara-sandbox`, and `omnara-chroot-sandbox` on `PATH`. For Debian/Ubuntu, install `sed` and `libcap2-bin`, then run `make install-chroot-sandbox` to install the chroot helper and its fixed filesystem jail. Rerun it after upgrading Omnara or the host's sed, libraries, or locale files. The worker image includes this setup.
+
+Workers also need a writable temporary directory (`TMPDIR`, normally `/tmp`) for memory search. If the container root filesystem is read-only, mount a writable volume there.
+
+Scripted edits require a non-root worker with `SYS_CHROOT` available in its capability bounding set and `no_new_privs` disabled. Only the chroot helper acquires the capability; it drops it before running sed.
 
 ## Machine daemon and pools
 
@@ -132,22 +295,7 @@ Artifact content lives in S3-compatible object storage; a bucket is required.
 | `OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES` | Path to a YAML file of default pool templates; when set, new orgs get cluster-managed machine pools | — | No |
 | `OMNARA_UNIKRAFT_DEFAULT_POOL_TOKEN` | Provider token read by the example default-pool template; default-pool provider tokens stay in env | — | No |
 
-Machine pool templates automatically create a base machine pool for any new organization. The supported providers are listed below:
-
-| Provider | CPU fields | `provider_config` | `default_machine_provider_options` |
-| --- | --- | --- | --- |
-| `unikraft` | Default and maximums required; minimum optional | Optional `api_base_url`, `allowed_images`, and `allowed_metros` | `image`, `metro`, and optional `startup_script` and `sleep_after_ms` |
-| `blaxel` | Omit all CPU fields | Required `workspace`; optional `allowed_images` and `allowed_regions` | Blaxel sandbox `image`, `region`, and optional `startup_script` and `sleep_after_ms` |
-| `daytona` | Maximums required; default and minimum optional | Optional `api_base_url`, `allowed_snapshots`, and `allowed_targets` | Daytona snapshot name, `target`, and optional `startup_script` |
-| `modal` | Default and maximums required; minimum optional | Optional `app` (defaults to `omnara`), `environment` (defaults to `main`), `allowed_images`, and `allowed_regions` | Public linux/amd64 `image` plus optional `region` and `startup_script` |
-
-Provider notes:
-
-- Custom pool images must provide a writable `HOME` or `OMNARA_HOME`, plus a POSIX shell, standard Unix utilities, `curl`, and `sha256sum` or `shasum` for the Omnara launcher (`startup_script` additionally requires `base64`).
-- Blaxel images must be sandbox images built or pushed through Blaxel (custom images must include `sandbox-api`), and unlimited persistence requires quota Tier 2 or higher — Tier 0 and Tier 1 cap sandbox lifetimes at 7 and 30 days.
-- Daytona snapshots are allowed by name, must be active in the selected target, must allow sandboxes to reach `OMNARA_PUBLIC_URL`, and their API-resolved CPU and memory count against the pool caps.
-- Modal credentials must be supplied as one JSON value containing `token_id` and `token_secret`. Omnara configures Modal sandboxes with a 24-hour timeout. Omit `region` for automatic placement. Create a non-`main` environment in Modal before configuring it. Use versioned image tags because Modal does not automatically repull a mutable external tag after caching it.
-- For Unikraft and Blaxel, `sleep_after_ms` enables scale-to-zero after that many milliseconds of daemon inactivity; omit or `0` disables it, and enabled values must be at least `30000`.
+Machine pool templates automatically create a base machine pool for any new organization. Templates use the same provider settings as custom pools; see [Sandbox providers](/machines/providers/overview) for each provider.
 
 ### Operator-provisioned default model provider
 
@@ -157,9 +305,33 @@ organization owners configure providers themselves.
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
-| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API and maintenance. See `default-model-provider-example.yaml`. | — | No |
+| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API and maintenance. | — | No |
 | `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used by the API and maintenance. | — | With a default provider template |
 | `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used by the API and maintenance. | — | With a default provider template |
+
+A template names the provider and lists the models each organization receives:
+
+```yaml
+provisioner: openrouter
+name: omnara-openrouter
+credential_secret_name: omnara-openrouter-key
+api_format: openai-chat-completions
+api_variant: openrouter
+base_url: https://openrouter.ai/api/v1
+endpoint_path: /chat/completions
+auth_kind: bearer_token
+models:
+  - name: openai/gpt-6.1-sol
+    provider_model_slug: openai/gpt-6.1-sol
+    context_window_tokens: 1050000
+    max_output_tokens: 128000
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: medium
+    supported_reasoning_efforts: [max, xhigh, high, medium, low]
+    input_modalities: [file, image, text]
+    output_modalities: [text]
+```
 
 Templates support the [token settings and timeouts](/organization/model-providers)
 described for model providers.
@@ -200,6 +372,7 @@ The credential service contract has these invariants:
 | `OMNARA_API_URL` | API root URL, including the `/api/v1` mount for self-hosted deployments; HTTP is accepted only for loopback or `host.docker.internal` during local development | Existing `daemon.json` value, otherwise `https://api.omnara.com/v1` |
 | `OMNARA_MACHINE_TOKEN` | Machine token; prompted for by the installer when omitted | Existing `daemon.json` value |
 | `OMNARA_NO_UPDATE` | Set to `1` or `0` to temporarily disable or enable managed updates | Existing `daemon.json` value, otherwise `0` |
+| `OMNARA_GIT_CREDENTIALS` | Set to `0` to refuse agent commands that request Git credentials, or `1` to enable the helper; persist with `omnarad install` | Existing `daemon.json` value, otherwise `1` |
 | `OMNARA_RUNNER_PATH` | Temporary `PATH` override for agent commands | Existing `daemon.json` value, otherwise the installation `PATH` |
 | `OMNARA_DAEMON_SEED_PATH` | Existing `omnarad` binary used only to seed a fresh installer-owned home | — |
 

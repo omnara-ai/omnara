@@ -23,9 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/interactionform"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
-	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -35,6 +33,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/omnara-ai/omnara/observability/metrics"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 var (
@@ -239,15 +239,18 @@ func TestWebConfigRoute(t *testing.T) {
 		opts           []Option
 		wantBillingURL string
 		wantAPIURL     string
+		wantPublicURL  string
 	}{
 		{
 			name: "public config set",
 			opts: []Option{
 				WithBillingURL("https://billing.omnara.test/credits/"),
 				WithPublicAPIURL("https://api.omnara.test/v1/"),
+				WithPublicURL("https://dashboard.omnara.test/"),
 			},
 			wantBillingURL: "https://billing.omnara.test/credits",
 			wantAPIURL:     "https://api.omnara.test/v1",
+			wantPublicURL:  "https://dashboard.omnara.test",
 		},
 		{name: "unset values omitted"},
 	}
@@ -255,7 +258,11 @@ func TestWebConfigRoute(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := mustNewUnitServer(t, tt.opts...)
 			rec := httptest.NewRecorder()
-			server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, webConfigPath, nil))
+			target := webConfigPath
+			if tt.wantPublicURL != "" {
+				target = tt.wantPublicURL + webConfigPath
+			}
+			server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
 			if rec.Code != http.StatusOK {
 				t.Fatalf("web config status = %d, want %d", rec.Code, http.StatusOK)
 			}
@@ -266,6 +273,7 @@ func TestWebConfigRoute(t *testing.T) {
 			for key, want := range map[string]string{
 				"billing_url": tt.wantBillingURL,
 				"api_url":     tt.wantAPIURL,
+				"public_url":  tt.wantPublicURL,
 			} {
 				got, ok := body[key]
 				if want == "" {
@@ -362,7 +370,7 @@ func decodeRequestEvent(t *testing.T, buf *bytes.Buffer) map[string]any {
 
 func TestRequestLogEmitsWideHTTPEvent(t *testing.T) {
 	buf, log := newRequestEventCapture()
-	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logent.Org(r.Context(), identitystore.OrgRecord{ID: httpTestOrgID})
 		w.WriteHeader(http.StatusTeapot)
 		if _, err := w.Write([]byte("teapot")); err != nil {
@@ -406,8 +414,8 @@ func TestRequestLogEmitsWideHTTPEvent(t *testing.T) {
 func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	buf, log := newRequestEventCapture()
 	handlerErr := apierror.ProjectScoped(context.Canceled)
-	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		openAPIResponseErrorHandler(w, r, handlerErr)
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeAPIError(w, r, handlerErr)
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
@@ -420,7 +428,7 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	event := decodeRequestEvent(t, buf)
 	for key, want := range map[string]any{
 		"level":            "error",
-		"error.message":    handlerErr.Error(),
+		"error.message":    context.Canceled.Error() + "\n" + handlerErr.Error(),
 		"http.status_code": float64(http.StatusInternalServerError),
 	} {
 		if got := event[key]; got != want {
@@ -429,8 +437,22 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	}
 }
 
+func TestRequestLogKeepsClientErrorMessage(t *testing.T) {
+	buf, log := newRequestEventCapture()
+	handlerErr := apierror.FromCode(openapi.ErrorCodeNotFound, "agent not found").WithCause(errors.New("lookup detail"))
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeAPIError(w, r, handlerErr)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/test", nil))
+
+	event := decodeRequestEvent(t, buf)
+	if got := event["error.message"]; got != handlerErr.Error() {
+		t.Fatalf("error.message=%v want=%v in event %+v", got, handlerErr.Error(), event)
+	}
+}
+
 func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
-	const clientClosedTelemetryStatus = 499
 	buf, log := newRequestEventCapture()
 	set := metrics.New()
 	handlerErr := apierror.FromCode(
@@ -438,10 +460,10 @@ func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 		"mapped dependency failure",
 	).WithCause(context.Canceled)
 	mux := http.NewServeMux()
-	mux.Handle("GET /api/v1/test", requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		openAPIResponseErrorHandler(w, r, handlerErr)
-	})))
-	handler := metrics.NewHTTPRecorder(set, metrics.SubsystemAPI).Middleware(mux)(mux)
+	mux.HandleFunc("GET /api/v1/test", func(w http.ResponseWriter, r *http.Request) {
+		writeAPIError(w, r, handlerErr)
+	})
+	handler := requestEvents(log, metrics.NewHTTPRecorder(set, metrics.SubsystemAPI), mux)(mux)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -462,7 +484,7 @@ func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 	event := decodeRequestEvent(t, buf)
 	for key, want := range map[string]any{
 		"level":                      "info",
-		"http.status_code":           float64(clientClosedTelemetryStatus),
+		"http.status_code":           float64(http.StatusServiceUnavailable),
 		"http.response_bytes":        float64(rec.Body.Len()),
 		"http.request.cancel_cause":  context.Canceled.Error(),
 		"http.request.cancel_source": "request_context",
@@ -478,15 +500,13 @@ func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 	set.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
 	metricsBody := metricsRec.Body.String()
 	for _, want := range []string{
-		`omnara_api_requests_total{code="499",method="get",route="/api/v1/test"} 1`,
-		`omnara_api_request_duration_seconds_count{code="499",method="get",route="/api/v1/test"} 1`,
+		`omnara_api_requests_total{code="503",method="get",route="/api/v1/test"} 1`,
+		`omnara_api_request_duration_seconds_count{code="503",method="get",route="/api/v1/test"} 1`,
+		`omnara_api_requests_canceled_total{code="503",method="get",route="/api/v1/test"} 1`,
 	} {
 		if !strings.Contains(metricsBody, want) {
 			t.Fatalf("metrics output missing %q:\n%s", want, metricsBody)
 		}
-	}
-	if strings.Contains(metricsBody, `code="503",method="get",route="/api/v1/test"`) {
-		t.Fatalf("canceled request recorded as 503:\n%s", metricsBody)
 	}
 }
 
@@ -496,9 +516,9 @@ func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
 		openapi.ErrorCodeServiceUnavailable,
 		"mapped dependency failure",
 	).WithCause(errors.New("query agent row: connection refused"))
-	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logpkg.Error(r.Context(), context.Canceled)
-		openAPIResponseErrorHandler(w, r, handlerErr)
+		writeAPIError(w, r, handlerErr)
 	}))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -513,7 +533,7 @@ func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
 	event := decodeRequestEvent(t, buf)
 	for key, want := range map[string]any{
 		"level":                      "error",
-		"error.message":              errors.Join(context.Canceled, handlerErr).Error(),
+		"error.message":              errors.Join(context.Canceled, errors.Unwrap(handlerErr), handlerErr).Error(),
 		"http.status_code":           float64(http.StatusServiceUnavailable),
 		"http.request.cancel_cause":  context.Canceled.Error(),
 		"http.request.cancel_source": "request_context",
@@ -526,7 +546,7 @@ func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
 
 func TestRequestLogPreservesHandlerPanicWhenRequestIsCanceled(t *testing.T) {
 	buf, log := newRequestEventCapture()
-	handler := requestLog(log)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		logpkg.Error(r.Context(), context.Canceled)
 		panic("boom")
 	}))
@@ -559,9 +579,8 @@ func TestRequestLogPreservesHandlerPanicWhenRequestIsCanceled(t *testing.T) {
 }
 
 func TestRequestLogClassifiesCanceledAuthenticationError(t *testing.T) {
-	const clientClosedTelemetryStatus = 499
 	buf, log := newRequestEventCapture()
-	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logent.AuthFailedError(
 			r.Context(),
 			logent.AuthSchemeBearer,
@@ -585,7 +604,7 @@ func TestRequestLogClassifiesCanceledAuthenticationError(t *testing.T) {
 	for key, want := range map[string]any{
 		"level":                      "info",
 		"auth.result":                string(logent.AuthResultUnavailable),
-		"http.status_code":           float64(clientClosedTelemetryStatus),
+		"http.status_code":           float64(http.StatusServiceUnavailable),
 		"http.request.cancel_cause":  context.Canceled.Error(),
 		"http.request.cancel_source": "request_context",
 	} {
@@ -619,7 +638,7 @@ func TestRequestLogAttachesRequestErrorOnBadRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			buf, log := newRequestEventCapture()
-			handler := requestLog(log)(tt.serve)
+			handler := requestEvents(log, nil, nil)(tt.serve)
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/test", nil)
 			rec := httptest.NewRecorder()
@@ -644,7 +663,7 @@ func TestRequestLogAttachesRequestErrorOnBadRequest(t *testing.T) {
 
 func TestRequestLogRecoversHandlerPanic(t *testing.T) {
 	buf, log := newRequestEventCapture()
-	handler := requestLog(log)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic("boom")
 	}))
 
@@ -680,7 +699,7 @@ func TestRequestLogRecoversHandlerPanic(t *testing.T) {
 
 func TestRequestLogAbortsPartialResponseOnHandlerPanic(t *testing.T) {
 	buf, log := newRequestEventCapture()
-	handler := requestLog(log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if _, err := w.Write([]byte("partial")); err != nil {
 			t.Errorf("write response: %v", err)
 			return
@@ -701,9 +720,11 @@ func TestRequestLogAbortsPartialResponseOnHandlerPanic(t *testing.T) {
 	}
 	event := decodeRequestEvent(t, buf)
 	for key, want := range map[string]any{
-		"level":            "error",
-		"error.message":    "http handler panicked: boom",
-		"http.status_code": float64(http.StatusOK),
+		"level":                    "error",
+		"error.message":            "http handler panicked: boom",
+		"http.status_code":         float64(http.StatusInternalServerError),
+		"http.written_status_code": float64(http.StatusOK),
+		"http.response_aborted":    true,
 	} {
 		if got := event[key]; got != want {
 			t.Fatalf("%s=%v want=%v in event %+v", key, got, want, event)
@@ -738,8 +759,8 @@ func TestPublicIDEncodingInvariantReturnsHTTP500(t *testing.T) {
 
 func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) {
 	authorization, err := toolpermission.NewAuthorization(
-		"set_integration_target",
-		json.RawMessage(`{"target_ref":"slack-abcd"}`),
+		"set_interaction_handler",
+		json.RawMessage(`{"destination":null}`),
 	)
 	if err != nil {
 		t.Fatalf("build permission authorization: %v", err)
@@ -752,8 +773,8 @@ func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) 
 		t.Fatal("always_ask permission mode missing")
 	}
 	value, err := toolpermission.NewAllowDenyForm(
-		"Permission requested for set_integration_target",
-		[]interactionform.ContextItem{{Label: "Target", Value: "slack-abcd"}},
+		"Permission requested for set_interaction_handler",
+		[]interactionform.ContextItem{{Label: "Destination", Value: "Omnara dashboard"}},
 	)
 	if err != nil {
 		t.Fatalf("build permission interaction form: %v", err)
@@ -808,10 +829,10 @@ func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) 
 	if _, exposed := request["authorization"]; exposed {
 		t.Fatalf("public response exposed internal authorization: %+v", request)
 	}
-	if request["title"] != "Permission requested for set_integration_target" {
+	if request["title"] != "Permission requested for set_interaction_handler" {
 		t.Fatalf("public response lost interaction form title: %+v", request)
 	}
-	if decoded["tool_name"] != "set_integration_target" {
+	if decoded["tool_name"] != "set_interaction_handler" {
 		t.Fatalf("public response lost permission tool name: %+v", decoded)
 	}
 	if toolCallID, ok := decoded["tool_call_id"].(string); !ok || !strings.HasPrefix(toolCallID, "tcl_") {
@@ -1389,7 +1410,7 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 	server := mustNewUnitServer(t)
 	mux := http.NewServeMux()
 	server.registerRoutes(mux)
-	handler := maxBody(requestBodyLimit)(mux)
+	handler := maxBody(requestBodyLimit, uploadBudget)(mux)
 	orgPath := testPublicID(t, publicid.KindOrganization, httpTestOrgID)
 	projectPath := testPublicID(t, publicid.KindProject, httpTestProjectID)
 	agentPath := testPublicID(t, publicid.KindAgent, httpTestAgentID)
@@ -1483,7 +1504,8 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 		{
 			name:   "slack setup route exact match",
 			method: http.MethodPost,
-			path: "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/agent-profiles/" + agentProfilePath +
+			path: "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/integrations/" +
+				strings.Replace(agentProfilePath, "aprf_", "itg_", 1) +
 				"/slack-setup",
 			body: `{}`,
 			want: http.StatusForbidden,
@@ -1497,13 +1519,13 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 		{
 			name:   "integration events provider route exact match",
 			method: http.MethodPost,
-			path:   integrationEventsPath,
+			path:   slackEventsPath,
 			want:   http.StatusBadRequest,
 		},
 		{
 			name:   "integration actions provider route exact match",
 			method: http.MethodPost,
-			path:   integrationActionsPath,
+			path:   slackActionsPath,
 			want:   http.StatusBadRequest,
 		},
 		{
@@ -2090,6 +2112,42 @@ func TestWriteModelOutputDeltaFrameDropsInvalidJSON(t *testing.T) {
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("invalid stream delta was written as SSE: %q", rec.Body.String())
+	}
+}
+
+func TestWriteToolCallUpdateFrameIncludesInteraction(t *testing.T) {
+	for _, interaction := range []*notifications.AgentInteractionUpdate{
+		nil,
+		{ID: httpTestInteractionID, InteractionKind: "permission", State: "open"},
+	} {
+		rec := httptest.NewRecorder()
+		if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
+			AgentID: httpTestAgentID, ToolCallID: httpTestToolCallID, State: "awaiting_permission",
+			InteractionUpdate: interaction,
+		}) {
+			t.Fatal("writeToolCallUpdateFrame returned false")
+		}
+		body := rec.Body.String()
+		if !strings.HasPrefix(body, "event: tool_call_update\ndata: ") || strings.Contains(body, "\nid:") {
+			t.Fatalf("unexpected frame: %q", body)
+		}
+		var payload openapi.ToolCallUpdate
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(body, "event: tool_call_update\ndata: ")), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if interaction == nil {
+			if strings.Contains(body, "interaction_update") {
+				t.Fatalf("absent interaction must be omitted: %q", body)
+			}
+			continue
+		}
+		want := openapi.AgentInteractionUpdate{
+			Id:              testPublicID(t, publicid.KindAgentInteraction, httpTestInteractionID),
+			InteractionKind: openapi.AgentInteractionKindPermission, State: openapi.AgentInteractionStateOpen,
+		}
+		if payload.InteractionUpdate == nil || *payload.InteractionUpdate != want {
+			t.Fatalf("interaction update = %+v, want %+v", payload.InteractionUpdate, want)
+		}
 	}
 }
 

@@ -4,47 +4,80 @@ FROM projects
 WHERE id = $1
   AND deleted_at IS NULL;
 
--- name: UpsertAgentConfigByHash :one
-WITH inserted_config AS (
-INSERT INTO agent_configs(
-    org_id, project_id, configured_model_id, definition, source, source_format, source_hash,
-    compiled_definition, compiler_version, effective_definition_hash,
-    created_at
+-- name: UpsertAgentConfigDefinition :one
+WITH inserted_definition AS (
+INSERT INTO agent_config_definitions(
+    org_id, project_id, configured_model_id, compiled_definition,
+    effective_definition_hash, created_at
 )
 VALUES (
     sqlc.arg(org_id), sqlc.arg(project_id),
-    sqlc.arg(configured_model_id),
-    sqlc.arg(compiled_definition), sqlc.narg(source), sqlc.narg(source_format),
-    sqlc.narg(source_hash), sqlc.arg(compiled_definition),
-    sqlc.arg(compiler_version), sqlc.arg(effective_definition_hash),
+    sqlc.arg(configured_model_id), sqlc.arg(compiled_definition),
+    sqlc.arg(effective_definition_hash),
     transaction_timestamp()
 )
-ON CONFLICT (project_id, effective_definition_hash, source_format, source_hash) DO NOTHING
-RETURNING id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, compiler_version, effective_definition_hash,
-          created_at, true AS inserted
+ON CONFLICT (project_id, effective_definition_hash) DO NOTHING
+RETURNING id, org_id, project_id, configured_model_id, compiled_definition,
+          effective_definition_hash, created_at
 )
-SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, compiler_version, effective_definition_hash,
-       created_at, inserted
-FROM inserted_config
+SELECT id, org_id, project_id, configured_model_id, compiled_definition,
+       effective_definition_hash, created_at
+FROM inserted_definition
 UNION ALL
-SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, compiler_version, effective_definition_hash,
-       created_at, false AS inserted
-FROM agent_configs
+SELECT id, org_id, project_id, configured_model_id, compiled_definition,
+       effective_definition_hash, created_at
+FROM agent_config_definitions
 WHERE project_id = sqlc.arg(project_id)
   AND effective_definition_hash = sqlc.arg(effective_definition_hash)::text
-  AND source_format IS NOT DISTINCT FROM sqlc.narg(source_format)::text
-  AND source_hash IS NOT DISTINCT FROM sqlc.narg(source_hash)::text
 LIMIT 1;
 
--- name: GetAgentConfig :one
-SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, compiler_version, effective_definition_hash,
-       created_at
+-- name: GetAgentConfigDefinitionByHash :one
+SELECT id, org_id, project_id, configured_model_id, compiled_definition,
+       effective_definition_hash, created_at
+FROM agent_config_definitions
+WHERE project_id = sqlc.arg(project_id)
+  AND effective_definition_hash = sqlc.arg(effective_definition_hash)::text;
+
+-- name: LockAgentConfigVersionKey :exec
+SELECT pg_advisory_xact_lock(hashtextextended(
+    'agent_config_version:' || sqlc.arg(project_id)::uuid::text
+        || ':' || sqlc.arg(definition_id)::uuid::text
+        || ':' || coalesce(sqlc.narg(source_hash)::text, ''),
+    0
+));
+
+-- name: FindAgentConfigVersion :one
+SELECT id, created_at
 FROM agent_configs
-WHERE project_id = $1 AND id = $2;
+WHERE project_id = sqlc.arg(project_id)
+  AND definition_id = sqlc.arg(definition_id)
+  -- source_hash is never '', so coalesce keeps the NULL-safe match indexable.
+  AND coalesce(source_hash, '') = coalesce(sqlc.narg(source_hash)::text, '')
+  AND source_format IS NOT DISTINCT FROM sqlc.narg(source_format)::text
+  AND source IS NOT DISTINCT FROM sqlc.narg(source)::text
+ORDER BY created_at, id
+LIMIT 1;
+
+-- name: InsertAgentConfigVersion :one
+INSERT INTO agent_configs(
+    org_id, project_id, definition_id, source, source_format, source_hash, created_at
+)
+VALUES (
+    sqlc.arg(org_id), sqlc.arg(project_id), sqlc.arg(definition_id),
+    sqlc.narg(source), sqlc.narg(source_format), sqlc.narg(source_hash),
+    transaction_timestamp()
+)
+RETURNING id, created_at;
+
+-- name: GetAgentConfig :one
+SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
+       config.source, config.source_format, config.source_hash,
+       definition.compiled_definition, definition.effective_definition_hash,
+       config.created_at
+FROM agent_configs config
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id
+WHERE config.project_id = sqlc.arg(project_id) AND config.id = sqlc.arg(id);
 
 -- name: CaptureAgentConfigForModelContext :one
 WITH existing_agent AS MATERIALIZED (
@@ -76,15 +109,17 @@ config_change AS MATERIALIZED (
   ORDER BY event.sequence DESC
   LIMIT 1
 )
-SELECT config.id, config.org_id, config.project_id, config.configured_model_id,
+SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
        config.source, config.source_format, config.source_hash,
-       config.compiled_definition,
-       config.compiler_version, config.effective_definition_hash,
+       definition.compiled_definition,
+       definition.effective_definition_hash,
        config.created_at,
        watermark.input_event_sequence
 FROM existing_agent
 JOIN agent_configs config ON config.project_id = existing_agent.project_id
   AND config.id = existing_agent.current_config_id
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id
 JOIN watermark ON true
 JOIN config_change ON config_change.agent_config_id = existing_agent.current_config_id;
 
@@ -110,26 +145,18 @@ config_change AS MATERIALIZED (
   ORDER BY event.sequence DESC
   LIMIT 1
 )
-SELECT config.id, config.org_id, config.project_id, config.configured_model_id,
+SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
        config.source, config.source_format, config.source_hash,
-       config.compiled_definition,
-       config.compiler_version, config.effective_definition_hash,
+       definition.compiled_definition,
+       definition.effective_definition_hash,
        config.created_at,
        sqlc.arg(input_event_sequence)::bigint AS input_event_sequence
 FROM existing_agent
 JOIN config_change ON true
 JOIN agent_configs config ON config.project_id = existing_agent.project_id
-  AND config.id = config_change.agent_config_id;
-
--- name: GetAgentConfigByHash :one
-SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, compiler_version, effective_definition_hash,
-       created_at
-FROM agent_configs
-WHERE project_id = sqlc.arg(project_id)
-  AND effective_definition_hash = sqlc.arg(effective_definition_hash)::text
-  AND source_format IS NOT DISTINCT FROM sqlc.narg(source_format)::text
-  AND source_hash IS NOT DISTINCT FROM sqlc.narg(source_hash)::text;
+  AND config.id = config_change.agent_config_id
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id;
 
 -- name: InsertAgentProfile :one
 WITH seed AS (
@@ -170,13 +197,6 @@ JOIN inserted_version version
  AND version.profile_id = profile.id
  AND version.id = profile.current_version_id;
 
--- name: UpdateAgentCurrentConfig :execrows
-UPDATE agents
-SET current_config_id = sqlc.arg(agent_config_id),
-    updated_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id)
-  AND id = sqlc.arg(agent_id);
-
 -- name: GetAgentProfile :one
 SELECT profile.id, project.org_id, profile.project_id, profile.name,
        version.agent_config_id AS current_config_id,
@@ -191,6 +211,18 @@ JOIN agent_profile_versions version
  AND version.deleted_at IS NULL
 WHERE profile.project_id = $1 AND profile.id = $2 AND profile.deleted_at IS NULL;
 
+-- name: GetAgentProfileName :one
+-- @sqlc-vet-disable agent-profiles-deleted-at
+SELECT name
+FROM agent_profiles
+WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
+
+-- name: GetAgentProfileDisplayNames :many
+SELECT id, name
+FROM agent_profiles
+WHERE project_id = sqlc.arg(project_id)
+  AND id = ANY(sqlc.arg(profile_ids)::uuid[]) AND deleted_at IS NULL;
+
 -- name: GetAgentProfileIDByName :one
 SELECT profile.id
 FROM agent_profiles profile
@@ -198,7 +230,7 @@ WHERE profile.project_id = sqlc.arg(project_id)
   AND profile.name = sqlc.arg(name)::text
   AND profile.deleted_at IS NULL;
 
--- name: ListAgentProfilesForProject :many
+-- name: ListAgentProfilesForProjects :many
 WITH listed AS (
 SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        version.agent_config_id AS current_config_id,
@@ -207,12 +239,11 @@ SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        profile.created_at, profile.updated_at,
        config.id AS config_id, config.org_id AS config_org_id,
        config.project_id AS config_project_id,
-       config.configured_model_id AS config_configured_model_id,
+       definition.configured_model_id AS config_configured_model_id,
        config.source AS config_source, config.source_format AS config_source_format,
        config.source_hash AS config_source_hash,
-       config.compiled_definition AS config_compiled_definition,
-       config.compiler_version AS config_compiler_version,
-       config.effective_definition_hash AS config_effective_definition_hash,
+       definition.compiled_definition AS config_compiled_definition,
+       definition.effective_definition_hash AS config_effective_definition_hash,
        config.created_at AS config_created_at,
        CASE sqlc.arg(sort_field)::text
          WHEN 'name' THEN lower(profile.name)
@@ -233,11 +264,13 @@ JOIN agent_profile_versions version
  AND version.deleted_at IS NULL
 JOIN agent_configs config ON config.project_id = profile.project_id
   AND config.id = version.agent_config_id
-JOIN configured_models model ON model.org_id = config.org_id
-  AND model.id = config.configured_model_id
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id
+JOIN configured_models model ON model.org_id = definition.org_id
+  AND model.id = definition.configured_model_id
 JOIN model_provider_configs provider ON provider.org_id = model.org_id
   AND provider.id = model.model_provider_config_id
-WHERE profile.project_id = sqlc.arg(project_id)
+WHERE profile.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND profile.deleted_at IS NULL
   AND (sqlc.arg(name_pattern)::text = '' OR profile.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
   AND (sqlc.narg(model_provider_config_id)::uuid IS NULL OR provider.id = sqlc.narg(model_provider_config_id)::uuid)
@@ -249,7 +282,7 @@ SELECT id, org_id, project_id, name, current_config_id, current_generation,
        idempotency_key, created_at, updated_at, config_id, config_org_id,
        config_project_id, config_configured_model_id, config_source,
        config_source_format, config_source_hash, config_compiled_definition,
-       config_compiler_version, config_effective_definition_hash,
+       config_effective_definition_hash,
        config_created_at, sort_key, sort_is_null
 FROM listed
 WHERE sqlc.arg(cursor_set)::boolean = false
@@ -269,12 +302,11 @@ SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        profile.created_at, profile.updated_at,
        config.id AS config_id, config.org_id AS config_org_id,
        config.project_id AS config_project_id,
-       config.configured_model_id AS config_configured_model_id,
+       definition.configured_model_id AS config_configured_model_id,
        config.source AS config_source, config.source_format AS config_source_format,
        config.source_hash AS config_source_hash,
-       config.compiled_definition AS config_compiled_definition,
-       config.compiler_version AS config_compiler_version,
-       config.effective_definition_hash AS config_effective_definition_hash,
+       definition.compiled_definition AS config_compiled_definition,
+       definition.effective_definition_hash AS config_effective_definition_hash,
        config.created_at AS config_created_at
 FROM agent_profiles profile
 JOIN projects project ON project.id = profile.project_id
@@ -285,10 +317,26 @@ JOIN agent_profile_versions version
  AND version.deleted_at IS NULL
 JOIN agent_configs config ON config.project_id = profile.project_id
   AND config.id = version.agent_config_id
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id
 WHERE profile.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND profile.deleted_at IS NULL
 ORDER BY profile.updated_at DESC, profile.id DESC
 LIMIT sqlc.arg(row_limit)::bigint;
+
+-- name: ListAgentProfilesWithAgentCounts :many
+SELECT profile.id,
+       profile.name,
+       count(agent.id)::bigint AS agent_count
+FROM agent_profiles profile
+LEFT JOIN agents agent ON agent.project_id = profile.project_id
+  AND agent.agent_profile_id = profile.id
+  AND agent.parent_agent_id IS NULL
+WHERE profile.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+  AND profile.id = ANY(sqlc.arg(profile_ids)::uuid[])
+  AND profile.deleted_at IS NULL
+GROUP BY profile.id, profile.name
+ORDER BY profile.id;
 
 -- name: LockAgentProfile :one
 SELECT profile.id
@@ -297,6 +345,14 @@ WHERE profile.project_id = sqlc.arg(project_id)
   AND profile.id = sqlc.arg(profile_id)
   AND profile.deleted_at IS NULL
 FOR UPDATE;
+
+-- name: LockAgentProfileForLaunch :one
+SELECT profile.id
+FROM agent_profiles profile
+WHERE profile.project_id = sqlc.arg(project_id)
+  AND profile.id = sqlc.arg(profile_id)
+  AND profile.deleted_at IS NULL
+FOR KEY SHARE;
 
 -- name: GetAgentProfileByIdempotencyKey :one
 SELECT profile.id, project.org_id, profile.project_id, profile.name,
@@ -407,15 +463,6 @@ WHERE project_id = sqlc.arg(project_id)
   AND profile_id = sqlc.arg(profile_id)
   AND deleted_at IS NULL;
 
--- name: AgentProfileHasIntegrationInstall :one
-SELECT EXISTS (
-  SELECT 1 FROM integration_installs
-  WHERE project_id = sqlc.arg(project_id)
-    AND agent_profile_id = sqlc.arg(profile_id)
-    AND state = 'active'
-    AND deleted_at IS NULL
-) AS has_integration_install;
-
 -- name: AgentProfileVersionExistsForConfig :one
 -- @sqlc-vet-disable agent-profile-versions-deleted-at
 -- Config lineage check spans soft-deleted profile versions.
@@ -426,3 +473,31 @@ WHERE project_id = sqlc.arg(project_id)
   AND profile_id = sqlc.arg(profile_id)
   AND agent_config_id = sqlc.arg(agent_config_id)
 );
+
+-- name: ListProjectLastActivity :many
+-- When each project last had an active top-level agent or a live profile updated,
+-- matching what the overview's recent agents and profiles count as activity.
+SELECT activity.project_id, max(activity.active_at)::timestamptz AS last_active_at
+FROM (
+  SELECT agent.project_id, agent.updated_at AS active_at
+  FROM agents agent
+  WHERE agent.project_id = ANY(sqlc.arg(agent_project_ids)::uuid[])
+    AND agent.state = 'active'
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT profile.project_id, profile.updated_at AS active_at
+  FROM agent_profiles profile
+  WHERE profile.project_id = ANY(sqlc.arg(profile_project_ids)::uuid[])
+    AND profile.deleted_at IS NULL
+) activity
+GROUP BY activity.project_id;
+
+-- name: CountActiveAgentsByProfile :many
+-- Unarchived top-level agents launched from each profile, for a page of profiles at once.
+SELECT agent.agent_profile_id::uuid AS agent_profile_id, count(*)::bigint AS agent_count
+FROM agents agent
+WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+  AND agent.agent_profile_id = ANY(sqlc.arg(agent_profile_ids)::uuid[])
+  AND agent.parent_agent_id IS NULL
+  AND agent.state = 'active'
+GROUP BY agent.agent_profile_id;

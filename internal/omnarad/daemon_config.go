@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -33,23 +34,25 @@ const (
 )
 
 type daemonConfig struct {
-	SchemaVersion  int    `json:"schema_version"`
-	APIURL         string `json:"api_url"`
-	InstallationID string `json:"installation_id"`
-	MachineID      string `json:"machine_id"`
-	MachineToken   string `json:"machine_token"`
-	NoUpdate       bool   `json:"no_update"`
-	RunnerPath     string `json:"runner_path"`
+	GitCredentialsDisabled bool   `json:"git_credentials_disabled,omitempty"`
+	SchemaVersion          int    `json:"schema_version"`
+	APIURL                 string `json:"api_url"`
+	InstallationID         string `json:"installation_id"`
+	MachineID              string `json:"machine_id"`
+	MachineToken           string `json:"machine_token"`
+	NoUpdate               bool   `json:"no_update"`
+	RunnerPath             string `json:"runner_path"`
 }
 
 type daemonConfigDocument struct {
-	SchemaVersion  *int    `json:"schema_version"`
-	APIURL         *string `json:"api_url"`
-	InstallationID *string `json:"installation_id"`
-	MachineID      *string `json:"machine_id"`
-	MachineToken   *string `json:"machine_token"`
-	NoUpdate       *bool   `json:"no_update"`
-	RunnerPath     *string `json:"runner_path"`
+	GitCredentialsDisabled bool    `json:"git_credentials_disabled,omitempty"`
+	SchemaVersion          *int    `json:"schema_version"`
+	APIURL                 *string `json:"api_url"`
+	InstallationID         *string `json:"installation_id"`
+	MachineID              *string `json:"machine_id"`
+	MachineToken           *string `json:"machine_token"`
+	NoUpdate               *bool   `json:"no_update"`
+	RunnerPath             *string `json:"runner_path"`
 }
 
 func writeDaemonConfig(
@@ -159,6 +162,16 @@ func applyDaemonEnvironment(config *daemonConfig) (bool, error) {
 			return false, errors.New("OMNARA_NO_UPDATE must be 0 or 1")
 		}
 	}
+	if value, ok := os.LookupEnv("OMNARA_GIT_CREDENTIALS"); ok {
+		switch value {
+		case "0":
+			config.GitCredentialsDisabled = true
+		case "1":
+			config.GitCredentialsDisabled = false
+		default:
+			return false, errors.New("OMNARA_GIT_CREDENTIALS must be 0 or 1")
+		}
+	}
 	if value := os.Getenv("OMNARA_RUNNER_PATH"); value != "" {
 		config.RunnerPath = value
 	}
@@ -170,7 +183,8 @@ func validateDaemonBinding(
 	config machinedaemon.Config,
 	log *slog.Logger,
 ) (machinedaemon.BootstrapIdentity, error) {
-	client := machinedaemon.New(config, nil, log)
+	httpClient := &http.Client{Timeout: 30 * time.Second, Transport: machinedaemon.NewRetryAfterTransport(nil)}
+	client := machinedaemon.New(config, httpClient, log)
 	identity, err := client.ValidateBootstrap(ctx)
 	if err != nil {
 		if machinedaemon.IsAuthenticationRejected(err) {
@@ -226,13 +240,14 @@ func loadDaemonConfig(home string) (*daemonConfig, error) {
 		return nil, fmt.Errorf("daemon config binding: %w", err)
 	}
 	return &daemonConfig{
-		SchemaVersion:  *document.SchemaVersion,
-		APIURL:         apiURL,
-		InstallationID: *document.InstallationID,
-		MachineID:      *document.MachineID,
-		MachineToken:   *document.MachineToken,
-		NoUpdate:       *document.NoUpdate,
-		RunnerPath:     *document.RunnerPath,
+		GitCredentialsDisabled: document.GitCredentialsDisabled,
+		SchemaVersion:          *document.SchemaVersion,
+		APIURL:                 apiURL,
+		InstallationID:         *document.InstallationID,
+		MachineID:              *document.MachineID,
+		MachineToken:           *document.MachineToken,
+		NoUpdate:               *document.NoUpdate,
+		RunnerPath:             *document.RunnerPath,
 	}, nil
 }
 
@@ -370,6 +385,7 @@ func loadRuntimeConfig(applyEnvironment bool) (machinedaemon.Config, bool, bool,
 		}
 	}
 	runtimeConfig := machinedaemon.Config{
+		GitCredentialsDisabled: config.GitCredentialsDisabled,
 		APIURL:                 config.APIURL,
 		MachineToken:           config.MachineToken,
 		DaemonVersion:          version,

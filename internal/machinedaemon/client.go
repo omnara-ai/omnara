@@ -85,6 +85,16 @@ func (c *Client) Run(ctx context.Context) error {
 		_ = c.closeState()
 	}()
 
+	if !c.cfg.GitCredentialsDisabled {
+		stopGitCredentials, err := c.startGitCredentialServer(ctx)
+		c.gitCredentialsUnavailable = err != nil
+		if err != nil {
+			c.log.Error("Git credential service unavailable", "error", err)
+		} else {
+			defer stopGitCredentials()
+		}
+	}
+
 	consecutiveDisconnects := 0
 	for {
 		runtime, startup, err := c.registerWithRetry(ctx)
@@ -153,6 +163,8 @@ func (c *Client) Run(ctx context.Context) error {
 			runtime.ID,
 			"retry_after",
 			retryDelay,
+			"error",
+			err,
 		)
 		if err := sleepContext(ctx, retryDelay); err != nil {
 			return err

@@ -3,8 +3,8 @@ package logent
 import (
 	"context"
 
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func Org(ctx context.Context, r identitystore.OrgRecord) {

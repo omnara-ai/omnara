@@ -13,8 +13,20 @@ export default defineConfig({
       responses: true,
       definitions: true,
       $resolvers: {
+        // The generator ignores additionalProperties: true when an object also
+        // declares properties, so z.object would strip the extra keys.
+        object: (ctx) => {
+          const hasProperties = Object.keys(ctx.schema.properties ?? {}).length > 0
+          const additional = ctx.schema.additionalProperties
+          if (!hasProperties || additional === false || additional?.type !== 'unknown') return
+          return ctx.$(ctx.plugin.imports.z).attr('looseObject').call(ctx.nodes.shape(ctx))
+        },
         string: (ctx) => {
-          if (ctx.schema['x-omnara-unicode-normalization'] !== 'NFC') return
+          if (ctx.schema.format === 'binary') {
+            return ctx.chain.current.attr('instanceof').call('Blob')
+          }
+          const normalize = ctx.schema['x-omnara-unicode-normalization'] === 'NFC'
+          if (!normalize && ctx.schema['x-omnara-unicode-length'] !== true) return
 
           ctx.chain.current = ctx.nodes.base(ctx)
           const minLength = ctx.nodes.minLength(ctx)
@@ -41,10 +53,11 @@ export default defineConfig({
                 '<=',
                 ctx.$.literal(ctx.schema.maxLength),
               ),
-              `Resource name cannot exceed ${ctx.schema.maxLength} Unicode characters`,
+              `${normalize ? 'Resource name' : 'String'} cannot exceed ${ctx.schema.maxLength} Unicode characters`,
             )
           }
           enforceMaxCodePoints()
+          if (!normalize) return ctx.chain.current
           ctx.chain.current = ctx.chain.current.attr('transform').call(
             ctx.$.func()
               .param('value')

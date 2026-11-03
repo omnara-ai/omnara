@@ -429,9 +429,9 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 	qtx := dbsqlc.New(bindingTx)
 	literal := "binding"
 	sources := []executionstore.IntegrationLaunchMachineSource{{
-		Index:     0,
-		MachineID: machine.ID,
+		Index: 0,
 		Contract: agentconfig.RuntimeMachine{
+			MachineID:  machine.ID,
 			EnvOverlay: map[string]*string{"TOKEN": &literal},
 		},
 	}}
@@ -460,7 +460,7 @@ func TestUpdateMachineRejectsBindingEnvironmentConflict(t *testing.T) {
 	); err != nil {
 		t.Fatalf("bind machine: %v", err)
 	}
-	secretEnv := json.RawMessage(`{"token":"` + secretPublicIDForTest(t, secretID) + `"}`)
+	secretEnv := json.RawMessage(`{"token":"` + secretID.String() + `"}`)
 	updateDone := make(chan error, 1)
 	go func() {
 		_, updateErr := store.Execution().UpdateMachine(ctx, executionstore.UpdateMachineInput{

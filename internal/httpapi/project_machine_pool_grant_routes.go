@@ -53,7 +53,7 @@ func (s strictOpenAPIServer) createProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	defaultMachineSecretEnvOverlay, err := rawJSONFromPointer(request.Body.DefaultMachineSecretEnvOverlay)
+	defaultMachineSecretEnvOverlay, err := secretIDsFromPointer(request.Body.DefaultMachineSecretEnvOverlay)
 	if err != nil {
 		return nil, err
 	}
@@ -125,19 +125,32 @@ func (s strictOpenAPIServer) listProjectMachinePoolGrants(
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
+	var poolID uuid.UUID
+	if request.Params.MachinePoolId != nil {
+		parsed, ok := parseOpenAPIPublicID(publicid.KindMachinePool, *request.Params.MachinePoolId)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid machine_pool_id")
+		}
+		poolID = parsed
+	}
+	extra := struct {
+		MachinePoolID uuid.UUID `json:",omitzero"`
+	}{poolID}
 	scopeKey := org.ID.String() + "/" + project.ID.String()
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: request.Params.Name, Sort: optionalString(request.Params.Sort),
 		Cursor: request.Params.Cursor, ListKind: "project_machine_pool_grants",
 		Scope: scopeKey, IDKind: publicid.KindProjectMachinePoolGrant,
-		AllowedSorts: defaultResourceSorts,
+		AllowedSorts: defaultResourceSorts, Extra: extra,
 	})
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	page, err := s.server.store.Execution().ListProjectMachinePoolGrants(
 		ctx,
-		executionstore.ListProjectMachinePoolGrantsInput{OrgID: org.ID, ProjectID: project.ID, Limit: limit, List: list},
+		executionstore.ListProjectMachinePoolGrantsInput{
+			OrgID: org.ID, ProjectID: project.ID, MachinePoolID: poolID, Limit: limit, List: list,
+		},
 	)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
@@ -156,7 +169,7 @@ func (s strictOpenAPIServer) listProjectMachinePoolGrants(
 	}
 	nextCursor, err := encodeResourceListNextCursor(
 		page.HasMore, page.Next, list, "project_machine_pool_grants",
-		scopeKey, publicid.KindProjectMachinePoolGrant, nil,
+		scopeKey, publicid.KindProjectMachinePoolGrant, extra,
 	)
 	if err != nil {
 		return nil, err
@@ -241,7 +254,7 @@ func (s strictOpenAPIServer) UpdateProjectMachinePoolGrant(
 	if err != nil {
 		return nil, err
 	}
-	defaultMachineSecretEnvOverlay, err := rawJSONFromPointer(request.Body.DefaultMachineSecretEnvOverlay)
+	defaultMachineSecretEnvOverlay, err := secretIDsFromPointer(request.Body.DefaultMachineSecretEnvOverlay)
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +371,7 @@ func projectMachinePoolGrantResponse(
 		return openapi.ProjectMachinePoolGrant{}, err
 	}
 	var defaultMachineSecretEnvOverlay map[string]*string
-	if err := json.Unmarshal(record.DefaultMachineSecretEnvOverlay, &defaultMachineSecretEnvOverlay); err != nil {
+	if err := publicSecretIDs(record.DefaultMachineSecretEnvOverlay, &defaultMachineSecretEnvOverlay); err != nil {
 		return openapi.ProjectMachinePoolGrant{}, err
 	}
 	defaultMachineProviderOptionsOverlay, err := jsonMapOrFallback(

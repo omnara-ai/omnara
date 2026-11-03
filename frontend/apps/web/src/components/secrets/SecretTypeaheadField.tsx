@@ -5,6 +5,7 @@ import {
   useSecrets,
 } from '@omnara/react'
 import type { Secret, SecretKind } from '@omnara/sdk'
+import { type ReactNode, useId } from 'react'
 
 import { PlusIcon } from '@/components/icons'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
@@ -56,6 +57,7 @@ function selectedSecret(
 }
 
 export function SecretSelect({
+  inputId,
   orgId,
   projectId,
   enabled,
@@ -67,6 +69,7 @@ export function SecretSelect({
   emptyDescription,
   kind = 'generic',
 }: {
+  inputId?: string
   orgId: string
   /** When set, offers project-available secrets instead of org-owned ones. */
   projectId?: string
@@ -117,6 +120,7 @@ export function SecretSelect({
   return (
     <>
       <SecretCombobox
+        id={inputId}
         items={secrets}
         value={selected}
         onValueChange={(secret) => {
@@ -129,7 +133,7 @@ export function SecretSelect({
           onCreateSecret && (
             <button
               type="button"
-              className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm outline-none"
+              className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pr-8 pl-2 text-sm outline-none"
               onClick={onCreateSecret}
             >
               <PlusIcon className="size-4" />
@@ -154,6 +158,7 @@ export function SecretTypeaheadField({
   onCreateSecret,
   knownSecret,
   kind = 'generic',
+  status,
 }: {
   orgId: string
   enabled: boolean
@@ -165,11 +170,14 @@ export function SecretTypeaheadField({
   onCreateSecret?: () => void
   knownSecret?: Secret
   kind?: SecretKind
+  status?: ReactNode
 }) {
+  const inputId = useId()
   return (
     <Field>
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
       <SecretSelect
+        inputId={inputId}
         orgId={orgId}
         enabled={enabled}
         value={value}
@@ -180,6 +188,7 @@ export function SecretTypeaheadField({
         emptyDescription={emptyDescription}
         kind={kind}
       />
+      {status}
     </Field>
   )
 }

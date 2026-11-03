@@ -40,8 +40,7 @@ WHERE project_id = sqlc.arg(project_id)
 -- name: GetToolCallAgentConfigID :one
 SELECT context.agent_config_id
 FROM tool_call_read_projection tool_call
-JOIN model_call_contexts context ON context.project_id = tool_call.project_id
-  AND context.agent_id = tool_call.agent_id
+JOIN model_call_contexts context ON context.agent_id = tool_call.agent_id
   AND context.id = tool_call.model_call_context_id
 WHERE tool_call.project_id = sqlc.arg(project_id)
   AND tool_call.agent_id = sqlc.arg(agent_id)
@@ -112,6 +111,7 @@ SELECT binding.id,
        coalesce(machine.idempotency_key, '') AS machine_idempotency_key,
        coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code,
        machine.lifecycle_reason_message,
+       coalesce(machine.delete_reason_code, '') AS delete_reason_code,
        machine.next_reconcile_after,
        machine.provision_attempts,
        machine.delete_attempts,
@@ -178,20 +178,10 @@ SELECT pg_advisory_xact_lock(
   hashtextextended('agent_machine_sources:' || sqlc.arg(agent_id)::uuid::text, 0)
 );
 
--- name: LockAttachedAgentPoolMachines :exec
-SELECT machine.id
-FROM machines machine
-JOIN agent_machine_bindings binding ON binding.org_id = machine.org_id
-  AND binding.machine_id = machine.id
-WHERE binding.project_id = sqlc.arg(project_id)
-  AND binding.agent_id = sqlc.arg(agent_id)
-  AND binding.binding_kind = 'pool'
-  AND binding.state = 'attached'
-  AND machine.source_kind = 'pool'
-  AND machine.deleted_at IS NULL
-  AND machine.lifecycle_state NOT IN ('deleting', 'delete_failed', 'deleted')
-ORDER BY machine.id
-FOR UPDATE OF machine;
+-- name: LockAgentMachineSourcesForLaunch :exec
+SELECT pg_advisory_xact_lock_shared(
+  hashtextextended('agent_machine_sources:' || sqlc.arg(agent_id)::uuid::text, 0)
+);
 
 -- name: ListAttachedAgentPoolMachineIDsForLifecycle :many
 SELECT machine.id
@@ -290,6 +280,8 @@ SELECT binding.machine_id,
        binding.created_at,
        binding.updated_at,
        machine.source_kind,
+       machine.cpu,
+       machine.memory_mb,
        machine.display_name,
        machine.lifecycle_state,
        machine.failure_report,
@@ -297,6 +289,7 @@ SELECT binding.machine_id,
        coalesce(current_runtime.state_reason_code, '') AS connection_state_reason,
        coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code,
        machine.lifecycle_reason_message,
+       machine.machine_pool_id,
        coalesce(pool.name, '') AS machine_pool_name,
        (binding.state = 'attached' AND pmgrant.id IS NULL)::boolean AS project_grant_missing,
        coalesce((

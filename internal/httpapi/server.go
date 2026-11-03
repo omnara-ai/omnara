@@ -15,12 +15,13 @@ import (
 	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/authn"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
-	"github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
-	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
@@ -31,17 +32,22 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 type Server struct {
+	githubClientConfig                  github.Config
+	gitCredentialClients                *github.InstallationClientCache
+	discordClientConfig                 discord.Config
 	log                                 *slog.Logger
 	store                               *storage.Store
-	integrations                        *integration.Service
 	skills                              *skillstore.Store
 	authLimiter                         httpauth.RateLimiter
+	apiRateLimit                        *apiRateLimit
 	authOAuthStates                     httpauth.OAuthStateStore
 	trustedProxyNets                    []*net.IPNet
 	email                               httpauth.EmailSender
+	authClientRateLimits                authn.ClientRateLimits
 	authSignupEnabled                   bool
 	authResetEnabled                    bool
 	authRoutes                          *httpauth.Handler
@@ -56,8 +62,8 @@ type Server struct {
 	agentEventStreamReconciler          *agentEventStreamReconciler
 	daemonHub                           *daemonSocketHub
 	recorder                            *metrics.HTTPRecorder
+	integrationInboxIntake              *metrics.IntegrationInboxIntakeRecorder
 	daemonRecorder                      *metrics.DaemonRecorder
-	requestLog                          middleware
 	agentConfigOptions                  agentconfig.CompileOptions
 	allowInsecureModelProviderEndpoints bool
 	modelDiscoverer                     modelprovider.DiscoverFunc
@@ -70,6 +76,7 @@ type Server struct {
 	mcpOAuthHTTPClient                  *http.Client
 	mcpClient                           mcp.Client
 	sigV4CredentialCache                *sigv4.CredentialCache
+	integrationHTTPClient               *http.Client
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
@@ -81,21 +88,13 @@ type Server struct {
 	apiDispatch                         atomic.Pointer[http.Handler]
 	webAssets                           fs.FS
 	closeOnce                           sync.Once
-
-	machinePoolManager *machinepool.Manager
-
-	daemonRuntimeLeaseDuration        time.Duration
-	daemonSocketFallbackDrainInterval time.Duration
-	daemonSocketFallbackDrainJitter   time.Duration
-	agentEventReconciliationInterval  time.Duration
-	skillDownloadSigningKey           []byte
-	timer                             clock.Clock
-}
-
-func WithTimer(timer clock.Clock) Option {
-	return func(s *Server) {
-		s.timer = timer
-	}
+	machinePoolManager                  *machinepool.Manager
+	daemonRuntimeLeaseDuration          time.Duration
+	daemonSocketFallbackDrainInterval   time.Duration
+	daemonSocketFallbackDrainJitter     time.Duration
+	agentEventReconciliationInterval    time.Duration
+	skillDownloadSigningKey             []byte
+	timer                               clock.Clock
 }
 
 type daemonNotificationConfig struct {
@@ -122,6 +121,12 @@ func WithPasswordAuthEnabled(signupEnabled, resetEnabled bool) Option {
 	return func(s *Server) {
 		s.authSignupEnabled = signupEnabled
 		s.authResetEnabled = resetEnabled
+	}
+}
+
+func WithAuthClientRateLimits(limits authn.ClientRateLimits) Option {
+	return func(s *Server) {
+		s.authClientRateLimits = limits
 	}
 }
 
@@ -222,6 +227,12 @@ func WithSlackOAuth(config SlackOAuthConfig) Option {
 	}
 }
 
+func WithIntegrationHTTPClient(client *http.Client) Option {
+	return func(s *Server) {
+		s.integrationHTTPClient = client
+	}
+}
+
 func WithAuthHTTPClient(client *http.Client) Option {
 	return func(s *Server) {
 		s.authHTTPClient = client
@@ -244,6 +255,10 @@ func WithHTTPRecorder(recorder *metrics.HTTPRecorder) Option {
 	return func(s *Server) {
 		s.recorder = recorder
 	}
+}
+
+func WithIntegrationInboxIntakeRecorder(recorder *metrics.IntegrationInboxIntakeRecorder) Option {
+	return func(s *Server) { s.integrationInboxIntake = recorder }
 }
 
 func WithDaemonRecorder(recorder *metrics.DaemonRecorder) Option {
@@ -358,7 +373,6 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	server := &Server{
 		log:                               log,
 		store:                             store,
-		requestLog:                        requestLog(log),
 		authSignupEnabled:                 true,
 		authResetEnabled:                  true,
 		daemonRuntimeLeaseDuration:        executionstore.DaemonRuntimeLeaseDuration,
@@ -372,7 +386,6 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	var compromiseRevoker httpauth.CompromiseRevoker
 	if store != nil {
 		server.skills = store.Skills()
-		server.integrations = integration.New(store.Execution(), store.Integrations())
 		authStore = store.Identity()
 		compromiseRevoker = store.AccountSecurity()
 	}
@@ -393,6 +406,16 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	for _, opt := range opts {
 		opt(server)
 	}
+	gitHTTPClient := server.githubClientConfig.HTTPClient
+	if gitHTTPClient == nil {
+		gitHTTPClient = server.integrationHTTPClient
+	}
+	server.gitCredentialClients, err = github.NewInstallationClientCache(github.InstallationClientCacheConfig{
+		Capacity: 128, HTTPClient: gitHTTPClient, APIURL: server.githubClientConfig.APIURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create Git credentials client cache: %w", err)
+	}
 	publicOrigin, err := parseConfiguredOrigin(server.publicURL)
 	if err != nil {
 		return nil, err
@@ -411,6 +434,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		Log:                      log,
 		Store:                    authStore,
 		CompromiseRevoker:        compromiseRevoker,
+		ClientRateLimits:         server.authClientRateLimits,
 		Limiter:                  server.authLimiter,
 		OAuthStates:              server.authOAuthStates,
 		Email:                    server.email,
@@ -424,13 +448,19 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		ClientMetadataHTTPClient: server.oauthClientMetadataHTTPClient,
 	})
 	if server.agentEventWakeupSubscriber == nil {
-		return nil, fmt.Errorf("agent event wakeup subscriber is required; wire via WithAgentEventWakeupSubscriber")
+		return nil, fmt.Errorf(
+			"agent event wakeup subscriber is required; wire via WithAgentEventWakeupSubscriber",
+		)
 	}
 	if server.agentToolCallUpdateSubscriber == nil {
-		return nil, fmt.Errorf("agent tool call update subscriber is required; wire via WithAgentToolCallUpdateSubscriber")
+		return nil, fmt.Errorf(
+			"agent tool call update subscriber is required; wire via WithAgentToolCallUpdateSubscriber",
+		)
 	}
 	if server.agentStreamDeltaSubscriber == nil {
-		return nil, fmt.Errorf("agent stream delta subscriber is required; wire via WithAgentStreamDeltaSubscriber")
+		return nil, fmt.Errorf(
+			"agent stream delta subscriber is required; wire via WithAgentStreamDeltaSubscriber",
+		)
 	}
 	if store != nil {
 		server.agentEventStreamReconciler = newAgentEventStreamReconciler(
@@ -476,18 +506,15 @@ func (s *Server) Handler() http.Handler {
 	s.registerRoutes(mux)
 	apiDispatch := chain(mux, s.apiDispatchMiddlewares(mux)...)
 	s.apiDispatch.Store(&apiDispatch)
-	middlewares := make([]middleware, 0, 7)
-	if s.recorder != nil {
-		middlewares = append(middlewares, s.recorder.Middleware(mux))
-	}
-	middlewares = append(middlewares,
-		s.requestLog,
-		maxBody(requestBodyLimit),
+	return chain(mux,
+		maxBody(requestBodyLimit, uploadBudget),
+		requestEvents(s.log, s.recorder, mux),
+		rejectCanceledRequests,
 		s.publicHostGuard,
 		s.auth,
+		s.limitAPIRequests,
 		s.openAPIRequestValidator,
 	)
-	return chain(mux, middlewares...)
 }
 
 func (s *Server) Close() {

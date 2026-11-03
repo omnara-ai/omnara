@@ -2,14 +2,22 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/processaction"
+	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+)
+
+var ErrProcessMachineDeleted = storeerr.Tag(
+	storeerr.ErrProcessTerminal,
+	errors.New("process machine was deleted"),
 )
 
 func (t *toolCallTransaction) createProcessAction(
@@ -21,6 +29,11 @@ func (t *toolCallTransaction) createProcessAction(
 	}
 	if !input.ActionKind.Valid() {
 		return ProcessActionRecord{}, fmt.Errorf("unsupported process action kind %q", input.ActionKind)
+	}
+	if input.ActionKind == ProcessActionKindWatch {
+		if _, err := processaction.DecodeWatchPayload(input.Payload); err != nil {
+			return ProcessActionRecord{}, fmt.Errorf("%w: %w", storeerr.ErrInvalidRequest, err)
+		}
 	}
 	projectID := t.input.ProjectID
 	agentID := t.input.AgentID
@@ -37,12 +50,24 @@ func (t *toolCallTransaction) createProcessAction(
 	)
 	if replayErr == nil {
 		record := processActionRecordFromSQLC(replay)
+		requested := input.Payload
+		if record.ActionKind == ProcessActionKindWatch && input.ActionKind == ProcessActionKindWatch {
+			// The stored watch carries the read cursor it defaulted to.
+			if replayed, err := processaction.DecodeWatchPayload(record.Payload); err == nil &&
+				replayed.Cursor != nil {
+				requested, err = defaultWatchCursor(input.Payload, *replayed.Cursor)
+				if err != nil {
+					return ProcessActionRecord{}, err
+				}
+			}
+		}
 		if record.ProcessID != input.ProcessID || record.ActionKind != input.ActionKind ||
-			!sameJSON(record.Payload, input.Payload) ||
+			!sameJSON(record.Payload, requested) ||
 			record.ToolCallID != toolCallID {
 			return ProcessActionRecord{}, storeerr.ErrIdempotencyConflict
 		}
 		t.hasDurableCompletionOwner = true
+		t.owner.ActionID = record.ID
 		if err := t.lockOrAcceptExisting(ctx); err != nil {
 			return ProcessActionRecord{}, err
 		}
@@ -70,6 +95,9 @@ func (t *toolCallTransaction) createProcessAction(
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			if input.ActionKind == ProcessActionKindRead {
+				return ProcessActionRecord{}, ErrProcessMachineDeleted
+			}
 			return ProcessActionRecord{}, t.processActionCreateBlocker(ctx, input)
 		}
 		return ProcessActionRecord{}, fmt.Errorf("lock machine for process action creation: %w", err)
@@ -77,14 +105,15 @@ func (t *toolCallTransaction) createProcessAction(
 	if err := t.lockForMutation(ctx); err != nil {
 		return ProcessActionRecord{}, err
 	}
-	if _, err := t.q.LockProcessForActionCreation(
+	readCursor, err := t.q.LockProcessForActionCreation(
 		ctx,
 		dbsqlc.LockProcessForActionCreationParams{
 			ProjectID: projectID,
 			AgentID:   agentID,
 			ID:        input.ProcessID,
 		},
-	); err != nil {
+	)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ProcessActionRecord{}, storeerr.ErrNotFound
 		}
@@ -92,6 +121,14 @@ func (t *toolCallTransaction) createProcessAction(
 			"lock process for process action creation: %w",
 			err,
 		)
+	}
+	if input.ActionKind == ProcessActionKindWatch {
+		// A watch without an offset starts after the output the agent last read, so
+		// output written between run_command or read_process and the watch is not missed.
+		input.Payload, err = defaultWatchCursor(input.Payload, readCursor)
+		if err != nil {
+			return ProcessActionRecord{}, err
+		}
 	}
 	row, err := t.q.InsertProcessAction(
 		ctx,
@@ -113,9 +150,22 @@ func (t *toolCallTransaction) createProcessAction(
 	}
 	record := processActionRecordFromSQLC(row)
 	t.hasDurableCompletionOwner = true
+	t.owner.ActionID = record.ID
 	t.requiresWaitingDisposition = true
 	t.notifications.AddDaemonWork(processRow.MachineID)
 	return record, nil
+}
+
+func defaultWatchCursor(payload json.RawMessage, cursor int64) (json.RawMessage, error) {
+	watch, err := processaction.DecodeWatchPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", storeerr.ErrInvalidRequest, err)
+	}
+	if watch.Cancels() || watch.Cursor != nil {
+		return payload, nil
+	}
+	watch.Cursor = &cursor
+	return marshalJSON(watch)
 }
 
 func (t *toolCallTransaction) processActionCreateBlocker(
@@ -137,7 +187,7 @@ func (t *toolCallTransaction) processActionCreateBlocker(
 		return fmt.Errorf("diagnose process action create blocker: %w", err)
 	}
 	state := ProcessState(row.State)
-	if isProcessTerminal(state) {
+	if processresult.TerminalState(string(state)) {
 		if input.ActionKind == ProcessActionKindRead && !row.TerminalReadSupported {
 			return storeerr.ErrProcessTerminal
 		}
@@ -166,7 +216,10 @@ func (t *toolCallTransaction) processActionCreateBlocker(
 	return storeerr.ErrRuntimeLockInactive
 }
 
-func (s *Store) ListDaemonProcessOffers(ctx context.Context, input DaemonWorkInput) ([]DaemonProcessOffer, error) {
+func (s *Store) ListDaemonProcessOffers(
+	ctx context.Context,
+	input DaemonWorkInput,
+) ([]DaemonProcessOffer, error) {
 	if err := validateDaemonRuntimeAuthority(input.Authority); err != nil {
 		return nil, err
 	}
@@ -189,7 +242,38 @@ func (s *Store) ListDaemonProcessOffers(ctx context.Context, input DaemonWorkInp
 	}
 	offers := make([]DaemonProcessOffer, 0, len(rows))
 	for _, row := range rows {
-		offer := DaemonProcessOffer{Process: processRecordFromSQLC(row)}
+		offer := DaemonProcessOffer{
+			Process: processRecordFromSQLC(dbsqlc.Process{
+				ID:                    row.ID,
+				OrgID:                 row.OrgID,
+				ProjectID:             row.ProjectID,
+				AgentID:               row.AgentID,
+				ToolCallID:            row.ToolCallID,
+				RuntimeLockID:         row.RuntimeLockID,
+				AgentMachineBindingID: row.AgentMachineBindingID,
+				MachineID:             row.MachineID,
+				ExecutionGrantedAt:    row.ExecutionGrantedAt,
+				ExecutionSpec:         row.ExecutionSpec,
+				Cwd:                   row.Cwd,
+				Env:                   row.Env,
+				SecretEnv:             row.SecretEnv,
+				TimeoutSeconds:        row.TimeoutSeconds,
+				InitialWaitMs:         row.InitialWaitMs,
+				DefaultOutputCursor:   row.DefaultOutputCursor,
+				State:                 row.State,
+				StateReasonCode:       row.StateReasonCode,
+				StateReasonMessage:    row.StateReasonMessage,
+				SourceStartedAt:       row.SourceStartedAt,
+				SourceEndedAt:         row.SourceEndedAt,
+				StateChangedAt:        row.StateChangedAt,
+				ExitCode:              row.ExitCode,
+				ExitSignal:            row.ExitSignal,
+				CreatedAt:             row.CreatedAt,
+				UpdatedAt:             row.UpdatedAt,
+				LastActivityAt:        row.LastActivityAt,
+			}),
+			GitCredentials: row.GitCredentialsIntegrationID != uuid.Nil,
+		}
 		env, err := s.ResolveEnvironmentSecrets(ctx, row.OrgID, row.ProjectID, row.Env, row.SecretEnv)
 		if err != nil {
 			if !errors.Is(err, storeerr.ErrPermanentEnvironment) {
@@ -250,7 +334,10 @@ func (s *Store) AcceptDaemonProcess(
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			if err := tx.Commit(ctx); err != nil {
-				return DaemonProcessOffer{}, false, fmt.Errorf("commit missing process for daemon accept: %w", err)
+				return DaemonProcessOffer{}, false, fmt.Errorf(
+					"commit missing process for daemon accept: %w",
+					err,
+				)
 			}
 			return DaemonProcessOffer{}, false, nil
 		}
@@ -375,7 +462,10 @@ func (s *Store) AcceptDaemonProcessAction(
 			}
 			return DaemonProcessActionGrant{}, false, nil
 		}
-		return DaemonProcessActionGrant{}, false, fmt.Errorf("lock machine for accept daemon process action: %w", err)
+		return DaemonProcessActionGrant{}, false, fmt.Errorf(
+			"lock machine for accept daemon process action: %w",
+			err,
+		)
 	}
 	if _, err := qtx.LockDaemonProcessForAccept(
 		ctx,
@@ -428,7 +518,10 @@ func (s *Store) AcceptDaemonProcessAction(
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := tx.Commit(ctx); err != nil {
-			return DaemonProcessActionGrant{}, false, fmt.Errorf("commit accept daemon process action: %w", err)
+			return DaemonProcessActionGrant{}, false, fmt.Errorf(
+				"commit accept daemon process action: %w",
+				err,
+			)
 		}
 		return DaemonProcessActionGrant{}, false, nil
 	}
@@ -483,7 +576,11 @@ func (s *Store) GetProcessActionByToolCall(
 ) (ProcessActionRecord, bool, error) {
 	row, err := s.q.GetProcessActionByToolCall(
 		ctx,
-		dbsqlc.GetProcessActionByToolCallParams{ProjectID: projectID, AgentID: agentID, ToolCallID: toolCallID},
+		dbsqlc.GetProcessActionByToolCallParams{
+			ProjectID:  projectID,
+			AgentID:    agentID,
+			ToolCallID: toolCallID,
+		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProcessActionRecord{}, false, nil

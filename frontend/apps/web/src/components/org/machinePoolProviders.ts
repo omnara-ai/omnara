@@ -5,13 +5,14 @@ import { providerOptionStrings } from '@/lib/provider-options'
 interface MachinePoolProviderDefinition {
   label: string
   resource: {
+    optional?: boolean
     key: string
     label: string
     placeholder: string
     description?: string
     descriptionHref?: string
   }
-  location: {
+  location?: {
     key: string
     label: string
     placeholder: string
@@ -35,6 +36,8 @@ interface MachinePoolProviderDefinition {
   resources: {
     cpu: MachinePoolResourceMode
     memoryMb: MachinePoolResourceMode
+    defaultCpu?: string
+    defaultMemoryGb?: string
   }
 }
 
@@ -50,6 +53,22 @@ export function machinePoolScopeValue(
   if (provider !== 'modal') return value
   const app = value?.trim()
   return app === undefined || app === '' ? 'omnara' : app
+}
+
+export function machinePoolCoreProviderOptions(
+  provider: MachinePoolProvider,
+  resource: string,
+  location: string,
+) {
+  const definition = machinePoolProviderDefinitions[provider]
+  const options: Record<string, string> = {}
+  if (!definition.resource.optional || resource.trim() !== '') {
+    options[definition.resource.key] = resource.trim()
+  }
+  if (definition.location && (definition.location.required || location.trim() !== '')) {
+    options[definition.location.key] = location.trim()
+  }
+  return options
 }
 
 const unikraft: MachinePoolProviderDefinition = {
@@ -93,6 +112,7 @@ const blaxel: MachinePoolProviderDefinition = {
     label: 'Workspace',
     placeholder: 'Workspace name',
     required: true,
+    description: 'The workspace name in your Blaxel console URL: app.blaxel.ai/{workspace}.',
   },
   resources: { cpu: 'unsupported', memoryMb: 'configured' },
 }
@@ -147,10 +167,169 @@ const modal: MachinePoolProviderDefinition = {
   resources: { cpu: 'configured', memoryMb: 'configured' },
 }
 
-export const machinePoolProviderDefinitions = { unikraft, blaxel, daytona, modal } satisfies Record<
-  MachinePoolProvider,
-  MachinePoolProviderDefinition
->
+const freestyle: MachinePoolProviderDefinition = {
+  label: 'Freestyle',
+  resource: {
+    key: 'snapshot',
+    label: 'Snapshot',
+    placeholder: 'freestyle/ubuntu-sm',
+    description: 'The configured vCPU and memory must be at least the snapshot size.',
+    descriptionHref: 'https://www.freestyle.sh/docs/vms/base-snapshots',
+  },
+  resources: {
+    cpu: 'configured',
+    memoryMb: 'configured',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
+const tenki: MachinePoolProviderDefinition = {
+  label: 'Tenki',
+  resource: {
+    key: 'image',
+    label: 'Image',
+    placeholder: 'Tenki base image',
+    optional: true,
+    description:
+      'Leave empty to use the Tenki base image, or enter a Tenki registry image reference.',
+    descriptionHref: 'https://tenki.cloud/docs/sandbox/templates',
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+}
+
+const arker: MachinePoolProviderDefinition = {
+  label: 'Arker',
+  resource: {
+    key: 'source',
+    label: 'Source VM',
+    placeholder: 'ubuntu-base',
+    description: 'Each machine is a fork of this VM, including its disk and running processes.',
+    descriptionHref: 'https://arker.ai/docs/vms',
+  },
+  location: {
+    key: 'region',
+    label: 'Region',
+    placeholder: 'aws-us-west-2',
+    defaultValue: 'aws-us-west-2',
+    required: true,
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+}
+
+const boxd: MachinePoolProviderDefinition = {
+  label: 'boxd',
+  resource: {
+    key: 'snapshot',
+    label: 'Snapshot',
+    placeholder: 'boxd base image',
+    optional: true,
+    description:
+      "Leave empty to use the boxd base image, or enter a saved snapshot's name. Machines take the snapshot's size, or your boxd org's default size without one.",
+    descriptionHref: 'https://docs.boxd.sh/guides/snapshots',
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '2',
+    defaultMemoryGb: '8',
+  },
+}
+
+const createos: MachinePoolProviderDefinition = {
+  label: 'CreateOS',
+  resource: {
+    key: 'shape',
+    label: 'Shape',
+    placeholder: 's-2vcpu-4gb',
+    description: 'The max vCPU and memory must be at least the shape size.',
+    descriptionHref: 'https://docs.createos.sh/Sandbox/Limits',
+  },
+  location: {
+    key: 'rootfs',
+    label: 'Root filesystem',
+    placeholder: 'devbox:1',
+    defaultValue: 'devbox:1',
+    required: true,
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
+const e2b: MachinePoolProviderDefinition = {
+  label: 'E2B',
+  resource: {
+    key: 'template',
+    label: 'Template',
+    placeholder: 'code-interpreter-v1',
+    description:
+      "An E2B public template such as code-interpreter-v1, or one your team built. Machines take the template's CPU and memory, so the max vCPU and memory must be at least that size.",
+    descriptionHref: 'https://docs.e2b.dev/template/quickstart',
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '8',
+    defaultMemoryGb: '8',
+  },
+}
+
+const superserve: MachinePoolProviderDefinition = {
+  label: 'Superserve',
+  resource: {
+    key: 'template',
+    label: 'Template',
+    placeholder: 'superserve/omnara',
+    optional: true,
+    description:
+      "Leave empty to use superserve/omnara, Superserve's template with Omnara's default development tools, or enter a template name. Machines take the template's vCPU and memory, so the maximums must be at least that size.",
+    descriptionHref: 'https://docs.superserve.ai/templates/overview',
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
+const agent37: MachinePoolProviderDefinition = {
+  label: 'Agent37',
+  resource: {
+    key: 'template',
+    label: 'Template',
+    placeholder: 'agent37-omnara',
+    optional: true,
+    description:
+      "Leave empty to use agent37-omnara, Agent37's template with Omnara's default development tools, or enter a template name. Machines are 2 vCPU with 4 GB, or 4 vCPU with 8, 16, or 32 GB.",
+    descriptionHref: 'https://www.agent37.com/docs/agents-api/templates',
+  },
+  resources: {
+    cpu: 'configured',
+    memoryMb: 'configured',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
+export const machinePoolProviderDefinitions = {
+  unikraft,
+  blaxel,
+  daytona,
+  modal,
+  freestyle,
+  tenki,
+  arker,
+  boxd,
+  createos,
+  e2b,
+  superserve,
+  agent37,
+} satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
   return Object.hasOwn(machinePoolProviderDefinitions, value)

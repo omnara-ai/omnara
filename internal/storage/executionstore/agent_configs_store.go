@@ -1,21 +1,24 @@
 package executionstore
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -42,8 +45,14 @@ func (s *Store) CreateAgentConfig(ctx context.Context, input CreateAgentConfigIn
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return AgentConfigRecord{}, err
 	}
-	record, err := insertAgentConfigTx(ctx, qtx, input)
+	var creations []resourceguard.Creation
+	record, err := insertAgentConfigTx(ctx, qtx, input, func(creation resourceguard.Creation) {
+		creations = append(creations, creation)
+	})
 	if err != nil {
+		return AgentConfigRecord{}, err
+	}
+	if err := resourceguard.CheckCreations(ctx, tx, creations); err != nil {
 		return AgentConfigRecord{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -60,7 +69,6 @@ type CreateAgentConfigInput struct {
 	SourceHash              string
 	ConfiguredModelID       uuid.UUID
 	CompiledDefinition      json.RawMessage
-	CompilerVersion         string
 	EffectiveDefinitionHash string
 }
 
@@ -73,7 +81,6 @@ type AgentConfigRecord struct {
 	SourceHash              string          `json:"source_hash,omitempty"`
 	ConfiguredModelID       uuid.UUID       `json:"configured_model_id"`
 	CompiledDefinition      json.RawMessage `json:"compiled_definition"`
-	CompilerVersion         string          `json:"compiler_version"`
 	EffectiveDefinitionHash string          `json:"effective_definition_hash"`
 	CreatedAt               time.Time       `json:"created_at"`
 	Created                 bool            `json:"-"`
@@ -116,6 +123,21 @@ func (s *Store) CaptureAgentConfigForModelContext(
 			err,
 		)
 	}
+	snapshot, err := captureAgentConfigForModelContextTx(ctx, qtx, projectID, agentID)
+	if err != nil {
+		return AgentConfigSnapshotRecord{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return AgentConfigSnapshotRecord{}, fmt.Errorf("commit capture agent config for model context: %w", err)
+	}
+	return snapshot, nil
+}
+
+func captureAgentConfigForModelContextTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, agentID uuid.UUID,
+) (AgentConfigSnapshotRecord, error) {
 	// The lock and the capture are deliberately separate statements. Under
 	// READ COMMITTED, the second statement gets a fresh snapshot after any
 	// transaction that previously held the agent lock has committed, so the
@@ -131,12 +153,6 @@ func (s *Store) CaptureAgentConfigForModelContext(
 	if err != nil {
 		return AgentConfigSnapshotRecord{}, fmt.Errorf(
 			"capture agent config for model context: %w",
-			err,
-		)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return AgentConfigSnapshotRecord{}, fmt.Errorf(
-			"commit capture agent config for model context: %w",
 			err,
 		)
 	}
@@ -197,6 +213,7 @@ func insertAgentConfigTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input CreateAgentConfigInput,
+	track func(resourceguard.Creation),
 ) (AgentConfigRecord, error) {
 	input = withDefaultAgentConfigCompilation(input)
 	if input.Source != "" {
@@ -206,83 +223,50 @@ func insertAgentConfigTx(
 	} else if input.SourceFormat != "" || input.SourceHash != "" {
 		return AgentConfigRecord{}, storeerr.InvalidRequest(errors.New("source metadata requires source"))
 	}
+	if err := dbsafe.Text(input.Source); err != nil {
+		return AgentConfigRecord{}, storeerr.InvalidRequest(fmt.Errorf("agent config source %w", err))
+	}
+	if err := dbsafe.JSONStrings(input.CompiledDefinition); err != nil {
+		return AgentConfigRecord{}, storeerr.InvalidRequest(fmt.Errorf("agent config definition %w", err))
+	}
 	if input.ConfiguredModelID == uuid.Nil {
 		return AgentConfigRecord{}, errors.New("agent config configured model is required")
+	}
+	if err := validateMemoryStoresTx(ctx, qtx, input.ProjectID, input.CompiledDefinition); err != nil {
+		return AgentConfigRecord{}, err
 	}
 	if err := lockAndValidateAgentConfigModelContractTx(ctx, qtx, input); err != nil {
 		return AgentConfigRecord{}, err
 	}
-	row, err := qtx.UpsertAgentConfigByHash(
-		ctx,
-		dbsqlc.UpsertAgentConfigByHashParams{
-			OrgID:                   input.OrgID,
-			ProjectID:               input.ProjectID,
-			ConfiguredModelID:       input.ConfiguredModelID,
-			Source:                  storeutil.TextFromEmpty(input.Source),
-			SourceFormat:            storeutil.TextFromEmpty(input.SourceFormat),
-			SourceHash:              storeutil.TextFromEmpty(input.SourceHash),
-			CompiledDefinition:      input.CompiledDefinition,
-			CompilerVersion:         input.CompilerVersion,
-			EffectiveDefinitionHash: input.EffectiveDefinitionHash,
-		},
-	)
-	var record AgentConfigRecord
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		// Insert-or-select race: a concurrent transaction inserted the same hash
-		// and committed after our statement snapshot was taken, so ON CONFLICT
-		// DO NOTHING skipped the insert while the select branch could not see
-		// the committed row. Re-select on a fresh snapshot.
-		existing, selectErr := qtx.GetAgentConfigByHash(
-			ctx,
-			dbsqlc.GetAgentConfigByHashParams{
-				ProjectID:               input.ProjectID,
-				EffectiveDefinitionHash: input.EffectiveDefinitionHash,
-				SourceFormat:            storeutil.TextFromEmpty(input.SourceFormat),
-				SourceHash:              storeutil.TextFromEmpty(input.SourceHash),
-			},
-		)
-		if selectErr != nil {
-			return AgentConfigRecord{}, fmt.Errorf(
-				"reload agent config after upsert race: %w",
-				selectErr,
-			)
-		}
-		record = agentConfigRecordFromSQLC(dbsqlc.GetAgentConfigRow(existing))
-		record.Created = false
-	case err != nil:
-		return AgentConfigRecord{}, fmt.Errorf("upsert agent config: %w", err)
-	default:
-		record = agentConfigRecordFromUpsertSQLC(row)
-		record.Created = row.Inserted
+	definition, err := upsertAgentConfigDefinitionTx(ctx, qtx, input)
+	if err != nil {
+		return AgentConfigRecord{}, err
 	}
-	if !sameAgentConfigAuthority(record, input) {
+	if !sameAgentConfigDefinition(definition, input) {
 		return AgentConfigRecord{}, fmt.Errorf(
 			"agent config hash collision or canonicalization mismatch: %w",
 			storeerr.ErrIdempotencyConflict,
 		)
 	}
+	version, created, err := findOrInsertAgentConfigVersionTx(ctx, qtx, input, definition.ID)
+	if err != nil {
+		return AgentConfigRecord{}, err
+	}
+	record := AgentConfigRecord{
+		ID:                      version.ID,
+		OrgID:                   input.OrgID,
+		ProjectID:               input.ProjectID,
+		Source:                  input.Source,
+		SourceFormat:            input.SourceFormat,
+		SourceHash:              input.SourceHash,
+		ConfiguredModelID:       definition.ConfiguredModelID,
+		CompiledDefinition:      definition.CompiledDefinition,
+		EffectiveDefinitionHash: definition.EffectiveDefinitionHash,
+		CreatedAt:               version.CreatedAt,
+		Created:                 created,
+	}
 	if record.Created {
-		if err := lockResourceCreation(ctx, qtx, resourceAgentConfigs, input.ProjectID.String()); err != nil {
-			return AgentConfigRecord{}, err
-		}
-		limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
-		if err != nil {
-			return AgentConfigRecord{}, err
-		}
-		configCount, err := qtx.CountAgentConfigsForProject(
-			ctx,
-			dbsqlc.CountAgentConfigsForProjectParams{ProjectID: input.ProjectID},
-		)
-		if err != nil {
-			return AgentConfigRecord{}, fmt.Errorf("count agent configs: %w", err)
-		}
-		if configCount > limits.MaxAgentConfigsPerProject {
-			return AgentConfigRecord{}, resourceLimitExceeded(
-				"agent configs",
-				limits.MaxAgentConfigsPerProject,
-			)
-		}
+		track(resourceguard.Creation{Kind: resourceguard.AgentConfigs, OrgID: input.OrgID, ProjectID: input.ProjectID})
 	}
 	return record, nil
 }
@@ -294,20 +278,15 @@ func lockAndValidateAgentConfigModelContractTx(
 ) error {
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		input.CompiledDefinition,
-		input.CompilerVersion,
 		input.EffectiveDefinitionHash,
 	)
 	if err != nil {
 		return fmt.Errorf("validate agent config runtime contract: %w", err)
 	}
-	if contract.Model.ConfiguredModelID == "" {
+	if contract.Model.ConfiguredModelID == uuid.Nil {
 		return errors.New("agent config compiled model must include configured_model_id")
 	}
-	compiledModelID, err := uuid.Parse(contract.Model.ConfiguredModelID)
-	if err != nil {
-		return fmt.Errorf("parse compiled configured model id: %w", err)
-	}
-	if compiledModelID != input.ConfiguredModelID {
+	if contract.Model.ConfiguredModelID != input.ConfiguredModelID {
 		return fmt.Errorf("compiled configured model does not match agent config row: %w", storeerr.ErrIdempotencyConflict)
 	}
 	effectiveModel, err := modelstore.ResolveForAgentTx(
@@ -330,14 +309,96 @@ func lockAndValidateAgentConfigModelContractTx(
 	return nil
 }
 
-func sameAgentConfigAuthority(record AgentConfigRecord, input CreateAgentConfigInput) bool {
-	return record.Source == input.Source &&
-		record.SourceFormat == input.SourceFormat &&
-		record.SourceHash == input.SourceHash &&
-		record.ConfiguredModelID == input.ConfiguredModelID &&
-		sameJSON(record.CompiledDefinition, input.CompiledDefinition) &&
-		record.CompilerVersion == input.CompilerVersion &&
-		record.EffectiveDefinitionHash == input.EffectiveDefinitionHash
+func upsertAgentConfigDefinitionTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CreateAgentConfigInput,
+) (dbsqlc.AgentConfigDefinition, error) {
+	row, err := qtx.UpsertAgentConfigDefinition(
+		ctx,
+		dbsqlc.UpsertAgentConfigDefinitionParams{
+			OrgID:                   input.OrgID,
+			ProjectID:               input.ProjectID,
+			ConfiguredModelID:       input.ConfiguredModelID,
+			CompiledDefinition:      input.CompiledDefinition,
+			EffectiveDefinitionHash: input.EffectiveDefinitionHash,
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Insert-or-select race: a concurrent transaction inserted the same hash
+		// and committed after our statement snapshot was taken, so ON CONFLICT
+		// DO NOTHING skipped the insert while the select branch could not see
+		// the committed row. Re-select on a fresh snapshot.
+		existing, selectErr := qtx.GetAgentConfigDefinitionByHash(
+			ctx,
+			dbsqlc.GetAgentConfigDefinitionByHashParams{
+				ProjectID:               input.ProjectID,
+				EffectiveDefinitionHash: input.EffectiveDefinitionHash,
+			},
+		)
+		if selectErr != nil {
+			return dbsqlc.AgentConfigDefinition{}, fmt.Errorf(
+				"reload agent config definition after upsert race: %w",
+				selectErr,
+			)
+		}
+		return existing, nil
+	}
+	if err != nil {
+		return dbsqlc.AgentConfigDefinition{}, fmt.Errorf("upsert agent config definition: %w", err)
+	}
+	return dbsqlc.AgentConfigDefinition(row), nil
+}
+
+// Versions have no unique key, since migrations may repoint two versions at one
+// definition; the advisory lock keeps concurrent identical creates from both inserting.
+func findOrInsertAgentConfigVersionTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	input CreateAgentConfigInput,
+	definitionID uuid.UUID,
+) (dbsqlc.FindAgentConfigVersionRow, bool, error) {
+	source := storeutil.TextFromEmpty(input.Source)
+	sourceFormat := storeutil.TextFromEmpty(input.SourceFormat)
+	sourceHash := storeutil.TextFromEmpty(input.SourceHash)
+	if err := qtx.LockAgentConfigVersionKey(ctx, dbsqlc.LockAgentConfigVersionKeyParams{
+		ProjectID:    input.ProjectID,
+		DefinitionID: definitionID,
+		SourceHash:   sourceHash,
+	}); err != nil {
+		return dbsqlc.FindAgentConfigVersionRow{}, false, fmt.Errorf("lock agent config version: %w", err)
+	}
+	existing, err := qtx.FindAgentConfigVersion(ctx, dbsqlc.FindAgentConfigVersionParams{
+		ProjectID:    input.ProjectID,
+		DefinitionID: definitionID,
+		SourceHash:   sourceHash,
+		SourceFormat: sourceFormat,
+		Source:       source,
+	})
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return dbsqlc.FindAgentConfigVersionRow{}, false, fmt.Errorf("find agent config version: %w", err)
+	}
+	inserted, err := qtx.InsertAgentConfigVersion(ctx, dbsqlc.InsertAgentConfigVersionParams{
+		OrgID:        input.OrgID,
+		ProjectID:    input.ProjectID,
+		DefinitionID: definitionID,
+		Source:       source,
+		SourceFormat: sourceFormat,
+		SourceHash:   sourceHash,
+	})
+	if err != nil {
+		return dbsqlc.FindAgentConfigVersionRow{}, false, fmt.Errorf("insert agent config version: %w", err)
+	}
+	return dbsqlc.FindAgentConfigVersionRow(inserted), true, nil
+}
+
+func sameAgentConfigDefinition(definition dbsqlc.AgentConfigDefinition, input CreateAgentConfigInput) bool {
+	return definition.ConfiguredModelID == input.ConfiguredModelID &&
+		sameJSON(definition.CompiledDefinition, input.CompiledDefinition) &&
+		definition.EffectiveDefinitionHash == input.EffectiveDefinitionHash
 }
 
 func loadAgentConfigTx(
@@ -355,11 +416,31 @@ func loadAgentConfigTx(
 	return agentConfigRecordFromSQLC(row), nil
 }
 
-func lockAgentConfigModelForUseTx(
+func validateSavedAgentConfigContractTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	config AgentConfigRecord,
 ) error {
+	if err := validateMemoryStoresTx(ctx, qtx, config.ProjectID, config.CompiledDefinition); err != nil {
+		return err
+	}
+	return lockAndValidateAgentConfigModelContractTx(ctx, qtx, CreateAgentConfigInput{
+		OrgID:                   config.OrgID,
+		ProjectID:               config.ProjectID,
+		ConfiguredModelID:       config.ConfiguredModelID,
+		CompiledDefinition:      config.CompiledDefinition,
+		EffectiveDefinitionHash: config.EffectiveDefinitionHash,
+	})
+}
+
+func lockAgentConfigForUseTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	config AgentConfigRecord,
+) error {
+	if err := validateMemoryStoresTx(ctx, qtx, config.ProjectID, config.CompiledDefinition); err != nil {
+		return err
+	}
 	_, err := qtx.LockConfiguredModelForUse(ctx, dbsqlc.LockConfiguredModelForUseParams{
 		OrgID: config.OrgID,
 		ID:    config.ConfiguredModelID,
@@ -377,7 +458,7 @@ func (s *Store) ValidateAgentConfigMachineSources(
 	ctx context.Context,
 	projectID uuid.UUID,
 	compiledDefinition json.RawMessage,
-	compilerVersion, definitionHash string,
+	definitionHash string,
 ) error {
 	if projectID == uuid.Nil {
 		return errors.New("project id is required")
@@ -386,7 +467,7 @@ func (s *Store) ValidateAgentConfigMachineSources(
 	if err != nil {
 		return err
 	}
-	contract, err := agentconfig.RuntimeContractFromCompiled(compiledDefinition, compilerVersion, definitionHash)
+	contract, err := agentconfig.RuntimeContractFromCompiled(compiledDefinition, definitionHash)
 	if err != nil {
 		return err
 	}
@@ -394,14 +475,10 @@ func (s *Store) ValidateAgentConfigMachineSources(
 		if err := validateRuntimeMachineSource(index, source); err != nil {
 			return err
 		}
-		if source.MachineID != "" {
-			machineID, err := publicid.Decode(publicid.KindMachine, source.MachineID)
-			if err != nil {
-				return fmt.Errorf("machine_sources[%d].machine_id: %w", index, err)
-			}
+		if source.MachineID != uuid.Nil {
 			grant, err := s.q.GetActiveProjectMachineGrantForMachine(
 				ctx,
-				dbsqlc.GetActiveProjectMachineGrantForMachineParams{ProjectID: projectID, MachineID: machineID},
+				dbsqlc.GetActiveProjectMachineGrantForMachineParams{ProjectID: projectID, MachineID: source.MachineID},
 			)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -430,18 +507,14 @@ func (s *Store) ValidateAgentConfigMachineSources(
 			}
 			continue
 		}
-		if source.MachinePoolID == "" {
+		if source.MachinePoolID == uuid.Nil {
 			continue
-		}
-		machinePoolID, err := publicid.Decode(publicid.KindMachinePool, source.MachinePoolID)
-		if err != nil {
-			return fmt.Errorf("machine_sources[%d].machine_pool_id: %w", index, err)
 		}
 		poolGrant, err := s.q.GetPoolGrantConfigValidationContext(
 			ctx,
 			dbsqlc.GetPoolGrantConfigValidationContextParams{
 				ProjectID:     projectID,
-				MachinePoolID: machinePoolID,
+				MachinePoolID: source.MachinePoolID,
 			},
 		)
 		if err != nil {
@@ -657,4 +730,43 @@ func (s *Store) ResolveAgentConfigProfileName(
 		return uuid.Nil, fmt.Errorf("resolve agent profile name: %w", err)
 	}
 	return id, nil
+}
+
+func validateMemoryStoresTx(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID uuid.UUID,
+	raw json.RawMessage,
+) error {
+	var config struct {
+		Stores []agentconfig.MemoryStoreCompiled `json:"memory_stores"`
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return fmt.Errorf("validate memory stores: %w", err)
+	}
+	sort.Slice(config.Stores, func(i, j int) bool {
+		return bytes.Compare(config.Stores[i].ID[:], config.Stores[j].ID[:]) < 0
+	})
+	for i, store := range config.Stores {
+		if !store.Access.Valid() {
+			return storeerr.InvalidRequest(errors.New("invalid memory store access"))
+		}
+		if store.ID == uuid.Nil {
+			return storeerr.InvalidRequest(errors.New("invalid memory store id"))
+		}
+		if i > 0 && store.ID == config.Stores[i-1].ID {
+			return storeerr.InvalidRequest(errors.New("duplicate memory store id"))
+		}
+		_, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
+			ProjectID: projectID,
+			ID:        store.ID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("memory store is unavailable: %w", storeerr.ErrNotFound)
+			}
+			return fmt.Errorf("validate memory stores: %w", err)
+		}
+	}
+	return nil
 }

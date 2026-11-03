@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -320,9 +321,8 @@ func TestMachineDeletionLocksAllTerminalWorkAgentsInStableOrder(t *testing.T) {
 		ToolCallID:    higherToolCallID,
 		RuntimeLockID: higher.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: higher.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -353,9 +353,8 @@ func TestMachineDeletionLocksAllTerminalWorkAgentsInStableOrder(t *testing.T) {
 		ToolCallID:    lowerToolCallID,
 		RuntimeLockID: lower.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: lower.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1286,7 +1285,11 @@ func TestProjectDeletionWaitsForConcurrentAgentArchive(t *testing.T) {
 		ctx,
 		"project-archive",
 		"LockProjectLifecycleExclusive",
-		func(fixture machineLifecycleLockOrderFixture, actor *executionstore.ActorParams) error {
+		func(
+			fixture machineLifecycleLockOrderFixture,
+			actor *executionstore.ActorParams,
+			_ identitystore.PrincipalRecord,
+		) error {
 			_, err := fixture.store.Organizations().DeleteProjectOnceForIntegration(
 				ctx,
 				testOrgID,
@@ -1309,11 +1312,15 @@ func TestOrganizationDeletionWaitsForConcurrentAgentArchive(t *testing.T) {
 		ctx,
 		"organization-archive",
 		"LockOrganizationLifecycleExclusive",
-		func(fixture machineLifecycleLockOrderFixture, actor *executionstore.ActorParams) error {
+		func(
+			fixture machineLifecycleLockOrderFixture,
+			_ *executionstore.ActorParams,
+			owner identitystore.PrincipalRecord,
+		) error {
 			_, err := fixture.store.Organizations().DeleteOrganizationOnceForIntegration(
 				ctx,
 				testOrgID,
-				actor,
+				owner,
 			)
 			return err
 		},
@@ -1584,7 +1591,6 @@ func TestMCPReconciliationWaitingBehindAgentArchiveRejectsArchivedAgent(t *testi
 	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := fixture.store.Execution().IntegrationArchiveAgentOnce(
 			ctx,
-			testOrgID,
 			testProjectID,
 			fixture.agent.ID,
 			actor,
@@ -1789,7 +1795,6 @@ func startAgentArchiveBlockedAtAgent(
 	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := fixture.store.Execution().IntegrationArchiveAgentOnce(
 			ctx,
-			testOrgID,
 			testProjectID,
 			fixture.agent.ID,
 			actor,
@@ -1813,10 +1818,11 @@ func runScopeDeletionAfterConcurrentAgentArchive(
 	ctx context.Context,
 	label string,
 	deletionGateQuery string,
-	deleteScope func(machineLifecycleLockOrderFixture, *executionstore.ActorParams) error,
+	deleteScope func(machineLifecycleLockOrderFixture, *executionstore.ActorParams, identitystore.PrincipalRecord) error,
 ) machineLifecycleLockOrderFixture {
 	t.Helper()
 	fixture := newMachineLifecycleLockOrderFixture(t, ctx, label)
+	owner := userPrincipal(createSecretTestUser(t, ctx, fixture.store, label+" owner", "owner").ID)
 	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
 	controlQ := dbsqlc.New(controlTx)
 	if _, err := controlQ.LockAgentInProject(
@@ -1830,7 +1836,6 @@ func runScopeDeletionAfterConcurrentAgentArchive(
 	archiveDone := integrationdb.RunAsyncError(func() error {
 		_, _, archiveErr := fixture.store.Execution().IntegrationArchiveAgentOnce(
 			ctx,
-			testOrgID,
 			testProjectID,
 			fixture.agent.ID,
 			actor,
@@ -1839,7 +1844,7 @@ func runScopeDeletionAfterConcurrentAgentArchive(
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, "LockAgentInProject", 1)
 
-	deleteDone := integrationdb.RunAsyncError(func() error { return deleteScope(fixture, actor) })
+	deleteDone := integrationdb.RunAsyncError(func() error { return deleteScope(fixture, actor, owner) })
 	integrationdb.WaitForNamedLockWaiters(t, ctx, fixture.pool, deletionGateQuery, 1)
 	if err := controlTx.Commit(ctx); err != nil {
 		t.Fatalf("release archive control transaction: %v", err)

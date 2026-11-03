@@ -15,8 +15,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/internal/tokenutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -47,8 +49,14 @@ func (s *Store) CreateBYOMachineDaemonToken(
 	); err != nil {
 		return CreatedMachineDaemonToken{}, err
 	}
-	record, err := createBYOMachineDaemonTokenTx(ctx, qtx, prepared)
+	var creations []resourceguard.Creation
+	record, err := createBYOMachineDaemonTokenTx(ctx, qtx, prepared, func(c resourceguard.Creation) {
+		creations = append(creations, c)
+	})
 	if err != nil {
+		return CreatedMachineDaemonToken{}, err
+	}
+	if err := resourceguard.CheckCreations(ctx, tx, creations); err != nil {
 		return CreatedMachineDaemonToken{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -95,6 +103,7 @@ func createBYOMachineDaemonTokenTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	prepared preparedBYOMachineDaemonTokenCreate,
+	track func(resourceguard.Creation),
 ) (MachineDaemonTokenRecord, error) {
 	input := prepared.input
 	row, err := qtx.CreateBYOMachineDaemonToken(
@@ -113,34 +122,9 @@ func createBYOMachineDaemonTokenTx(
 	if err != nil {
 		return MachineDaemonTokenRecord{}, fmt.Errorf("create BYO machine daemon token: %w", err)
 	}
-	if err := lockResourceCreation(
-		ctx,
-		qtx,
-		resourceMachineDaemonTokens,
-		input.OrgID.String()+":"+input.MachineID.String(),
-	); err != nil {
-		return MachineDaemonTokenRecord{}, err
-	}
-	limits, err := resolveResourceLimits(ctx, qtx, input.OrgID)
-	if err != nil {
-		return MachineDaemonTokenRecord{}, err
-	}
-	tokenCount, err := qtx.CountActiveMachineDaemonTokensForMachine(
-		ctx,
-		dbsqlc.CountActiveMachineDaemonTokensForMachineParams{
-			OrgID:     input.OrgID,
-			MachineID: input.MachineID,
-		},
-	)
-	if err != nil {
-		return MachineDaemonTokenRecord{}, fmt.Errorf("count active BYO daemon tokens: %w", err)
-	}
-	if tokenCount > limits.MaxActiveByoDaemonTokensPerMachine {
-		return MachineDaemonTokenRecord{}, resourceLimitExceeded(
-			"active machine daemon tokens",
-			limits.MaxActiveByoDaemonTokensPerMachine,
-		)
-	}
+	track(resourceguard.Creation{
+		Kind: resourceguard.MachineDaemonTokens, OrgID: input.OrgID, MachineID: input.MachineID,
+	})
 	return machineDaemonTokenFromCreate(row), nil
 }
 
@@ -332,30 +316,35 @@ func (s *Store) RevokeBYOMachineDaemonToken(
 	orgID, machineID, tokenID uuid.UUID,
 	reason string,
 ) (MachineDaemonTokenRecord, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return MachineDaemonTokenRecord{}, fmt.Errorf("begin revoke machine daemon token: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	txNotifications := s.newTxNotifications()
-	record, err := s.RevokeBYOMachineDaemonTokenTx(ctx, tx, txNotifications, orgID, machineID, tokenID, reason)
-	if err != nil {
-		return MachineDaemonTokenRecord{}, err
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "revoke machine daemon token"); err != nil {
-		return MachineDaemonTokenRecord{}, err
-	}
-	return record, nil
+	return agentexecution.Retry(ctx,
+		"revoke_byo_machine_daemon_token",
+		func(ctx context.Context) (MachineDaemonTokenRecord, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return MachineDaemonTokenRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+
+			record, err := s.RevokeBYOMachineDaemonTokenInUnit(ctx, unit, orgID, machineID, tokenID, reason)
+			if err != nil {
+				return MachineDaemonTokenRecord{}, err
+			}
+			if err := unit.Commit(ctx, "revoke machine daemon token"); err != nil {
+				return MachineDaemonTokenRecord{}, err
+			}
+			return record, nil
+		})
 }
 
-func (s *Store) RevokeBYOMachineDaemonTokenTx(
+func (s *Store) RevokeBYOMachineDaemonTokenInUnit(
 	ctx context.Context,
-	tx pgx.Tx,
-	txNotifications *notifications.TxNotifications,
+	unit *agentexecution.Unit,
 	orgID, machineID, tokenID uuid.UUID,
 	reason string,
 ) (MachineDaemonTokenRecord, error) {
-	qtx := s.q.WithTx(tx)
+	txNotifications := unit.Notifications()
+	tx := unit.DB()
+	qtx := dbsqlc.New(tx)
 	if _, err := qtx.LockMachineForRuntimeRegistration(
 		ctx,
 		dbsqlc.LockMachineForRuntimeRegistrationParams{OrgID: orgID, ID: machineID},
@@ -411,8 +400,7 @@ func (s *Store) RevokeBYOMachineDaemonTokenTx(
 		)
 		if err := completeMachineLifecycleTerminalWorkTx(
 			ctx,
-			txNotifications,
-			tx,
+			unit,
 			qtx,
 			orgID,
 			machineID,
@@ -543,43 +531,49 @@ func (s *Store) RecordMachineFailureReport(
 		MachineID:       input.MachineID,
 		DaemonTokenID:   input.DaemonTokenID,
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin machine failure report: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
-	txNotifications := s.newTxNotifications()
-	if input.Stage == MachineFailureStageDaemonUninstalled {
-		if _, err := qtx.LockMachineForLifecycle(
-			ctx,
-			dbsqlc.LockMachineForLifecycleParams{OrgID: input.OrgID, ID: input.MachineID},
-		); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return storeerr.ErrUnauthorized
+	_, retryErr := agentexecution.Retry(ctx,
+		"record_machine_failure_report",
+		func(ctx context.Context) (struct{}, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return struct{}{}, err
 			}
-			return fmt.Errorf("lock machine for daemon uninstall report: %w", err)
-		}
-	}
-	_, err = qtx.RecordMachineFailureReport(ctx, params)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return storeerr.ErrUnauthorized
-	}
-	if err != nil {
-		return fmt.Errorf("record machine failure report: %w", err)
-	}
-	if input.Stage == MachineFailureStageDaemonUninstalled {
-		if err := completeMachineLifecycleTerminalWorkTx(
-			ctx,
-			txNotifications,
-			tx,
-			qtx,
-			input.OrgID,
-			input.MachineID,
-			MachineFailureStageDaemonUninstalled,
-		); err != nil {
-			return err
-		}
-	}
-	return s.commitTxWithNotifications(ctx, tx, txNotifications, "record machine failure report")
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+
+			qtx := dbsqlc.New(tx)
+			if input.Stage == MachineFailureStageDaemonUninstalled {
+				if _, err := qtx.LockMachineForLifecycle(
+					ctx,
+					dbsqlc.LockMachineForLifecycleParams{OrgID: input.OrgID, ID: input.MachineID},
+				); err != nil {
+					if errors.Is(err, pgx.ErrNoRows) {
+						return struct{}{}, storeerr.ErrUnauthorized
+					}
+					return struct{}{}, fmt.Errorf("lock machine for daemon uninstall report: %w", err)
+				}
+			}
+			_, err = qtx.RecordMachineFailureReport(ctx, params)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return struct{}{}, storeerr.ErrUnauthorized
+			}
+			if err != nil {
+				return struct{}{}, fmt.Errorf("record machine failure report: %w", err)
+			}
+			if input.Stage == MachineFailureStageDaemonUninstalled {
+				if err := completeMachineLifecycleTerminalWorkTx(
+					ctx,
+					unit,
+					qtx,
+					input.OrgID,
+					input.MachineID,
+					MachineFailureStageDaemonUninstalled,
+				); err != nil {
+					return struct{}{}, err
+				}
+			}
+			return struct{}{}, unit.Commit(ctx, "record machine failure report")
+		})
+	return retryErr
+
 }

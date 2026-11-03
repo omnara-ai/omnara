@@ -12,7 +12,66 @@ import (
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/stretchr/testify/require"
 )
+
+func TestAgentExecutorPreservesCheckpointAcrossTerminalOverflowAndLaterTurn(t *testing.T) {
+	ctx := t.Context()
+	fixture, agentID, userID := seedCompactionHistory(t, ctx)
+	summary := "CHECKPOINT_HEAD " + strings.Repeat("Preserve the complete saved context. ", 40) + " CHECKPOINT_TAIL"
+	client := compactionRecoveryClient(
+		completeProgressiveSummaryResponse(summary),
+		completeProgressiveSummaryResponse("The later turn completed."),
+	)
+	client.errs = []error{nil, model.ProviderError{
+		Kind: model.ErrorKindContextWindow, Source: "test", Code: "context_length", Message: "Request exceeds capacity",
+	}}
+	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+	work := fixture.admitContentInputTurn(t, ctx, agentID, userID,
+		"Current input that the provider cannot accept.", fixture.Now.Add(time.Second))
+	require.NoError(t, executor.ExecuteModelWork(ctx, work))
+	require.Len(t, client.responded, 1)
+	require.True(t, isCompactionRequestBundle(client.responded[0].Bundle))
+	watermark, err := fixture.Store.Execution().MaxEventSequence(ctx, kernelTestProjectID, agentID)
+	require.NoError(t, err)
+	checkpoint, found, err := fixture.Store.Execution().GetLatestApplicableContextCheckpoint(
+		ctx, kernelTestProjectID, agentID, watermark,
+	)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, summary, checkpoint.Summary)
+
+	work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(2*time.Second))
+	require.NoError(t, executor.ExecuteModelWork(ctx, work))
+	require.Len(t, client.responded, 2)
+	require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
+	var terminalOutputs int
+	require.NoError(t, fixture.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM model_outputs WHERE agent_id=$1 AND stop_reason='error'`, agentID,
+	).Scan(&terminalOutputs))
+	require.Equal(t, 1, terminalOutputs)
+
+	fixture.releaseModelRuntimeLock(t, ctx, work)
+	const laterInput = "A later user turn can still complete."
+	work = fixture.admitContentInputTurn(t, ctx, agentID, userID, laterInput, fixture.Now.Add(3*time.Second))
+	executor = AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+	require.NoError(t, executor.ExecuteModelWork(ctx, work))
+	require.Len(t, client.responded, 3)
+	require.Contains(t, string(client.responded[2].ProviderRequest), laterInput)
+	for _, request := range client.responded[1:] {
+		require.False(t, isCompactionRequestBundle(request.Bundle))
+		require.NotNil(t, request.Bundle.ContextCheckpoint)
+		require.Equal(t, checkpoint.ID.String(), request.Bundle.ContextCheckpoint.ID)
+		require.Contains(t, string(request.ProviderRequest), summary)
+	}
+	var finalStopReason string
+	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT output.stop_reason FROM agent_events event
+		JOIN model_outputs output ON output.agent_id=event.agent_id AND output.id=event.model_output_id
+		WHERE event.agent_id=$1 AND event.turn_id=$2 ORDER BY event.sequence DESC LIMIT 1`, agentID, work.TurnID,
+	).Scan(&finalStopReason))
+	require.Equal(t, string(model.StopReasonEndTurn), finalStopReason)
+	require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
+}
 
 func TestAgentExecutorClampsPreferredRawTailToSerializedModelBudget(t *testing.T) {
 	ctx := context.Background()

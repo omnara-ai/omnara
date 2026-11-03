@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"gopkg.in/yaml.v3"
@@ -212,6 +213,10 @@ func defaultMachinePoolTemplateFromFile(
 			label,
 			err,
 		)
+	}
+	defaultMachineSecretEnv, err = publicid.DecodeMapJSON(publicid.KindSecret, defaultMachineSecretEnv)
+	if err != nil {
+		return executionstore.DefaultMachinePoolTemplate{}, fmt.Errorf("%s.default_machine_secret_env: %w", label, err)
 	}
 	defaultMachineProviderOptions, err := json.Marshal(parsed.DefaultMachineProviderOptions)
 	if err != nil {

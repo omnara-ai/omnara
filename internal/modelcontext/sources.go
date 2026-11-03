@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -32,10 +33,6 @@ type ExecutionStore interface {
 		afterSequence int64,
 		watermark int64,
 	) ([]executionstore.ToolCallRecord, error)
-	ListMachinePoolSources(
-		ctx context.Context,
-		projectID, agentID, agentConfigID uuid.UUID,
-	) ([]executionstore.MachinePoolSourceRecord, error)
 	GetLatestApplicableContextCheckpoint(
 		ctx context.Context,
 		projectID, agentID uuid.UUID,
@@ -60,21 +57,25 @@ type ArtifactStore interface {
 }
 
 type IntegrationStore interface {
-	ListIntegrationTargets(
-		ctx context.Context,
-		projectID, agentID uuid.UUID,
-	) ([]integrationstore.IntegrationTargetSummary, error)
+	GetAgentIntegrationConversation(
+		context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
+	) (integrationstore.ConversationAddress, bool, error)
+	ResolveIntegrationDefinitions(
+		context.Context,
+		uuid.UUID,
+		[]uuid.UUID,
+	) (map[uuid.UUID]agentconfig.IntegrationResolution, error)
 }
 
 type Store interface {
-	ArtifactStore
 	IntegrationStore
+	ArtifactStore
 	ExecutionStore
 }
 
 type composedStore struct {
-	ArtifactStore
 	IntegrationStore
+	ArtifactStore
 	ExecutionStore
 }
 
@@ -84,8 +85,8 @@ func NewStore(
 	integrations IntegrationStore,
 ) Store {
 	return composedStore{
-		ArtifactStore:    artifacts,
 		IntegrationStore: integrations,
+		ArtifactStore:    artifacts,
 		ExecutionStore:   execution,
 	}
 }
@@ -94,7 +95,7 @@ type SkillStore interface {
 	GetSkillForDispatch(
 		ctx context.Context,
 		projectID uuid.UUID,
-		publicSkillID string,
+		skillID uuid.UUID,
 	) (skillstore.SkillRecord, error)
 }
 
@@ -152,9 +153,16 @@ func contextEventsToMessages(records []executionstore.ContextEventRecord) ([]Mes
 			modelProviderConfigID = event.ModelProviderConfigID.String()
 		}
 		message := Message{
-			ID: event.ID.String(), AgentInputID: event.AgentInputID.String(), ModelCallContextID: modelCallContextID,
-			Role: role, Sequence: event.Sequence, Content: event.ContentParts, ProviderReplay: event.ProviderReplay,
-			StopReason: event.StopReason,
+			InputFingerprint:          event.InputFingerprint,
+			InputEventSequence:        event.InputEventSequence,
+			AgentConfigID:             event.AgentConfigID,
+			ConfiguredModelRevisionID: event.ConfiguredModelRevisionID,
+			Usage:                     event.Usage,
+			ID:                        event.ID.String(), AgentInputID: event.AgentInputID.String(),
+			ModelCallContextID: modelCallContextID,
+			Role:               role, Sequence: event.Sequence, Content: event.ContentParts,
+			ProviderReplay: event.ProviderReplay,
+			StopReason:     event.StopReason,
 			ProviderReplaySource: modelenvelope.ProviderReplayIdentity{
 				ModelProviderConfigID: modelProviderConfigID, RequestedProviderModelSlug: event.RequestedModelSlug,
 				APIFormat: event.APIFormat, APIVariant: event.APIVariant,

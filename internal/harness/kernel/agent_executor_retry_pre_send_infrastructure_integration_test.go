@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -41,7 +42,7 @@ func TestAgentExecutorStopsNinthConsecutivePreSendFailure(t *testing.T) {
 		ModelRetryDelay: immediateKernelModelRetryDelay,
 	}
 	var operationFrontier int64
-	maxAttempts := executionstore.MaxModelCallRetriesPerOperation + 1
+	maxAttempts := executionpolicy.MaxModelCallRetriesPerOperation + 1
 	for attemptNumber := 1; attemptNumber <= maxAttempts; attemptNumber++ {
 		if err := executor.ExecuteModelWork(ctx, turn); err != nil {
 			t.Fatalf("execute pre-send attempt %d: %v", attemptNumber, err)
@@ -149,7 +150,7 @@ WHERE context.project_id = $1
 	}
 	if terminalContextState != executionstore.ModelCallContextFailed || operationFrontiers != 1 ||
 		attempts != maxAttempts ||
-		retryingAttempts != executionstore.MaxModelCallRetriesPerOperation ||
+		retryingAttempts != executionpolicy.MaxModelCallRetriesPerOperation ||
 		stoppedAttempts != 1 || outputs != 1 ||
 		stopReason != "error" ||
 		terminalCode != "resolver_temporarily_unavailable" || terminalRetries != 0 {

@@ -2,12 +2,14 @@ package executionstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func (r *ToolCallReader) Agent(ctx context.Context) (AgentRecord, error) {
@@ -66,7 +68,7 @@ func (r *ToolCallReader) RuntimeContract(
 		return agentconfig.RuntimeContract{}, AgentConfigRecord{}, err
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
-		config.CompiledDefinition, config.CompilerVersion, config.EffectiveDefinitionHash,
+		config.CompiledDefinition, config.EffectiveDefinitionHash,
 	)
 	if err != nil {
 		return agentconfig.RuntimeContract{}, AgentConfigRecord{}, err
@@ -74,6 +76,35 @@ func (r *ToolCallReader) RuntimeContract(
 	return contract, config, nil
 }
 
-func (r *ToolCallReader) Models() *modelstore.Store {
-	return modelstore.NewWithTx(r.transaction.tx)
+func (r *ToolCallReader) ResolveMemoryTransferStore(ctx context.Context, name string) (uuid.UUID, error) {
+	t := r.transaction
+	existing, found, err := getProcessByToolCallTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID, t.input.ToolCallID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if found {
+		transfer := existing.ExecutionSpec.FileTransfer
+		if transfer == nil || transfer.Target.Memory == nil {
+			return uuid.Nil, storeerr.ErrIdempotencyConflict
+		}
+		id := transfer.Target.Memory.StoreID
+		savedName, err := t.q.GetMemoryStoreName(ctx, dbsqlc.GetMemoryStoreNameParams{ProjectID: t.input.ProjectID, ID: id})
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("load saved memory transfer: %w", err)
+		}
+		if savedName != name {
+			return uuid.Nil, storeerr.ErrIdempotencyConflict
+		}
+		return id, nil
+	}
+	id, err := t.q.ResolveAgentMemoryStore(ctx, dbsqlc.ResolveAgentMemoryStoreParams{
+		ProjectID: t.input.ProjectID, AgentID: t.input.AgentID, Name: name,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, fmt.Errorf("memory store is unavailable: %w", storeerr.ErrNotFound)
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("resolve memory transfer store: %w", err)
+	}
+	return id, nil
 }

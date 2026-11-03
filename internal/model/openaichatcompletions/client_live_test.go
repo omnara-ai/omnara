@@ -89,7 +89,7 @@ func TestLiveOpenRouterChatCompletionsText(t *testing.T) {
 	}
 	if !sawBYOK || !sawNonBYOK {
 		t.Fatalf(
-			"live OpenRouter account/model matrix must exercise both accounting routes; check BYOK integrations or refresh the hardcoded models (BYOK=%t, non-BYOK=%t)",
+			"live OpenRouter account/model matrix must exercise both accounting routes; check BYOK apps or refresh the hardcoded models (BYOK=%t, non-BYOK=%t)",
 			sawBYOK,
 			sawNonBYOK,
 		)
@@ -144,7 +144,8 @@ func TestLiveOpenRouterChatCompletionsStreamText(t *testing.T) {
 	}
 	prepared, err := client.Prepare(ctx, model.PrepareInput{
 		Context: modelcontext.Bundle{
-			SystemPrompt: "Follow the user response format exactly.",
+			SafetyIdentifier: modeltest.LiveSafetyIdentifier,
+			SystemPrompt:     "Follow the user response format exactly.",
 			Messages: []modelcontext.Message{{
 				Sequence: 1,
 				Role:     modelprotocol.RoleUser,
@@ -156,6 +157,7 @@ func TestLiveOpenRouterChatCompletionsStreamText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare live OpenRouter streaming request: %v", err)
 	}
+	modeltest.RequireSafetyIdentifier(t, prepared.Body)
 	sink := &chatRecordingSink{}
 	resp, err := client.Respond(ctx, model.Request{ProviderRequest: prepared.Body, DeltaSink: sink})
 	if err != nil {
@@ -206,7 +208,8 @@ func TestLiveOpenRouterChatCompletionsToolCall(t *testing.T) {
 	}
 	prepared, err := client.Prepare(ctx, model.PrepareInput{
 		Context: modelcontext.Bundle{
-			SystemPrompt: "Use tools exactly when the user asks for a tool call.",
+			SafetyIdentifier: modeltest.LiveSafetyIdentifier,
+			SystemPrompt:     "Use tools exactly when the user asks for a tool call.",
 			Messages: []modelcontext.Message{{
 				Sequence: 1,
 				Role:     modelprotocol.RoleUser,
@@ -231,6 +234,7 @@ func TestLiveOpenRouterChatCompletionsToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare live OpenRouter tool request: %v", err)
 	}
+	modeltest.RequireSafetyIdentifier(t, prepared.Body)
 	resp, err := client.Respond(ctx, model.Request{ProviderRequest: prepared.Body})
 	if err != nil {
 		t.Fatalf("live OpenRouter tool response: %v", err)
@@ -255,7 +259,8 @@ func runLiveChatCompletionsText(t *testing.T, client Client, policy model.Reques
 	prompt := "Reply with exactly this token and no extra words: " + token
 	prepared, err := client.Prepare(ctx, model.PrepareInput{
 		Context: modelcontext.Bundle{
-			SystemPrompt: "Follow the user response format exactly.",
+			SafetyIdentifier: modeltest.LiveSafetyIdentifier,
+			SystemPrompt:     "Follow the user response format exactly.",
 			Messages: []modelcontext.Message{{
 				Sequence: 1,
 				Role:     modelprotocol.RoleUser,
@@ -267,6 +272,7 @@ func runLiveChatCompletionsText(t *testing.T, client Client, policy model.Reques
 	if err != nil {
 		t.Fatalf("prepare live chat completions request: %v", err)
 	}
+	modeltest.RequireSafetyIdentifier(t, prepared.Body)
 	resp, err := client.Respond(ctx, model.Request{ProviderRequest: prepared.Body})
 	if err != nil {
 		t.Fatalf("live chat completions response: %v", err)
@@ -296,7 +302,7 @@ func liveTextContent(t *testing.T, text string) json.RawMessage {
 }
 
 func liveChatCompletionsToken() string {
-	stamp := time.Now().UTC().Format("20060102T150405000000000")
+	stamp := time.Now().UTC().Format("20060102T150405.000000000")
 	return "OMNARA_LIVE_CHAT_" + stamp
 }
 

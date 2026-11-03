@@ -199,12 +199,8 @@ WHERE call.project_id = $1
 		t.Fatalf("query historical tool call: %v", err)
 	}
 	if err := env.db.QueryRow(ctx, `
-SELECT count(*), count(DISTINCT context_turn.turn_id)
+SELECT count(*), count(DISTINCT context.turn_id)
 FROM model_call_contexts context
-JOIN model_call_context_turns context_turn
-  ON context_turn.project_id = context.project_id
- AND context_turn.agent_id = context.agent_id
- AND context_turn.model_call_context_id = context.id
 WHERE context.project_id = $1
   AND context.agent_id = $2
   AND context.operation_kind = 'normal'
@@ -395,12 +391,8 @@ WHERE context.project_id = $1
 
 	var contexts, distinctTurns, durableErrors int
 	if err := env.db.QueryRow(ctx, `
-SELECT count(*), count(DISTINCT context_turn.turn_id)
+SELECT count(*), count(DISTINCT context.turn_id)
 FROM model_call_contexts context
-JOIN model_call_context_turns context_turn
-  ON context_turn.project_id = context.project_id
- AND context_turn.agent_id = context.agent_id
- AND context_turn.model_call_context_id = context.id
 WHERE context.project_id = $1
   AND context.agent_id = $2
   AND context.operation_kind = 'normal'
@@ -592,12 +584,18 @@ func waitForServiceE2EAgentIdle(
 		}
 		if err := env.db.QueryRow(
 			ctx,
-			`SELECT count(*) FROM agent_next_model_work($1,$2)`,
+			`SELECT count(*) FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id WHERE a.project_id=$1 AND h.agent_id=$2 AND h.logical_ready_at IS NOT NULL`,
 			projectUUID,
 			agentUUID,
 		).Scan(&next); err != nil {
 			return false, err.Error()
 		}
-		return locks == 0 && wakeups == 0 && next == 0, fmt.Sprintf("locks=%d wakeups=%d next=%d", locks, wakeups, next)
+		return locks == 0 && wakeups == 0 &&
+				next == 0, fmt.Sprintf(
+				"locks=%d wakeups=%d next=%d",
+				locks,
+				wakeups,
+				next,
+			)
 	})
 }

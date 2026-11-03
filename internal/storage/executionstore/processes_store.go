@@ -2,12 +2,17 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processcmd"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -16,45 +21,75 @@ import (
 type DaemonProcessOffer struct {
 	Process          ProcessRecord     `json:"process"`
 	Env              map[string]string `json:"env"`
+	GitCredentials   bool              `json:"git_credentials"`
 	PreparationError string            `json:"preparation_error"`
 	RetryError       error             `json:"-"`
 }
 
-type DaemonArtifactProcessScope struct {
+type DaemonGitCredentialsScope struct {
 	ProjectID uuid.UUID
 	AgentID   uuid.UUID
-	Path      string
+	agentconfig.GitCredentialsCompiled
 }
 
-func (s *Store) GetDaemonArtifactProcessScope(
+func (s *Store) GetDaemonGitCredentialsScope(
 	ctx context.Context,
-	orgID, machineID, toolCallID uuid.UUID,
-	toolName string,
-) (DaemonArtifactProcessScope, bool, error) {
-	if orgID == uuid.Nil || machineID == uuid.Nil || toolCallID == uuid.Nil {
-		return DaemonArtifactProcessScope{}, false, errors.New(
-			"organization id, machine id, and tool call id are required",
+	orgID, machineID, processID uuid.UUID,
+) (DaemonGitCredentialsScope, bool, error) {
+	if orgID == uuid.Nil || machineID == uuid.Nil || processID == uuid.Nil {
+		return DaemonGitCredentialsScope{}, false, errors.New(
+			"organization, machine, and process are required",
 		)
 	}
-	if toolName == "" {
-		return DaemonArtifactProcessScope{}, false, errors.New("tool name is required")
-	}
-	record, err := s.q.GetDaemonArtifactProcessScope(ctx, dbsqlc.GetDaemonArtifactProcessScopeParams{
-		OrgID:      orgID,
-		MachineID:  machineID,
-		ToolCallID: toolCallID,
-		ToolName:   toolName,
+	row, err := s.q.GetDaemonGitCredentialsScope(ctx, dbsqlc.GetDaemonGitCredentialsScopeParams{
+		OrgID: orgID, MachineID: machineID, ProcessID: processID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return DaemonArtifactProcessScope{}, false, nil
+		return DaemonGitCredentialsScope{}, false, nil
 	}
 	if err != nil {
-		return DaemonArtifactProcessScope{}, false, fmt.Errorf("load daemon artifact process scope: %w", err)
+		return DaemonGitCredentialsScope{}, false, fmt.Errorf("load daemon Git credentials scope: %w", err)
 	}
-	return DaemonArtifactProcessScope{
-		ProjectID: record.ProjectID,
-		AgentID:   record.AgentID,
-		Path:      record.Path,
+	scope := DaemonGitCredentialsScope{ProjectID: row.ProjectID, AgentID: row.AgentID}
+	if err := json.Unmarshal(row.GitCredentials, &scope.GitCredentialsCompiled); err != nil {
+		return DaemonGitCredentialsScope{}, false, fmt.Errorf("decode daemon Git credentials scope: %w", err)
+	}
+	if scope.IntegrationID == uuid.Nil {
+		return DaemonGitCredentialsScope{}, false, nil
+	}
+	return scope, true, nil
+}
+
+type DaemonFileProcessScope struct {
+	OrgID      uuid.UUID
+	ProjectID  uuid.UUID
+	AgentID    uuid.UUID
+	ToolCallID uuid.UUID
+	Transfer   processcmd.FileTransfer
+}
+
+func (s *Store) GetDaemonFileProcessScope(
+	ctx context.Context, orgID, machineID, processID uuid.UUID, direction processcmd.FileTransferDirection,
+) (DaemonFileProcessScope, bool, error) {
+	record, err := s.q.GetDaemonFileProcessScope(ctx, dbsqlc.GetDaemonFileProcessScopeParams{
+		OrgID: orgID, MachineID: machineID, ProcessID: processID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DaemonFileProcessScope{}, false, nil
+	}
+	if err != nil {
+		return DaemonFileProcessScope{}, false, fmt.Errorf("load daemon file process scope: %w", err)
+	}
+	if err := record.ExecutionSpec.Validate(); err != nil {
+		return DaemonFileProcessScope{}, false, err
+	}
+	transfer := record.ExecutionSpec.FileTransfer
+	if transfer == nil || transfer.Direction != direction {
+		return DaemonFileProcessScope{}, false, nil
+	}
+	return DaemonFileProcessScope{
+		OrgID: orgID, ProjectID: record.ProjectID, AgentID: record.AgentID,
+		ToolCallID: record.ToolCallID, Transfer: *transfer,
 	}, true, nil
 }
 
@@ -65,18 +100,16 @@ func (t *toolCallTransaction) startProcess(
 	if input.AgentMachineBindingID == uuid.Nil {
 		return ProcessRecord{}, errors.New("agent machine binding is required")
 	}
-	if input.Command == "" {
-		return ProcessRecord{}, errors.New("process command is required")
-	}
-	spec, err := processcmd.NormalizeShellCommand(input.Command, input.ShellSelector)
-	if err != nil {
+	if err := input.ExecutionSpec.Validate(); err != nil {
 		return ProcessRecord{}, err
 	}
-	input.Command = spec.Command
-	input.ShellSelector = spec.Shell
-	input.IOMode, err = processcmd.NormalizeIOMode(input.IOMode)
-	if err != nil {
-		return ProcessRecord{}, err
+	if transfer := input.ExecutionSpec.FileTransfer; transfer != nil && transfer.Target.Memory != nil {
+		target := transfer.Target.Memory
+		if target.ExpectedDigest != nil {
+			if err := daemonprotocol.ValidateFileDigest(*target.ExpectedDigest); err != nil {
+				return ProcessRecord{}, err
+			}
+		}
 	}
 	if input.InitialWaitMS < 0 {
 		return ProcessRecord{}, errors.New("process initial wait must be non-negative")
@@ -92,6 +125,7 @@ func (t *toolCallTransaction) startProcess(
 			return ProcessRecord{}, storeerr.ErrIdempotencyConflict
 		}
 		t.hasDurableCompletionOwner = true
+		t.owner.ProcessID = existing.ID
 		if err := t.lockOrAcceptExisting(ctx); err != nil {
 			return ProcessRecord{}, err
 		}
@@ -128,15 +162,6 @@ func (t *toolCallTransaction) startProcess(
 		bindingEnvironmentOverlay,
 	)
 	if err != nil {
-		return ProcessRecord{}, fmt.Errorf("resolve process environment: %w", err)
-	}
-	if err := validateMachineEnvironmentSecretsTx(
-		ctx,
-		t.q,
-		executionConfig.OrgID,
-		executionConfig.ProjectID,
-		processEnvironment,
-	); err != nil {
 		return ProcessRecord{}, fmt.Errorf("resolve process environment: %w", err)
 	}
 	if environmentByteSize(processEnvironment.Env) > MaxResolvedEnvironmentBytes {
@@ -184,9 +209,7 @@ func (t *toolCallTransaction) startProcess(
 	}
 	row, err := t.q.InsertProcess(ctx, dbsqlc.InsertProcessParams{
 		ToolCallID:            toolCallID,
-		IoMode:                string(input.IOMode),
-		Command:               input.Command,
-		ShellSelector:         string(input.ShellSelector),
+		ExecutionSpec:         input.ExecutionSpec,
 		Cwd:                   cwd,
 		Env:                   processEnv,
 		SecretEnv:             processSecretEnv,
@@ -213,6 +236,8 @@ func (t *toolCallTransaction) startProcess(
 				if !processReplayMatches(existing, input) {
 					return ProcessRecord{}, storeerr.ErrIdempotencyConflict
 				}
+				t.owner.ProcessID = existing.ID
+				t.hasDurableCompletionOwner = true
 				return existing, nil
 			}
 			if _, found, loadErr := machineReachableForProjectMachineTx(
@@ -230,6 +255,7 @@ func (t *toolCallTransaction) startProcess(
 		return ProcessRecord{}, fmt.Errorf("start process: %w", err)
 	}
 	process := processRecordFromInsertSQLC(row)
+	t.owner.ProcessID = process.ID
 	t.hasDurableCompletionOwner = true
 	t.requiresWaitingDisposition = true
 	t.notifications.AddDaemonWork(process.MachineID)
@@ -238,9 +264,7 @@ func (t *toolCallTransaction) startProcess(
 
 func processReplayMatches(existing ProcessRecord, input CreateProcessInput) bool {
 	return existing.AgentMachineBindingID == input.AgentMachineBindingID &&
-		existing.IOMode == input.IOMode &&
-		existing.Command == input.Command &&
-		existing.ShellSelector == input.ShellSelector &&
+		reflect.DeepEqual(existing.ExecutionSpec, input.ExecutionSpec) &&
 		existing.TimeoutSeconds == input.TimeoutSeconds &&
 		existing.InitialWaitMS == input.InitialWaitMS
 }
@@ -308,49 +332,50 @@ func (s *Store) CompleteProcess(ctx context.Context, input CompleteProcessInput)
 		return ProcessRecord{}, errors.New("source ended at is required")
 	}
 	input.SourceEndedAt = canonicalSourceTime(input.SourceEndedAt)
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return ProcessRecord{}, fmt.Errorf("begin complete process: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := dbsqlc.New(tx)
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-	); err != nil {
-		return ProcessRecord{}, fmt.Errorf("lock agent for process completion: %w", err)
-	}
-	row, err := qtx.CompleteProcess(
-		ctx,
-		dbsqlc.CompleteProcessParams{
-			ProjectID:          input.ProjectID,
-			AgentID:            input.AgentID,
-			ID:                 input.ID,
-			RuntimeLockID:      input.RuntimeLockID,
-			State:              string(input.State),
-			SourceEndedAt:      input.SourceEndedAt,
-			ExitCode:           storeutil.Int32Ptr(input.ExitCode),
-			ExitSignal:         input.ExitSignal,
-			StateReasonCode:    storeutil.TextFromEmpty(input.StateReasonCode),
-			StateReasonMessage: input.StateReasonMessage,
-		},
-	)
-	if err != nil {
-		return ProcessRecord{}, fmt.Errorf("complete process: %w", err)
-	}
-	process := processRecordFromCompleteSQLC(row)
-	if err := completeQueuedProcessActionsForTerminalProcessTx(
-		ctx,
-		txNotifications,
-		tx,
-		qtx,
-		process,
-	); err != nil {
-		return ProcessRecord{}, err
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "complete process"); err != nil {
-		return ProcessRecord{}, err
-	}
-	return process, nil
+	return agentexecution.Retry(ctx,
+		"complete_process",
+		func(ctx context.Context) (ProcessRecord, error) {
+			unit, err := s.cell.Begin(ctx)
+			if err != nil {
+				return ProcessRecord{}, err
+			}
+			defer func() { _ = unit.Rollback(ctx) }()
+			tx := unit.DB()
+
+			qtx := dbsqlc.New(tx)
+			if _, err := lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, uuid.Nil); err != nil {
+				return ProcessRecord{}, fmt.Errorf("lock agent for process completion: %w", err)
+			}
+			row, err := qtx.CompleteProcess(
+				ctx,
+				dbsqlc.CompleteProcessParams{
+					ProjectID:          input.ProjectID,
+					AgentID:            input.AgentID,
+					ID:                 input.ID,
+					RuntimeLockID:      input.RuntimeLockID,
+					State:              string(input.State),
+					SourceEndedAt:      input.SourceEndedAt,
+					ExitCode:           storeutil.Int32Ptr(input.ExitCode),
+					ExitSignal:         input.ExitSignal,
+					StateReasonCode:    storeutil.TextFromEmpty(input.StateReasonCode),
+					StateReasonMessage: input.StateReasonMessage,
+				},
+			)
+			if err != nil {
+				return ProcessRecord{}, fmt.Errorf("complete process: %w", err)
+			}
+			process := processRecordFromCompleteSQLC(row)
+			if err := completeQueuedProcessActionsForTerminalProcessTx(
+				ctx,
+				unit,
+				qtx,
+				process,
+			); err != nil {
+				return ProcessRecord{}, err
+			}
+			if err := unit.Commit(ctx, "complete process"); err != nil {
+				return ProcessRecord{}, err
+			}
+			return process, nil
+		})
 }

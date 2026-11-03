@@ -16,7 +16,6 @@ import (
 type responsesRole string
 
 const (
-	responsesRoleSystem    responsesRole = "system"
 	responsesRoleUser      responsesRole = "user"
 	responsesRoleAssistant responsesRole = "assistant"
 )
@@ -33,12 +32,6 @@ func buildInput(
 	bundle.ResolvedMedia = renderableMedia(bundle.ResolvedMedia)
 	capacity := len(bundle.Messages) + len(bundle.ToolResults)
 	if bundle.ContextCheckpoint != nil {
-		capacity++
-	}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		capacity++
-	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
 	items := make([]any, 0, capacity)
@@ -98,24 +91,6 @@ func buildInput(
 				},
 			)
 		}
-	}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		items = append(
-			items,
-			map[string]any{
-				"role":    responsesRoleSystem,
-				"content": modelcontext.AvailableMachinePoolsContent(bundle.AvailableMachinePools),
-			},
-		)
-	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
-		items = append(
-			items,
-			map[string]any{
-				"role":    responsesRoleSystem,
-				"content": modelcontext.IntegrationTargetsContent(bundle.IntegrationTargets),
-			},
-		)
 	}
 	return items, nil
 }

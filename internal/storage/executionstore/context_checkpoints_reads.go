@@ -23,28 +23,6 @@ type ContextCheckpointRecord struct {
 	CreatedAt                      time.Time `json:"created_at"`
 }
 
-func (s *Store) CountConsecutiveContextCheckpointLineage(
-	ctx context.Context,
-	projectID, agentID uuid.UUID,
-	inputEventSequence int64,
-) (int, error) {
-	if projectID == uuid.Nil || agentID == uuid.Nil || inputEventSequence <= 0 {
-		return 0, errors.New("project, agent, and positive event sequence are required")
-	}
-	count, err := s.q.CountConsecutiveContextCheckpointLineage(
-		ctx,
-		dbsqlc.CountConsecutiveContextCheckpointLineageParams{
-			ProjectID:          projectID,
-			AgentID:            agentID,
-			InputEventSequence: inputEventSequence,
-		},
-	)
-	if err != nil {
-		return 0, fmt.Errorf("count consecutive context checkpoint lineage: %w", err)
-	}
-	return int(count), nil
-}
-
 func (s *Store) GetContextCheckpoint(
 	ctx context.Context,
 	projectID, agentID, id uuid.UUID,

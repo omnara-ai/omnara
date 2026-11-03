@@ -83,7 +83,24 @@ jobs:
           key: go-${{ runner.os }}-${{ runner.arch }}-tests-${{ matrix.target }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-tests-${{ matrix.target }}-
 
+      - name: Install test tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep gcc libc6-dev
+
       - run: make ${{ matrix.target }}
+
+  worker-image:
+    name: Worker Image Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: make test-worker-image
 
   daemon-darwin:
     name: Daemon macOS Tests
@@ -105,8 +122,21 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
         with:
-          fetch-depth: 0
+          node-version-file: .node-version
+
+      - run: corepack enable
+
+      - run: make web-static-check
+
+  web-e2e:
+    name: Frontend E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -121,7 +151,7 @@ jobs:
           key: go-${{ runner.os }}-${{ runner.arch }}-frontend-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-frontend-
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
         with:
           node-version-file: .node-version
 
@@ -129,7 +159,7 @@ jobs:
 
       - run: make web-e2e
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: playwright-report
@@ -179,6 +209,12 @@ jobs:
           key: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-
 
+      - name: Install file tools
+        if: matrix.target == 'test-integration-runtime'
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
+          make install-chroot-sandbox
+
       - uses: ./.github/actions/setup-test-db
 
       - run: make ${{ matrix.target }}
@@ -219,6 +255,11 @@ jobs:
             ~/.cache/go-build
           key: go-${{ runner.os }}-${{ runner.arch }}-service-e2e-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-service-e2e-
+
+      - name: Install file tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
+          make install-chroot-sandbox
 
       - uses: ./.github/actions/setup-test-db
 

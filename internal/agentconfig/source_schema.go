@@ -6,17 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"sync"
 
 	kjsonschema "github.com/kaptinlin/jsonschema"
+	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/resourcename"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"gopkg.in/yaml.v3"
 )
 
 const MaxMachineCwdLength = 4096
+
+const OpenAPIDefinitionComponent = "AgentConfigDefinition"
 
 type SourceFormat string
 
@@ -26,16 +27,35 @@ const (
 )
 
 type AgentConfigSource struct {
-	Version        string                               `json:"version,omitempty"`
-	Instruction    string                               `json:"instruction"`
-	Model          AgentConfigModelSource               `json:"model"`
-	MachineSources []AgentConfigMachineSource           `json:"machine_sources,omitempty"`
-	Tools          map[string]AgentConfigToolSource     `json:"tools,omitempty"`
-	MCP            map[string]AgentConfigMCPSource      `json:"mcp,omitempty"`
-	Skills         []string                             `json:"skills,omitempty"`
-	Subagents      map[string]AgentConfigSubagentSource `json:"subagents,omitempty"`
-	MaxSubagents   *int                                 `json:"max_subagents,omitempty"`
-	MaxDepth       *int                                 `json:"max_depth,omitempty"`
+	Version             string                                            `json:"version,omitempty"`
+	Instruction         string                                            `json:"instruction"`
+	Model               AgentConfigModelSource                            `json:"model"`
+	MachineSources      []AgentConfigMachineSource                        `json:"machine_sources,omitempty"`
+	Tools               map[string]AgentConfigToolSource                  `json:"tools,omitempty"`
+	MCP                 map[string]AgentConfigMCPSource                   `json:"mcp,omitempty"`
+	InteractionHandlers map[string]AgentConfigIntegrationCapabilitySource `json:"interaction_handlers,omitempty"`
+	GitCredentials      *GitCredentialsSource                             `json:"git_credentials,omitempty"`
+	Skills              []string                                          `json:"skills,omitempty"`
+	Subagents           map[string]AgentConfigSubagentSource              `json:"subagents,omitempty"`
+	MaxSubagents        *int                                              `json:"max_subagents,omitempty"`
+	MaxDepth            *int                                              `json:"max_depth,omitempty"`
+	MemoryStores        []MemoryStoreSource                               `json:"memory_stores,omitempty"`
+}
+
+type MemoryStoreAccess string
+
+const (
+	MemoryStoreAccessRead      MemoryStoreAccess = "read"
+	MemoryStoreAccessReadWrite MemoryStoreAccess = "read_write"
+)
+
+func (access MemoryStoreAccess) Valid() bool {
+	return access == MemoryStoreAccessRead || access == MemoryStoreAccessReadWrite
+}
+
+type MemoryStoreSource struct {
+	Name   string            `json:"name"`
+	Access MemoryStoreAccess `json:"access"`
 }
 
 type AgentConfigModelSource struct {
@@ -76,7 +96,7 @@ type AgentConfigToolSource struct {
 }
 
 type AgentConfigMCPSource struct {
-	URL            string                              `json:"url"`
+	URL            string                              `json:"url,omitempty"`
 	Auth           *AgentConfigMCPAuthSource           `json:"auth,omitempty"`
 	DefaultEnabled *bool                               `json:"default_enabled,omitempty"`
 	Permission     *toolpermission.Selection           `json:"permission,omitempty"`
@@ -298,7 +318,7 @@ func normalizeYAMLValue(value any) (any, error) {
 var compiledSourceSchema = sync.OnceValues(newCompiledSourceSchema)
 
 func newCompiledSourceSchema() (*kjsonschema.Schema, error) {
-	schemaJSON, err := agentConfigSourceJSONSchemaJSON()
+	schemaJSON, err := SourceJSONSchema()
 	if err != nil {
 		return nil, err
 	}
@@ -317,254 +337,6 @@ func validateSourceSchema(schema *kjsonschema.Schema, jsonSource []byte, root *y
 	return nil
 }
 
-func agentConfigSourceJSONSchemaJSON() ([]byte, error) {
-	schemaJSON, err := json.Marshal(agentConfigSourceSchema())
-	if err != nil {
-		return nil, fmt.Errorf("marshal agent config JSON schema: %w", err)
-	}
-	return canonicalizeJSON(schemaJSON), nil
-}
-
-func agentConfigSourceSchema() *kjsonschema.Schema {
-	schema := kjsonschema.Object(
-		kjsonschema.Prop("version", kjsonschema.Enum("v1")),
-		kjsonschema.Prop("instruction", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
-		kjsonschema.Prop("model", kjsonschema.Ref("#/$defs/AgentConfigModelSource")),
-		kjsonschema.Prop("machine_sources", kjsonschema.AnyOf(
-			kjsonschema.Array(kjsonschema.Items(kjsonschema.Ref("#/$defs/AgentConfigMachineSource"))),
-			kjsonschema.Null(),
-		)),
-		kjsonschema.Prop("tools", kjsonschema.Object(
-			kjsonschema.PropertyNames(kjsonschema.AllOf(
-				kjsonschema.String(kjsonschema.Pattern(toolcatalog.ToolNamePattern)),
-				kjsonschema.Not(kjsonschema.String(kjsonschema.Pattern(`^`+toolcatalog.MCPRuntimeToolPrefix))),
-			)),
-			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigToolSource")),
-		)),
-		kjsonschema.Prop("mcp", kjsonschema.Object(
-			kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPServerKeyPattern))),
-			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigMCPSource")),
-		)),
-		kjsonschema.Prop("skills", kjsonschema.AnyOf(
-			kjsonschema.Array(
-				kjsonschema.Items(kjsonschema.String(
-					kjsonschema.Pattern(`^skl_[a-z2-7]{26}$`),
-				)),
-				kjsonschema.UniqueItems(true),
-			),
-			kjsonschema.Null(),
-		)),
-		kjsonschema.Prop("subagents", kjsonschema.Object(
-			kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.ToolNamePattern))),
-			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigSubagentSource")),
-		)),
-		kjsonschema.Prop(
-			"max_subagents",
-			kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
-		),
-		kjsonschema.Prop(
-			"max_depth",
-			kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(MaxSubagentDepth))),
-		),
-		kjsonschema.Required("instruction", "model"),
-		kjsonschema.AdditionalProps(false),
-		kjsonschema.Defs(map[string]*kjsonschema.Schema{
-			"AgentConfigSubagentSource": func() *kjsonschema.Schema {
-				def := kjsonschema.Object(
-					kjsonschema.Prop("type", kjsonschema.Enum(SubagentTypeProfile, SubagentTypeSelf)),
-					kjsonschema.Prop("profile", resourceNameReferenceSchema()),
-					kjsonschema.Prop("description", kjsonschema.String()),
-					kjsonschema.Prop("model", kjsonschema.Ref("#/$defs/AgentConfigSubagentModelSource")),
-					kjsonschema.Prop("instruction", kjsonschema.Ref("#/$defs/AgentConfigSubagentInstructionSource")),
-					kjsonschema.Prop(
-						"max_instances",
-						kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
-					),
-					kjsonschema.Prop(
-						"archive_after_idle_minutes",
-						kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
-					),
-					kjsonschema.Required("type"),
-					kjsonschema.AdditionalProps(false),
-				)
-				def.If = kjsonschema.Object(
-					kjsonschema.Prop("type", kjsonschema.Const(SubagentTypeProfile)),
-					kjsonschema.Required("type"),
-				)
-				def.Then = &kjsonschema.Schema{Required: []string{"profile"}}
-				def.Else = kjsonschema.Not(kjsonschema.Object(kjsonschema.Required("profile")))
-				return def
-			}(),
-			"AgentConfigSubagentModelSource": kjsonschema.Object(
-				kjsonschema.Prop("provider_config", resourceNameReferenceSchema()),
-				kjsonschema.Prop("name", resourceNameReferenceSchema()),
-				kjsonschema.Prop("context_window_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
-				kjsonschema.Prop("default_max_output_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
-				kjsonschema.Prop("cache_retention", kjsonschema.Enum("none", "short", "long")),
-				kjsonschema.Prop("reasoning", kjsonschema.Object(
-					kjsonschema.Prop("effort", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
-					kjsonschema.Required("effort"),
-					kjsonschema.AdditionalProps(false),
-				)),
-				kjsonschema.AdditionalProps(false),
-			),
-			"AgentConfigSubagentInstructionSource": kjsonschema.Object(
-				kjsonschema.Prop("append", kjsonschema.String()),
-				kjsonschema.AdditionalProps(false),
-			),
-			"AgentConfigModelSource": kjsonschema.Object(
-				kjsonschema.Prop("provider_config", resourceNameReferenceSchema()),
-				kjsonschema.Prop("name", resourceNameReferenceSchema()),
-				kjsonschema.Prop("context_window_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
-				kjsonschema.Prop("default_max_output_tokens", kjsonschema.Integer(kjsonschema.Min(1))),
-				kjsonschema.Prop("cache_retention", kjsonschema.Enum("none", "short", "long")),
-				kjsonschema.Prop("reasoning", kjsonschema.Object(
-					kjsonschema.Prop("effort", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
-					kjsonschema.Required("effort"),
-					kjsonschema.AdditionalProps(false),
-				)),
-				kjsonschema.Required("provider_config", "name"),
-				kjsonschema.AdditionalProps(false),
-			),
-			"AgentConfigMachineSource": kjsonschema.Object(
-				kjsonschema.Prop("machine_name", resourceNameReferenceSchema()),
-				kjsonschema.Prop("machine_pool_name", resourceNameReferenceSchema()),
-				kjsonschema.Prop("max_machines", kjsonschema.Integer(kjsonschema.Min(0))),
-				kjsonschema.Prop("initial_num_machines", kjsonschema.Integer(kjsonschema.Min(0))),
-				kjsonschema.Prop(
-					"delete_after_idle_minutes",
-					kjsonschema.AnyOf(
-						kjsonschema.Const(0),
-						kjsonschema.Integer(kjsonschema.Min(5), kjsonschema.Max(float64(math.MaxInt32))),
-					),
-				),
-				kjsonschema.Prop("cwd", kjsonschema.String(kjsonschema.MaxLength(MaxMachineCwdLength))),
-				kjsonschema.Prop(
-					"machine_cpu",
-					kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
-				),
-				kjsonschema.Prop(
-					"machine_memory_mb",
-					kjsonschema.Integer(kjsonschema.Min(1), kjsonschema.Max(float64(math.MaxInt32))),
-				),
-				kjsonschema.Prop("env_overlay", kjsonschema.AnyOf(
-					kjsonschema.Object(
-						kjsonschema.PropertyNames(envNameSchema()),
-						kjsonschema.AdditionalPropsSchema(kjsonschema.AnyOf(
-							kjsonschema.String(),
-							kjsonschema.Null(),
-						)),
-					),
-					kjsonschema.Null(),
-				)),
-				kjsonschema.Prop("secret_env_overlay", kjsonschema.AnyOf(
-					kjsonschema.Object(
-						kjsonschema.PropertyNames(envNameSchema()),
-						kjsonschema.AdditionalPropsSchema(kjsonschema.AnyOf(
-							kjsonschema.String(kjsonschema.Pattern(`^sec_[a-z2-7]{26}$`)),
-							kjsonschema.Null(),
-						)),
-					),
-					kjsonschema.Null(),
-				)),
-				kjsonschema.Prop("machine_provider_options_overlay", kjsonschema.AnyOf(
-					kjsonschema.Object(),
-					kjsonschema.Null(),
-				)),
-				kjsonschema.Prop("description", kjsonschema.String(kjsonschema.MaxLength(4096))),
-				kjsonschema.AdditionalProps(false),
-				kjsonschema.Keyword(func(s *kjsonschema.Schema) {
-					s.OneOf = []*kjsonschema.Schema{
-						kjsonschema.Object(kjsonschema.Required("machine_name")),
-						kjsonschema.Object(kjsonschema.Required("machine_pool_name")),
-					}
-				}),
-			),
-			"AgentConfigToolSource": func() *kjsonschema.Schema {
-				def := kjsonschema.Object(
-					kjsonschema.Prop("type", kjsonschema.Enum(toolcatalog.ToolTypeBuiltIn, toolcatalog.ToolTypeCustom)),
-					kjsonschema.Prop("enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
-					kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
-					kjsonschema.Prop("deferred", kjsonschema.Boolean()),
-					kjsonschema.Prop("description", kjsonschema.String(kjsonschema.MinLength(1))),
-					kjsonschema.Prop("input_schema", kjsonschema.Ref("#/$defs/AgentToolInputSchema")),
-					kjsonschema.AdditionalProps(false),
-				)
-				def.If = kjsonschema.Object(
-					kjsonschema.Prop("type", kjsonschema.Const(toolcatalog.ToolTypeCustom)),
-					kjsonschema.Required("type"),
-				)
-				def.Then = &kjsonschema.Schema{
-					Required: []string{"description", "input_schema"},
-				}
-				def.Else = kjsonschema.Not(kjsonschema.AnyOf(
-					kjsonschema.Object(kjsonschema.Required("description")),
-					kjsonschema.Object(kjsonschema.Required("input_schema")),
-				))
-				return def
-			}(),
-			"AgentToolInputSchema": kjsonschema.Object(
-				kjsonschema.Prop("type", kjsonschema.Const(toolcatalog.ToolInputSchemaObject)),
-				kjsonschema.Prop("properties", kjsonschema.Object(
-					kjsonschema.AdditionalPropsSchema(kjsonschema.Object()),
-				)),
-				kjsonschema.Prop("required", kjsonschema.Array(
-					kjsonschema.Items(kjsonschema.String(kjsonschema.MinLength(1))),
-				)),
-				kjsonschema.Required("type"),
-			),
-			"AgentConfigMCPSource": kjsonschema.Object(
-				kjsonschema.Prop("url", kjsonschema.String(kjsonschema.MinLength(1))),
-				kjsonschema.Prop("auth", kjsonschema.Ref("#/$defs/AgentConfigMCPAuthSource")),
-				kjsonschema.Prop("default_enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
-				kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
-				kjsonschema.Prop("deferred", kjsonschema.Boolean()),
-				kjsonschema.Prop("tools", kjsonschema.Object(
-					kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPRemoteToolNamePattern))),
-					kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigMCPToolSource")),
-				)),
-				kjsonschema.Required("url"),
-				kjsonschema.AdditionalProps(false),
-			),
-			"AgentConfigMCPAuthSource": kjsonschema.Object(
-				kjsonschema.Prop(
-					"type",
-					kjsonschema.Enum(MCPAuthTypeBearer, MCPAuthTypeOAuth, MCPAuthTypeSigV4),
-				),
-				kjsonschema.Prop(
-					"secret_id",
-					kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`^sec_[a-z2-7]{26}$`)),
-				),
-				kjsonschema.Prop("service", kjsonschema.String(kjsonschema.MinLength(1))),
-				kjsonschema.Prop("region", kjsonschema.String(kjsonschema.MinLength(1))),
-				kjsonschema.Required("type", "secret_id"),
-				kjsonschema.AdditionalProps(false),
-			),
-			"AgentConfigMCPToolSource": kjsonschema.Object(
-				kjsonschema.Prop("enabled", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
-				kjsonschema.Prop("permission", kjsonschema.Ref("#/$defs/ToolPermissionSelection")),
-				kjsonschema.Prop("deferred", kjsonschema.AnyOf(kjsonschema.Boolean(), kjsonschema.Null())),
-				kjsonschema.AdditionalProps(false),
-			),
-			"ToolPermissionSelection": kjsonschema.Object(
-				kjsonschema.Prop("mode", kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern(`\S`))),
-				kjsonschema.Prop("parameters", kjsonschema.Object()),
-				kjsonschema.Required("mode"),
-				kjsonschema.AdditionalProps(false),
-			),
-		}),
-	)
-	return schema
-}
-
-func resourceNameReferenceSchema() *kjsonschema.Schema {
-	return kjsonschema.String(
-		kjsonschema.MinLength(1),
-		kjsonschema.MaxLength(resourcename.MaxCodePoints),
-		kjsonschema.Pattern(`^\S(?:.*\S)?$`),
-	)
-}
-
-func envNameSchema() *kjsonschema.Schema {
-	return kjsonschema.String(kjsonschema.MinLength(1), kjsonschema.Pattern("^[^=\x00]+$"))
+func SourceJSONSchema() ([]byte, error) {
+	return openapispec.ComponentJSONSchema(OpenAPIDefinitionComponent)
 }

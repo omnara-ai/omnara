@@ -7,5 +7,9 @@ func GoMigrations() []*goose.Migration {
 		newAgentConfigNameMigration(),
 		newFileToolCutoverMigration(),
 		newExplicitDefaultToolsMigration(),
+		newInternalConfigIDsMigration(),
+		newSlackIntegrationCutoverMigration(),
+		newStorageToolsMigration(),
+		newEventWebhookConfigMigration(),
 	}
 }

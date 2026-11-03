@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -101,9 +102,8 @@ func TestDaemonUninstalledReportCompletesProcessWork(t *testing.T) {
 		ToolCallID:    runningToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -178,9 +178,8 @@ func TestDeleteMachineFailsQueuedProcessBeforeExecutionGrant(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -232,9 +231,8 @@ func TestStartProcessFailsAfterMachineDeleted(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}); !errors.Is(err, storeerr.ErrMachineNotReachable) {
 		t.Fatalf("start process after machine delete err=%v, want ErrMachineNotReachable", err)
@@ -262,9 +260,8 @@ func TestStartProcessReplaySucceedsAfterMachineDeleted(t *testing.T) {
 		RuntimeLockID: fixture.Lock.ID,
 	}
 	input := executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}
 	process, err := startProcessForTest(ctx, fixture.Store, transaction, input)
@@ -300,9 +297,8 @@ func TestDeleteMachineUnknownsGrantedProcessAfterRuntimeEnds(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -484,9 +480,8 @@ func TestMachineUnreachableProcessToolCallUnblocksWithoutTerminalizingProcess(t 
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -687,9 +682,8 @@ func TestLateProcessFinishedReportPreservesMachineUnreachableToolResult(t *testi
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -812,9 +806,8 @@ func TestMachineUnreachableResolvesAcceptedActionsInSequence(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -989,9 +982,8 @@ func TestLateAcceptedActionReportAfterMachineUnreachableIsCleanupOnly(t *testing
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1123,9 +1115,8 @@ func TestMachineUnreachableQueuedProcessFailsBeforeExecutionGrant(t *testing.T) 
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1206,9 +1197,8 @@ func TestMachineUnreachableGraceDoesNotRestartWhenExpiredRuntimeIsReaped(t *test
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1279,9 +1269,8 @@ func TestStartProcessFailsForNeverConnectedMachine(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}); !errors.Is(err, storeerr.ErrMachineNotReachable) {
 		t.Fatalf("start process err=%v, want ErrMachineNotReachable", err)
@@ -1450,9 +1439,8 @@ func TestMachineUnreachableQueuedActionFailsBeforeActionGrant(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1553,9 +1541,8 @@ func TestMachineUnreachableCandidatesAreOfflineMachineFirst(t *testing.T) {
 		ToolCallID:    offlineToolCallID,
 		RuntimeLockID: offline.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: offline.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}); err != nil {
 		t.Fatalf("start offline process: %v", err)
@@ -1567,9 +1554,8 @@ func TestMachineUnreachableCandidatesAreOfflineMachineFirst(t *testing.T) {
 		ToolCallID:    onlineToolCallID,
 		RuntimeLockID: online.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: online.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}); err != nil {
 		t.Fatalf("start online process: %v", err)
@@ -1630,9 +1616,8 @@ func TestMachineUnreachableCandidatesUseLatestRuntimeRecency(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}); err != nil {
 		t.Fatalf("start process: %v", err)
@@ -1722,9 +1707,8 @@ func TestMachineUnreachableCandidatesSkipEarlierWorkWithinLatestRuntimeGrace(t *
 			ToolCallID:    toolCallID,
 			RuntimeLockID: fixture.Lock.ID,
 		}, executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 			AgentMachineBindingID: fixture.BindingID,
-			Command:               "sleep 3600",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		}); err != nil {
 			t.Fatalf("start process for machine %s: %v", fixture.MachineID, err)

@@ -7,14 +7,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
 const (
-	webSearchDefaultResults     = 5
-	webSearchMaxResults         = 20
-	webSearchInlineSnippetChars = 600
+	webSearchDefaultResults = 5
+	webSearchMaxResults     = 20
 )
 
 type webSearchRequest struct {
@@ -75,7 +73,7 @@ func resolveWebSearchRequest(raw json.RawMessage) (resolvedWebSearchRequest, err
 			resolved.Recency = *recency
 		default:
 			return resolvedWebSearchRequest{}, fmt.Errorf(
-				"recency must be one of day, week, month, year (got %q)",
+				"recency must be one of day, week, month, year (got \"%s\")",
 				*recency,
 			)
 		}
@@ -139,43 +137,26 @@ func runWebSearch(
 			err,
 		)
 	}
-	content, err := webSearchToolResultContent(resolved.Query, response)
-	if err != nil {
-		return nil, err
-	}
-	return completeAsynchronously(content), nil
+	return completeAsynchronously(webSearchToolResultContent(resolved.Query, response)), nil
 }
 
 func webSearchToolResultContent(
 	query string,
 	response webaccess.SearchResponse,
-) (toolResultContent, error) {
+) toolResultContent {
 	var rendered strings.Builder
-	fmt.Fprintf(&rendered, "Web search results for %q:\n", query)
+	fmt.Fprintf(&rendered, "Web search results for \"%s\":\n", query)
 	if len(response.Results) == 0 {
 		rendered.WriteString("No results found. Try a different query.")
 	}
 	for index, result := range response.Results {
 		fmt.Fprintf(&rendered, "\n%d. %s\n   %s\n", index+1, result.Title, result.URL)
-		snippet := strings.TrimSpace(result.Snippet)
-		if snippet != "" {
-			if len(snippet) > webSearchInlineSnippetChars {
-				snippet = textutil.TruncateRunes(snippet, webSearchInlineSnippetChars) + "…"
-			}
+		if result.Published != "" {
+			fmt.Fprintf(&rendered, "   Published: %s\n", result.Published)
+		}
+		if snippet := strings.TrimSpace(result.Snippet); snippet != "" {
 			fmt.Fprintf(&rendered, "   %s\n", snippet)
 		}
 	}
-	structured := map[string]any{
-		"query":    query,
-		"provider": response.Provider,
-		"results":  response.Results,
-	}
-	structuredPart, err := structuredToolResultPart(structured)
-	if err != nil {
-		return toolResultContent{}, err
-	}
-	return newToolResultContent(
-		textToolResultPart(rendered.String()),
-		structuredPart,
-	), nil
+	return newToolResultContent(textToolResultPart(rendered.String()))
 }

@@ -185,6 +185,38 @@ func TestOAuthRefreshReplayOfOlderRotatedTokenRevokesGrant(t *testing.T) {
 	}
 }
 
+func TestOAuthRefreshRejectsScopeBeyondGrant(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	fixture := newOAuthGrantFixture(t, ctx, store, "oauth-scope-grant")
+	approval := fixture.approvalInput()
+	approval.Scope = "openid"
+	code, err := store.Identity().CreateOAuthAuthorizationCode(ctx, approval)
+	if err != nil {
+		t.Fatalf("create authorization code: %v", err)
+	}
+	tokens, err := store.Identity().ExchangeOAuthAuthorizationCode(ctx, oauthExchangeInput(code))
+	if err != nil {
+		t.Fatalf("exchange authorization code: %v", err)
+	}
+	escalation := oauthRefreshInput(tokens.RefreshToken)
+	escalation.Scope = "openid email"
+	_, err = store.Identity().RefreshOAuthAccessToken(ctx, escalation)
+	if !errors.Is(err, storeerr.ErrOAuthScopeExceedsGrant) {
+		t.Fatalf("refresh beyond granted scope: err = %v, want scope exceeds grant", err)
+	}
+	refreshed, err := store.Identity().RefreshOAuthAccessToken(ctx, oauthRefreshInput(tokens.RefreshToken))
+	if err != nil {
+		t.Fatalf("refresh within granted scope: %v", err)
+	}
+	if refreshed.Scope != "openid" {
+		t.Fatalf("refreshed scope = %q, want openid", refreshed.Scope)
+	}
+}
+
 func TestOAuthExchangeLocksUserBeforeAuthorizationCode(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

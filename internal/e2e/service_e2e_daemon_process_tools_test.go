@@ -59,28 +59,31 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 	nonce := "DOCKER_DAEMON_PROCESS_TOOLS_" + strings.ToUpper(strings.ReplaceAll(env.seed, "-", "_"))
 	literalEnv := "literal_" + nonce
 	secretEnv := "secret_" + nonce
-	secret := env.requestJSON(
-		t,
-		ctx,
-		http.MethodPost,
-		"/api/v1/orgs/"+project.orgID+"/secrets",
-		map[string]any{
-			"owner": map[string]any{
-				"kind":       "project",
-				"project_id": project.projectID,
+	secretIDs := make(map[string]string)
+	for _, name := range []string{"daemon-process-environment", "deleted-process-environment"} {
+		secret := env.requestJSON(
+			t,
+			ctx,
+			http.MethodPost,
+			"/api/v1/orgs/"+project.orgID+"/secrets",
+			map[string]any{
+				"owner": map[string]any{
+					"kind":       "project",
+					"project_id": project.projectID,
+				},
+				"name": name,
+				"material": map[string]string{
+					"kind":  "generic",
+					"value": secretEnv,
+				},
 			},
-			"name": "daemon-process-environment",
-			"material": map[string]string{
-				"kind":  "generic",
-				"value": secretEnv,
-			},
-		},
-		"",
-		project.adminToken,
-		http.StatusCreated,
-	)
-	secretID := testutil.RequireType[string](t, secret["id"])
-	quickCommandOutput := strings.Join([]string{nonce, literalEnv, secretEnv}, "|")
+			"",
+			project.adminToken,
+			http.StatusCreated,
+		)
+		secretIDs[name] = testutil.RequireType[string](t, secret["id"])
+	}
+	quickCommandOutput := strings.Join([]string{nonce, literalEnv, secretEnv, "absent"}, "|")
 	missingCwd := "/work/missing-" + nonce
 	machine := project.bootstrapDockerMachine(t, ctx, "deterministic-byo-machine")
 	project.updateAgentProfileConfigWithMachine(
@@ -95,11 +98,21 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 			"    env_overlay:",
 			"      SERVICE_E2E_LITERAL: " + literalEnv,
 			"    secret_env_overlay:",
-			"      SERVICE_E2E_SECRET: " + secretID,
+			"      SERVICE_E2E_SECRET: " + secretIDs["daemon-process-environment"],
+			"      SERVICE_E2E_DELETED_SECRET: " + secretIDs["deleted-process-environment"],
 		},
 		processToolsRequiringApproval,
 		processToolNames...)
 	agentID := project.createAgent(t, ctx)
+	deleteRequest, err := env.newAPIRequest(ctx, http.MethodDelete,
+		"/api/v1/orgs/"+project.orgID+"/secrets/"+secretIDs["deleted-process-environment"],
+		nil)
+	require.NoError(t, err)
+	deleteRequest.Header.Set("Authorization", "Bearer "+project.adminToken)
+	deleteResponse, err := http.DefaultClient.Do(deleteRequest)
+	require.NoError(t, err)
+	require.NoError(t, deleteResponse.Body.Close())
+	require.Equal(t, http.StatusNoContent, deleteResponse.StatusCode)
 	daemon := env.startDaemonContainer(
 		t,
 		ctx,
@@ -112,7 +125,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 	var requestCount atomic.Int64
 	var mu sync.Mutex
 	var processID string
-	var processCursor int64
+	var processOffset int64
 	modelFailures := make(chan string, 1)
 	failModelRequest := func(w http.ResponseWriter, status int, format string, args ...any) {
 		message := fmt.Sprintf(format, args...)
@@ -157,7 +170,6 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				map[string]any{
 					"command": "echo should-not-run",
 					"cwd":     missingCwd,
-					"wait_ms": 1000,
 				},
 			)
 		case 2:
@@ -177,18 +189,17 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				return
 			}
 			writeOpenAIFunctionCall(w, failModelRequest, "resp_run_command", "call_run_command", "run_command", map[string]any{
-				"command": fmt.Sprintf("printf '%%s|%%s|%%s\\n' '%s' \"$SERVICE_E2E_LITERAL\" \"$SERVICE_E2E_SECRET\" > quick-command.txt", nonce),
-				"wait_ms": 1000,
+				"command": fmt.Sprintf("printf '%%s|%%s|%%s|%%s\\n' '%s' \"$SERVICE_E2E_LITERAL\" \"$SERVICE_E2E_SECRET\" \"${SERVICE_E2E_DELETED_SECRET-absent}\" > quick-command.txt", nonce),
 			})
 		case 3:
 			if _, ok := fakeModelToolProcessID(w, body, failModelRequest, "call_run_command"); !ok {
 				return
 			}
 			writeOpenAIFunctionCall(w, failModelRequest, "resp_start", "call_start", "run_command", map[string]any{
-				"command": "while IFS= read -r line; do case \"$line\" in CREATE*) printf created > stdin-file.txt; printf C;; DELETE*) rm -f stdin-file.txt; printf D;; esac; done",
+				"command": "stty -echo; while IFS= read -r line; do case \"$line\" in CREATE*) printf created > stdin-file.txt; printf C;; DELETE*) rm -f stdin-file.txt; printf D;; END*) break;; esac; done",
 				"shell":   "sh",
 				"cwd":     "/work",
-				"wait_ms": 1000,
+				"io_mode": "pty",
 			})
 		case 4:
 			id, ok := fakeModelToolProcessID(w, body, failModelRequest, "call_start")
@@ -220,18 +231,18 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"resp_read_create",
 				"call_read_create",
 				"read_process",
-				map[string]any{"process_id": id, "cursor": 0, "max_bytes": 4096, "wait_ms": 1000},
+				map[string]any{"process_id": id, "offset_byte": 0, "wait_ms": 1000},
 			)
 		case 6:
 			result, ok := fakeModelProcessResult(w, body, failModelRequest, "call_read_create")
-			if !ok || result.Output != "C" || result.NextCursor == nil {
+			if !ok || result.Output != "C" || result.NextOffsetByte == nil {
 				if ok {
 					failModelRequest(w, http.StatusBadRequest, "create read result is incomplete: %+v", result)
 				}
 				return
 			}
 			mu.Lock()
-			processCursor = *result.NextCursor
+			processOffset = *result.NextOffsetByte
 			id := processID
 			mu.Unlock()
 			writeOpenAIFunctionCall(
@@ -248,7 +259,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 			}
 			mu.Lock()
 			id := processID
-			cursor := processCursor
+			offset := processOffset
 			mu.Unlock()
 			writeOpenAIFunctionCall(
 				w,
@@ -256,20 +267,20 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"resp_read_delete",
 				"call_read_delete",
 				"read_process",
-				map[string]any{"process_id": id, "cursor": cursor, "max_bytes": 4096, "wait_ms": 1000},
+				map[string]any{"process_id": id, "offset_byte": offset, "wait_ms": 1000},
 			)
 		case 8:
 			result, ok := fakeModelProcessResult(w, body, failModelRequest, "call_read_delete")
-			if !ok || result.Output != "D" || result.NextCursor == nil {
+			if !ok || result.Output != "D" || result.NextOffsetByte == nil {
 				if ok {
 					failModelRequest(w, http.StatusBadRequest, "delete read result is incomplete: %+v", result)
 				}
 				return
 			}
 			mu.Lock()
-			processCursor = *result.NextCursor
+			processOffset = *result.NextOffsetByte
 			id := processID
-			cursor := processCursor
+			offset := processOffset
 			mu.Unlock()
 			writeOpenAIFunctionCall(
 				w,
@@ -278,39 +289,38 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"call_wait_running",
 				"read_process",
 				map[string]any{
-					"process_id": id,
-					"cursor":     cursor,
-					"max_bytes":  4096,
-					"wait_ms":    100,
+					"process_id":  id,
+					"offset_byte": offset,
+					"wait_ms":     100,
 				},
 			)
 		case 9:
 			result, ok := fakeModelProcessResult(w, body, failModelRequest, "call_wait_running")
-			if !ok || result.State != "running" || result.NextCursor == nil {
+			if !ok || result.State != "running" || result.NextOffsetByte == nil {
 				if ok {
 					failModelRequest(w, http.StatusBadRequest, "running read result is incomplete: %+v", result)
 				}
 				return
 			}
 			mu.Lock()
-			processCursor = *result.NextCursor
+			processOffset = *result.NextOffsetByte
 			id := processID
 			mu.Unlock()
 			writeOpenAIFunctionCall(
 				w,
 				failModelRequest,
-				"resp_close_stdin",
-				"call_close_stdin",
+				"resp_end_input",
+				"call_end_input",
 				"write_process",
-				map[string]any{"process_id": id, "close_stdin": true},
+				map[string]any{"process_id": id, "data": "END\n"},
 			)
 		case 10:
-			if !fakeModelProcessActionAccepted(w, body, failModelRequest, "call_close_stdin") {
+			if !fakeModelProcessActionAccepted(w, body, failModelRequest, "call_end_input") {
 				return
 			}
 			mu.Lock()
 			id := processID
-			cursor := processCursor
+			offset := processOffset
 			mu.Unlock()
 			writeOpenAIFunctionCall(
 				w,
@@ -319,10 +329,9 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"call_read_terminal",
 				"read_process",
 				map[string]any{
-					"process_id": id,
-					"cursor":     cursor,
-					"max_bytes":  4096,
-					"wait_ms":    1000,
+					"process_id":  id,
+					"offset_byte": offset,
+					"wait_ms":     1000,
 				},
 			)
 		case 11:
@@ -339,7 +348,6 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 					"command": "trap 'printf interrupted > /work/interrupted.txt; exit 130' INT; printf R; sleep 20; printf M",
 					"shell":   "sh",
 					"cwd":     "/work",
-					"wait_ms": 1000,
 				},
 			)
 		case 12:
@@ -356,7 +364,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				"resp_read_ready",
 				"call_read_ready",
 				"read_process",
-				map[string]any{"process_id": id, "cursor": 0, "max_bytes": 4096, "wait_ms": 1000},
+				map[string]any{"process_id": id, "offset_byte": 0, "wait_ms": 1000},
 			)
 		case 13:
 			if !fakeModelToolOutputContains(w, body, failModelRequest, "call_read_ready", "R") {
@@ -388,7 +396,6 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 					"command": "echo TERMINATE_READY; while :; do sleep 1; done",
 					"shell":   "sh",
 					"cwd":     "/work",
-					"wait_ms": 1000,
 				},
 			)
 		case 15:
@@ -488,7 +495,7 @@ WHERE call.project_id = $1 AND call.agent_id = $2
 		var processDetails string
 		_ = env.db.QueryRow(
 			ctx,
-			`SELECT coalesce(string_agg(command || ':timeout=' || timeout_seconds::text || ':shell=' || shell_selector, ',' ORDER BY created_at), '') FROM processes WHERE project_id = $1 AND agent_id = $2`,
+			`SELECT coalesce(string_agg((execution_spec->'shell'->>'command') || ':timeout=' || timeout_seconds::text || ':shell=' || (execution_spec->'shell'->>'shell_selector'), ',' ORDER BY created_at), '') FROM processes WHERE project_id = $1 AND agent_id = $2`,
 			projectUUID, agentUUID,
 		).
 			Scan(&processDetails)
@@ -683,9 +690,8 @@ func TestServiceE2ECancelAcceptedRunCommandStopsProcessWithoutReoffer(
 					"printf '%s\\n' \"$child\" > /work/cancel-child.pid; " +
 					"printf x >> /work/cancel-effect.txt; " +
 					"wait \"$child\"; printf y >> /work/cancel-effect.txt",
-				"shell":   "sh",
-				"cwd":     "/work",
-				"wait_ms": 10000,
+				"shell": "sh",
+				"cwd":   "/work",
 			},
 		)
 	}))
@@ -1002,7 +1008,6 @@ func runServiceE2ERecoveryFaultJourney(
 					"command": scenario.command,
 					"shell":   "sh",
 					"cwd":     "/work",
-					"wait_ms": 10000,
 				},
 			)
 		case 2:
@@ -1026,7 +1031,6 @@ func runServiceE2ERecoveryFaultJourney(
 						"command": scenario.freshWork.command,
 						"shell":   "sh",
 						"cwd":     "/work",
-						"wait_ms": 1000,
 					},
 				)
 				return
@@ -2339,9 +2343,6 @@ func validateServiceE2EProcessToolResult(
 		if result.Outcome != "succeeded" {
 			return fmt.Errorf("outcome=%q, want succeeded", result.Outcome)
 		}
-		if result.Done == nil || !*result.Done {
-			return errors.New("done is not true")
-		}
 		if result.ExitCode == nil || *result.ExitCode != 0 {
 			return fmt.Errorf("exit_code=%v, want 0", result.ExitCode)
 		}
@@ -2353,9 +2354,6 @@ func validateServiceE2EProcessToolResult(
 		if result.Outcome != "failed" {
 			return fmt.Errorf("outcome=%q, want failed", result.Outcome)
 		}
-		if result.Done == nil || !*result.Done {
-			return errors.New("done is not true")
-		}
 	default:
 		return fmt.Errorf("unsupported expected process state %q", wantState)
 	}
@@ -2363,20 +2361,23 @@ func validateServiceE2EProcessToolResult(
 }
 
 type serviceE2EProcessResult struct {
-	Outcome    string `json:"outcome"`
-	ProcessID  string `json:"process_id"`
-	State      string `json:"state"`
-	Output     string `json:"output"`
-	Cursor     *int64 `json:"cursor"`
-	NextCursor *int64 `json:"next_cursor"`
-	Truncated  *bool  `json:"truncated"`
-	Done       *bool  `json:"done"`
-	ExitCode   *int   `json:"exit_code"`
+	Outcome        string `json:"outcome"`
+	ProcessID      string `json:"process_id"`
+	State          string `json:"state"`
+	Output         string `json:"output"`
+	OffsetByte     *int64 `json:"offset_byte"`
+	NextOffsetByte *int64 `json:"next_offset_byte"`
+	Truncated      *bool  `json:"truncated"`
+	ExitCode       *int   `json:"exit_code"`
 }
 
 func decodeServiceE2EProcessResult(raw string) (serviceE2EProcessResult, error) {
 	if raw == "" {
 		return serviceE2EProcessResult{}, errors.New("process result is absent")
+	}
+	raw, err := toolResultJSONStream(raw)
+	if err != nil {
+		return serviceE2EProcessResult{}, err
 	}
 	var result serviceE2EProcessResult
 	decoder := json.NewDecoder(strings.NewReader(raw))
@@ -2529,6 +2530,58 @@ func toolResultOutputForCall(body map[string]any, callID string) string {
 		}
 	}
 	return ""
+}
+
+func toolResultJSONStream(raw string) (string, error) {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	var values []json.RawMessage
+	for {
+		var value json.RawMessage
+		if decoder.Decode(&value) != nil {
+			break
+		}
+		values = append(values, value)
+	}
+	rest := strings.TrimLeft(raw[decoder.InputOffset():], " \t\r\n")
+	if rest == "" {
+		return raw, nil
+	}
+	fields := map[string]any{}
+	for rest != "" {
+		if !strings.HasPrefix(rest, "<") {
+			return "", fmt.Errorf("unexpected text after tool result JSON: %q", rest)
+		}
+		key, body, ok := strings.Cut(rest[1:], ">\n")
+		if !ok {
+			return "", fmt.Errorf("unterminated tool result field: %q", rest)
+		}
+		value, after, ok := strings.Cut(body, "</"+key+">")
+		if !ok {
+			return "", fmt.Errorf("tool result field %s is not closed", key)
+		}
+		fields[key] = value
+		rest = strings.TrimLeft(after, " \t\r\n")
+	}
+	if len(values) > 1 {
+		var last map[string]any
+		if err := json.Unmarshal(values[len(values)-1], &last); err == nil {
+			for key, value := range last {
+				fields[key] = value
+			}
+			values = values[:len(values)-1]
+		}
+	}
+	merged, err := json.Marshal(fields)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, value := range values {
+		b.Write(value)
+		b.WriteByte('\n')
+	}
+	b.Write(merged)
+	return b.String(), nil
 }
 
 func writeOpenAIFunctionCall(

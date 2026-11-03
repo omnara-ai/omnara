@@ -52,3 +52,59 @@ func TimestampKey(value time.Time) string {
 func ParseTimestampKey(value string) (time.Time, error) {
 	return time.ParseInLocation(timestampLayout, value, time.UTC)
 }
+
+type FileType string
+
+const (
+	FileTypeFile      FileType = "file"
+	FileTypeDirectory FileType = "directory"
+)
+
+type FileEntry struct {
+	Path        string     `json:"path"`
+	Type        FileType   `json:"type"`
+	Filename    string     `json:"filename,omitempty"`
+	Description string     `json:"description,omitempty"`
+	Access      string     `json:"access,omitempty"`
+	Digest      string     `json:"digest,omitempty"`
+	SizeBytes   *int64     `json:"size_bytes,omitempty"`
+	ContentType string     `json:"content_type,omitempty"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+}
+
+type FileListResult struct {
+	Entries []FileEntry
+	HasMore bool
+}
+
+// OffsetPage is the continuation shared by offset-paginated tool results.
+type OffsetPage struct {
+	HasMore    bool `json:"has_more"`
+	NextOffset *int `json:"next_offset,omitempty"`
+}
+
+// ContinueAt reports next as the offset to resume from when hasMore.
+func ContinueAt(next int, hasMore bool) OffsetPage {
+	if !hasMore {
+		return OffsetPage{}
+	}
+	return OffsetPage{HasMore: true, NextOffset: &next}
+}
+
+// PageEnd bounds the page [offset, end) of at most limit of total entries.
+func PageEnd(offset, limit, total int) int {
+	if offset < total && limit < total-offset {
+		return offset + limit
+	}
+	return total
+}
+
+// FilePage is the storage_list result.
+type FilePage struct {
+	Entries []FileEntry `json:"entries"`
+	OffsetPage
+}
+
+func NewFilePage(entries []FileEntry, hasMore bool, offset int) FilePage {
+	return FilePage{Entries: entries, OffsetPage: ContinueAt(offset+len(entries), hasMore)}
+}

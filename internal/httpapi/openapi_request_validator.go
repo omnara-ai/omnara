@@ -16,15 +16,13 @@ import (
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
+	sjsonschema "github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 )
-
-// Configure the process-wide error policy before concurrent construction or validation.
-func init() {
-	openapi3.SchemaErrorDetailsDisabled = true
-}
 
 func newOpenAPIRequestValidator() (middleware, error) {
 	spec, err := openapi.GetSpec()
@@ -32,14 +30,20 @@ func newOpenAPIRequestValidator() (middleware, error) {
 		return nil, fmt.Errorf("load generated openapi spec: %w", err)
 	}
 	spec.Servers = openapi3.Servers{{URL: openAPIBasePath}}
+	if err := relaxAgentConfigDefinitionValidation(spec); err != nil {
+		return nil, err
+	}
 	queryRouter, err := gorillamux.NewRouter(spec)
 	if err != nil {
 		return nil, fmt.Errorf("build openapi query validator: %w", err)
 	}
+	options := openapi3filter.Options{
+		AuthenticationFunc:  openapi3filter.NoopAuthenticationFunc,
+		SkipSettingDefaults: true,
+	}
+	options.WithCustomSchemaErrorFunc(openAPISchemaErrorMessage)
 	validator := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
-		Options: openapi3filter.Options{
-			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
-		},
+		Options:               options,
 		SilenceServersWarning: true,
 		ErrorHandlerWithOpts:  openAPIValidationErrorHandler,
 	})
@@ -60,7 +64,8 @@ func newOpenAPIRequestValidator() (middleware, error) {
 					writeOpenAPIRequestError(w, r, err)
 					return
 				}
-				if route.Operation.OperationID == string(operationUploadDaemonArtifact) {
+				if route.Operation.OperationID == string(operationUploadDaemonFile) ||
+					route.Operation.OperationID == string(operationWriteMemoryFile) {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -79,12 +84,28 @@ func newOpenAPIRequestValidator() (middleware, error) {
 	}, nil
 }
 
+// relaxAgentConfigDefinitionValidation leaves definition validation to the
+// compiler, which reports path-specific issues.
+func relaxAgentConfigDefinitionValidation(spec *openapi3.T) error {
+	for _, name := range []string{
+		agentconfig.OpenAPIDefinitionComponent,
+		agentconfig.OpenAPIToolsDefinitionComponent,
+	} {
+		ref, ok := spec.Components.Schemas[name]
+		if !ok || ref.Value == nil {
+			return fmt.Errorf("openapi spec has no %s schema", name)
+		}
+		// Overwrite in place: resolved $refs share this schema value.
+		*ref.Value = openapi3.Schema{Type: &openapi3.Types{openapi3.TypeObject}}
+	}
+	return nil
+}
+
 func rejectUnexpectedOpenAPIRequestBody(r *http.Request) error {
 	if r.Body == nil {
 		return nil
 	}
 	raw, err := io.ReadAll(r.Body)
-	_ = r.Body.Close()
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	r.ContentLength = int64(len(raw))
 	if err != nil {
@@ -101,7 +122,6 @@ func rejectTrailingJSONRequestBody(r *http.Request) error {
 		return nil
 	}
 	raw, err := io.ReadAll(r.Body)
-	_ = r.Body.Close()
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	r.ContentLength = int64(len(raw))
 	if err != nil {
@@ -123,6 +143,35 @@ func isJSONContentType(value string) bool {
 		return false
 	}
 	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
+}
+
+func openAPISchemaErrorMessage(err *openapi3.SchemaError) string {
+	var cause *sjsonschema.ValidationError
+	if !errors.As(err, &cause) {
+		var prefix string
+		if path := err.JSONPointer(); len(path) > 0 {
+			prefix = fmt.Sprintf("Error at %q: ", "/"+strings.Join(path, "/"))
+		}
+		if err.Reason == "" {
+			return prefix + fmt.Sprintf("doesn't match schema %q", err.SchemaField)
+		}
+		return prefix + err.Reason
+	}
+	detail := fmt.Sprintf("doesn't match %q", err.SchemaField)
+	switch k := cause.ErrorKind.(type) {
+	case *kind.AdditionalProperties:
+		if err.SchemaField == "additionalProperties" {
+			detail = fmt.Sprintf("unsupported properties %q", k.Properties)
+		}
+	case *kind.Required:
+		if err.SchemaField == "required" {
+			detail = fmt.Sprintf("missing properties %q", k.Missing)
+		}
+	}
+	if err.SchemaField == "" {
+		detail = "doesn't match the schema"
+	}
+	return fmt.Sprintf("Error at %q: %s", "/"+strings.Join(err.JSONPointer(), "/"), detail)
 }
 
 func openAPIValidationErrorHandler(

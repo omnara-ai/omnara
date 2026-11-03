@@ -13,12 +13,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -331,7 +333,7 @@ func TestUpdateMachinePoolRejectsUnknownDefaultMachineSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
 	}
-	missingSecretID := secretPublicIDForTest(t, testID("missing-default-machine-config-secret"))
+	missingSecretID := testID("missing-default-machine-config-secret").String()
 	_, err = store.Execution().UpdateMachinePool(ctx, machinePoolUpdateInputWithDefaultMachineForTest(
 		executionstore.UpdateMachinePoolInput{
 			OrgID: testOrgID,
@@ -699,7 +701,7 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	clusterDeleteAfterIdleMinutes := 30
 	clusterSecretEnv := json.RawMessage(fmt.Sprintf(
 		`{"TOKEN":%q}`,
-		secretPublicIDForTest(t, rotatedProviderAuthSecretID),
+		rotatedProviderAuthSecretID.String(),
 	))
 	updatedDefaultPool, err := store.Execution().UpdateMachinePool(ctx, machinePoolUpdateInputWithDefaultMachineForTest(
 		executionstore.UpdateMachinePoolInput{
@@ -944,11 +946,44 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(compiled.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		compiled.Hash)
 
 	if err == nil || !strings.Contains(err.Error(), "env cannot set reserved OMNARA_ key OMNARA_FUTURE_SETTING") {
 		t.Fatalf("agent source reserved env error = %v", err)
+	}
+}
+
+func TestResolveEnvironmentSecretsRejectsOversizedSecretEntry(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := createSecretTestUser(t, ctx, store, "oversized-secret-env-admin", "admin")
+	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     testOrgID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      "oversized-env",
+		Material:  secrets.GenericMaterial{Value: strings.Repeat("x", secrets.MaxPayloadValueBytes)},
+		Actor:     userPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	name := strings.Repeat("N", executionstore.MaxEnvironmentEntryBytes-secrets.MaxPayloadValueBytes)
+	secretEnv, err := json.Marshal(map[string]uuid.UUID{name: secret.ID})
+	if err != nil {
+		t.Fatalf("marshal secret env: %v", err)
+	}
+	if _, err := store.Execution().ResolveEnvironmentSecrets(
+		ctx,
+		testOrgID,
+		uuid.Nil,
+		json.RawMessage(`{}`),
+		secretEnv,
+	); !errors.Is(err, storeerr.ErrPermanentEnvironment) ||
+		!strings.Contains(err.Error(), "must be at most 131071 bytes including its key") {
+		t.Fatalf("resolve oversized secret entry error = %v", err)
 	}
 }
 
@@ -998,9 +1033,9 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project secret: %v", err)
 	}
-	orgSecretID := secretPublicIDForTest(t, orgSecret.ID)
-	ungrantedOrgSecretID := secretPublicIDForTest(t, ungrantedOrgSecret.ID)
-	projectSecretID := secretPublicIDForTest(t, projectSecret.ID)
+	orgSecretID := orgSecret.ID.String()
+	ungrantedOrgSecretID := ungrantedOrgSecret.ID.String()
+	projectSecretID := projectSecret.ID.String()
 
 	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForTest(
 		executionstore.CreateMachinePoolInput{
@@ -1092,19 +1127,18 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 		t.Fatalf("get launch pool grant: %v", err)
 	}
 	agentPlainValue := "agent-plain"
-	agentSecretRef := orgSecretID
-	resolvedMachine, err := store.Execution().ResolvePoolMachineTx(
-		ctx,
-		store.q,
+	agentSecretRef := orgSecret.ID
+	resolvedMachine, err := store.Execution().ResolvePoolMachine(
 		poolGrant,
 		agentconfig.RuntimeMachine{
 			EnvOverlay:       map[string]*string{"AGENT_PLAIN": &agentPlainValue},
-			SecretEnvOverlay: map[string]*string{"AGENT_SECRET": &agentSecretRef},
+			SecretEnvOverlay: map[string]*uuid.UUID{"AGENT_SECRET": &agentSecretRef},
 		},
 	)
 	if err != nil {
 		t.Fatalf("resolve pool machine: %v", err)
 	}
+	var creations []resourceguard.Creation
 	binding, err := executionstore.IntegrationCreatePoolMachineBindingTx(
 		ctx,
 		store.q,
@@ -1117,9 +1151,13 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 			ResolvedMachine:  resolvedMachine,
 			CreateToolCallID: uuid.Nil,
 		},
+		func(c resourceguard.Creation) { creations = append(creations, c) },
 	)
 	if err != nil {
 		t.Fatalf("create pool machine binding: %v", err)
+	}
+	if len(creations) != 1 || creations[0] != (resourceguard.Creation{Kind: resourceguard.Machines, OrgID: testOrgID}) {
+		t.Fatalf("machine creation tracking: %+v", creations)
 	}
 	record, err := executionstore.IntegrationPoolMachineByIDTx(ctx, store.q, testProjectID, agentID, binding.MachineID)
 	if err != nil {
@@ -1272,9 +1310,15 @@ VALUES ($1, $2, 'Second Secret Env Project', 'idem-pool-secret-env-second-projec
 	if ungrantedClaim.GrantProjectID != uuid.Nil {
 		t.Fatalf("ungranted claim grant project = %s, want nil", ungrantedClaim.GrantProjectID)
 	}
-	if _, err := store.Execution().ResolvePoolMachineProvisioningEnv(ctx, ungrantedClaim); err == nil ||
-		!strings.Contains(err.Error(), "secret_env.PROJECT_SECRET") {
-		t.Fatalf("ungranted provisioning env error = %v, want PROJECT_SECRET rejection", err)
+	ungrantedEnv, err := store.Execution().ResolvePoolMachineProvisioningEnv(ctx, ungrantedClaim)
+	if err != nil {
+		t.Fatalf("resolve ungranted provisioning env: %v", err)
+	}
+	if _, exists := ungrantedEnv["PROJECT_SECRET"]; exists {
+		t.Fatalf("ungranted provisioning env includes project secret: %+v", ungrantedEnv)
+	}
+	if ungrantedEnv["ORG_SECRET"] != "org-secret-value" || ungrantedEnv["PLAIN"] != "plain" {
+		t.Fatalf("ungranted provisioning env lost org or literal values: %+v", ungrantedEnv)
 	}
 	orgEnv, err := store.Execution().ResolveEnvironmentSecrets(
 		ctx,
@@ -1450,7 +1494,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(compiled.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		compiled.Hash,
 	)
 	if err == nil || !strings.Contains(err.Error(), "cpu is below min_machine_cpu") {
@@ -1835,9 +1878,8 @@ tools:
 			ToolCallID:    toolCallID,
 			RuntimeLockID: lock.ID,
 		}, executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("echo archive", "sh", ""),
 			AgentMachineBindingID: binding.ID,
-			Command:               "echo archive",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)
@@ -1974,7 +2016,7 @@ tools:
 	}
 	cleanupMachineIDs := make(map[uuid.UUID]bool, len(cleanup))
 	for _, candidate := range cleanup {
-		if candidate.ReasonCode != "deleting_retry" {
+		if candidate.ReasonCode != "" {
 			t.Fatalf("cleanup after pool archive = %+v", cleanup)
 		}
 		cleanupMachineIDs[candidate.Machine.ID] = true
@@ -2210,7 +2252,7 @@ tools:
 	if err != nil {
 		t.Fatalf("list pool machines for cleanup after pool revoke: %v", err)
 	}
-	if len(cleanup) != 1 || cleanup[0].Machine.ID != machine.ID || cleanup[0].ReasonCode != "deleting_retry" {
+	if len(cleanup) != 1 || cleanup[0].Machine.ID != machine.ID || cleanup[0].ReasonCode != "" {
 		t.Fatalf("cleanup after pool grant revoke = %+v", cleanup)
 	}
 	staleCleanup, err := store.Execution().ListPoolMachinesForCleanup(
@@ -2222,7 +2264,7 @@ tools:
 		t.Fatalf("list stale pool machines for cleanup after pool revoke: %v", err)
 	}
 	if len(staleCleanup) != 1 || staleCleanup[0].Machine.ID != machine.ID ||
-		staleCleanup[0].ReasonCode != "deleting_retry" {
+		staleCleanup[0].ReasonCode != "" {
 		t.Fatalf("stale cleanup after pool grant revoke = %+v", staleCleanup)
 	}
 	replayed, err := store.Execution().LaunchAgent(
@@ -2369,7 +2411,7 @@ tools:
 	if err != nil {
 		t.Fatalf("list cleanup after provisioning revoke: %v", err)
 	}
-	if len(cleanup) != 1 || cleanup[0].Machine.ID != claimed.ID || cleanup[0].ReasonCode != "deleting_retry" {
+	if len(cleanup) != 1 || cleanup[0].Machine.ID != claimed.ID || cleanup[0].ReasonCode != "" {
 		t.Fatalf("cleanup after provisioning revoke = %+v", cleanup)
 	}
 	staleCleanup, err := store.Execution().ListPoolMachinesForCleanup(
@@ -2381,7 +2423,7 @@ tools:
 		t.Fatalf("list stale cleanup after provisioning revoke: %v", err)
 	}
 	if len(staleCleanup) != 1 || staleCleanup[0].Machine.ID != claimed.ID ||
-		staleCleanup[0].ReasonCode != "deleting_retry" {
+		staleCleanup[0].ReasonCode != "" {
 		t.Fatalf("stale cleanup after provisioning revoke = %+v", staleCleanup)
 	}
 }
@@ -2508,7 +2550,7 @@ tools:
 	if err != nil {
 		t.Fatalf("list cleanup after provider-not-configured revoke: %v", err)
 	}
-	if len(cleanup) != 1 || cleanup[0].Machine.ID != claimed.ID || cleanup[0].ReasonCode != "deleting_retry" ||
+	if len(cleanup) != 1 || cleanup[0].Machine.ID != claimed.ID || cleanup[0].ReasonCode != "" ||
 		cleanup[0].Machine.LifecycleReasonCode != "pool_grant_revoked" {
 		t.Fatalf("cleanup after provider-not-configured revoke = %+v", cleanup)
 	}
@@ -2521,7 +2563,7 @@ tools:
 		t.Fatalf("list stale cleanup after provider-not-configured revoke: %v", err)
 	}
 	if len(staleCleanup) != 1 || staleCleanup[0].Machine.ID != claimed.ID ||
-		staleCleanup[0].ReasonCode != "deleting_retry" ||
+		staleCleanup[0].ReasonCode != "" ||
 		staleCleanup[0].Machine.LifecycleReasonCode != "pool_grant_revoked" {
 		t.Fatalf("stale cleanup after provider-not-configured revoke = %+v", staleCleanup)
 	}
@@ -2717,9 +2759,8 @@ tools:
 			ToolCallID:    toolCallID,
 			RuntimeLockID: lock.ID,
 		}, executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("echo active", "sh", ""),
 			AgentMachineBindingID: binding.ID,
-			Command:               "echo active",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)
@@ -2813,7 +2854,7 @@ tools:
 	if err != nil {
 		t.Fatalf("list cleanup after active pool revoke: %v", err)
 	}
-	if len(cleanup) != 1 || cleanup[0].Machine.ID != machineID || cleanup[0].ReasonCode != "deleting_retry" {
+	if len(cleanup) != 1 || cleanup[0].Machine.ID != machineID || cleanup[0].ReasonCode != "" {
 		t.Fatalf("cleanup after active pool revoke = %+v", cleanup)
 	}
 	staleCleanup, err := store.Execution().ListPoolMachinesForCleanup(
@@ -2825,7 +2866,7 @@ tools:
 		t.Fatalf("list stale cleanup after active pool revoke: %v", err)
 	}
 	if len(staleCleanup) != 1 || staleCleanup[0].Machine.ID != machineID ||
-		staleCleanup[0].ReasonCode != "deleting_retry" {
+		staleCleanup[0].ReasonCode != "" {
 		t.Fatalf("stale cleanup after active pool revoke = %+v", staleCleanup)
 	}
 }

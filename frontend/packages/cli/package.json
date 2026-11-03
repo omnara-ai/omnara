@@ -2,6 +2,14 @@
   "name": "omnara",
   "version": "0.0.0",
   "description": "Command-line interface for Omnara: launch and manage agents, organizations, integrations, and MCP servers",
+  "keywords": [
+    "ai-agents",
+    "managed-agents",
+    "durable-agents",
+    "agent-platform",
+    "llm",
+    "cli"
+  ],
   "license": "Apache-2.0",
   "homepage": "https://omnara.com",
   "repository": {
@@ -29,8 +37,8 @@
   "dependencies": {
     "@clack/prompts": "^1.7.0",
     "@tanstack/react-query": "^5.101.0",
-    "commander": "^14.0.0",
-    "ink": "^7.1.1",
+    "commander": "^15.0.0",
+    "ink": "^8.0.0",
     "react": "^19.2.8",
     "tar": "^7.5.22",
     "yaml": "^2.9.0",
@@ -39,11 +47,11 @@
   "devDependencies": {
     "@omnara/react": "workspace:*",
     "@omnara/sdk": "workspace:*",
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.2.17",
     "esbuild": "^0.28.2",
-    "tsx": "^4.19.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.6.0",
-    "vitest": "4.1.9"
+    "vitest": "5.0.5"
   }
 }

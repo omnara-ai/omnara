@@ -3,31 +3,105 @@ name: setup-omnara-agent
 description: Install and set up Omnara. Use when the user asks to install Omnara or run /setup-omnara-agent.
 ---
 
-Read https://docs.omnara.com/llms.txt and the Quickstart guide first. Fetch other
-documentation pages as you need them.
+# Set up an Omnara agent
 
-Before setting up the agent, check authentication with `npx omnara whoami`. If not
-logged in, run `npx omnara login` in an interactive terminal session without piping
-output; add `--no-browser` on headless or remote machines. By default, login opens a
-browser for the user to sign in and approve access. Whenever login starts,
-immediately share the approval link and code and keep the command running while the
-user approves. Do not continue setup until login completes and `npx omnara whoami`
+Get the user a launched Omnara agent and its link. The commands below are
+complete; read other docs only if one fails or the user wants Slack, Discord,
+GitHub, or their own app.
+
+If the Omnara MCP server is attached (tools such as `whoami`,
+`profiles_create`, and `agents_launch`), use the Omnara MCP tools for every
+step they cover. Do not install or log in to the CLI for those steps. Call
+`whoami`; if it fails with an authorization error, ask the user to complete the
+Omnara browser authorization for the MCP server in their client, then call
+`whoami` again. Do not continue setup until it succeeds.
+
+## 1. Sign in
+
+```sh
+npx omnara whoami
+```
+
+If it says you're not logged in, start `npx omnara login` without piping its
+output, in the background if you can, and keep it running while the user
+approves. It opens the approval page in the user's browser and prints a link
+and a code. Before you wait for it, send the user a message with both, since
+their browser may be on another machine, and ask them to approve once the code
+matches. Do not continue setup until login completes and `npx omnara whoami`
 succeeds.
 
-Then, ask the user questions on what type of agent they'd like to create:
+## 2. Ask what to build
 
-1. Ask two questions before creating anything.
-   a. What should the agent do? Examples include a coding agent, deep research agent, etc.
-   b. How will you interact with the agent (Omnara web console, first-party slack integration, custom frontend UI using the typescript SDK)
+Ask two questions before creating anything:
 
-2. Look up the user's org, its default project, and the granted model and
-   machine pool via the API. Tailor the instruction to the user's request. Use `npx omnara profiles create` to create a reusable profile of the agent.
-   - Attach every built-in tool except create_machine and delete_machine. List them from GET /tool-catalog. Include send_integration_message and set_integration_target only if using the first party Slack integration; omit both if not
-   - The granted model and machine pool
-   - Relevant secrets or startup scripts for the machine pool env override. For example, if the user wants to clone a Github repository, you may setup a script which clones the repo upon starting the machine. If needed, you can pipe a Github PAT via a secret into the env var overlay
+1. What should the agent do? Examples include a coding agent, deep research
+   agent, etc.
+2. How will you interact with the agent (Omnara web console, Slack, GitHub,
+   Discord, or your own app using the public API/TypeScript SDK)?
 
-3. Launch an agent from the profile using `npx omnara agents create` with a simple first message. Provide the user with a link to the agent at https://app.omnara.com/projects/{project_id}/agents/{agent_id}
+## 3. Pick the project, model, and pool
 
-4. (optional: interact via Slack) If the user wants to setup Omnara to interact via Slack, guide them through the setup process to connect their agent profile to a slack bot. Tell them how to fetch their app configuration token at the following URL: https://api.slack.com/apps . Then tell them to run `npx omnara profiles slack {agent_profile_id} ...` (use `-h` to fetch the help parameters you need) to execute the authentication flow.
+Look up the user's org and its default project
+(`npx omnara projects list --org <org-id> --json` lists projects). Then:
 
-5. (optional: interact via SDK or REST API) Help the user setup their own custom application to interact with Omnara. Omnara can be used via a Typescript SDK, install the `@omnara/sdk` package to use it. Alternatively, in non-Typescript environments, Omnara can be used directly via the API, see the openapi specification at https://docs.omnara.com/api-reference/openapi.yaml. In the case of a frontend application, these APIs may need to be proxied through the user's API in order to avoid CORS errors. Help the user generate an organization-level API token to interact with the API through the CLI or API.
+```sh
+npx omnara config --org <org-id> --project <project-id> &&
+npx omnara grant models list --json | node -e 'for (const g of JSON.parse(require("fs").readFileSync(0)).data) console.log(g.model.provider_config, g.model.name)' &&
+npx omnara grant pools list --json | node -e 'for (const g of JSON.parse(require("fs").readFileSync(0)).data) console.log(g.machine_pool.name)'
+```
+
+Use a listed model, and `default-pool` if it's listed, otherwise the first
+pool.
+
+## 4. Create the agent and launch it
+
+Fill in an instruction for what the user asked for, a short profile name, and
+a simple first message. The machine tools come with `machine_sources`; don't
+list them, or other built-in tools the user doesn't need.
+
+Add relevant secrets or startup scripts for the machine pool env override. For
+example, if the user wants to clone a GitHub repository, you may set up a script
+(`machine_provider_options_overlay.startup_script` on the machine source) which
+clones the repo upon starting the machine. If needed, you can pipe a GitHub PAT
+via a secret into the env var overlay.
+
+Then create the profile and launch the agent:
+
+```sh
+cat > omnara-agent.yaml <<'EOF'
+version: v1
+instruction: |
+  <what the agent does, for whom, and how it reports back>
+model:
+  provider_config: <provider>
+  name: <model>
+tools:
+  web_search: {}
+  web_fetch: {}
+  ask_question: {}
+machine_sources:
+  - machine_pool_name: <pool>
+EOF
+npx omnara profiles create --name <profile-name> --file omnara-agent.yaml --json > omnara-profile.json &&
+npx omnara agents launch --profile "$(node -p 'require("./omnara-profile.json").id')" --message "<first message>" --json | node -e 'const r=JSON.parse(require("fs").readFileSync(0)); console.log(r.agent.id)'
+```
+
+Give the user the link:
+`https://app.omnara.com/projects/<project-id>/agents/<agent-id>`.
+
+## 5. Other places to talk to it
+
+Only if the user chose them:
+
+- **Slack, Discord, or GitHub:** follow
+  https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/integrations.md
+  with this profile in the integration's launcher. Agents it launches use the
+  profile; the agent above stays in the web console. The MCP server has no
+  integration tools, so sign in to the CLI (step 1) first.
+- **Their own app:** help the user set it up with the TypeScript SDK
+  (`npm i @omnara/sdk`) or the REST API
+  (https://docs.omnara.com/api-reference/openapi.yaml), and an org API key
+  from **API Tokens** in the dashboard that has the required project role.
+  Browser apps must call the API through their own backend; it doesn't allow
+  cross-origin requests. To route their users' messages to agents, follow
+  https://docs.omnara.com/integrations/custom-integrations.md.

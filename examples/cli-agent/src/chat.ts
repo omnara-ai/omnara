@@ -485,6 +485,21 @@ export async function runChat(target: ChatTarget): Promise<void> {
   const initialSequence = target.resume === true ? await loadHistory(client, path, terminal, toolCalls) : 0
   renderRunningTools()
 
+  const refreshInteractions = async (): Promise<void> => {
+    try {
+      const { data } = await sdk.listAgentInteractions({ client, path, query: { state: 'open' } })
+      let arrived = false
+      for (const interaction of data.data) {
+        if (seenInteractions.has(interaction.id)) continue
+        seenInteractions.add(interaction.id)
+        pendingInteractions.push(interaction)
+        arrived = true
+      }
+      if (arrived) interruptRead.abort()
+    } catch {}
+  }
+  const reconcileInteractions = setInterval(() => void refreshInteractions(), 60_000)
+
   const streamTask = (async () => {
     try {
       const stream = openAgentEventStream({
@@ -493,7 +508,10 @@ export async function runChat(target: ChatTarget): Promise<void> {
         query: { after_sequence: initialSequence, stream_deltas: true },
         signal: abort.signal,
         onConnectionStateChange: (state) => {
-          if (state.state !== 'reconnecting') return
+          if (state.state === 'connected') {
+            void refreshInteractions()
+            return
+          }
           agentState = resetConnectionScopedRendering(deltas, agentState, toolCalls)
           thinkingTail = ''
           renderRunningTools()
@@ -515,6 +533,8 @@ export async function runChat(target: ChatTarget): Promise<void> {
             if (frame.stop_reason === 'tool_use') setAgentState('running tools…')
             else finishTurn()
           }
+        } else if ('tool_call_id' in frame) {
+          if (frame.interaction_update?.state === 'open') void refreshInteractions()
         } else if ('event' in frame) {
           const delta = frame.event
           deltas.handle(frame)
@@ -550,23 +570,6 @@ export async function runChat(target: ChatTarget): Promise<void> {
       terminal.printBlock(`${label('stream error', ansi.red)} ${error instanceof Error ? error.message : String(error)}`)
       abort.abort()
       interruptRead.abort()
-    }
-  })()
-
-  const pollTask = (async () => {
-    while (!abort.signal.aborted) {
-      try {
-        const { data } = await sdk.listAgentInteractions({ client, path, query: { state: 'open' } })
-        let arrived = false
-        for (const interaction of data.data) {
-          if (seenInteractions.has(interaction.id)) continue
-          seenInteractions.add(interaction.id)
-          pendingInteractions.push(interaction)
-          arrived = true
-        }
-        if (arrived) interruptRead.abort()
-      } catch {}
-      await new Promise((resolve) => setTimeout(resolve, 1000))
     }
   })()
 
@@ -647,9 +650,10 @@ export async function runChat(target: ChatTarget): Promise<void> {
     }
   } finally {
     clearInterval(spinner)
+    clearInterval(reconcileInteractions)
     terminal.setStatus(undefined)
     abort.abort()
     interruptRead.abort()
-    await Promise.allSettled([streamTask, pollTask])
+    await streamTask
   }
 }

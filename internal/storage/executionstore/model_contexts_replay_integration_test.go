@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/modelretry"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
@@ -38,9 +40,16 @@ func TestProviderReplaySuppressionCutoffUsesCompatiblePriorFailures(t *testing.T
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
-  runtime_lock_id, state, created_at
+  runtime_lock_id, state, created_at,turn_id,opening_input_ids,opening_event_sequence
 )
-VALUES ($1, $2, $3, 'normal', 1, $4, $5, $6, $7, 'started', statement_timestamp())
+VALUES ($1, $2, $3, 'normal', 1, $4, $5, $6, $7, 'started', statement_timestamp(),
+(SELECT current_turn_id FROM agent_execution_state WHERE agent_id=$3), (SELECT
+array_agg(i.id ORDER BY e.sequence) FROM agent_events e
+JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
+WHERE e.agent_id=$3 AND e.is_opening_event AND i.input_kind='content'),
+(SELECT min(e.sequence) FROM agent_events e
+JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
+WHERE e.agent_id=$3 AND e.is_opening_event AND i.input_kind='content'))
 RETURNING id
 `, testOrgID, testProjectID, fixture.AgentID, agent.CurrentConfigID,
 			revisionID, frontier, fixture.Lock.ID).Scan(&contextID); err != nil {
@@ -50,14 +59,28 @@ RETURNING id
 	}
 	insertStartedCompaction := func(revisionID uuid.UUID, frontier int64) uuid.UUID {
 		t.Helper()
+		parentID := insertStarted(revisionID, frontier)
+		if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE model_call_contexts SET state = 'failed', recovery_kind = 'compact',
+    error_kind = 'context_window', error_message = 'test parent overflow', completed_at = statement_timestamp()
+WHERE id = $1`, parentID); err != nil {
+			t.Fatalf("finish compaction parent: %v", err)
+		}
 		var contextID uuid.UUID
 		if err := fixture.Store.pool.QueryRow(ctx, `
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
-  source_event_sequence_end, runtime_lock_id, state, created_at
+  source_event_sequence_end, runtime_lock_id, state, created_at,turn_id,opening_input_ids,opening_event_sequence
 )
-VALUES ($1, $2, $3, 'compaction', 1, $4, $5, $6, 1, $7, 'started', statement_timestamp())
+VALUES ($1, $2, $3, 'compaction', 1, $4, $5, $6, 1, $7, 'started', statement_timestamp(),
+(SELECT current_turn_id FROM agent_execution_state WHERE agent_id=$3), (SELECT
+array_agg(i.id ORDER BY e.sequence) FROM agent_events e
+JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
+WHERE e.agent_id=$3 AND e.is_opening_event AND i.input_kind='content'),
+(SELECT min(e.sequence) FROM agent_events e
+JOIN agent_inputs i ON i.agent_id=e.agent_id AND i.id=e.agent_input_id
+WHERE e.agent_id=$3 AND e.is_opening_event AND i.input_kind='content'))
 RETURNING id
 `, testOrgID, testProjectID, fixture.AgentID, agent.CurrentConfigID,
 			revisionID, frontier, fixture.Lock.ID).Scan(&contextID); err != nil {
@@ -100,30 +123,36 @@ WHERE id = $1
 	}
 	cutoff := func(contextID uuid.UUID) int64 {
 		t.Helper()
-		value, err := fixture.Store.Execution().GetProviderReplaySuppressionCutoff(
+		policy, err := modelretry.RequestPolicyForModelCall(
 			ctx,
+			fixture.Store.Execution(),
 			testProjectID,
 			fixture.AgentID,
 			contextID,
+			model.RequestPolicy{},
 		)
 		if err != nil {
 			t.Fatalf("get provider replay suppression cutoff: %v", err)
 		}
-		return value
+		return policy.ProviderReplayCutoffEventSequence
+	}
+	finishCurrent := func(contextID uuid.UUID) {
+		t.Helper()
+		if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE model_call_contexts
+SET state = 'canceled', error_kind = 'canceled', error_code = 'test_complete',
+    error_message = 'test setup complete', completed_at = statement_timestamp()
+WHERE id = $1
+`, contextID); err != nil {
+			t.Fatalf("finish current model call: %v", err)
+		}
 	}
 
 	currentContextID := insertStarted(originalRevisionID, 500)
 	if got := cutoff(currentContextID); got != 0 {
 		t.Fatalf("cutoff without a replay rejection = %d, want 0", got)
 	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
-UPDATE model_call_contexts
-SET state = 'canceled', error_kind = 'canceled', error_code = 'test_complete',
-    error_message = 'test setup complete', completed_at = statement_timestamp()
-WHERE id = $1
-`, currentContextID); err != nil {
-		t.Fatalf("finish current model call: %v", err)
-	}
+	finishCurrent(currentContextID)
 
 	recordReplayRejection(
 		originalRevisionID,
@@ -246,5 +275,54 @@ WHERE id = $1
 	sameRouteContextID := insertStarted(sameRouteModel.CurrentRevisionID, 501)
 	if got := cutoff(sameRouteContextID); got != 300 {
 		t.Fatalf("compatible new revision replay cutoff = %d, want 300", got)
+	}
+	finishCurrent(sameRouteContextID)
+
+	anthropicProvider, err := fixture.Store.Models().CreateModelProviderConfig(
+		ctx,
+		modelstore.CreateModelProviderConfigInput{
+			OrgID:              testOrgID,
+			Name:               "replay-cutoff-anthropic",
+			APIFormat:          modelprotocol.APIFormatAnthropicMessages,
+			BaseURL:            "https://api.anthropic.com/v1",
+			CredentialSecretID: testDefaultProviderCredentialSecretID,
+		},
+	)
+	if err != nil {
+		t.Fatalf("create anthropic provider config: %v", err)
+	}
+	anthropicRevision := func(slug string) uuid.UUID {
+		t.Helper()
+		created, err := fixture.Store.Models().CreateConfiguredModel(
+			ctx,
+			modelstore.CreateConfiguredModelInput{
+				OrgID:                 testOrgID,
+				ModelProviderConfigID: anthropicProvider.ID,
+				Name:                  "replay-cutoff-" + slug,
+				ProviderModelSlug:     slug,
+				ContextWindowTokens:   200_000,
+				MaxOutputTokens:       new(8_192),
+			},
+		)
+		if err != nil {
+			t.Fatalf("create anthropic model %s: %v", slug, err)
+		}
+		return created.CurrentRevisionID
+	}
+	recordReplayRejection(
+		anthropicRevision("claude-sonnet-5-5"),
+		200,
+		modelprotocol.APIFormatAnthropicMessages,
+		modelprotocol.APIVariantDefault,
+	)
+	recordReplayRejection(
+		anthropicRevision("minimax-m3"),
+		350,
+		modelprotocol.APIFormatAnthropicMessages,
+		modelprotocol.APIVariantDefault,
+	)
+	switchedContextID := insertStarted(anthropicRevision("claude-opus-5-5"), 502)
+	if got := cutoff(switchedContextID); got != 200 {
+		t.Fatalf("claude model switch replay cutoff = %d, want earlier claude rejection 200", got)
 	}
 }

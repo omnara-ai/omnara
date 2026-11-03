@@ -118,15 +118,7 @@ func TestSteeringStartsNewFrontierAfterAmbiguousCompactionSendWithCapacity(t *te
 	t.Parallel()
 	ctx := context.Background()
 	fixture, compaction := sentCompactionFrontierFixture(t, ctx, "steering_ambiguous_compaction")
-	parent, found, err := fixture.Store.Execution().GetNormalModelCallContextForFrontier(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		compaction.Context.InputEventSequence,
-	)
-	if err != nil || !found {
-		t.Fatalf("load compaction parent: found=%v err=%v", found, err)
-	}
+
 	steering := createFrontierRaceInput(
 		t,
 		ctx,
@@ -166,12 +158,18 @@ func TestSteeringStartsNewFrontierAfterAmbiguousCompactionSendWithCapacity(t *te
 		t.Fatalf("steering work = %+v found=%v, want fresh admitted turn", work, found)
 	}
 	fresh := claimTestNormalModelCallForWork(t, ctx, fixture, work, time.Now().UTC())
-	assertFrontierRaceContextState(t, ctx, fixture, compaction.Context.ID, executionstore.ModelCallContextFailed)
 	assertFrontierRaceContextState(
 		t,
 		ctx,
 		fixture,
-		parent.ID,
+		compaction.Context.ID,
+		executionstore.ModelCallContextFailed,
+	)
+	assertFrontierRaceContextState(
+		t,
+		ctx,
+		fixture,
+		blockedNormalContextIDForRangeTest(t, ctx, fixture, compaction.Context),
 		executionstore.ModelCallContextFailed,
 	)
 	if fresh.Context.AttemptNumber != 1 {
@@ -184,15 +182,7 @@ func TestCompletedCompactionPublicationWinsBeforeWaitingSteering(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, compaction := sentCompactionFrontierFixture(t, ctx, "completed_compaction_wins")
-	parent, found, err := fixture.Store.Execution().GetNormalModelCallContextForFrontier(
-		ctx,
-		testProjectID,
-		fixture.AgentID,
-		compaction.Context.InputEventSequence,
-	)
-	if err != nil || !found {
-		t.Fatalf("load compaction parent: found=%v err=%v", found, err)
-	}
+
 	steering := createFrontierRaceInput(
 		t,
 		ctx,
@@ -216,12 +206,18 @@ func TestCompletedCompactionPublicationWinsBeforeWaitingSteering(t *testing.T) {
 	if checkpoint.ID == uuid.Nil || checkpoint.CheckpointEventID == uuid.Nil {
 		t.Fatalf("published checkpoint = %+v, want durable checkpoint and event", checkpoint)
 	}
-	assertFrontierRaceContextState(t, ctx, fixture, compaction.Context.ID, executionstore.ModelCallContextSucceeded)
 	assertFrontierRaceContextState(
 		t,
 		ctx,
 		fixture,
-		parent.ID,
+		compaction.Context.ID,
+		executionstore.ModelCallContextSucceeded,
+	)
+	assertFrontierRaceContextState(
+		t,
+		ctx,
+		fixture,
+		blockedNormalContextIDForRangeTest(t, ctx, fixture, compaction.Context),
 		executionstore.ModelCallContextFailed,
 	)
 	assertAgentInputWaitingForFrontierRace(t, ctx, fixture, steering.ID)

@@ -102,16 +102,8 @@ tools:
 	if !ok {
 		t.Fatalf("question command returned %T", execution.CommandResult)
 	}
-	if err := store.Execution().ReleaseToolCallRuntimeOwnership(
-		ctx,
-		executionstore.ReleaseToolCallRuntimeOwnershipInput{
-			ProjectID:     testProjectID,
-			AgentID:       launch.Agent.ID,
-			ToolCallID:    questionToolCallID,
-			RuntimeLockID: runtimeLock.ID,
-		},
-	); err != nil {
-		t.Fatalf("release question tool call: %v", err)
+	if execution.Disposition != executionstore.ToolCallDispositionWaiting {
+		t.Fatal("question must commit into durable waiting")
 	}
 
 	lockTx, err := store.pool.Begin(ctx)
@@ -169,7 +161,7 @@ tools:
 	}
 	if archivedInteraction.State != executionstore.AgentInteractionStateCanceled ||
 		archivedInteraction.ResolvedAt.IsZero() ||
-		archivedInteraction.ResolvedAt.Before(archivedAt) {
+		archivedInteraction.ResolvedAt.After(archivedAt) {
 		t.Fatalf("archived interaction = %+v, want canceled", archivedInteraction)
 	}
 	toolCall, err := store.Execution().GetToolCall(
@@ -182,7 +174,7 @@ tools:
 	if toolCall.State != executionstore.ToolCallStateCompleted ||
 		toolCall.Outcome != executionstore.ToolResultOutcomeCanceled ||
 		toolCall.CompletedAt == nil ||
-		toolCall.CompletedAt.Before(archivedAt) {
+		toolCall.CompletedAt.After(archivedAt) {
 		t.Fatalf("archived tool call = %+v, want canceled completion", toolCall)
 	}
 	result, found, err := store.Execution().GetToolCallResultAuthorityByToolCall(
@@ -210,4 +202,19 @@ tools:
 	); len(events) != 1 {
 		t.Fatalf("archived tool result events = %+v, want one", events)
 	}
+}
+
+func TestArchiveAgentStopsAdmittedTurnBeforeFirstAttempt(t *testing.T) {
+	ctx := t.Context()
+	f := newProcessDaemonFixture(t, ctx, "archive_admitted")
+	ownedInput(t, ctx, f, executionstore.DeliveryModeQueued, "initial")
+	reclaimAgentWork(t, ctx, &f)
+	_, _, err := f.Store.Execution().ArchiveAgent(ctx, testProjectID, f.AgentID, userPrincipal(f.UserID))
+	require.NoError(t, err)
+	var stops int
+	require.NoError(t,
+		f.Store.pool.QueryRow(ctx,
+			`SELECT count(*) FROM agent_events e JOIN agent_inputs i ON i.id=e.agent_input_id WHERE e.agent_id=$1 AND i.control_type='cancel_current'`,
+			f.AgentID).Scan(&stops))
+	require.Equal(t, 1, stops)
 }

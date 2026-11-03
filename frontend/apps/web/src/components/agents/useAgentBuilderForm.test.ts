@@ -6,19 +6,16 @@ import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 import {
   type BasicConfig,
   basicConfigValid,
-  type BasicMcpServer,
   createBasicConfigSession,
   emptyBasicConfig,
-  mcpRuntimeToolNameError,
-  mcpServerNameError,
-  mcpToolEnabled,
-  unexposableMcpTools,
 } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
+  ...emptyBasicConfig,
   instruction: 'You are a research assistant.\n\nCite sources.',
   providerConfig: 'anthropic',
   modelName: 'claude-sonnet-5',
+  reasoningEffort: 'high',
   machineSources: [
     {
       id: 'source-1',
@@ -34,7 +31,7 @@ const fullConfig: BasicConfig = {
       machineMemoryGb: '8',
       providerOptions: emptyProviderOptions,
       envRows: [{ id: 'env-1', key: 'MODE', value: 'ci' }],
-      secretEnvRows: [{ id: 'secret-1', key: 'TOKEN', secretId: 'sec_123' }],
+      secretEnvRows: [{ id: 'secret-1', key: 'TOKEN', secretId: 'sec_aaaaaaaaaaaaaaaaaaaaaaaaaa' }],
     },
     {
       id: 'source-2',
@@ -77,7 +74,7 @@ const fullConfig: BasicConfig = {
       permission: { mode: 'always_ask', parameters: {} },
       defaultEnabled: false,
       authType: 'sigv4',
-      secretId: 'sec_456',
+      secretId: 'sec_bbbbbbbbbbbbbbbbbbbbbbbbbb',
       service: 'execute-api',
       region: 'us-east-1',
       tools: [],
@@ -89,13 +86,13 @@ const fullConfig: BasicConfig = {
       permission: { mode: 'always_ask', parameters: {} },
       defaultEnabled: true,
       authType: 'bearer',
-      secretId: 'sec_789',
+      secretId: 'sec_cccccccccccccccccccccccccc',
       service: '',
       region: '',
       tools: [],
     },
   ],
-  skillIds: ['skl_1', 'skl_2'],
+  skillIds: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb'],
   subagents: [
     {
       id: 'sub-1',
@@ -219,7 +216,7 @@ model: {provider_config: openai, name: primary}
       instruction: fullConfig.instruction,
       providerConfig: 'anthropic',
       modelName: 'claude-sonnet-5',
-      skillIds: ['skl_1', 'skl_2'],
+      skillIds: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb'],
     })
     expect(config.machineSources.map((s) => [s.kind, s.name])).toEqual([
       ['pool', 'default-pool'],
@@ -244,7 +241,7 @@ model: {provider_config: openai, name: primary}
     ])
     expect(config.mcpServers.map((server) => server.authType)).toEqual(['none', 'sigv4', 'bearer'])
     expect(config.mcpServers[1]).toMatchObject({
-      secretId: 'sec_456',
+      secretId: 'sec_bbbbbbbbbbbbbbbbbbbbbbbbbb',
       service: 'execute-api',
       region: 'us-east-1',
     })
@@ -269,29 +266,6 @@ model: {provider_config: openai, name: primary}
       },
       max_subagents: 4,
       max_depth: 2,
-    })
-  })
-
-  it('keeps subagent model overrides authored in YAML', () => {
-    const source = `instruction: Do the thing.
-model:
-  provider_config: anthropic
-  name: claude-sonnet-5
-subagents:
-  fork:
-    type: self
-    model:
-      name: claude-haiku
-`
-    const config = mustDeserialize(source)
-    expect(config.subagents[0]?.modelOverride).toEqual({ name: 'claude-haiku' })
-    expect(applyToSource(source, config)).toBe(source)
-    const renamed = {
-      ...config,
-      subagents: config.subagents.map((subagent) => ({ ...subagent, description: 'Fork.' })),
-    }
-    expect(parse(applyToSource(source, renamed))).toMatchObject({
-      subagents: { fork: { type: 'self', description: 'Fork.', model: { name: 'claude-haiku' } } },
     })
   })
 
@@ -452,6 +426,21 @@ mcp:
     expect(applyToSource(source, config)).toBe(source)
   })
 
+  it('accepts null config sections', () => {
+    const config = mustDeserialize(`${minimalYaml}machine_sources:
+tools:
+mcp:
+memory_stores:
+subagents:
+interaction_handlers:
+`)
+    expect(config.machineSources).toEqual([])
+    expect(config.mcpServers).toEqual([])
+    expect(config.memoryStores).toEqual([])
+    expect(config.subagents).toEqual([])
+    expect(config.interactionHandlers).toEqual({})
+  })
+
   it('rejects unknown fields inside builder-owned entries', () => {
     expect(
       deserialize(`${minimalYaml}tools:
@@ -515,6 +504,23 @@ mcp:
     expect(applyToSource(source, config)).toBe(source)
   })
 
+  it('infers a snapshot-only provider overlay as Daytona', () => {
+    const source = `${minimalYaml}machine_sources:
+  - machine_pool_name: "default-pool"
+    machine_provider_options_overlay: {"snapshot":"base-image"}
+`
+    const config = mustDeserialize(source)
+    expect(config.machineSources).toMatchObject([
+      {
+        kind: 'pool',
+        name: 'default-pool',
+        provider: 'daytona',
+        providerOptions: { resource: 'base-image' },
+      },
+    ])
+    expect(applyToSource(source, config)).toBe(source)
+  })
+
   it('rejects provider options overlays no provider accounts for', () => {
     const unknownKey = `${minimalYaml}machine_sources:
   - machine_pool_name: "default-pool"
@@ -551,20 +557,52 @@ mcp:
 })
 
 describe('createBasicConfigSession apply', () => {
+  it('writes and clears the model reasoning effort', () => {
+    const source = `instruction: Help.
+model:
+  provider_config: anthropic
+  name: claude-sonnet-5
+  cache_retention: long
+`
+    const draft = mustDeserialize(source)
+    expect(draft.reasoningEffort).toBe('')
+
+    const withEffort = applyToSource(source, { ...draft, reasoningEffort: 'high' })
+    expect(parse(withEffort)).toMatchObject({
+      model: {
+        provider_config: 'anthropic',
+        name: 'claude-sonnet-5',
+        cache_retention: 'long',
+        reasoning: { effort: 'high' },
+      },
+    })
+    expect(mustDeserialize(withEffort).reasoningEffort).toBe('high')
+
+    const cleared = applyToSource(withEffort, {
+      ...mustDeserialize(withEffort),
+      reasoningEffort: '',
+    })
+    expect(parse(cleared)).toEqual(parse(source))
+  })
+
+  it('writes and clears git credentials', () => {
+    const draft = mustDeserialize(minimalYaml)
+    expect(draft.gitCredentials).toBeUndefined()
+
+    const gitCredentials = { integration: 'reviews', repository_ids: [123], read_only: true }
+    const withCredentials = applyToSource(minimalYaml, { ...draft, gitCredentials })
+    expect(parse(withCredentials)).toMatchObject({ git_credentials: gitCredentials })
+    expect(mustDeserialize(withCredentials).gitCredentials).toEqual(gitCredentials)
+
+    const cleared = applyToSource(withCredentials, {
+      ...mustDeserialize(withCredentials),
+      gitCredentials: undefined,
+    })
+    expect(parse(cleared)).toEqual(parse(minimalYaml))
+  })
+
   it('keeps an empty source empty for an untouched form', () => {
-    const emptyConfig: BasicConfig = {
-      instruction: '',
-      providerConfig: '',
-      modelName: '',
-      machineSources: [],
-      tools: [],
-      mcpServers: [],
-      skillIds: [],
-      subagents: [],
-      maxSubagents: '',
-      maxDepth: '',
-    }
-    expect(applyToSource('', emptyConfig)).toBe('')
+    expect(applyToSource('', emptyBasicConfig)).toBe('')
   })
 
   it('returns the source verbatim when the draft matches it', () => {
@@ -696,15 +734,38 @@ describe('createBasicConfigSession apply', () => {
     expect(parse(updated)).toMatchObject({ mcp: { '': { url: '' } } })
   })
 
+  it('reads back incomplete drafts instead of leaving the builder', () => {
+    const source = `${minimalYaml}machine_sources:
+  - machine_name: ""
+    secret_env_overlay: {TOKEN: ""}
+  - machine_pool_name: ""
+mcp:
+  "": {url: "", auth: {type: sigv4, secret_id: "", service: "", region: ""}}
+  docs: {url: "", auth: {type: bearer, secret_id: ""}}
+subagents:
+  helper: {type: profile, profile: ""}
+`
+    const draft = mustDeserialize(source)
+    expect(draft.machineSources.map((row) => row.name)).toEqual(['', ''])
+    expect(draft.mcpServers.map((server) => server.url)).toEqual(['', ''])
+    expect(draft.subagents[0]?.profileName).toBe('')
+    expect(applyToSource(source, draft)).toBe(source)
+  })
+
   it('builds a fresh document when there is no baseline source', () => {
     const source = applyToSource('', fullConfig)
     expect(parse(source)).toMatchObject({
       instruction: fullConfig.instruction,
       model: { provider_config: 'anthropic', name: 'claude-sonnet-5' },
-      skills: ['skl_1', 'skl_2'],
+      skills: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb'],
       tools: { shell: { type: 'built_in' } },
     })
   })
+})
+
+it('accepts max_depth without subagents', () => {
+  expect(basicConfigValid({ ...fullConfig, subagents: [], maxSubagents: '' })).toBe(true)
+  expect(basicConfigValid({ ...fullConfig, subagents: [] })).toBe(false)
 })
 
 describe('basic agent config names', () => {
@@ -727,100 +788,6 @@ describe('basic agent config names', () => {
       index === 0 ? { ...server, name: ` ${server.name}` } : server,
     )
     expect(basicConfigValid({ ...fullConfig, mcpServers })).toBe(false)
-  })
-
-  it.each([
-    ['', 'Name is required.'],
-    [' github', 'Name must start with a letter.'],
-    ['1github', 'Name must start with a letter.'],
-    ['git_hub', 'Name may only contain letters, numbers, and hyphens.'],
-    ['a'.repeat(33), 'Name cannot exceed 32 characters.'],
-    ['github', undefined],
-    ['GitHub-2', undefined],
-  ])('reports the MCP server key rule for %j', (name, expected) => {
-    expect(mcpServerNameError(name)).toBe(expected)
-  })
-
-  it('explains when the prefixed MCP tool name exceeds the model limit', () => {
-    const tool = 'provider__search-call-recordings-by-metadata'
-    expect(mcpRuntimeToolNameError('cust-read', tool)).toBeUndefined()
-    expect(mcpRuntimeToolNameError('customer-user-read', tool)).toBe(
-      `"${tool}" becomes "mcp__customer-user-read__${tool}" (69 characters) once the server name is prefixed, ` +
-        'but the model only accepts tool names of 64 characters or fewer. ' +
-        'Shorten the server name to 13 characters or fewer.',
-    )
-    expect(mcpRuntimeToolNameError('a', 'b'.repeat(64))).toBe(
-      `"${'b'.repeat(64)}" becomes "mcp__a__${'b'.repeat(64)}" (72 characters) once the server name is prefixed, ` +
-        'but the model only accepts tool names of 64 characters or fewer. ' +
-        'The tool name itself is too long to expose under any server name.',
-    )
-  })
-
-  it.each([
-    ['', 'Tool name is required.'],
-    [
-      '1search',
-      '"1search" must start with a letter, but the model only accepts tool names that begin with a letter.',
-    ],
-    [
-      'search.issues',
-      '"search.issues" contains characters other than letters, numbers, underscores, and hyphens, which the model does not accept in tool names.',
-    ],
-    [
-      'search issues',
-      '"search issues" contains characters other than letters, numbers, underscores, and hyphens, which the model does not accept in tool names.',
-    ],
-    ['search_issues-v2', undefined],
-  ])('explains when the MCP tool name %j has characters the model rejects', (name, expected) => {
-    expect(mcpRuntimeToolNameError('github', name)).toBe(expected)
-  })
-
-  it('lists enabled discovered and configured MCP tools the model cannot accept', () => {
-    const [server] = fullConfig.mcpServers
-    if (!server) throw new Error('fixture needs a server')
-    const longName = 'b'.repeat(64)
-    const configured: BasicMcpServer = {
-      ...server,
-      name: 'github',
-      defaultEnabled: true,
-      tools: [
-        { name: longName, enabled: null, permission: null },
-        { name: 'c'.repeat(64), enabled: false, permission: null },
-        { name: 'search.issues', enabled: true, permission: null },
-      ],
-    }
-    expect(
-      unexposableMcpTools(configured, ['list-issues', 'get.issue', 'search.issues']).map(
-        (tool) => tool.name,
-      ),
-    ).toEqual(['get.issue', 'search.issues', longName])
-    expect(unexposableMcpTools({ ...configured, defaultEnabled: false }, ['get.issue'])).toEqual([
-      {
-        name: 'search.issues',
-        error:
-          '"search.issues" contains characters other than letters, numbers, underscores, and hyphens, which the model does not accept in tool names.',
-      },
-    ])
-  })
-
-  it('resolves whether an MCP tool is enabled from its override or the server default', () => {
-    const [enabledByDefault, disabledByDefault] = fullConfig.mcpServers
-    if (!enabledByDefault || !disabledByDefault) throw new Error('fixture needs two servers')
-    const overrides = [
-      { name: 'on', enabled: true, permission: null },
-      { name: 'off', enabled: false, permission: null },
-      { name: 'inherit', enabled: null, permission: null },
-    ]
-    const enabled = { ...enabledByDefault, tools: overrides }
-    const disabled = { ...disabledByDefault, tools: overrides }
-    expect(mcpToolEnabled(enabled, 'on')).toBe(true)
-    expect(mcpToolEnabled(enabled, 'off')).toBe(false)
-    expect(mcpToolEnabled(enabled, 'inherit')).toBe(true)
-    expect(mcpToolEnabled(enabled, 'unknown')).toBe(true)
-    expect(mcpToolEnabled(disabled, 'on')).toBe(true)
-    expect(mcpToolEnabled(disabled, 'off')).toBe(false)
-    expect(mcpToolEnabled(disabled, 'inherit')).toBe(false)
-    expect(mcpToolEnabled(disabled, 'unknown')).toBe(false)
   })
 
   it('rejects duplicate MCP server keys', () => {

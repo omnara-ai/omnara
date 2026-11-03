@@ -3,6 +3,7 @@
 package kernel
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,8 +18,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/stretchr/testify/require"
-
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
@@ -26,7 +25,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -40,6 +38,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -68,28 +67,6 @@ func kernelTestID(seed string) uuid.UUID {
 
 func kernelTestUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: userID}
-}
-
-func compactionSourceStartForKernelTest(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	contextRow executionstore.ModelCallContextRecord,
-) int64 {
-	t.Helper()
-	checkpoint, found, err := store.Execution().GetLatestApplicableContextCheckpoint(
-		ctx,
-		contextRow.ProjectID,
-		contextRow.AgentID,
-		contextRow.InputEventSequence,
-	)
-	if err != nil {
-		t.Fatalf("load latest checkpoint for compaction source: %v", err)
-	}
-	if !found {
-		return 1
-	}
-	return checkpoint.SummarizedThroughEventSequence + 1
 }
 
 func kernelTestKeyWrapper(t *testing.T) secrets.KeyWrapper {
@@ -295,7 +272,6 @@ func (f kernelFixture) createConfigAndProfileBookmarkWithModelOptions(
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {
@@ -341,7 +317,7 @@ func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedKernelAgentConfigModel(configuredModel), nil
 		},
-		ResolveMachinePoolName: func(machinePoolName string) (string, error) {
+		ResolveMachinePoolName: func(machinePoolName string) (uuid.UUID, error) {
 			machinePoolID, err := f.Store.Execution().ResolveAgentConfigMachinePoolName(
 				ctx,
 				kernelTestOrgID,
@@ -349,9 +325,9 @@ func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 				machinePoolName,
 			)
 			if err != nil {
-				return "", err
+				return uuid.Nil, err
 			}
-			return publicid.Encode(publicid.KindMachinePool, machinePoolID)
+			return machinePoolID, nil
 		},
 		ResolveSkillID: func(skillID string) (agentconfig.SkillResolution, error) {
 			records, _, err := f.Store.Skills().GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{
@@ -365,7 +341,7 @@ func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 			if len(records) != 1 {
 				return agentconfig.SkillResolution{}, storeerr.ErrNotFound
 			}
-			return agentconfig.SkillResolution{PublicID: skillID, Name: records[0].Name}, nil
+			return agentconfig.SkillResolution{ID: records[0].ID, Name: records[0].Name}, nil
 		},
 	})
 	if err != nil {
@@ -379,7 +355,7 @@ func resolvedKernelAgentConfigModel(
 ) agentconfig.ResolvedModelSelection {
 	supportsTools := configuredModel.SupportsTools
 	return agentconfig.ResolvedModelSelection{
-		ConfiguredModelID: configuredModel.ID.String(),
+		ConfiguredModelID: configuredModel.ID,
 		SupportsTools:     &supportsTools,
 	}
 }
@@ -487,11 +463,7 @@ SET new_managed_work_allowed = EXCLUDED.new_managed_work_allowed
 
 func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID {
 	t.Helper()
-	id, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
-	if err != nil {
-		t.Fatalf("parse compiled configured model id: %v", err)
-	}
-	return id
+	return compiled.Compiled.Model.ConfiguredModelID
 }
 
 func configuredModelIDForKernelConfig(
@@ -676,6 +648,7 @@ func nextToolWorkExecution(
 		executionstore.AgentWorkTool,
 	)
 	return ToolWorkExecution{
+		Prepared:           claim.Tool.Prepared,
 		ProjectID:          claim.ProjectID,
 		AgentID:            claim.AgentID,
 		TurnID:             claim.Tool.TurnID,
@@ -840,7 +813,9 @@ func continueTurnOnNewLeaseForKernelTest(
 			prior.AgentID,
 		).Scan(&checkpoints)
 		_ = fixture.Pool.QueryRow(
-			ctx, `SELECT count(*) FROM agent_unconsumed_context_checkpoint_frontiers($1, $2)`, prior.ProjectID,
+			ctx,
+			`SELECT count(*) FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id WHERE a.project_id=$1 AND h.agent_id=$2 AND h.pending_checkpoint_id IS NOT NULL`,
+			prior.ProjectID,
 			prior.AgentID,
 		).Scan(&checkpointFrontiers)
 		_ = fixture.Pool.QueryRow(
@@ -1042,8 +1017,11 @@ func isCompactionRequestBundle(bundle modelcontext.Bundle) bool {
 func (m *sequenceKernelModel) Respond(ctx context.Context, request model.Request) (model.Response, error) {
 	m.mu.Lock()
 	m.respondHadSink = append(m.respondHadSink, request.DeltaSink != nil)
-	if len(m.prepared) > 0 {
-		m.responded = append(m.responded, m.prepared[len(m.prepared)-1])
+	for i := len(m.prepared) - 1; i >= 0; i-- {
+		if bytes.Equal(m.prepared[i].ProviderRequest, request.ProviderRequest) {
+			m.responded = append(m.responded, m.prepared[i])
+			break
+		}
 	}
 	if request.DeltaSink != nil && len(m.streamEvents) > 0 {
 		streamEvents := m.streamEvents
@@ -1364,4 +1342,10 @@ func (kernelTestMachinePoolProviders) BuildMachineProvisioningIntent(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 ) (executionstore.MachineProvisioningConfig, error) {
 	return machineProvisioning, nil
+}
+
+func (kernelTestMachinePoolProviders) ConfigurableMachineResources(
+	string,
+) (executionstore.ConfigurableMachineResources, error) {
+	return executionstore.ConfigurableMachineResources{CPU: true, MemoryMB: true}, nil
 }

@@ -45,14 +45,13 @@ const (
 	ProcessActionKindWrite     = processaction.KindWrite
 	ProcessActionKindRead      = processaction.KindRead
 	ProcessActionKindInterrupt = processaction.KindInterrupt
+	ProcessActionKindWatch     = processaction.KindWatch
 	ProcessActionKindTerminate = processaction.KindTerminate
 )
 
 type CreateProcessInput struct {
+	ExecutionSpec         processcmd.ExecutionSpec
 	AgentMachineBindingID uuid.UUID
-	IOMode                processcmd.IOMode
-	Command               string
-	ShellSelector         processcmd.ShellSelector
 	Cwd                   string
 	TimeoutSeconds        int
 	InitialWaitMS         int
@@ -146,6 +145,7 @@ type CompleteDaemonProcessInput struct {
 }
 
 type ProcessRecord struct {
+	ExecutionSpec         processcmd.ExecutionSpec `json:"execution_spec"`
 	ID                    uuid.UUID                `json:"id"`
 	OrgID                 uuid.UUID                `json:"org_id"`
 	ProjectID             uuid.UUID                `json:"project_id"`
@@ -155,9 +155,6 @@ type ProcessRecord struct {
 	AgentMachineBindingID uuid.UUID                `json:"agent_machine_binding_id"`
 	MachineID             uuid.UUID                `json:"machine_id"`
 	ExecutionGrantedAt    *time.Time               `json:"execution_granted_at,omitempty"`
-	IOMode                processcmd.IOMode        `json:"io_mode"`
-	Command               string                   `json:"command,omitempty"`
-	ShellSelector         processcmd.ShellSelector `json:"shell_selector,omitempty"`
 	Cwd                   string                   `json:"cwd"`
 	TimeoutSeconds        int                      `json:"timeout_seconds"`
 	InitialWaitMS         int                      `json:"initial_wait_ms"`
@@ -193,24 +190,13 @@ type ProcessActionRecord struct {
 }
 
 type ActiveProcessRecord struct {
+	ExecutionSpec   processcmd.ExecutionSpec `json:"execution_spec"`
 	ID              uuid.UUID                `json:"id"`
 	State           ProcessState             `json:"state"`
 	MachineID       uuid.UUID                `json:"machine_id"`
-	IOMode          processcmd.IOMode        `json:"io_mode"`
-	Command         string                   `json:"command,omitempty"`
-	ShellSelector   processcmd.ShellSelector `json:"shell_selector,omitempty"`
 	Cwd             string                   `json:"cwd"`
 	SourceStartedAt *time.Time               `json:"source_started_at,omitempty"`
 	CreatedAt       time.Time                `json:"created_at"`
 	UpdatedAt       time.Time                `json:"updated_at"`
 	ToolCallID      uuid.UUID                `json:"tool_call_id,omitempty"`
-}
-
-func isProcessTerminal(state ProcessState) bool {
-	switch state {
-	case ProcessStateExited, ProcessStateFailed, ProcessStateKilled, ProcessStateUnknown:
-		return true
-	default:
-		return false
-	}
 }

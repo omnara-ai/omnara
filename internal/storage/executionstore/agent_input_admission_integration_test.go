@@ -5,13 +5,10 @@ package executionstore_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
 func TestAgentInputAdmissionUsesItsCausalEvent(t *testing.T) {
@@ -45,10 +42,18 @@ func TestAgentInputAdmissionUsesItsCausalEvent(t *testing.T) {
 	admittedInput := admitted.Inputs[0]
 	admittedEvent := admitted.Events[0]
 	if admittedInput.AdmittedAt == nil || !admittedInput.AdmittedAt.Equal(admittedEvent.At) {
-		t.Fatalf("input admitted_at = %v, want event created_at %s", admittedInput.AdmittedAt, admittedEvent.At)
+		t.Fatalf(
+			"input admitted_at = %v, want event created_at %s",
+			admittedInput.AdmittedAt,
+			admittedEvent.At,
+		)
 	}
 	if admittedInput.ResolvedAt == nil || !admittedInput.ResolvedAt.Equal(admittedEvent.At) {
-		t.Fatalf("input resolved_at = %v, want event created_at %s", admittedInput.ResolvedAt, admittedEvent.At)
+		t.Fatalf(
+			"input resolved_at = %v, want event created_at %s",
+			admittedInput.ResolvedAt,
+			admittedEvent.At,
+		)
 	}
 
 	unrelatedInput, _, _, err := fixture.Store.Execution().CreateAgentContentInput(
@@ -64,14 +69,14 @@ func TestAgentInputAdmissionUsesItsCausalEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create unrelated input: %v", err)
 	}
-	_, err = fixture.Store.q.AdmitAgentInput(ctx, dbsqlc.AdmitAgentInputParams{
-		ProjectID:       testProjectID,
-		AgentID:         fixture.AgentID,
-		ID:              unrelatedInput.ID,
-		AdmittedEventID: admittedEvent.ID,
-	})
-	if !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("admit input with unrelated event error = %v, want %v", err, pgx.ErrNoRows)
+	_, err = fixture.Store.pool.Exec(
+		ctx,
+		`UPDATE agent_inputs SET state='resolved',admitted_event_id=$2,admitted_at=statement_timestamp(),resolved_at=statement_timestamp() WHERE id=$1`,
+		unrelatedInput.ID,
+		admittedEvent.ID,
+	)
+	if !isPgCheckViolation(err) {
+		t.Fatalf("admit unrelated event error=%v, want check violation", err)
 	}
 	var state string
 	var admittedEventID *uuid.UUID
@@ -85,6 +90,10 @@ WHERE project_id = $1
 		t.Fatalf("load unrelated input after rejected admission: %v", err)
 	}
 	if state != "received" || admittedEventID != nil {
-		t.Fatalf("unrelated input state=%q admitted_event_id=%v, want received with no event", state, admittedEventID)
+		t.Fatalf(
+			"unrelated input state=%q admitted_event_id=%v, want received with no event",
+			state,
+			admittedEventID,
+		)
 	}
 }

@@ -1,7 +1,7 @@
 import type { VisibleProject } from '@omnara/sdk'
 import { type ReactNode, type SyntheticEvent, useState } from 'react'
 
-import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
+import { ProjectShareChips } from '@/components/projects/ProjectShareChips'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { FieldGroup } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup } from '@/components/ui/field'
 import { collectGrantFailures } from '@/lib/grant-failures'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
@@ -68,7 +68,7 @@ export function GrantToProjectDialog<TGrant>({
       setState((prev) => ({ ...prev, projectIds: [], status: idle }))
       onOpenChange(false)
     } catch (err) {
-      const status = submitError(err, 'Could not grant access')
+      const status = submitError(err, 'Could not share')
       setState((prev) => ({ ...prev, status }))
     }
   }
@@ -77,22 +77,24 @@ export function GrantToProjectDialog<TGrant>({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85svh] sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Grant to a project</DialogTitle>
+          <DialogTitle>Share with projects</DialogTitle>
           <DialogDescription>Make {resourceName} available to a project.</DialogDescription>
         </DialogHeader>
         <form onSubmit={(event) => void submit(event)}>
           <FieldGroup>
-            <ProjectGrantsField
-              orgId={orgId}
-              isProjectEligible={isProjectEligible}
-              value={state.projectIds}
-              onChange={(projectIds) => {
-                setState((prev) => ({ ...prev, projectIds }))
-              }}
-              disabled={isSubmitting}
-              excludedProjectIds={excludedProjectIds}
-              description="Add one or more projects to grant access."
-            />
+            <Field>
+              <ProjectShareChips
+                orgId={orgId}
+                isProjectEligible={isProjectEligible}
+                value={state.projectIds}
+                onChange={(projectIds) => {
+                  setState((prev) => ({ ...prev, projectIds }))
+                }}
+                disabled={isSubmitting}
+                excludedProjectIds={excludedProjectIds}
+              />
+              <FieldDescription>Add one or more projects to share with.</FieldDescription>
+            </Field>
             {options}
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
@@ -101,7 +103,7 @@ export function GrantToProjectDialog<TGrant>({
                 disabled={isSubmitting || submitDisabled || state.projectIds.length === 0}
                 loading={isSubmitting}
               >
-                Grant
+                Share
               </Button>
             </DialogFooter>
           </FieldGroup>

@@ -1,7 +1,10 @@
-import { useAgentConfig, useUpdateAgentConfig } from '@omnara/react'
+import { useAgentConfig, useOmnaraClient, useUpdateAgentConfig } from '@omnara/react'
 import { type Agent, type AgentConfig, ApiError } from '@omnara/sdk'
+import { getAgentConfigGeneratedSourceOptions } from '@omnara/sdk/tanstack'
+import { useQuery } from '@tanstack/react-query'
 import { type SyntheticEvent, useState } from 'react'
 
+import { AgentCompiledConfig } from '@/components/agents/AgentCompiledConfig'
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
 import { type AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
 import { useAgentConfigEditor } from '@/components/agents/useAgentConfigEditor'
@@ -34,26 +37,20 @@ export function AgentConfigPanel({
   if (snapshot === null && configQuery.data !== undefined) {
     setSnapshot(configQuery.data)
   }
+  const { source, loadingSource, refetchSource } = useEditableSource(orgId, projectId, snapshot)
 
   return (
     <div className="flex min-h-full flex-col gap-4">
-      {snapshot !== null && (agent.parent_agent_id || snapshot.source === undefined) ? (
-        <>
-          <h2 className="type-card-title">Agent configuration</h2>
-          <p className="text-muted-foreground text-sm">This derived configuration is read-only.</p>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Close
-          </Button>
-        </>
-      ) : snapshot !== null ? (
+      {snapshot !== null && source !== undefined ? (
         <AgentConfigPanelEditor
           key={String(resetNonce)}
           orgId={orgId}
           projectId={projectId}
           agentId={agent.id}
           configId={snapshot.id}
-          source={snapshot.source ?? ''}
-          canManage={canManage}
+          source={source}
+          compiledDefinition={snapshot.compiled_definition}
+          canManage={canManage && agent.state !== 'archived'}
           preferredMode={preferredMode}
           onModeChange={setPreferredMode}
           onDirtyChange={onDirtyChange}
@@ -64,7 +61,7 @@ export function AgentConfigPanel({
           }}
           onClose={onClose}
         />
-      ) : configQuery.isPending ? (
+      ) : configQuery.isPending || loadingSource ? (
         <>
           <h2 className="type-card-title">Agent configuration</h2>
           <Spinner className="mx-auto my-8" />
@@ -78,7 +75,7 @@ export function AgentConfigPanel({
               size="sm"
               variant="outline"
               onClick={() => {
-                void configQuery.refetch()
+                void (snapshot === null ? configQuery.refetch() : refetchSource())
               }}
             >
               Retry
@@ -95,12 +92,31 @@ export function AgentConfigPanel({
   )
 }
 
+function useEditableSource(orgId: string, projectId: string, config: AgentConfig | null) {
+  const client = useOmnaraClient()
+  const generated = useQuery({
+    ...getAgentConfigGeneratedSourceOptions({
+      path: { orgID: orgId, projectID: projectId, agentConfigID: config?.id ?? '' },
+      client,
+    }),
+    enabled: config !== null && config.source === undefined,
+    staleTime: Infinity,
+    gcTime: 0,
+  })
+  return {
+    source: config?.source ?? generated.data?.source,
+    loadingSource: generated.isLoading,
+    refetchSource: generated.refetch,
+  }
+}
+
 function AgentConfigPanelEditor({
   orgId,
   projectId,
   agentId,
   configId,
   source,
+  compiledDefinition,
   canManage,
   preferredMode,
   onModeChange,
@@ -113,6 +129,7 @@ function AgentConfigPanelEditor({
   agentId: string
   configId: string
   source: string
+  compiledDefinition: AgentConfig['compiled_definition']
   canManage: boolean
   preferredMode: AgentConfigMode
   onModeChange: (mode: AgentConfigMode) => void
@@ -173,6 +190,7 @@ function AgentConfigPanelEditor({
           yamlFieldClassName="h-[24rem]"
           issues={error.issues}
         />
+        {editor.mode.mode === 'yaml' && <AgentCompiledConfig definition={compiledDefinition} />}
       </FieldGroup>
       <div className="bg-background sticky bottom-0 z-10 mt-auto flex flex-col gap-2 border-t py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <Button
@@ -188,7 +206,7 @@ function AgentConfigPanelEditor({
         </Button>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
           {error.message && (
-            <p className="text-destructive whitespace-pre-wrap text-sm">{error.message}</p>
+            <p className="text-destructive text-sm whitespace-pre-wrap">{error.message}</p>
           )}
           {canManage && editor.dirty && !updateConfig.isPending && (
             <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onDiscard}>

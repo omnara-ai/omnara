@@ -26,7 +26,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="grid min-h-svh lg:grid-cols-2">
       <aside className="relative hidden flex-col justify-between overflow-hidden p-10 lg:flex">
-        <div className="from-primary/10 via-card to-card bg-linear-to-br absolute inset-0" />
+        <div className="from-primary/10 via-card to-card absolute inset-0 bg-linear-to-br" />
         <div aria-hidden className="absolute inset-0 opacity-40" style={dotGrid} />
         <div
           aria-hidden
@@ -58,7 +58,7 @@ export function AuthHeading({ title, subtitle }: { title: string; subtitle: stri
   return (
     <div className="flex flex-col gap-2">
       <h1 className="type-title">{title}</h1>
-      <p className="text-muted-foreground text-pretty text-sm">{subtitle}</p>
+      <p className="text-muted-foreground text-sm text-pretty">{subtitle}</p>
     </div>
   )
 }

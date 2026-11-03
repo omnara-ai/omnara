@@ -34,10 +34,7 @@ func TestModelWindowForRequestReservesSmallerRequestAllowance(t *testing.T) {
 func TestPrepareForSendIgnoresProviderNeutralBundleSize(t *testing.T) {
 	body := json.RawMessage(`{"request":true}`)
 	bundle := modelcontext.Bundle{
-		AvailableMachinePools: []modelcontext.MachinePoolRef{{
-			MachinePoolName: "provider-omits-this-field",
-			Description:     strings.Repeat("internal metadata ", 10_000),
-		}},
+		SystemPrompt: strings.Repeat("internal metadata ", 10_000),
 	}
 	client := prepareForSendClient{
 		prepared:     PreparedRequest{Body: body},
@@ -392,7 +389,7 @@ func TestToolCallsFromEnvelopePreservesContentOrder(t *testing.T) {
 				{
 					Type:           "tool_call",
 					ProviderCallID: "call_second",
-					ToolName:       "read_file",
+					ToolName:       "storage_read",
 					ToolInput:      json.RawMessage(`{}`),
 				},
 			},

@@ -19,7 +19,7 @@ import {
   emptyBasicConfig,
   useAgentBuilderForm,
 } from '@/components/agents/useAgentBuilderForm'
-import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning'
+import { useAgentUnsavedChangesWarning } from '@/components/agents/useAgentUnsavedChangesWarning'
 
 export function useAgentDraft(
   catalog: ToolCatalog | undefined,
@@ -47,7 +47,7 @@ export function useAgentDraft(
   const [name, setName] = useState(restored?.agentName ?? initial.name)
   const form = useAgentBuilderForm(session, restored?.draft ?? initial.draft, scope)
   const dirty = name !== initial.name || (mode.editorYaml ?? form.yaml) !== initial.yaml
-  const suppressUnsavedChangesWarning = useUnsavedChangesWarning(dirty)
+  const suppressUnsavedChangesWarning = useAgentUnsavedChangesWarning(dirty)
   const switchMode = (nextMode: AgentConfigMode) => {
     if (nextMode === 'builder' && mode.editorYaml !== null) {
       const adopted = createBasicConfigSession(mode.editorYaml)

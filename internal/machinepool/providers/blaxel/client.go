@@ -371,9 +371,9 @@ func (c *restClient) doRequestWithHeaders(
 	}
 	statusCode, raw := response.StatusCode, response.Body
 	if statusCode < 200 || statusCode >= 300 {
-		return statusCode, providers.WithRetryAfter(
+		return statusCode, providers.WithResponse(
 			apiError{StatusCode: statusCode},
-			response.Header,
+			response,
 		)
 	}
 	if out == nil || len(raw) == 0 {

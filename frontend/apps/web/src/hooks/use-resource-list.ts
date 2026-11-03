@@ -73,11 +73,6 @@ export function nameGlob(value: string) {
   return `*${value}*`
 }
 
-/** Glob that matches exactly one name, for point lookups through list filters. */
-export function exactNameGlob(value: string) {
-  return value.replace(/[\\*?]/g, (wildcard) => `\\${wildcard}`)
-}
-
 export function useDebouncedValue(value: string, delayMs = 250) {
   const [debounced, setDebounced] = useState(value)
 

@@ -1,0 +1,71 @@
+---
+title: boxd
+description: Composable computers for devs and agents, with a full computer in under 10 ms
+icon: "/logo/providers/boxd.svg"
+---
+
+[boxd](https://boxd.sh) makes composable computers for devs and agents: full, hardware-isolated Linux computers you compose once and spin up as many as you need. Each machine is a KVM microVM running Ubuntu 24.04 with its own kernel. Connect your boxd org with a custom pool.
+
+## Why boxd
+
+- **A full computer in under 10 ms.** Machines boot from cold in under 10 ms, and Claude Code, Codex, and OpenCode ship on every one.
+- **Give the agent root. Walk away.** Every agent gets a real virtual machine with its own kernel: root, systemd, Docker, and no way to reach the host or the machine next door. Omnara creates each machine in boxd's isolated mode, which also cuts it off from the rest of your boxd account: no in-VM `boxd` CLI, integrations, or private network to your other machines.
+- **Persistent by default.** A boxd machine is the same machine tomorrow, with the repo, installed packages, warm caches, and whatever the agent left running still there. With [sleep](/machines/providers/overview#sleep-when-idle) on, idle machines suspend and resume in under a millisecond, running processes and all.
+- **Set up once, use infinitely.** Install your tools once and snapshot the machine, memory and running processes included. Every new machine starts with everything already set up and running.
+- **In Europe.** boxd runs in European data centers, which for a lot of teams is the difference between an agent being allowed near the codebase and not.
+
+## Set up a boxd pool
+
+<Steps>
+  <Step title="Create an API key">
+    In the [boxd console](https://boxd.sh/app), open **API keys** and create a key, or run `boxd auth keys create omnara`. Each key belongs to one boxd org, and Omnara creates machines in that org.
+
+    Store the key as an org-owned [secret](/organization/secrets) in Omnara.
+  </Step>
+  <Step title="Choose a snapshot">
+    Leave the snapshot empty to use boxd's base image.
+
+    To add your own tools, set up a boxd machine the way you want it, then save it while it's running:
+
+    ```bash
+    boxd snapshots save my-machine agent-box
+    ```
+
+    - A snapshot captures the machine's memory and disk, and machines created from it keep the snapshot's size.
+    - Don't snapshot a machine that has run the Omnara daemon. Machines created from it keep the old machine's identity and credentials and never come online.
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **boxd**. Enter the credential, snapshot (or leave it empty), CPU and memory maximums, and capacity limits.
+
+    Machines take the snapshot's size, or your boxd org's default size without a snapshot, so set the maximums to at least that size. An org admin sets the default with `boxd manage size set --vcpu 2`.
+
+    Only environment variables whose names use letters, digits, and underscores, and don't start with a digit, reach the machine.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields). The dashboard can't turn on sleep yet, so set `sleep_after_ms` through the API.
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "boxd-pool",
+  "provider": "boxd",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "default_machine_provider_options": {
+    "sleep_after_ms": 300000 // optional
+  },
+  "max_machine_cpu": 2,
+  "max_machine_memory_mb": 8192,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 81920,
+  "max_total_machines": 10
+}
+```
+
+- `snapshot` is optional. Omit it, as here, to use boxd's base image, or set the name of a saved snapshot.
+- The snapshot sets each machine's size, or your boxd org's default size without a snapshot, so the pool doesn't need CPU and memory defaults, and the maximums must be at least that size.
+- `sleep_after_ms` turns on [sleep](/machines/providers/overview#sleep-when-idle). Omit it to keep machines awake. `default_machine_provider_options` itself is required, so send it as `{}` when it's empty.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_snapshots` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).

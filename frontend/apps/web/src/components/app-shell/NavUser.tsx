@@ -1,8 +1,8 @@
 import { useMe } from '@omnara/react'
-import { sessionLogout } from '@omnara/sdk/browser'
+import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import { ChevronsUpDown, CircleHelp, LogOut, Monitor, Moon, Sun } from '@/components/icons'
+import { CircleHelp, Fingerprint, LogOut, Monitor, Moon, Sun, UserIcon } from '@/components/icons'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,9 +16,7 @@ import {
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
 import type { ThemePreference } from '@/lib/theme'
 import { getThemePreference, setThemePreference } from '@/lib/theme'
-
-// Logout redirects on success, so there is no success state.
-type LogoutStatus = { kind: 'idle' } | { kind: 'pending' } | { kind: 'error'; message: string }
+import { useLogout } from '@/lib/use-logout'
 
 function Identity({ name, email, initials }: { name: string; email: string; initials: string }) {
   return (
@@ -80,17 +78,7 @@ function ThemeMenuItems() {
 
 export function NavUser() {
   const { data: me } = useMe()
-  const [logoutStatus, setLogoutStatus] = useState<LogoutStatus>({ kind: 'idle' })
-
-  async function handleLogout() {
-    setLogoutStatus({ kind: 'pending' })
-    try {
-      await sessionLogout()
-      window.location.href = '/login'
-    } catch {
-      setLogoutStatus({ kind: 'error', message: 'Logout failed' })
-    }
-  }
+  const { status: logoutStatus, logout } = useLogout()
 
   const name = me.user.display_name || 'You'
   const email = me.user.email || 'No email'
@@ -106,7 +94,6 @@ export function NavUser() {
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <Identity name={name} email={email} initials={initials} />
-              <ChevronsUpDown className="ml-auto size-4" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -127,6 +114,24 @@ export function NavUser() {
               asChild
               className="hover:bg-primary/15 focus:bg-primary/15 [&_svg]:!text-foreground"
             >
+              <Link to="/user/account">
+                <UserIcon />
+                <span className="translate-y-px">Account</span>
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              asChild
+              className="hover:bg-primary/15 focus:bg-primary/15 [&_svg]:!text-foreground"
+            >
+              <Link to="/user/api-tokens">
+                <Fingerprint />
+                <span className="translate-y-px">Personal tokens</span>
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              asChild
+              className="hover:bg-primary/15 focus:bg-primary/15 [&_svg]:!text-foreground"
+            >
               <a href="https://docs.omnara.com/support" target="_blank" rel="noreferrer">
                 <CircleHelp />
                 <span className="translate-y-px">Need help?</span>
@@ -136,7 +141,7 @@ export function NavUser() {
               variant="destructive"
               disabled={logoutStatus.kind === 'pending'}
               onClick={() => {
-                void handleLogout()
+                void logout()
               }}
             >
               <LogOut />

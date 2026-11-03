@@ -61,7 +61,7 @@ export function AgentProfileNameHeading({
               required
               variant="embedded"
               value={nameDraft}
-              className="border-border focus-visible:border-ring type-title -mx-1 h-auto w-full min-w-0 max-w-96 rounded-none border-b px-1 py-0 text-2xl sm:h-auto md:text-2xl"
+              className="border-border focus-visible:border-ring type-title -mx-1 h-auto w-full max-w-96 min-w-0 rounded-none border-b px-1 py-0 text-2xl sm:h-auto md:text-2xl"
               onChange={(event) => {
                 setNameDraft(event.target.value)
               }}

@@ -91,11 +91,18 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 	admin := createSecretTestUser(t, ctx, store, "Skills Admin", "admin")
 	developer := createSecretTestUser(t, ctx, store, "Skills Developer", "member")
 	other := createSecretTestUser(t, ctx, store, "Skills Other", "member")
+	viewer := createSecretTestUser(t, ctx, store, "Skills Viewer", "member")
 	if _, err := store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
 		OrgID: testOrgID, ProjectID: testProjectID, UserID: developer.ID,
 		Role: "admin",
 	}); err != nil {
 		t.Fatalf("add developer project membership: %v", err)
+	}
+	if _, err := store.Identity().AddProjectMembership(ctx, identitystore.AddProjectMembershipInput{
+		OrgID: testOrgID, ProjectID: testProjectID, UserID: viewer.ID,
+		Role: "viewer",
+	}); err != nil {
+		t.Fatalf("add viewer project membership: %v", err)
 	}
 
 	orgSkill := createIntegrationSkill(t, ctx, store, skillstore.CreateSkillInput{
@@ -127,7 +134,7 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 	if len(resolved) != 0 || len(missing) != 1 || missing[0] != orgSkillPublicID {
 		t.Fatalf("ungranted organization skill resolved=%+v missing=%+v", resolved, missing)
 	}
-	if _, err := store.Skills().GetSkillForDispatch(ctx, testProjectID, orgSkillPublicID); !storeerr.IsNotFound(err) {
+	if _, err := store.Skills().GetSkillForDispatch(ctx, testProjectID, orgSkill.ID); !storeerr.IsNotFound(err) {
 		t.Fatalf("dispatch ungranted organization skill error = %v, want not found", err)
 	}
 	if _, err := store.Skills().CreateSkillGrant(ctx, skillstore.CreateSkillGrantInput{
@@ -205,12 +212,12 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 		}
 	}
 	if dispatched, err := store.Skills().GetSkillForDispatch(
-		ctx, testProjectID, orgSkillPublicID,
+		ctx, testProjectID, orgSkill.ID,
 	); err != nil || dispatched.ID != orgSkill.ID {
 		t.Fatalf("dispatch granted organization skill = %+v, err=%v", dispatched, err)
 	}
 	if dispatched, err := store.Skills().GetSkillForDispatch(
-		ctx, testProjectID, userSkillPublicID,
+		ctx, testProjectID, userSkill.ID,
 	); err != nil || dispatched.ID != userSkill.ID {
 		t.Fatalf("dispatch granted user skill = %+v, err=%v", dispatched, err)
 	}
@@ -286,10 +293,32 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 	}); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("create project skill as non-member error = %v, want unauthorized", err)
 	}
+	if _, err := store.Skills().GetVisibleSkill(
+		ctx, testOrgID, userSkillPublicID, userPrincipal(viewer.ID),
+	); err != nil {
+		t.Fatalf("get shared user skill as target project viewer: %v", err)
+	}
+	if _, err := store.Skills().GetVisibleSkill(
+		ctx, testOrgID, userSkillPublicID, userPrincipal(other.ID),
+	); !storeerr.IsNotFound(err) {
+		t.Fatalf("get shared user skill as non-member error = %v, want not found", err)
+	}
+	if _, err := store.Skills().CreateSkillRevisionForSkill(ctx, skillstore.CreateSkillRevisionForSkillInput{
+		OrgID: testOrgID, SkillID: userSkill.ID, BaseRevisionID: userSkill.RevisionID,
+		Name: userSkill.Name, Description: "viewer edit", SkillMd: "# viewer edit",
+		ArchiveBytes: []byte("viewer edit"), Actor: userPrincipal(viewer.ID),
+	}); !storeerr.IsNotFound(err) {
+		t.Fatalf("revise shared user skill as viewer error = %v, want not found", err)
+	}
 	if _, err := store.Skills().DeleteSkillGrant(ctx, skillstore.DeleteSkillGrantInput{
 		OrgID: testOrgID, SkillID: userSkill.ID, GrantID: grant.ID, Actor: userPrincipal(developer.ID),
 	}); err != nil {
 		t.Fatalf("revoke user skill grant: %v", err)
+	}
+	if _, err := store.Skills().GetVisibleSkill(
+		ctx, testOrgID, userSkillPublicID, userPrincipal(viewer.ID),
+	); !storeerr.IsNotFound(err) {
+		t.Fatalf("get revoked user skill as viewer error = %v, want not found", err)
 	}
 	resolved, missing, err = store.Skills().GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{
 		OrgID: testOrgID, ProjectID: testProjectID, IDs: []string{userSkillPublicID},
@@ -297,7 +326,7 @@ func TestSkillsStorageFlatOwnershipVisibilityAndPagination(t *testing.T) {
 	if err != nil || len(resolved) != 0 || len(missing) != 1 {
 		t.Fatalf("revoked user skill resolved=%+v missing=%+v err=%v", resolved, missing, err)
 	}
-	if _, err := store.Skills().GetSkillForDispatch(ctx, testProjectID, userSkillPublicID); !storeerr.IsNotFound(err) {
+	if _, err := store.Skills().GetSkillForDispatch(ctx, testProjectID, userSkill.ID); !storeerr.IsNotFound(err) {
 		t.Fatalf("dispatch revoked user skill error = %v, want not found", err)
 	}
 }
@@ -335,7 +364,7 @@ skills:
 			return resolvedTestModelSelection(configuredModel), nil
 		},
 		ResolveSkillID: func(id string) (agentconfig.SkillResolution, error) {
-			return agentconfig.SkillResolution{PublicID: id, Name: skill.Name}, nil
+			return agentconfig.SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: skill.Name}, nil
 		},
 	})
 	if err != nil {
@@ -347,7 +376,6 @@ skills:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {

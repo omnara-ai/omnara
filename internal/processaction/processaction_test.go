@@ -14,7 +14,8 @@ func TestDecodeWritePayload(t *testing.T) {
 		ok   bool
 	}{
 		{name: "data", raw: json.RawMessage(`{"data":"hello"}`), ok: true},
-		{name: "close", raw: json.RawMessage(`{"close_stdin":true}`), ok: true},
+		{name: "empty data", raw: json.RawMessage(`{"data":""}`)},
+		{name: "removed close_stdin", raw: json.RawMessage(`{"close_stdin":true}`)},
 		{name: "empty", raw: json.RawMessage(`{}`)},
 		{name: "null", raw: json.RawMessage(`{"data":null}`)},
 		{name: "unknown", raw: json.RawMessage(`{"extra":true}`)},
@@ -41,7 +42,7 @@ func TestDecodeReadPayload(t *testing.T) {
 		{name: "explicit", raw: json.RawMessage(`{"cursor":4,"max_bytes":128,"wait_ms":20}`), ok: true},
 		{name: "negative cursor", raw: json.RawMessage(`{"cursor":-1}`)},
 		{name: "negative bytes", raw: json.RawMessage(`{"max_bytes":-1}`)},
-		{name: "excess wait", raw: json.RawMessage(`{"wait_ms":10001}`)},
+		{name: "excess wait", raw: json.RawMessage(`{"wait_ms":86400001}`)},
 		{name: "null", raw: json.RawMessage(`{"cursor":null}`)},
 		{name: "unknown", raw: json.RawMessage(`{"extra":true}`)},
 	} {
@@ -100,5 +101,19 @@ func TestDecodeEmptyPayload(t *testing.T) {
 				t.Fatalf("DecodeEmptyPayload() error = %v, want success %t", err, test.ok)
 			}
 		})
+	}
+}
+
+func TestMinOutputRawBytesCountsReplacementSymbolsAsOneByte(t *testing.T) {
+	t.Parallel()
+	for output, want := range map[string]int{
+		"":                          0,
+		"plain":                     5,
+		NULSymbol + "a" + NULSymbol: 3,
+		InvalidUTF8Symbol + "é":     3,
+	} {
+		if got := MinOutputRawBytes(output); got != want {
+			t.Fatalf("MinOutputRawBytes(%q) = %d, want %d", output, got, want)
+		}
 	}
 }

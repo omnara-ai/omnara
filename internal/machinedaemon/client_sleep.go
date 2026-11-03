@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 )
 
 var (
@@ -124,7 +126,13 @@ func (c *Client) drainWakeSignals() {
 	}
 }
 
+func (c *Client) Asleep() bool {
+	return c.asleep.Load()
+}
+
 func (c *Client) sleepUntilWake(ctx context.Context) error {
+	c.asleep.Store(true)
+	defer c.asleep.Store(false)
 	c.http.CloseIdleConnections()
 	if err := c.sleepPlatform.allowSleep(); err != nil {
 		return err
@@ -143,7 +151,8 @@ func (c *Client) sleepUntilWake(ctx context.Context) error {
 			return c.sleepPlatform.preventSleep()
 		case <-ticker.C:
 			nowWall := time.Now().Round(0)
-			if gap := nowWall.Sub(lastWall); gap >= wakeClockJumpThreshold {
+			if gap := nowWall.Sub(lastWall); gap >= wakeClockJumpThreshold &&
+				c.cfg.SleepPlatform != daemonprotocol.SleepPlatformArker {
 				c.log.Info("daemon waking", "source", "clock_jump", "gap", gap)
 				return c.sleepPlatform.preventSleep()
 			}

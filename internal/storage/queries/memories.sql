@@ -1,0 +1,152 @@
+-- name: CreateMemoryStore :one
+INSERT INTO memory_stores(id, project_id, name, description, agent_access)
+VALUES (sqlc.arg(id), sqlc.arg(project_id), sqlc.arg(name), sqlc.arg(description), sqlc.arg(agent_access))
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at;
+
+-- name: GetMemoryStore :one
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+FROM memory_stores
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id)
+  AND deleted_at IS NULL;
+
+-- name: GetMemoryStoreByName :one
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+FROM memory_stores
+WHERE project_id = sqlc.arg(project_id)
+  AND name = sqlc.arg(name)
+  AND deleted_at IS NULL;
+
+-- name: LockMemoryStore :one
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+FROM memory_stores
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id)
+  AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: UpdateMemoryStore :one
+UPDATE memory_stores
+SET description = sqlc.arg(description),
+    agent_access = sqlc.arg(agent_access),
+    updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id)
+  AND deleted_at IS NULL
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at;
+
+-- name: ListMemoryStores :many
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+FROM memory_stores
+WHERE project_id = ANY(sqlc.arg(project_ids)::uuid[])
+  AND deleted_at IS NULL
+  AND (sqlc.arg(name_pattern)::text = '' OR name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
+  AND (name COLLATE "C", id) > (sqlc.arg(after_name)::text COLLATE "C", sqlc.arg(after_id)::uuid)
+ORDER BY name COLLATE "C", id
+LIMIT sqlc.arg(row_limit);
+
+-- name: CountMemoryStores :one
+SELECT count(*)
+FROM memory_stores
+WHERE project_id = sqlc.arg(project_id)
+  AND deleted_at IS NULL;
+
+-- name: DeleteMemoryStore :exec
+UPDATE memory_stores
+SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id)
+  AND deleted_at IS NULL;
+
+-- name: LockAgentForMemoryWrite :one
+SELECT id
+FROM agents
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(agent_id)
+FOR SHARE;
+
+-- name: GetAgentMemoryConfig :one
+SELECT coalesce(d.compiled_definition->'memory_stores', '[]'::jsonb)::jsonb AS memory_stores
+FROM agents a
+JOIN agent_configs c ON c.project_id = a.project_id AND c.id = a.current_config_id
+JOIN agent_config_definitions d ON d.project_id = c.project_id AND d.id = c.definition_id
+WHERE a.project_id = sqlc.arg(project_id)
+  AND a.id = sqlc.arg(agent_id)
+  AND a.state = 'active';
+
+-- name: LockMemoryStoreShared :one
+SELECT id
+FROM memory_stores
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id)
+  AND deleted_at IS NULL
+FOR SHARE;
+
+-- name: DeleteMemoryStoresForProjects :exec
+UPDATE memory_stores
+SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+WHERE project_id = ANY(sqlc.arg(project_ids)::uuid[])
+  AND deleted_at IS NULL;
+
+-- name: ListAttachedMemoryStores :many
+SELECT s.id, s.name, s.description, s.agent_access, p.org_id
+FROM memory_stores s
+JOIN projects p ON p.id = s.project_id
+WHERE s.project_id = sqlc.arg(project_id)
+  AND s.id = ANY(sqlc.arg(store_ids)::uuid[])
+  AND s.deleted_at IS NULL
+  AND (sqlc.arg(store_name)::text = '' OR s.name = sqlc.arg(store_name))
+  AND s.name >= sqlc.arg(store_prefix)::text COLLATE "C"
+  AND s.name < (sqlc.arg(store_prefix)::text || '{') COLLATE "C"
+ORDER BY s.name COLLATE "C"
+LIMIT sqlc.narg(row_limit)::integer;
+
+-- name: GetMemoryStoreName :one
+SELECT name FROM memory_stores
+WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
+
+-- name: ResolveAgentMemoryStore :one
+SELECT s.id
+FROM memory_stores s
+JOIN agents a ON a.project_id = s.project_id AND a.id = sqlc.arg(agent_id)
+JOIN agent_configs c ON c.project_id = a.project_id AND c.id = a.current_config_id
+JOIN agent_config_definitions d ON d.project_id = c.project_id AND d.id = c.definition_id
+WHERE s.project_id = sqlc.arg(project_id)
+  AND s.name = sqlc.arg(name)
+  AND s.deleted_at IS NULL
+  AND a.state = 'active'
+  AND d.compiled_definition->'memory_stores' @> jsonb_build_array(jsonb_build_object('id', s.id));
+
+-- name: ListMemoryStoresPendingFileRemoval :many
+SELECT s.id, s.project_id, p.org_id, s.name,
+       (p.deleted_at IS NOT NULL)::boolean AS project_deleted,
+       (o.deleted_at IS NOT NULL)::boolean AS org_deleted
+FROM memory_stores s
+JOIN projects p ON p.id = s.project_id
+JOIN orgs o ON o.id = p.org_id
+WHERE s.deleted_at IS NOT NULL
+  AND (s.files_removed_at IS NULL
+       OR s.files_removed_at < p.deleted_at
+       OR s.files_removed_at < o.deleted_at);
+
+-- name: MarkMemoryStoreFilesRemoved :exec
+UPDATE memory_stores
+SET files_removed_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id);
+
+-- name: GetAgentMemoryFileLastSeen :one
+SELECT (block.structured_data->>'digest')::text AS digest, result.completed_at
+FROM tool_calls call
+JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool_call_id = call.id
+JOIN content_blocks block ON block.agent_id = result.agent_id AND block.owner_tool_call_result_id = result.id
+WHERE call.agent_id = sqlc.arg(agent_id)
+  AND call.type = 'built_in'
+  AND call.name IN ('storage_read', 'storage_write', 'storage_upload', 'storage_download')
+  AND md5(call.input->>'path') = md5(sqlc.arg(path)::text)
+  AND call.input->>'path' = sqlc.arg(path)::text
+  AND result.outcome = 'succeeded'
+  AND block.block_kind = 'structured_data'
+  AND block.structured_data->>'digest' IS NOT NULL
+ORDER BY result.completed_at DESC, result.id DESC
+LIMIT 1;

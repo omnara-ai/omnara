@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (
@@ -378,12 +379,9 @@ func (s strictOpenAPIServer) createAgentInput(
 	if err != nil {
 		return nil, err
 	}
-	inputBlocks, err := s.server.extractInlineMedia(ctx, mediaIngestContext{
-		ProjectID:      project.ID,
-		AgentID:        agent.ID,
-		IdempotencyKey: idempotencyKey,
-	}, contentBlocks)
+	inputBlocks, artifacts, err := s.server.prepareInputMedia(ctx, agent.ID, contentBlocks)
 	if err != nil {
+		s.server.cleanupInputMedia(ctx, project.ID, agent.ID, artifacts, err)
 		return nil, mediaIngestAPIError(err)
 	}
 	agentInput, storedContentBlocks, created, err := s.server.store.Execution().CreateAgentContentInput(
@@ -393,11 +391,15 @@ func (s strictOpenAPIServer) createAgentInput(
 			AgentID:                agent.ID,
 			Actor:                  actor,
 			ContentBlocks:          inputBlocks,
+			PreparedArtifacts:      artifacts,
 			DeliveryMode:           deliveryMode,
 			IdempotencyKey:         idempotencyKey,
 			CancelOpenInteractions: cancelOpenInteractions,
 		},
 	)
+	if err != nil || !created {
+		s.server.cleanupInputMedia(ctx, project.ID, agent.ID, artifacts, err)
+	}
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -788,12 +790,12 @@ func (s *Server) streamAgentEvents(
 		return
 	}
 	defer reconciliation.unregister()
-	streamCtx, cancelStream := context.WithCancel(r.Context())
+	streamCtx, cancelStream := context.WithCancelCause(r.Context())
 	//nolint:contextcheck // server shutdown must also cancel this request-derived stream context
-	stopCloseWatch := context.AfterFunc(reconciliation.closeContext(), cancelStream)
+	stopCloseWatch := context.AfterFunc(reconciliation.closeContext(), func() { cancelStream(logpkg.ErrSSEShutdown) })
 	defer func() {
 		stopCloseWatch()
-		cancelStream()
+		cancelStream(nil)
 	}()
 	subagents := newSubagentStreamSubscriptions(s, project.ID, agent.ID, toolCallUpdates)
 	defer subagents.close()
@@ -930,21 +932,12 @@ func writeToolCallUpdateFrame(w http.ResponseWriter, update notifications.ToolCa
 	if !state.Valid() {
 		return true
 	}
-	toolCallID, err := publicID(publicid.KindToolCall, update.ToolCallID)
+	response, err := publicevents.ToolCallUpdate(update)
 	if err != nil {
 		_ = writeSSEJSONFrame(w, "error", "", apierror.Body(openapi.ErrorCodeInternalError))
 		return false
 	}
-	agentID, err := publicID(publicid.KindAgent, update.AgentID)
-	if err != nil {
-		_ = writeSSEJSONFrame(w, "error", "", apierror.Body(openapi.ErrorCodeInternalError))
-		return false
-	}
-	return writeSSEJSONFrame(w, "tool_call_update", "", openapi.ToolCallUpdate{
-		ToolCallId: toolCallID,
-		AgentId:    &agentID,
-		State:      state,
-	})
+	return writeSSEJSONFrame(w, "tool_call_update", "", response)
 }
 
 func writeModelOutputDeltaFrame(

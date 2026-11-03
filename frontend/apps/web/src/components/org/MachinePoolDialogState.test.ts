@@ -3,12 +3,15 @@ import { describe, expect, it } from 'vitest'
 
 import {
   derivedMemoryTotalCapPlaceholder,
+  machinePoolConnectionCheckRequest,
   machinePoolCreateRequest,
+  machinePoolFormAfterProviderChange,
   machinePoolFormDefaults,
   machinePoolFormFromPool,
-  machinePoolFormValid,
+  machinePoolProviders,
   machinePoolUpdateRequest,
 } from './MachinePoolDialogState'
+import { machinePoolFormValid } from './machinePoolValidation'
 
 describe('machine pool memory inputs', () => {
   it('converts GB values to integer MB and derives the total from converted machine memory', () => {
@@ -82,6 +85,267 @@ describe('machine pool names', () => {
   )
 })
 
+describe('Tenki machine pools', () => {
+  it('creates a base-image pool without provider options', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'tenki' as const,
+      name: 'tenki-pool',
+      image: '',
+      secretId: 'sec_tenki',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'tenki',
+      default_machine_cpu: 1,
+      default_machine_memory_mb: 1024,
+    })
+    expect(request.default_machine_provider_options).toEqual({})
+  })
+
+  it('clears a custom image while preserving disk size when editing', () => {
+    const pool = machinePool({
+      provider: 'tenki',
+      default_machine_provider_options: { image: 'workspace/custom', disk_size_gb: 40 },
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected Tenki pool form')
+    expect(values.location).toBe('')
+    const request = machinePoolUpdateRequest(pool, {
+      ...values,
+      image: '',
+      location: 'stale-region',
+    })
+    expect(request.default_machine_provider_options).toEqual({ disk_size_gb: 40 })
+  })
+})
+
+describe('Agent37 machine pools', () => {
+  it('creates a pool on the omnara template or a custom one at the smallest shape', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'agent37'),
+      name: 'agent37-pool',
+      maxMachines: '3',
+      secretId: 'sec_agent37',
+    }
+    expect(values).toMatchObject({ image: '' })
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolCreateRequest(values)).toMatchObject({
+      provider: 'agent37',
+      default_machine_cpu: 2,
+      default_machine_memory_mb: 4096,
+      default_machine_provider_options: {},
+      max_total_cpu: 6,
+      max_machine_memory_mb: 4096,
+    })
+    const custom = machinePoolCreateRequest({ ...values, image: ' omnara-machine ' })
+    expect(custom.default_machine_provider_options).toEqual({ template: 'omnara-machine' })
+  })
+})
+
+describe('boxd machine pools', () => {
+  it('creates a base-image pool limited to the default boxd size', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'boxd'),
+      name: 'boxd-pool',
+      secretId: 'sec_boxd',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'boxd',
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 8192,
+    })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+    expect(request).not.toHaveProperty('default_machine_memory_mb')
+    expect(request.default_machine_provider_options).toEqual({})
+  })
+
+  it('clears a snapshot while preserving the sleep window when editing', () => {
+    const pool = machinePool({
+      provider: 'boxd',
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: { snapshot: 'agent-box', sleep_after_ms: 300000 },
+      max_machine_cpu: 4,
+      max_machine_memory_mb: 16384,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected boxd pool form')
+    expect(values).toMatchObject({ image: 'agent-box', cpu: '4', memoryGb: '16' })
+    const request = machinePoolUpdateRequest(pool, { ...values, image: '' })
+    expect(request.default_machine_provider_options).toEqual({ sleep_after_ms: 300000 })
+    expect(request).toMatchObject({ max_machine_cpu: 4, max_machine_memory_mb: 16384 })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+  })
+})
+
+describe('CreateOS machine pools', () => {
+  it('creates a pool with the default root filesystem and default limits', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'createos'),
+      name: 'createos-pool',
+      image: ' s-2vcpu-4gb ',
+      maxMachines: '3',
+      secretId: 'sec_createos',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolCreateRequest(values)).toMatchObject({
+      provider: 'createos',
+      default_machine_provider_options: { ['shape']: 's-2vcpu-4gb', rootfs: 'devbox:1' },
+      max_total_cpu: 6,
+      max_total_memory_mb: 12288,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+  })
+
+  it('edits the shape and root filesystem while preserving API-only options', () => {
+    const pool = machinePool({
+      provider: 'createos',
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: {
+        ['shape']: 's-2vcpu-4gb',
+        rootfs: 'devbox:1',
+        startup_script: 'echo ready',
+      },
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected CreateOS pool form')
+    expect(values).toMatchObject({
+      image: 's-2vcpu-4gb',
+      location: 'devbox:1',
+      cpu: '2',
+      memoryGb: '4',
+    })
+    const request = machinePoolUpdateRequest(pool, {
+      ...values,
+      image: 's-4vcpu-8gb',
+      location: 'ubuntu:26.04',
+      cpu: '4',
+      memoryGb: '8',
+    })
+    expect(request.default_machine_provider_options).toEqual({
+      ['shape']: 's-4vcpu-8gb',
+      rootfs: 'ubuntu:26.04',
+      startup_script: 'echo ready',
+    })
+    expect(request).toMatchObject({ max_machine_cpu: 4, max_machine_memory_mb: 8192 })
+  })
+})
+
+describe('E2B machine pools', () => {
+  it('creates a template pool limited to the default E2B maximums', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'e2b'),
+      name: 'e2b-pool',
+      image: ' claude ',
+      maxMachines: '3',
+      secretId: 'sec_e2b',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'e2b',
+      default_machine_provider_options: { template: 'claude' },
+      max_total_cpu: 24,
+      max_total_memory_mb: 24576,
+      max_machine_cpu: 8,
+      max_machine_memory_mb: 8192,
+    })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+    expect(request.provider_config).toBeUndefined()
+  })
+
+  it('edits the template while preserving the domain and API-only options', () => {
+    const pool = machinePool({
+      provider: 'e2b',
+      provider_config: { domain: 'e2b-juliett.dev' },
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: { template: 'claude', startup_script: 'echo ready' },
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 2048,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected E2B pool form')
+    expect(values).toMatchObject({ image: 'claude', cpu: '2', memoryGb: '2' })
+    const request = machinePoolUpdateRequest(pool, { ...values, image: 'codex' })
+    expect(request.default_machine_provider_options).toEqual({
+      template: 'codex',
+      startup_script: 'echo ready',
+    })
+    expect(request.provider_config).toBeUndefined()
+  })
+})
+
+describe('Superserve machine pools', () => {
+  it('creates a pool on the omnara template with limits derived from its size', () => {
+    const values = {
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'superserve'),
+      name: 'superserve-pool',
+      maxMachines: '4',
+      secretId: 'sec_superserve',
+    }
+    expect(values).toMatchObject({ image: '', cpu: '2', memoryGb: '4' })
+    expect(machinePoolFormValid(values)).toBe(true)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'superserve',
+      default_machine_provider_options: {},
+      max_total_cpu: 8,
+      max_total_memory_mb: 16384,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+    expect(request).not.toHaveProperty('default_machine_memory_mb')
+  })
+
+  it('sends a custom template and edits it while preserving API-only options', () => {
+    const created = machinePoolCreateRequest({
+      ...machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'superserve'),
+      name: 'superserve-pool',
+      image: ' acme/agent-box ',
+      cpu: '2',
+      memoryGb: '2',
+      maxMachines: '2',
+      secretId: 'sec_superserve',
+    })
+    expect(created.default_machine_provider_options).toEqual({ template: 'acme/agent-box' })
+    expect(created).toMatchObject({ max_machine_cpu: 2, max_machine_memory_mb: 2048 })
+
+    const pool = machinePool({
+      provider: 'superserve',
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: {
+        template: 'acme/agent-box',
+        startup_script: 'echo ready',
+      },
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 2048,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected Superserve pool form')
+    expect(values).toMatchObject({ image: 'acme/agent-box', cpu: '2', memoryGb: '2' })
+    const request = machinePoolUpdateRequest(pool, {
+      ...values,
+      image: '',
+      cpu: '1',
+      memoryGb: '1',
+    })
+    expect(request.default_machine_provider_options).toEqual({ startup_script: 'echo ready' })
+    expect(request).toMatchObject({ max_machine_cpu: 1, max_machine_memory_mb: 1024 })
+    expect(request).not.toHaveProperty('default_machine_cpu')
+  })
+})
+
 describe('Modal machine pools', () => {
   it.each(['agents', '', '  '])(
     'creates a pool with app %j and automatic region placement',
@@ -148,6 +412,130 @@ describe('Modal machine pools', () => {
       })
     },
   )
+})
+
+describe('Freestyle machine pools', () => {
+  it('creates a configured-size pool from a snapshot without a location option', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'freestyle' as const,
+      name: 'freestyle-pool',
+      image: ' freestyle/ubuntu-sm ',
+      location: 'not-applicable',
+      cpu: '2',
+      memoryGb: '4',
+      secretId: 'sec_freestyle',
+      runtimeProtectionEnabled: true,
+    }
+
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolCreateRequest(values)).toMatchObject({
+      provider: 'freestyle',
+      default_machine_provider_options: { snapshot: 'freestyle/ubuntu-sm' },
+      default_machine_cpu: 2,
+      default_machine_memory_mb: 4096,
+      max_total_cpu: 6,
+      max_total_memory_mb: 12288,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+      runtime_protection_enabled: true,
+    })
+    expect(machinePoolCreateRequest(values).default_machine_provider_options).not.toHaveProperty(
+      'location',
+    )
+  })
+
+  it('defaults to the base snapshot size when switching to Freestyle', () => {
+    const values = machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'freestyle')
+
+    expect(values).toMatchObject({
+      provider: 'freestyle',
+      location: '',
+      cpu: '2',
+      memoryGb: '4',
+    })
+  })
+
+  it('resets the Freestyle size default when switching to another provider', () => {
+    const freestyle = machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'freestyle')
+
+    expect(machinePoolFormAfterProviderChange(freestyle, 'unikraft')).toMatchObject({
+      provider: 'unikraft',
+      cpu: machinePoolFormDefaults.cpu,
+      memoryGb: machinePoolFormDefaults.memoryGb,
+    })
+  })
+
+  it('preserves API-only provider options when editing a pool', () => {
+    const pool = machinePool({
+      provider: 'freestyle',
+      default_machine_cpu: 2,
+      default_machine_memory_mb: 4096,
+      default_machine_provider_options: {
+        snapshot: 'freestyle/ubuntu-sm',
+        sleep_after_ms: 60_000,
+      },
+      max_total_cpu: 6,
+      max_total_memory_mb: 12288,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (values === null) throw new Error('expected Freestyle form values')
+
+    expect(values).toMatchObject({
+      provider: 'freestyle',
+      image: 'freestyle/ubuntu-sm',
+      location: '',
+      cpu: '2',
+      memoryGb: '4',
+    })
+    expect(
+      machinePoolUpdateRequest(pool, { ...values, image: 'team/configured-worker' })
+        .default_machine_provider_options,
+    ).toEqual({ snapshot: 'team/configured-worker', sleep_after_ms: 60_000 })
+  })
+})
+
+describe('Arker machine pools', () => {
+  it('creates a pool with a source VM and region', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'arker' as const,
+      name: 'arker-pool',
+      image: 'ubuntu-base',
+      location: 'aws-us-west-2',
+      secretId: 'sec_arker',
+    }
+
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolFormValid({ ...values, location: '' })).toBe(false)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'arker',
+      default_machine_provider_options: { source: 'ubuntu-base', region: 'aws-us-west-2' },
+      default_machine_cpu: 1,
+      default_machine_memory_mb: 1024,
+    })
+    expect(request.provider_config).toBeUndefined()
+  })
+
+  it('updates the source VM and leaves provider config untouched', () => {
+    const pool = machinePool({
+      provider: 'arker',
+      provider_config: { allowed_regions: ['aws-us-west-2'] },
+      default_machine_provider_options: { source: 'ubuntu-base', region: 'aws-us-west-2' },
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (values === null) throw new Error('expected Arker form values')
+
+    const request = machinePoolUpdateRequest(pool, { ...values, image: 'tools-template' })
+    expect(request.provider_config).toBeUndefined()
+    expect(request.default_machine_provider_options).toEqual({
+      source: 'tools-template',
+      region: 'aws-us-west-2',
+    })
+  })
 })
 
 describe('machine pool edit state', () => {
@@ -417,3 +805,47 @@ function machinePool(overrides: Partial<MachinePool> = {}): MachinePool {
     ...overrides,
   }
 }
+
+describe('machine pool connection checks', () => {
+  it('checks the saved provider config with the form fields on top', () => {
+    const modal = machinePoolFormAfterProviderChange(
+      { ...machinePoolFormDefaults, secretId: 'secret_1' },
+      'modal',
+    )
+    expect(
+      machinePoolConnectionCheckRequest(
+        { ...modal, providerScope: 'agents' },
+        { app: 'omnara', environment: 'staging' },
+      ).provider_config,
+    ).toEqual({ app: 'agents', environment: 'staging' })
+    const arker = machinePoolFormAfterProviderChange(modal, 'arker')
+    expect(
+      machinePoolConnectionCheckRequest(arker, { api_base_url: 'https://arker.example/api' })
+        .provider_config,
+    ).toEqual({ api_base_url: 'https://arker.example/api' })
+    expect(
+      machinePoolConnectionCheckRequest({
+        ...arker,
+        image: 'ubuntu-base',
+        startupScript: 'apt-get update',
+      }).default_machine_provider_options,
+    ).toEqual({ region: 'aws-us-west-2' })
+  })
+})
+
+it('lists providers alphabetically', () => {
+  expect(machinePoolProviders.map((provider) => provider.label)).toEqual([
+    'Agent37',
+    'Arker',
+    'Blaxel',
+    'boxd',
+    'CreateOS',
+    'Daytona',
+    'E2B',
+    'Freestyle',
+    'Modal',
+    'Superserve',
+    'Tenki',
+    'Unikraft',
+  ])
+})

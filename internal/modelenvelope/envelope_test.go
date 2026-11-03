@@ -46,31 +46,6 @@ func TestNormalizeToolInput(t *testing.T) {
 	}
 }
 
-func TestDurableModelOutputStopReasons(t *testing.T) {
-	tests := []struct {
-		reason StopReason
-		want   bool
-	}{
-		{reason: StopReasonEndTurn, want: true},
-		{reason: StopReasonToolUse, want: true},
-		{reason: StopReasonMaxTokens, want: true},
-		{reason: StopReasonRefusal, want: true},
-		{reason: StopReasonContentFilter, want: true},
-		{reason: StopReasonError, want: true},
-		{reason: StopReasonPause},
-		{reason: StopReasonContextWindow},
-		{reason: StopReasonUnknown},
-		{reason: "future_provider_reason"},
-	}
-	for _, tt := range tests {
-		t.Run(string(tt.reason), func(t *testing.T) {
-			if got := IsDurableModelOutputStopReason(tt.reason); got != tt.want {
-				t.Fatalf("IsDurableModelOutputStopReason(%q) = %v, want %v", tt.reason, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestResponseEnvelopeValidationRejectsInvalidReplayPayload(t *testing.T) {
 	envelope := ResponseEnvelope{
 		RequestedProviderModelSlug: "current-model",

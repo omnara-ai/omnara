@@ -36,5 +36,5 @@ export function useCompleteInfiniteQueryItems<TItem, TFetchResult>(
   const isPending = enabled && (query.isPending || isFetching || hasNextPage) && !isError
   const isComplete = hasCompleteItems && !isFetching
 
-  return { items: hasCompleteItems ? items : [], isComplete, isPending }
+  return { items: hasCompleteItems ? items : [], hasCompleteItems, isComplete, isPending }
 }

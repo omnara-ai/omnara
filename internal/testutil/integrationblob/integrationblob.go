@@ -1,4 +1,4 @@
-// Package integrationblob opens the MinIO-backed blob store from
+// Package integrationblob opens the S3-compatible blob store from
 // compose.yaml for integration tests, mirroring how integrationdb opens
 // the test database.
 package integrationblob
@@ -31,7 +31,7 @@ func MustOpen(t testing.TB, ctx context.Context) *blobstore.S3Store {
 	t.Helper()
 	store, err := open(ctx)
 	if err != nil {
-		t.Fatalf("open test blob store (is the compose minio service up? make db-up): %v", err)
+		t.Fatalf("open test blob store (is the compose rustfs service up? make db-up): %v", err)
 	}
 	return store
 }

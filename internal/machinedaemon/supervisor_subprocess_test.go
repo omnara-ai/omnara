@@ -21,10 +21,23 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
 	"github.com/omnara-ai/omnara/internal/processaction"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
+	if len(os.Args) == 5 && os.Args[1] == "__omnara_git_credential" {
+		if err := RunGitCredentialHelper(
+			context.Background(), os.Args[2], os.Args[3], os.Args[4], os.Stdin, os.Stdout,
+		); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	if len(os.Args) > 1 && os.Args[1] == "__omnara_file_transfer" {
+		os.Exit(runFileTransferProbe())
+	}
 	if len(os.Args) == 4 && os.Args[1] == runnerSubcommand {
 		lockFD, err := strconv.Atoi(os.Args[3])
 		if err == nil {
@@ -288,10 +301,8 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 		ProcessAssignment{
 			ID: processID,
 			Process: Process{
-				Command:       command,
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell(command, "default", "pipe"),
 				Cwd:           commandDir,
-				IOMode:        "pipe",
 			},
 			Env: map[string]string{
 				"MARKER":        markerPath,
@@ -457,7 +468,7 @@ func TestRestartReconciliationStartsSupervisorAndAppliesActionOnce(
 			if !strings.Contains(string(event.Result), "supervisor-output") {
 				t.Fatalf("terminal result lost process output: %s", event.Result)
 			}
-		case statedb.ReportActionTerminal:
+		case statedb.ReportActionTerminal, statedb.ReportProcessOutputMatch:
 		}
 	}
 	if !sawStarted || !sawTerminal {
@@ -497,10 +508,8 @@ func TestRestartReconciliationClosesPreparedSupervisor(
 		ProcessAssignment{
 			ID: processID,
 			Process: Process{
-				Command:       "printf should-not-run",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("printf should-not-run", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 		},
 	)
@@ -593,10 +602,8 @@ func TestAuthenticationRejectionStopsDetachedAcceptedProcess(
 		ProcessAssignment{
 			ID: processID,
 			Process: Process{
-				Command:       `printf started > "$MARKER"; sleep 30`,
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell(`printf started > "$MARKER"; sleep 30`, "default", "pipe"),
 				Cwd:           commandDir,
-				IOMode:        "pipe",
 			},
 			Env: map[string]string{"MARKER": markerPath},
 		},
@@ -706,13 +713,13 @@ func TestDetachedSupervisorArtifactsExcludeSecretsAndActionPayloads(
 		ProcessAssignment{
 			ID: "prc_no_persisted_secrets",
 			Process: Process{
-				Command: `test -n "$OMNARA_HOME" && ` +
-					`test -n "$LAUNCH_TEST_SECRET" && ` +
-					`test -z "${OMNARA_TEST_SECRET+x}" && ` +
-					`printf ok > "$WORKLOAD_ENV_MARKER" && sleep 30`,
-				ShellSelector: "default",
-				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
+				ExecutionSpec: processcmd.ForShell(
+					`test -n "$OMNARA_HOME" && `+
+						`test -n "$LAUNCH_TEST_SECRET" && `+
+						`test -z "${OMNARA_TEST_SECRET+x}" && `+
+						`printf ok > "$WORKLOAD_ENV_MARKER" && sleep 30`, "default", "pipe",
+				),
+				Cwd: t.TempDir(),
 			},
 			Env: map[string]string{
 				"LAUNCH_TEST_SECRET":  launchSecret,
@@ -794,10 +801,8 @@ func TestAcceptedProcessCanTerminateBeforeSpawn(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_accepted_terminate_before_spawn",
 			Process: Process{
-				Command:       `printf ran > "$MARKER"`,
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell(`printf ran > "$MARKER"`, "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 			Env: map[string]string{"MARKER": markerPath},
 		},
@@ -936,10 +941,8 @@ func TestDetachedSupervisorFastExitFreezesOnlyTerminalReport(t *testing.T) {
 				ProcessAssignment{
 					ID: "prc_fast_terminal_only_" + tt.name,
 					Process: Process{
-						Command:       command,
-						ShellSelector: "default",
+						ExecutionSpec: processcmd.ForShell(command, "default", "pipe"),
 						Cwd:           t.TempDir(),
-						IOMode:        "pipe",
 					},
 					WaitMs: 1000,
 				},
@@ -990,10 +993,8 @@ func TestDetachedSupervisorOutputReadFailureStillFreezesStartedReport(
 		ProcessAssignment{
 			ID: "prc_started_without_initial_output",
 			Process: Process{
-				Command:       "sleep 30",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("sleep 30", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 			WaitMs: 10_000,
 		},
@@ -1057,10 +1058,8 @@ func TestDetachedSupervisorRejectsWrongIPCIdentityBeforeStart(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_ipc_identity",
 			Process: Process{
-				Command:       "echo should-not-run",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("echo should-not-run", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 		},
 	)
@@ -1125,10 +1124,8 @@ func TestDetachedSupervisorCloseUngrantedRetainsLifetimeLock(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_close_ungranted_lock",
 			Process: Process{
-				Command:       "echo should-not-run",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("echo should-not-run", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 		},
 	)
@@ -1158,10 +1155,8 @@ func TestDetachedSupervisorTimeoutClosesWholeProcessTree(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_detached_timeout",
 			Process: Process{
-				Command:       "sleep 30 & wait",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("sleep 30 & wait", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 			TimeoutSeconds: 1,
 		},
@@ -1181,7 +1176,7 @@ func TestDetachedSupervisorTimeoutClosesWholeProcessTree(t *testing.T) {
 	}
 }
 
-func TestDetachedPTYRoundTripAndWriteCloseRejection(t *testing.T) {
+func TestDetachedPTYRoundTrip(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("PTY execution is not yet supported on Windows")
 	}
@@ -1194,96 +1189,106 @@ func TestDetachedPTYRoundTripAndWriteCloseRejection(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_detached_pty",
 			Process: Process{
-				Command: `printf '\033[31mready\033[0m\n'; ` +
-					`IFS= read -r line; printf 'got:%s\n' "$line"; sleep 30`,
-				ShellSelector: "default",
-				Cwd:           t.TempDir(),
-				IOMode:        "pty",
+				ExecutionSpec: processcmd.ForShell(
+					`printf '\033[31mready\033[0m\n'; `+
+						`IFS= read -r line; printf 'got:%s\n' "$line"; `+
+						`IFS= read -r next; printf 'next:%s\n' "$next"`, "default", "pty",
+				),
+				Cwd: t.TempDir(),
 			},
 		},
 	)
 	fixture.acceptAndStart(t, ctx)
-	write := ProcessAction{
-		ID:         "act_pty_write",
-		ActionKind: "write",
-		Seq:        1,
-		Payload:    json.RawMessage(`{"data":"hello\n"}`),
+	for index, payload := range []string{`{"data":"hello\n"}`, `{"data":"world\n"}`} {
+		action := ProcessAction{
+			ID:         fmt.Sprintf("act_pty_input_%d", index),
+			ActionKind: "write",
+			Seq:        int64(index + 1),
+			Payload:    json.RawMessage(payload),
+		}
+		if err := fixture.runtime.runner.ApplyOnce(ctx, action); err != nil {
+			t.Fatalf("apply %s: %v", payload, err)
+		}
+		report, found, err := fixture.store.ReportBySlot(
+			ctx,
+			statedb.ReportActionTerminal,
+			fixture.runtime.processID,
+			action.ID,
+		)
+		if err != nil || !found {
+			t.Fatalf("read report for %s: found=%t err=%v", payload, found, err)
+		}
+		var event daemonReportedEvent
+		require.NoError(t, json.Unmarshal(report.Body, &event))
+		if event.Type != "process_action_applied" {
+			t.Fatalf("report for %s = %+v", payload, event)
+		}
+		require.NoError(t, fixture.store.AcknowledgeReport(ctx, report.ID))
 	}
-	if err := fixture.runtime.runner.ApplyOnce(ctx, write); err != nil {
-		t.Fatalf("write PTY input: %v", err)
-	}
-	writeReport, found, err := fixture.store.ReportBySlot(
-		ctx,
-		statedb.ReportActionTerminal,
-		fixture.runtime.processID,
-		write.ID,
-	)
-	if err != nil || !found {
-		t.Fatalf("read PTY write report: found=%t err=%v", found, err)
-	}
-	var writeEvent daemonReportedEvent
-	require.NoError(t, json.Unmarshal(writeReport.Body, &writeEvent))
-	if writeEvent.Type != "process_action_applied" {
-		t.Fatalf("PTY write report = %+v", writeEvent)
-	}
-	require.NoError(t, fixture.store.AcknowledgeReport(
-		ctx,
-		writeReport.ID,
-	))
 
-	closeInput := ProcessAction{
-		ID:         "act_pty_close_stdin",
-		ActionKind: "write",
-		Seq:        2,
-		Payload:    json.RawMessage(`{"close_stdin":true}`),
-	}
-	if err := fixture.runtime.runner.ApplyOnce(
-		ctx,
-		closeInput,
-	); err != nil {
-		t.Fatalf("record PTY close-input rejection: %v", err)
-	}
-	closeReport, found, err := fixture.store.ReportBySlot(
-		ctx,
-		statedb.ReportActionTerminal,
-		fixture.runtime.processID,
-		closeInput.ID,
-	)
-	if err != nil || !found {
-		t.Fatalf("read PTY close-input report: found=%t err=%v", found, err)
-	}
-	var closeEvent daemonReportedEvent
-	require.NoError(t, json.Unmarshal(closeReport.Body, &closeEvent))
-	if closeEvent.Type != "process_action_failed" ||
-		closeEvent.StateReasonCode != "not_supported" {
-		t.Fatalf("PTY close-input report = %+v", closeEvent)
-	}
-	closeMarker, found, err := fixture.store.Action(ctx, closeInput.ID)
-	if err != nil || !found {
-		t.Fatalf(
-			"read PTY close-input boundary: found=%t err=%v",
-			found,
-			err,
-		)
-	}
-	if closeMarker.EffectCommitted {
-		t.Fatalf(
-			"PTY close-input rejection crossed its effect boundary: %+v",
-			closeMarker,
-		)
-	}
-	require.NoError(t, fixture.store.AcknowledgeReport(
-		ctx,
-		closeReport.ID,
-	))
-	fixture.waitForOutput(t, ctx, "got:hello")
-	require.NoError(t, fixture.runtime.runner.Terminate(ctx, "test_finished"))
 	fixture.waitClosed(t, 10*time.Second)
 	_, event := fixture.terminalEvent(t)
-	if !strings.Contains(string(event.Result), "ready") ||
-		!strings.Contains(string(event.Result), "got:hello") {
-		t.Fatalf("PTY terminal output = %s", event.Result)
+	for _, want := range []string{"ready", "got:hello", "next:world"} {
+		if !strings.Contains(string(event.Result), want) {
+			t.Fatalf("PTY terminal output = %s, want %q", event.Result, want)
+		}
 	}
+}
+
+func TestDetachedWatchReportsMatchingOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("detached supervisor execution is not complete on Windows")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	fixture := newDetachedSupervisorTestFixture(
+		t,
+		ctx,
+		ProcessAssignment{
+			ID: "prc_detached_watch",
+			Process: Process{
+				ExecutionSpec: processcmd.ForShell(
+					`sleep 1; printf 'ERROR one\nok\nERROR two'; sleep 1`, "sh", "pipe",
+				),
+				Cwd: t.TempDir(),
+			},
+		},
+	)
+	fixture.acceptAndStart(t, ctx)
+	action := ProcessAction{
+		ID:         "act_watch",
+		ActionKind: daemonprotocol.ProcessActionWatch,
+		Seq:        1,
+		Payload:    json.RawMessage(`{"pattern":"ERROR","timeout_seconds":30,"cursor":0}`),
+	}
+	require.NoError(t, fixture.runtime.runner.ApplyOnce(ctx, action))
+	applied, found, err := fixture.store.ReportBySlot(
+		ctx, statedb.ReportActionTerminal, fixture.runtime.processID, action.ID,
+	)
+	require.NoError(t, err)
+	require.True(t, found)
+	var appliedEvent daemonReportedEvent
+	require.NoError(t, json.Unmarshal(applied.Body, &appliedEvent))
+	require.Equal(t, "process_action_applied", string(appliedEvent.Type))
+	require.NoError(t, fixture.store.AcknowledgeReport(ctx, applied.ID))
+
+	fixture.waitClosed(t, 10*time.Second)
+	reports, err := fixture.store.ReportsForProcess(ctx, fixture.runtime.processID)
+	require.NoError(t, err)
+	var lines []string
+	for _, report := range reports {
+		if report.Kind != statedb.ReportProcessOutputMatch {
+			continue
+		}
+		var event daemonReportedEvent
+		require.NoError(t, json.Unmarshal(report.Body, &event))
+		var matched daemonprotocol.OutputMatchResult
+		require.NoError(t, json.Unmarshal(event.Result, &matched))
+		require.Equal(t, "ERROR", matched.Pattern)
+		lines = append(lines, matched.Lines...)
+	}
+	require.Equal(t, []string{"ERROR one", "ERROR two"}, lines)
 }
 
 func TestDetachedSupervisorRejectsUnsafeActionPayloads(t *testing.T) {
@@ -1299,10 +1304,8 @@ func TestDetachedSupervisorRejectsUnsafeActionPayloads(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_unsafe_action_payload",
 			Process: Process{
-				Command:       "sleep 30",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("sleep 30", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 		},
 	)
@@ -1413,10 +1416,8 @@ func TestDetachedStalledWriteClosesStdinAndReleasesReconciliation(
 		ProcessAssignment{
 			ID: "prc_stalled_stdin",
 			Process: Process{
-				Command:       "sleep 30",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("sleep 30", "default", "pipe"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pipe",
 			},
 		},
 	)
@@ -1521,10 +1522,8 @@ func TestDetachedStalledPTYWriteTerminatesAndReconciles(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_stalled_pty_stdin",
 			Process: Process{
-				Command:       "stty raw -echo; printf ready; sleep 30",
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell("stty raw -echo; printf ready; sleep 30", "default", "pty"),
 				Cwd:           t.TempDir(),
-				IOMode:        "pty",
 			},
 		},
 	)

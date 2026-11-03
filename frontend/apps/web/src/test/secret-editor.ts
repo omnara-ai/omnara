@@ -38,6 +38,28 @@ export async function enter(label: string, value: string) {
   })
 }
 
+export async function choose(labelText: string, optionText: string) {
+  const label = [...document.querySelectorAll('label')].find(
+    (item) => item.textContent === labelText,
+  )
+  const trigger = label && document.getElementById(label.htmlFor)
+  if (!(trigger instanceof HTMLButtonElement)) throw new Error(`Missing select: ${labelText}`)
+  await act(async () => {
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    await Promise.resolve()
+  })
+  let option: HTMLElement | undefined
+  await waitForUI(() => {
+    option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (item) => item.textContent === optionText,
+    )
+    expect(option, `Missing option: ${optionText}`).toBeDefined()
+  })
+  act(() => {
+    option?.click()
+  })
+}
+
 export async function waitForUI(assertion: () => void) {
   await vi.waitFor(async () => {
     await act(async () => {

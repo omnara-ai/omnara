@@ -1,4 +1,4 @@
-import { sdk } from '@omnara/sdk'
+import { type MemoryFile, sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import * as z from 'zod'
 
@@ -7,19 +7,22 @@ import { formatAgentEventList } from './agent-rendering.ts'
 import {
   currentProfileConfigId,
   renderConfigSource,
+  renderLaunchConfig,
   resolveConfigId,
   zConfigAttachment,
   zConfigSourceAttachment,
 } from './config-attachment.ts'
 import { type CommandGroup, flowOp, op, type OperationSpec } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
+import { integrationCommandGroups } from './integration-setup.ts'
 import { formatMachineSetup, runMachineCreateLocal, zMachineSetupBody } from './machine-setup.ts'
 import { runAgentMcpAdd, runProfileMcpAdd, zMcpAddBody } from './mcp-add.ts'
 import { runMcpOAuth, zMcpOAuthBody } from './mcp-oauth.ts'
+import { loadMemoryUpload, memoryDownloadOp, zMemoryUploadBody } from './memory-files.ts'
 import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
-import { runSlackIntegration, zSlackBody } from './slack-integration.ts'
 
 export const commandGroups: CommandGroup[] = [
+  ...integrationCommandGroups,
   {
     name: 'agents',
     aliases: ['agent'],
@@ -55,15 +58,16 @@ export const commandGroups: CommandGroup[] = [
         format: formatRecord(),
         path: schemas.zCreateAgentPath,
         body: zConfigAttachment.extend({
-          profile: schemas.zAgentProfileId.optional(),
+          profile: schemas.zAgentProfileId
+            .optional()
+            .describe('agent profile ID; runs its current config unless a config is given'),
           name: schemas.zAgentName.optional(),
           message: z.string().optional(),
         }),
-        transformBody: async ({ profile, name, message, ...attachment }, { client, path }) => ({
-          profile,
+        transformBody: ({ profile, name, message, ...attachment }) => ({
           name,
           message,
-          config: await resolveConfigId(client, path, attachment),
+          ...renderLaunchConfig(profile, attachment),
         }),
       }),
       op({
@@ -691,6 +695,99 @@ export const commandGroups: CommandGroup[] = [
     ],
   },
   {
+    name: 'memory-stores',
+    aliases: ['memory-store'],
+    summary: 'Manage project memory stores',
+    operations: [
+      op({
+        verb: 'list',
+        summary: 'List memory stores',
+        fn: sdk.listMemoryStores,
+        format: formatTable([
+          'id',
+          'name',
+          'description',
+          'agent_access',
+          'created_at',
+          'updated_at',
+        ]),
+        path: schemas.zListMemoryStoresPath,
+        query: schemas.zListMemoryStoresQuery,
+      }),
+      op({
+        verb: 'get',
+        summary: 'Fetch a memory store',
+        fn: sdk.getMemoryStore,
+        format: formatRecord(),
+        path: schemas.zGetMemoryStorePath,
+      }),
+      op({
+        verb: 'create',
+        summary: 'Create a memory store',
+        fn: sdk.createMemoryStore,
+        format: formatRecord(),
+        path: schemas.zCreateMemoryStorePath,
+        body: schemas.zCreateMemoryStoreBody,
+      }),
+      op({
+        verb: 'update',
+        summary: 'Update memory store settings',
+        fn: sdk.updateMemoryStore,
+        format: formatRecord(),
+        path: schemas.zUpdateMemoryStorePath,
+        body: schemas.zUpdateMemoryStoreBody,
+      }),
+      op({
+        verb: 'delete',
+        summary: 'Delete a memory store',
+        fn: sdk.deleteMemoryStore,
+        format: formatVoid('deleted'),
+        path: schemas.zDeleteMemoryStorePath,
+      }),
+    ],
+    groups: [
+      {
+        name: 'files',
+        aliases: ['file'],
+        summary: 'Manage files in a memory store',
+        operations: [
+          op({
+            verb: 'list',
+            summary: 'List files and directories in a memory store',
+            fn: sdk.listMemoryFiles,
+            format: formatTable<MemoryFile & { size_bytes?: number }>([
+              'path',
+              'type',
+              'size_bytes',
+              'modified_at',
+            ]),
+            path: schemas.zListMemoryFilesPath,
+            query: schemas.zListMemoryFilesQuery,
+          }),
+          op({
+            verb: 'upload',
+            summary: 'Create or replace a memory file',
+            fn: sdk.writeMemoryFile,
+            format: formatRecord(),
+            path: schemas.zWriteMemoryFilePath,
+            query: schemas.zWriteMemoryFileQuery,
+            body: zMemoryUploadBody,
+            transformBody: ({ file }) => loadMemoryUpload(file),
+          }),
+          memoryDownloadOp,
+          op({
+            verb: 'delete',
+            summary: 'Delete a memory file',
+            fn: sdk.deleteMemoryFile,
+            format: formatVoid('deleted'),
+            path: schemas.zDeleteMemoryFilePath,
+            query: schemas.zDeleteMemoryFileQuery,
+          }),
+        ],
+      },
+    ],
+  },
+  {
     name: 'profiles',
     aliases: ['profile'],
     summary: 'Manage agent launch profiles',
@@ -767,18 +864,6 @@ export const commandGroups: CommandGroup[] = [
         }),
         body: zMcpAddBody,
         run: runProfileMcpAdd,
-      }),
-      flowOp({
-        verb: 'slack',
-        aliases: ['slack-setup'],
-        summary: 'Connect Slack to an agent profile through OAuth',
-        path: z.object({
-          orgID: schemas.zOrganizationId,
-          projectID: schemas.zProjectId,
-          agentProfileID: schemas.zAgentProfileId,
-        }),
-        body: zSlackBody,
-        run: runSlackIntegration,
       }),
     ],
   },

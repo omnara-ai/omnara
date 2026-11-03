@@ -11,6 +11,7 @@ import (
 )
 
 type ResponseEnvelope struct {
+	InputFingerprint           string                   `json:"-"`
 	RequestedProviderModelSlug string                   `json:"requested_provider_model_slug"`
 	ServedProviderModelSlug    string                   `json:"served_provider_model_slug,omitempty"`
 	APIFormat                  modelprotocol.APIFormat  `json:"api_format"`
@@ -190,20 +191,6 @@ const (
 	StopReasonError         StopReason = "error"
 	StopReasonUnknown       StopReason = "unknown"
 )
-
-func IsDurableModelOutputStopReason(reason StopReason) bool {
-	switch reason {
-	case StopReasonEndTurn,
-		StopReasonToolUse,
-		StopReasonMaxTokens,
-		StopReasonRefusal,
-		StopReasonContentFilter,
-		StopReasonError:
-		return true
-	default:
-		return false
-	}
-}
 
 func NormalizeStopReason(reason StopReason, hasToolCalls bool) StopReason {
 	if reason == "" {

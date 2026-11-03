@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -72,7 +73,9 @@ func (s *Store) ConnectBYOMachine(
 	if err := lifecyclelock.EnterActiveProjects(ctx, tx, input.OrgID, input.ProjectIDs); err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
-	machine, err := createDaemonMachineTx(ctx, qtx, machineInput, environment, machineMetadata)
+	var creations []resourceguard.Creation
+	track := func(c resourceguard.Creation) { creations = append(creations, c) }
+	machine, err := createDaemonMachineTx(ctx, qtx, machineInput, environment, machineMetadata, track)
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
@@ -84,7 +87,7 @@ func (s *Store) ConnectBYOMachine(
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
-	tokenRecord, err := createBYOMachineDaemonTokenTx(ctx, qtx, preparedToken)
+	tokenRecord, err := createBYOMachineDaemonTokenTx(ctx, qtx, preparedToken, track)
 	if err != nil {
 		return ConnectBYOMachineResult{}, err
 	}
@@ -108,6 +111,9 @@ func (s *Store) ConnectBYOMachine(
 			return ConnectBYOMachineResult{}, fmt.Errorf("create project machine grant: %w", err)
 		}
 		grants = append(grants, grant)
+	}
+	if err := resourceguard.CheckCreations(ctx, tx, creations); err != nil {
+		return ConnectBYOMachineResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ConnectBYOMachineResult{}, fmt.Errorf("commit connect BYO machine: %w", err)

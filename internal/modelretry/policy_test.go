@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/model"
 )
 
@@ -175,7 +176,7 @@ func TestDecideRetriesReplayRejectionOnlyWhenRecoveryIsAvailable(t *testing.T) {
 	_, decision := Decide(
 		model.ProviderError{Kind: model.ErrorKindReplayRejected},
 		Attempt{
-			Number:                         MaxModelCallRetriesPerOperation + 1,
+			Number:                         executionpolicy.MaxModelCallRetriesPerOperation + 1,
 			ProviderReplayCutoffCanAdvance: true,
 		},
 		"context-replay-recovery-exhausted",
@@ -201,21 +202,24 @@ func TestDecideStopsAfterEightRetries(t *testing.T) {
 	}
 	_, decision := Decide(
 		err,
-		attempt(MaxModelCallRetriesPerOperation),
+		attempt(executionpolicy.MaxModelCallRetriesPerOperation),
 		"context-1",
 		now,
 	)
 	if got := decision.Action; got != ActionRetry {
-		t.Fatalf("attempt %d action = %q, want %q", MaxModelCallRetriesPerOperation, got, ActionRetry)
+		t.Fatalf("attempt %d action = %q, want %q", executionpolicy.MaxModelCallRetriesPerOperation, got, ActionRetry)
 	}
 	_, decision = Decide(
 		err,
-		attempt(MaxModelCallRetriesPerOperation+1),
+		attempt(executionpolicy.MaxModelCallRetriesPerOperation+1),
 		"context-1",
 		now,
 	)
 	if decision.Action != ActionStop {
-		t.Fatalf("attempt %d action = %q, want %q", MaxModelCallRetriesPerOperation+1, decision.Action, ActionStop)
+		t.Fatalf("attempt %d action = %q, want %q",
+			executionpolicy.MaxModelCallRetriesPerOperation+1,
+			decision.Action,
+			ActionStop)
 	}
 	if decision.RetryDelay != 0 {
 		t.Fatalf("stopped retry delay = %s, want zero", decision.RetryDelay)
@@ -276,7 +280,7 @@ func TestDecideUsesOneAttemptBudgetAcrossFailures(t *testing.T) {
 
 	now := time.Date(2026, time.July, 13, 19, 0, 0, 0, time.UTC)
 	err := model.ProviderError{Kind: model.ErrorKindTransient}
-	lastRetryable := Attempt{Number: MaxModelCallRetriesPerOperation}
+	lastRetryable := Attempt{Number: executionpolicy.MaxModelCallRetriesPerOperation}
 	_, decision := Decide(err, lastRetryable, "context-1", now)
 	if decision.Action != ActionRetry {
 		t.Fatalf("eighth pre-send failure action = %q, want %q", decision.Action, ActionRetry)

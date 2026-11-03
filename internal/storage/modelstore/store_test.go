@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -56,6 +57,78 @@ func TestModelProviderAPIKeyHeaderRejectsTransportReplayHeaders(t *testing.T) {
 	}
 }
 
+func TestModelProviderHeadersFromColumns(t *testing.T) {
+	secretID := uuid.New()
+	parsed, err := ModelProviderHeadersFromColumns(
+		json.RawMessage(`{"X-Team":"core"}`),
+		json.RawMessage(`{"X-Gateway-Key":"`+secretID.String()+`"}`),
+	)
+	require.NoError(t, err)
+	require.Equal(t, ModelProviderHeaders{
+		Headers:       map[string]string{"X-Team": "core"},
+		SecretHeaders: map[string]uuid.UUID{"X-Gateway-Key": secretID},
+	}, parsed)
+
+	maxPlainHeaders := make(map[string]string, maxModelProviderHeaders)
+	for i := range maxModelProviderHeaders {
+		maxPlainHeaders[fmt.Sprintf("X-Header-%d", i)] = "v"
+	}
+	maxPlainHeadersJSON, err := json.Marshal(maxPlainHeaders)
+	require.NoError(t, err)
+
+	for name, input := range map[string][2]string{
+		"reserved":                   {`{"Authorization":"Bearer x"}`, `{}`},
+		"reserved accept":            {`{"accept":"text/plain"}`, `{}`},
+		"reserved user agent":        {`{"User-Agent":"omnara"}`, `{}`},
+		"reserved anthropic version": {`{"anthropic-version":"2023-06-01"}`, `{}`},
+		"reserved content prefix":    {`{"Content-Encoding":"gzip"}`, `{}`},
+		"reserved proxy prefix":      {`{}`, `{"Proxy-Authorization":"` + secretID.String() + `"}`},
+		"reserved method override":   {`{"X-HTTP-Method-Override":"GET"}`, `{}`},
+		"invalid name":               {`{"X Team":"core"}`, `{}`},
+		"invalid value":              {`{"X-Team":"a\nb"}`, `{}`},
+		"value whitespace":           {`{"X-Team":"core "}`, `{}`},
+		"non-string value":           {`{"X-Team":1}`, `{}`},
+		"duplicate across maps":      {`{"x-gateway-key":"a"}`, `{"X-Gateway-Key":"` + secretID.String() + `"}`},
+		"invalid secret id":          {`{}`, `{"X-Gateway-Key":"not-a-uuid"}`},
+		"secret headers not map":     {`{}`, `[]`},
+		"too many headers":           {string(maxPlainHeadersJSON), `{"X-Gateway-Key":"` + secretID.String() + `"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ModelProviderHeadersFromColumns(json.RawMessage(input[0]), json.RawMessage(input[1]))
+			require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
+		})
+	}
+
+	_, err = ModelProviderHeadersFromColumns(json.RawMessage(`{"x-api-key":"k"}`), json.RawMessage(`{}`), "X-Api-Key")
+	require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
+	_, err = ModelProviderHeadersFromColumns(json.RawMessage(`{"x-api-key":"k"}`), json.RawMessage(`{}`))
+	require.NoError(t, err)
+}
+
+func TestNormalizeModelProviderConfigUpdateValidatesHeaders(t *testing.T) {
+	update := modelProviderConfigUpdate{
+		OrgID:              uuid.New(),
+		ID:                 uuid.New(),
+		BaseURL:            "https://api.anthropic.com/v1",
+		EndpointPath:       "/messages",
+		RequestTimeoutMS:   1000,
+		IdleTimeoutMS:      1000,
+		AuthKind:           ModelProviderAuthKindAPIKeyHeader,
+		AuthOptions:        json.RawMessage(`{"header_name":"x-api-key"}`),
+		CredentialSecretID: uuid.New(),
+		Headers:            json.RawMessage(`{"X-Team":"core"}`),
+		APIFormat:          modelprotocol.APIFormatAnthropicMessages,
+		APIVariant:         modelprotocol.APIVariantDefault,
+	}
+	validateCredential := func(context.Context, uuid.UUID, uuid.UUID, string) error { return nil }
+	_, err := normalizeModelProviderConfigUpdate(context.Background(), update, validateCredential)
+	require.NoError(t, err)
+
+	update.Headers = json.RawMessage(`{"X-Api-Key":"k"}`)
+	_, err = normalizeModelProviderConfigUpdate(context.Background(), update, validateCredential)
+	require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
+}
+
 func TestValidateConfiguredModelOptionsUnknownCapacity(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -99,6 +172,67 @@ func TestValidateConfiguredModelOptionsUnknownCapacity(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestValidateConfiguredModelOptionsAnthropicReasoningEfforts(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		format    modelprotocol.APIFormat
+		effort    string
+		supported []string
+		wantErr   bool
+	}{
+		{
+			name:      "all anthropic efforts",
+			format:    modelprotocol.APIFormatAnthropicMessages,
+			effort:    "high",
+			supported: []string{"low", "medium", "high", "xhigh", "max"},
+		},
+		{name: "anthropic default only", format: modelprotocol.APIFormatAnthropicMessages, effort: "xhigh"},
+		{
+			name:      "anthropic without default",
+			format:    modelprotocol.APIFormatAnthropicMessages,
+			supported: []string{"low", "high"},
+		},
+		{name: "unknown anthropic default", format: modelprotocol.APIFormatAnthropicMessages, effort: "none", wantErr: true},
+		{
+			name:      "unknown anthropic supported",
+			format:    modelprotocol.APIFormatAnthropicMessages,
+			supported: []string{"minimal", "low"},
+			wantErr:   true,
+		},
+		{
+			name:      "openai efforts unchanged",
+			format:    modelprotocol.APIFormatOpenAIResponses,
+			effort:    "minimal",
+			supported: []string{"none", "minimal"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateConfiguredModelOptions(tc.format, configuredModelOptions{
+				ContextWindowTokens:       128000,
+				SupportsReasoning:         true,
+				DefaultReasoningEffort:    tc.effort,
+				SupportedReasoningEfforts: tc.supported,
+			})
+			if tc.wantErr {
+				if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+					t.Fatalf("error = %v, want invalid configuration", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	_, err := EffectiveConfiguredModelRevisionForAgentOptions(
+		modelprotocol.APIFormatAnthropicMessages,
+		ConfiguredModelRevisionRecord{ContextWindowTokens: 128000, SupportsReasoning: true},
+		agentconfig.ModelOverrides{ReasoningEffort: "none"},
+	)
+	if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+		t.Fatalf("agent reasoning.effort error = %v, want invalid configuration", err)
 	}
 }
 
@@ -584,8 +718,11 @@ func TestEffectiveConfiguredModelRevisionForAgentOptions(t *testing.T) {
 		effective.DefaultReasoningEffort != "high" {
 		t.Fatalf("unexpected effective runtime options: %+v", effective)
 	}
-	if effective.MaxOutputTokens == nil || *effective.MaxOutputTokens != 200 {
-		t.Fatalf("runtime max_output_tokens changed ceiling = %d, want 200", effective.MaxOutputTokens)
+	if effective.MaxOutputTokens == nil {
+		t.Fatal("runtime max_output_tokens cleared ceiling, want 200")
+	}
+	if *effective.MaxOutputTokens != 200 {
+		t.Fatalf("runtime max_output_tokens changed ceiling = %d, want 200", *effective.MaxOutputTokens)
 	}
 
 	for _, tc := range []struct {
@@ -850,5 +987,35 @@ func TestCapacityIncreasePreservesNarrowedContextOverrides(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestAcceptedReasoningEfforts(t *testing.T) {
+	tests := []struct {
+		name      string
+		apiFormat modelprotocol.APIFormat
+		supported []string
+		want      []string
+	}{
+		{
+			name:      "listed efforts win",
+			apiFormat: modelprotocol.APIFormatAnthropicMessages,
+			supported: []string{"low", "high"},
+			want:      []string{"low", "high"},
+		},
+		{
+			name:      "anthropic messages narrows an empty list",
+			apiFormat: modelprotocol.APIFormatAnthropicMessages,
+			want:      []string{"low", "medium", "high", "xhigh", "max"},
+		},
+		{
+			name:      "openai responses accepts any effort",
+			apiFormat: modelprotocol.APIFormatOpenAIResponses,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, acceptedReasoningEfforts(tt.apiFormat, tt.supported))
+		})
 	}
 }

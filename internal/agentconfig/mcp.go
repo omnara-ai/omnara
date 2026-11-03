@@ -3,11 +3,11 @@ package agentconfig
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
@@ -33,7 +33,7 @@ type RuntimeMCPServer struct {
 
 type RuntimeMCPAuth struct {
 	Type     string
-	SecretID string
+	SecretID uuid.UUID
 	Service  string
 	Region   string
 }
@@ -137,8 +137,8 @@ func compileMCPServers(
 }
 
 func compileMCPAuth(source *AgentConfigMCPAuthSource, opts CompileOptions) (*MCPAuthCompiled, error) {
-	secretID := strings.TrimSpace(source.SecretID)
-	if _, err := publicid.Decode(publicid.KindSecret, secretID); err != nil {
+	secretID, err := publicid.Decode(publicid.KindSecret, strings.TrimSpace(source.SecretID))
+	if err != nil {
 		return nil, issuef(jsonPointer("secret_id"), "must be a secret public id: %w", err)
 	}
 	expectedKind, err := mcpAuthSecretKind(source.Type)
@@ -198,7 +198,7 @@ func ValidateMCPURL(raw string, allowInsecureLocalHTTP bool) (string, error) {
 	if parsed.Host == "" || parsed.Hostname() == "" {
 		return "", errors.New("url host is required")
 	}
-	host := classifyMCPURLHost(parsed.Hostname())
+	host := ssrf.ClassifyURLHost(parsed.Hostname())
 
 	switch parsed.Scheme {
 	case "https":
@@ -221,20 +221,6 @@ func ValidateMCPURL(raw string, allowInsecureLocalHTTP bool) (string, error) {
 		return "", fmt.Errorf("url host IP is not permitted: %s", host.IP.String())
 	}
 	return parsed.String(), nil
-}
-
-type mcpURLHost struct {
-	IP       net.IP
-	LocalDev bool
-}
-
-func classifyMCPURLHost(host string) mcpURLHost {
-	normalized := strings.TrimSuffix(strings.ToLower(host), ".")
-	ip := net.ParseIP(normalized)
-	return mcpURLHost{
-		IP:       ip,
-		LocalDev: normalized == "localhost" || (ip != nil && ip.IsLoopback()),
-	}
 }
 
 func compileMCPTools(

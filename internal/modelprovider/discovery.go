@@ -23,11 +23,13 @@ import (
 )
 
 type DiscoveredModel struct {
-	Slug                string
-	DisplayName         string
-	ContextWindowTokens *int
-	MaxOutputTokens     *int
-	Pricing             *DiscoveredModelPricing
+	Slug                      string
+	DisplayName               string
+	ContextWindowTokens       *int
+	MaxOutputTokens           *int
+	SupportsReasoning         *bool
+	SupportedReasoningEfforts []string
+	Pricing                   *DiscoveredModelPricing
 }
 
 type DiscoveredModelPricing struct {
@@ -41,6 +43,7 @@ type DiscoverFunc func(
 	ctx context.Context,
 	providerConfig modelstore.ModelProviderConfigRecord,
 	apiKey string,
+	headers map[string]string,
 	allowLoopback bool,
 ) ([]DiscoveredModel, error)
 
@@ -54,6 +57,7 @@ func DiscoverModels(
 	ctx context.Context,
 	providerConfig modelstore.ModelProviderConfigRecord,
 	apiKey string,
+	headers map[string]string,
 	allowLoopback bool,
 ) ([]DiscoveredModel, error) {
 	auth, err := routeAuthForProviderConfig(providerConfig, apiKey)
@@ -64,6 +68,9 @@ func DiscoverModels(
 		auth = route.BearerToken{Token: apiKey}
 	} else if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages {
 		auth = route.Chain{auth, route.Headers{"Anthropic-Version": anthropicmessages.APIVersion}}
+	}
+	if len(headers) > 0 {
+		auth = route.Chain{route.Headers(headers), auth}
 	}
 	ctx, cancel := context.WithTimeout(ctx, discoveryRequestTimeout)
 	defer cancel()
@@ -123,13 +130,20 @@ func DiscoverModels(
 		if displayName == "" {
 			displayName = entry.Name
 		}
+		supportsReasoning, reasoningEfforts := entry.reasoning()
+		if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages {
+			reasoningEfforts = entry.anthropicReasoningEfforts()
+			supportsReasoning = new(len(reasoningEfforts) > 0)
+		}
 		ranked = append(ranked, rankedModel{
 			model: DiscoveredModel{
-				Slug:                entry.ID,
-				DisplayName:         displayName,
-				ContextWindowTokens: contextWindowTokens,
-				MaxOutputTokens:     maxOutputTokens,
-				Pricing:             entry.pricing(),
+				Slug:                      entry.ID,
+				DisplayName:               displayName,
+				ContextWindowTokens:       contextWindowTokens,
+				MaxOutputTokens:           maxOutputTokens,
+				SupportsReasoning:         supportsReasoning,
+				SupportedReasoningEfforts: reasoningEfforts,
+				Pricing:                   entry.pricing(),
 			},
 			createdAt: entry.createdAtUnix(),
 		})
@@ -248,6 +262,51 @@ type discoveredModelEntry struct {
 		ContextLength       json.RawMessage `json:"context_length"`
 		MaxCompletionTokens json.RawMessage `json:"max_completion_tokens"`
 	} `json:"top_provider"`
+	Capabilities json.RawMessage `json:"capabilities"`
+	Reasoning    json.RawMessage `json:"reasoning"`
+}
+
+func (e discoveredModelEntry) anthropicReasoningEfforts() []string {
+	var capabilities struct {
+		Effort   map[string]json.RawMessage `json:"effort"`
+		Thinking struct {
+			Types map[string]json.RawMessage `json:"types"`
+		} `json:"thinking"`
+	}
+	if json.Unmarshal(e.Capabilities, &capabilities) != nil ||
+		!capabilitySupported(capabilities.Thinking.Types["adaptive"]) {
+		return nil
+	}
+	var efforts []string
+	for _, effort := range modelstore.AnthropicMessagesReasoningEfforts {
+		if capabilitySupported(capabilities.Effort[effort]) {
+			efforts = append(efforts, effort)
+		}
+	}
+	return efforts
+}
+
+func capabilitySupported(raw json.RawMessage) bool {
+	var capability struct {
+		Supported bool `json:"supported"`
+	}
+	return json.Unmarshal(raw, &capability) == nil && capability.Supported
+}
+
+func (e discoveredModelEntry) reasoning() (*bool, []string) {
+	if e.SupportedParameters == nil {
+		return nil, nil
+	}
+	if !slices.Contains(e.SupportedParameters, "reasoning") {
+		return new(false), nil
+	}
+	var reasoning struct {
+		SupportedEfforts []string `json:"supported_efforts"`
+	}
+	if json.Unmarshal(e.Reasoning, &reasoning) != nil {
+		return new(true), nil
+	}
+	return new(true), reasoning.SupportedEfforts
 }
 
 func (e discoveredModelEntry) pricing() *DiscoveredModelPricing {

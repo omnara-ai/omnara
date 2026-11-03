@@ -16,7 +16,7 @@ const (
 	OAuthDeviceGrantType                 = "urn:ietf:params:oauth:grant-type:device_code"
 	OmnaraCLIClientID                    = "omnara-cli"
 
-	maxOAuthFormBytes = 16 * 1024
+	MaxOAuthFormBytes = 16 * 1024
 )
 
 type oauthPublicClient struct {
@@ -40,11 +40,17 @@ func (h *Handler) authorizationServerMetadataRoute(w http.ResponseWriter, r *htt
 	}
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"issuer":                        issuer,
-		"authorization_endpoint":        issuer + OAuthAuthorizePagePath,
-		"device_authorization_endpoint": issuer + OAuthDeviceAuthorizationPath,
-		"token_endpoint":                issuer + OAuthTokenPath,
-		"response_types_supported":      []string{"code"},
+		"issuer":                                issuer,
+		"userinfo_endpoint":                     issuer + OIDCUserInfoPath,
+		"jwks_uri":                              issuer + OIDCJWKSPath,
+		"scopes_supported":                      []string{"openid", "email"},
+		"subject_types_supported":               []string{"public"},
+		"id_token_signing_alg_values_supported": []string{"RS256"},
+		"claims_supported":                      []string{"iss", "sub", "aud", "iat", "exp", "nonce", "email", "email_verified"},
+		"authorization_endpoint":                issuer + OAuthAuthorizePagePath,
+		"device_authorization_endpoint":         issuer + OAuthDeviceAuthorizationPath,
+		"token_endpoint":                        issuer + OAuthTokenPath,
+		"response_types_supported":              []string{"code"},
 		"grant_types_supported": []string{
 			OAuthDeviceGrantType,
 			OAuthAuthorizationCodeGrant,
@@ -74,7 +80,6 @@ func parseOAuthForm(w http.ResponseWriter, r *http.Request) (url.Values, bool) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "content type must be application/x-www-form-urlencoded")
 		return nil, false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxOAuthFormBytes)
 	if err := r.ParseForm(); err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "request form is invalid")
 		return nil, false
@@ -123,7 +128,7 @@ func (h *Handler) requireOAuthRateLimits(
 	if err == nil {
 		return true
 	}
-	if errors.Is(err, errRateLimited) {
+	if errors.Is(err, ErrRateLimited) {
 		if tokenEndpoint {
 			writeOAuthError(w, http.StatusBadRequest, "slow_down", "polling rate limit exceeded")
 		} else {

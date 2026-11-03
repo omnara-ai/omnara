@@ -8,13 +8,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 const (
-	MaxModelCallRetriesPerOperation = executionstore.MaxModelCallRetriesPerOperation
-
 	maxProviderMetadataBytes = 64 * 1024
 	maxDuration              = time.Duration(math.MaxInt64)
 )
@@ -59,7 +58,7 @@ func Decide(
 		decision.Action = ActionStop
 		return evidence, decision
 	}
-	if attempt.Number > MaxModelCallRetriesPerOperation {
+	if attempt.Number > executionpolicy.MaxModelCallRetriesPerOperation {
 		decision.Action = ActionStop
 		return evidence, decision
 	}
@@ -258,7 +257,7 @@ func deterministicInputFailure(kind model.ErrorKind) bool {
 }
 
 func backoff(attemptNumber int, contextID string) time.Duration {
-	return executionstore.ModelCallRetryBackoff(attemptNumber, contextID)
+	return modelprotocol.RetryBackoff(attemptNumber, contextID)
 }
 
 func errorText(err error) string {

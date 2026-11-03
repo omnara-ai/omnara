@@ -1,0 +1,94 @@
+package integration
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+)
+
+func (p *SlackIntegrationInboxProvider) PresentProfileChoice(
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord,
+	choice integrationstore.IntegrationProfileChoiceRecord, check func(context.Context) error,
+) (string, string, error) {
+	config, token, _, err := p.requestAccess(ctx, integrationSetup)
+	if err != nil {
+		return "", "", err
+	}
+	config.HTTPClient = slack.WithRequestCheck(config.HTTPClient, check)
+	channel, thread, err := slack.Destination(choice.Address.Kind, choice.Address.Ref)
+	if err != nil {
+		return "", "", err
+	}
+	identity, err := slack.ParseInstallIdentity(integrationSetup.ProviderIdentity)
+	if err != nil {
+		return "", "", err
+	}
+	id, err := publicid.Encode(publicid.KindIntegrationProfileChoice, choice.ID)
+	if err != nil {
+		return "", "", err
+	}
+	target := slack.MessageTarget{Channel: channel, ThreadTS: thread, BotToken: token}
+	reconcile := func() (string, error) {
+		message, result, err := slack.ReconcileProfileChoice(ctx, config, target, id, identity.BotUserID, choice.CreatedAt)
+		if err != nil {
+			return "", err
+		}
+		if result != (slack.APIResult{}) {
+			return "", fmt.Errorf("reconcile Slack profile choice: %w", &slack.APIError{Result: result})
+		}
+		return message, nil
+	}
+	if message, err := reconcile(); err != nil || message != "" {
+		if err != nil {
+			return "", "", err
+		}
+		return channel, message, nil
+	}
+	options := make([]slack.ProfileChoiceOption, 0, len(choice.Options))
+	for _, option := range choice.Options {
+		options = append(options, slack.ProfileChoiceOption{Key: option.Key, Name: option.Name})
+	}
+	message, result, err := slack.PostProfileChoice(ctx, config, target, id, options,
+		profileChoiceExpiryText(choice.ExpiresAt))
+	if err != nil {
+		return "", "", err
+	}
+	if result.DeliveryUnknown || result.TransientFailure {
+		if recovered, err := reconcile(); err != nil || recovered != "" {
+			if err != nil {
+				return "", "", err
+			}
+			return channel, recovered, nil
+		}
+		return "", "", fmt.Errorf("post Slack profile choice: %w", &slack.APIError{Result: slack.APIResult{
+			DeliveryUnknown: true, RetryAfter: result.RetryAfter,
+			Message: "Slack profile choice delivery is unconfirmed; retry reconciliation before posting again",
+		}})
+	}
+	if result.RateLimited || result.PermanentFailure {
+		return "", "", fmt.Errorf("post Slack profile choice: %w", &slack.APIError{Result: result})
+	}
+	return channel, message, nil
+}
+
+func (p *SlackIntegrationInboxProvider) DismissProfileChoice(
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord,
+	choice integrationstore.IntegrationProfileChoiceRecord, text string,
+) error {
+	config, token, _, err := p.requestAccess(ctx, integrationSetup)
+	if err != nil {
+		return err
+	}
+	result, err := slack.UpdateProfileChoice(ctx, config,
+		slack.MessageTarget{Channel: choice.MessageChannelID, BotToken: token}, choice.MessageID, text)
+	if err != nil {
+		return err
+	}
+	if result.RateLimited || result.TransientFailure || result.PermanentFailure || result.DeliveryUnknown {
+		return fmt.Errorf("update Slack profile choice: %w", &slack.APIError{Result: result})
+	}
+	return nil
+}

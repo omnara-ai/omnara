@@ -71,15 +71,11 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = map[string]string{"type": "auto"}
 	}
-	return apivariantbody.MarshalWithAPIVariantOptions(
-		c.APIVariantOptions,
-		payload,
-		anthropicMessagesOwnedFields()...,
-	)
-}
-
-func anthropicMessagesOwnedFields() []string {
-	return []string{
+	supportsReasoning := c.ModelCapabilities.SupportsReasoning
+	if input.Policy.SupportsReasoning != nil {
+		supportsReasoning = *input.Policy.SupportsReasoning
+	}
+	ownedFields := []string{
 		"model",
 		"stream",
 		"max_tokens",
@@ -88,16 +84,136 @@ func anthropicMessagesOwnedFields() []string {
 		"tools",
 		"tool_choice",
 	}
+	baseURL := c.endpoint().ResolvedBaseURL()
+	switch id := input.Context.SafetyIdentifier; {
+	case id == "":
+	case model.IsAnthropicHost(baseURL):
+		payload.Metadata = map[string]string{"user_id": id}
+		ownedFields = append(ownedFields, "metadata")
+	case model.IsOpenRouterHost(baseURL):
+		payload.User = id
+		ownedFields = append(ownedFields, "user")
+	}
+	options, err := decodeAPIVariantOptions(c.APIVariantOptions)
+	if err != nil {
+		return nil, err
+	}
+	if supportsReasoning && input.Policy.ReasoningEffort != "" {
+		payload.OutputConfig, err = outputConfigWithEffort(options["output_config"], input.Policy.ReasoningEffort)
+		if err != nil {
+			return nil, err
+		}
+		ownedFields = append(ownedFields, "output_config")
+		thinkingOff, err := thinkingDisabled(options["thinking"])
+		if err != nil {
+			return nil, err
+		}
+		if thinkingOff {
+			payload.Thinking = map[string]json.RawMessage{"type": json.RawMessage(`"adaptive"`)}
+			ownedFields = append(ownedFields, "thinking")
+		}
+	}
+	if c.supportsThinkingBindingControls() {
+		thinking := payload.Thinking
+		if thinking == nil {
+			thinking, err = decodeThinkingConfig(options["thinking"])
+			if err != nil {
+				return nil, err
+			}
+			// Spell out the default so the binding policy below applies to it.
+			if _, ok := thinking["type"]; !ok && model.ClaudeThinksAdaptivelyByDefault(c.ProviderModelSlug) {
+				thinking["type"] = json.RawMessage(`"adaptive"`)
+			}
+		}
+		if dropPrefixMismatchedThinking(thinking) {
+			if payload.Thinking == nil {
+				ownedFields = append(ownedFields, "thinking")
+			}
+			payload.Thinking = thinking
+		}
+	}
+	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+}
+
+func decodeAPIVariantOptions(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	raw = bytes.TrimSpace(raw)
+	options := map[string]json.RawMessage{}
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return options, nil
+	}
+	if err := json.Unmarshal(raw, &options); err != nil {
+		return nil, fmt.Errorf("api_variant_options must be a JSON object: %w", err)
+	}
+	return options, nil
+}
+
+func outputConfigWithEffort(raw json.RawMessage, effort string) (map[string]json.RawMessage, error) {
+	config := map[string]json.RawMessage{}
+	if len(raw) > 0 && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		if err := json.Unmarshal(raw, &config); err != nil || config == nil {
+			return nil, fmt.Errorf("api_variant_options.output_config must be a JSON object")
+		}
+	}
+	encodedEffort, err := json.Marshal(effort)
+	if err != nil {
+		return nil, err
+	}
+	config["effort"] = encodedEffort
+	return config, nil
+}
+
+func thinkingDisabled(raw json.RawMessage) (bool, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return true, nil
+	}
+	var thinking struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &thinking); err != nil {
+		return false, fmt.Errorf("api_variant_options.thinking must be a JSON object: %w", err)
+	}
+	return thinking.Type == "disabled", nil
 }
 
 type messagesRequest struct {
-	Model      string            `json:"model"`
-	Stream     bool              `json:"stream"`
-	MaxTokens  int               `json:"max_tokens"`
-	System     any               `json:"system,omitempty"`
-	Messages   []message         `json:"messages"`
-	Tools      []toolDefinition  `json:"tools,omitempty"`
-	ToolChoice map[string]string `json:"tool_choice,omitempty"`
+	Model        string                     `json:"model"`
+	Stream       bool                       `json:"stream"`
+	MaxTokens    int                        `json:"max_tokens"`
+	System       any                        `json:"system,omitempty"`
+	Messages     []message                  `json:"messages"`
+	Tools        []toolDefinition           `json:"tools,omitempty"`
+	ToolChoice   map[string]string          `json:"tool_choice,omitempty"`
+	Metadata     map[string]string          `json:"metadata,omitempty"`
+	User         string                     `json:"user,omitempty"`
+	OutputConfig map[string]json.RawMessage `json:"output_config,omitempty"`
+	Thinking     map[string]json.RawMessage `json:"thinking,omitempty"`
+}
+
+const prefixMismatchDropBlockBinding = `{"prefix_mismatch_behavior":"drop_block"}`
+
+func decodeThinkingConfig(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return map[string]json.RawMessage{}, nil
+	}
+	var thinking map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &thinking); err != nil || thinking == nil {
+		return nil, errors.New("api_variant_options.thinking must be a JSON object")
+	}
+	return thinking, nil
+}
+
+func dropPrefixMismatchedThinking(thinking map[string]json.RawMessage) bool {
+	var thinkingType string
+	_ = json.Unmarshal(thinking["type"], &thinkingType)
+	if thinkingType != "adaptive" {
+		return false
+	}
+	if _, ok := thinking["block_binding"]; ok {
+		return false
+	}
+	thinking["block_binding"] = json.RawMessage(prefixMismatchDropBlockBinding)
+	return true
 }
 
 type anthropicRole string
@@ -164,30 +280,11 @@ func validateToolNames(specs []modelcontext.ToolSpec) error {
 }
 
 func systemContent(bundle modelcontext.Bundle, control *CacheControl) any {
-	blocks := []textBlock{{Type: "text", Text: modelcontext.ProjectedSystemPrompt(bundle)}}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		blocks = append(blocks, textBlock{
-			Type: "text",
-			Text: modelcontext.AvailableMachinePoolsContent(
-				bundle.AvailableMachinePools,
-			),
-		})
+	prompt := modelcontext.ProjectedSystemPrompt(bundle)
+	if control == nil {
+		return prompt
 	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
-		blocks = append(blocks, textBlock{
-			Type: "text",
-			Text: modelcontext.IntegrationTargetsContent(
-				bundle.IntegrationTargets,
-			),
-		})
-	}
-	if control != nil {
-		blocks[len(blocks)-1].CacheControl = control
-	}
-	if len(blocks) == 1 && blocks[0].CacheControl == nil {
-		return blocks[0].Text
-	}
-	return blocks
+	return []textBlock{{Type: "text", Text: prompt, CacheControl: control}}
 }
 
 func buildMessages(
@@ -380,7 +477,7 @@ func renderAnthropicContent(
 		}
 		if partType == "structured_data" {
 			if value := part["value"]; len(value) != 0 {
-				blocks = append(blocks, textBlock{Type: "text", Text: string(value)})
+				blocks = append(blocks, textBlock{Type: "text", Text: modelcontext.StructuredDataText(value)})
 			}
 		}
 	}
@@ -432,7 +529,7 @@ func completeAnthropicReplay(
 	target modelenvelope.ProviderReplayIdentity,
 	usedIDs map[string]bool,
 ) ([]any, map[string]string, bool) {
-	if !source.ProviderReplaySource.Matches(target) {
+	if !anthropicReplayCompatible(source.ProviderReplaySource, target) {
 		return nil, nil, false
 	}
 	var rawBlocks []json.RawMessage
@@ -455,6 +552,19 @@ func completeAnthropicReplay(
 		usedIDs[id] = true
 	}
 	return blocks, replayToolIDs, true
+}
+
+func anthropicReplayCompatible(source, target modelenvelope.ProviderReplayIdentity) bool {
+	if source.Matches(target) {
+		return true
+	}
+	sameModel := target
+	sameModel.RequestedProviderModelSlug = source.RequestedProviderModelSlug
+	return source.Matches(sameModel) && model.ProviderReplaySlugsCompatible(
+		source.APIFormat,
+		source.RequestedProviderModelSlug,
+		target.RequestedProviderModelSlug,
+	)
 }
 
 type anthropicReplaySemantic struct {

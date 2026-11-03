@@ -9,108 +9,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-func TestProjectionNormalizerRejectsInvalidIntegrationTargets(t *testing.T) {
-	base := Bundle{
-		ProjectID:          testProjectID,
-		AgentID:            testAgentID,
-		TurnID:             testTurnID,
-		OpeningInputIDs:    []uuid.UUID{testInputID},
-		InputEventSequence: 1,
-	}
-	tests := []struct {
-		name    string
-		targets []IntegrationTargetRef
-	}{
-		{
-			name: "missing target ref",
-			targets: []IntegrationTargetRef{{
-				DurableID:       "durable",
-				Provider:        "slack",
-				ProviderRefKind: "thread",
-				Label:           "slack thread",
-			}},
-		},
-		{
-			name: "missing durable id",
-			targets: []IntegrationTargetRef{{
-				TargetRef:       "slack-abcd",
-				Provider:        "slack",
-				ProviderRefKind: "thread",
-				Label:           "slack thread",
-			}},
-		},
-		{
-			name: "missing label",
-			targets: []IntegrationTargetRef{{
-				TargetRef:       "slack-abcd",
-				DurableID:       "durable",
-				Provider:        "slack",
-				ProviderRefKind: "thread",
-			}},
-		},
-		{
-			name: "duplicate target ref",
-			targets: []IntegrationTargetRef{
-				{TargetRef: "slack-abcd", DurableID: "durable-1", Provider: "slack", ProviderRefKind: "thread", Label: "one"},
-				{TargetRef: "slack-abcd", DurableID: "durable-2", Provider: "slack", ProviderRefKind: "thread", Label: "two"},
-			},
-		},
-		{
-			name: "multiple current",
-			targets: []IntegrationTargetRef{
-				{
-					TargetRef:       "slack-abcd",
-					DurableID:       "durable-1",
-					Provider:        "slack",
-					ProviderRefKind: "thread",
-					Label:           "one",
-					IsCurrent:       true,
-				},
-				{
-					TargetRef:       "slack-defg",
-					DurableID:       "durable-2",
-					Provider:        "slack",
-					ProviderRefKind: "thread",
-					Label:           "two",
-					IsCurrent:       true,
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bundle := base
-			bundle.IntegrationTargets = tt.targets
-			if err := (ProjectionNormalizer{}).Normalize(bundle); err == nil {
-				t.Fatalf("expected invalid integration targets to fail")
-			}
-		})
-	}
-}
-
-func TestProjectionNormalizerAcceptsIntegrationTargets(t *testing.T) {
-	bundle := Bundle{
-		ProjectID:          testProjectID,
-		AgentID:            testAgentID,
-		TurnID:             testTurnID,
-		OpeningInputIDs:    []uuid.UUID{testInputID},
-		InputEventSequence: 1,
-		IntegrationTargets: []IntegrationTargetRef{
-			{
-				TargetRef:       "slack-abcd",
-				DurableID:       "durable",
-				Provider:        "slack",
-				ProviderRefKind: "thread",
-				Label:           "slack thread",
-				IsCurrent:       true,
-			},
-		},
-	}
-	if err := (ProjectionNormalizer{}).Normalize(bundle); err != nil {
-		t.Fatalf("normalize integration targets: %v", err)
-	}
-}
-
 func TestProjectionNormalizerAcceptsAssistantMessageRole(t *testing.T) {
 	bundle := Bundle{
 		ProjectID:          testProjectID,
@@ -250,7 +148,12 @@ func TestProjectionNormalizerRejectsCoreProjectionInvariantBreaks(t *testing.T) 
 		OpeningInputIDs:    []uuid.UUID{testInputID},
 		InputEventSequence: 5,
 		Messages: []Message{
-			{ID: sourceMessageID, Role: "user", Sequence: 5, Content: json.RawMessage(`[{"type":"text","text":"hello"}]`)},
+			{
+				ID:       sourceMessageID,
+				Role:     "user",
+				Sequence: 5,
+				Content:  json.RawMessage(`[{"type":"text","text":"hello"}]`),
+			},
 		},
 	}
 	tests := []struct {

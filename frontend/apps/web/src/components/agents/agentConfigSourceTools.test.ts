@@ -60,7 +60,7 @@ machine_sources:
     expect(parse(applyToSource(source, config))).not.toHaveProperty('tools')
   })
 
-  it.each(['run_command', 'skill', 'spawn_agent', 'send_integration_message', 'web_search'])(
+  it.each(['run_command', 'skill', 'spawn_agent', 'set_interaction_handler', 'web_search'])(
     'round-trips explicitly disabled %s',
     (name) => {
       const source = `${minimalYaml}tools:
@@ -83,6 +83,25 @@ machine_sources:
       })
     },
   )
+
+  it('retains an integration tool’s permission and deferral when re-enabling it and editing other fields', () => {
+    const source = `${minimalYaml}tools:
+  int__engineering__post_message:
+    enabled: false
+    deferred: true
+    permission: {mode: always_ask}
+`
+    const config = mustDeserialize(source)
+    expect(applyToSource(source, config)).toBe(source)
+    config.instruction = 'Re-enable posting.'
+    config.tools = config.tools.map((tool) => ({ ...tool, enabled: true }))
+    expect(parse(applyToSource(source, config))).toHaveProperty('tools', {
+      int__engineering__post_message: {
+        deferred: true,
+        permission: { mode: 'always_ask' },
+      },
+    })
+  })
 
   it('round-trips disabled tool names without catalog knowledge', () => {
     const source = `${minimalYaml}tools:

@@ -9,215 +9,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/events"
-	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processcmd"
+	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
-
-const (
-	toolCallResultEventIDPrefix        = "tool-call-result-authority:"
-	toolCallCompletedInteractionReason = "tool_call_completed"
-)
-
-func appendToolResultEventTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	record ToolCallRecord,
-) (events.Event, error) {
-	admitted, err := appendToolResultRecordTx(
-		ctx,
-		txNotifications,
-		tx,
-		record,
-	)
-	if err != nil {
-		return events.Event{}, err
-	}
-	return admitted.Event.Event, nil
-}
-
-func appendToolResultRecordTx(
-	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
-	record ToolCallRecord,
-) (admittedToolCallResult, error) {
-	if _, err := dbsqlc.New(tx).CancelOpenAgentInteractionsForToolCall(
-		ctx,
-		dbsqlc.CancelOpenAgentInteractionsForToolCallParams{
-			ProjectID:  record.ProjectID,
-			AgentID:    record.AgentID,
-			ToolCallID: record.ID,
-			Reason:     toolCallCompletedInteractionReason,
-		},
-	); err != nil {
-		return admittedToolCallResult{}, fmt.Errorf(
-			"close interactions for completed tool call: %w",
-			err,
-		)
-	}
-	admitted, err := admitToolCallResultTx(
-		ctx,
-		txNotifications,
-		tx,
-		CreateToolCallResultAuthorityInput{
-			ProjectID:          record.ProjectID,
-			AgentID:            record.AgentID,
-			TurnID:             record.TurnID,
-			ToolCallID:         record.ID,
-			Outcome:            record.Outcome,
-			ResultContentParts: record.ResultContentParts,
-			IdempotencyKey:     toolCallResultEventIDPrefix + record.ID.String(),
-		},
-	)
-	if err != nil {
-		return admittedToolCallResult{}, err
-	}
-	if admitted.Event.ToolCallResultID != admitted.Result.ID {
-		return admittedToolCallResult{}, storeerr.ErrIdempotencyConflict
-	}
-	if admitted.Inserted {
-		if err := updateAgentTurnLatestEventTx(
-			ctx,
-			tx,
-			record.ProjectID,
-			record.AgentID,
-			record.TurnID,
-			admitted.Event.Event.ID,
-			uuid.Nil,
-		); err != nil {
-			return admittedToolCallResult{}, err
-		}
-		txNotifications.AddToolCallUpdate(
-			record.AgentID,
-			record.ID,
-			string(ToolCallStateCompleted),
-		)
-	}
-	return admitted, nil
-}
-
-func applyAdmittedToolResult(record *ToolCallRecord, admitted admittedToolCallResult) {
-	record.ResultContentParts = admitted.ContentBlocks
-	record.CompletedAt = timePtr(admitted.Result.CompletedAt)
-}
-
-func completedToolCallMatchesTx(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID, agentID, toolCallID uuid.UUID,
-	outcome ToolResultOutcome,
-	contentParts json.RawMessage,
-) (bool, error) {
-	blocks, err := parseToolResultContentBlocks(contentParts)
-	if err != nil {
-		return false, err
-	}
-	contentParts, err = marshalToolResultContentBlocks(blocks)
-	if err != nil {
-		return false, err
-	}
-	existing, err := qtx.GetToolCall(
-		ctx,
-		dbsqlc.GetToolCallParams{ProjectID: projectID, AgentID: agentID, ID: toolCallID},
-	)
-	if err != nil {
-		return false, fmt.Errorf("load linked tool call for replay validation: %w", err)
-	}
-	if existing.State != "completed" || existing.CompletedAt == nil {
-		return false, nil
-	}
-	result, err := qtx.GetToolCallResultByToolCall(
-		ctx,
-		dbsqlc.GetToolCallResultByToolCallParams{
-			ProjectID:  projectID,
-			AgentID:    agentID,
-			ToolCallID: toolCallID,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("load linked tool result for replay validation: %w", err)
-	}
-	storedParts, err := toolCallResultContentBlocksTx(
-		ctx,
-		qtx,
-		projectID,
-		agentID,
-		result.ID,
-	)
-	if err != nil {
-		return false, err
-	}
-	if result.Outcome != string(outcome) {
-		return false, nil
-	}
-	return toolResultContentMatchesTx(ctx, qtx, projectID, agentID, toolCallID, storedParts, blocks, contentParts)
-}
-
-func processToolResult(process ProcessRecord) (ToolResultOutcome, json.RawMessage, error) {
-	if !isProcessTerminal(process.State) {
-		return "", nil, fmt.Errorf("process %s is not terminal", process.ID)
-	}
-	exitCode := any(nil)
-	if process.ExitCode != nil {
-		exitCode = *process.ExitCode
-	}
-	errText := process.StateReasonMessage
-	if errText == "" {
-		errText = process.StateReasonCode
-	}
-	succeeded := process.State == ProcessStateExited && process.ExitCode != nil && *process.ExitCode == 0
-	if process.State == ProcessStateExited && !succeeded && errText == "" && process.ExitCode != nil {
-		errText = fmt.Sprintf("exit code %d", *process.ExitCode)
-	}
-	result, err := marshalJSON(map[string]any{
-		"process_id":        publicResourceID(publicid.KindProcess, process.ID),
-		"exit_code":         exitCode,
-		"state":             process.State,
-		"state_reason_code": process.StateReasonCode,
-		"error":             errText,
-	})
-	if err != nil {
-		return "", nil, fmt.Errorf("marshal process tool result: %w", err)
-	}
-	outcome := ToolResultOutcomeSucceeded
-	if !succeeded {
-		outcome = ToolResultOutcomeFailed
-	}
-	return outcome, result, nil
-}
-
-func startedProcessToolResult(process ProcessRecord, observed json.RawMessage) (json.RawMessage, error) {
-	commandLabel := processcmd.CommandLabel(process.Command)
-	result := map[string]any{
-		"process_id":  publicResourceID(publicid.KindProcess, process.ID),
-		"state":       process.State,
-		"command":     commandLabel,
-		"next_action": "use write_process for stdin or read_process for retained output",
-	}
-	if len(observed) != 0 && string(observed) != "null" && string(observed) != "{}" {
-		var observedObject map[string]any
-		if err := json.Unmarshal(observed, &observedObject); err != nil {
-			return nil, fmt.Errorf("decode process started result: %w", err)
-		}
-		for key, value := range observedObject {
-			result[key] = value
-		}
-		result["process_id"] = publicResourceID(publicid.KindProcess, process.ID)
-		result["state"] = process.State
-		result["command"] = commandLabel
-		result["next_action"] = "use write_process for stdin or read_process for retained output"
-	}
-	return marshalJSON(result)
-}
 
 func commandTerminalToolResult(
 	processID uuid.UUID,
@@ -234,74 +32,114 @@ func commandTerminalToolResult(
 		return nil, errors.New("terminal command result must be an object")
 	}
 	object["process_id"] = publicResourceID(publicid.KindProcess, processID)
+	processresult.PublicOutputRange(object)
 	return marshalJSON(object)
 }
 
-func isUploadArtifactToolCall(call ToolCallRecord) bool {
-	if call.Type != toolcatalog.ToolTypeBuiltIn {
-		return false
+func fileTransferToolResultContentParts(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	process ProcessRecord,
+	result json.RawMessage,
+) (ToolResultOutcome, json.RawMessage, error) {
+	transfer := process.ExecutionSpec.FileTransfer
+	direction := transfer.Direction
+	var observed struct {
+		FileTransfer *daemonprotocol.FileTransferResult `json:"file_transfer"`
 	}
-	if call.Name != toolcatalog.ToolNameUploadFile {
-		return false
+	valid := json.Unmarshal(result, &observed) == nil && observed.FileTransfer != nil &&
+		observed.FileTransfer.Validate(direction) == nil
+	metadata := observed.FileTransfer
+	if process.State != ProcessStateExited || process.ExitCode == nil || *process.ExitCode != 0 {
+		if valid && metadata.Error != nil && process.ExitCode != nil && *process.ExitCode != 0 &&
+			(process.State == ProcessStateExited ||
+				(process.State == ProcessStateFailed && process.StateReasonCode == "nonzero_exit")) {
+			return failedFileTransferToolResultContentParts(result, *metadata.Error)
+		}
+		contentParts, err := ToolResultContentParts(result)
+		return ToolResultOutcomeFailed, contentParts, err
 	}
-	var input struct {
-		Path string `json:"path"`
+	invalidMetadata := daemonprotocol.FileTransferError{
+		Message: string(direction) + " completed without valid file metadata",
 	}
-	return json.Unmarshal(call.Input, &input) == nil && input.Path == toolcatalog.ArtifactVFSRoot
+	if !valid || metadata.Error != nil {
+		return failedFileTransferToolResultContentParts(result, invalidMetadata)
+	}
+	// The digest is kept out of model context; memory read tracking reads it from the stored result.
+	visible := map[string]any{"path": metadata.Path}
+	if direction == processcmd.FileTransferDownload {
+		visible = map[string]any{"destination": transfer.LocalPath}
+	}
+	parts := []map[string]any{{"type": "structured_data", "value": visible}}
+	if direction == processcmd.FileTransferUpload {
+		if transfer.Target.Artifact != nil {
+			artifact, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
+				ProjectID:      process.ProjectID,
+				AgentID:        process.AgentID,
+				IdempotencyKey: UploadArtifactIdempotencyKey(process.ToolCallID),
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return failedFileTransferToolResultContentParts(result,
+					daemonprotocol.FileTransferError{Message: "upload completed without an artifact"})
+			}
+			if err != nil {
+				return "", nil, fmt.Errorf("load uploaded artifact: %w", err)
+			}
+			path := toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID)
+			if metadata.Path != path || metadata.Digest != artifact.Digest {
+				return failedFileTransferToolResultContentParts(result, invalidMetadata)
+			}
+			view := transfer.Target.Artifact.View
+			if view && !viewableImageTypes[artifact.ContentType] {
+				view = false
+				parts = append(parts, map[string]any{"type": "text", "text": fmt.Sprintf(
+					"not shown: %s is not a PNG, JPEG, GIF, or WebP image", artifact.ContentType)})
+			}
+			parts = append(parts, map[string]any{
+				"type": "media_ref", "artifact_id": artifact.ID.String(), "exclude_from_model_context": !view,
+			})
+		} else {
+			target := transfer.Target.Memory
+			name, err := qtx.GetMemoryStoreName(ctx, dbsqlc.GetMemoryStoreNameParams{
+				ProjectID: process.ProjectID, ID: target.StoreID,
+			})
+			if err != nil {
+				return "", nil, fmt.Errorf("load memory transfer name: %w", err)
+			}
+			if metadata.Path != "/memory/"+name+"/"+target.Path {
+				return failedFileTransferToolResultContentParts(result, invalidMetadata)
+			}
+		}
+	}
+	parts = append(parts, map[string]any{
+		"type": "structured_data", "value": map[string]string{"digest": metadata.Digest},
+		"exclude_from_model_context": true,
+	})
+	contentParts, err := marshalJSON(parts)
+	return ToolResultOutcomeSucceeded, contentParts, err
 }
+
+// viewableImageTypes matches the image types modelcontext sends to models inline.
+var viewableImageTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
 
 func UploadArtifactIdempotencyKey(toolCallID uuid.UUID) string {
 	return "upload-artifact:" + toolCallID.String()
 }
 
-func uploadArtifactProcessToolResultContentParts(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	process ProcessRecord,
+func failedFileTransferToolResultContentParts(
+	result json.RawMessage,
+	failure daemonprotocol.FileTransferError,
 ) (ToolResultOutcome, json.RawMessage, error) {
-	artifact, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
-		ProjectID:      process.ProjectID,
-		AgentID:        process.AgentID,
-		IdempotencyKey: UploadArtifactIdempotencyKey(process.ToolCallID),
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return failedUploadArtifactProcessToolResultContentParts(
-			process,
-			"upload completed without an artifact",
-		)
+	var value map[string]any
+	if err := json.Unmarshal(result, &value); err != nil {
+		return "", nil, fmt.Errorf("decode file transfer result: %w", err)
 	}
-	if err != nil {
-		return "", nil, fmt.Errorf("load uploaded artifact: %w", err)
+	delete(value, "file_transfer")
+	value["error"] = failure.Message
+	if failure.Code != "" {
+		value["error_code"] = failure.Code
 	}
-	contentParts, err := marshalJSON([]map[string]any{
-		{
-			"type": "structured_data",
-			"value": map[string]any{
-				"path": toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID),
-			},
-		},
-		{
-			"type":                       "media_ref",
-			"artifact_id":                artifact.ID.String(),
-			"exclude_from_model_context": true,
-		},
-	})
-	return ToolResultOutcomeSucceeded, contentParts, err
-}
-
-func failedUploadArtifactProcessToolResultContentParts(
-	process ProcessRecord,
-	message string,
-) (ToolResultOutcome, json.RawMessage, error) {
-	result, err := marshalJSON(map[string]any{
-		"process_id": publicResourceID(publicid.KindProcess, process.ID),
-		"state":      process.State,
-		"error":      message,
-	})
-	if err != nil {
-		return "", nil, err
-	}
-	contentParts, err := ToolResultContentParts(result)
+	contentParts, err := marshalJSON([]map[string]any{{"type": "structured_data", "value": value}})
 	return ToolResultOutcomeFailed, contentParts, err
 }
 
@@ -311,10 +149,4 @@ func ToolResultContentParts(result json.RawMessage) (json.RawMessage, error) {
 		return json.RawMessage(`[]`), nil
 	}
 	return marshalJSON([]map[string]any{{"type": "structured_data", "value": result}})
-}
-
-func canceledToolResultContentParts() (json.RawMessage, error) {
-	return ToolResultContentParts(
-		json.RawMessage(`{"reason":"Agent canceled before this tool call completed."}`),
-	)
 }

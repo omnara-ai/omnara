@@ -1,108 +1,20 @@
 package executionstore
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/processcmd"
+	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/stretchr/testify/require"
 )
-
-func TestBindToolCallsUsesProviderEnvelopeAsCanonicalSource(t *testing.T) {
-	id := uuid.New()
-	envelope := modelenvelope.ResponseEnvelope{
-		Normalized: modelenvelope.ResponseNormalized{
-			Content: []modelenvelope.ResponsePart{
-				{Type: modelenvelope.ResponsePartTypeText, Text: "before"},
-				{
-					Type:           modelenvelope.ResponsePartTypeToolCall,
-					ProviderCallID: "call_1",
-					ToolName:       "lookup_customer",
-					ToolInput:      json.RawMessage(`{"email":"ada@example.com"}`),
-				},
-			},
-		},
-	}
-	calls, err := bindToolCalls(envelope, []ToolCallBindingInput{{
-		ID:             id,
-		ProviderCallID: "call_1",
-		Type:           toolcatalog.ToolTypeCustom,
-	}})
-	if err != nil {
-		t.Fatalf("bind tool calls: %v", err)
-	}
-	if len(calls) != 1 ||
-		calls[0].ID != id ||
-		calls[0].ProviderCallID != "call_1" ||
-		calls[0].Name != "lookup_customer" ||
-		string(calls[0].Input) != `{"email":"ada@example.com"}` ||
-		calls[0].Type != toolcatalog.ToolTypeCustom {
-		t.Fatalf("bound tool call = %+v", calls)
-	}
-}
-
-func TestBindToolCallsRequiresExactProviderCallCoverage(t *testing.T) {
-	envelope := modelenvelope.ResponseEnvelope{
-		Normalized: modelenvelope.ResponseNormalized{
-			Content: []modelenvelope.ResponsePart{{
-				Type:           modelenvelope.ResponsePartTypeToolCall,
-				ProviderCallID: "call_1",
-				ToolName:       "run_command",
-				ToolInput:      json.RawMessage(`{"command":"true"}`),
-			}},
-		},
-	}
-	for _, bindings := range [][]ToolCallBindingInput{
-		{{
-			ProviderCallID: "call_other",
-			Type:           toolcatalog.ToolTypeBuiltIn,
-		}},
-		{
-			{
-				ProviderCallID: "call_1",
-				Type:           toolcatalog.ToolTypeBuiltIn,
-			},
-			{
-				ProviderCallID: "call_extra",
-				Type:           toolcatalog.ToolTypeBuiltIn,
-			},
-		},
-	} {
-		if _, err := bindToolCalls(envelope, bindings); err == nil {
-			t.Fatalf("bindings %+v did not fail", bindings)
-		}
-	}
-}
-
-func TestBindToolCallsRejectsInvalidToolInput(t *testing.T) {
-	for _, input := range []json.RawMessage{
-		json.RawMessage(`{"command":`),
-		json.RawMessage(`null`),
-		json.RawMessage(`[]`),
-		json.RawMessage(`"command"`),
-	} {
-		envelope := modelenvelope.ResponseEnvelope{
-			Normalized: modelenvelope.ResponseNormalized{
-				Content: []modelenvelope.ResponsePart{{
-					Type:           modelenvelope.ResponsePartTypeToolCall,
-					ProviderCallID: "call_1",
-					ToolName:       "run_command",
-					ToolInput:      input,
-				}},
-			},
-		}
-		_, err := bindToolCalls(envelope, []ToolCallBindingInput{{
-			ID:             uuid.New(),
-			ProviderCallID: "call_1",
-			Type:           toolcatalog.ToolTypeBuiltIn,
-		}})
-		if err == nil {
-			t.Fatalf("bindToolCalls accepted input %s", input)
-		}
-	}
-}
 
 func TestStructuredToolResultKeepsEmptyObject(t *testing.T) {
 	parts, err := ToolResultContentParts(json.RawMessage(`{}`))
@@ -127,6 +39,11 @@ func TestCommandTerminalToolResultUsesCanonicalProcessID(t *testing.T) {
 			name:  "object",
 			input: json.RawMessage(`{"done":true,"process_id":"prc_should_not_escape"}`),
 			want:  `{"done":true,"process_id":"` + publicProcessID + `"}`,
+		},
+		{
+			name:  "output range",
+			input: json.RawMessage(`{"cursor":3,"done":true,"next_cursor":9}`),
+			want:  `{"done":true,"next_offset_byte":9,"offset_byte":3,"process_id":"` + publicProcessID + `"}`,
 		},
 		{
 			name:  "empty object",
@@ -158,13 +75,15 @@ func TestCommandTerminalToolResultUsesCanonicalProcessID(t *testing.T) {
 
 func TestStartedProcessToolResultKeepsProcessFactsAuthoritative(t *testing.T) {
 	process := ProcessRecord{
-		ID:      uuid.New(),
-		State:   ProcessStateRunning,
-		Command: "go test ./...",
+		ExecutionSpec: processcmd.ForShell("go test ./...", "", ""),
+		ID:            uuid.New(),
+		State:         ProcessStateRunning,
 	}
-	result, err := startedProcessToolResult(
-		process,
-		json.RawMessage(`{"state":"exited","command":"other","next_action":"stop","output":"ready"}`),
+	result, err := processresult.Started(
+		process.resultFacts(),
+		json.RawMessage(
+			`{"state":"exited","command":"other","next_action":"stop","output":"ready","cursor":0,"next_cursor":5}`,
+		),
 	)
 	if err != nil {
 		t.Fatalf("startedProcessToolResult: %v", err)
@@ -174,54 +93,153 @@ func TestStartedProcessToolResultKeepsProcessFactsAuthoritative(t *testing.T) {
 		t.Fatalf("decode started process result: %v", err)
 	}
 	if body["state"] != string(ProcessStateRunning) ||
-		body["command"] != process.Command ||
-		body["next_action"] == "stop" ||
-		body["output"] != "ready" {
+		body["command"] != nil ||
+		body["next_action"] != nil ||
+		body["output"] != "ready" ||
+		body["next_offset_byte"] != float64(5) || body["next_cursor"] != nil {
 		t.Fatalf("started process result = %s", result)
 	}
 }
 
-func TestIsUploadArtifactToolCall(t *testing.T) {
-	tests := []struct {
-		name string
-		call ToolCallRecord
-		want bool
-	}{
-		{
-			name: "removed legacy tool",
-			call: ToolCallRecord{Type: toolcatalog.ToolTypeBuiltIn, Name: "upload_artifact"},
-		},
-		{
-			name: "vfs artifact",
-			call: ToolCallRecord{
-				Type:  toolcatalog.ToolTypeBuiltIn,
-				Name:  toolcatalog.ToolNameUploadFile,
-				Input: json.RawMessage(`{"path":"/artifacts","source":"report.pdf"}`),
-			},
-			want: true,
-		},
-		{
-			name: "future vfs resource",
-			call: ToolCallRecord{
-				Type:  toolcatalog.ToolTypeBuiltIn,
-				Name:  toolcatalog.ToolNameUploadFile,
-				Input: json.RawMessage(`{"path":"/memory/notes.md","source":"notes.md"}`),
-			},
-		},
-		{
-			name: "custom collision",
-			call: ToolCallRecord{
-				Type:  toolcatalog.ToolTypeCustom,
-				Name:  toolcatalog.ToolNameUploadFile,
-				Input: json.RawMessage(`{"path":"/artifacts"}`),
-			},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := isUploadArtifactToolCall(test.call); got != test.want {
-				t.Fatalf("isUploadArtifactToolCall() = %t, want %t", got, test.want)
+func TestFileTransferToolResultContentParts(t *testing.T) {
+	const path = "/memory/team/notes.md"
+	digest := "sha256:" + strings.Repeat("a", 64)
+	for _, direction := range []processcmd.FileTransferDirection{
+		processcmd.FileTransferUpload, processcmd.FileTransferDownload,
+	} {
+		t.Run(string(direction), func(t *testing.T) {
+			metadata := `{"digest":"` + digest + `"}`
+			if direction == processcmd.FileTransferUpload {
+				metadata = `{"path":"` + path + `","digest":"` + digest + `"}`
+			}
+			for _, tc := range []struct {
+				name, metadata, output string
+				wantOK                 bool
+			}{
+				{name: "metadata without output", metadata: metadata, wantOK: true},
+				{name: "metadata with warnings", metadata: metadata, output: "warning on stderr\n", wantOK: true},
+				{name: "missing metadata", output: metadata},
+				{name: "null metadata", metadata: "null", output: metadata},
+				{name: "invalid metadata", metadata: `"not metadata"`, output: metadata},
+				{name: "missing digest", metadata: `{"path":"` + path + `"}`},
+				{name: "invalid digest", metadata: strings.Replace(metadata, digest, "invalid", 1)},
+				{name: "error on success", metadata: `{"error":{"code":"file_transfer_failed","error":"missing file"}}`},
+				{name: "wrong path", metadata: `{"path":"/memory/team/other.md","digest":"` + digest + `"}`},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					observed := map[string]any{
+						"output":    tc.output,
+						"truncated": true,
+						"state":     "exited",
+						"done":      true,
+					}
+					if tc.metadata != "" {
+						observed["file_transfer"] = json.RawMessage(tc.metadata)
+					}
+					result, err := json.Marshal(observed)
+					require.NoError(t, err)
+					exitCode := 0
+					process := ProcessRecord{
+						ExecutionSpec: processcmd.ForFileTransfer(processcmd.FileTransfer{
+							Direction: direction,
+							LocalPath: "notes.md",
+							Target: processcmd.FileTarget{
+								Memory: &processcmd.MemoryTarget{StoreID: uuid.New(), Path: "notes.md"},
+							},
+						}),
+						State:    ProcessStateExited,
+						ExitCode: &exitCode,
+					}
+					outcome, got, err := fileTransferToolResultContentParts(
+						context.Background(), dbsqlc.New(memoryTransferNameDB{}), process, result,
+					)
+					require.NoError(t, err)
+					if tc.wantOK {
+						require.Equal(t, ToolResultOutcomeSucceeded, outcome)
+						visible := `{"destination":"notes.md"}`
+						if direction == processcmd.FileTransferUpload {
+							visible = `{"path":"` + path + `"}`
+						}
+						require.JSONEq(t, `[{"type":"structured_data","value":`+visible+`},`+
+							`{"type":"structured_data","value":{"digest":"`+digest+`"},"exclude_from_model_context":true}]`,
+							string(got))
+					} else {
+						delete(observed, "file_transfer")
+						observed["error"] = direction + " completed without valid file metadata"
+						want, err := json.Marshal(observed)
+						require.NoError(t, err)
+						require.Equal(t, ToolResultOutcomeFailed, outcome)
+						require.JSONEq(t, `[{"type":"structured_data","value":`+string(want)+`}]`, string(got))
+					}
+				})
 			}
 		})
 	}
+}
+
+func TestFileTransferFailureResult(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	failure := `{"code":"file_content_conflict","error":"file changed","current_digest":"` + digest + `"}`
+	for _, tc := range []struct {
+		name, reason, metadata string
+		state                  ProcessState
+		exitCode               int
+		wantError              bool
+	}{
+		{name: "api failure", state: ProcessStateFailed, reason: "nonzero_exit", exitCode: 1,
+			metadata: failure, wantError: true},
+		{name: "local failure", state: ProcessStateFailed, reason: "nonzero_exit", exitCode: 1,
+			metadata: `{"code":"file_transfer_failed","error":"missing file"}`, wantError: true},
+		{name: "exited nonzero", state: ProcessStateExited, exitCode: 1, metadata: failure, wantError: true},
+		{name: "timeout wins", state: ProcessStateFailed, reason: "timeout", exitCode: 1, metadata: failure},
+		{name: "signal wins", state: ProcessStateFailed, reason: "signal", exitCode: -1, metadata: failure},
+		{name: "invalid error", state: ProcessStateFailed, reason: "nonzero_exit", exitCode: 1, metadata: `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			process := ProcessRecord{
+				ExecutionSpec: processcmd.ForFileTransfer(
+					processcmd.FileTransfer{Direction: processcmd.FileTransferUpload},
+				),
+				State:           tc.state,
+				StateReasonCode: tc.reason,
+				ExitCode:        &tc.exitCode,
+			}
+			result := `{"output":"diagnostics", "file_transfer":{"error":` + tc.metadata + `}}`
+			outcome, got, err := fileTransferToolResultContentParts(
+				context.Background(), nil, process, json.RawMessage(result),
+			)
+			require.NoError(t, err)
+			require.Equal(t, ToolResultOutcomeFailed, outcome)
+			want := result
+			if tc.wantError {
+				var fields map[string]any
+				require.NoError(t, json.Unmarshal([]byte(tc.metadata), &fields))
+				fields["error_code"] = fields["code"]
+				delete(fields, "code")
+				delete(fields, "current_digest")
+				fields["output"] = "diagnostics"
+				body, err := json.Marshal(fields)
+				require.NoError(t, err)
+				want = string(body)
+			}
+			require.JSONEq(t, `[{"type":"structured_data","value":`+want+`}]`, string(got))
+		})
+	}
+}
+
+type memoryTransferNameDB struct{ dbsqlc.DBTX }
+
+func (memoryTransferNameDB) QueryRow(context.Context, string, ...any) pgx.Row {
+	return memoryTransferNameRow{}
+}
+
+type memoryTransferNameRow struct{}
+
+func (memoryTransferNameRow) Scan(dest ...any) error {
+	name, ok := dest[0].(*string)
+	if !ok {
+		return errors.New("expected memory store name destination")
+	}
+	*name = "team"
+	return nil
 }

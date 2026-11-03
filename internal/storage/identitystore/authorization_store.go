@@ -13,6 +13,10 @@ import (
 )
 
 func (s *Store) AuthorizeProject(ctx context.Context, input AuthorizeProjectInput) (bool, error) {
+	return AuthorizeProject(ctx, s.q, input)
+}
+
+func AuthorizeProject(ctx context.Context, q *dbsqlc.Queries, input AuthorizeProjectInput) (bool, error) {
 	if input.Principal.Type == "" || input.Principal.ID == uuid.Nil {
 		return false, storeerr.ErrUnauthorized
 	}
@@ -35,7 +39,7 @@ func (s *Store) AuthorizeProject(ctx context.Context, input AuthorizeProjectInpu
 	if userID == nil && orgAPIKeyID == nil {
 		return false, nil
 	}
-	roles, err := s.q.ListProjectAuthorizationRolesForPrincipal(
+	roles, err := q.ListProjectAuthorizationRolesForPrincipal(
 		ctx,
 		dbsqlc.ListProjectAuthorizationRolesForPrincipalParams{
 			OrgID:       input.OrgID,
@@ -56,6 +60,10 @@ func (s *Store) AuthorizeProject(ctx context.Context, input AuthorizeProjectInpu
 }
 
 func (s *Store) AuthorizeOrg(ctx context.Context, input AuthorizeOrgInput) (bool, error) {
+	return AuthorizeOrg(ctx, s.q, input)
+}
+
+func AuthorizeOrg(ctx context.Context, q *dbsqlc.Queries, input AuthorizeOrgInput) (bool, error) {
 	if input.Principal.Type == "" || input.Principal.ID == uuid.Nil {
 		return false, storeerr.ErrUnauthorized
 	}
@@ -75,7 +83,7 @@ func (s *Store) AuthorizeOrg(ctx context.Context, input AuthorizeOrgInput) (bool
 	if userID == nil && orgAPIKeyID == nil {
 		return false, nil
 	}
-	role, err := s.q.GetOrgAuthorizationRoleForPrincipal(
+	role, err := q.GetOrgAuthorizationRoleForPrincipal(
 		ctx,
 		dbsqlc.GetOrgAuthorizationRoleForPrincipalParams{
 			OrgID:       input.OrgID,
@@ -90,6 +98,17 @@ func (s *Store) AuthorizeOrg(ctx context.Context, input AuthorizeOrgInput) (bool
 		return false, fmt.Errorf("load org authorization role: %w", err)
 	}
 	return authz.OrgRoleAllows(role, input.Action), nil
+}
+
+func RequireOrgOwner(ctx context.Context, q *dbsqlc.Queries, orgID uuid.UUID, principal PrincipalRecord) error {
+	owner, err := AuthorizeOrg(ctx, q, AuthorizeOrgInput{Principal: principal, OrgID: orgID, Action: OrgActionOwn})
+	if err != nil {
+		return err
+	}
+	if !owner {
+		return storeerr.ErrUnauthorized
+	}
+	return nil
 }
 
 func (s *Store) HasOrgMembership(ctx context.Context, principal PrincipalRecord, orgID uuid.UUID) (bool, error) {

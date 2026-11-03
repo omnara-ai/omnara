@@ -145,6 +145,44 @@ func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
 	return delay, true
 }
 
+const rateLimitRetries = 2
+
+type retryAfterTransport struct {
+	next http.RoundTripper
+}
+
+func NewRetryAfterTransport(next http.RoundTripper) http.RoundTripper {
+	if next == nil {
+		next = http.DefaultTransport
+	}
+	return retryAfterTransport{next: next}
+}
+
+func (t retryAfterTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	for retry := 0; ; retry++ {
+		response, err := t.next.RoundTrip(request)
+		if err != nil || response.StatusCode != http.StatusTooManyRequests || retry == rateLimitRetries ||
+			(request.Body != nil && request.GetBody == nil) {
+			return response, err
+		}
+		delay, ok := parseRetryAfter(response.Header.Get("Retry-After"), time.Now())
+		if !ok {
+			return response, nil
+		}
+		_ = response.Body.Close()
+		if err := sleepContext(request.Context(), delay); err != nil {
+			return nil, err
+		}
+		next := request.Clone(request.Context())
+		if request.GetBody != nil {
+			if next.Body, err = request.GetBody(); err != nil {
+				return nil, err
+			}
+		}
+		request = next
+	}
+}
+
 func marshalJSON(value any) (json.RawMessage, error) {
 	data, err := json.Marshal(value)
 	if err != nil {

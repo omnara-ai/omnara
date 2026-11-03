@@ -509,6 +509,22 @@ func TestDetectAuthFallsBackToRootProtectedResourceMetadata(t *testing.T) {
 	}
 }
 
+func TestDetectAuthAcceptsRootProtectedResourceWithTrailingSlash(t *testing.T) {
+	ts := newOAuthMCPTestServer(t, oauthMCPTestConfig{
+		PKCE:                  true,
+		ServeRootMetadataOnly: true,
+		ResourceTrailingSlash: true,
+	})
+
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	if err != nil {
+		t.Fatalf("DetectAuth: %v", err)
+	}
+	if want := ts.URL + "/"; req.Resource != want {
+		t.Fatalf("Resource = %q, want %q", req.Resource, want)
+	}
+}
+
 func TestDetectAuthFallsBackToNextAuthorizationServer(t *testing.T) {
 	ts := newOAuthMCPTestServer(t, oauthMCPTestConfig{PKCE: true, BrokenFirstIssuer: true})
 
@@ -546,6 +562,93 @@ func TestDetectAuthRejectsSameOriginIssuerPathMismatch(t *testing.T) {
 	_, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
 	if err == nil || !strings.Contains(err.Error(), "does not match issuer URL") {
 		t.Fatalf("DetectAuth error = %v, want issuer mismatch error", err)
+	}
+}
+
+func TestDetectAuthKeepsTransientMetadataFailuresDistinctFromMissingMetadata(t *testing.T) {
+	tests := []struct {
+		name                     string
+		resourceMetadataStatus   int
+		authServerMetadataStatus int
+		wantRetryable            bool
+	}{
+		{
+			name:                   "protected resource metadata unavailable",
+			resourceMetadataStatus: http.StatusServiceUnavailable,
+			wantRetryable:          true,
+		},
+		{
+			name:                     "authorization server metadata rate limited",
+			authServerMetadataStatus: http.StatusTooManyRequests,
+			wantRetryable:            true,
+		},
+		{name: "protected resource metadata missing", resourceMetadataStatus: http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			server := httptest.NewServer(mux)
+			t.Cleanup(server.Close)
+			mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+server.URL+`/resource-metadata"`)
+				w.WriteHeader(http.StatusUnauthorized)
+			})
+			mux.HandleFunc("/resource-metadata", func(w http.ResponseWriter, _ *http.Request) {
+				if tt.resourceMetadataStatus != 0 {
+					w.WriteHeader(tt.resourceMetadataStatus)
+					return
+				}
+				writeJSON(t, w, map[string]any{
+					"resource":              server.URL + "/mcp",
+					"authorization_servers": []string{server.URL + "/issuer"},
+				})
+			})
+			if tt.authServerMetadataStatus != 0 {
+				mux.HandleFunc("/.well-known/oauth-authorization-server/issuer", func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(tt.authServerMetadataStatus)
+				})
+			}
+
+			_, err := mcp.DetectAuth(context.Background(), server.URL+"/mcp", mcp.AuthOptions{HTTPClient: server.Client()})
+			if err == nil {
+				t.Fatal("DetectAuth error = nil")
+			}
+			if got := mcp.IsRetryableConnectionFailure(err); got != tt.wantRetryable {
+				t.Fatalf("IsRetryableConnectionFailure(%v) = %v, want %v", err, got, tt.wantRetryable)
+			}
+			if got := errors.Is(err, mcp.ErrOAuthMetadataUnavailable); got == tt.wantRetryable {
+				t.Fatalf("errors.Is(%v, ErrOAuthMetadataUnavailable) = %v, want %v", err, got, !tt.wantRetryable)
+			}
+		})
+	}
+}
+
+func TestDetectAuthDoesNotReportCanceledMetadataLookupAsMissingMetadata(t *testing.T) {
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+server.URL+`/resource-metadata"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	client := *server.Client()
+	baseTransport := client.Transport
+	client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/resource-metadata" {
+			cancel()
+			return nil, request.Context().Err()
+		}
+		return baseTransport.RoundTrip(request)
+	})
+
+	_, err := mcp.DetectAuth(ctx, server.URL+"/mcp", mcp.AuthOptions{HTTPClient: &client})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("DetectAuth error = %v, want context.Canceled", err)
+	}
+	if errors.Is(err, mcp.ErrOAuthMetadataUnavailable) {
+		t.Fatalf("DetectAuth error = %v, want no ErrOAuthMetadataUnavailable", err)
 	}
 }
 
@@ -708,6 +811,7 @@ type oauthMCPTestConfig struct {
 	BasicAuthRejectionStatus      int
 	FailGrantsWith                string
 	ServeRootMetadataOnly         bool
+	ResourceTrailingSlash         bool
 	BrokenFirstIssuer             bool
 	MetadataIssuer                string
 	MultiTenantIssuerAlias        bool
@@ -755,6 +859,9 @@ func newOAuthMCPTestServer(t *testing.T, cfg oauthMCPTestConfig) *oauthMCPTestSe
 	resource := server.URL + "/mcp"
 	if cfg.ServeRootMetadataOnly {
 		resource = server.URL
+	}
+	if cfg.ResourceTrailingSlash {
+		resource += "/"
 	}
 	issuerPath := "issuer"
 	if cfg.MultiTenantIssuerAlias {

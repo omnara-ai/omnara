@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
@@ -60,6 +61,10 @@ func (*provider) PrepareProvisioning(
 	}, nil
 }
 
+func (*provider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
+}
+
 func (p *provider) ProvisionMachine(
 	ctx context.Context,
 	installationID uuid.UUID,
@@ -67,6 +72,7 @@ func (p *provider) ProvisionMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
+	_ bool,
 ) (providers.ProvisionMachineResult, error) {
 	options, err := providerOptionsFromProvisioning(machineProvisioning)
 	if err != nil {
@@ -249,6 +255,17 @@ func (p *provider) InspectMachine(
 		return "", false, fmt.Errorf("unikraft instance %q does not have the expected allocation name", result.UUID)
 	}
 	return result.UUID, true, nil
+}
+
+func (p *provider) CheckConnection(
+	ctx context.Context,
+	machineProvisioning executionstore.MachineProvisioningConfig,
+) error {
+	metro, ok := existingMachineMetro(machineProvisioning)
+	if !ok {
+		return storeerr.InvalidRequest(errors.New("unikraft machine config requires a valid metro"))
+	}
+	return p.apiForMetro(metro).CheckConnection(ctx)
 }
 
 func (p *provider) DeleteMachine(

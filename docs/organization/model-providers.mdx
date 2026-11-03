@@ -46,7 +46,7 @@ The dashboard guides you through this chain. The [CLI](/quickstart) and API expo
 <Tab title="Dashboard">
   <Steps>
     <Step title="Open the provider dialog">
-      Go to **Models** in the sidebar and click **New provider**. Pick a provider and name the connection — this name (e.g. `openai-prod`) is what agent configs reference as `model.provider_config`.
+      With **All projects** selected in the project switcher, open **Models** and click **New provider**. Pick a provider and name the connection — this name (e.g. `openai-prod`) is what agent configs reference as `model.provider_config`.
     </Step>
     <Step title="Create the credential inline">
       In the API key field, click **New secret**, name it, paste the provider's API key, and click **Create secret**. It's stored as an organization [secret](/organization/secrets) (`sec_…`); the provider only ever holds the reference.
@@ -65,6 +65,8 @@ Provider timeouts apply to each attempt, including reasoning and response stream
 
 Edit these settings in the provider dialog or through the API. Existing total deadlines are retained on upgrade.
 
+Use `headers` to send extra HTTP headers with every request to the provider, and `secret_headers` to take a header's value from a [secret](/organization/secrets); put keys and tokens in `secret_headers`. Set both in the provider dialog or through the API. If a referenced secret is deleted, requests omit that header.
+
 ## Configure models
 
 A configured model (`mdl_…`) gives a provider model a name and runtime settings. Agent configs use `name`; Omnara sends `provider_model_slug` to the provider. Keeping them separate lets you manage provider details centrally.
@@ -76,13 +78,19 @@ A configured model (`mdl_…`) gives a provider model a name and runtime setting
 <Tab title="Dashboard">
   In **Add models**, select the detected models you want, or click **Skip for now**. The detected slug is used as the configured model name. Agent YAML must use the configured model name exactly.
 
-  To add a model later, go to **Models > Configured models** and click **New model**. Choose the provider, set the name and provider model slug, and review the context window and maximum output capacity. Use **Advanced** to set an optional default output allowance. You can also attach project grants in this dialog.
+  To add models later, select **All projects** in the project switcher, open **Models**, expand the provider's models, and click **Add model**; the provider's own page has the same button above its model list. In **Add models**, the provider is preselected; search the provider's models and check the ones you want, or type a slug that isn't listed and click its **Add … as a custom model** row. Click **Edit** on a selected row to set its **Name**, **Context**, and **Max output**; a row that still needs input shows **Needs details**. Optionally pick projects under **Share with**, then click the add button, which shows the count (for example, **Add 2 models**).
+
+  A provider can have several configured models for the same slug — for example, two names with different limits. Models the provider already has are marked **Added**; check one again to add another configuration under a different name.
+
+  Detected models are added with their reasoning support when it is known, including the effort levels an agent can pick as its [reasoning effort](/agents/configuration#model). A model added as a custom slug starts with reasoning off.
+
+  To set the optional **Default output** allowance or change other settings later, open the model's row actions under its provider on the **Models** page and click **Edit**.
 </Tab>
 </Tabs>
 
 Token settings have separate roles:
 
-- `context_window_tokens` is the shared input and output window.
+- `context_window_tokens` is the budget for input and output tokens. Compaction runs when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
 - `max_output_tokens` is the model's output capacity. It is optional; selecting a discovered model can prefill it.
 - `default_max_output_tokens` is an optional output allowance for each request. When omitted, Omnara uses the known output capacity.
 
@@ -105,10 +113,10 @@ A project needs a model grant (`pmog_…`) before its configs can use the model.
   Revoking a grant prevents the project from creating new configs with that model. It does not change agents that already use it.
 </Tab>
 <Tab title="Dashboard">
-  Two ways to the same grant:
+  Two ways to share the same model:
 
-  - From the model: **Models > Configured models >** row action **Grant to project** (or attach **Project grants** while creating the model).
-  - From the project: in the project's sidebar, open **Grants**, switch to the **Models** tab, and click **Grant models**. This tab also shows the project's existing model grants. Click **Delete grant** to remove one.
+  - From the model: on the organization **Models** page, use the model's row action **Share with project** (or pick projects under **Share with** while creating the model).
+  - From the project: in the project's sidebar, open **Models** and click **Share models**. This page also lists the project's shared models. Click **Stop sharing** to remove one.
 </Tab>
 </Tabs>
 
@@ -119,7 +127,7 @@ With the chain complete, this config can now be created in the project:
 ```yaml
 model:
   provider_config: openai-prod
-  name: gpt-5.6
+  name: gpt-6-sol
 ```
 
 When you create the config, Omnara checks the provider, model, and project grant. If something is missing, the validation error tells you what to fix.

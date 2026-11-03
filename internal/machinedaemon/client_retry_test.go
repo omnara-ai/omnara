@@ -346,3 +346,119 @@ func (roundTrip retryTestRoundTripper) RoundTrip(
 ) (*http.Response, error) {
 	return roundTrip(request)
 }
+
+func TestRetryAfterTransportRetriesRateLimits(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		body         func() io.Reader
+		limited      int
+		wantStatus   int
+		wantAttempts int
+	}{
+		{
+			name:         "replays the body until it succeeds",
+			body:         func() io.Reader { return strings.NewReader("payload") },
+			limited:      2,
+			wantStatus:   http.StatusNoContent,
+			wantAttempts: 3,
+		},
+		{
+			name:         "gives up after two retries",
+			body:         func() io.Reader { return strings.NewReader("payload") },
+			limited:      5,
+			wantStatus:   http.StatusTooManyRequests,
+			wantAttempts: 3,
+		},
+		{
+			name:         "does not retry a body it cannot replay",
+			body:         func() io.Reader { return io.MultiReader(strings.NewReader("payload")) },
+			limited:      5,
+			wantStatus:   http.StatusTooManyRequests,
+			wantAttempts: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var bodies []string
+			transport := NewRetryAfterTransport(retryTestRoundTripper(func(
+				request *http.Request,
+			) (*http.Response, error) {
+				body, err := io.ReadAll(request.Body)
+				if err != nil {
+					return nil, err
+				}
+				bodies = append(bodies, string(body))
+				status := http.StatusNoContent
+				if len(bodies) <= test.limited {
+					status = http.StatusTooManyRequests
+				}
+				return &http.Response{
+					StatusCode: status,
+					Header:     http.Header{"Retry-After": {"0"}},
+					Body:       io.NopCloser(strings.NewReader("busy")),
+					Request:    request,
+				}, nil
+			}))
+			request, err := http.NewRequestWithContext(
+				context.Background(), http.MethodPost, "https://api.example.test", test.body(),
+			)
+			if err != nil {
+				t.Fatalf("build request: %v", err)
+			}
+			response, err := transport.RoundTrip(request)
+			if err != nil {
+				t.Fatalf("round trip: %v", err)
+			}
+			defer func() { _ = response.Body.Close() }()
+			body, err := io.ReadAll(response.Body)
+			if err != nil {
+				t.Fatalf("read response: %v", err)
+			}
+			if response.StatusCode != test.wantStatus || len(bodies) != test.wantAttempts || string(body) != "busy" {
+				t.Fatalf(
+					"status %d after %d attempts with body %q, want %d after %d with a readable body",
+					response.StatusCode, len(bodies), body, test.wantStatus, test.wantAttempts,
+				)
+			}
+			for _, sent := range bodies {
+				if sent != "payload" {
+					t.Fatalf("sent bodies = %q, want every attempt to carry the full payload", bodies)
+				}
+			}
+		})
+	}
+}
+
+func TestRetryAfterTransportReturnsCancellationWhileWaiting(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	transport := NewRetryAfterTransport(retryTestRoundTripper(func(
+		request *http.Request,
+	) (*http.Response, error) {
+		attempts++
+		return &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Retry-After": {"60"}},
+			Body:       io.NopCloser(strings.NewReader("busy")),
+			Request:    request,
+		}, nil
+	}))
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.example.test", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	response, err := transport.RoundTrip(request)
+	if response != nil {
+		_ = response.Body.Close()
+	}
+	if !errors.Is(err, context.DeadlineExceeded) || attempts != 1 {
+		t.Fatalf("round trip error = %v after %d attempts, want deadline exceeded after 1", err, attempts)
+	}
+}

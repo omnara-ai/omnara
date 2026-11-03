@@ -44,11 +44,13 @@ type stopAgentRequest struct {
 }
 
 type subagentSummary struct {
-	AgentID        string `json:"agent_id"`
-	Name           string `json:"name,omitempty"`
-	Key            string `json:"key"`
-	State          string `json:"state"`
-	LastActivityAt string `json:"last_activity_at"`
+	AgentID              string `json:"agent_id"`
+	Name                 string `json:"name,omitempty"`
+	Key                  string `json:"key"`
+	State                string `json:"state"`
+	LastActivityAt       string `json:"last_activity_at"`
+	RunningProcessCount  int    `json:"running_process_count,omitempty"`
+	WorkingSubagentCount int    `json:"working_subagent_count,omitempty"`
 }
 
 func decodeStrictToolRequest(toolName string, raw json.RawMessage, target any) error {
@@ -160,7 +162,9 @@ func validateListAgentsInput(raw json.RawMessage) error {
 }
 
 func subagentStorageErrorIsToolFailure(cause error) bool {
-	return errors.Is(cause, storeerr.ErrInvalidRequest) ||
+	return errors.Is(cause, storeerr.ErrAgentBacklogFull) ||
+		errors.Is(cause, storeerr.ErrInvalidRequest) ||
+		errors.Is(cause, storeerr.ErrInvalidModelProviderConfig) ||
 		errors.Is(cause, storeerr.ErrNotFound) ||
 		errors.Is(cause, storeerr.ErrConflict) ||
 		errors.Is(cause, storeerr.ErrStateTransitionConflict)
@@ -170,7 +174,12 @@ func failSubagentTransactionForStorageError(code string, cause error) (transacti
 	if !subagentStorageErrorIsToolFailure(cause) {
 		return nil, cause
 	}
-	content, err := toolFailureContent(code, cause.Error(), false)
+	message := cause.Error()
+	if errors.Is(cause, storeerr.ErrAgentBacklogFull) {
+		code = storeerr.AgentBacklogFullCode
+		message = storeerr.ErrAgentBacklogFull.Error()
+	}
+	content, err := toolFailureContent(code, message, false)
 	if err != nil {
 		return nil, err
 	}
@@ -191,11 +200,13 @@ func subagentSummaryFromStatus(status executionstore.SubagentStatus) (subagentSu
 		return subagentSummary{}, fmt.Errorf("encode subagent id: %w", err)
 	}
 	return subagentSummary{
-		AgentID:        agentPublicID,
-		Name:           status.Name,
-		Key:            status.Key,
-		State:          status.State,
-		LastActivityAt: status.LastActivityAt.UTC().Format(time.RFC3339),
+		AgentID:              agentPublicID,
+		Name:                 status.Name,
+		Key:                  status.Key,
+		State:                status.State,
+		LastActivityAt:       status.LastActivityAt.UTC().Format(time.RFC3339),
+		RunningProcessCount:  status.RunningProcesses.Count,
+		WorkingSubagentCount: status.WorkingSubagents.Count,
 	}, nil
 }
 
@@ -211,7 +222,7 @@ func spawnAgent(ctx context.Context, call transactionalToolContext) (transaction
 	subagent, ok := contract.Subagents[input.Agent]
 	if !ok {
 		return failSubagentTransaction("spawn_agent_failed", fmt.Errorf(
-			"unknown subagent key %q; configured keys: %s",
+			"unknown subagent key \"%s\"; configured keys: %s",
 			input.Agent,
 			strings.Join(contract.SubagentKeys(), ", "),
 		))
@@ -336,27 +347,22 @@ func subagentLaunchConfigForSpawn(
 		profileID = parent.AgentProfileID
 		baseConfig = parentConfig
 	case agentconfig.SubagentTypeProfile:
-		configuredProfileID, err := publicid.Decode(publicid.KindAgentProfile, subagent.ProfileID)
-		if err != nil {
-			return subagentLaunchConfig{}, fmt.Errorf("decode subagent profile id: %w", err)
-		}
-		profile, err := reader.GetAgentProfile(ctx, configuredProfileID)
+		profile, err := reader.GetAgentProfile(ctx, subagent.ProfileID)
 		if err != nil {
 			if storeerr.IsNotFound(err) {
-				return subagentLaunchConfig{}, fmt.Errorf("subagent profile %s no longer exists", subagent.ProfileID)
+				return subagentLaunchConfig{}, errors.New("configured subagent profile no longer exists")
 			}
 			return subagentLaunchConfig{}, err
 		}
 		baseConfig = profile.CurrentConfig
 		profileID = profile.ID
 	default:
-		return subagentLaunchConfig{}, fmt.Errorf("unsupported subagent type %q", subagent.Type)
+		return subagentLaunchConfig{}, fmt.Errorf("unsupported subagent type \"%s\"", subagent.Type)
 	}
 	body, err := agentconfigcompile.DeriveSubagentConfig(
 		baseConfig,
 		subagent,
 		depth,
-		agentconfigcompile.SubagentModelResolver(ctx, reader.Models(), parent.OrgID, parent.ProjectID),
 	)
 	if err != nil {
 		return subagentLaunchConfig{}, fmt.Errorf("derive subagent config: %w", err)

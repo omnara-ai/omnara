@@ -56,7 +56,8 @@ func TestMachineUnavailableToolResultGuidesKnownResolutionFailures(t *testing.T)
 			name:      "ref unavailable",
 			cause:     ErrMachineIDUnavailable,
 			errorCode: ErrMachineIDUnavailable.Error(),
-			message:   "machine_id is unavailable",
+			message: "machine_id is unavailable; " +
+				"it may be provisioning, offline, failed, deleted, or not attached to this agent",
 		},
 	}
 	for _, test := range tests {

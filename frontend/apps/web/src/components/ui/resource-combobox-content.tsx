@@ -29,7 +29,10 @@ export function ResourceComboboxContent<TItem>({
   searchInput?: ReactNode
 }) {
   return (
-    <ComboboxContent aria-label={searchInput ? config.placeholder : undefined}>
+    <ComboboxContent
+      aria-label={searchInput ? config.placeholder : undefined}
+      className={config.contentClassName}
+    >
       {searchInput && <div className="border-b p-2">{searchInput}</div>}
       {action && <div className="border-b p-1">{action}</div>}
       <ComboboxEmpty>{query?.isError ? null : pending ? 'Searching…' : emptyMessage}</ComboboxEmpty>

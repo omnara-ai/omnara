@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
@@ -286,6 +287,7 @@ func newIntegrationServerWithStoreOptions(
 				context.Context,
 				modelstore.ModelProviderConfigRecord,
 				string,
+				map[string]string,
 				bool,
 			) ([]modelprovider.DiscoveredModel, error) {
 				return nil, errors.New("model discovery is disabled in integration tests")
@@ -651,6 +653,6 @@ func httpTestID(seed string) uuid.UUID {
 func httpTestClaimInput() executionstore.ClaimNextAgentWorkInput {
 	return executionstore.ClaimNextAgentWorkInput{
 		WorkerProcessID: httpTestID("worker_process"),
-		LeaseDuration:   executionstore.AgentRuntimeLockLeaseDuration,
+		LeaseDuration:   executionpolicy.DefaultLeaseDuration,
 	}
 }

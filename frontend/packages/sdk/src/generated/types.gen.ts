@@ -5,6 +5,220 @@ export type ClientOptions = {
 };
 
 /**
+ * An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.
+ */
+export type AgentConfigDefinition = {
+    git_credentials?: AgentConfigDefinitionGitCredentials;
+    instruction: string;
+    interaction_handlers?: AgentConfigDefinitionInteractionHandlers;
+    machine_sources?: AgentConfigDefinitionMachineSources;
+    max_depth?: number;
+    max_subagents?: number;
+    mcp?: AgentConfigDefinitionMcpServers;
+    memory_stores?: AgentConfigDefinitionMemoryStores;
+    model: AgentConfigDefinitionModel;
+    skills?: AgentConfigDefinitionSkills;
+    subagents?: AgentConfigDefinitionSubagents;
+    tools?: AgentConfigDefinitionTools;
+    version?: 'v1';
+};
+
+/**
+ * The parts of an agent config definition that determine its effective tools. Other fields are ignored.
+ */
+export type AgentConfigToolsDefinition = {
+    git_credentials?: AgentConfigDefinitionGitCredentials;
+    interaction_handlers?: AgentConfigDefinitionInteractionHandlers;
+    machine_sources?: AgentConfigDefinitionMachineSources;
+    mcp?: AgentConfigDefinitionMcpServers;
+    memory_stores?: AgentConfigDefinitionMemoryStores;
+    skills?: AgentConfigDefinitionSkills;
+    subagents?: AgentConfigDefinitionSubagents;
+    tools?: AgentConfigDefinitionTools;
+    [key: string]: unknown;
+};
+
+/**
+ * Integration whose git credentials the agent's machines use.
+ */
+export type AgentConfigDefinitionGitCredentials = {
+    integration: string;
+    /**
+     * GitHub repository IDs the credentials can access. Defaults to every repository the installation can access.
+     */
+    repository_ids?: Array<number>;
+    /**
+     * Prevents pushing, even if the integration allows it.
+     */
+    read_only?: boolean;
+};
+
+/**
+ * Enables an integration's interaction handler. Takes no settings.
+ */
+export type AgentConfigDefinitionInteractionHandler = {
+    [key: string]: never;
+};
+
+/**
+ * Interaction handlers keyed by integration name.
+ */
+export type AgentConfigDefinitionInteractionHandlers = {
+    [key: string]: AgentConfigDefinitionInteractionHandler;
+} | null;
+
+export type AgentConfigDefinitionMcpAuth = {
+    region?: string;
+    secret_id: string;
+    service?: string;
+    type: 'bearer' | 'oauth' | 'sigv4';
+};
+
+export type AgentConfigDefinitionMcpServer = {
+    auth?: AgentConfigDefinitionMcpAuth;
+    default_enabled?: boolean | null;
+    deferred?: boolean;
+    permission?: AgentConfigDefinitionToolPermission;
+    tools?: {
+        [key: string]: AgentConfigDefinitionMcpTool;
+    };
+    url: string;
+};
+
+export type AgentConfigDefinitionMcpServers = {
+    [key: string]: AgentConfigDefinitionMcpServer;
+} | null;
+
+export type AgentConfigDefinitionMcpTool = {
+    deferred?: boolean | null;
+    enabled?: boolean | null;
+    permission?: AgentConfigDefinitionToolPermission;
+};
+
+export type AgentConfigDefinitionMachineSource = ({
+    [key: string]: unknown;
+} | {
+    [key: string]: unknown;
+}) & {
+    cwd?: string;
+    delete_after_idle_minutes?: 0 | number;
+    description?: string;
+    env_overlay?: {
+        [key in EnvironmentVariableName]?: string | null;
+    } | null;
+    initial_num_machines?: number;
+    machine_cpu?: number;
+    machine_memory_mb?: number;
+    machine_name?: ResourceNameReference;
+    machine_pool_name?: ResourceNameReference;
+    machine_provider_options_overlay?: {
+        [key: string]: unknown;
+    } | null;
+    max_machines?: number;
+    secret_env_overlay?: {
+        [key in EnvironmentVariableName]?: string | null;
+    } | null;
+};
+
+export type AgentConfigDefinitionMachineSources = Array<AgentConfigDefinitionMachineSource> | null;
+
+export type AgentConfigDefinitionMemoryStore = {
+    name: MemoryStoreName;
+    access: 'read' | 'read_write';
+};
+
+export type AgentConfigDefinitionMemoryStores = Array<AgentConfigDefinitionMemoryStore> | null;
+
+export type AgentConfigDefinitionModel = {
+    cache_retention?: 'none' | 'short' | 'long';
+    /**
+     * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
+     */
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    name: ResourceNameReference;
+    provider_config: ResourceNameReference;
+    reasoning?: {
+        effort: string;
+    };
+};
+
+export type AgentConfigDefinitionSkills = Array<string> | null;
+
+export type AgentConfigDefinitionSubagent = {
+    archive_after_idle_minutes?: number;
+    description?: string;
+    instruction?: AgentConfigDefinitionSubagentInstruction;
+    max_instances?: number;
+    model?: AgentConfigDefinitionSubagentModel;
+    profile?: ResourceNameReference;
+    type: 'profile' | 'self';
+};
+
+export type AgentConfigDefinitionSubagentInstruction = {
+    append?: string;
+};
+
+export type AgentConfigDefinitionSubagentModel = {
+    cache_retention?: 'none' | 'short' | 'long';
+    /**
+     * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
+     */
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    name?: ResourceNameReference;
+    provider_config?: ResourceNameReference;
+    reasoning?: {
+        effort: string;
+    };
+};
+
+export type AgentConfigDefinitionSubagents = {
+    [key: string]: AgentConfigDefinitionSubagent;
+} | null;
+
+export type AgentConfigDefinitionTool = {
+    deferred?: boolean;
+    description?: string;
+    enabled?: boolean | null;
+    input_schema?: AgentConfigDefinitionToolInputSchema;
+    permission?: AgentConfigDefinitionToolPermission;
+    type?: 'built_in' | 'custom';
+};
+
+/**
+ * A JSON Schema for the tool's input. Keywords beyond those listed, such as additionalProperties or description, are allowed.
+ */
+export type AgentConfigDefinitionToolInputSchema = {
+    properties?: {
+        [key: string]: {
+            [key: string]: unknown;
+        };
+    };
+    required?: Array<string>;
+    type: 'object';
+    [key: string]: unknown;
+};
+
+export type AgentConfigDefinitionToolPermission = {
+    mode: string;
+    parameters?: {
+        [key: string]: unknown;
+    };
+};
+
+export type AgentConfigDefinitionTools = {
+    [key: string]: AgentConfigDefinitionTool;
+} | null;
+
+export type EnvironmentVariableName = string;
+
+/**
+ * Name of an existing resource, resolved when the config is compiled.
+ */
+export type ResourceNameReference = string;
+
+/**
  * Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
  */
 export type ResourceName = string;
@@ -18,6 +232,11 @@ export type AgentName = string;
  * Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.
  */
 export type SkillName = string;
+
+/**
+ * Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.
+ */
+export type MemoryStoreName = string;
 
 /**
  * Sort order for named resources that expose created and modified timestamps.
@@ -54,24 +273,33 @@ export type Error = {
      */
     error: string;
     /**
+     * Current file digest for file_content_conflict or expected_digest_required; absent if the file no longer exists. A replacement must be confirmed before retrying with this digest.
+     */
+    current_digest?: string;
+    /**
      * Field-level problems when a submitted document (such as an agent config source) failed validation. Absent for errors that are not about a specific field.
      */
     issues?: Array<AgentConfigErrorIssue>;
     /**
      * Stable error code for programmatic handling.
      */
-    code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'upstream_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
+    code: string;
 };
+
+/**
+ * Known error codes.
+ */
+export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
-export type ClientErrorCode = 'invalid_request' | 'validation_failed' | 'unauthorized' | 'forbidden' | 'csrf_check_failed' | 'not_found' | 'conflict' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'pending_work' | 'not_wake_capable' | 'gone' | 'daemon_runtime_unregistered' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited';
+export type ClientErrorCode = string;
 
 /**
  * Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
  */
-export type ServerErrorCode = 'internal_error' | 'upstream_error' | 'service_unavailable' | 'authentication_unavailable';
+export type ServerErrorCode = string;
 
 /**
  * Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.
@@ -86,6 +314,9 @@ export type PersonalAccessTokenId = string;
 
 export type OrgApiKeyId = string;
 
+/**
+ * Project ID (proj_...).
+ */
 export type ProjectId = string;
 
 export type McpoAuthFlowId = string;
@@ -96,13 +327,94 @@ export type ActorId = string;
 
 export type AgentId = string;
 
+/**
+ * Agent config ID (acfg_...).
+ */
 export type AgentConfigId = string;
 
 export type AgentProfileId = string;
 
+export type EventWebhookId = string;
+
+export type EventWebhookScopeType = 'project' | 'profile' | 'agent';
+
+export type ProjectEventWebhookScope = {
+    type: 'project';
+};
+
+export type AgentProfileEventWebhookScope = {
+    type: 'profile';
+    agent_profile_id: AgentProfileId;
+};
+
+/**
+ * Watches only this agent, not its descendants.
+ */
+export type AgentEventWebhookScope = {
+    type: 'agent';
+    agent_id: AgentId;
+};
+
+export type EventWebhookScope = ({
+    type: 'project';
+} & ProjectEventWebhookScope) | ({
+    type: 'profile';
+} & AgentProfileEventWebhookScope) | ({
+    type: 'agent';
+} & AgentEventWebhookScope);
+
+export type UpdateEventWebhookRequest = {
+    /**
+     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     */
+    url?: string;
+    event_types?: Array<EventWebhookEventType>;
+    /**
+     * Project-available generic secret. Omit to preserve signing, or set to null to remove it.
+     */
+    signing_secret_id?: SecretId | null;
+};
+
+export type CreateEventWebhookRequest = {
+    /**
+     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     */
+    url: string;
+    event_types: Array<EventWebhookEventType>;
+    /**
+     * Optional project-available generic secret.
+     */
+    signing_secret_id?: SecretId;
+    scope: EventWebhookScope;
+};
+
+export type EventWebhookEventType = 'agent_input' | 'model_output' | 'tool_result' | 'context_checkpoint' | 'tool_call_update';
+
+export type EventWebhook = {
+    /**
+     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     */
+    url: string;
+    event_types: Array<EventWebhookEventType>;
+    /**
+     * Optional project-available generic secret.
+     */
+    signing_secret_id?: SecretId;
+    scope: EventWebhookScope;
+    id: EventWebhookId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    created_at: string;
+    updated_at: string;
+};
+
+export type ListEventWebhooksResponse = {
+    data: Array<EventWebhook>;
+};
+
 export type CronTriggerId = string;
 
-export type IntegrationInstallId = string;
+export type IntegrationTargetId = string;
 
 export type AgentEventId = string;
 
@@ -130,12 +442,21 @@ export type ConfiguredModelRevisionId = string;
 
 export type ProjectModelGrantId = string;
 
+/**
+ * Wire protocol the model endpoint speaks: openai-responses, openai-chat-completions, or anthropic-messages.
+ */
 export type ModelApiFormat = 'openai-responses' | 'openai-chat-completions' | 'anthropic-messages';
 
+/**
+ * How the credential is sent: bearer_token, api_key_header, or sigv4 (AWS).
+ */
 export type ModelProviderAuthKind = 'bearer_token' | 'api_key_header' | 'sigv4';
 
 export type ModelProviderAuthKindResponse = string;
 
+/**
+ * Provider-specific flavor of the API format: default, openrouter, or bedrock.
+ */
 export type ModelProviderApiVariant = 'default' | 'openrouter' | 'bedrock';
 
 export type ModelProviderApiVariantResponse = string;
@@ -157,6 +478,9 @@ export type ModelCacheRetention = 'none' | 'short' | 'long';
  */
 export type CreateModelProviderConfigRequest = {
     name: ResourceName;
+    /**
+     * Built-in provider settings: openai, openrouter, or anthropic. A preset fills in api_format, api_variant, base_url, endpoint_path, auth_kind, and auth_options, so omit those when using one.
+     */
     preset?: 'openai' | 'openrouter' | 'anthropic';
     api_format?: ModelApiFormat;
     api_variant?: ModelProviderApiVariant;
@@ -186,6 +510,18 @@ export type CreateModelProviderConfigRequest = {
         region?: string;
     };
     credential_secret_id: SecretId;
+    /**
+     * Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens.
+     */
+    headers?: {
+        [key: string]: string;
+    };
+    /**
+     * Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references.
+     */
+    secret_headers?: {
+        [key: string]: SecretId;
+    };
 };
 
 /**
@@ -218,6 +554,18 @@ export type UpdateModelProviderConfigRequest = {
         region?: string;
     };
     credential_secret_id?: SecretId;
+    /**
+     * Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens. Replaces all headers when provided.
+     */
+    headers?: {
+        [key: string]: string;
+    };
+    /**
+     * Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references. Replaces all secret headers when provided.
+     */
+    secret_headers?: {
+        [key: string]: SecretId;
+    };
 };
 
 export type ModelProviderConfig = {
@@ -244,6 +592,18 @@ export type ModelProviderConfig = {
         region?: string;
     };
     credential_secret_id: SecretId;
+    /**
+     * Extra HTTP headers sent with every request to this provider.
+     */
+    headers: {
+        [key: string]: string;
+    };
+    /**
+     * Extra HTTP headers whose values come from the referenced secrets.
+     */
+    secret_headers: {
+        [key: string]: SecretId;
+    };
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -282,6 +642,14 @@ export type DiscoveredProviderModel = {
      * Provider-advertised maximum output limit in tokens, when available.
      */
     max_output_tokens?: number;
+    /**
+     * Whether Omnara can send this model a reasoning effort, when the provider or the public model catalog reports it.
+     */
+    supports_reasoning?: boolean;
+    /**
+     * Reasoning effort values the model accepts, when reported.
+     */
+    supported_reasoning_efforts?: Array<string>;
     pricing?: DiscoveredModelPricing;
 };
 
@@ -310,7 +678,7 @@ export type CreateConfiguredModelRequest = {
      */
     provider_model_slug: string;
     /**
-     * Total token window for this model, including input and output.
+     * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens: number;
     /**
@@ -362,7 +730,7 @@ export type UpdateConfiguredModelRequest = {
      */
     provider_model_slug?: string;
     /**
-     * Total token window for this model, including input and output.
+     * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens?: number;
     /**
@@ -416,7 +784,7 @@ export type ConfiguredModel = {
      */
     provider_model_slug: string;
     /**
-     * Total token window for this model, including input and output.
+     * Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens: number;
     /**
@@ -469,7 +837,7 @@ export type ConfiguredModelList = {
 export type CreateProjectModelGrantRequest = {
     configured_model_id: ConfiguredModelId;
     /**
-     * Optional project token-window limit. Cannot exceed the configured model's current limit.
+     * Optional project context budget for input and output tokens. Cannot exceed the configured model's budget. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens?: number;
     /**
@@ -512,7 +880,7 @@ export type CreateProjectModelGrantRequest = {
  */
 export type UpdateProjectModelGrantRequest = {
     /**
-     * Project token-window limit. Cannot exceed the configured model's current limit.
+     * Project context budget for input and output tokens. Cannot exceed the configured model's budget. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens?: number | null;
     /**
@@ -556,7 +924,7 @@ export type ProjectModelGrant = {
     project_id: ProjectId;
     configured_model_id: ConfiguredModelId;
     /**
-     * Project token-window limit, or omitted/null to inherit from the configured model.
+     * Project context budget for input and output tokens, or omitted/null to inherit from the configured model. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens?: number | null;
     /**
@@ -608,6 +976,25 @@ export type ListProjectModelGrantsResponse = {
 export type ProjectModelGrantListItem = {
     grant: ProjectModelGrant;
     model: ConfiguredModelSummary;
+    effective_reasoning: ProjectModelGrantEffectiveReasoning;
+};
+
+/**
+ * Reasoning settings agents in this project get for the model, after project grant overrides are applied to the configured model's current revision.
+ */
+export type ProjectModelGrantEffectiveReasoning = {
+    /**
+     * Whether agents can use this model's reasoning features. False when the grant no longer fits the configured model.
+     */
+    supports_reasoning: boolean;
+    /**
+     * Reasoning effort sent when an agent config does not set model.reasoning.effort. Empty means the provider default.
+     */
+    default_reasoning_effort: string;
+    /**
+     * Values an agent config may set as model.reasoning.effort, including limits the model's API format imposes when the configured model lists none. Empty means any value is accepted.
+     */
+    supported_reasoning_efforts: Array<string>;
 };
 
 export type ConfiguredModelSummary = {
@@ -630,8 +1017,14 @@ export type ConfiguredModelSummary = {
     updated_at: Timestamp;
 };
 
+/**
+ * Machine pool ID (mpo_...).
+ */
 export type MachinePoolId = string;
 
+/**
+ * Machine ID (mch_...).
+ */
 export type MachineId = string;
 
 export type ProjectMachineGrantId = string;
@@ -646,6 +1039,11 @@ export type SkillRevisionId = string;
 
 export type SkillGrantId = string;
 
+export type MemoryStoreId = string;
+
+/**
+ * Secret ID (sec_...).
+ */
 export type SecretId = string;
 
 export type SecretGrantId = string;
@@ -800,6 +1198,66 @@ export type ListSkillGrantsResponse = {
     next_cursor: string | null;
 };
 
+export type MemoryStoreAccess = 'read' | 'read_write';
+
+export type MemoryStore = {
+    id: MemoryStoreId;
+    project_id: ProjectId;
+    name: MemoryStoreName;
+    description: string;
+    agent_access: MemoryStoreAccess;
+    created_at: string;
+    updated_at: string;
+};
+
+export type CreateMemoryStore = {
+    name: MemoryStoreName;
+    description?: string;
+    agent_access?: MemoryStoreAccess;
+};
+
+export type UpdateMemoryStore = {
+    description?: string;
+    agent_access?: MemoryStoreAccess;
+};
+
+export type MemoryStoreList = {
+    data: Array<MemoryStore>;
+    next_cursor: string | null;
+};
+
+export type MemoryFile = ({
+    type: 'file';
+} & MemoryRegularFile) | ({
+    type: 'directory';
+} & MemoryDirectory);
+
+export type MemoryRegularFile = {
+    path: string;
+    type: 'file';
+    size_bytes: number;
+    modified_at: Timestamp;
+};
+
+export type MemoryDirectory = {
+    path: string;
+    type: 'directory';
+    modified_at: Timestamp;
+};
+
+export type MemoryFileList = {
+    data: Array<MemoryFile>;
+    next_cursor: string | null;
+};
+
+/**
+ * Returns the uploaded file's path and digest.
+ */
+export type UploadFileResponse = {
+    path: string;
+    digest: string;
+};
+
 export type McpoAuthStartRequest = {
     owner: SecretOwnerInput;
     mcp_url: string;
@@ -825,7 +1283,6 @@ export type McpoAuthStartResponse = {
 };
 
 export type CreateIntegrationOAuthSetupRequest = {
-    provider?: string;
     client_id: string;
     client_secret: string;
     signing_secret: string;
@@ -833,34 +1290,28 @@ export type CreateIntegrationOAuthSetupRequest = {
 };
 
 /**
- * A provider app installation that connects an agent profile or a single agent to an external app. Exactly one of agent_profile_id and agent_id is set. Provider credentials are never returned.
+ * Registered integration implementation; independent of the saved integration's name and immutable ID.
  */
-export type IntegrationInstall = {
-    id: IntegrationInstallId;
-    org_id: OrganizationId;
-    project_id: ProjectId;
-    agent_profile_id?: AgentProfileId;
-    agent_id?: AgentId;
-    provider: string;
-    integration_kind: string;
-    connection_mode: string;
-    state: 'active' | 'disabled';
-    provider_tenant_id: string;
-    provider_account_ref: string;
-    provider_agent_display_name: string;
-    created_at: Timestamp;
-    updated_at: Timestamp;
-};
+export type IntegrationKind = 'slack_thread' | 'discord_thread' | 'github_pr';
 
-export type ListIntegrationInstallsResponse = {
-    data: Array<IntegrationInstall>;
-    /**
-     * Opaque cursor for the next page, or null when this is the last page.
-     */
-    next_cursor: string | null;
+/**
+ * Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace is trimmed on save. Empty means no label; an omitted or empty value clears the label on account-management updates.
+ */
+export type IntegrationProviderDisplayName = string;
+
+/**
+ * Non-secret provider configuration, validated for the selected provider. Slack and GitHub integrations require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks). Omnara manages one Gateway connection per Discord integration. Credentials and integration behavior are not accepted here.
+ */
+export type IntegrationProviderConfig = {
+    [key: string]: unknown;
 };
 
 export type IntegrationOAuthSetup = {
+    integration_id: IntegrationId;
+    /**
+     * Integration setup revision captured by this authorization flow.
+     */
+    setup_revision: number;
     provider: string;
     flow_id: IntegrationOAuthFlowId;
     oauth_url: string;
@@ -868,6 +1319,68 @@ export type IntegrationOAuthSetup = {
     events_url: string;
     actions_url: string;
     expires_at: Timestamp;
+};
+
+export type CreateGitHubSetupRequest = {
+    expected_setup_revision: number;
+    /**
+     * Optional initial GitHub App name suggestion. When omitted, the user chooses a name on GitHub during registration.
+     */
+    app_name?: string;
+    /**
+     * GitHub organization login. Omit to register under a personal account.
+     */
+    organization?: string;
+};
+
+export type GitHubSetup = {
+    integration_id: IntegrationId;
+    setup_revision: number;
+    registration_url: string;
+    /**
+     * Server-authored GitHub App manifest. Serialize this object to the manifest form field when posting to registration_url.
+     */
+    manifest: {
+        [key: string]: unknown;
+    };
+    expires_at: Timestamp;
+};
+
+export type InspectGitHubInstallationsRequest = {
+    credential_secret_id: SecretId;
+    page?: number;
+};
+
+export type GitHubInstallations = {
+    provider_app_id: string;
+    name: string;
+    slug: string;
+    /**
+     * Verified GitHub App installation URL. Its state may carry the public credential secret ID as a recovery hint, never credentials or authorization.
+     */
+    install_url: string;
+    installations: Array<GitHubSetupInstallation>;
+    next_page?: number;
+};
+
+export type GitHubSetupInstallation = {
+    id: string;
+    /**
+     * Provider-verified installation account login.
+     */
+    account: string;
+    account_type?: string;
+    settings_url: string;
+};
+
+export type GitHubRepository = {
+    id: number;
+    name: string;
+};
+
+export type ListGitHubRepositoriesResponse = {
+    data: Array<GitHubRepository>;
+    next_cursor: string | null;
 };
 
 export type CreateSlackSetupRequest = {
@@ -883,6 +1396,11 @@ export type SlackSetupIcon = {
 };
 
 export type SlackSetup = {
+    integration_id: IntegrationId;
+    /**
+     * Integration setup revision captured by this authorization flow.
+     */
+    setup_revision: number;
     provider: string;
     flow_id: IntegrationOAuthFlowId;
     slack_app_id: string;
@@ -894,7 +1412,10 @@ export type SlackSetup = {
 };
 
 export type ResolveAgentConfigToolsRequest = {
-    source: string;
+    /**
+     * Agent config source as YAML or JSON text, or, with source_format json, as a JSON object. Only the fields that determine tools are read.
+     */
+    source: string | AgentConfigToolsDefinition;
     source_format: 'yaml' | 'json';
 };
 
@@ -908,16 +1429,30 @@ export type ResolvedAgentConfigTool = {
     permission: ToolPermissionSelection;
 };
 
+/**
+ * An agent config to compile. The source, YAML or JSON, as text or as a JSON object, is stored exactly as sent, so comments and formatting survive. Configs whose sources compile to the same definition share it, however their sources are formatted.
+ */
 export type CreateAgentConfigRequest = {
-    source: string;
+    source: AgentConfigSourceInput;
+    /**
+     * Format of source: yaml or json.
+     */
     source_format: 'yaml' | 'json';
 };
+
+/**
+ * Agent config source as YAML or JSON text, or, with source_format json, as a JSON object.
+ */
+export type AgentConfigSourceInput = string | AgentConfigDefinition;
 
 /**
  * Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
  */
 export type UpdateAgentConfigRequest = {
-    source: string;
+    source: AgentConfigSourceInput;
+    /**
+     * Format of source: yaml or json.
+     */
     source_format: 'yaml' | 'json';
     expected_current_config_id?: AgentConfigId;
 };
@@ -1078,7 +1613,7 @@ export type McpServerAuthRequiredError = {
      */
     error: string;
     code: 'unprocessable';
-    auth: McpServerAuthHint;
+    auth?: McpServerAuthHint;
 };
 
 export type McpServerAuthHint = {
@@ -1158,7 +1693,7 @@ export type AgentConfigModel = {
     api_format: ModelApiFormat;
     api_variant: ModelProviderApiVariantResponse;
     /**
-     * Effective token window after configured-model, project-grant, and agent-config settings are applied.
+     * Effective context budget for input and output tokens after model, project, and agent settings are applied. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
      */
     context_window_tokens: number;
     /**
@@ -1178,17 +1713,206 @@ export type AgentConfigModel = {
     output_modalities: Array<string>;
 };
 
-export type AgentConfig = {
+/**
+ * Read-only saved compiled configuration, including default tools and derived subagent overrides.
+ */
+export type CompiledAgentConfig = {
+    version?: string;
+    instruction: string;
+    model: CompiledAgentModel;
+    machine_sources?: Array<CompiledMachineSource>;
+    tools?: {
+        [key: string]: CompiledTool;
+    };
+    mcp?: {
+        [key: string]: CompiledMcpServer;
+    };
+    interaction_handlers?: {
+        [key: string]: CompiledIntegrationCapability;
+    };
+    git_credentials?: CompiledGitCredentials;
+    skills?: Array<CompiledSkill>;
+    memory_stores?: Array<CompiledMemoryStore>;
+    subagents?: {
+        [key: string]: CompiledSubagent;
+    };
+    max_subagents?: number;
+    max_depth?: number;
+};
+
+export type CompiledAgentModel = {
+    configured_model_id: ConfiguredModelId;
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    cache_retention?: ModelCacheRetention;
+    reasoning?: CompiledModelReasoning;
+};
+
+export type CompiledModelReasoning = {
+    effort: string;
+};
+
+export type CompiledMachineSource = {
+    machine_id?: MachineId;
+    machine_pool_id?: MachinePoolId;
+    max_machines?: number;
+    initial_num_machines?: number;
+    delete_after_idle_minutes?: number;
+    cwd?: string;
+    machine_cpu?: number;
+    machine_memory_mb?: number;
+    env_overlay?: {
+        [key: string]: string | null;
+    };
+    secret_env_overlay?: {
+        [key: string]: SecretId | null;
+    };
+    machine_provider_options_overlay?: {
+        [key: string]: unknown;
+    };
+    description?: string;
+};
+
+export type CompiledTool = {
+    integration_id?: IntegrationId;
+    enabled: boolean;
+    type?: 'built_in' | 'custom';
+    permission: ToolPermissionSelection;
+    deferred?: boolean;
+    description?: string;
+    input_schema?: {
+        [key: string]: unknown;
+    };
+};
+
+export type CompiledIntegrationCapability = {
+    integration_id: IntegrationId;
+};
+
+/**
+ * Pinned GitHub integration supplying machine Git credentials, optionally limited to repositories and read-only access.
+ */
+export type CompiledGitCredentials = {
+    integration: IntegrationName;
+    integration_id: IntegrationId;
+    repository_ids?: Array<number>;
+    read_only?: boolean;
+};
+
+export type CompiledMcpServer = {
+    url: string;
+    auth?: CompiledMcpAuth;
+    default_enabled: boolean;
+    permission: ToolPermissionSelection;
+    deferred?: boolean;
+    tools?: {
+        [key: string]: CompiledMcpTool;
+    };
+};
+
+export type CompiledMcpAuth = ({
+    type: 'bearer';
+} & CompiledMcpAuthBearer) | ({
+    type: 'oauth';
+} & CompiledMcpAuthOAuth) | ({
+    type: 'sigv4';
+} & CompiledMcpAuthSigV4);
+
+export type CompiledMcpAuthBearer = {
+    type: 'bearer';
+    secret_id: SecretId;
+};
+
+export type CompiledMcpAuthOAuth = {
+    type: 'oauth';
+    secret_id: SecretId;
+};
+
+export type CompiledMcpAuthSigV4 = {
+    type: 'sigv4';
+    secret_id: SecretId;
+    service: string;
+    region: string;
+};
+
+export type CompiledMcpTool = {
+    enabled?: boolean;
+    permission?: ToolPermissionSelection;
+    deferred?: boolean;
+};
+
+export type CompiledSkill = {
+    id: SkillId;
+};
+
+export type CompiledMemoryStore = {
+    id: MemoryStoreId;
+    access: MemoryStoreAccess;
+};
+
+export type CompiledSubagent = ({
+    type: 'self';
+} & CompiledSelfSubagent) | ({
+    type: 'profile';
+} & CompiledProfileSubagent);
+
+export type CompiledSelfSubagent = {
+    type: 'self';
+    description?: string;
+    model?: CompiledSubagentModel;
+    instruction_append?: string;
+    max_instances?: number;
+    archive_after_idle_minutes?: number;
+};
+
+export type CompiledProfileSubagent = {
+    type: 'profile';
+    profile_id: AgentProfileId;
+    description?: string;
+    model?: CompiledSubagentModel;
+    instruction_append?: string;
+    max_instances?: number;
+    archive_after_idle_minutes?: number;
+};
+
+export type CompiledSubagentModel = {
+    configured_model_id?: ConfiguredModelId;
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    cache_retention?: ModelCacheRetention;
+    reasoning?: CompiledModelReasoning;
+};
+
+export type AgentConfigSummary = {
     id: AgentConfigId;
     org_id: OrganizationId;
     project_id: ProjectId;
     source?: string;
     source_format?: 'yaml' | 'json';
-    compiler_version?: string;
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
     created_at: Timestamp;
+};
+
+export type AgentConfig = {
+    id: AgentConfigId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    /**
+     * Saved source text, exactly as sent.
+     */
+    source?: string;
+    source_format?: 'yaml' | 'json';
+    effective_definition_hash: string;
+    model: AgentConfigModel;
+    instruction_hash?: string;
+    created_at: Timestamp;
+    compiled_definition: CompiledAgentConfig;
+};
+
+export type AgentConfigGeneratedSource = {
+    source: string;
 };
 
 export type CreateAgentProfileRequest = {
@@ -1205,6 +1929,33 @@ export type RenameAgentProfileRequest = {
     name: ResourceName;
 };
 
+export type AgentProfileSummary = {
+    id: AgentProfileId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    name: ResourceName;
+    current_config_id: AgentConfigId;
+    current_generation: number;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+    current_config: AgentConfigSummary;
+    stats?: AgentProfileStats;
+};
+
+/**
+ * Present when the list was requested with `include_stats`.
+ */
+export type AgentProfileStats = {
+    /**
+     * Unarchived top-level agents launched from the profile.
+     */
+    agent_count: number;
+    /**
+     * Model usage by the profile's agents and their subagents since `stats_since`.
+     */
+    usage: UsageTotals;
+};
+
 export type AgentProfile = {
     id: AgentProfileId;
     org_id: OrganizationId;
@@ -1212,13 +1963,13 @@ export type AgentProfile = {
     name: ResourceName;
     current_config_id: AgentConfigId;
     current_generation: number;
-    current_config: AgentConfig;
     created_at: Timestamp;
     updated_at: Timestamp;
+    current_config: AgentConfig;
 };
 
 export type ListAgentProfilesResponse = {
-    data: Array<AgentProfile>;
+    data: Array<AgentProfileSummary>;
     /**
      * Opaque cursor for the next page, or null when this is the last page.
      */
@@ -1236,11 +1987,27 @@ export type AgentProfileCronTriggerTarget = {
     agent_profile_id: AgentProfileId;
 };
 
+export type IntegrationCronTriggerTarget = {
+    type: 'integration';
+    integration_id: IntegrationId;
+    /**
+     * Settings validated by the target integration's published schedule input schema. Each accepted occurrence retains its own copy. Integration resource references are resolved when the integration handles the occurrence.
+     */
+    settings: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * What each firing does: type agent sends the message to an existing agent, type profile launches a new agent from a profile, and type integration hands the firing to an integration, such as a new Slack or Discord thread.
+ */
 export type CronTriggerTarget = ({
     type: 'agent';
 } & AgentCronTriggerTarget) | ({
     type: 'profile';
-} & AgentProfileCronTriggerTarget);
+} & AgentProfileCronTriggerTarget) | ({
+    type: 'integration';
+} & IntegrationCronTriggerTarget);
 
 /**
  * Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
@@ -1253,7 +2020,7 @@ export type CronExpression = string;
 export type CronTimezone = string;
 
 /**
- * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. Required for agent and profile targets; omitted for integration targets, which use their own settings. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export type CronMessageTemplate = string;
 
@@ -1279,20 +2046,41 @@ export type CreateCronTriggerRequest = {
     target: CronTriggerTarget;
     cron: CronExpression;
     timezone?: CronTimezone;
-    message_template: CronMessageTemplate;
+    message_template?: CronMessageTemplate;
+    /**
+     * Whether the trigger fires on schedule; false pauses it.
+     */
     enabled?: boolean;
 };
 
 export type UpdateCronTriggerRequest = {
     /**
-     * Updates target options. The target type and ID cannot change. Omitted delivery_mode preserves the current mode.
+     * Updates target options. The target type and ID cannot change. Integration settings can change for future occurrences. Omitted delivery_mode preserves the current mode.
      */
     target?: CronTriggerTarget;
     name?: ResourceName;
     cron?: CronExpression;
     timezone?: CronTimezone;
     message_template?: CronMessageTemplate;
+    /**
+     * Whether the trigger fires on schedule; false pauses it.
+     */
     enabled?: boolean;
+};
+
+/**
+ * State of the latest accepted scheduled integration action. Completed means the integration handled the occurrence; it does not indicate completion of any agent task that action started.
+ */
+export type CronTriggerLastRunState = 'queued' | 'processing' | 'completed' | 'failed';
+
+export type CronTriggerLastRun = {
+    state: CronTriggerLastRunState;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+    /**
+     * Coarse scheduled action failure description; no raw provider errors.
+     */
+    failure_message: string | null;
 };
 
 export type CronTrigger = {
@@ -1303,10 +2091,10 @@ export type CronTrigger = {
     target: CronTriggerTarget;
     cron: CronExpression;
     timezone: CronTimezone;
-    message_template: CronMessageTemplate;
+    message_template?: CronMessageTemplate;
     enabled: boolean;
     /**
-     * When the trigger last fired, or null if it has never fired.
+     * When the trigger last fired, or null if it has never fired. For integration targets this means durable inbox handoff.
      */
     last_fired_at: Timestamp | null;
     /**
@@ -1317,6 +2105,10 @@ export type CronTrigger = {
      * Most recent failed firing, or null if no firing has failed since the last successful firing.
      */
     failure_report: CronTriggerFailureReport | null;
+    /**
+     * Status of the latest accepted scheduled integration launch, scoped to this project and integration. Null for ordinary cron, before any launch is accepted, or when retained details have expired. Never falls back to an older launch. Schedule firing failures remain separate in failure_report. Deleting or disabling a schedule does not cancel launch work already accepted by the integration.
+     */
+    last_run: CronTriggerLastRun | null;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -1329,14 +2121,52 @@ export type ListCronTriggersResponse = {
     next_cursor: string | null;
 };
 
-export type CreateAgentRequest = {
-    profile?: AgentProfileId;
+export type CreateAgentRequest = ({
+    profile: AgentProfileId;
+} | {
     config: AgentConfigId;
+} | {
+    config_source: CreateAgentConfigRequest;
+}) & {
+    profile?: AgentProfileId;
+    config?: AgentConfigId;
+    config_source?: CreateAgentConfigRequest;
     /**
      * Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
      */
     name?: AgentName;
+    /**
+     * Optional initial text message. Mutually exclusive with initial_input.
+     */
     message?: string;
+    /**
+     * Additional integration tool entries (int__<integration-name>__<operation>) and optional list_interaction_handlers or set_interaction_handler tools for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
+     */
+    tools?: {
+        [key: string]: AgentConfigDefinitionTool;
+    };
+    /**
+     * Integration-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
+     */
+    subscriptions?: Array<IntegrationSubscriptionAttachment>;
+    /**
+     * Additional integration interaction handlers, keyed by immutable integration name with empty object values. Slack and Discord handlers require an assigned conversation and accept empty runtime args. Adding a handler does not assign a conversation. Existing entries win unchanged. Requires project management permission.
+     */
+    interaction_handlers?: {
+        [key: string]: AgentConfigDefinitionInteractionHandler;
+    };
+    initial_input?: AgentLaunchInitialInput;
+};
+
+/**
+ * Initial queued text input, committed atomically with the agent and any derived config. Mutually exclusive with message. Initial inline media is not supported; upload it through the agent input endpoint after launch.
+ */
+export type AgentLaunchInitialInput = {
+    content_blocks: Array<TextContentBlock>;
+    /**
+     * Optional external actor for API key authentication. User-authenticated requests must omit this field. Without it, the authenticated user or API key is the actor.
+     */
+    actor?: ExternalActorParams;
 };
 
 export type Agent = {
@@ -1346,6 +2176,9 @@ export type Agent = {
     agent_profile_id?: AgentProfileId;
     state: 'active' | 'archived';
     name: AgentName;
+    /**
+     * Selected question/approval destination. Automatic mode updates it when content inputs are admitted. Prompts use it only while the integration and handler remain eligible. It is not launch provenance or permission to post.
+     */
     integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;
@@ -1358,9 +2191,13 @@ export type Agent = {
      */
     subagent_key?: string;
     /**
-     * Current activity, present on list responses.
+     * Current activity, present on list and get responses.
      */
     activity?: AgentActivity;
+    /**
+     * All-time model usage by the agent and its subagents. Present when the list was requested with `include_usage`.
+     */
+    usage?: UsageTotals;
     created_at: Timestamp;
     updated_at: Timestamp;
     archived_at?: Timestamp;
@@ -1368,13 +2205,40 @@ export type Agent = {
 
 export type AgentActivity = {
     /**
-     * running while the agent has work in progress, waiting_on_interaction while it has an open question or permission request, idle otherwise, and archived once the agent is archived.
+     * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived. Running processes and working subagents do not change it; see running_processes and working_subagents.
      */
     state: 'running' | 'idle' | 'waiting_on_interaction' | 'archived';
     /**
      * When the agent's latest event was recorded, or its creation time before any event.
      */
     last_activity_at: Timestamp;
+    open_interactions: AgentOpenInteractions;
+    running_processes: AgentRunningProcesses;
+    working_subagents: AgentWorkingSubagents;
+};
+
+/**
+ * The agent's open questions and permission requests.
+ */
+export type AgentOpenInteractions = {
+    question_count: number;
+    permission_request_count: number;
+};
+
+/**
+ * Commands the agent left running that will send it a message when they end. process_ids lists the first 20, oldest first.
+ */
+export type AgentRunningProcesses = {
+    count: number;
+    process_ids: Array<ProcessId>;
+};
+
+/**
+ * Active subagents that are still working, including through their own subagents or processes. agent_ids lists the first 20, oldest first.
+ */
+export type AgentWorkingSubagents = {
+    count: number;
+    agent_ids: Array<AgentId>;
 };
 
 export type AgentModel = {
@@ -1384,8 +2248,7 @@ export type AgentModel = {
 
 export type IntegrationTarget = {
     provider: string;
-    provider_ref: string;
-    provider_ref_kind: string;
+    conversation: IntegrationConversation;
     display_name: string;
     provider_uri?: string;
 };
@@ -1711,7 +2574,7 @@ export type ToolCall = {
 };
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
+ * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export type ToolCallUpdate = {
     tool_call_id: ToolCallId;
@@ -1720,6 +2583,16 @@ export type ToolCallUpdate = {
      */
     agent_id?: AgentId;
     state: ToolCallState;
+    /**
+     * Only present when this transition opens, resolves, or cancels an interaction.
+     */
+    interaction_update?: AgentInteractionUpdate;
+};
+
+export type AgentInteractionUpdate = {
+    id: AgentInteractionId;
+    interaction_kind: AgentInteractionKind;
+    state: AgentInteractionState;
 };
 
 export type ListToolCallsResponse = {
@@ -1841,6 +2714,46 @@ export type ContextCheckpointEvent = {
     summarized_through_event_sequence: AgentSequence;
     summary: string;
     created_at: Timestamp;
+};
+
+/**
+ * JSON body posted to an event webhook. Each event name determines its data schema.
+ */
+export type EventWebhookPayload = ({
+    event: 'agent_input';
+} & EventWebhookAgentInputEvent) | ({
+    event: 'model_output';
+} & EventWebhookModelOutputEvent) | ({
+    event: 'tool_result';
+} & EventWebhookToolResultEvent) | ({
+    event: 'context_checkpoint';
+} & EventWebhookContextCheckpointEvent) | ({
+    event: 'tool_call_update';
+} & EventWebhookToolCallUpdate);
+
+export type EventWebhookAgentInputEvent = {
+    event: 'agent_input';
+    data: AgentInputEvent;
+};
+
+export type EventWebhookModelOutputEvent = {
+    event: 'model_output';
+    data: ModelOutputEvent;
+};
+
+export type EventWebhookToolResultEvent = {
+    event: 'tool_result';
+    data: ToolResultEvent;
+};
+
+export type EventWebhookContextCheckpointEvent = {
+    event: 'context_checkpoint';
+    data: ContextCheckpointEvent;
+};
+
+export type EventWebhookToolCallUpdate = {
+    event: 'tool_call_update';
+    data: ToolCallUpdate;
 };
 
 export type AgentEvent = ({
@@ -2120,6 +3033,24 @@ export type ResolveAgentInteractionRequest = {
     actor?: ExternalActorParams;
 };
 
+/**
+ * Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current integration and handler authority. Dashboard/API resolution remains available independently.
+ */
+export type AgentInteractionDestination = {
+    integration_kind: IntegrationKind;
+    handler_key: string;
+    integration_id: IntegrationId;
+    integration_target_id: IntegrationTargetId;
+    conversation: IntegrationConversation;
+};
+
+/**
+ * Confirmed provider presentation metadata, when recorded. This is not an execution grant or a delivery guarantee. Absence does not prove a remote send failed. Customer-hosted presenters maintain their own delivery records.
+ */
+export type InteractionPresentationReceipt = {
+    [key: string]: unknown;
+};
+
 export type AgentInteraction = {
     id: AgentInteractionId;
     org_id: OrganizationId;
@@ -2143,7 +3074,12 @@ export type AgentInteraction = {
     request: InteractionForm;
     resolution?: InteractionResolution;
     /**
-     * The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on system resolutions such as prompt delivery failure. The input's actor_id attributes the resolution.
+     * Captured built-in integration destination. Absent for dashboard-only or older interactions; never reconstructed from the current agent selection.
+     */
+    destination?: AgentInteractionDestination;
+    presentation_receipt?: InteractionPresentationReceipt;
+    /**
+     * The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on resolutions without an attributed input. The input's actor_id attributes the resolution.
      */
     resolved_by_input_id?: AgentInputId;
     created_at: Timestamp;
@@ -2151,25 +3087,34 @@ export type AgentInteraction = {
 };
 
 /**
- * omnara for project members, an integration provider such as slack, or external for API-managed actors.
+ * omnara for Omnara identities, integration for hosted integration senders, or external for API-managed actors.
  */
-export type ActorProvider = 'omnara' | 'slack' | 'external';
+export type ActorProvider = 'omnara' | 'integration' | 'external';
 
 export type Actor = {
     id: ActorId;
     org_id: OrganizationId;
     project_id: ProjectId;
     provider: ActorProvider;
+    /**
+     * Project-scoped identity namespace. Integration actors use a stable platform namespace (slack:<workspace ID>, discord, or github:github.com), shared across configured bots and integration kinds on that platform. Retained for attribution after integration deletion; not an authorization principal.
+     */
     provider_tenant_id?: string;
+    /**
+     * Stable sender identifier within the actor identity namespace.
+     */
     provider_user_id: string;
     display_name?: string;
+    /**
+     * Saved actor attributes. Hosted integration actors store source_label (such as Slack) for display without a live integration lookup.
+     */
     metadata: Metadata;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
 
 /**
- * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and integration providers own their own actor identities.
+ * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and hosted integrations own their own actor identities.
  */
 export type ExternalActorParams = {
     provider_tenant_id?: string;
@@ -2201,6 +3146,9 @@ export type UserSecretOwnerInput = {
     kind: 'user';
 };
 
+/**
+ * Who owns the secret: {"kind":"org"}, {"kind":"project","project_id":"proj_..."}, or {"kind":"user"}. The owner cannot change later.
+ */
 export type SecretOwnerInput = ({
     kind: 'org';
 } & OrgSecretOwnerInput) | ({
@@ -2270,13 +3218,28 @@ export type AwsCredentialsSecretMaterial = {
     external_id?: string;
 };
 
+export type GitHubAppCredentialsSecretMaterial = {
+    kind: 'github_app_credentials';
+    app_id: string;
+    /**
+     * Unencrypted RSA private key in PEM format. Stored encrypted.
+     */
+    private_key: string;
+    webhook_secret: string;
+};
+
+/**
+ * The secret's value. kind selects its shape: generic, oauth_token_set, aws_credentials, or github_app_credentials.
+ */
 export type SecretMaterial = ({
     kind: 'generic';
 } & GenericSecretMaterial) | ({
     kind: 'oauth_token_set';
 } & OAuthTokenSetSecretMaterial) | ({
     kind: 'aws_credentials';
-} & AwsCredentialsSecretMaterial);
+} & AwsCredentialsSecretMaterial) | ({
+    kind: 'github_app_credentials';
+} & GitHubAppCredentialsSecretMaterial);
 
 export type CreateSecretRequest = {
     owner: SecretOwnerInput;
@@ -2298,7 +3261,7 @@ export type SecretGrantCreateRequest = {
     target_project_id: ProjectId;
 };
 
-export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials' | 'aws_credentials';
+export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials' | 'aws_credentials' | 'github_app_credentials';
 
 export type Secret = {
     id: SecretId;
@@ -2497,8 +3460,11 @@ export type Artifact = {
     created_at: Timestamp;
 };
 
+/**
+ * Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
+ */
 export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
-    provider: 'unikraft' | 'modal';
+    provider: 'agent37' | 'arker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
     default_machine_cpu: number;
     default_machine_memory_mb: number;
     max_total_cpu: number;
@@ -2506,7 +3472,7 @@ export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
     max_machine_cpu: number;
     max_machine_memory_mb: number;
 } | {
-    provider: 'daytona';
+    provider: 'boxd' | 'createos' | 'daytona' | 'e2b' | 'superserve';
     max_total_cpu: number;
     max_total_memory_mb: number;
     max_machine_cpu: number;
@@ -2517,6 +3483,29 @@ export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
     max_total_memory_mb: number;
     max_machine_memory_mb: number;
 });
+
+export type CheckMachinePoolConnectionRequest = {
+    provider: string;
+    provider_auth_secret_id: SecretId;
+    provider_config?: {
+        [key: string]: unknown;
+    };
+    default_machine_provider_options?: {
+        [key: string]: unknown;
+    };
+};
+
+export type MachinePoolConnectionCheckError = {
+    /**
+     * Why the check failed, in plain language. Do not match on it programmatically.
+     */
+    error: string;
+    code: 'unprocessable' | 'upstream_unavailable';
+    /**
+     * The provider's original error, for troubleshooting. Present when the provider call failed.
+     */
+    details?: string;
+};
 
 export type CreateMachinePoolRequestBase = {
     name: ResourceName;
@@ -2564,8 +3553,17 @@ export type CreateMachinePoolRequestBase = {
 
 export type UpdateMachinePoolRequest = {
     name?: ResourceName;
+    /**
+     * Optional description of the pool.
+     */
     description?: string;
+    /**
+     * Default CPU count for new machines in the pool.
+     */
     default_machine_cpu?: number | null;
+    /**
+     * Default memory in MB for new machines in the pool.
+     */
     default_machine_memory_mb?: number | null;
     /**
      * Default environment for pool machines. A machine's environment, including resolved secret_env values, is applied to the provider machine at provisioning, so the provider_options startup_script and the daemon run with it, and is resolved again for each process at launch.
@@ -2579,10 +3577,19 @@ export type UpdateMachinePoolRequest = {
     default_machine_secret_env?: {
         [key: string]: SecretId;
     };
+    /**
+     * Provider-specific options applied to new machines in the pool.
+     */
     default_machine_provider_options?: {
         [key: string]: unknown;
     };
+    /**
+     * Default working directory for processes on machines created from the pool after this change.
+     */
     default_cwd?: string;
+    /**
+     * Provider-specific settings for the pool.
+     */
     provider_config?: {
         [key: string]: unknown;
     };
@@ -2591,12 +3598,33 @@ export type UpdateMachinePoolRequest = {
      * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
      */
     runtime_protection_enabled?: boolean;
+    /**
+     * Maximum number of live machines in the pool.
+     */
     max_total_machines?: number;
+    /**
+     * Maximum total CPU across the pool's live machines.
+     */
     max_total_cpu?: number | null;
+    /**
+     * Maximum total memory in MB across the pool's live machines.
+     */
     max_total_memory_mb?: number | null;
+    /**
+     * Smallest CPU count a single machine in the pool can use.
+     */
     min_machine_cpu?: number | null;
+    /**
+     * Smallest memory in MB a single machine in the pool can use.
+     */
     min_machine_memory_mb?: number | null;
+    /**
+     * Largest CPU count a single machine in the pool can use.
+     */
     max_machine_cpu?: number | null;
+    /**
+     * Largest memory in MB a single machine in the pool can use.
+     */
     max_machine_memory_mb?: number | null;
     /**
      * Idle minutes before deleting a machine from this pool. Null clears the pool default; omitted leaves it unchanged.
@@ -2653,7 +3681,7 @@ export type MachinePool = {
     created_at: Timestamp;
     updated_at: Timestamp;
     /**
-     * Current quota-consuming usage. Populated when the machine pool is returned by the list endpoint.
+     * Current quota-consuming usage. Populated when the machine pool is returned by the list or get endpoint.
      */
     usage?: MachinePoolUsage;
 };
@@ -2725,15 +3753,30 @@ export type CreateMachineRequest = {
 
 export type ConnectByoMachineRequest = {
     display_name: ResourceName;
+    /**
+     * Optional description of the machine.
+     */
     description?: string;
+    /**
+     * Default working directory for processes started on the machine.
+     */
     cwd?: string;
+    /**
+     * Environment variables set for processes started on the machine.
+     */
     env?: {
         [key: string]: string;
     };
+    /**
+     * Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
+     */
     secret_env?: {
         [key: string]: SecretId;
     };
     metadata?: MachineMetadata;
+    /**
+     * Projects to grant the machine to in the same call (up to 100).
+     */
     project_ids?: Array<ProjectId>;
     /**
      * Optional daemon token name. Omitted values default to daemon.
@@ -2752,10 +3795,19 @@ export type ConnectByoMachineResponse = {
 };
 
 export type UpdateMachineRequest = {
+    /**
+     * Default working directory for processes started on the machine.
+     */
     cwd?: string;
+    /**
+     * Environment variables set for processes started on the machine.
+     */
     env?: {
         [key: string]: string;
     };
+    /**
+     * Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
+     */
     secret_env?: {
         [key: string]: SecretId;
     };
@@ -2817,6 +3869,9 @@ export type ProjectMachineGrant = {
 
 export type CreateProjectMachineGrantRequest = {
     machine_id: MachineId;
+    /**
+     * Optional note about this grant.
+     */
     description?: string;
     metadata?: Metadata;
 };
@@ -2878,8 +3933,17 @@ export type ProjectMachinePoolGrant = {
 
 export type CreateProjectMachinePoolGrantRequest = {
     machine_pool_id: MachinePoolId;
+    /**
+     * Optional note about this grant.
+     */
     description?: string;
+    /**
+     * Default CPU count for machines this project creates from the pool, overriding the pool's default.
+     */
     default_machine_cpu?: number;
+    /**
+     * Default memory in MB for machines this project creates from the pool, overriding the pool's default.
+     */
     default_machine_memory_mb?: number;
     /**
      * Env overlay merged over the pool's default_machine_env for machines materialized through this grant; a null entry removes the key.
@@ -2893,16 +3957,43 @@ export type CreateProjectMachinePoolGrantRequest = {
     default_machine_secret_env_overlay?: {
         [key: string]: string | null;
     };
+    /**
+     * Provider-specific options layered over the pool's provider options for this project's machines.
+     */
     default_machine_provider_options_overlay?: {
         [key: string]: unknown;
     };
+    /**
+     * Default working directory for processes on this project's machines from the pool.
+     */
     default_cwd?: string;
+    /**
+     * Maximum number of live machines this project can have from the pool.
+     */
     max_total_machines?: number;
+    /**
+     * Maximum total CPU across this project's live machines from the pool.
+     */
     max_total_cpu?: number;
+    /**
+     * Maximum total memory in MB across this project's live machines from the pool.
+     */
     max_total_memory_mb?: number;
+    /**
+     * Smallest CPU count one of this project's machines can request.
+     */
     min_machine_cpu?: number;
+    /**
+     * Smallest memory in MB one of this project's machines can request.
+     */
     min_machine_memory_mb?: number;
+    /**
+     * Largest CPU count one of this project's machines can request.
+     */
     max_machine_cpu?: number;
+    /**
+     * Largest memory in MB one of this project's machines can request.
+     */
     max_machine_memory_mb?: number;
     /**
      * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default. Values from 1 through 4 are invalid.
@@ -2915,25 +4006,67 @@ export type CreateProjectMachinePoolGrantRequest = {
  * Update a project machine pool grant. Omitted fields keep their current values. Null clears an override so the grant follows the machine pool again. Overlay objects and metadata are replaced whole when present; send an empty object to clear them.
  */
 export type UpdateProjectMachinePoolGrantRequest = {
+    /**
+     * Optional note about this grant.
+     */
     description?: string;
+    /**
+     * Default CPU count for machines this project creates from the pool, overriding the pool's default.
+     */
     default_machine_cpu?: number | null;
+    /**
+     * Default memory in MB for machines this project creates from the pool, overriding the pool's default.
+     */
     default_machine_memory_mb?: number | null;
+    /**
+     * Env overlay merged over the pool's default_machine_env for machines this project creates from the pool afterward; a null entry removes the key.
+     */
     default_machine_env_overlay?: {
         [key: string]: string | null;
     };
+    /**
+     * Secret env overlay merged over the pool's default_machine_secret_env for machines this project creates from the pool afterward; a null entry removes the key.
+     */
     default_machine_secret_env_overlay?: {
         [key: string]: string | null;
     };
+    /**
+     * Provider-specific options layered over the pool's provider options for this project's machines.
+     */
     default_machine_provider_options_overlay?: {
         [key: string]: unknown;
     };
+    /**
+     * Default working directory for processes on this project's machines created from the pool after this change.
+     */
     default_cwd?: string;
+    /**
+     * Maximum number of live machines this project can have from the pool.
+     */
     max_total_machines?: number | null;
+    /**
+     * Maximum total CPU across this project's live machines from the pool.
+     */
     max_total_cpu?: number | null;
+    /**
+     * Maximum total memory in MB across this project's live machines from the pool.
+     */
     max_total_memory_mb?: number | null;
+    /**
+     * Smallest CPU count one of this project's machines can request.
+     */
     min_machine_cpu?: number | null;
+    /**
+     * Smallest memory in MB one of this project's machines can request.
+     */
     min_machine_memory_mb?: number | null;
+    /**
+     * Largest CPU count one of this project's machines can request.
+     */
     max_machine_cpu?: number | null;
+    /**
+     * Largest memory in MB one of this project's machines can request.
+     */
     max_machine_memory_mb?: number | null;
     /**
      * Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged. Values from 1 through 4 are invalid.
@@ -2999,7 +4132,7 @@ export type ListMachineDaemonTokensResponse = {
 export type ProcessActionReconciliationClaim = {
     process_action_id: ProcessActionId;
     seq: number;
-    action_kind: 'write' | 'interrupt' | 'terminate';
+    action_kind: 'write' | 'interrupt' | 'terminate' | 'watch';
     position: 'effect_committed' | 'terminal';
 };
 
@@ -3017,7 +4150,7 @@ export type ProcessReconciliationClaim = {
 export type ProcessActionReconciliationDirective = {
     process_action_id: ProcessActionId;
     seq: number;
-    action_kind: 'write' | 'read' | 'interrupt' | 'terminate';
+    action_kind: 'write' | 'read' | 'interrupt' | 'terminate' | 'watch';
     disposition: 'apply' | 'retain' | 'settle' | 'release';
     payload?: unknown;
 };
@@ -3076,10 +4209,6 @@ export type BootstrapDaemonResponse = {
     machine_id: MachineId;
 };
 
-export type UploadArtifactResponse = {
-    artifact_id: ArtifactId;
-};
-
 export type CreateProjectRequest = {
     name: ResourceName;
 };
@@ -3118,9 +4247,13 @@ export type ListProjectsResponse = {
 
 export type OrgOverviewResponse = {
     /**
-     * Projects visible to the caller, newest first (capped).
+     * Projects visible to the caller, most recently active first, capped at 200. Recents and activity still cover every visible project.
      */
     projects: Array<VisibleProject>;
+    /**
+     * When each listed project last had an active top-level agent or an agent profile updated, among those the caller can read. Projects with neither are omitted.
+     */
+    project_activity: Array<OrgOverviewProjectActivity>;
     /**
      * Most recently active agents across the caller's readable projects, ordered by updated_at descending.
      */
@@ -3128,7 +4261,95 @@ export type OrgOverviewResponse = {
     /**
      * Most recently updated agent profiles across the caller's readable projects, ordered by updated_at descending.
      */
-    recent_agent_profiles: Array<AgentProfile>;
+    recent_agent_profiles: Array<AgentProfileSummary>;
+    /**
+     * The agent profiles that recent_agents and recent_agent_profiles reference, with how many agents were launched from each. Profiles since deleted are omitted.
+     */
+    referenced_agent_profiles: Array<OrgOverviewAgentProfileReference>;
+};
+
+export type OrgOverviewProjectActivity = {
+    project_id: ProjectId;
+    last_active_at: Timestamp;
+};
+
+export type OrgOverviewAgentProfileReference = {
+    id: AgentProfileId;
+    name: ResourceName;
+    /**
+     * Agents, not counting subagents, launched from the profile, including archived ones.
+     */
+    agent_count: number;
+};
+
+export type UsageTimeseriesInterval = 'hour' | 'day' | 'week' | 'month';
+
+/**
+ * `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
+ */
+export type UsageTimeseriesMetric = 'sum_tokens' | 'sum_input_tokens' | 'sum_output_tokens' | 'sum_cost' | 'count_model_calls';
+
+export type UsageTimeseriesGroupBy = 'model' | 'profile';
+
+export type UsageTimeseries = {
+    metric: UsageTimeseriesMetric;
+    interval: UsageTimeseriesInterval;
+    group_by?: UsageTimeseriesGroupBy;
+    /**
+     * IANA time zone the buckets follow.
+     */
+    timezone: string;
+    /**
+     * Start of each bucket in `timezone`, oldest first, including buckets without usage. The first bucket starts at the beginning of the interval containing `since`, but only usage at or after `since` counts.
+     */
+    bucket_starts: Array<Timestamp>;
+    /**
+     * End of the window; usage at or after this instant is excluded.
+     */
+    until: Timestamp;
+    /**
+     * All usage in the window, regardless of `metric` and `group_by`.
+     */
+    totals: UsageTotals;
+    /**
+     * Agents, not counting subagents, that made at least one model call in the window.
+     */
+    active_agents: number;
+    /**
+     * Without `group_by`, a single `all` series. With it, one series per ranked group, most first, then an `other` series when usage remains.
+     */
+    series: Array<UsageTimeseriesSeries>;
+};
+
+export type UsageTimeseriesSeries = {
+    /**
+     * `no_profile` groups usage from agents launched without a profile; `other` folds together every group beyond `group_limit`.
+     */
+    kind: 'all' | 'model' | 'profile' | 'no_profile' | 'other';
+    /**
+     * Configured model ID for `model` series, agent profile ID for `profile` series.
+     */
+    id?: string;
+    /**
+     * Configured model or agent profile name, resolved even if it has since been deleted. Present with `id`.
+     */
+    name?: ResourceName;
+    /**
+     * Name of the configured model's provider config, so same-named models can be told apart. Present on `model` series.
+     */
+    model_provider_config_name?: ResourceName;
+    /**
+     * Name of the agent profile's project, so same-named profiles in different projects can be told apart. Present on `profile` series.
+     */
+    project_name?: ResourceName;
+    /**
+     * Metric over the whole window.
+     */
+    total: number;
+    /**
+     * Metric in each bucket, aligned with `bucket_starts`.
+     */
+    values: Array<number>;
 };
 
 /**
@@ -3249,7 +4470,7 @@ export type ListOrgMembersResponse = {
 
 export type UpdateOrgMemberRequest = {
     /**
-     * The member's new org role (admin or member).
+     * The member's new org role (owner, admin, or member).
      */
     role: string;
 };
@@ -3275,6 +4496,248 @@ export type ListProjectMembershipGrantsResponse = {
     data: Array<ProjectMembershipGrant>;
 };
 
+export type IntegrationId = string;
+
+/**
+ * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack and Discord integrations use ChatIntegrationSettings.
+ */
+export type IntegrationSettings = {
+    [key: string]: unknown;
+};
+
+export type GitHubIntegrationSettings = {
+    launcher?: GitHubIntegrationLauncher;
+    /**
+     * Let agents push code
+     *
+     * Git credentials can push. Off by default: read-only.
+     */
+    code_write?: boolean;
+};
+
+export type GitHubIntegrationLauncher = {
+    profile: AgentProfileId;
+    /**
+     * Start agents
+     */
+    trigger: 'mention' | 'pull_request_opened' | 'both';
+    /**
+     * Repository ID
+     *
+     * Optional: restrict launches to this repository.
+     */
+    repository_id?: string;
+};
+
+export type ChatIntegrationSettings = {
+    launcher?: ChatIntegrationLauncher;
+};
+
+export type ChatIntegrationLauncher = {
+    /**
+     * Profiles
+     *
+     * One profile launches immediately; several offer a choice of exactly one.
+     */
+    profiles: Array<AgentProfileId>;
+};
+
+/**
+ * Replaces integration settings. Name and integration_kind are immutable and only accepted on create. Preserve integration-level fields when editing launcher settings.
+ */
+export type UpdateIntegrationRequest = {
+    settings: IntegrationSettings;
+};
+
+/**
+ * Creates a disconnected integration. Name and integration_kind are immutable. Configure credentials through this integration's setup endpoints.
+ */
+export type CreateIntegrationRequest = {
+    name: IntegrationName;
+    integration_kind: IntegrationKind;
+    settings: IntegrationSettings;
+};
+
+export type Integration = {
+    id: IntegrationId;
+    project_id: ProjectId;
+    name: IntegrationName;
+    integration_kind: IntegrationKind;
+    state: IntegrationState;
+    /**
+     * Credential and transport revision. Launcher edits leave this value unchanged.
+     */
+    setup_revision: number;
+    last_oauth_flow_id?: IntegrationOAuthFlowId;
+    runtime_failure?: IntegrationRuntimeFailure;
+    settings: IntegrationSettings;
+    /**
+     * Verified provider identity, omitted until first connection. Retained after disconnect.
+     */
+    provider_tenant_id?: string;
+    /**
+     * Verified provider account, omitted until first connection. Retained after disconnect.
+     */
+    provider_account_ref?: string;
+    provider_agent_display_name: IntegrationProviderDisplayName;
+    /**
+     * GitHub App mention including the leading @, derived from the verified App slug. Omitted when the verified slug is unavailable or the integration is not GitHub. Retained after disconnect.
+     */
+    bot_mention?: string;
+    credential_secret_id?: SecretId;
+    provider_config: IntegrationProviderConfig;
+    capabilities: IntegrationCapabilities;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+};
+
+/**
+ * Most recent connection failure for the active integration's current setup and credential version. Returned only by Get integration, not list or mutation responses. Omission does not establish provider connectivity; a runtime lease is not a connection check.
+ */
+export type IntegrationRuntimeFailure = {
+    /**
+     * Connection failure recorded by the integration runtime.
+     */
+    message: string;
+    /**
+     * Earliest time the runtime may retry. A retry can start later.
+     */
+    retry_at: Timestamp;
+};
+
+export type ListIntegrationsResponse = {
+    data: Array<Integration>;
+    next_cursor: string | null;
+};
+
+/**
+ * Immutable, project-unique integration name used in config keys and qualified tool names.
+ */
+export type IntegrationName = string;
+
+export type IntegrationState = 'active' | 'disconnected';
+
+/**
+ * Verifies credentials for this saved integration. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant is the Application ID; its generic secret contains the bot token, from which the bot User ID is discovered automatically. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
+ */
+export type ConfigureIntegrationRequest = {
+    expected_setup_revision: number;
+    provider_tenant_id: string;
+    /**
+     * Required GitHub Installation ID. Optional for Discord; an explicitly supplied bot User ID must match the token.
+     */
+    provider_account_ref?: string;
+    /**
+     * Optional display label. Discord credential verification defaults to the bot's current name when omitted; cached settings saves preserve the saved label.
+     */
+    provider_agent_display_name?: IntegrationProviderDisplayName;
+    credential_secret_id: SecretId;
+    /**
+     * Omit to preserve current provider settings. A supplied object replaces them; include every setting you intend to retain.
+     */
+    provider_config?: IntegrationProviderConfig;
+};
+
+export type IntegrationCapabilityDefinition = {
+    description?: string;
+    /**
+     * Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Shipped interaction handlers use the assigned conversation and accept empty arguments.
+     */
+    input_schema: {
+        [key: string]: unknown;
+    };
+};
+
+export type IntegrationSubscriptionId = string;
+
+/**
+ * One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+ */
+export type IntegrationConversation = {
+    [key: string]: unknown;
+};
+
+export type IntegrationSubscriptionAttachment = {
+    integration_id: IntegrationId;
+    conversation: IntegrationConversation;
+};
+
+export type CreateIntegrationSubscriptionRequest = {
+    agent_id: AgentId;
+    conversation: IntegrationConversation;
+};
+
+export type IntegrationSubscription = {
+    id: IntegrationSubscriptionId;
+    project_id: ProjectId;
+    integration_id: IntegrationId;
+    agent_id: AgentId;
+    agent_name: AgentName;
+    conversation: IntegrationConversation;
+    /**
+     * Saved display name for the conversation, when available.
+     */
+    conversation_name?: string;
+    created_at: Timestamp;
+};
+
+export type ListIntegrationSubscriptionsResponse = {
+    data: Array<IntegrationSubscription>;
+    /**
+     * Opaque cursor for the next page, or null when this is the last page.
+     */
+    next_cursor: string | null;
+};
+
+export type IntegrationSubscriptionDefinition = {
+    /**
+     * Schema for one concrete provider conversation address.
+     */
+    conversation_schema: {
+        [key: string]: unknown;
+    };
+};
+
+export type IntegrationCapabilities = {
+    /**
+     * Schema for this integration's complete settings document, including its optional launcher.
+     */
+    settings?: IntegrationCapabilityDefinition;
+    tools: {
+        [key: string]: IntegrationCapabilityDefinition;
+    };
+    /**
+     * Present when the integration supports forwarding from a conversation. The integration owns forwarding policy.
+     */
+    subscription?: IntegrationSubscriptionDefinition;
+    interaction_handler?: IntegrationCapabilityDefinition;
+    schedule?: IntegrationCapabilityDefinition;
+};
+
+export type IntegrationDefinition = {
+    integration_kind: IntegrationKind;
+    capabilities: IntegrationCapabilities;
+};
+
+export type ListIntegrationDefinitionsResponse = {
+    data: Array<IntegrationDefinition>;
+};
+
+/**
+ * Include each agent's `usage`, so a list can show costs without a request per agent.
+ */
+export type AgentIncludeUsage = boolean;
+
+/**
+ * Include each profile's `stats`, so a list can show instance counts and usage without a request per profile.
+ */
+export type AgentProfileIncludeStats = boolean;
+
+/**
+ * Start of the window `stats.usage` tallies, with `include_stats`. Omit to tally from the earliest recorded call.
+ */
+export type AgentProfileStatsSince = string;
+
 /**
  * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
  */
@@ -3291,7 +4754,7 @@ export type UsageUntil = string;
 export type UsageIncludeProjectIds = Array<ProjectId>;
 
 /**
- * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+ * Tally model calls from every readable project except these. Cannot be combined with `include_project_ids`.
  */
 export type UsageExcludeProjectIds = Array<ProjectId>;
 
@@ -3363,19 +4826,287 @@ export type SecretOwnerProjectIdFilter = ProjectId;
 export type SecretMcpoAuthFlowIdFilter = McpoAuthFlowId;
 
 /**
- * Only return integration installs bound to this agent profile.
- */
-export type IntegrationInstallAgentProfileFilter = AgentProfileId;
-
-/**
- * Only return the integration install completed by this OAuth setup flow.
- */
-export type IntegrationInstallOAuthFlowIdFilter = IntegrationOAuthFlowId;
-
-/**
  * Filter a project inventory by how the secret became available.
  */
 export type SecretAvailabilitySourceFilter = 'direct' | 'grant';
+
+export type ListEventWebhooksData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query: {
+        scope_type: EventWebhookScopeType;
+        agent_profile_id?: AgentProfileId;
+        agent_id?: AgentId;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/event-webhooks';
+};
+
+export type ListEventWebhooksErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListEventWebhooksError = ListEventWebhooksErrors[keyof ListEventWebhooksErrors];
+
+export type ListEventWebhooksResponses = {
+    /**
+     * Webhooks for the requested scope.
+     */
+    200: ListEventWebhooksResponse;
+};
+
+export type ListEventWebhooksResponse2 = ListEventWebhooksResponses[keyof ListEventWebhooksResponses];
+
+export type CreateEventWebhookData = {
+    body: CreateEventWebhookRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/event-webhooks';
+};
+
+export type CreateEventWebhookErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateEventWebhookError = CreateEventWebhookErrors[keyof CreateEventWebhookErrors];
+
+export type CreateEventWebhookResponses = {
+    /**
+     * Webhook created.
+     */
+    201: EventWebhook;
+};
+
+export type CreateEventWebhookResponse = CreateEventWebhookResponses[keyof CreateEventWebhookResponses];
+
+export type DeleteEventWebhookData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        webhookID: EventWebhookId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID}';
+};
+
+export type DeleteEventWebhookErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteEventWebhookError = DeleteEventWebhookErrors[keyof DeleteEventWebhookErrors];
+
+export type DeleteEventWebhookResponses = {
+    /**
+     * Webhook deleted.
+     */
+    204: void;
+};
+
+export type DeleteEventWebhookResponse = DeleteEventWebhookResponses[keyof DeleteEventWebhookResponses];
+
+export type UpdateEventWebhookData = {
+    body: UpdateEventWebhookRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        webhookID: EventWebhookId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID}';
+};
+
+export type UpdateEventWebhookErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateEventWebhookError = UpdateEventWebhookErrors[keyof UpdateEventWebhookErrors];
+
+export type UpdateEventWebhookResponses = {
+    /**
+     * Webhook updated.
+     */
+    200: EventWebhook;
+};
+
+export type UpdateEventWebhookResponse = UpdateEventWebhookResponses[keyof UpdateEventWebhookResponses];
 
 export type ListPersonalAccessTokensData = {
     body?: never;
@@ -3511,6 +5242,9 @@ export type CreatePersonalAccessTokenResponse2 = CreatePersonalAccessTokenRespon
 export type RevokePersonalAccessTokenData = {
     body?: never;
     path: {
+        /**
+         * Personal access token ID (pat_...).
+         */
         tokenID: string;
     };
     query?: never;
@@ -3826,6 +5560,9 @@ export type CreateOrganizationResponse2 = CreateOrganizationResponses[keyof Crea
 export type DeleteOrganizationData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -4089,6 +5826,9 @@ export type ListPendingInvitationsResponse = ListPendingInvitationsResponses[key
 export type AcceptInvitationData = {
     body?: never;
     path: {
+        /**
+         * Organization invitation ID (oinv_...).
+         */
         invitationID: string;
     };
     query?: never;
@@ -4156,6 +5896,9 @@ export type AcceptInvitationResponse = AcceptInvitationResponses[keyof AcceptInv
 export type DeclineInvitationData = {
     body?: never;
     path: {
+        /**
+         * Organization invitation ID (oinv_...).
+         */
         invitationID: string;
     };
     query?: never;
@@ -4223,6 +5966,9 @@ export type DeclineInvitationResponse = DeclineInvitationResponses[keyof Decline
 export type GetOrgOverviewData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
     };
     query?: never;
@@ -4230,6 +5976,10 @@ export type GetOrgOverviewData = {
 };
 
 export type GetOrgOverviewErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
     /**
      * Authentication is required or invalid.
      */
@@ -4282,6 +6032,9 @@ export type GetOrgOverviewResponse = GetOrgOverviewResponses[keyof GetOrgOvervie
 export type GetOrgUsageData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
     };
     query?: {
@@ -4298,7 +6051,7 @@ export type GetOrgUsageData = {
          */
         include_project_ids?: Array<ProjectId>;
         /**
-         * Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+         * Tally model calls from every readable project except these. Cannot be combined with `include_project_ids`.
          */
         exclude_project_ids?: Array<ProjectId>;
     };
@@ -4355,9 +6108,307 @@ export type GetOrgUsageResponses = {
 
 export type GetOrgUsageResponse = GetOrgUsageResponses[keyof GetOrgUsageResponses];
 
+export type GetOrgUsageTimeseriesData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * IANA time zone that decides where each bucket starts.
+         */
+        timezone?: string;
+        /**
+         * Bucket width. Omit to pick one from the window length: days up to 92 days, weeks up to 730 days, months beyond. Hourly buckets are used only when requested. The window may span at most 400 buckets.
+         */
+        interval?: UsageTimeseriesInterval;
+        /**
+         * Value plotted in each bucket. Defaults to `sum_tokens`.
+         */
+        metric?: UsageTimeseriesMetric;
+        /**
+         * Break the metric down into one series per group. Omit for a single series.
+         */
+        group_by?: UsageTimeseriesGroupBy;
+        /**
+         * With `group_by`, how many groups get their own series, ranked by the metric. The rest are folded into one `other` series.
+         */
+        group_limit?: number;
+        /**
+         * Only count usage from these projects.
+         */
+        project_ids?: Array<ProjectId>;
+        /**
+         * Only count usage from top-level agents launched from these agent profiles.
+         */
+        agent_profile_ids?: Array<AgentProfileId>;
+        /**
+         * With `agent_profile_ids`, also count usage from subagents spawned by those agents.
+         */
+        include_subagents?: boolean;
+    };
+    url: '/orgs/{orgID}/usage/timeseries';
+};
+
+export type GetOrgUsageTimeseriesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetOrgUsageTimeseriesError = GetOrgUsageTimeseriesErrors[keyof GetOrgUsageTimeseriesErrors];
+
+export type GetOrgUsageTimeseriesResponses = {
+    /**
+     * Usage timeseries.
+     */
+    200: UsageTimeseries;
+};
+
+export type GetOrgUsageTimeseriesResponse = GetOrgUsageTimeseriesResponses[keyof GetOrgUsageTimeseriesResponses];
+
+export type ListOrgAgentsData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        /**
+         * Return only agents launched from this agent profile.
+         */
+        agent_profile_id?: AgentProfileId;
+        /**
+         * Return only subagents spawned by this agent.
+         */
+        parent_agent_id?: AgentId;
+        /**
+         * Include subagents alongside top-level agents. Defaults to false, so only agents without a parent are returned unless parent_agent_id is set.
+         */
+        include_subagents?: boolean;
+        /**
+         * Include archived agents. Defaults to false.
+         */
+        include_archived?: boolean;
+        /**
+         * Include each agent's `usage`, so a list can show costs without a request per agent.
+         */
+        include_usage?: boolean;
+        sort?: ResourceListSort;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/agents';
+};
+
+export type ListOrgAgentsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOrgAgentsError = ListOrgAgentsErrors[keyof ListOrgAgentsErrors];
+
+export type ListOrgAgentsResponses = {
+    /**
+     * Agents across the caller's readable projects, newest first.
+     */
+    200: ListAgentsResponse;
+};
+
+export type ListOrgAgentsResponse = ListOrgAgentsResponses[keyof ListOrgAgentsResponses];
+
+export type ListOrgAgentProfilesData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        /**
+         * Include each profile's `stats`, so a list can show instance counts and usage without a request per profile.
+         */
+        include_stats?: boolean;
+        /**
+         * Start of the window `stats.usage` tallies, with `include_stats`. Omit to tally from the earliest recorded call.
+         */
+        stats_since?: string;
+        sort?: ResourceListSort;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/agent-profiles';
+};
+
+export type ListOrgAgentProfilesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOrgAgentProfilesError = ListOrgAgentProfilesErrors[keyof ListOrgAgentProfilesErrors];
+
+export type ListOrgAgentProfilesResponses = {
+    /**
+     * Agent profiles across the caller's readable projects, newest first.
+     */
+    200: ListAgentProfilesResponse;
+};
+
+export type ListOrgAgentProfilesResponse = ListOrgAgentProfilesResponses[keyof ListOrgAgentProfilesResponses];
+
 export type ListVisibleProjectsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -4440,6 +6491,9 @@ export type CreateProjectData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -4511,7 +6565,13 @@ export type CreateProjectResponse = CreateProjectResponses[keyof CreateProjectRe
 export type DeleteProjectData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -4579,7 +6639,13 @@ export type DeleteProjectResponse = DeleteProjectResponses[keyof DeleteProjectRe
 export type GetProjectUsageData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: {
@@ -4648,6 +6714,9 @@ export type GetProjectUsageResponse = GetProjectUsageResponses[keyof GetProjectU
 export type ListOrgMembersData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -4725,7 +6794,13 @@ export type ListOrgMembersResponse2 = ListOrgMembersResponses[keyof ListOrgMembe
 export type RemoveOrgMemberData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * User ID (usr_...).
+         */
         userID: string;
     };
     query?: never;
@@ -4793,7 +6868,13 @@ export type RemoveOrgMemberResponse = RemoveOrgMemberResponses[keyof RemoveOrgMe
 export type UpdateOrgMemberData = {
     body: UpdateOrgMemberRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * User ID (usr_...).
+         */
         userID: string;
     };
     query?: never;
@@ -4861,7 +6942,13 @@ export type UpdateOrgMemberResponse = UpdateOrgMemberResponses[keyof UpdateOrgMe
 export type ListMemberProjectAccessData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * User ID (usr_...).
+         */
         userID: string;
     };
     query?: never;
@@ -4925,8 +7012,17 @@ export type ListMemberProjectAccessResponse = ListMemberProjectAccessResponses[k
 export type RemoveMemberProjectAccessData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * User ID (usr_...).
+         */
         userID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -4990,8 +7086,17 @@ export type RemoveMemberProjectAccessResponse = RemoveMemberProjectAccessRespons
 export type SetMemberProjectAccessData = {
     body: SetProjectMembershipRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * User ID (usr_...).
+         */
         userID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -5059,6 +7164,9 @@ export type SetMemberProjectAccessResponse = SetMemberProjectAccessResponses[key
 export type ListOrgApiKeysData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -5131,6 +7239,9 @@ export type ListOrgApiKeysResponse2 = ListOrgApiKeysResponses[keyof ListOrgApiKe
 export type CreateOrgApiKeyData = {
     body: CreateOrgApiKeyRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -5198,7 +7309,13 @@ export type CreateOrgApiKeyResponse2 = CreateOrgApiKeyResponses[keyof CreateOrgA
 export type GetOrgApiKeyData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
     };
     query?: never;
@@ -5262,7 +7379,13 @@ export type GetOrgApiKeyResponse = GetOrgApiKeyResponses[keyof GetOrgApiKeyRespo
 export type UpdateOrgApiKeyData = {
     body: UpdateOrgApiKeyRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
     };
     query?: never;
@@ -5330,7 +7453,13 @@ export type UpdateOrgApiKeyResponse = UpdateOrgApiKeyResponses[keyof UpdateOrgAp
 export type RevokeOrgApiKeyData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
     };
     query?: never;
@@ -5394,7 +7523,13 @@ export type RevokeOrgApiKeyResponse = RevokeOrgApiKeyResponses[keyof RevokeOrgAp
 export type ListOrgApiKeyProjectAccessData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
     };
     query?: never;
@@ -5458,8 +7593,17 @@ export type ListOrgApiKeyProjectAccessResponse = ListOrgApiKeyProjectAccessRespo
 export type RemoveOrgApiKeyProjectRoleData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -5527,8 +7671,17 @@ export type RemoveOrgApiKeyProjectRoleResponse = RemoveOrgApiKeyProjectRoleRespo
 export type SetOrgApiKeyProjectRoleData = {
     body: SetProjectMembershipRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Org API key ID (oak_...).
+         */
         keyID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -5596,6 +7749,9 @@ export type SetOrgApiKeyProjectRoleResponse = SetOrgApiKeyProjectRoleResponses[k
 export type ListOrgInvitationsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -5672,6 +7828,9 @@ export type ListOrgInvitationsResponse2 = ListOrgInvitationsResponses[keyof List
 export type CreateOrgInvitationData = {
     body: CreateOrgInvitationRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -5739,7 +7898,13 @@ export type CreateOrgInvitationResponse = CreateOrgInvitationResponses[keyof Cre
 export type DeleteOrgInvitationData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Organization invitation ID (oinv_...).
+         */
         invitationID: string;
     };
     query?: never;
@@ -5807,6 +7972,9 @@ export type DeleteOrgInvitationResponse = DeleteOrgInvitationResponses[keyof Del
 export type ListSkillsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -5896,6 +8064,9 @@ export type ListSkillsResponse2 = ListSkillsResponses[keyof ListSkillsResponses]
 export type CreateSkillData = {
     body: CreateSkillRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -5971,7 +8142,13 @@ export type CreateSkillResponse = CreateSkillResponses[keyof CreateSkillResponse
 export type DeleteSkillData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: string;
     };
     query?: never;
@@ -6043,7 +8220,13 @@ export type DeleteSkillResponse = DeleteSkillResponses[keyof DeleteSkillResponse
 export type GetSkillData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: string;
     };
     query?: never;
@@ -6111,7 +8294,13 @@ export type GetSkillResponse = GetSkillResponses[keyof GetSkillResponses];
 export type UpdateSkillData = {
     body: UpdateSkillRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: string;
     };
     query?: never;
@@ -6187,7 +8376,13 @@ export type UpdateSkillResponse = UpdateSkillResponses[keyof UpdateSkillResponse
 export type ListSkillGrantsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: SkillId;
     };
     query?: {
@@ -6269,7 +8464,13 @@ export type ListSkillGrantsResponse2 = ListSkillGrantsResponses[keyof ListSkillG
 export type CreateSkillGrantData = {
     body: SkillGrantCreateRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: SkillId;
     };
     query?: never;
@@ -6341,8 +8542,17 @@ export type CreateSkillGrantResponse = CreateSkillGrantResponses[keyof CreateSki
 export type DeleteSkillGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: SkillId;
+        /**
+         * Skill grant ID (skg_...).
+         */
         grantID: SkillGrantId;
     };
     query?: never;
@@ -6410,7 +8620,13 @@ export type DeleteSkillGrantResponse = DeleteSkillGrantResponses[keyof DeleteSki
 export type ListProjectAvailableSkillsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: {
@@ -6497,9 +8713,874 @@ export type ListProjectAvailableSkillsResponses = {
 
 export type ListProjectAvailableSkillsResponse = ListProjectAvailableSkillsResponses[keyof ListProjectAvailableSkillsResponses];
 
+export type ListOrgMemoryStoresData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/memory-stores';
+};
+
+export type ListOrgMemoryStoresErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOrgMemoryStoresError = ListOrgMemoryStoresErrors[keyof ListOrgMemoryStoresErrors];
+
+export type ListOrgMemoryStoresResponses = {
+    /**
+     * Memory stores across the caller's readable projects.
+     */
+    200: MemoryStoreList;
+};
+
+export type ListOrgMemoryStoresResponse = ListOrgMemoryStoresResponses[keyof ListOrgMemoryStoresResponses];
+
+export type ListMemoryStoresData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores';
+};
+
+export type ListMemoryStoresErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListMemoryStoresError = ListMemoryStoresErrors[keyof ListMemoryStoresErrors];
+
+export type ListMemoryStoresResponses = {
+    /**
+     * Success.
+     */
+    200: MemoryStoreList;
+};
+
+export type ListMemoryStoresResponse = ListMemoryStoresResponses[keyof ListMemoryStoresResponses];
+
+export type CreateMemoryStoreData = {
+    body: CreateMemoryStore;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores';
+};
+
+export type CreateMemoryStoreErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateMemoryStoreError = CreateMemoryStoreErrors[keyof CreateMemoryStoreErrors];
+
+export type CreateMemoryStoreResponses = {
+    /**
+     * Success.
+     */
+    201: MemoryStore;
+};
+
+export type CreateMemoryStoreResponse = CreateMemoryStoreResponses[keyof CreateMemoryStoreResponses];
+
+export type DeleteMemoryStoreData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
+        memoryStoreID: MemoryStoreId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}';
+};
+
+export type DeleteMemoryStoreErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteMemoryStoreError = DeleteMemoryStoreErrors[keyof DeleteMemoryStoreErrors];
+
+export type DeleteMemoryStoreResponses = {
+    /**
+     * Success.
+     */
+    204: void;
+};
+
+export type DeleteMemoryStoreResponse = DeleteMemoryStoreResponses[keyof DeleteMemoryStoreResponses];
+
+export type GetMemoryStoreData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
+        memoryStoreID: MemoryStoreId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}';
+};
+
+export type GetMemoryStoreErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetMemoryStoreError = GetMemoryStoreErrors[keyof GetMemoryStoreErrors];
+
+export type GetMemoryStoreResponses = {
+    /**
+     * Success.
+     */
+    200: MemoryStore;
+};
+
+export type GetMemoryStoreResponse = GetMemoryStoreResponses[keyof GetMemoryStoreResponses];
+
+export type UpdateMemoryStoreData = {
+    body: UpdateMemoryStore;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
+        memoryStoreID: MemoryStoreId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}';
+};
+
+export type UpdateMemoryStoreErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateMemoryStoreError = UpdateMemoryStoreErrors[keyof UpdateMemoryStoreErrors];
+
+export type UpdateMemoryStoreResponses = {
+    /**
+     * Success.
+     */
+    200: MemoryStore;
+};
+
+export type UpdateMemoryStoreResponse = UpdateMemoryStoreResponses[keyof UpdateMemoryStoreResponses];
+
+export type ListMemoryFilesData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
+        memoryStoreID: MemoryStoreId;
+    };
+    query?: {
+        /**
+         * Literal path relative to the store root.
+         */
+        path?: string;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/files';
+};
+
+export type ListMemoryFilesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListMemoryFilesError = ListMemoryFilesErrors[keyof ListMemoryFilesErrors];
+
+export type ListMemoryFilesResponses = {
+    /**
+     * Success.
+     */
+    200: MemoryFileList;
+};
+
+export type ListMemoryFilesResponse = ListMemoryFilesResponses[keyof ListMemoryFilesResponses];
+
+export type DeleteMemoryFileData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
+        memoryStoreID: MemoryStoreId;
+    };
+    query: {
+        /**
+         * Literal path relative to the store root.
+         */
+        path: string;
+        /**
+         * Digest of the contents being replaced or deleted. Required to change an existing file.
+         */
+        expected_digest: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file';
+};
+
+export type DeleteMemoryFileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteMemoryFileError = DeleteMemoryFileErrors[keyof DeleteMemoryFileErrors];
+
+export type DeleteMemoryFileResponses = {
+    /**
+     * Success.
+     */
+    204: void;
+};
+
+export type DeleteMemoryFileResponse = DeleteMemoryFileResponses[keyof DeleteMemoryFileResponses];
+
+export type DownloadMemoryFileData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
+        memoryStoreID: MemoryStoreId;
+    };
+    query: {
+        /**
+         * Literal path relative to the store root.
+         */
+        path: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file';
+};
+
+export type DownloadMemoryFileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DownloadMemoryFileError = DownloadMemoryFileErrors[keyof DownloadMemoryFileErrors];
+
+export type DownloadMemoryFileResponses = {
+    /**
+     * Success.
+     */
+    200: Blob | File;
+};
+
+export type DownloadMemoryFileResponse = DownloadMemoryFileResponses[keyof DownloadMemoryFileResponses];
+
+export type WriteMemoryFileData = {
+    body?: Blob | File;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Memory store ID (mst_...).
+         */
+        memoryStoreID: MemoryStoreId;
+    };
+    query: {
+        /**
+         * Literal path relative to the store root.
+         */
+        path: string;
+        /**
+         * Digest of the contents being replaced or deleted. Required to change an existing file.
+         */
+        expected_digest?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file';
+};
+
+export type WriteMemoryFileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * File exceeds the 10 MiB limit.
+     */
+    413: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type WriteMemoryFileError = WriteMemoryFileErrors[keyof WriteMemoryFileErrors];
+
+export type WriteMemoryFileResponses = {
+    /**
+     * Returns the file's store-relative path and digest.
+     */
+    200: UploadFileResponse;
+};
+
+export type WriteMemoryFileResponse = WriteMemoryFileResponses[keyof WriteMemoryFileResponses];
+
 export type ListSecretsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -6603,6 +9684,9 @@ export type ListSecretsResponse2 = ListSecretsResponses[keyof ListSecretsRespons
 export type CreateSecretData = {
     body: CreateSecretRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -6674,6 +9758,9 @@ export type CreateSecretResponse = CreateSecretResponses[keyof CreateSecretRespo
 export type StartSecretMcpoAuthData = {
     body: McpoAuthStartRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -6706,13 +9793,13 @@ export type StartSecretMcpoAuthErrors = {
      */
     422: Error;
     /**
+     * A server the request depends on, such as an MCP server or its authorization server, did not respond or failed. Retry with backoff; the failure persists until that server recovers.
+     */
+    424: Error;
+    /**
      * An unexpected internal server error occurred.
      */
     500: Error;
-    /**
-     * An upstream service required to satisfy the request failed.
-     */
-    502: Error;
     /**
      * The service dependency required to satisfy the request is unavailable.
      */
@@ -6753,7 +9840,13 @@ export type StartSecretMcpoAuthResponse = StartSecretMcpoAuthResponses[keyof Sta
 export type DeleteSecretData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -6825,7 +9918,13 @@ export type DeleteSecretResponse = DeleteSecretResponses[keyof DeleteSecretRespo
 export type GetSecretData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -6893,7 +9992,13 @@ export type GetSecretResponse = GetSecretResponses[keyof GetSecretResponses];
 export type UpdateSecretData = {
     body: UpdateSecretRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -6965,7 +10070,13 @@ export type UpdateSecretResponse = UpdateSecretResponses[keyof UpdateSecretRespo
 export type CreateSecretVersionData = {
     body: SecretVersionRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -7037,7 +10148,13 @@ export type CreateSecretVersionResponse = CreateSecretVersionResponses[keyof Cre
 export type ListSecretGrantsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: {
@@ -7119,7 +10236,13 @@ export type ListSecretGrantsResponse2 = ListSecretGrantsResponses[keyof ListSecr
 export type CreateSecretGrantData = {
     body: SecretGrantCreateRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -7191,8 +10314,17 @@ export type CreateSecretGrantResponse = CreateSecretGrantResponses[keyof CreateS
 export type DeleteSecretGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
+        /**
+         * Secret grant ID (sgr_...).
+         */
         grantID: string;
     };
     query?: never;
@@ -7257,161 +10389,16 @@ export type DeleteSecretGrantResponses = {
 
 export type DeleteSecretGrantResponse = DeleteSecretGrantResponses[keyof DeleteSecretGrantResponses];
 
-export type ListIntegrationInstallsData = {
-    body?: never;
-    path: {
-        orgID: string;
-        projectID: string;
-    };
-    query?: {
-        /**
-         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
-         */
-        name?: string;
-        /**
-         * Only return integration installs bound to this agent profile.
-         */
-        agent_profile_id?: AgentProfileId;
-        /**
-         * Only return the integration install completed by this OAuth setup flow.
-         */
-        oauth_flow_id?: IntegrationOAuthFlowId;
-        sort?: ResourceListSort;
-        /**
-         * Maximum number of items to return in one page.
-         */
-        limit?: number;
-        /**
-         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
-         */
-        cursor?: string;
-    };
-    url: '/orgs/{orgID}/projects/{projectID}/integration-installs';
-};
-
-export type ListIntegrationInstallsErrors = {
-    /**
-     * The request was invalid.
-     */
-    400: Error;
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-    /**
-     * The service dependency required to satisfy the request is unavailable.
-     */
-    503: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type ListIntegrationInstallsError = ListIntegrationInstallsErrors[keyof ListIntegrationInstallsErrors];
-
-export type ListIntegrationInstallsResponses = {
-    /**
-     * Integration installs in the project, newest first.
-     */
-    200: ListIntegrationInstallsResponse;
-};
-
-export type ListIntegrationInstallsResponse2 = ListIntegrationInstallsResponses[keyof ListIntegrationInstallsResponses];
-
-export type DeleteIntegrationInstallData = {
-    body?: never;
-    path: {
-        orgID: string;
-        projectID: string;
-        integrationInstallID: string;
-    };
-    query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}';
-};
-
-export type DeleteIntegrationInstallErrors = {
-    /**
-     * The request was invalid.
-     */
-    400: Error;
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-    /**
-     * The service dependency required to satisfy the request is unavailable.
-     */
-    503: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type DeleteIntegrationInstallError = DeleteIntegrationInstallErrors[keyof DeleteIntegrationInstallErrors];
-
-export type DeleteIntegrationInstallResponses = {
-    /**
-     * Integration install deleted.
-     */
-    204: void;
-};
-
-export type DeleteIntegrationInstallResponse = DeleteIntegrationInstallResponses[keyof DeleteIntegrationInstallResponses];
-
 export type ResolveAgentConfigToolsData = {
     body: ResolveAgentConfigToolsRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: never;
@@ -7465,7 +10452,13 @@ export type ResolveAgentConfigToolsResponse = ResolveAgentConfigToolsResponses[k
 export type CreateAgentConfigData = {
     body: CreateAgentConfigRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -7664,7 +10657,13 @@ export type ListMcpServersResponse2 = ListMcpServersResponses[keyof ListMcpServe
 export type ListMcpServerToolsData = {
     body: McpServerToolsRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
     };
     query?: never;
@@ -7689,13 +10688,21 @@ export type ListMcpServerToolsErrors = {
      */
     404: Error;
     /**
-     * The MCP server rejected the configured authentication. `auth` hints which auth type the server expects.
+     * Another refresh of this MCP server's catalog or of its OAuth secret is in progress. Retry shortly.
+     */
+    409: Error;
+    /**
+     * The MCP server did not speak MCP, rejected the configured authentication, or the configured auth secret could not be used. When the server or its authorization server rejected authentication, `auth` hints which auth type it expects.
      */
     422: McpServerAuthRequiredError;
     /**
-     * An upstream service required to satisfy the request failed.
+     * A server the request depends on, such as an MCP server or its authorization server, did not respond or failed. Retry with backoff; the failure persists until that server recovers.
      */
-    502: Error;
+    424: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
     /**
      * The service dependency required to satisfy the request is unavailable.
      */
@@ -7736,8 +10743,17 @@ export type ListMcpServerToolsResponse = ListMcpServerToolsResponses[keyof ListM
 export type GetAgentConfigData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent config ID (acfg_...).
+         */
         agentConfigID: string;
     };
     query?: never;
@@ -7802,10 +10818,99 @@ export type GetAgentConfigResponses = {
 
 export type GetAgentConfigResponse = GetAgentConfigResponses[keyof GetAgentConfigResponses];
 
+export type GetAgentConfigGeneratedSourceData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+        /**
+         * Agent config ID (acfg_...).
+         */
+        agentConfigID: string;
+    };
+    query?: {
+        /**
+         * Format of the returned source.
+         */
+        source_format?: 'yaml' | 'json';
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}/generated-source';
+};
+
+export type GetAgentConfigGeneratedSourceErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetAgentConfigGeneratedSourceError = GetAgentConfigGeneratedSourceErrors[keyof GetAgentConfigGeneratedSourceErrors];
+
+export type GetAgentConfigGeneratedSourceResponses = {
+    /**
+     * Generated agent config source.
+     */
+    200: AgentConfigGeneratedSource;
+};
+
+export type GetAgentConfigGeneratedSourceResponse = GetAgentConfigGeneratedSourceResponses[keyof GetAgentConfigGeneratedSourceResponses];
+
 export type ListAgentProfilesData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -7813,6 +10918,14 @@ export type ListAgentProfilesData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Include each profile's `stats`, so a list can show instance counts and usage without a request per profile.
+         */
+        include_stats?: boolean;
+        /**
+         * Start of the window `stats.usage` tallies, with `include_stats`. Omit to tally from the earliest recorded call.
+         */
+        stats_since?: string;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -7889,7 +11002,13 @@ export type CreateAgentProfileData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -7961,8 +11080,17 @@ export type CreateAgentProfileResponse = CreateAgentProfileResponses[keyof Creat
 export type DeleteAgentProfileData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent profile ID (aprf_...).
+         */
         agentProfileID: string;
     };
     query?: never;
@@ -8030,8 +11158,17 @@ export type DeleteAgentProfileResponse = DeleteAgentProfileResponses[keyof Delet
 export type GetAgentProfileData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent profile ID (aprf_...).
+         */
         agentProfileID: string;
     };
     query?: never;
@@ -8099,8 +11236,17 @@ export type GetAgentProfileResponse = GetAgentProfileResponses[keyof GetAgentPro
 export type RenameAgentProfileData = {
     body: RenameAgentProfileRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent profile ID (aprf_...).
+         */
         agentProfileID: string;
     };
     query?: never;
@@ -8168,8 +11314,17 @@ export type RenameAgentProfileResponse = RenameAgentProfileResponses[keyof Renam
 export type GetAgentProfileUsageData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Agent profile ID (aprf_...).
+         */
         agentProfileID: AgentProfileId;
     };
     query?: {
@@ -8248,8 +11403,17 @@ export type UpdateAgentProfileData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent profile ID (aprf_...).
+         */
         agentProfileID: string;
     };
     query?: never;
@@ -8317,12 +11481,21 @@ export type UpdateAgentProfileResponse = UpdateAgentProfileResponses[keyof Updat
 export type CreateIntegrationOAuthSetupData = {
     body: CreateIntegrationOAuthSetupRequest;
     path: {
-        orgID: string;
-        projectID: string;
-        agentProfileID: string;
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/oauth/setup';
 };
 
 export type CreateIntegrationOAuthSetupErrors = {
@@ -8383,18 +11556,27 @@ export type CreateIntegrationOAuthSetupResponses = {
 
 export type CreateIntegrationOAuthSetupResponse = CreateIntegrationOAuthSetupResponses[keyof CreateIntegrationOAuthSetupResponses];
 
-export type CreateSlackSetupData = {
+export type CreateIntegrationSlackSetupData = {
     body: CreateSlackSetupRequest;
     path: {
-        orgID: string;
-        projectID: string;
-        agentProfileID: string;
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/slack-setup';
 };
 
-export type CreateSlackSetupErrors = {
+export type CreateIntegrationSlackSetupErrors = {
     /**
      * The request was invalid.
      */
@@ -8441,21 +11623,183 @@ export type CreateSlackSetupErrors = {
     };
 };
 
-export type CreateSlackSetupError = CreateSlackSetupErrors[keyof CreateSlackSetupErrors];
+export type CreateIntegrationSlackSetupError = CreateIntegrationSlackSetupErrors[keyof CreateIntegrationSlackSetupErrors];
 
-export type CreateSlackSetupResponses = {
+export type CreateIntegrationSlackSetupResponses = {
     /**
      * Slack app created and OAuth setup started.
      */
     201: SlackSetup;
 };
 
-export type CreateSlackSetupResponse = CreateSlackSetupResponses[keyof CreateSlackSetupResponses];
+export type CreateIntegrationSlackSetupResponse = CreateIntegrationSlackSetupResponses[keyof CreateIntegrationSlackSetupResponses];
+
+export type CreateIntegrationGitHubSetupData = {
+    body: CreateGitHubSetupRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup';
+};
+
+export type CreateIntegrationGitHubSetupErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateIntegrationGitHubSetupError = CreateIntegrationGitHubSetupErrors[keyof CreateIntegrationGitHubSetupErrors];
+
+export type CreateIntegrationGitHubSetupResponses = {
+    /**
+     * GitHub setup information verified.
+     */
+    201: GitHubSetup;
+};
+
+export type CreateIntegrationGitHubSetupResponse = CreateIntegrationGitHubSetupResponses[keyof CreateIntegrationGitHubSetupResponses];
+
+export type InspectIntegrationGitHubInstallationsData = {
+    body: InspectGitHubInstallationsRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup/installations';
+};
+
+export type InspectIntegrationGitHubInstallationsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type InspectIntegrationGitHubInstallationsError = InspectIntegrationGitHubInstallationsErrors[keyof InspectIntegrationGitHubInstallationsErrors];
+
+export type InspectIntegrationGitHubInstallationsResponses = {
+    /**
+     * GitHub setup information verified.
+     */
+    200: GitHubInstallations;
+};
+
+export type InspectIntegrationGitHubInstallationsResponse = InspectIntegrationGitHubInstallationsResponses[keyof InspectIntegrationGitHubInstallationsResponses];
 
 export type ListCronTriggersData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -8471,6 +11815,10 @@ export type ListCronTriggersData = {
          * Only return triggers targeting this agent profile.
          */
         agent_profile_id?: AgentProfileId;
+        /**
+         * Only return scheduled launches for this integration.
+         */
+        integration_id?: IntegrationId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -8547,7 +11895,13 @@ export type CreateCronTriggerData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -8619,8 +11973,17 @@ export type CreateCronTriggerResponse = CreateCronTriggerResponses[keyof CreateC
 export type DeleteCronTriggerData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Cron trigger ID (cron_...).
+         */
         cronTriggerID: CronTriggerId;
     };
     query?: never;
@@ -8684,8 +12047,17 @@ export type DeleteCronTriggerResponse = DeleteCronTriggerResponses[keyof DeleteC
 export type GetCronTriggerData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Cron trigger ID (cron_...).
+         */
         cronTriggerID: CronTriggerId;
     };
     query?: never;
@@ -8749,8 +12121,17 @@ export type GetCronTriggerResponse = GetCronTriggerResponses[keyof GetCronTrigge
 export type UpdateCronTriggerData = {
     body: UpdateCronTriggerRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Cron trigger ID (cron_...).
+         */
         cronTriggerID: CronTriggerId;
     };
     query?: never;
@@ -8818,7 +12199,13 @@ export type UpdateCronTriggerResponse = UpdateCronTriggerResponses[keyof UpdateC
 export type ListAgentsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -8842,6 +12229,10 @@ export type ListAgentsData = {
          * Include archived agents. Defaults to false.
          */
         include_archived?: boolean;
+        /**
+         * Include each agent's `usage`, so a list can show costs without a request per agent.
+         */
+        include_usage?: boolean;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -8918,7 +12309,13 @@ export type CreateAgentData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -8990,8 +12387,17 @@ export type CreateAgentResponse = CreateAgentResponses[keyof CreateAgentResponse
 export type GetAgentData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: never;
@@ -9059,8 +12465,17 @@ export type GetAgentResponse2 = GetAgentResponses[keyof GetAgentResponses];
 export type GetAgentUsageData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: ProjectId;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: AgentId;
     };
     query?: {
@@ -9133,8 +12548,17 @@ export type GetAgentUsageResponse = GetAgentUsageResponses[keyof GetAgentUsageRe
 export type ArchiveAgentData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: never;
@@ -9204,8 +12628,17 @@ export type UpdateAgentConfigData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: never;
@@ -9279,8 +12712,17 @@ export type CreateAgentInputData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: never;
@@ -9352,8 +12794,17 @@ export type CreateAgentInputResponse = CreateAgentInputResponses[keyof CreateAge
 export type ListToolCallsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -9432,9 +12883,21 @@ export type ListToolCallsResponse2 = ListToolCallsResponses[keyof ListToolCallsR
 export type SubmitToolCallResultData = {
     body: SubmitToolCallResultRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Tool call ID (tcl_...).
+         */
         toolCallID: ToolCallId;
     };
     query?: never;
@@ -9502,8 +12965,17 @@ export type SubmitToolCallResultResponse2 = SubmitToolCallResultResponses[keyof 
 export type ListTurnsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -9576,9 +13048,21 @@ export type ListTurnsResponse = ListTurnsResponses[keyof ListTurnsResponses];
 export type ListTurnEventsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Turn ID (trn_...).
+         */
         turnID: string;
     };
     query?: {
@@ -9651,8 +13135,17 @@ export type ListTurnEventsResponse2 = ListTurnEventsResponses[keyof ListTurnEven
 export type ListEventsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -9732,8 +13225,17 @@ export type StreamEventsData = {
         'Last-Event-ID'?: number;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -9803,8 +13305,17 @@ export type StreamEventsResponse = StreamEventsResponses[keyof StreamEventsRespo
 export type CancelAgentData = {
     body?: CancelAgentRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: never;
@@ -9872,8 +13383,17 @@ export type CancelAgentResponse2 = CancelAgentResponses[keyof CancelAgentRespons
 export type ListAgentInteractionsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -9955,9 +13475,21 @@ export type ListAgentInteractionsResponse2 = ListAgentInteractionsResponses[keyo
 export type ResolveAgentInteractionData = {
     body: ResolveAgentInteractionRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Interaction ID (int_...).
+         */
         interactionID: string;
     };
     query?: never;
@@ -10025,8 +13557,17 @@ export type ResolveAgentInteractionResponse = ResolveAgentInteractionResponses[k
 export type ListQueuedBacklogInputsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
     };
     query?: {
@@ -10103,9 +13644,21 @@ export type ListQueuedBacklogInputsResponse = ListQueuedBacklogInputsResponses[k
 export type CancelQueuedBacklogInputData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Agent input ID (ain_...).
+         */
         inputID: string;
     };
     query?: never;
@@ -10173,9 +13726,21 @@ export type CancelQueuedBacklogInputResponse = CancelQueuedBacklogInputResponses
 export type MoveQueuedBacklogInputData = {
     body: MoveQueuedBacklogInputRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Agent input ID (ain_...).
+         */
         inputID: string;
     };
     query?: never;
@@ -10243,9 +13808,21 @@ export type MoveQueuedBacklogInputResponse = MoveQueuedBacklogInputResponses[key
 export type PromoteQueuedInputToSteeringData = {
     body?: PromoteQueuedInputToSteeringRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Agent input ID (ain_...).
+         */
         inputID: string;
     };
     query?: never;
@@ -10313,9 +13890,21 @@ export type PromoteQueuedInputToSteeringResponse = PromoteQueuedInputToSteeringR
 export type DemoteSteeringInputToQueuedData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Agent input ID (ain_...).
+         */
         inputID: string;
     };
     query?: never;
@@ -10383,9 +13972,21 @@ export type DemoteSteeringInputToQueuedResponse = DemoteSteeringInputToQueuedRes
 export type GetArtifactData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Artifact ID (art_...).
+         */
         artifactID: string;
     };
     query?: never;
@@ -10453,9 +14054,21 @@ export type GetArtifactResponse = GetArtifactResponses[keyof GetArtifactResponse
 export type GetArtifactContentData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
         agentID: string;
+        /**
+         * Artifact ID (art_...).
+         */
         artifactID: string;
     };
     query?: never;
@@ -10523,7 +14136,13 @@ export type GetArtifactContentResponse = GetArtifactContentResponses[keyof GetAr
 export type ListVisibleProjectMachinesData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -10535,6 +14154,10 @@ export type ListVisibleProjectMachinesData = {
          * Filter machines by source kind. Omit to include both BYO and pooled machines.
          */
         source_kind?: MachineSourceKind;
+        /**
+         * Return only machines provisioned by this machine pool.
+         */
+        machine_pool_id?: MachinePoolId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -10609,7 +14232,13 @@ export type ListVisibleProjectMachinesResponse = ListVisibleProjectMachinesRespo
 export type ListProjectMachineGrantsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -10697,7 +14326,13 @@ export type CreateProjectMachineGrantData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -10769,8 +14404,17 @@ export type CreateProjectMachineGrantResponse2 = CreateProjectMachineGrantRespon
 export type DeleteProjectMachineGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project machine grant ID (pmg_...).
+         */
         grantID: string;
     };
     query?: never;
@@ -10838,7 +14482,13 @@ export type DeleteProjectMachineGrantResponse = DeleteProjectMachineGrantRespons
 export type ListProjectAvailableSecretsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -10938,8 +14588,17 @@ export type ListProjectAvailableSecretsResponse = ListProjectAvailableSecretsRes
 export type GetProjectAvailableSecretData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Secret ID (sec_...).
+         */
         secretID: string;
     };
     query?: never;
@@ -11007,7 +14666,13 @@ export type GetProjectAvailableSecretResponse = GetProjectAvailableSecretRespons
 export type ListActorsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -11087,7 +14752,13 @@ export type ListActorsResponse2 = ListActorsResponses[keyof ListActorsResponses]
 export type PutActorData = {
     body: ExternalActorParams;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -11155,8 +14826,17 @@ export type PutActorResponse = PutActorResponses[keyof PutActorResponses];
 export type GetActorData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Actor ID (actr_...).
+         */
         actorID: string;
     };
     query?: never;
@@ -11224,6 +14904,9 @@ export type GetActorResponse = GetActorResponses[keyof GetActorResponses];
 export type ListVisibleMachinesData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -11235,6 +14918,10 @@ export type ListVisibleMachinesData = {
          * Filter machines by source kind. Omit to include both BYO and pooled machines.
          */
         source_kind?: MachineSourceKind;
+        /**
+         * Return only machines provisioned by this machine pool.
+         */
+        machine_pool_id?: MachinePoolId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -11315,6 +15002,9 @@ export type CreateMachineData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -11386,6 +15076,9 @@ export type CreateMachineResponse = CreateMachineResponses[keyof CreateMachineRe
 export type ConnectByoMachineData = {
     body: ConnectByoMachineRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
     };
     query?: never;
@@ -11457,7 +15150,13 @@ export type ConnectByoMachineResponse2 = ConnectByoMachineResponses[keyof Connec
 export type DeleteMachineData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
     };
     query?: never;
@@ -11521,7 +15220,13 @@ export type DeleteMachineResponse = DeleteMachineResponses[keyof DeleteMachineRe
 export type GetMachineData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
     };
     query?: never;
@@ -11589,7 +15294,13 @@ export type GetMachineResponse = GetMachineResponses[keyof GetMachineResponses];
 export type UpdateMachineData = {
     body: UpdateMachineRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
     };
     query?: never;
@@ -11657,6 +15368,9 @@ export type UpdateMachineResponse = UpdateMachineResponses[keyof UpdateMachineRe
 export type ListModelProviderConfigsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -11738,6 +15452,9 @@ export type ListModelProviderConfigsResponse = ListModelProviderConfigsResponses
 export type CreateModelProviderConfigData = {
     body: CreateModelProviderConfigRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -11805,7 +15522,13 @@ export type CreateModelProviderConfigResponse2 = CreateModelProviderConfigRespon
 export type DeleteModelProviderConfigData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
     };
     query?: never;
@@ -11873,7 +15596,13 @@ export type DeleteModelProviderConfigResponse = DeleteModelProviderConfigRespons
 export type GetModelProviderConfigData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
     };
     query?: never;
@@ -11941,7 +15670,13 @@ export type GetModelProviderConfigResponse = GetModelProviderConfigResponses[key
 export type UpdateModelProviderConfigData = {
     body: UpdateModelProviderConfigRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
     };
     query?: never;
@@ -12009,7 +15744,13 @@ export type UpdateModelProviderConfigResponse = UpdateModelProviderConfigRespons
 export type GetModelCatalogData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: OrganizationId;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: ModelProviderConfigId;
     };
     query?: never;
@@ -12077,7 +15818,13 @@ export type GetModelCatalogResponse = GetModelCatalogResponses[keyof GetModelCat
 export type ListConfiguredModelsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
     };
     query?: {
@@ -12154,7 +15901,13 @@ export type ListConfiguredModelsResponse = ListConfiguredModelsResponses[keyof L
 export type CreateConfiguredModelData = {
     body: CreateConfiguredModelRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
     };
     query?: never;
@@ -12222,8 +15975,17 @@ export type CreateConfiguredModelResponse = CreateConfiguredModelResponses[keyof
 export type DeleteConfiguredModelData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
+        /**
+         * Configured model ID (mdl_...).
+         */
         configuredModelID: string;
     };
     query?: never;
@@ -12291,8 +16053,17 @@ export type DeleteConfiguredModelResponse = DeleteConfiguredModelResponses[keyof
 export type UpdateConfiguredModelData = {
     body: UpdateConfiguredModelRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
         modelProviderConfigID: string;
+        /**
+         * Configured model ID (mdl_...).
+         */
         configuredModelID: string;
     };
     query?: never;
@@ -12360,7 +16131,13 @@ export type UpdateConfiguredModelResponse = UpdateConfiguredModelResponses[keyof
 export type ListProjectModelGrantsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -12442,7 +16219,13 @@ export type ListProjectModelGrantsResponse2 = ListProjectModelGrantsResponses[ke
 export type CreateProjectModelGrantData = {
     body: CreateProjectModelGrantRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -12510,8 +16293,17 @@ export type CreateProjectModelGrantResponse = CreateProjectModelGrantResponses[k
 export type DeleteProjectModelGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project model grant ID (pmog_...).
+         */
         modelGrantID: string;
     };
     query?: never;
@@ -12579,8 +16371,17 @@ export type DeleteProjectModelGrantResponse = DeleteProjectModelGrantResponses[k
 export type UpdateProjectModelGrantData = {
     body: UpdateProjectModelGrantRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project model grant ID (pmog_...).
+         */
         modelGrantID: string;
     };
     query?: never;
@@ -12648,6 +16449,9 @@ export type UpdateProjectModelGrantResponse = UpdateProjectModelGrantResponses[k
 export type ListMachinePoolsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: {
@@ -12729,6 +16533,9 @@ export type ListMachinePoolsResponse2 = ListMachinePoolsResponses[keyof ListMach
 export type CreateMachinePoolData = {
     body: CreateMachinePoolRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
     };
     query?: never;
@@ -12797,10 +16604,90 @@ export type CreateMachinePoolResponses = {
 
 export type CreateMachinePoolResponse = CreateMachinePoolResponses[keyof CreateMachinePoolResponses];
 
+export type CheckMachinePoolConnectionData = {
+    body: CheckMachinePoolConnectionRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/machine-pools/check-connection';
+};
+
+export type CheckMachinePoolConnectionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The provider rejected the credential or config, or the config is invalid.
+     */
+    422: MachinePoolConnectionCheckError;
+    /**
+     * The provider failed or did not respond. Retrying may succeed.
+     */
+    424: MachinePoolConnectionCheckError;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CheckMachinePoolConnectionError = CheckMachinePoolConnectionErrors[keyof CheckMachinePoolConnectionErrors];
+
+export type CheckMachinePoolConnectionResponses = {
+    /**
+     * The provider accepted the credential and config.
+     */
+    204: void;
+};
+
+export type CheckMachinePoolConnectionResponse = CheckMachinePoolConnectionResponses[keyof CheckMachinePoolConnectionResponses];
+
 export type DeleteMachinePoolData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine pool ID (mpo_...).
+         */
         poolID: string;
     };
     query?: never;
@@ -12868,7 +16755,13 @@ export type DeleteMachinePoolResponse = DeleteMachinePoolResponses[keyof DeleteM
 export type GetMachinePoolData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine pool ID (mpo_...).
+         */
         poolID: string;
     };
     query?: never;
@@ -12936,7 +16829,13 @@ export type GetMachinePoolResponse = GetMachinePoolResponses[keyof GetMachinePoo
 export type UpdateMachinePoolData = {
     body: UpdateMachinePoolRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine pool ID (mpo_...).
+         */
         poolID: string;
     };
     query?: never;
@@ -13004,7 +16903,13 @@ export type UpdateMachinePoolResponse = UpdateMachinePoolResponses[keyof UpdateM
 export type ListProjectMachinePoolGrantsData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: {
@@ -13012,6 +16917,10 @@ export type ListProjectMachinePoolGrantsData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Return only the grant for this machine pool.
+         */
+        machine_pool_id?: MachinePoolId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -13092,7 +17001,13 @@ export type CreateProjectMachinePoolGrantData = {
         'Idempotency-Key'?: string;
     };
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
     };
     query?: never;
@@ -13164,8 +17079,17 @@ export type CreateProjectMachinePoolGrantResponse = CreateProjectMachinePoolGran
 export type DeleteProjectMachinePoolGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project machine pool grant ID (pmpg_...).
+         */
         poolGrantID: string;
     };
     query?: never;
@@ -13233,8 +17157,17 @@ export type DeleteProjectMachinePoolGrantResponse = DeleteProjectMachinePoolGran
 export type GetProjectMachinePoolGrantData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project machine pool grant ID (pmpg_...).
+         */
         poolGrantID: string;
     };
     query?: never;
@@ -13302,8 +17235,17 @@ export type GetProjectMachinePoolGrantResponse = GetProjectMachinePoolGrantRespo
 export type UpdateProjectMachinePoolGrantData = {
     body: UpdateProjectMachinePoolGrantRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
         projectID: string;
+        /**
+         * Project machine pool grant ID (pmpg_...).
+         */
         poolGrantID: string;
     };
     query?: never;
@@ -13371,7 +17313,13 @@ export type UpdateProjectMachinePoolGrantResponse = UpdateProjectMachinePoolGran
 export type ListByoMachineDaemonTokensData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
     };
     query?: {
@@ -13448,7 +17396,13 @@ export type ListByoMachineDaemonTokensResponse = ListByoMachineDaemonTokensRespo
 export type CreateByoMachineDaemonTokenData = {
     body?: CreateMachineDaemonTokenRequest;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
     };
     query?: never;
@@ -13516,8 +17470,17 @@ export type CreateByoMachineDaemonTokenResponse = CreateByoMachineDaemonTokenRes
 export type RevokeMachineDaemonTokenData = {
     body?: never;
     path: {
+        /**
+         * Organization ID (org_...).
+         */
         orgID: string;
+        /**
+         * Machine ID (mch_...).
+         */
         machineID: string;
+        /**
+         * Machine daemon token ID (mdt_...).
+         */
         tokenID: string;
     };
     query?: never;
@@ -13654,6 +17617,9 @@ export type RegisterMachineDaemonRuntimeResponse = RegisterMachineDaemonRuntimeR
 export type SocketMachineDaemonRuntimeData = {
     body?: never;
     path: {
+        /**
+         * Machine daemon runtime ID (drt_...).
+         */
         runtimeID: string;
     };
     query?: never;
@@ -13716,6 +17682,9 @@ export type SocketMachineDaemonRuntimeError = SocketMachineDaemonRuntimeErrors[k
 export type EndMachineDaemonRuntimeData = {
     body?: never;
     path: {
+        /**
+         * Machine daemon runtime ID (drt_...).
+         */
         runtimeID: string;
     };
     query?: never;
@@ -13787,6 +17756,9 @@ export type EndMachineDaemonRuntimeResponse = EndMachineDaemonRuntimeResponses[k
 export type SleepMachineDaemonRuntimeData = {
     body?: never;
     path: {
+        /**
+         * Machine daemon runtime ID (drt_...).
+         */
         runtimeID: string;
     };
     query?: never;
@@ -13855,9 +17827,77 @@ export type SleepMachineDaemonRuntimeResponses = {
 
 export type SleepMachineDaemonRuntimeResponse = SleepMachineDaemonRuntimeResponses[keyof SleepMachineDaemonRuntimeResponses];
 
+export type GetDaemonGitCredentialsData = {
+    body?: never;
+    path: {
+        /**
+         * Process ID (prc_...).
+         */
+        processID: ProcessId;
+    };
+    query?: never;
+    url: '/daemon/processes/{processID}/git-credentials';
+};
+
+export type GetDaemonGitCredentialsErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetDaemonGitCredentialsError = GetDaemonGitCredentialsErrors[keyof GetDaemonGitCredentialsErrors];
+
+export type GetDaemonGitCredentialsResponses = {
+    /**
+     * Short-lived installation credentials. Never cache this response.
+     */
+    200: {
+        token: string;
+        expires_at: Timestamp;
+    };
+};
+
+export type GetDaemonGitCredentialsResponse = GetDaemonGitCredentialsResponses[keyof GetDaemonGitCredentialsResponses];
+
 export type GetDaemonSkillArchiveData = {
     body?: never;
     path: {
+        /**
+         * Skill ID (skl_...).
+         */
         skillID: string;
     };
     query: {
@@ -13922,18 +17962,19 @@ export type GetDaemonSkillArchiveResponses = {
 
 export type GetDaemonSkillArchiveResponse = GetDaemonSkillArchiveResponses[keyof GetDaemonSkillArchiveResponses];
 
-export type UploadDaemonArtifactData = {
-    body: Blob | File;
+export type DownloadDaemonFileData = {
+    body?: never;
     path: {
-        toolCallID: ToolCallId;
+        /**
+         * Process ID (prc_...).
+         */
+        processID: ProcessId;
     };
-    query: {
-        filename: string;
-    };
-    url: '/daemon/tool-calls/{toolCallID}/artifact';
+    query?: never;
+    url: '/daemon/processes/{processID}/file';
 };
 
-export type UploadDaemonArtifactErrors = {
+export type DownloadDaemonFileErrors = {
     /**
      * The request was invalid.
      */
@@ -13951,9 +17992,13 @@ export type UploadDaemonArtifactErrors = {
      */
     404: Error;
     /**
-     * The uploaded artifact is too large.
+     * The request conflicts with current resource state or idempotency history.
      */
-    413: Error;
+    409: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
     /**
      * The service dependency required to satisfy the request is unavailable.
      */
@@ -13980,28 +18025,39 @@ export type UploadDaemonArtifactErrors = {
     };
 };
 
-export type UploadDaemonArtifactError = UploadDaemonArtifactErrors[keyof UploadDaemonArtifactErrors];
+export type DownloadDaemonFileError = DownloadDaemonFileErrors[keyof DownloadDaemonFileErrors];
 
-export type UploadDaemonArtifactResponses = {
+export type DownloadDaemonFileResponses = {
     /**
-     * Artifact created.
+     * Success.
      */
-    201: UploadArtifactResponse;
+    200: Blob | File;
 };
 
-export type UploadDaemonArtifactResponse = UploadDaemonArtifactResponses[keyof UploadDaemonArtifactResponses];
+export type DownloadDaemonFileResponse = DownloadDaemonFileResponses[keyof DownloadDaemonFileResponses];
 
-export type DownloadDaemonArtifactData = {
-    body?: never;
+export type UploadDaemonFileData = {
+    body?: Blob | File;
     path: {
-        toolCallID: ToolCallId;
-        artifactID: ArtifactId;
+        /**
+         * Process ID (prc_...).
+         */
+        processID: ProcessId;
     };
-    query?: never;
-    url: '/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content';
+    query?: {
+        /**
+         * Required for artifact uploads; ignored for memory uploads.
+         */
+        filename?: string;
+    };
+    url: '/daemon/processes/{processID}/file';
 };
 
-export type DownloadDaemonArtifactErrors = {
+export type UploadDaemonFileErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
     /**
      * Authentication is required or invalid.
      */
@@ -14015,6 +18071,18 @@ export type DownloadDaemonArtifactErrors = {
      */
     404: Error;
     /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The uploaded file is too large.
+     */
+    413: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
      * The service dependency required to satisfy the request is unavailable.
      */
     503: Error;
@@ -14040,13 +18108,1011 @@ export type DownloadDaemonArtifactErrors = {
     };
 };
 
-export type DownloadDaemonArtifactError = DownloadDaemonArtifactErrors[keyof DownloadDaemonArtifactErrors];
+export type UploadDaemonFileError = UploadDaemonFileErrors[keyof UploadDaemonFileErrors];
 
-export type DownloadDaemonArtifactResponses = {
+export type UploadDaemonFileResponses = {
     /**
-     * Artifact bytes, served with the artifact's stored content type.
+     * Returns the full /memory/<store>/<file> or /artifacts/<artifact_id> path and digest.
      */
-    200: Blob | File;
+    201: UploadFileResponse;
 };
 
-export type DownloadDaemonArtifactResponse = DownloadDaemonArtifactResponses[keyof DownloadDaemonArtifactResponses];
+export type UploadDaemonFileResponse = UploadDaemonFileResponses[keyof UploadDaemonFileResponses];
+
+export type ListOrgIntegrationsData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/integrations';
+};
+
+export type ListOrgIntegrationsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOrgIntegrationsError = ListOrgIntegrationsErrors[keyof ListOrgIntegrationsErrors];
+
+export type ListOrgIntegrationsResponses = {
+    /**
+     * Integrations across the caller's readable projects, newest first.
+     */
+    200: ListIntegrationsResponse;
+};
+
+export type ListOrgIntegrationsResponse = ListOrgIntegrationsResponses[keyof ListOrgIntegrationsResponses];
+
+export type ListIntegrationsData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/integrations';
+};
+
+export type ListIntegrationsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListIntegrationsError = ListIntegrationsErrors[keyof ListIntegrationsErrors];
+
+export type ListIntegrationsResponses = {
+    /**
+     * List project integrations.
+     */
+    200: ListIntegrationsResponse;
+};
+
+export type ListIntegrationsResponse2 = ListIntegrationsResponses[keyof ListIntegrationsResponses];
+
+export type CreateIntegrationData = {
+    body: CreateIntegrationRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations';
+};
+
+export type CreateIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateIntegrationError = CreateIntegrationErrors[keyof CreateIntegrationErrors];
+
+export type CreateIntegrationResponses = {
+    /**
+     * Create an integration and optional launcher.
+     */
+    201: Integration;
+};
+
+export type CreateIntegrationResponse = CreateIntegrationResponses[keyof CreateIntegrationResponses];
+
+export type DeleteIntegrationData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
+};
+
+export type DeleteIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteIntegrationError = DeleteIntegrationErrors[keyof DeleteIntegrationErrors];
+
+export type DeleteIntegrationResponses = {
+    /**
+     * Delete integration setup and revoke its capabilities.
+     */
+    204: void;
+};
+
+export type DeleteIntegrationResponse = DeleteIntegrationResponses[keyof DeleteIntegrationResponses];
+
+export type GetIntegrationData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
+};
+
+export type GetIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetIntegrationError = GetIntegrationErrors[keyof GetIntegrationErrors];
+
+export type GetIntegrationResponses = {
+    /**
+     * Get project integration.
+     */
+    200: Integration;
+};
+
+export type GetIntegrationResponse = GetIntegrationResponses[keyof GetIntegrationResponses];
+
+export type UpdateIntegrationData = {
+    body: UpdateIntegrationRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
+};
+
+export type UpdateIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateIntegrationError = UpdateIntegrationErrors[keyof UpdateIntegrationErrors];
+
+export type UpdateIntegrationResponses = {
+    /**
+     * Updated integration settings.
+     */
+    200: Integration;
+};
+
+export type UpdateIntegrationResponse = UpdateIntegrationResponses[keyof UpdateIntegrationResponses];
+
+export type ListIntegrationSubscriptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions';
+};
+
+export type ListIntegrationSubscriptionsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListIntegrationSubscriptionsError = ListIntegrationSubscriptionsErrors[keyof ListIntegrationSubscriptionsErrors];
+
+export type ListIntegrationSubscriptionsResponses = {
+    /**
+     * Integration conversation subscriptions.
+     */
+    200: ListIntegrationSubscriptionsResponse;
+};
+
+export type ListIntegrationSubscriptionsResponse2 = ListIntegrationSubscriptionsResponses[keyof ListIntegrationSubscriptionsResponses];
+
+export type CreateIntegrationSubscriptionData = {
+    body: CreateIntegrationSubscriptionRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions';
+};
+
+export type CreateIntegrationSubscriptionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateIntegrationSubscriptionError = CreateIntegrationSubscriptionErrors[keyof CreateIntegrationSubscriptionErrors];
+
+export type CreateIntegrationSubscriptionResponses = {
+    /**
+     * Created or existing subscription.
+     */
+    201: IntegrationSubscription;
+};
+
+export type CreateIntegrationSubscriptionResponse = CreateIntegrationSubscriptionResponses[keyof CreateIntegrationSubscriptionResponses];
+
+export type DeleteIntegrationSubscriptionData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+        /**
+         * Integration subscription ID (isub_...).
+         */
+        subscriptionID: IntegrationSubscriptionId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions/{subscriptionID}';
+};
+
+export type DeleteIntegrationSubscriptionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteIntegrationSubscriptionError = DeleteIntegrationSubscriptionErrors[keyof DeleteIntegrationSubscriptionErrors];
+
+export type DeleteIntegrationSubscriptionResponses = {
+    /**
+     * Subscription removed or already absent.
+     */
+    204: void;
+};
+
+export type DeleteIntegrationSubscriptionResponse = DeleteIntegrationSubscriptionResponses[keyof DeleteIntegrationSubscriptionResponses];
+
+export type ConfigureIntegrationData = {
+    body: ConfigureIntegrationRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup';
+};
+
+export type ConfigureIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ConfigureIntegrationError = ConfigureIntegrationErrors[keyof ConfigureIntegrationErrors];
+
+export type ConfigureIntegrationResponses = {
+    /**
+     * Integration setup.
+     */
+    200: Integration;
+};
+
+export type ConfigureIntegrationResponse = ConfigureIntegrationResponses[keyof ConfigureIntegrationResponses];
+
+export type DisconnectIntegrationData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/disconnect';
+};
+
+export type DisconnectIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DisconnectIntegrationError = DisconnectIntegrationErrors[keyof DisconnectIntegrationErrors];
+
+export type DisconnectIntegrationResponses = {
+    /**
+     * Integration setup.
+     */
+    200: Integration;
+};
+
+export type DisconnectIntegrationResponse = DisconnectIntegrationResponses[keyof DisconnectIntegrationResponses];
+
+export type ListIntegrationGitHubRepositoriesData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+    };
+    query?: {
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-repositories';
+};
+
+export type ListIntegrationGitHubRepositoriesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListIntegrationGitHubRepositoriesError = ListIntegrationGitHubRepositoriesErrors[keyof ListIntegrationGitHubRepositoriesErrors];
+
+export type ListIntegrationGitHubRepositoriesResponses = {
+    /**
+     * Repositories.
+     */
+    200: ListGitHubRepositoriesResponse;
+};
+
+export type ListIntegrationGitHubRepositoriesResponse = ListIntegrationGitHubRepositoriesResponses[keyof ListIntegrationGitHubRepositoriesResponses];
+
+export type ListIntegrationDefinitionsData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-definitions';
+};
+
+export type ListIntegrationDefinitionsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListIntegrationDefinitionsError = ListIntegrationDefinitionsErrors[keyof ListIntegrationDefinitionsErrors];
+
+export type ListIntegrationDefinitionsResponses = {
+    /**
+     * The code-defined integration catalog.
+     */
+    200: ListIntegrationDefinitionsResponse;
+};
+
+export type ListIntegrationDefinitionsResponse2 = ListIntegrationDefinitionsResponses[keyof ListIntegrationDefinitionsResponses];

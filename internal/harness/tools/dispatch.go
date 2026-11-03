@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (
@@ -204,7 +204,10 @@ func (p toolPhasePipeline) advanceAfterTransaction(
 				execution.CommandResult,
 			)
 		}
-		return toolDispatchCompleted{}, false, nil
+		if execution.Completed == nil {
+			return nil, false, errors.New("completed tool transaction did not return its result")
+		}
+		return toolDispatchCompleted{record: *execution.Completed}, false, nil
 	case executionstore.ToolCallDispositionRunning:
 	default:
 		return nil, false, fmt.Errorf(
@@ -377,6 +380,8 @@ func retryableAsyncToolPersistenceError(ctx context.Context, err error) bool {
 		!errors.Is(err, storeerr.ErrStateTransitionConflict) &&
 		!errors.Is(err, storeerr.ErrIdempotencyConflict) &&
 		!errors.Is(err, storeerr.ErrInvalidToolCallDisposition) &&
+		!errors.Is(err, storeerr.ErrUnauthorized) &&
+		!errors.Is(err, storeerr.ErrConflict) &&
 		!errors.Is(err, storeerr.ErrNotFound) &&
 		!errors.Is(err, storeerr.ErrInvalidRequest)
 }
@@ -472,32 +477,6 @@ func (e Executor) executeAsyncTool(
 			result.content,
 			executionstore.ToolResultOutcomeSucceeded,
 		); err != nil {
-			return err
-		}
-	case awaitDurableAsync:
-		if err := retryAsyncToolPersistence(
-			completionCtx,
-			func(ctx context.Context) error {
-				return e.Store.Execution().ReleaseToolCallRuntimeOwnership(
-					ctx,
-					executionstore.ReleaseToolCallRuntimeOwnershipInput{
-						ProjectID:     call.Turn.ProjectID,
-						AgentID:       call.Turn.AgentID,
-						ToolCallID:    call.ToolCallID,
-						RuntimeLockID: call.Turn.RuntimeLockID,
-					},
-				)
-			},
-		); err != nil {
-			if errors.Is(err, storeerr.ErrInvalidToolCallDisposition) {
-				return e.completeAsyncToolFailure(
-					completionCtx,
-					call.Turn,
-					call.ToolCallID,
-					toolResultContent{},
-					err,
-				)
-			}
 			return err
 		}
 	case failAsync:
@@ -649,16 +628,13 @@ type completeAsync struct {
 	content toolResultContent
 }
 
-type awaitDurableAsync struct{}
-
 type failAsync struct {
 	content toolResultContent
 	cause   error
 }
 
-func (completeAsync) asyncPhaseResult()     {}
-func (awaitDurableAsync) asyncPhaseResult() {}
-func (failAsync) asyncPhaseResult()         {}
+func (completeAsync) asyncPhaseResult() {}
+func (failAsync) asyncPhaseResult()     {}
 
 func completeAsynchronously(content toolResultContent) asyncPhaseResult {
 	if !content.isSet {
@@ -667,10 +643,6 @@ func completeAsynchronously(content toolResultContent) asyncPhaseResult {
 		}
 	}
 	return completeAsync{content: content}
-}
-
-func awaitDurableAsynchronously() asyncPhaseResult {
-	return awaitDurableAsync{}
 }
 
 func failAsynchronously(content toolResultContent, cause error) asyncPhaseResult {
@@ -682,7 +654,7 @@ type toolDispatchResult interface {
 }
 
 type toolDispatchAwaiting struct{}
-type toolDispatchCompleted struct{}
+type toolDispatchCompleted struct{ record executionstore.ToolCallRecord }
 
 type toolDispatchFailed struct {
 	content toolResultContent

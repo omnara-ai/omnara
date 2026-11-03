@@ -54,39 +54,59 @@ A large response was produced. Check what remains before concluding.
 The previous response contains the work so far. No external artifacts were created.
 ## Next Steps
 Finish any remaining work and provide a concise completion message.`
-			summaryResponse := completeProgressiveSummaryResponse(summary)
 			responses := []model.Response{
 				{ID: "large-source", StopReason: tc.sourceStopReason,
 					Content: []model.ResponsePart{{Type: "text", Text: largeText}},
 					Usage:   model.Usage{InputTokens: 1_000, OutputTokens: 24_000}},
 			}
 			if tc.partialSummary {
-				summaryResponse.StopReason = model.StopReasonMaxTokens
-				responses = append(responses, summaryResponse, completeProgressiveSummaryResponse("Finish the task."))
+				responses = append(responses, model.Response{
+					ID: "partial-summary", StopReason: model.StopReasonMaxTokens,
+					Content: []model.ResponsePart{{Type: "text", Text: "Incomplete summary."}},
+				}, completeProgressiveSummaryResponse("Complete the work."))
 			}
-			responses = append(responses, summaryResponse, model.Response{
+			responses = append(responses, completeProgressiveSummaryResponse(summary), model.Response{
 				ID: "finished", StopReason: model.StopReasonEndTurn,
 				Content: []model.ResponsePart{{Type: "text", Text: "Task finished."}},
 			})
 			client := &sequenceKernelModel{
 				providerModelSlug: "large-output",
-				capabilities:      model.Capabilities{ContextWindowTokens: 32_000, MaxOutputTokens: new(24_000)},
-				responses:         responses,
+				capabilities: model.Capabilities{
+					ContextWindowTokens: 32_000,
+					MaxOutputTokens:     new(24_000),
+				},
+				responses: responses,
 			}
-			executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+			executor := AgentExecutor{
+				Store:         fixture.Store,
+				ModelResolver: liveTestModelResolver(fixture.Store, client),
+			}
 			work := fixture.admitContentInputTurn(t, ctx, agentID, userID,
 				"Complete the work and then confirm it is finished.", fixture.Now)
 			for step := range 5 {
 				require.NoError(t, executor.ExecuteModelWork(ctx, work))
 				fixture.releaseModelRuntimeLock(t, ctx, work)
 				if step == 0 && tc.sourceStopReason == model.StopReasonEndTurn {
-					work = fixture.admitContentInputTurn(t, ctx, agentID, userID, "Continue the task.", fixture.Now.Add(time.Second))
+					work = fixture.admitContentInputTurn(
+						t,
+						ctx,
+						agentID,
+						userID,
+						"Continue the task.",
+						fixture.Now.Add(time.Second),
+					)
 					continue
 				}
 				if pendingModelWork(t, ctx, fixture, agentID) == 0 {
 					break
 				}
-				claim := claimNextAgentWorkForKernelTest(t, ctx, fixture, agentID, executionstore.AgentWorkModel)
+				claim := claimNextAgentWorkForKernelTest(
+					t,
+					ctx,
+					fixture,
+					agentID,
+					executionstore.AgentWorkModel,
+				)
 				work = modelWorkExecutionFromClaimForKernelTest(claim, work.Now.Add(time.Second))
 			}
 			wantRequests := 3
@@ -95,8 +115,10 @@ Finish any remaining work and provide a concise completion message.`
 			}
 			require.Equal(t, wantRequests, client.respondedCount())
 			require.Equal(t, 24_000, client.responded[0].Policy.MaxOutputTokens)
-			largeSummary, continuation := client.responded[wantRequests-2], client.responded[wantRequests-1]
-			require.True(t, isCompactionRequestBundle(largeSummary.Bundle))
+			largeSummary, continuation := client.responded[1], client.responded[wantRequests-1]
+			for _, request := range client.responded[1 : wantRequests-1] {
+				require.True(t, isCompactionRequestBundle(request.Bundle))
+			}
 			require.True(t, strings.Contains(string(largeSummary.ProviderRequest), strings.TrimSpace(largeText)),
 				"summary request must retain the complete large output")
 			require.Positive(t, largeSummary.Policy.MaxOutputTokens)
@@ -105,15 +127,18 @@ Finish any remaining work and provide a concise completion message.`
 			require.Greater(t, summaryInput, 24_000)
 			margin := modelcontext.DefaultSafetyMarginTokens(32_000)
 			require.LessOrEqual(t, summaryInput+largeSummary.Policy.MaxOutputTokens+margin, 32_000)
+			wantCutoffNotice := tc.sourceStopReason == model.StopReasonMaxTokens
+			if tc.partialSummary {
+				require.NotContains(t, string(client.responded[2].ProviderRequest), strings.TrimSpace(largeText))
+				require.Contains(t, string(client.responded[3].ProviderRequest), strings.TrimSpace(largeText))
+			}
+			require.Equal(t, 24_000, continuation.Policy.MaxOutputTokens)
 			require.NotNil(t, continuation.Bundle.ContextCheckpoint)
 			require.Equal(t, summary, continuation.Bundle.ContextCheckpoint.Summary)
-			wantCutoffNotice := tc.sourceStopReason == model.StopReasonMaxTokens
 			require.Equal(t, wantCutoffNotice, continuation.Bundle.ContextCheckpoint.EndsWithOutputLimit)
 			checkpointText := modelcontext.ProjectedCheckpointContent(*continuation.Bundle.ContextCheckpoint)
 			require.Equal(t, wantCutoffNotice, strings.Contains(checkpointText, "[Automatic Omnara harness notice]"))
-			require.False(t, strings.Contains(string(continuation.ProviderRequest), strings.TrimSpace(largeText)),
-				"continuation should use the checkpoint")
-			require.Equal(t, 24_000, continuation.Policy.MaxOutputTokens)
+			require.NotContains(t, string(continuation.ProviderRequest), strings.TrimSpace(largeText))
 			require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
 			var preserved, finished, failed, cutoffs int
 			require.NoError(t, fixture.Pool.QueryRow(ctx, `
@@ -153,13 +178,13 @@ func TestOutputLimitContinuesAcrossClaimsUntilEndTurn(t *testing.T) {
 			work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "complete the task", fixture.Now)
 			client := &sequenceKernelModel{providerModelSlug: "output-recovery", responses: []model.Response{
 				truncatedKernelResponse(),
-				{ID: "thinking", StopReason: model.StopReasonMaxTokens,
-					Content: []model.ResponsePart{{Type: model.ResponsePartTypeReasoning, Text: "thinking"}}},
-				{ID: "empty", StopReason: model.StopReasonMaxTokens},
 				truncatedKernelResponse(),
 				{ID: "done", StopReason: model.StopReasonEndTurn, Content: tc.content},
 			}}
-			executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+			executor := AgentExecutor{
+				Store:         fixture.Store,
+				ModelResolver: liveTestModelResolver(fixture.Store, client),
+			}
 			var openingInputs int
 			require.NoError(t, fixture.Pool.QueryRow(ctx,
 				`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, agentID).Scan(&openingInputs))
@@ -183,7 +208,13 @@ func TestOutputLimitContinuesAcrossClaimsUntilEndTurn(t *testing.T) {
 				fixture.releaseModelRuntimeLock(t, ctx, work)
 				if attempt < responseCount-1 {
 					require.Equal(t, 1, pendingModelWork(t, ctx, fixture, agentID))
-					claim := claimNextAgentWorkForKernelTest(t, ctx, fixture, agentID, executionstore.AgentWorkModel)
+					claim := claimNextAgentWorkForKernelTest(
+						t,
+						ctx,
+						fixture,
+						agentID,
+						executionstore.AgentWorkModel,
+					)
 					next := modelWorkExecutionFromClaimForKernelTest(claim, fixture.Now.Add(time.Second))
 					require.Equal(t, executionstore.ModelWorkContinue, next.Kind)
 					require.Equal(t, work.TurnID, next.TurnID)
@@ -197,7 +228,7 @@ func TestOutputLimitContinuesAcrossClaimsUntilEndTurn(t *testing.T) {
    FROM model_outputs WHERE agent_id=$1`, agentID).Scan(&cutoffs, &failed))
 			require.NoError(t, fixture.Pool.QueryRow(ctx,
 				`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, agentID).Scan(&inputs))
-			require.Equal(t, 4, cutoffs)
+			require.Equal(t, 2, cutoffs)
 			require.Zero(t, failed)
 			require.Equal(t, openingInputs, inputs, "notices must not create durable user inputs")
 		})
@@ -221,7 +252,10 @@ func TestCancelOutputContinuationBeforeAndAfterRuntimeClaim(t *testing.T) {
 					truncatedKernelResponse(),
 				},
 			}
-			executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+			executor := AgentExecutor{
+				Store:         fixture.Store,
+				ModelResolver: liveTestModelResolver(fixture.Store, client),
+			}
 			require.NoError(t, executor.ExecuteModelWork(ctx, work))
 			fixture.releaseModelRuntimeLock(t, ctx, work)
 			if afterClaim {
@@ -275,7 +309,10 @@ func TestOutputContinuationIsConsumedBySuccessorTerminalFailure(t *testing.T) {
 			truncatedKernelResponse(),
 		},
 	}
-	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+	executor := AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, client),
+	}
 	require.NoError(t, executor.ExecuteModelWork(ctx, work))
 	fixture.releaseModelRuntimeLock(t, ctx, work)
 	client = &sequenceKernelModel{
@@ -332,7 +369,14 @@ func TestOutputContinuationSurvivesRetryAndCompaction(t *testing.T) {
 				),
 				ModelRetryDelay: immediateKernelModelRetryDelay,
 			}
-			work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "establish earlier history", fixture.Now)
+			work := fixture.admitContentInputTurn(
+				t,
+				ctx,
+				agentID,
+				userID,
+				"establish earlier history",
+				fixture.Now,
+			)
 			require.NoError(t, executor.ExecuteModelWork(ctx, work))
 			fixture.releaseModelRuntimeLock(t, ctx, work)
 			work = fixture.admitSteeringInputsTurn(
@@ -419,7 +463,11 @@ func TestOutputContinuationSurvivesRetryAndCompaction(t *testing.T) {
 				require.NotEmpty(t, request.Input)
 				var checkpointText string
 				require.NoError(t, json.Unmarshal(request.Input[0].Content, &checkpointText))
-				require.Contains(t, checkpointText, "</context_checkpoint>\n\n[Automatic Omnara harness notice]")
+				require.Contains(
+					t,
+					checkpointText,
+					"</context_checkpoint>\n\n[Automatic Omnara harness notice]",
+				)
 				require.Greater(t, len(request.Input), 1)
 				require.Contains(t, string(request.Input[1].Content), "complete the task")
 
@@ -447,7 +495,10 @@ func TestNewInputSupersedesOutputContinuation(t *testing.T) {
 	client := &sequenceKernelModel{providerModelSlug: "recovery-steering", responses: []model.Response{
 		truncatedKernelResponse(), {ID: "done", StopReason: model.StopReasonEndTurn},
 	}}
-	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+	executor := AgentExecutor{
+		Store:         fixture.Store,
+		ModelResolver: liveTestModelResolver(fixture.Store, client),
+	}
 	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "complete the task", fixture.Now)
 	require.NoError(t, executor.ExecuteModelWork(ctx, work))
 	fixture.releaseModelRuntimeLock(t, ctx, work)
@@ -465,7 +516,11 @@ func TestNewInputSupersedesOutputContinuation(t *testing.T) {
 func pendingModelWork(t *testing.T, ctx context.Context, fixture kernelFixture, agentID uuid.UUID) int {
 	t.Helper()
 	var count int
-	require.NoError(t, fixture.Pool.QueryRow(ctx,
-		`SELECT count(*) FROM agent_next_model_work($1,$2)`, kernelTestProjectID, agentID).Scan(&count))
+	require.NoError(t, fixture.Pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id WHERE a.project_id=$1 AND h.agent_id=$2 AND h.logical_ready_at IS NOT NULL`,
+		kernelTestProjectID,
+		agentID,
+	).Scan(&count))
 	return count
 }

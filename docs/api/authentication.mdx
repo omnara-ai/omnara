@@ -40,7 +40,7 @@ A missing or invalid token returns `401` with code `unauthorized`. A valid token
 
 Tokens are minted where a human can approve them — creating one is deliberately *not* possible with another API key:
 
-- **Dashboard** — go to **API Tokens** in the sidebar and click **New token**. The full token is shown once.
+- **Dashboard** — open your account menu at the bottom of the sidebar, choose **Personal tokens**, and click **New token**. The full token is shown once.
 - **Device login** — for CLIs and dev tools, below.
 
 Only a hash is stored server-side, so save the token when it is shown.
@@ -49,9 +49,9 @@ Only a hash is stored server-side, so save the token when it is shown.
 
 Services shouldn't run as a person — when that person leaves or their access changes, the integration breaks. An org API key is its own principal: it holds an org role (`admin` or `member`) and per-project roles, granted exactly like a member's.
 
-Create one in the dashboard: open **API Tokens**, switch to the **Organization** tab, and under **Organization API tokens** click **New token**. Pick a name and org role; the `omnara_org_v1_…` token is shown once. Then grant the key project roles from its detail panel — a member-role key sees nothing until you do, same as a human member.
+Create one in the dashboard: with **All projects** selected in the project switcher, open **API Tokens** under **Access** (org admins only) and click **New token**. Pick a name and org role; the `omnara_org_v1_…` token is shown once. Then grant the key project roles from its detail panel — a member-role key sees nothing until you do, same as a human member.
 
-Key management stays human-gated: creating, renaming, changing roles, and revoking all require a dashboard session, so one API key can never mint or escalate another. Listing and reading key metadata work with regular API auth ([List org API keys](/api-reference/endpoints/users-and-api-keys/list-org-api-keys)). Revocation is permanent and drops the key's org and project roles ([Revoke](/api-reference/endpoints/users-and-api-keys/revoke-an-org-api-key)).
+Key management stays human-gated: creating, renaming, changing roles, and revoking all require a dashboard session, so one API key can never mint or escalate another. Listing and reading key metadata work with regular API auth ([List org API keys](/api-reference/endpoints/users-and-api-keys/list-org-api-keys)). Revocation is permanent, drops the key's org and project roles, and cancels invitations it sent ([Revoke](/api-reference/endpoints/users-and-api-keys/revoke-an-org-api-key)).
 
 ## Device login for CLIs
 
@@ -117,7 +117,21 @@ A denied or expired flow returns `400` with `"access_denied"` or `"expired_token
 
 The Omnara API is also exposed as an MCP server at `https://app.omnara.com/mcp`. MCP clients that support the [MCP authorization spec](https://modelcontextprotocol.io/specification/draft/basic/authorization) discover the OAuth endpoints themselves and sign you in through the browser, so no token needs to be pasted into the client.
 
-Add the server to your client's `mcp.json`:
+In Claude, add Omnara from the [connectors directory](https://claude.ai/directory/app-omnara-com). In Claude Code or Codex, add it from the terminal:
+
+<CodeGroup>
+```bash Claude Code
+claude mcp add --transport http omnara https://app.omnara.com/mcp
+```
+
+```bash Codex
+codex mcp add omnara --url https://app.omnara.com/mcp
+```
+</CodeGroup>
+
+Then sign in with `/mcp` in Claude Code or `codex mcp login omnara` in Codex.
+
+For other clients, add the server to your client's `mcp.json`:
 
 ```json
 {
@@ -132,7 +146,7 @@ Add the server to your client's `mcp.json`:
 
 On first use the client opens the dashboard's **Authorize access to Omnara** page. Approve it and the client stores its own short-lived tokens, refreshing them in the background.
 
-Clients without OAuth support can pass a personal access token or org API key instead:
+A client you sign in this way acts as you, with your roles in every organization you belong to. To limit a client to specific projects, use a member-role [org API key](#org-api-keys-for-services) with roles on only those projects. Clients without OAuth support can also use a personal access token. Either one goes in the `Authorization` header:
 
 ```json
 {
@@ -148,4 +162,4 @@ Clients without OAuth support can pass a personal access token or org API key in
 
 ## Managing tokens
 
-The **API Tokens** page — or [List personal access tokens](/api-reference/endpoints/users-and-api-keys/list-the-authenticated-users-personal-access-tokens) — shows your tokens with creation and last-used times, metadata only: the secret is never shown again. `last_used_at` tells you which tokens are actually alive; prune the rest, and [revoke](/api-reference/endpoints/users-and-api-keys/revoke-a-personal-access-token) immediately if a token leaks — revocation is permanent.
+The **Personal tokens** page in your account menu — or [List personal access tokens](/api-reference/endpoints/users-and-api-keys/list-the-authenticated-users-personal-access-tokens) — shows your tokens with creation and last-used times, metadata only: the secret is never shown again. `last_used_at` tells you which tokens are actually alive; prune the rest, and [revoke](/api-reference/endpoints/users-and-api-keys/revoke-a-personal-access-token) immediately if a token leaks — revocation is permanent.

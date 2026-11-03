@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,26 +9,24 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func (s strictOpenAPIServer) CreateAgentConfig(
@@ -49,7 +48,7 @@ func (s strictOpenAPIServer) createAgentConfig(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	compiled, err := s.server.compileAgentConfigBodyForProject(
+	compiled, err := s.server.compileAgentConfigSourceForProject(
 		ctx,
 		project,
 		string(request.Body.SourceFormat),
@@ -88,22 +87,59 @@ func (s strictOpenAPIServer) getAgentConfig(
 	request openapi.GetAgentConfigRequestObject,
 	project identitystore.ProjectRecord,
 ) (openapi.GetAgentConfigResponseObject, error) {
-	configID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, request.AgentConfigID)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-	}
-	config, found, err := s.server.store.Execution().GetAgentConfig(ctx, project.ID, configID)
+	config, err := s.agentConfigInProject(ctx, project, request.AgentConfigID)
 	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
-	if !found {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+		return nil, err
 	}
 	response, err := s.server.agentConfigResponseFromRecord(ctx, config)
 	if err != nil {
 		return nil, err
 	}
 	return openapi.GetAgentConfig200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) GetAgentConfigGeneratedSource(
+	ctx context.Context,
+	request openapi.GetAgentConfigGeneratedSourceRequestObject,
+) (openapi.GetAgentConfigGeneratedSourceResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	config, err := s.agentConfigInProject(ctx, scope.project, request.AgentConfigID)
+	if err != nil {
+		return nil, err
+	}
+	format := agentconfig.SourceFormatYAML
+	if request.Params.SourceFormat != nil {
+		format = agentconfig.SourceFormat(*request.Params.SourceFormat)
+	}
+	source, err := agentconfigcompile.GenerateSource(
+		ctx, s.server.store, scope.project.OrgID, scope.project.ID, config, format,
+	)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	return openapi.GetAgentConfigGeneratedSource200JSONResponse{Source: source}, nil
+}
+
+func (s strictOpenAPIServer) agentConfigInProject(
+	ctx context.Context,
+	project identitystore.ProjectRecord,
+	publicConfigID string,
+) (executionstore.AgentConfigRecord, error) {
+	configID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, publicConfigID)
+	if !ok {
+		return executionstore.AgentConfigRecord{}, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	config, found, err := s.server.store.Execution().GetAgentConfig(ctx, project.ID, configID)
+	if err != nil {
+		return executionstore.AgentConfigRecord{}, apierror.ProjectScoped(err)
+	}
+	if !found {
+		return executionstore.AgentConfigRecord{}, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	return config, nil
 }
 
 func (s strictOpenAPIServer) CreateAgentProfile(
@@ -324,273 +360,6 @@ func (s strictOpenAPIServer) deleteAgentProfile(
 	return openapi.DeleteAgentProfile204Response{}, nil
 }
 
-func (s strictOpenAPIServer) CreateIntegrationOAuthSetup(
-	ctx context.Context,
-	request openapi.CreateIntegrationOAuthSetupRequestObject,
-) (openapi.CreateIntegrationOAuthSetupResponseObject, error) {
-	scope, err := projectScopeFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.createIntegrationOAuthSetup(ctx, request, scope.project)
-}
-
-func (s strictOpenAPIServer) createIntegrationOAuthSetup(
-	ctx context.Context,
-	request openapi.CreateIntegrationOAuthSetupRequestObject,
-	project identitystore.ProjectRecord,
-) (openapi.CreateIntegrationOAuthSetupResponseObject, error) {
-	if s.server.publicURL == "" || s.server.secretKeyWrapper == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
-			"integration oauth requires a configured public URL and secret encryption keys")
-	}
-	agentProfileID, ok := parseOpenAPIPublicID(publicid.KindAgentProfile, request.AgentProfileID)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-	}
-	if request.Body == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
-	}
-	principal, _ := principalFromContext(ctx)
-	provider := integrationstore.IntegrationProviderSlack
-	if request.Body.Provider != nil {
-		provider = strings.TrimSpace(*request.Body.Provider)
-	}
-	if provider == "" {
-		provider = integrationstore.IntegrationProviderSlack
-	}
-	clientID := strings.TrimSpace(request.Body.ClientId)
-	clientSecret := strings.TrimSpace(request.Body.ClientSecret)
-	signingSecret := strings.TrimSpace(request.Body.SigningSecret)
-	if !supportedIntegrationOAuthProvider(provider) {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "unsupported integration provider")
-	}
-	if provider == integrationstore.IntegrationProviderSlack {
-		if err := validateSlackSetupPublicURL(s.server.publicURL); err != nil {
-			return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, err.Error())
-		}
-	}
-	if clientID == "" || clientSecret == "" || signingSecret == "" {
-		return nil, apierror.FromCode(
-			openapi.ErrorCodeInvalidRequest,
-			"client_id, client_secret, and signing_secret are required",
-		)
-	}
-	profile, err := s.server.store.Execution().GetAgentProfile(ctx, project.ID, agentProfileID)
-	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
-	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
-		return nil, err
-	}
-	now := time.Now().UTC()
-	flowID, err := uuid.NewV7()
-	if err != nil {
-		logpkg.Error(ctx, fmt.Errorf("generate integration oauth flow id: %w", err))
-		return nil, fmt.Errorf("internal server error")
-	}
-	expiresAt := now.Add(integrationOAuthStateTTL)
-	returnTo := ""
-	if request.Body.ReturnTo != nil {
-		returnTo = *request.Body.ReturnTo
-	}
-	stateToken, err := s.server.encodeIntegrationOAuthState(ctx, integrationOAuthState{
-		FlowID:            flowID,
-		OrgID:             project.OrgID,
-		ProjectID:         project.ID,
-		AgentProfileID:    agentProfileID,
-		InstalledByUserID: principal.ID,
-		Provider:          provider,
-		ClientID:          clientID,
-		ClientSecret:      clientSecret,
-		SigningSecret:     signingSecret,
-		ExpiresAt:         expiresAt,
-		ReturnTo:          returnTo,
-	})
-	if err != nil {
-		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
-			return nil, apierror.FromCode(
-				openapi.ErrorCodeInvalidRequest,
-				"request fields are too large for the oauth state parameter",
-			)
-		}
-		logpkg.Error(ctx, fmt.Errorf("start integration oauth flow: %w", err))
-		return nil, fmt.Errorf("state generation failed")
-	}
-	redirectURI := s.server.absolutePublicURL(integrationOAuthCallbackPath)
-	eventsURL := s.server.absolutePublicURL(integrationEventsPath)
-	actionsURL := s.server.absolutePublicURL(integrationActionsPath)
-	installURL, err := s.server.integrationOAuthAuthorizeURL(provider, clientID, redirectURI, stateToken)
-	if err != nil {
-		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
-			return nil, apierror.FromCode(
-				openapi.ErrorCodeInvalidRequest,
-				"request fields are too large for the oauth state parameter",
-			)
-		}
-		logpkg.Error(ctx, fmt.Errorf("build integration oauth authorization URL: %w", err))
-		return nil, fmt.Errorf("internal server error")
-	}
-	publicFlowID, err := publicID(publicid.KindIntegrationOAuthFlow, flowID)
-	if err != nil {
-		logpkg.Error(ctx, err)
-		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
-	}
-	return openapi.CreateIntegrationOAuthSetup201JSONResponse(openapi.IntegrationOAuthSetup{
-		Provider:    provider,
-		FlowId:      publicFlowID,
-		OauthUrl:    installURL,
-		RedirectUri: redirectURI,
-		EventsUrl:   eventsURL,
-		ActionsUrl:  actionsURL,
-		ExpiresAt:   expiresAt,
-	}), nil
-}
-
-func (s strictOpenAPIServer) CreateSlackSetup(
-	ctx context.Context,
-	request openapi.CreateSlackSetupRequestObject,
-) (openapi.CreateSlackSetupResponseObject, error) {
-	scope, err := projectScopeFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.createSlackSetup(ctx, request, scope.project)
-}
-
-func (s strictOpenAPIServer) createSlackSetup(
-	ctx context.Context,
-	request openapi.CreateSlackSetupRequestObject,
-	project identitystore.ProjectRecord,
-) (openapi.CreateSlackSetupResponseObject, error) {
-	if s.server.publicURL == "" || s.server.secretKeyWrapper == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
-			"slack setup requires a configured public URL and secret encryption keys")
-	}
-	if err := validateSlackSetupPublicURL(s.server.publicURL); err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, err.Error())
-	}
-	agentProfileID, ok := parseOpenAPIPublicID(publicid.KindAgentProfile, request.AgentProfileID)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-	}
-	if request.Body == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
-	}
-	principal, _ := principalFromContext(ctx)
-	appName := strings.TrimSpace(request.Body.AppName)
-	appConfigurationToken := strings.TrimSpace(request.Body.AppConfigurationToken)
-	if appName == "" || appConfigurationToken == "" {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "app_name and app_configuration_token are required")
-	}
-	if utf8.RuneCountInString(appName) > slack.AppNameMaxRunes {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "app_name must be 35 characters or fewer")
-	}
-	if strings.EqualFold(appName, "slackbot") {
-		return nil, apierror.FromCode(
-			openapi.ErrorCodeInvalidRequest,
-			"Slack reserves this app name. Choose a different name.",
-		)
-	}
-	profile, err := s.server.store.Execution().GetAgentProfile(ctx, project.ID, agentProfileID)
-	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
-	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
-		return nil, err
-	}
-	appIcon, err := slackSetupAppIcon(*request.Body)
-	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
-	}
-	redirectURI := s.server.absolutePublicURL(integrationOAuthCallbackPath)
-	eventsURL := s.server.absolutePublicURL(integrationEventsPath)
-	actionsURL := s.server.absolutePublicURL(integrationActionsPath)
-	outboundCtx, cancel := context.WithTimeout(ctx, integrationOAuthTimeout)
-	defer cancel()
-	app, err := slack.CreateManifestApp(
-		outboundCtx,
-		s.server.slackOAuth,
-		appConfigurationToken,
-		slack.BuildAppManifest(appName, eventsURL, actionsURL, redirectURI),
-	)
-	if err != nil {
-		logpkg.Error(ctx, fmt.Errorf("create slack app manifest: %w", err))
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "slack app creation failed: "+err.Error())
-	}
-	iconCtx, iconCancel := context.WithTimeout(outboundCtx, 3*time.Second)
-	defer iconCancel()
-	if err := slack.SetAppIcon(iconCtx, s.server.slackOAuth, appConfigurationToken, app.AppID, appIcon); err != nil {
-		logpkg.Error(ctx, fmt.Errorf("set slack app icon: %w", err))
-	}
-	now := time.Now().UTC()
-	flowID, err := uuid.NewV7()
-	if err != nil {
-		logpkg.Error(ctx, fmt.Errorf("generate slack oauth flow id: %w", err))
-		return nil, fmt.Errorf("internal server error")
-	}
-	expiresAt := now.Add(integrationOAuthStateTTL)
-	returnTo := ""
-	if request.Body.ReturnTo != nil {
-		returnTo = *request.Body.ReturnTo
-	}
-	stateToken, err := s.server.encodeIntegrationOAuthState(ctx, integrationOAuthState{
-		FlowID:            flowID,
-		OrgID:             project.OrgID,
-		ProjectID:         project.ID,
-		AgentProfileID:    agentProfileID,
-		InstalledByUserID: principal.ID,
-		Provider:          integrationstore.IntegrationProviderSlack,
-		ClientID:          app.ClientID,
-		ClientSecret:      app.ClientSecret,
-		SigningSecret:     app.SigningSecret,
-		BotDisplayName:    appName,
-		ExpiresAt:         expiresAt,
-		ReturnTo:          returnTo,
-	})
-	if err != nil {
-		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
-			return nil, apierror.FromCode(
-				openapi.ErrorCodeInvalidRequest,
-				"request fields are too large for the oauth state parameter",
-			)
-		}
-		logpkg.Error(ctx, fmt.Errorf("start slack oauth flow: %w", err))
-		return nil, fmt.Errorf("state generation failed")
-	}
-	installURL, err := s.server.integrationOAuthAuthorizeURL(
-		integrationstore.IntegrationProviderSlack,
-		app.ClientID,
-		redirectURI,
-		stateToken,
-	)
-	if err != nil {
-		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
-			return nil, apierror.FromCode(
-				openapi.ErrorCodeInvalidRequest,
-				"request fields are too large for the oauth state parameter",
-			)
-		}
-		logpkg.Error(ctx, fmt.Errorf("build slack oauth authorization URL: %w", err))
-		return nil, fmt.Errorf("internal server error")
-	}
-	publicFlowID, err := publicID(publicid.KindIntegrationOAuthFlow, flowID)
-	if err != nil {
-		logpkg.Error(ctx, err)
-		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
-	}
-	return openapi.CreateSlackSetup201JSONResponse(openapi.SlackSetup{
-		Provider:    integrationstore.IntegrationProviderSlack,
-		FlowId:      publicFlowID,
-		SlackAppId:  app.AppID,
-		OauthUrl:    installURL,
-		RedirectUri: redirectURI,
-		EventsUrl:   eventsURL,
-		ActionsUrl:  actionsURL,
-		ExpiresAt:   expiresAt,
-	}), nil
-}
-
 func (s strictOpenAPIServer) GetAgent(
 	ctx context.Context,
 	request openapi.GetAgentRequestObject,
@@ -622,30 +391,50 @@ func (s strictOpenAPIServer) ListAgents(
 	if err != nil {
 		return nil, err
 	}
-	return s.listAgents(ctx, request.Params, scope.project)
+	response, err := s.listAgents(ctx, request.Params, projectListScope(scope.project))
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListAgents200JSONResponse(response), nil
+}
+
+type resourceListScope struct {
+	key        string
+	projectIDs []uuid.UUID
+}
+
+func projectListScope(project identitystore.ProjectRecord) resourceListScope {
+	return resourceListScope{
+		key:        project.OrgID.String() + "/" + project.ID.String(),
+		projectIDs: []uuid.UUID{project.ID},
+	}
 }
 
 func (s strictOpenAPIServer) listAgents(
 	ctx context.Context,
 	params openapi.ListAgentsParams,
-	project identitystore.ProjectRecord,
-) (openapi.ListAgentsResponseObject, error) {
+	scope resourceListScope,
+) (openapi.ListAgentsResponse, error) {
 	limit, err := parseOpenAPIPageLimit(params.Limit)
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.ListAgentsResponse{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	filters := executionstore.AgentListFilters{}
 	if params.AgentProfileId != nil && *params.AgentProfileId != "" {
 		agentProfileID, err := publicid.Decode(publicid.KindAgentProfile, *params.AgentProfileId)
 		if err != nil {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent profile filter")
+			return openapi.ListAgentsResponse{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest, "invalid agent profile filter",
+			)
 		}
 		filters.AgentProfileID = &agentProfileID
 	}
 	if params.ParentAgentId != nil && *params.ParentAgentId != "" {
 		parentAgentID, err := publicid.Decode(publicid.KindAgent, *params.ParentAgentId)
 		if err != nil {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid parent agent filter")
+			return openapi.ListAgentsResponse{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest, "invalid parent agent filter",
+			)
 		}
 		filters.ParentAgentID = &parentAgentID
 	}
@@ -664,37 +453,66 @@ func (s strictOpenAPIServer) listAgents(
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: params.Name, Sort: optionalString(params.Sort),
 		Cursor: params.Cursor, ListKind: "agents",
-		Scope: project.OrgID.String() + "/" + project.ID.String(), IDKind: publicid.KindAgent,
+		Scope: scope.key, IDKind: publicid.KindAgent,
 		AllowedSorts: defaultResourceSorts, Extra: extra,
 	})
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.ListAgentsResponse{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	page, err := s.server.store.Execution().ListAgentsForProject(ctx, executionstore.ListAgentsForProjectInput{
-		ProjectID: project.ID, Filters: filters, List: list, Limit: limit,
+	page, err := s.server.store.Execution().ListAgentsForProjects(ctx, executionstore.ListAgentsForProjectsInput{
+		ProjectIDs: scope.projectIDs, Filters: filters, List: list, Limit: limit,
 	})
 	if err != nil {
-		return nil, apierror.ProjectScoped(err)
+		return openapi.ListAgentsResponse{}, apierror.ProjectScoped(err)
 	}
 	data := make([]openapi.Agent, 0, len(page.Agents))
 	for _, agent := range page.Agents {
 		response, err := publicAgentResponseFromRecord(agent)
 		if err != nil {
-			return nil, err
+			return openapi.ListAgentsResponse{}, err
 		}
 		data = append(data, response)
 	}
+	if valueOrZero(params.IncludeUsage) {
+		if err := s.addAgentUsage(ctx, page.Agents, data); err != nil {
+			return openapi.ListAgentsResponse{}, err
+		}
+	}
 	nextCursor, err := encodeResourceListNextCursor(
-		page.HasMore, page.Next, list, "agents",
-		project.OrgID.String()+"/"+project.ID.String(), publicid.KindAgent, extra,
+		page.HasMore, page.Next, list, "agents", scope.key, publicid.KindAgent, extra,
 	)
 	if err != nil {
-		return nil, err
+		return openapi.ListAgentsResponse{}, err
 	}
-	return openapi.ListAgents200JSONResponse(openapi.ListAgentsResponse{
-		Data:       data,
-		NextCursor: nullableFromPtr(nextCursor),
-	}), nil
+	return openapi.ListAgentsResponse{Data: data, NextCursor: nullableFromPtr(nextCursor)}, nil
+}
+
+// addAgentUsage fills in each listed agent's usage, batched across the page so
+// a list doesn't need a request per agent.
+func (s strictOpenAPIServer) addAgentUsage(
+	ctx context.Context,
+	agents []executionstore.AgentRecord,
+	data []openapi.Agent,
+) error {
+	projectIDs := make([]uuid.UUID, 0, len(agents))
+	agentIDs := make([]uuid.UUID, 0, len(agents))
+	for _, agent := range agents {
+		if !slices.Contains(projectIDs, agent.ProjectID) {
+			projectIDs = append(projectIDs, agent.ProjectID)
+		}
+		agentIDs = append(agentIDs, agent.ID)
+	}
+	totals, err := s.server.store.Execution().AgentUsageTotals(ctx, executionstore.AgentUsageTotalsInput{
+		ProjectIDs: projectIDs, AgentIDs: agentIDs,
+	})
+	if err != nil {
+		return apierror.ProjectScoped(err)
+	}
+	for index, agent := range agents {
+		usage := usageTotalsResponse(totals[agent.ID])
+		data[index].Usage = &usage
+	}
+	return nil
 }
 
 func (s strictOpenAPIServer) ListAgentProfiles(
@@ -705,56 +523,94 @@ func (s strictOpenAPIServer) ListAgentProfiles(
 	if err != nil {
 		return nil, err
 	}
-	return s.listAgentProfiles(ctx, request.Params, scope.project)
+	response, err := s.listAgentProfiles(ctx, request.Params, projectListScope(scope.project))
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListAgentProfiles200JSONResponse(response), nil
 }
 
 func (s strictOpenAPIServer) listAgentProfiles(
 	ctx context.Context,
 	params openapi.ListAgentProfilesParams,
-	project identitystore.ProjectRecord,
-) (openapi.ListAgentProfilesResponseObject, error) {
+	scope resourceListScope,
+) (openapi.ListAgentProfilesResponse, error) {
 	limit, err := parseOpenAPIPageLimit(params.Limit)
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.ListAgentProfilesResponse{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	filters := executionstore.AgentProfileListFilters{}
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: params.Name, Sort: optionalString(params.Sort),
 		Cursor: params.Cursor, ListKind: "agent_profiles",
-		Scope: project.OrgID.String() + "/" + project.ID.String(), IDKind: publicid.KindAgentProfile,
+		Scope: scope.key, IDKind: publicid.KindAgentProfile,
 		AllowedSorts: defaultResourceSorts,
 	})
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+		return openapi.ListAgentProfilesResponse{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	page, err := s.server.store.Execution().ListAgentProfilesForProject(
+	page, err := s.server.store.Execution().ListAgentProfilesForProjects(
 		ctx,
-		executionstore.ListAgentProfilesForProjectInput{
-			ProjectID: project.ID, Filters: filters, List: list, Limit: limit,
+		executionstore.ListAgentProfilesForProjectsInput{
+			ProjectIDs: scope.projectIDs, Filters: filters, List: list, Limit: limit,
 		},
 	)
 	if err != nil {
-		return nil, apierror.ProjectScoped(err)
+		return openapi.ListAgentProfilesResponse{}, apierror.ProjectScoped(err)
 	}
-	data := make([]openapi.AgentProfile, 0, len(page.Profiles))
+	data := make([]openapi.AgentProfileSummary, 0, len(page.Profiles))
 	for _, profile := range page.Profiles {
-		response, err := s.server.agentProfileResponseFromRecord(ctx, profile)
+		response, err := s.server.agentProfileSummaryFromRecord(ctx, profile)
 		if err != nil {
-			return nil, err
+			return openapi.ListAgentProfilesResponse{}, err
 		}
 		data = append(data, response)
 	}
+	if valueOrZero(params.IncludeStats) {
+		if err := s.addAgentProfileStats(ctx, page.Profiles, params.StatsSince, data); err != nil {
+			return openapi.ListAgentProfilesResponse{}, err
+		}
+	}
 	nextCursor, err := encodeResourceListNextCursor(
-		page.HasMore, page.Next, list, "agent_profiles",
-		project.OrgID.String()+"/"+project.ID.String(), publicid.KindAgentProfile, nil,
+		page.HasMore, page.Next, list, "agent_profiles", scope.key, publicid.KindAgentProfile, nil,
 	)
 	if err != nil {
-		return nil, err
+		return openapi.ListAgentProfilesResponse{}, err
 	}
-	return openapi.ListAgentProfiles200JSONResponse(openapi.ListAgentProfilesResponse{
-		Data:       data,
-		NextCursor: nullableFromPtr(nextCursor),
-	}), nil
+	return openapi.ListAgentProfilesResponse{Data: data, NextCursor: nullableFromPtr(nextCursor)}, nil
+}
+
+// addAgentProfileStats fills in each listed profile's stats, batched across the
+// page so a list doesn't need a request per profile.
+func (s strictOpenAPIServer) addAgentProfileStats(
+	ctx context.Context,
+	profiles []executionstore.AgentProfileRecord,
+	since *time.Time,
+	data []openapi.AgentProfileSummary,
+) error {
+	projectIDs := make([]uuid.UUID, 0, len(profiles))
+	profileIDs := make([]uuid.UUID, 0, len(profiles))
+	for _, profile := range profiles {
+		if !slices.Contains(projectIDs, profile.ProjectID) {
+			projectIDs = append(projectIDs, profile.ProjectID)
+		}
+		profileIDs = append(profileIDs, profile.ID)
+	}
+	stats, err := s.server.store.Execution().AgentProfileStats(ctx, executionstore.AgentProfileStatsInput{
+		ProjectIDs: projectIDs, AgentProfileIDs: profileIDs,
+		Window: executionstore.UsageWindow{Since: since},
+	})
+	if err != nil {
+		return apierror.ProjectScoped(err)
+	}
+	for index, profile := range profiles {
+		entry := stats[profile.ID]
+		data[index].Stats = &openapi.AgentProfileStats{
+			AgentCount: entry.AgentCount,
+			Usage:      usageTotalsResponse(entry.Usage),
+		}
+	}
+	return nil
 }
 
 func (s strictOpenAPIServer) CreateAgent(
@@ -791,22 +647,32 @@ func (s strictOpenAPIServer) createAgent(
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid profile")
 		}
 	}
-	if request.Body.Config == "" {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "config is required")
-	}
-	configID, ok := parseOpenAPIPublicID(publicid.KindAgentConfig, request.Body.Config)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid config")
+	configID := uuid.Nil
+	if request.Body.Config != nil {
+		configID, ok = parseOpenAPIPublicID(publicid.KindAgentConfig, *request.Body.Config)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid config")
+		}
 	}
 	idempotencyKey := ""
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
 	}
+	configSource := request.Body.ConfigSource
+	if configSource != nil && configID != uuid.Nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "send only one of config or config_source")
+	}
+	if profileID == uuid.Nil && configID == uuid.Nil && configSource == nil {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"one of profile, config, or config_source is required",
+		)
+	}
 	message := ""
 	if request.Body.Message != nil {
 		message = *request.Body.Message
 	}
-	result, err := s.server.store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+	input := executionstore.LaunchAgentInput{
 		ProjectID:      project.ID,
 		ProfileID:      profileID,
 		AgentConfigID:  configID,
@@ -814,7 +680,39 @@ func (s strictOpenAPIServer) createAgent(
 		Name:           request.Body.Name,
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
-	})
+	}
+	// Replay before compiling config_source or resolving integration references, which may have
+	// changed since launch. The kernel repeats this lookup under the launch key lock.
+	if replay, found, err := s.server.store.Execution().GetAgentLaunchReplay(
+		ctx, project.ID, idempotencyKey,
+	); err != nil {
+		return nil, apierror.ProjectScoped(err)
+	} else if found {
+		response, err := currentAgentEnvelope(replay)
+		if err != nil {
+			return nil, err
+		}
+		return openapi.CreateAgent200JSONResponse(response), nil
+	}
+	if configSource != nil {
+		// config_source saves a new config, so it needs the same access as CreateAgentConfig.
+		if err := s.server.authorizeProject(ctx, project.OrgID, project.ID, identitystore.ProjectActionManage); err != nil {
+			return nil, *err
+		}
+		compiled, err := s.server.compileAgentConfigSourceForProject(
+			ctx, project, string(configSource.SourceFormat), configSource.Source,
+		)
+		if err != nil {
+			return nil, agentConfigCompileError(err)
+		}
+		config := compiled.CreateInput(project.ID)
+		input.DerivedConfig = &config
+	}
+	input, err := s.preparePublicAgentLaunch(ctx, project, principal, *request.Body, input)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.server.store.Execution().LaunchAgent(ctx, input)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -863,7 +761,7 @@ func (s strictOpenAPIServer) updateAgentConfig(
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden,
 			"authenticated account principal is required to change an agent config")
 	}
-	compiled, err := s.server.compileAgentConfigBodyForProject(
+	compiled, err := s.server.compileAgentConfigSourceForProject(
 		ctx,
 		project,
 		string(request.Body.SourceFormat),
@@ -964,6 +862,11 @@ func (s *Server) currentAgentResponse(
 	ctx context.Context,
 	record executionstore.AgentRecord,
 ) (openapi.GetAgentResponse, error) {
+	activity, err := s.store.Execution().GetAgentActivity(ctx, record.ProjectID, record.ID)
+	if err != nil {
+		return openapi.GetAgentResponse{}, apierror.ProjectScoped(err)
+	}
+	record.Activity = &activity
 	agent, err := publicAgentResponseFromRecord(record)
 	if err != nil {
 		return openapi.GetAgentResponse{}, err
@@ -1067,7 +970,7 @@ func publicAgentMachineBindingResponse(
 		return openapi.AgentMachineBinding{}, err
 	}
 	var secretEnvOverlay map[string]*openapi.SecretID
-	if err := json.Unmarshal(record.SecretEnvOverlay, &secretEnvOverlay); err != nil {
+	if err := publicSecretIDs(record.SecretEnvOverlay, &secretEnvOverlay); err != nil {
 		return openapi.AgentMachineBinding{}, err
 	}
 	return openapi.AgentMachineBinding{
@@ -1086,31 +989,84 @@ func publicAgentMachineBindingResponse(
 	}, nil
 }
 
+func (s *Server) agentConfigResponseFromRecord(
+	ctx context.Context,
+	record executionstore.AgentConfigRecord,
+) (openapi.AgentConfig, error) {
+	summary, err := s.agentConfigSummaryFromRecord(ctx, record)
+	if err != nil {
+		return openapi.AgentConfig{}, err
+	}
+	return agentConfigDetailResponse(summary, record.CompiledDefinition)
+}
+
+func agentConfigDetailResponse(
+	summary openapi.AgentConfigSummary,
+	compiled json.RawMessage,
+) (openapi.AgentConfig, error) {
+	definition, err := publicCompiledDefinition(compiled)
+	if err != nil {
+		return openapi.AgentConfig{}, err
+	}
+	return openapi.AgentConfig{
+		Id:                      summary.Id,
+		OrgId:                   summary.OrgId,
+		ProjectId:               summary.ProjectId,
+		Source:                  summary.Source,
+		SourceFormat:            (*openapi.AgentConfigSourceFormat)(summary.SourceFormat),
+		EffectiveDefinitionHash: summary.EffectiveDefinitionHash,
+		Model:                   summary.Model,
+		InstructionHash:         summary.InstructionHash,
+		CreatedAt:               summary.CreatedAt,
+		CompiledDefinition:      definition,
+	}, nil
+}
+
 func (s *Server) agentProfileResponseFromRecord(
 	ctx context.Context,
 	record executionstore.AgentProfileRecord,
 ) (openapi.AgentProfile, error) {
-	id, err := publicID(publicid.KindAgentProfile, record.ID)
+	summary, err := s.agentProfileSummaryFromRecord(ctx, record)
 	if err != nil {
 		return openapi.AgentProfile{}, err
 	}
-	orgID, err := publicID(publicid.KindOrganization, record.OrgID)
-	if err != nil {
-		return openapi.AgentProfile{}, err
-	}
-	projectID, err := publicID(publicid.KindProject, record.ProjectID)
-	if err != nil {
-		return openapi.AgentProfile{}, err
-	}
-	currentConfigID, err := publicID(publicid.KindAgentConfig, record.CurrentConfigID)
-	if err != nil {
-		return openapi.AgentProfile{}, err
-	}
-	currentConfig, err := s.agentConfigResponseFromRecord(ctx, record.CurrentConfig)
+	config, err := agentConfigDetailResponse(summary.CurrentConfig, record.CurrentConfig.CompiledDefinition)
 	if err != nil {
 		return openapi.AgentProfile{}, err
 	}
 	return openapi.AgentProfile{
+		Id: summary.Id, OrgId: summary.OrgId, ProjectId: summary.ProjectId,
+		Name: summary.Name, CurrentConfigId: summary.CurrentConfigId,
+		CurrentGeneration: summary.CurrentGeneration, CurrentConfig: config,
+		CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt,
+	}, nil
+}
+
+func (s *Server) agentProfileSummaryFromRecord(
+	ctx context.Context,
+	record executionstore.AgentProfileRecord,
+) (openapi.AgentProfileSummary, error) {
+	id, err := publicID(publicid.KindAgentProfile, record.ID)
+	if err != nil {
+		return openapi.AgentProfileSummary{}, err
+	}
+	orgID, err := publicID(publicid.KindOrganization, record.OrgID)
+	if err != nil {
+		return openapi.AgentProfileSummary{}, err
+	}
+	projectID, err := publicID(publicid.KindProject, record.ProjectID)
+	if err != nil {
+		return openapi.AgentProfileSummary{}, err
+	}
+	currentConfigID, err := publicID(publicid.KindAgentConfig, record.CurrentConfigID)
+	if err != nil {
+		return openapi.AgentProfileSummary{}, err
+	}
+	currentConfig, err := s.agentConfigSummaryFromRecord(ctx, record.CurrentConfig)
+	if err != nil {
+		return openapi.AgentProfileSummary{}, err
+	}
+	return openapi.AgentProfileSummary{
 		Id:                id,
 		OrgId:             orgID,
 		ProjectId:         projectID,
@@ -1123,23 +1079,23 @@ func (s *Server) agentProfileResponseFromRecord(
 	}, nil
 }
 
-func (s *Server) agentConfigResponseFromRecord(
+func (s *Server) agentConfigSummaryFromRecord(
 	ctx context.Context,
 	record executionstore.AgentConfigRecord,
-) (openapi.AgentConfig, error) {
+) (openapi.AgentConfigSummary, error) {
 	id, err := publicID(publicid.KindAgentConfig, record.ID)
 	if err != nil {
-		return openapi.AgentConfig{}, err
+		return openapi.AgentConfigSummary{}, err
 	}
 	orgID, err := publicID(publicid.KindOrganization, record.OrgID)
 	if err != nil {
-		return openapi.AgentConfig{}, err
+		return openapi.AgentConfigSummary{}, err
 	}
 	projectID, err := publicID(publicid.KindProject, record.ProjectID)
 	if err != nil {
-		return openapi.AgentConfig{}, err
+		return openapi.AgentConfigSummary{}, err
 	}
-	response := openapi.AgentConfig{
+	response := openapi.AgentConfigSummary{
 		Id:                      id,
 		OrgId:                   orgID,
 		ProjectId:               projectID,
@@ -1151,24 +1107,19 @@ func (s *Server) agentConfigResponseFromRecord(
 		response.Source = &source
 	}
 	if record.SourceFormat != "" {
-		sourceFormat := openapi.AgentConfigSourceFormat(record.SourceFormat)
+		sourceFormat := openapi.AgentConfigSummarySourceFormat(record.SourceFormat)
 		response.SourceFormat = &sourceFormat
-	}
-	if record.CompilerVersion != "" {
-		compilerVersion := record.CompilerVersion
-		response.CompilerVersion = &compilerVersion
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		record.CompiledDefinition,
-		record.CompilerVersion,
 		record.EffectiveDefinitionHash,
 	)
 	if err != nil {
-		return openapi.AgentConfig{}, err
+		return openapi.AgentConfigSummary{}, err
 	}
 	configuredModel, err := s.store.Models().GetConfiguredModelDisplay(ctx, record.OrgID, record.ConfiguredModelID)
 	if err != nil {
-		return openapi.AgentConfig{}, err
+		return openapi.AgentConfigSummary{}, err
 	}
 	revision, err := s.store.Models().GetConfiguredModelRevisionDisplay(
 		ctx,
@@ -1176,19 +1127,19 @@ func (s *Server) agentConfigResponseFromRecord(
 		configuredModel.CurrentRevisionID,
 	)
 	if err != nil {
-		return openapi.AgentConfig{}, err
+		return openapi.AgentConfigSummary{}, err
 	}
 	effectiveModel, err := s.agentConfigEffectiveModel(ctx, record, configuredModel, revision, contract.Model)
 	if err != nil {
-		return openapi.AgentConfig{}, err
+		return openapi.AgentConfigSummary{}, err
 	}
 	configuredModelID, err := publicID(publicid.KindConfiguredModel, record.ConfiguredModelID)
 	if err != nil {
-		return openapi.AgentConfig{}, err
+		return openapi.AgentConfigSummary{}, err
 	}
 	configuredModelRevisionID, err := publicID(publicid.KindConfiguredModelRevision, revision.ID)
 	if err != nil {
-		return openapi.AgentConfig{}, err
+		return openapi.AgentConfigSummary{}, err
 	}
 	response.Model = openapi.AgentConfigModel{
 		ProviderConfig:         revision.ProviderConfigName,
@@ -1266,16 +1217,46 @@ func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, 
 	}
 }
 
-func (s *Server) compileAgentConfigBodyForProject(
+// agentConfigSourceInput resolves a request's source and source_format into compiler input.
+func agentConfigSourceInput(
+	sourceFormatRaw string,
+	source json.RawMessage,
+) (agentconfig.SourceFormat, string, error) {
+	sourceFormat, err := agentConfigSourceFormatFromString(sourceFormatRaw)
+	if err != nil {
+		return "", "", err
+	}
+	trimmed := bytes.TrimSpace(source)
+	switch {
+	case len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")):
+		return "", "", errors.New("source is required")
+	case trimmed[0] == '"':
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err != nil {
+			return "", "", fmt.Errorf("source must be a string or JSON object: %w", err)
+		}
+		return sourceFormat, text, nil
+	case trimmed[0] == '{':
+		if sourceFormat != agentconfig.SourceFormatJSON {
+			return "", "", errors.New("a JSON object source requires source_format json")
+		}
+		return sourceFormat, string(trimmed), nil
+	default:
+		return "", "", errors.New("source must be a string or JSON object")
+	}
+}
+
+func (s *Server) compileAgentConfigSourceForProject(
 	ctx context.Context,
 	project identitystore.ProjectRecord,
-	sourceFormatRaw, source string,
+	sourceFormatRaw string,
+	rawSource json.RawMessage,
 ) (agentconfigcompile.Body, error) {
-	sourceFormat, err := agentConfigSourceFormatFromString(sourceFormatRaw)
+	sourceFormat, source, err := agentConfigSourceInput(sourceFormatRaw, rawSource)
 	if err != nil {
 		return agentconfigcompile.Body{}, err
 	}
-	body, err := agentconfigcompile.Compile(
+	return agentconfigcompile.Compile(
 		ctx,
 		s.store,
 		project.OrgID,
@@ -1284,10 +1265,6 @@ func (s *Server) compileAgentConfigBodyForProject(
 		sourceFormat,
 		source,
 	)
-	if err != nil {
-		return agentconfigcompile.Body{}, err
-	}
-	return body, nil
 }
 
 func agentConfigCompileError(err error) apierror.ResponseError {

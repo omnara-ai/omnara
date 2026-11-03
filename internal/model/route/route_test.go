@@ -12,10 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 type fakeProtocol struct {

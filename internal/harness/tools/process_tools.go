@@ -18,9 +18,15 @@ import (
 )
 
 type writeProcessRequest struct {
-	ProcessID  string  `json:"process_id"`
-	Data       *string `json:"data,omitempty"`
-	CloseStdin *bool   `json:"close_stdin,omitempty"`
+	ProcessID string `json:"process_id"`
+	Data      string `json:"data"`
+}
+
+type watchProcessRequest struct {
+	ProcessID      string `json:"process_id"`
+	Pattern        string `json:"pattern"`
+	TimeoutSeconds *int   `json:"timeout_seconds,omitempty"`
+	OffsetByte     *int64 `json:"offset_byte,omitempty"`
 }
 
 type stopProcessRequest struct {
@@ -51,11 +57,10 @@ const (
 )
 
 type processObservationRequest struct {
-	ProcessID string                 `json:"process_id,omitempty"`
-	Mode      processObservationMode `json:"mode"`
-	Cursor    *int64                 `json:"cursor,omitempty"`
-	MaxBytes  int                    `json:"max_bytes,omitempty"`
-	WaitMS    int                    `json:"wait_ms,omitempty"`
+	ProcessID  string                 `json:"process_id,omitempty"`
+	Mode       processObservationMode `json:"mode"`
+	OffsetByte *int64                 `json:"offset_byte,omitempty"`
+	WaitMS     int                    `json:"wait_ms,omitempty"`
 }
 
 func runCommandAuthorizationInput(
@@ -153,9 +158,7 @@ func runCommand(
 		return nil, err
 	}
 	return startProcessTool(ctx, call, binding, authorizationInput, executionstore.CreateProcessInput{
-		IOMode:         resolved.IOMode,
-		Command:        resolved.Command,
-		ShellSelector:  resolved.Selector,
+		ExecutionSpec:  resolved.executionSpec(),
 		Cwd:            resolved.Cwd,
 		InitialWaitMS:  resolved.WaitMs,
 		TimeoutSeconds: 0,
@@ -253,6 +256,13 @@ func processToolMachineResolutionError(
 	return failInTransaction(unavailable.Content, unavailable.Cause), nil
 }
 
+func processHasNoStdin(execution executionstore.ProcessExecution) bool {
+	if execution.Spec.Shell == nil || !execution.Spec.Shell.NoStdin {
+		return false
+	}
+	return execution.SupervisorSupports(processaction.OutputWindowDaemonVersion)
+}
+
 func validateRunCommandInput(input json.RawMessage) error {
 	_, err := resolveRunCommandRequest(input)
 	return err
@@ -265,6 +275,23 @@ func writeProcess(
 	processID, payload, err := writeProcessPayload(call.Call.Input)
 	if err != nil {
 		return nil, err
+	}
+	if id, err := decodeProcessID(processID); err == nil {
+		execution, found, err := call.Reader.ProcessExecution(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if found && processHasNoStdin(execution) {
+			return failProcessTransaction(
+				errors.New("process has no stdin"),
+				processToolErrorNoStdin,
+				"this command has no stdin; run it again with io_mode: pty to write to it",
+				false,
+				processID,
+				"",
+				"",
+			)
+		}
 	}
 	authorizationInput, err := processActionAuthorizationRequest(
 		processID,
@@ -279,6 +306,51 @@ func writeProcess(
 		call,
 		processID,
 		executionstore.ProcessActionKindWrite,
+		payload,
+		authorizationInput,
+		executionstore.CreateProcessActionForToolCall,
+	)
+}
+
+func watchProcess(
+	ctx context.Context,
+	call transactionalToolContext,
+) (transactionalPhaseResult, error) {
+	processID, payload, err := watchProcessPayload(call.Call.Input)
+	if err != nil {
+		return nil, err
+	}
+	if id, err := decodeProcessID(processID); err == nil {
+		execution, found, err := call.Reader.ProcessExecution(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if found && !execution.SupervisorSupports(processaction.WatchDaemonVersion) {
+			return failProcessTransaction(
+				errors.New("daemon does not support watch_process"),
+				processToolErrorActionUnavailable,
+				"watch_process needs omnarad "+processaction.WatchDaemonVersion+
+					" or later on this machine; use read_process with wait_ms instead",
+				false,
+				processID,
+				"",
+				"",
+			)
+		}
+	}
+	authorizationInput, err := processActionAuthorizationRequest(
+		processID,
+		executionstore.ProcessActionKindWatch,
+		payload,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return createProcessAction(
+		ctx,
+		call,
+		processID,
+		executionstore.ProcessActionKindWatch,
 		payload,
 		authorizationInput,
 		executionstore.CreateProcessActionForToolCall,
@@ -374,7 +446,17 @@ func observeProcess(
 		}
 		return completeInTransaction(content), nil
 	}
-	payload, err := processObservationActionPayload(request)
+	var wait processaction.OutputWait
+	if id, err := decodeProcessID(request.ProcessID); err == nil && request.OffsetByte == nil {
+		execution, found, err := call.Reader.ProcessExecution(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			wait, _ = execution.Spec.AgentOutputWait()
+		}
+	}
+	payload, err := processObservationActionPayload(request, wait)
 	if err != nil {
 		return nil, fmt.Errorf("marshal process observation payload: %w", err)
 	}
@@ -391,11 +473,13 @@ func observeProcess(
 
 func processObservationActionPayload(
 	request processObservationRequest,
+	wait processaction.OutputWait,
 ) (json.RawMessage, error) {
 	return marshalJSON(processaction.ReadPayload{
-		Cursor:   request.Cursor,
-		MaxBytes: request.MaxBytes,
-		WaitMS:   request.WaitMS,
+		Cursor:     request.OffsetByte,
+		MaxBytes:   processaction.AgentOutputBytes,
+		WaitMS:     request.WaitMS,
+		OutputWait: wait,
 	})
 }
 
@@ -466,10 +550,14 @@ func createProcessAction(
 				)
 			}
 			if errors.Is(err, storeerr.ErrProcessTerminal) {
+				message := "process is already terminal"
+				if errors.Is(err, executionstore.ErrProcessMachineDeleted) {
+					message = "process output is unavailable because its machine is deleted or being deleted"
+				}
 				return failProcessTransaction(
 					err,
 					processToolErrorTerminal,
-					"process is already terminal",
+					message,
 					false,
 					processID,
 					"",
@@ -560,6 +648,7 @@ const (
 	processToolErrorTerminating                processToolErrorCode = "process_terminating"
 	processToolErrorActionUnavailable          processToolErrorCode = "process_action_unavailable"
 	processToolErrorNotFound                   processToolErrorCode = "process_not_found"
+	processToolErrorNoStdin                    processToolErrorCode = "process_stdin_unavailable"
 	processToolNextActionList                                       = toolcatalog.ToolNameListProcesses
 )
 
@@ -573,7 +662,6 @@ func processToolError(
 ) (toolResultContent, error) {
 	result := struct {
 		ErrorCode  processToolErrorCode        `json:"error_code"`
-		Message    string                      `json:"message"`
 		Error      string                      `json:"error"`
 		Retryable  bool                        `json:"retryable"`
 		ProcessID  string                      `json:"process_id,omitempty"`
@@ -581,7 +669,6 @@ func processToolError(
 		NextAction string                      `json:"next_action,omitempty"`
 	}{
 		ErrorCode:  code,
-		Message:    message,
 		Error:      message,
 		Retryable:  retryable,
 		ProcessID:  processID,
@@ -633,7 +720,7 @@ func processListObservations(records []executionstore.ActiveProcessRecord) []pro
 		item := processListObservation{
 			ProcessID:    processHandle,
 			State:        record.State,
-			CommandLabel: processcmd.CommandLabel(record.Command),
+			CommandLabel: record.ExecutionSpec.Label(),
 			Cwd:          record.Cwd,
 			UpdatedAt:    record.UpdatedAt.UTC().Format(timeRFC3339Nano),
 		}
@@ -681,30 +768,57 @@ func writeProcessPayload(
 	if input.ProcessID == "" {
 		return "", nil, errors.New("write_process requires process_id")
 	}
-	closeStdin := input.CloseStdin != nil && *input.CloseStdin
-	if (input.Data == nil || *input.Data == "") && !closeStdin {
-		return "", nil, errors.New(
-			"write_process requires non-empty data or close_stdin=true",
-		)
+	if input.Data == "" {
+		return "", nil, errors.New("write_process requires non-empty data")
 	}
-	if input.Data != nil && len(*input.Data) > processaction.MaxWriteBytes {
+	if len(input.Data) > processaction.MaxWriteBytes {
 		return "", nil, fmt.Errorf(
 			"write_process data cannot exceed %d bytes",
 			processaction.MaxWriteBytes,
 		)
 	}
-	payloadBody := processaction.WritePayload{}
-	if input.Data != nil && *input.Data != "" {
-		payloadBody.Data = *input.Data
-	}
-	if closeStdin {
-		payloadBody.CloseStdin = true
-	}
-	payload, err := marshalJSON(payloadBody)
+	payload, err := marshalJSON(processaction.WritePayload{Data: input.Data})
 	if err != nil {
 		return "", nil, fmt.Errorf("marshal write_process payload: %w", err)
 	}
 	return input.ProcessID, payload, nil
+}
+
+func watchProcessPayload(
+	raw json.RawMessage,
+) (string, json.RawMessage, error) {
+	var input watchProcessRequest
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return "", nil, fmt.Errorf("parse watch_process request: %w", err)
+	}
+	for key, value := range fields {
+		if string(value) == "null" {
+			return "", nil, fmt.Errorf("watch_process field %s cannot be null", key)
+		}
+	}
+	if err := decodeSingleStrictJSON(raw, &input, "watch_process request"); err != nil {
+		return "", nil, fmt.Errorf("parse watch_process request: %w", err)
+	}
+	if input.ProcessID == "" {
+		return "", nil, errors.New("watch_process requires process_id")
+	}
+	payload := processaction.WatchPayload{
+		Pattern:        input.Pattern,
+		TimeoutSeconds: processaction.DefaultWatchSeconds,
+		Cursor:         input.OffsetByte,
+	}
+	if input.TimeoutSeconds != nil {
+		payload.TimeoutSeconds = *input.TimeoutSeconds
+	}
+	body, err := marshalJSON(payload)
+	if err != nil {
+		return "", nil, fmt.Errorf("marshal watch_process payload: %w", err)
+	}
+	if _, err := processaction.DecodeWatchPayload(body); err != nil {
+		return "", nil, fmt.Errorf("watch_process %w", err)
+	}
+	return input.ProcessID, body, nil
 }
 
 func resolveProcessObservationRequest(
@@ -729,10 +843,9 @@ func resolveProcessObservationRequest(
 		return processObservationRequest{Mode: mode}, nil
 	}
 	var parsed struct {
-		ProcessID string `json:"process_id,omitempty"`
-		Cursor    *int64 `json:"cursor,omitempty"`
-		MaxBytes  *int   `json:"max_bytes,omitempty"`
-		WaitMs    *int   `json:"wait_ms,omitempty"`
+		ProcessID  string `json:"process_id,omitempty"`
+		OffsetByte *int64 `json:"offset_byte,omitempty"`
+		WaitMs     *int   `json:"wait_ms,omitempty"`
 	}
 	if len(raw) != 0 {
 		var fields map[string]json.RawMessage
@@ -761,24 +874,12 @@ func resolveProcessObservationRequest(
 		}
 	}
 	input := processObservationRequest{ProcessID: parsed.ProcessID, Mode: mode}
-	if parsed.Cursor != nil {
-		if *parsed.Cursor < 0 {
-			return input, errors.New("cursor must be non-negative")
+	if parsed.OffsetByte != nil {
+		if *parsed.OffsetByte < 0 {
+			return input, errors.New("offset_byte must be non-negative")
 		}
-		cursor := *parsed.Cursor
-		input.Cursor = &cursor
-	}
-	if parsed.MaxBytes != nil {
-		if *parsed.MaxBytes <= 0 {
-			return input, errors.New("max_bytes must be positive")
-		}
-		if *parsed.MaxBytes > processaction.MaxObservationBytes {
-			return input, fmt.Errorf(
-				"max_bytes must be <= %d",
-				processaction.MaxObservationBytes,
-			)
-		}
-		input.MaxBytes = *parsed.MaxBytes
+		offset := *parsed.OffsetByte
+		input.OffsetByte = &offset
 	}
 	if parsed.WaitMs != nil {
 		if *parsed.WaitMs <= 0 {

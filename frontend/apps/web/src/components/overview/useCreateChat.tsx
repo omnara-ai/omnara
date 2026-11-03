@@ -1,5 +1,5 @@
 import { useCreateAgent } from '@omnara/react'
-import type { AgentProfile, VisibleProject } from '@omnara/sdk'
+import type { AgentProfileSummary, VisibleProject } from '@omnara/sdk'
 import { type ReactNode, useState } from 'react'
 
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
@@ -16,7 +16,7 @@ export interface ChatRun {
 export function useCreateChat(
   orgId: string,
   project: VisibleProject,
-  profile: AgentProfile | undefined,
+  profile: AgentProfileSummary | undefined,
 ) {
   const createAgent = useCreateAgent(orgId, project.id)
   const { data: webConfig } = useWebConfig()
@@ -28,7 +28,6 @@ export function useCreateChat(
     try {
       await createAgent.mutateAsync({
         profile: profile.id,
-        config: profile.current_config_id,
         message,
       })
     } catch (err) {

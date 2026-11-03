@@ -128,6 +128,10 @@ linters:
     errcheck:
       check-type-assertions: false
     gomoddirectives:
+      # The root module builds against the in-repo observability module.
+      replace-local: true
+      replace-allow-list:
+        - github.com/omnara-ai/omnara/observability
       exclude-forbidden: true
       ignore-forbidden: true
       toolchain-forbidden: true
@@ -137,6 +141,13 @@ linters:
   exclusions:
     generated: disable
     rules:
+      - path: internal/storage/internal/agentexecution/internal/executiondb/batch\.go
+        linters:
+          - intrange
+      - path: internal/storage/internal/(storeutil/pool|agentexecution/database)\.go
+        source: '(\.Query\(ctx, (sql|query), args\.\.\.\)|b\.BatchResults\.Query\(\))'
+        linters:
+          - rowserrcheck
       # oapi-codegen's oneOf wrappers intentionally mix value accessors with
       # pointer mutation methods; the generated file is not hand-editable.
       - path: internal/httpapi/openapi/api\.gen\.go
@@ -172,7 +183,7 @@ linters:
       - linters:
           - lll
         source: '^\s*\)\.[A-Za-z]'
-      - path: (internal/storage/internal/dbsqlc/|internal/machinedaemon/statedb/internal/dbsqlc/)
+      - path: (internal/storage/internal/dbsqlc/|internal/storage/internal/agentexecution/internal/executiondb/|internal/machinedaemon/statedb/internal/dbsqlc/)
         linters:
           - errcheck
           - govet
@@ -185,6 +196,16 @@ linters:
           - lll
           - misspell
           - usestdlibvars
+      # protoc-gen-go output for the boxd provider's gRPC bindings.
+      - path: internal/machinepool/providers/boxd/boxdv1/
+        linters:
+          - errcheck
+          - forcetypeassert
+          - lll
+          - misspell
+          - recvcheck
+          - staticcheck
+          - unused
       - path: _test\.go
         linters:
           - errcheck

@@ -17,95 +17,34 @@ func budgetFixtureJSON(t testing.TB, value any) json.RawMessage {
 	return body
 }
 
-func TestEstimatePreparedRequestCountsProtocolFramingWithoutChargingBase64AsText(t *testing.T) {
-	data := bytes.Repeat([]byte("image-bytes"), 8_192)
-	encoded := base64.StdEncoding.EncodeToString(data)
-	body := budgetFixtureJSON(t, map[string]any{
-		"model": "test-model",
-		"input": []map[string]string{
-			{"type": "input_image", "image_url": "data:image/png;base64," + encoded},
-			{"type": "input_image", "image_url": "data:image/png;base64," + encoded},
-		},
-		"tools": []map[string]any{{
-			"name": "read_file",
-			"parameters": map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"path": map[string]string{"type": "string"}},
-			},
-		}},
-	})
-	media := ResolvedMedia{
-		Kind:      AttachmentKindImage,
-		MediaType: "image/png",
-		SizeBytes: int64(len(data)),
-		Data:      data,
-	}
-	estimate := EstimatePreparedRequest(body, []RenderedMedia{
-		{Media: media, Representation: MediaRepresentationInline},
-		{Media: media, Representation: MediaRepresentationInline},
-	})
-	if estimate < 2*DefaultImageTokenEstimate {
-		t.Fatalf("prepared request estimate = %d, want both image occurrences charged", estimate)
-	}
-	if estimate >= len(body)/4 {
-		t.Fatalf("prepared request estimate = %d, raw base64 byte estimate = %d", estimate, len(body)/4)
-	}
-}
-
-func TestPreparedRequestBudgetRemovesOnlyStructuredMediaFields(t *testing.T) {
+func TestPreparedRequestBudgetChargesLiteralTextAndMediaFallback(t *testing.T) {
 	data := bytes.Repeat([]byte("same-as-user-text"), 512)
 	encoded := base64.StdEncoding.EncodeToString(data)
-	body := budgetFixtureJSON(t, map[string]any{
-		"input": []map[string]any{
-			{"type": "input_text", "text": encoded},
-			{"type": "input_image", "image_url": "data:image/png;base64," + encoded},
-		},
-	})
-	media := []RenderedMedia{{
-		Media: ResolvedMedia{
-			Kind:      AttachmentKindImage,
-			MediaType: "image/png",
-			SizeBytes: int64(len(data)),
-			Data:      data,
-		},
-		Representation: MediaRepresentationInline,
-	}}
-	projected := projectPreparedRequest(body, media)
-	if !bytes.Contains(projected, []byte(encoded)) {
-		t.Fatalf("ordinary user text matching media base64 was removed: %s", projected)
-	}
-	if bytes.Contains(projected, []byte("data:image/png;base64,"+encoded)) {
-		t.Fatalf("structured inline media payload remains in estimate projection: %s", projected)
-	}
-	if estimate := EstimatePreparedRequest(body, media); estimate <= len(encoded)/4 {
-		t.Fatalf("estimate = %d, want matching user text to remain charged", estimate)
-	}
-}
-
-func TestPreparedRequestBudgetRemovesChatFileData(t *testing.T) {
-	data := bytes.Repeat([]byte("pdf-bytes"), 8_192)
-	encoded := base64.StdEncoding.EncodeToString(data)
-	body := budgetFixtureJSON(t, map[string]any{
-		"messages": []map[string]any{{
-			"content": []map[string]any{{
-				"type": "file",
-				"file": map[string]string{
-					"filename":  "report.pdf",
-					"file_data": "data:application/pdf;base64," + encoded,
-				},
-			}},
-		}},
-	})
-	media := []RenderedMedia{{
-		Media: ResolvedMedia{
-			Kind:      AttachmentKindDocument,
-			MediaType: "application/pdf",
-			Data:      data,
-		},
-		Representation: MediaRepresentationInline,
-	}}
-	if estimate := EstimatePreparedRequest(body, media); estimate >= len(body)/4 {
-		t.Fatalf("estimate = %d, raw base64 byte estimate = %d", estimate, len(body)/4)
+	for _, tc := range []struct {
+		kind   string
+		block  any
+		tokens int
+	}{
+		{AttachmentKindImage, map[string]any{
+			"type": "image_url", "image_url": map[string]string{"url": "data:image/png;base64," + encoded},
+		}, DefaultImageTokenEstimate},
+		{AttachmentKindDocument, map[string]any{
+			"type": "file", "file": map[string]string{"file_data": "data:application/pdf;base64," + encoded},
+		}, DefaultBinaryDocumentTokenEstimate},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			body := budgetFixtureJSON(t, map[string]any{"messages": []map[string]any{{
+				"role": "user", "content": []any{map[string]string{"type": "text", "text": encoded}, tc.block},
+			}}})
+			media := []RenderedMedia{{
+				Representation: MediaRepresentationInline, Media: ResolvedMedia{Kind: tc.kind, Data: data},
+			}}
+			estimate := EstimatePreparedRequest(body, media)
+			minimum := len(encoded)/4 + tc.tokens
+			if estimate < minimum || estimate >= minimum+200 {
+				t.Fatalf("estimate = %d, want literal text plus %d media tokens and framing", estimate, tc.tokens)
+			}
+		})
 	}
 }
 
@@ -146,8 +85,19 @@ func TestEstimatePreparedRequestExcludesDeferredToolsUntilReferenced(t *testing.
 func TestEstimatePreparedRequestDoesNotInferAbsentMedia(t *testing.T) {
 	body := budgetFixtureJSON(t, map[string]any{"input": "small textual fallback"})
 	withNoRenderedMedia := EstimatePreparedRequest(body, nil)
-	if want := len(body)/4 + 1; withNoRenderedMedia != want {
+	if want := (len(body) + 3) / 4; withNoRenderedMedia != want {
 		t.Fatalf("estimate = %d, want body-only estimate %d", withNoRenderedMedia, want)
+	}
+}
+
+func TestEstimatePreparedRequestAccountsForDenseScripts(t *testing.T) {
+	for _, text := range []string{"你好世界", "안녕하세요", "こんにちは", "カタカナ"} {
+		t.Run(text, func(t *testing.T) {
+			body := budgetFixtureJSON(t, map[string]string{"input": strings.Repeat(text, 1_000)})
+			if got, minimum := EstimatePreparedRequest(body, nil), len([]rune(text))*1_000; got < minimum {
+				t.Fatalf("estimate = %d, want at least %d for dense text", got, minimum)
+			}
+		})
 	}
 }
 
@@ -159,5 +109,59 @@ func TestModelWindowComputesExactUsableInputBoundary(t *testing.T) {
 	}
 	if got := window.UsableInputTokens(); got != 7_000 {
 		t.Fatalf("usable input = %d, want 7000", got)
+	}
+}
+
+func TestEstimatePreparedRequestCountsOnlyPresentMediaInBodiesAndSuffixes(t *testing.T) {
+	data := bytes.Repeat([]byte("inline-image"), 512)
+	encoded := base64.StdEncoding.EncodeToString(data)
+	media := []RenderedMedia{
+		{Representation: MediaRepresentationInline, TokenEstimate: 900,
+			Media: ResolvedMedia{Kind: AttachmentKindImage, Data: data}},
+		{Representation: MediaRepresentationInline, TokenEstimate: 900,
+			Media: ResolvedMedia{Kind: AttachmentKindImage, Data: data}},
+		{Representation: MediaRepresentationInline, TokenEstimate: 900,
+			Media: ResolvedMedia{Kind: AttachmentKindImage, Data: []byte("absent image")}},
+	}
+	for _, tc := range []struct{ key, item string }{
+		{"messages", `{"role":"user","content":[{"type":"image",` +
+			`"source":{"type":"base64","data":"` + encoded + `"}}]}`},
+		{"messages", `{"role":"user","content":[{"type":"tool_result","content":[{"type":"document",` +
+			`"source":{"type":"base64","data":"` + encoded + `"}}]}]}`},
+		{"input", `{"type":"function_call_output","output":[{"type":"input_image",` +
+			`"image_url":"data:image/png;base64,` + encoded + `"}]}`},
+		{"messages", `{"role":"user","content":[{"type":"image_url",` +
+			`"image_url":{"url":"data:image/png;base64,` + encoded + `"}}]}`},
+		{"input", `{"role":"user","content":[{"type":"input_file",` +
+			`"file_data":"data:application/pdf;base64,` + encoded + `"}]}`},
+		{"messages", `{"role":"user","content":[{"type":"file",` +
+			`"file":{"file_data":"data:application/pdf;base64,` + encoded + `"}}]}`},
+	} {
+		for count := 1; count <= 2; count++ {
+			items := "[" + strings.TrimSuffix(strings.Repeat(tc.item+",", count), ",") + "]"
+			for _, body := range []string{items, `{"` + tc.key + `":` + items + `}`} {
+				estimate := EstimatePreparedRequest(json.RawMessage(body), media)
+				if estimate < count*900 || estimate >= count*900+200 {
+					t.Fatalf("estimate = %d, want %d media occurrences plus framing", estimate, count)
+				}
+			}
+		}
+	}
+	for _, item := range []string{
+		`{"role":"user","content":"` + encoded + `"}`,
+		`{"role":"user","content":[{"type":"text","text":"data:image/png;base64,` + encoded + `"}]}`,
+		`{"role":"assistant","tool_calls":[{"function":{"arguments":{"type":"image_url",` +
+			`"image_url":{"url":"data:image/png;base64,` + encoded + `"}}}}]}`,
+		`{"role":"assistant","content":[{"type":"tool_use","input":{"type":"image",` +
+			`"source":{"type":"base64","data":"` + encoded + `"}}}]}`,
+	} {
+		items := "[" + item + "]"
+		for _, body := range []string{items, `{"messages":` + items + `}`, `{"tools":` + items + `}`} {
+			withMedia := EstimatePreparedRequest(json.RawMessage(body), media)
+			withoutMedia := EstimatePreparedRequest(json.RawMessage(body), nil)
+			if withMedia != withoutMedia {
+				t.Fatalf("ordinary text or tool input changed media estimate: %d != %d", withMedia, withoutMedia)
+			}
+		}
 	}
 }

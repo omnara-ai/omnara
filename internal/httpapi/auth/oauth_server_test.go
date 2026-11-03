@@ -29,14 +29,14 @@ func TestOAuthRateLimitErrors(t *testing.T) {
 		{
 			name:          "device authorization rate limit",
 			tokenEndpoint: false,
-			limiter:       oauthTestLimiter{err: errRateLimited},
+			limiter:       oauthTestLimiter{err: ErrRateLimited},
 			wantStatus:    http.StatusTooManyRequests,
 			wantCode:      "temporarily_unavailable",
 		},
 		{
 			name:          "token polling rate limit",
 			tokenEndpoint: true,
-			limiter:       oauthTestLimiter{err: errRateLimited},
+			limiter:       oauthTestLimiter{err: ErrRateLimited},
 			wantStatus:    http.StatusBadRequest,
 			wantCode:      "slow_down",
 		},

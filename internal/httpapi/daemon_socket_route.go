@@ -125,7 +125,6 @@ func (s *Server) socketMachineDaemonRuntime(
 	}
 	wire := daemonprotocol.NewBackendSocket(conn, daemonVersion)
 	socket := newDaemonSocket(s, wire, connectionID, orgID, machineID, runtimeID, tokenID, !online)
-	s.daemonHub.register(socket)
 	socket.run(r.Context())
 }
 

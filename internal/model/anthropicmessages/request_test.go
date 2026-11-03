@@ -223,7 +223,11 @@ func TestPreparePassesThroughContextMessageRoles(t *testing.T) {
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
 		Context: modelcontext.Bundle{Messages: []modelcontext.Message{
 			{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
-			{Sequence: 2, Role: modelprotocol.RoleAssistant, Content: json.RawMessage(`[{"type":"text","text":"hello"}]`)},
+			{
+				Sequence: 2,
+				Role:     modelprotocol.RoleAssistant,
+				Content:  json.RawMessage(`[{"type":"text","text":"hello"}]`),
+			},
 		}},
 		Policy: model.RequestPolicy{MaxOutputTokens: 64},
 	})
@@ -289,7 +293,9 @@ func TestPreparePreservesCanonicalToolResultContent(t *testing.T) {
 					Outcome:            executionstore.ToolResultOutcomeSucceeded,
 					ContentParts: json.RawMessage(
 						`[{"type":"structured_data","value":{"outcome":"succeeded"}},{"type":"structured_data","value":` +
-							string(canonicalValue) + `}]`,
+							string(
+								canonicalValue,
+							) + `}]`,
 					),
 				},
 			},
@@ -436,7 +442,9 @@ func TestPrepareRejectsToolsWhenModelDoesNotSupportTools(t *testing.T) {
 	}
 	_, err := client.Prepare(context.Background(), model.PrepareInput{
 		Context: modelcontext.Bundle{
-			ToolSpecs: []modelcontext.ToolSpec{{Name: "run_command", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+			ToolSpecs: []modelcontext.ToolSpec{
+				{Name: "run_command", InputSchema: json.RawMessage(`{"type":"object"}`)},
+			},
 		},
 		Policy: model.RequestPolicy{MaxOutputTokens: 64},
 	})
@@ -445,51 +453,6 @@ func TestPrepareRejectsToolsWhenModelDoesNotSupportTools(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "does not support tools") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestPrepareIncludesAvailableMachinePoolsInSystemContent(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test"}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
-		Context: modelcontext.Bundle{
-			SystemPrompt: "sys",
-			ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameCreateMachine}},
-			AvailableMachinePools: []modelcontext.MachinePoolRef{{
-				MachinePoolName: "Build Pool",
-				Description:     "Build workers",
-			}},
-		},
-		Policy: model.RequestPolicy{MaxOutputTokens: 64},
-	})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
-		t.Fatalf("decode payload: %v", err)
-	}
-	system := string(payload["system"])
-	for _, want := range []string{"Available machine pools", "create_machine", "machine_pool_name", "Build Pool"} {
-		if !strings.Contains(system, want) {
-			t.Fatalf("machine pool content missing %q: %s", want, system)
-		}
-	}
-}
-
-func TestPrepareExplainsWhenCreateMachineHasNoAvailablePools(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test"}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
-		Context: modelcontext.Bundle{
-			SystemPrompt: "sys",
-			ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameCreateMachine}},
-		},
-		Policy: model.RequestPolicy{MaxOutputTokens: 64},
-	})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	if !strings.Contains(string(prepared.Body), "no machine pools are currently available") {
-		t.Fatalf("missing empty machine-pool context: %s", prepared.Body)
 	}
 }
 
@@ -605,22 +568,16 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 		Context: modelcontext.Bundle{
 			SystemPrompt:      "sys",
 			ContextCheckpoint: &modelcontext.CheckpointRef{ID: "ccp_1", Summary: "stable summary"},
-			IntegrationTargets: []modelcontext.IntegrationTargetRef{
-				{
-					TargetRef:       "slack-abcd",
-					DurableID:       "internal-target-id",
-					Provider:        "slack",
-					ProviderRefKind: "thread",
-					Label:           "slack thread C123",
-					IsCurrent:       true,
-				},
-			},
 			Messages: []modelcontext.Message{
-				{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"changing user suffix"}]`)},
+				{
+					Sequence: 1,
+					Role:     modelprotocol.RoleUser,
+					Content:  json.RawMessage(`[{"type":"text","text":"changing user suffix"}]`),
+				},
 			},
 			ToolSpecs: []modelcontext.ToolSpec{
 				{Name: toolcatalog.ToolNameRunCommand},
-				{Name: toolcatalog.ToolNameSendIntegrationMessage},
+				{Name: toolcatalog.ToolNameAskQuestion},
 			},
 			InputEventSequence: 10,
 		},
@@ -654,12 +611,9 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 		!strings.Contains(system, "context_checkpoint") {
 		t.Fatalf("expected only fixed checkpoint guidance in the cached system prefix: %s", system)
 	}
-	if len(systemBlocks) != 2 || systemBlocks[0].CacheControl != nil ||
-		systemBlocks[1].CacheControl == nil ||
-		!strings.Contains(systemBlocks[1].Text, "External integration targets") ||
-		!strings.Contains(systemBlocks[1].Text, "slack-abcd") ||
-		strings.Contains(systemBlocks[1].Text, "internal-target-id") {
-		t.Fatalf("expected integration target refs without durable ids: %s", system)
+	if len(systemBlocks) != 1 || systemBlocks[0].CacheControl == nil ||
+		!strings.HasPrefix(systemBlocks[0].Text, "sys\n\n") {
+		t.Fatalf("expected a cache breakpoint on the system prefix: %s", system)
 	}
 	if len(payload.Messages) != 1 || len(payload.Messages[0].Content) != 2 {
 		t.Fatalf("messages = %+v, want checkpoint/history blocks", payload.Messages)
@@ -689,6 +643,154 @@ func TestPrepareDoesNotEmitThinkingOption(t *testing.T) {
 	}
 	if _, ok := payload["thinking"]; ok {
 		t.Fatalf("Anthropic provider-specific thinking option leaked into neutral harness payload: %s", prepared.Body)
+	}
+}
+
+func TestPrepareSendsReasoningEffortAsOutputConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		apiVariantOptions string
+		supportsReasoning bool
+		effort            string
+		wantOutputConfig  string
+		wantThinking      string
+	}{
+		{
+			name:              "effort",
+			supportsReasoning: true,
+			effort:            "low",
+			wantOutputConfig:  `{"effort":"low"}`,
+			wantThinking:      adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{
+			name:              "effort merges into api variant output config",
+			apiVariantOptions: `{"output_config":{"effort":"max","format":{"type":"json_schema"}}}`,
+			supportsReasoning: true,
+			effort:            "medium",
+			wantOutputConfig:  `{"effort":"medium","format":{"type":"json_schema"}}`,
+			wantThinking:      adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{
+			name:              "api variant output config without effort",
+			apiVariantOptions: `{"output_config":{"effort":"max"}}`,
+			supportsReasoning: true,
+			wantOutputConfig:  `{"effort":"max"}`,
+			wantThinking:      adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{
+			name:              "effort keeps api variant manual thinking",
+			apiVariantOptions: `{"thinking":{"type":"enabled","budget_tokens":2048}}`,
+			supportsReasoning: true,
+			effort:            "high",
+			wantOutputConfig:  `{"effort":"high"}`,
+			wantThinking:      `{"type":"enabled","budget_tokens":2048}`,
+		},
+		{
+			name:              "effort enables api variant disabled thinking",
+			apiVariantOptions: `{"thinking":{"type":"disabled"}}`,
+			supportsReasoning: true,
+			effort:            "high",
+			wantOutputConfig:  `{"effort":"high"}`,
+			wantThinking:      adaptiveThinkingDroppingPrefixMismatches,
+		},
+		{name: "reasoning unsupported", effort: "low", wantThinking: adaptiveThinkingDroppingPrefixMismatches},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := Client{
+				EndpointPath:      testEndpointPath,
+				ProviderModelSlug: "claude-opus-5-5",
+				APIVariantOptions: json.RawMessage(tc.apiVariantOptions),
+			}
+			supportsReasoning := tc.supportsReasoning
+			prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+				Context: modelcontext.Bundle{
+					Messages: []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "hi")},
+				},
+				Policy: model.RequestPolicy{
+					MaxOutputTokens:   4096,
+					SupportsReasoning: &supportsReasoning,
+					ReasoningEffort:   tc.effort,
+				},
+			})
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			if got := string(payload["output_config"]); got != tc.wantOutputConfig {
+				t.Fatalf("output_config = %s, want %s in %s", got, tc.wantOutputConfig, prepared.Body)
+			}
+			if got := string(payload["thinking"]); got != tc.wantThinking {
+				t.Fatalf("thinking = %s, want %s in %s", got, tc.wantThinking, prepared.Body)
+			}
+		})
+	}
+}
+
+func TestPrepareReasoningEffortKeepsOtherAPIVariantOptions(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "claude-opus-5-5",
+		APIVariantOptions: json.RawMessage(`{
+			"metadata":{"user_id":"user-1"},
+			"top_k":5,
+			"service_tier":"auto",
+			"thinking":{"type":"adaptive","display":"summarized"},
+			"output_config":{"effort":"max","format":{"type":"json_schema","schema":{"type":"object"}}}
+		}`),
+	}
+	supportsReasoning := true
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			Messages: []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "hi")},
+		},
+		Policy: model.RequestPolicy{
+			MaxOutputTokens:   4096,
+			SupportsReasoning: &supportsReasoning,
+			ReasoningEffort:   "low",
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	for key, want := range map[string]string{
+		"metadata":      `{"user_id":"user-1"}`,
+		"top_k":         `5`,
+		"service_tier":  `"auto"`,
+		"thinking":      `{"block_binding":{"prefix_mismatch_behavior":"drop_block"},"display":"summarized","type":"adaptive"}`,
+		"output_config": `{"effort":"low","format":{"type":"json_schema","schema":{"type":"object"}}}`,
+	} {
+		if got := string(payload[key]); got != want {
+			t.Fatalf("%s = %s, want %s in %s", key, got, want, prepared.Body)
+		}
+	}
+}
+
+func TestPrepareRejectsNonObjectAPIVariantOutputConfigWithEffort(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "claude-test",
+		APIVariantOptions: json.RawMessage(`{"output_config":"high"}`),
+	}
+	supportsReasoning := true
+	_, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			Messages: []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "hi")},
+		},
+		Policy: model.RequestPolicy{
+			MaxOutputTokens:   64,
+			SupportsReasoning: &supportsReasoning,
+			ReasoningEffort:   "low",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "output_config") {
+		t.Fatalf("error = %v, want output_config object error", err)
 	}
 }
 
@@ -772,5 +874,48 @@ func TestPrepareBoundsCacheBreakpointsWithCheckpointAndUncacheableTail(t *testin
 	if strings.Contains(body, `"signature":"sig_1","cache_control"`) ||
 		strings.Contains(body, `"cache_control":{"type":"ephemeral"},"signature"`) {
 		t.Fatalf("thinking block must not carry a cache breakpoint: %s", body)
+	}
+}
+
+func TestPrepareSendsSafetyIdentifierPerHost(t *testing.T) {
+	for _, tc := range []struct {
+		baseURL                string
+		variant                modelprotocol.APIVariant
+		wantMetadata, wantUser string
+	}{
+		{wantMetadata: "sid", wantUser: "shared"},
+		{baseURL: "https://openrouter.ai/api/v1", wantUser: "sid"},
+		{baseURL: "https://proxy.example.test/v1", wantUser: "shared"},
+		{
+			baseURL: "https://bedrock-runtime.us-east-1.amazonaws.com", variant: modelprotocol.APIVariantBedrock,
+			wantUser: "shared",
+		},
+	} {
+		client := Client{
+			EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test", BaseURL: tc.baseURL,
+			APIVariant: tc.variant, APIVariantOptions: json.RawMessage(`{"metadata":{},"user":"shared"}`),
+		}
+		prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+			Context: modelcontext.Bundle{
+				SafetyIdentifier: "sid",
+				Messages:         []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "hi")},
+			},
+			Policy: model.RequestPolicy{MaxOutputTokens: 64},
+		})
+		if err != nil {
+			t.Fatalf("prepare: %v", err)
+		}
+		var payload struct {
+			Metadata struct {
+				UserID string `json:"user_id"`
+			} `json:"metadata"`
+			User string `json:"user"`
+		}
+		if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.Metadata.UserID != tc.wantMetadata || payload.User != tc.wantUser {
+			t.Fatalf("base %q metadata.user_id = %q, user = %q", tc.baseURL, payload.Metadata.UserID, payload.User)
+		}
 	}
 }

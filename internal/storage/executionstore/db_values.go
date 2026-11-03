@@ -20,13 +20,6 @@ func rawMessageFromSQLCPtr(value *json.RawMessage) json.RawMessage {
 	return *value
 }
 
-func sqlcRawMessageFromEmpty(value json.RawMessage) *json.RawMessage {
-	if len(value) == 0 {
-		return nil
-	}
-	return &value
-}
-
 func stringFromSQLCText(value *string) string {
 	if value == nil {
 		return ""

@@ -3,14 +3,19 @@
 package executionstore_test
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
+	"github.com/omnara-ai/omnara/internal/processresult"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -53,9 +58,8 @@ func TestDaemonTerminalReportAllowsRegisteredOfflineRuntimeAndReplay(t *testing.
 		),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo hi", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo hi",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -128,9 +132,8 @@ func TestDaemonProcessStartedReportAllowsRegisteredOfflineRuntime(t *testing.T) 
 		),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 1", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 1",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -178,9 +181,8 @@ func TestAcceptDaemonProcessRechecksLeaseAfterProcessLockWait(t *testing.T) {
 		),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 1", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 1",
-		ShellSelector:         "sh",
 	})
 	if err != nil {
 		t.Fatalf("start process: %v", err)
@@ -225,7 +227,13 @@ WHERE org_id = $1 AND machine_id = $2 AND id = $3
 		)
 		done <- acceptResult{found: found, err: acceptErr}
 	}()
-	integrationdb.WaitForLockWaitBlockedBy(t, ctx, fixture.Store.pool, "-- name: LockDaemonProcessForAccept", blockingPID)
+	integrationdb.WaitForLockWaitBlockedBy(
+		t,
+		ctx,
+		fixture.Store.pool,
+		"-- name: LockDaemonProcessForAccept",
+		blockingPID,
+	)
 	if _, err := blockingTx.Exec(ctx, `SELECT pg_sleep(0.3)`); err != nil {
 		t.Fatalf("wait for daemon runtime lease expiry: %v", err)
 	}
@@ -267,9 +275,8 @@ func TestSupersededDaemonRuntimeCannotReportGrantedProcessAtStorageBoundary(
 		),
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 1", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 1",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -381,7 +388,10 @@ func TestSupersededDaemonRuntimeCannotReportGrantedProcessAtStorageBoundary(
 			SourceEndedAt: fixture.Now.Add(4 * time.Second),
 		},
 	); !errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) {
-		t.Fatalf("superseded runtime after replacement expiry error = %v, want ErrDaemonRuntimeUnregistered", err)
+		t.Fatalf(
+			"superseded runtime after replacement expiry error = %v, want ErrDaemonRuntimeUnregistered",
+			err,
+		)
 	}
 	if _, err := fixture.Store.Execution().RegisterDaemonRuntime(
 		ctx,
@@ -412,6 +422,131 @@ func TestSupersededDaemonRuntimeCannotReportGrantedProcessAtStorageBoundary(
 	}
 }
 
+func TestStartProcessOmitsUnavailableEnvironmentSecrets(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{"deleted_before_creation", "deleted_after_creation", "grant_revoked"} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := newProcessDaemonFixture(t, ctx, "unavailable_secret_"+scenario)
+			user := mustCreateProjectDeveloperUser(
+				t,
+				ctx,
+				fixture.Store,
+				"unavailable-secret@example.com",
+				"Secret Tester",
+			)
+			secretIDs := make(map[string]uuid.UUID)
+			secretRefs := make(map[string]string)
+			var grantID uuid.UUID
+			for _, name := range []string{"unavailable", "retained"} {
+				input := secretstore.CreateSecretInput{
+					OrgID:          testOrgID,
+					OwnerKind:      secretstore.SecretOwnerProject,
+					OwnerProjectID: testProjectID,
+					Name:           name,
+					Material:       secrets.GenericMaterial{Value: name + "-value"},
+					Actor:          userPrincipal(user.ID),
+				}
+				if scenario == "grant_revoked" && name == "unavailable" {
+					input.OwnerKind = secretstore.SecretOwnerUser
+					input.OwnerProjectID = uuid.Nil
+					input.OwnerUserID = user.ID
+				}
+				secret, _, err := fixture.Store.Secrets().CreateSecret(ctx, input)
+				if err != nil {
+					t.Fatalf("create %s secret: %v", name, err)
+				}
+				if input.OwnerKind == secretstore.SecretOwnerUser {
+					grant, err := fixture.Store.Secrets().CreateSecretGrant(ctx, secretstore.CreateSecretGrantInput{
+						OrgID:           testOrgID,
+						SecretID:        secret.ID,
+						TargetProjectID: testProjectID,
+						Actor:           userPrincipal(user.ID),
+					})
+					if err != nil {
+						t.Fatalf("grant secret to project: %v", err)
+					}
+					grantID = grant.ID
+				}
+				secretIDs[name] = secret.ID
+				secretRefs[name] = secret.ID.String()
+			}
+			if _, err := fixture.Store.pool.Exec(ctx, `
+				UPDATE agent_machine_bindings
+				SET env_overlay = '{"APP_ENV":"test"}'::jsonb,
+				    secret_env_overlay = jsonb_build_object(
+				        'UNAVAILABLE', $1::text, 'UNAVAILABLE_COPY', $1::text, 'RETAINED', $2::text)
+				WHERE id = $3
+			`, secretRefs["unavailable"], secretRefs["retained"], fixture.BindingID); err != nil {
+				t.Fatalf("set binding environment: %v", err)
+			}
+			removeAccess := func() {
+				t.Helper()
+				var err error
+				if scenario == "grant_revoked" {
+					_, err = fixture.Store.Secrets().DeleteSecretGrant(ctx, secretstore.DeleteSecretGrantInput{
+						OrgID:    testOrgID,
+						SecretID: secretIDs["unavailable"],
+						GrantID:  grantID,
+						Actor:    userPrincipal(user.ID),
+					})
+				} else {
+					_, err = fixture.Store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+						OrgID:    testOrgID,
+						SecretID: secretIDs["unavailable"],
+						Actor:    userPrincipal(user.ID),
+					})
+				}
+				if err != nil {
+					t.Fatalf("remove secret access: %v", err)
+				}
+			}
+			if scenario != "deleted_after_creation" {
+				removeAccess()
+			}
+			process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+				ProjectID: testProjectID,
+				AgentID:   fixture.AgentID,
+				ToolCallID: createToolCallForProcessTest(
+					t,
+					ctx,
+					fixture,
+					"unavailable_secret_process",
+					"run_command",
+				),
+				RuntimeLockID: fixture.Lock.ID,
+			}, executionstore.CreateProcessInput{
+				ExecutionSpec:         processcmd.ForShell("echo ok", "", ""),
+				AgentMachineBindingID: fixture.BindingID,
+			})
+			if err != nil {
+				t.Fatalf("start process: %v", err)
+			}
+			if scenario == "deleted_after_creation" {
+				removeAccess()
+			}
+			offers, err := fixture.Store.Execution().ListDaemonProcessOffers(ctx, executionstore.DaemonWorkInput{
+				Authority: fixture.authority(),
+				Limit:     10,
+			})
+			if err != nil {
+				t.Fatalf("list process offers: %v", err)
+			}
+			if len(offers) != 1 || offers[0].Process.ID != process.ID {
+				t.Fatalf("process offers = %+v, want process %s", offers, process.ID)
+			}
+			offer := offers[0]
+			if offer.PreparationError != "" || offer.RetryError != nil {
+				t.Fatalf("process preparation failed: %q, %v", offer.PreparationError, offer.RetryError)
+			}
+			if len(offer.Env) != 2 || offer.Env["APP_ENV"] != "test" || offer.Env["RETAINED"] != "retained-value" {
+				t.Fatalf("process environment = %+v, want literal and retained secret only", offer.Env)
+			}
+		})
+	}
+}
+
 func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -434,10 +569,7 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create process environment secret: %v", err)
 	}
-	secretID, err := publicid.Encode(publicid.KindSecret, secret.ID)
-	if err != nil {
-		t.Fatalf("encode process environment secret: %v", err)
-	}
+	secretID := secret.ID.String()
 	if _, err := fixture.Store.pool.Exec(ctx, `
 		UPDATE agent_machine_bindings
 		SET env_overlay = '{"APP_ENV":"test"}'::jsonb,
@@ -456,18 +588,21 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo ok", "default", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo ok",
-		ShellSelector:         "default",
 		Cwd:                   "src",
 		InitialWaitMS:         750,
 	})
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
-	if process.Command != "echo ok" || process.ShellSelector != "default" ||
+	if process.ExecutionSpec.Shell.Command != "echo ok" || process.ExecutionSpec.Shell.Shell != "default" ||
 		process.InitialWaitMS != 750 {
-		t.Fatalf("stored command intent = %q/%q", process.Command, process.ShellSelector)
+		t.Fatalf(
+			"stored command intent = %q/%q",
+			process.ExecutionSpec.Shell.Command,
+			process.ExecutionSpec.Shell.Shell,
+		)
 	}
 	offers, err := fixture.Store.Execution().ListDaemonProcessOffers(ctx, executionstore.DaemonWorkInput{
 		Authority: fixture.authority(),
@@ -503,7 +638,10 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 		t.Fatalf("get process after transient environment resolution failure: %v", err)
 	}
 	if queuedProcess.State != executionstore.ProcessStateQueued {
-		t.Fatalf("process state after transient environment resolution failure = %q, want queued", queuedProcess.State)
+		t.Fatalf(
+			"process state after transient environment resolution failure = %q, want queued",
+			queuedProcess.State,
+		)
 	}
 	nulSecret, _, err := fixture.Store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:          testOrgID,
@@ -516,10 +654,7 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create NUL process environment secret: %v", err)
 	}
-	nulSecretID, err := publicid.Encode(publicid.KindSecret, nulSecret.ID)
-	if err != nil {
-		t.Fatalf("encode NUL process environment secret: %v", err)
-	}
+	nulSecretID := nulSecret.ID.String()
 	if _, err := fixture.Store.pool.Exec(ctx, `
 		UPDATE agent_machine_bindings
 		SET secret_env_overlay = jsonb_build_object('API_TOKEN', $1::text)
@@ -556,28 +691,6 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 		offers[0].PreparationError != "process environment could not be resolved" || offers[0].Env != nil {
 		t.Fatalf("process offers with NUL environment secret = %+v", offers)
 	}
-	missingSecretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
-	if err != nil {
-		t.Fatalf("encode missing process environment secret: %v", err)
-	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
-		UPDATE processes
-		SET secret_env = jsonb_build_object('API_TOKEN', $1::text)
-		WHERE id = $2
-	`, missingSecretID, process.ID); err != nil {
-		t.Fatalf("set unavailable process environment secret: %v", err)
-	}
-	offers, err = fixture.Store.Execution().ListDaemonProcessOffers(ctx, executionstore.DaemonWorkInput{
-		Authority: fixture.authority(),
-		Limit:     10,
-	})
-	if err != nil {
-		t.Fatalf("list process offers with unavailable environment secret: %v", err)
-	}
-	if len(offers) != 1 || offers[0].Process.ID != process.ID ||
-		offers[0].PreparationError != "process environment could not be resolved" || offers[0].Env != nil {
-		t.Fatalf("process offers with unavailable environment secret = %+v", offers)
-	}
 	accept, found, err := acceptDaemonProcessForTest(
 		ctx,
 		fixture.Store,
@@ -592,7 +705,7 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 	if !found {
 		t.Fatal("expected process accept")
 	}
-	if accept.Process.Command != "echo ok" || accept.Process.ShellSelector != "default" ||
+	if accept.Process.ExecutionSpec.Shell.Command != "echo ok" || accept.Process.ExecutionSpec.Shell.Shell != "default" ||
 		accept.Process.InitialWaitMS != 750 {
 		t.Fatalf("accept process = %+v", accept.Process)
 	}
@@ -653,9 +766,8 @@ func TestMachineExecutionDefaultUpdatesApplyOnlyToNewProcesses(t *testing.T) {
 		RuntimeLockID: fixture.Lock.ID,
 	}
 	firstInput := executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo first", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo first",
-		ShellSelector:         "sh",
 	}
 	first, err := startProcessForTest(ctx, fixture.Store, firstTransaction, firstInput)
 	if err != nil {
@@ -676,7 +788,12 @@ func TestMachineExecutionDefaultUpdatesApplyOnlyToNewProcesses(t *testing.T) {
 		t.Fatalf("replay first process after machine defaults change: %v", err)
 	}
 	if replayed.ID != first.ID || replayed.Cwd != initialCwd {
-		t.Fatalf("replayed first process = %+v, want original process %s with cwd %q", replayed, first.ID, initialCwd)
+		t.Fatalf(
+			"replayed first process = %+v, want original process %s with cwd %q",
+			replayed,
+			first.ID,
+			initialCwd,
+		)
 	}
 	second, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -684,9 +801,8 @@ func TestMachineExecutionDefaultUpdatesApplyOnlyToNewProcesses(t *testing.T) {
 		ToolCallID:    toolCallIDs[1],
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo second", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo second",
-		ShellSelector:         "sh",
 	})
 	if err != nil {
 		t.Fatalf("start second process: %v", err)
@@ -723,9 +839,14 @@ func TestStartProcessRejectsOversizedLiteralEnvironment(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "oversized_literal_environment")
-	envOverlay, err := json.Marshal(map[string]string{
-		"VALUE": strings.Repeat("x", executionstore.MaxResolvedEnvironmentBytes),
-	})
+	values := map[string]string{}
+	for index := range executionstore.MaxResolvedEnvironmentBytes/executionstore.MaxEnvironmentEntryBytes + 1 {
+		values[fmt.Sprintf("VALUE_%d", index)] = strings.Repeat(
+			"x",
+			executionstore.MaxEnvironmentEntryBytes-len("VALUE_0="),
+		)
+	}
+	envOverlay, err := json.Marshal(values)
 	if err != nil {
 		t.Fatalf("marshal oversized environment: %v", err)
 	}
@@ -749,9 +870,8 @@ func TestStartProcessRejectsOversizedLiteralEnvironment(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo ok", "default", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo ok",
-		ShellSelector:         "default",
 	}); err == nil || !strings.Contains(err.Error(), "process environment exceeds size limit") {
 		t.Fatalf("start process error = %v, want environment size rejection", err)
 	}
@@ -790,9 +910,8 @@ func TestDaemonProcessAcceptGrantsQueuedProcessOnce(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 1", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 1",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -833,9 +952,8 @@ func TestDaemonProcessAcceptGrantsQueuedProcessOnce(t *testing.T) {
 			RuntimeLockID: fixture.Lock.ID,
 		},
 		executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("echo queued", "sh", ""),
 			AgentMachineBindingID: fixture.BindingID,
-			Command:               "echo queued",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		},
 	)
@@ -931,9 +1049,8 @@ func TestDaemonProcessAcceptGrantsQueuedProcessOnce(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo conflict", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo conflict",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting process start should return ErrIdempotencyConflict, got %v", err)
@@ -964,9 +1081,8 @@ func TestToolCompletionAuthoritiesStayTypeScoped(t *testing.T) {
 			ToolCallID:    builtInProcessID,
 			RuntimeLockID: fixture.Lock.ID,
 		}, executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("echo done", "sh", ""),
 			AgentMachineBindingID: fixture.BindingID,
-			Command:               "echo done",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		})
 		if err != nil {
@@ -1021,9 +1137,8 @@ func TestToolCompletionAuthoritiesStayTypeScoped(t *testing.T) {
 			ToolCallID:    mislinkedBuiltInID,
 			RuntimeLockID: fixture.Lock.ID,
 		}, executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("echo wrong", "sh", ""),
 			AgentMachineBindingID: fixture.BindingID,
-			Command:               "echo wrong",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		})
 		if err != nil {
@@ -1079,9 +1194,8 @@ func TestRunCommandStartCompletesLinkedToolCallWhenAddressable(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 1", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 1",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1133,10 +1247,10 @@ func TestRunCommandStartCompletesLinkedToolCallWhenAddressable(t *testing.T) {
 	if !strings.Contains(typedBody, publicProcessID) || !strings.Contains(typedBody, `"state": "running"`) {
 		t.Fatalf("typed started tool result missing process handle/state: %s", typedBody)
 	}
-	var wakeupBefore []byte
+	var wakeupBefore time.Time
 	if err := fixture.Store.pool.QueryRow(ctx, `
-SELECT wake.metadata
-FROM agent_wakeups wake
+SELECT wake.logical_ready_at
+FROM agent_execution_state wake
 JOIN agents agent ON agent.id = wake.agent_id
 WHERE agent.project_id = $1 AND wake.agent_id = $2
 `, testProjectID, fixture.AgentID).Scan(&wakeupBefore); err != nil {
@@ -1155,56 +1269,198 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	}); err != nil {
 		t.Fatalf("complete already-addressable process: %v", err)
 	}
-	var wakeupAfter []byte
+	var wakeupAfter time.Time
 	if err := fixture.Store.pool.QueryRow(ctx, `
-SELECT wake.metadata
-FROM agent_wakeups wake
+SELECT wake.logical_ready_at
+FROM agent_execution_state wake
 JOIN agents agent ON agent.id = wake.agent_id
 WHERE agent.project_id = $1 AND wake.agent_id = $2
 `, testProjectID, fixture.AgentID).Scan(&wakeupAfter); err != nil {
 		t.Fatalf("load terminal-report wakeup: %v", err)
 	}
-	if !sameJSON(wakeupBefore, wakeupAfter) {
-		t.Fatalf(
-			"benign terminal report changed wakeup metadata before=%s after=%s",
-			string(wakeupBefore),
-			string(wakeupAfter),
-		)
+	if texts := processNotificationTexts(t, ctx, fixture); len(texts) != 1 {
+		t.Fatalf("exit notifications = %q, want one", texts)
+	}
+	if wakeupAfter.Before(wakeupBefore) {
+		t.Fatalf("terminal report moved readiness back before=%s after=%s", wakeupBefore, wakeupAfter)
+	}
+	if count := countAgentWakeups(t, ctx, fixture.Store, fixture.AgentID); count != 0 {
+		t.Fatalf("owned agent has %d wakeups", count)
 	}
 }
 
-func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T) {
+func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 	t.Parallel()
+	memoryOutput := `{"path":"/memory/team/screenshot.png","digest":"sha256:` + strings.Repeat(
+		"a",
+		64,
+	) + `"}` + "\n"
+	downloadOutput := `{"digest":"sha256:` + strings.Repeat("a", 64) + `"}`
+	conflict := `{"code":"file_content_conflict","error":"file changed","current_digest":"sha256:` + strings.Repeat(
+		"b",
+		64,
+	) + `"}`
+	const memoryFailureOutput = "upload file: memory changed; read it and retry\n"
 	for _, test := range []struct {
-		name           string
-		toolName       string
-		input          json.RawMessage
-		createArtifact bool
-		wantOutcome    executionstore.ToolResultOutcome
+		name              string
+		toolName          string
+		direction         processcmd.FileTransferDirection
+		input             json.RawMessage
+		terminalResult    json.RawMessage
+		wantMetadata      json.RawMessage
+		createArtifact    bool
+		artifactReport    string
+		unrelatedArtifact bool
+		wantError         string
+		wantAPIError      json.RawMessage
+		skipStart         bool
+		exitCode          int
+		wantOutcome       executionstore.ToolResultOutcome
+		view              bool
+		contentType       string
 	}{
 		{
+			name:           "viewed_artifact",
+			artifactReport: "valid",
+			toolName:       "storage_upload",
+			direction:      processcmd.FileTransferUpload,
+			input:          json.RawMessage(`{"path":"/artifacts","source":"screenshot.png","view":true}`),
+			createArtifact: true,
+			view:           true,
+			wantOutcome:    executionstore.ToolResultOutcomeSucceeded,
+		},
+		{
+			name:           "viewed_non_image",
+			artifactReport: "valid",
+			toolName:       "storage_upload",
+			direction:      processcmd.FileTransferUpload,
+			input:          json.RawMessage(`{"path":"/artifacts","source":"screenshot.png","view":true}`),
+			createArtifact: true,
+			view:           true,
+			contentType:    "image/svg+xml",
+			wantOutcome:    executionstore.ToolResultOutcomeSucceeded,
+		},
+		{
 			name:           "stored_artifact",
-			toolName:       "upload_file",
+			artifactReport: "valid",
+			toolName:       "storage_upload",
+			direction:      processcmd.FileTransferUpload,
 			input:          json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
 			createArtifact: true,
 			wantOutcome:    executionstore.ToolResultOutcomeSucceeded,
 		},
 		{
-			name:        "missing_artifact",
-			toolName:    "upload_file",
-			input:       json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
+			name:           "missing_artifact",
+			artifactReport: "valid",
+			wantError:      "upload completed without an artifact",
+			toolName:       "storage_upload",
+			direction:      processcmd.FileTransferUpload,
+			input:          json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
+			wantOutcome:    executionstore.ToolResultOutcomeFailed,
+		},
+		{
+			name: "artifact_missing_metadata", toolName: "storage_upload",
+			direction: processcmd.FileTransferUpload, createArtifact: true,
+			input:     json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
+			wantError: "upload completed without valid file metadata", wantOutcome: executionstore.ToolResultOutcomeFailed,
+		},
+		{
+			name: "artifact_wrong_path", toolName: "storage_upload",
+			direction: processcmd.FileTransferUpload, createArtifact: true,
+			input: json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`), artifactReport: "wrong_path",
+			wantError: "upload completed without valid file metadata", wantOutcome: executionstore.ToolResultOutcomeFailed,
+		},
+		{
+			name: "artifact_wrong_digest", toolName: "storage_upload",
+			direction: processcmd.FileTransferUpload, createArtifact: true,
+			input: json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`), artifactReport: "wrong_digest",
+			wantError: "upload completed without valid file metadata", wantOutcome: executionstore.ToolResultOutcomeFailed,
+		},
+		{
+			name: "unrelated_artifact", toolName: "storage_upload",
+			direction: processcmd.FileTransferUpload, createArtifact: true,
+			input: json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`), artifactReport: "valid",
+			unrelatedArtifact: true,
+			wantError:         "upload completed without an artifact", wantOutcome: executionstore.ToolResultOutcomeFailed,
+		},
+		{
+			name:      "memory",
+			toolName:  "storage_upload",
+			direction: processcmd.FileTransferUpload,
+			input:     json.RawMessage(`{"path":"/memory/team/screenshot.png","source":"screenshot.png"}`),
+			terminalResult: mustTestRawJSON(t, map[string]any{
+				"output": "warning: log truncated", "cursor": 0, "next_cursor": 12345,
+				"state": "exited", "done": true, "truncated": true,
+				"file_transfer": json.RawMessage(memoryOutput),
+			}),
+			wantMetadata: json.RawMessage(memoryOutput),
+			wantOutcome:  executionstore.ToolResultOutcomeSucceeded,
+		},
+		{
+			name:      "memory_failure",
+			toolName:  "storage_upload",
+			direction: processcmd.FileTransferUpload,
+			input:     json.RawMessage(`{"path":"/memory/team/screenshot.png","source":"screenshot.png"}`),
+			terminalResult: mustTestRawJSON(t, map[string]any{
+				"output": memoryFailureOutput, "cursor": 0, "next_cursor": len(memoryFailureOutput),
+				"state": "exited", "done": true, "truncated": false,
+			}),
+			exitCode:    1,
 			wantOutcome: executionstore.ToolResultOutcomeFailed,
+		},
+		{
+			name: "api_conflict", toolName: "storage_upload", direction: processcmd.FileTransferUpload,
+			input: json.RawMessage(`{"path":"/memory/team/screenshot.png","source":"screenshot.png"}`),
+			terminalResult: mustTestRawJSON(t, map[string]any{
+				"output": "truncated diagnostics", "cursor": 0, "next_cursor": 12345, "truncated": true,
+				"file_transfer": map[string]any{"error": json.RawMessage(conflict)},
+			}),
+			exitCode: 1, wantOutcome: executionstore.ToolResultOutcomeFailed, wantAPIError: json.RawMessage(conflict),
+		},
+		{
+			name: "memory_download", toolName: "storage_download", direction: processcmd.FileTransferDownload,
+			input: json.RawMessage(`{"path":"/memory/team/screenshot.png","destination":"screenshot.png"}`),
+			terminalResult: mustTestRawJSON(t, map[string]any{
+				"output": "warning: log truncated", "cursor": 0, "next_cursor": 12345,
+				"state": "exited", "done": true, "truncated": true,
+				"file_transfer": json.RawMessage(downloadOutput),
+			}),
+			wantMetadata: json.RawMessage(downloadOutput),
+			wantOutcome:  executionstore.ToolResultOutcomeSucceeded,
+		},
+		{
+			name: "fast_artifact_download", toolName: "storage_download",
+			direction: processcmd.FileTransferDownload, skipStart: true,
+			input: mustTestRawJSON(t, map[string]string{
+				"path": "/artifacts/" + publicResourceID(publicid.KindArtifact, uuid.New()), "destination": "screenshot.png",
+			}),
+			terminalResult: mustTestRawJSON(t, map[string]any{
+				"output": "", "cursor": 0, "next_cursor": 0,
+				"state": "exited", "done": true, "truncated": false,
+				"file_transfer": json.RawMessage(downloadOutput),
+			}),
+			wantMetadata: json.RawMessage(downloadOutput),
+			wantOutcome:  executionstore.ToolResultOutcomeSucceeded,
+		},
+		{
+			name: "download_failure", toolName: "storage_download", direction: processcmd.FileTransferDownload,
+			input: json.RawMessage(`{"path":"/memory/team/screenshot.png","destination":"screenshot.png"}`),
+			terminalResult: mustTestRawJSON(t, map[string]any{
+				"output": "permission denied\n", "cursor": 0, "next_cursor": len("permission denied\n"),
+				"state": "exited", "done": true, "truncated": false,
+			}),
+			exitCode: 1, wantOutcome: executionstore.ToolResultOutcomeFailed,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			fixture := newProcessDaemonFixture(t, ctx, "upload_artifact_terminal_"+test.name)
+			fixture := newProcessDaemonFixture(t, ctx, "file_transfer_terminal_"+test.name)
 			toolCallIDs := createToolCallBatchForProcessTest(
 				t,
 				ctx,
 				fixture,
-				"upload_artifact_terminal_"+test.name,
+				"file_transfer_terminal_"+test.name,
 				[]processToolCallBatchItem{{
 					TestName: test.name,
 					ToolName: test.toolName,
@@ -1214,21 +1470,67 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 				}},
 			)
 			toolCallID := toolCallIDs[0]
-			process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+			transfer := processcmd.FileTransfer{
+				Direction: test.direction, LocalPath: "screenshot.png",
+			}
+			var request struct {
+				Path string `json:"path"`
+			}
+			if err := json.Unmarshal(test.input, &request); err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasPrefix(request.Path, "/memory/") {
+				storeID := uuid.New()
+				storeName := "transfer-" + strings.ReplaceAll(storeID.String(), "-", "")
+				if _, err := fixture.Store.pool.Exec(ctx,
+					`INSERT INTO memory_stores(id, project_id, name) VALUES ($1, $2, $3)`, storeID, testProjectID, storeName); err != nil {
+					t.Fatal(err)
+				}
+				test.terminalResult = json.RawMessage(strings.ReplaceAll(
+					string(test.terminalResult), "/memory/team/", "/memory/"+storeName+"/",
+				))
+				test.wantMetadata = json.RawMessage(strings.ReplaceAll(
+					string(test.wantMetadata), "/memory/team/", "/memory/"+storeName+"/",
+				))
+				transfer.Target.Memory = &processcmd.MemoryTarget{StoreID: storeID, Path: "screenshot.png"}
+			} else {
+				target := &processcmd.ArtifactTarget{View: test.view}
+				if test.direction == processcmd.FileTransferDownload {
+					id, err := publicid.Decode(publicid.KindArtifact, strings.TrimPrefix(request.Path, "/artifacts/"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					target.ID = id
+				}
+				transfer.Target.Artifact = target
+			}
+			transaction := executionstore.ExecuteToolCallInput{
 				ProjectID:     testProjectID,
 				AgentID:       fixture.AgentID,
 				ToolCallID:    toolCallID,
 				RuntimeLockID: fixture.Lock.ID,
-			}, executionstore.CreateProcessInput{
+			}
+			input := executionstore.CreateProcessInput{
+				ExecutionSpec:         processcmd.ForFileTransfer(transfer),
 				AgentMachineBindingID: fixture.BindingID,
-				Command:               "upload artifact",
-				ShellSelector:         "sh",
 				Cwd:                   "/work",
-			})
+			}
+			process, err := startProcessForTest(ctx, fixture.Store, transaction, input)
 			if err != nil {
 				t.Fatalf("start process: %v", err)
 			}
-			if _, found, err := acceptDaemonProcessForTest(
+			replayedProcess, err := startProcessForTest(ctx, fixture.Store, transaction, input)
+			if err != nil || replayedProcess.ID != process.ID {
+				t.Fatalf("replayed transfer = %+v, err=%v", replayedProcess, err)
+			}
+			changed := transfer
+			changed.LocalPath = "other.png"
+			input.ExecutionSpec = processcmd.ForFileTransfer(changed)
+			_, replayErr := startProcessForTest(ctx, fixture.Store, transaction, input)
+			if !errors.Is(replayErr, storeerr.ErrIdempotencyConflict) {
+				t.Fatalf("changed transfer replay error = %v", replayErr)
+			}
+			if accepted, found, err := acceptDaemonProcessForTest(
 				ctx,
 				fixture.Store,
 				testOrgID,
@@ -1239,22 +1541,31 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 				t.Fatalf("accept process: %v", err)
 			} else if !found {
 				t.Fatal("expected process accept")
+			} else if accepted.Process.ExecutionSpec.FileTransfer == nil ||
+				!reflect.DeepEqual(*accepted.Process.ExecutionSpec.FileTransfer, transfer) ||
+				accepted.Process.ExecutionSpec.Shell != nil {
+				t.Fatalf("accepted transfer = %+v", accepted)
 			}
-			started, err := fixture.Store.Execution().MarkProcessStarted(
-				ctx,
-				executionstore.MarkProcessStartedInput{
-					ProjectID:       testProjectID,
-					AgentID:         fixture.AgentID,
-					ID:              process.ID,
-					Authority:       fixture.authority(),
-					SourceStartedAt: fixture.Now.Add(time.Second),
-				},
-			)
-			if err != nil {
-				t.Fatalf("mark process started: %v", err)
-			}
-			if started.ToolResultCommitted {
-				t.Fatal("started upload process completed its linked tool call")
+			if !test.skipStart {
+				started, err := fixture.Store.Execution().MarkProcessStarted(
+					ctx,
+					executionstore.MarkProcessStartedInput{
+						ProjectID:       testProjectID,
+						AgentID:         fixture.AgentID,
+						ID:              process.ID,
+						Authority:       fixture.authority(),
+						SourceStartedAt: fixture.Now.Add(time.Second),
+						Result: json.RawMessage(
+							`{"output":"warning\n","cursor":0,"next_cursor":8,"truncated":false}`,
+						),
+					},
+				)
+				if err != nil {
+					t.Fatalf("mark process started: %v", err)
+				}
+				if started.ToolResultCommitted {
+					t.Fatal("started file transfer completed its linked tool call")
+				}
 			}
 			toolCall, err := fixture.Store.Execution().GetToolCall(
 				ctx,
@@ -1266,20 +1577,26 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 				t.Fatalf("get waiting tool call: %v", err)
 			}
 			if toolCall.State != executionstore.ToolCallStateWaiting || toolCall.CompletedAt != nil {
-				t.Fatalf("tool call after started upload = %+v, want waiting", toolCall)
+				t.Fatalf("file transfer tool call = %+v, want waiting", toolCall)
 			}
 
 			artifactID := uuid.New()
 			filename := "screenshot.png"
 			sizeBytes := int64(2048)
+			digest := "sha256:" + strings.Repeat("a", 64)
+			contentType := cmp.Or(test.contentType, "image/png")
 			if test.createArtifact {
 				idempotencyKey := executionstore.UploadArtifactIdempotencyKey(toolCallID)
+				if test.unrelatedArtifact {
+					idempotencyKey = executionstore.UploadArtifactIdempotencyKey(uuid.New())
+				}
 				if _, err := fixture.Store.q.InsertArtifact(ctx, dbsqlc.InsertArtifactParams{
 					ID:             artifactID,
 					ProjectID:      testProjectID,
 					AgentID:        fixture.AgentID,
-					ContentType:    "image/png",
+					ContentType:    contentType,
 					Filename:       &filename,
+					Digest:         &digest,
 					SizeBytes:      &sizeBytes,
 					IdempotencyKey: &idempotencyKey,
 				}); err != nil {
@@ -1287,23 +1604,47 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 				}
 			}
 
-			exitCode := 0
 			completionInput := executionstore.CompleteDaemonProcessInput{
-				ProjectID:     testProjectID,
-				AgentID:       fixture.AgentID,
-				ID:            process.ID,
-				Authority:     fixture.authority(),
-				State:         executionstore.ProcessStateExited,
-				ExitCode:      &exitCode,
-				Result:        json.RawMessage(`{"output":"not json","truncated":true}`),
-				SourceEndedAt: fixture.Now.Add(2 * time.Second),
+				ProjectID: testProjectID,
+				AgentID:   fixture.AgentID,
+				ID:        process.ID,
+				Authority: fixture.authority(),
+				State:     executionstore.ProcessStateExited,
+				ExitCode:  &test.exitCode,
+				Result: json.RawMessage(
+					`{"output":"not json","cursor":0,"next_cursor":100,"truncated":true}`,
+				),
+				SourceStartedAt: fixture.Now.Add(time.Second),
+				SourceEndedAt:   fixture.Now.Add(2 * time.Second),
 			}
+			if test.terminalResult != nil {
+				completionInput.Result = test.terminalResult
+			}
+			if test.artifactReport != "" {
+				path := "/artifacts/" + publicResourceID(publicid.KindArtifact, artifactID)
+				reportedDigest := digest
+				if test.artifactReport == "wrong_path" {
+					path = "/artifacts/" + publicResourceID(publicid.KindArtifact, uuid.New())
+				}
+				if test.artifactReport == "wrong_digest" {
+					reportedDigest = "sha256:" + strings.Repeat("b", 64)
+				}
+				completionInput.Result = mustTestRawJSON(t, map[string]any{
+					"output": "warning: truncated logs", "cursor": 0, "truncated": true, "next_cursor": 12345,
+					"file_transfer": map[string]string{"path": path, "digest": reportedDigest},
+				})
+			}
+			if test.exitCode != 0 {
+				completionInput.State = executionstore.ProcessStateFailed
+				completionInput.StateReasonCode = "nonzero_exit"
+			}
+
 			completed, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completionInput)
 			if err != nil {
-				t.Fatalf("complete upload process: %v", err)
+				t.Fatalf("complete file transfer: %v", err)
 			}
 			if !completed.ToolResultCommitted {
-				t.Fatal("terminal upload process did not commit its tool result")
+				t.Fatal("terminal file transfer did not commit its tool result")
 			}
 			toolCall, err = fixture.Store.Execution().GetToolCall(
 				ctx,
@@ -1321,13 +1662,27 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 				toolCall.TurnID,
 				toolCall.ID,
 			)
-			if test.createArtifact {
+			if test.createArtifact && test.wantOutcome == executionstore.ToolResultOutcomeSucceeded {
 				publicArtifactID := publicResourceID(publicid.KindArtifact, artifactID)
-				wantContent := []byte(
-					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID +
-						`"}},{"type":"media_ref","artifact_id":"` + artifactID.String() +
-						`","exclude_from_model_context":true}]`,
-				)
+				metadataPart := `{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID + `"}}`
+				// Stored results keep the digest for memory read tracking; model context drops it.
+				digestPart := `{"type":"structured_data","value":{"digest":"` + digest + `"}}`
+				mediaPart := `{"type":"media_ref","artifact_id":"` + artifactID.String() + `"}`
+				excludedMediaPart := `{"type":"media_ref","artifact_id":"` + artifactID.String() +
+					`","exclude_from_model_context":true}`
+				wantExcluded := true
+				wantContent := []byte(`[` + metadataPart + `,` + excludedMediaPart + `,` + digestPart + `]`)
+				wantModelContent := []byte(`[` + metadataPart + `]`)
+				switch test.name {
+				case "viewed_artifact":
+					wantExcluded = false
+					wantContent = []byte(`[` + metadataPart + `,` + mediaPart + `,` + digestPart + `]`)
+					wantModelContent = []byte(`[` + metadataPart + `,` + mediaPart + `]`)
+				case "viewed_non_image":
+					notePart := `{"type":"text","text":"not shown: image/svg+xml is not a PNG, JPEG, GIF, or WebP image"}`
+					wantContent = []byte(`[` + metadataPart + `,` + notePart + `,` + excludedMediaPart + `,` + digestPart + `]`)
+					wantModelContent = []byte(`[` + metadataPart + `,` + notePart + `]`)
+				}
 				if !sameJSON(toolCall.ResultContentParts, wantContent) {
 					t.Fatalf(
 						"GetToolCall content = %s, want %s",
@@ -1353,9 +1708,6 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 						wantContent,
 					)
 				}
-				wantModelContent := []byte(
-					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID + `"}}]`,
-				)
 				if result.Outcome != test.wantOutcome ||
 					!sameJSON(result.ResultContentParts, wantModelContent) {
 					t.Fatalf("upload model result = %+v, want %s", result, wantModelContent)
@@ -1378,7 +1730,7 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 					t.Fatalf("load upload artifact content block: %v", err)
 				}
 				if blockKind != "artifact" || storedArtifactID != artifactID ||
-					!excludeFromModelContext {
+					excludeFromModelContext != wantExcluded {
 					t.Fatalf(
 						"upload artifact block = kind=%s artifact=%s exclude_from_model_context=%t",
 						blockKind,
@@ -1423,30 +1775,83 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 					}
 				}
 				if !foundCompactionResult {
-					t.Fatalf("upload artifact compaction result = %+v, want %s", compactionEvents, wantModelContent)
+					t.Fatalf(
+						"upload artifact compaction result = %+v, want %s",
+						compactionEvents,
+						wantModelContent,
+					)
 				}
 			} else {
-				wantResult, err := json.Marshal([]map[string]any{{
-					"type": "structured_data",
-					"value": map[string]any{
-						"process_id": publicResourceID(publicid.KindProcess, process.ID),
-						"state":      executionstore.ProcessStateExited,
-						"error":      "upload completed without an artifact",
-					},
-				}})
+				var wantValue map[string]any
+				wantValueJSON := completionInput.Result
+				if test.wantOutcome == executionstore.ToolResultOutcomeSucceeded {
+					wantValueJSON = test.wantMetadata
+				}
+				if err := json.Unmarshal(wantValueJSON, &wantValue); err != nil {
+					t.Fatal(err)
+				}
+				var wantStoredParts []map[string]any
+				if test.wantOutcome == executionstore.ToolResultOutcomeSucceeded {
+					digestPart := map[string]any{"type": "structured_data", "value": map[string]any{"digest": wantValue["digest"]}}
+					wantValue = map[string]any{"path": wantValue["path"]}
+					if test.direction == processcmd.FileTransferDownload {
+						wantValue = map[string]any{"destination": "screenshot.png"}
+					}
+					wantStoredParts = append(wantStoredParts, digestPart)
+				}
+				if test.wantOutcome == executionstore.ToolResultOutcomeFailed {
+					wantValue["process_id"] = publicResourceID(publicid.KindProcess, process.ID)
+					processresult.PublicOutputRange(wantValue)
+					if test.wantError != "" {
+						delete(wantValue, "file_transfer")
+						wantValue["error"] = test.wantError
+					}
+					if test.wantAPIError != nil {
+						var fields map[string]any
+						if err := json.Unmarshal(test.wantAPIError, &fields); err != nil {
+							t.Fatal(err)
+						}
+						delete(wantValue, "file_transfer")
+						fields["error_code"] = fields["code"]
+						delete(fields, "code")
+						delete(fields, "current_digest")
+						for key, value := range fields {
+							wantValue[key] = value
+						}
+					}
+				}
+				wantResult, err := json.Marshal([]map[string]any{{"type": "structured_data", "value": wantValue}})
 				if err != nil {
-					t.Fatalf("marshal expected tool result: %v", err)
+					t.Fatal(err)
 				}
 				if result.Outcome != test.wantOutcome || !sameJSON(result.ResultContentParts, wantResult) {
-					t.Fatalf("upload tool result = %+v, want %s", result, wantResult)
+					t.Fatalf("file transfer tool result = %+v, want %s", result, wantResult)
+				}
+				wantStored, err := json.Marshal(append(
+					[]map[string]any{{"type": "structured_data", "value": wantValue}}, wantStoredParts...,
+				))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !sameJSON(toolCall.ResultContentParts, wantStored) {
+					t.Fatalf("stored file transfer result = %s, want %s", toolCall.ResultContentParts, wantStored)
+				}
+				var terminal struct {
+					NextCursor int64 `json:"next_cursor"`
+				}
+				if err := json.Unmarshal(completionInput.Result, &terminal); err != nil {
+					t.Fatal(err)
+				}
+				if completed.Process.DefaultOutputCursor != terminal.NextCursor {
+					t.Fatalf("output cursor = %d, want %d", completed.Process.DefaultOutputCursor, terminal.NextCursor)
 				}
 			}
 			replayed, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completionInput)
 			if err != nil {
-				t.Fatalf("replay upload process completion: %v", err)
+				t.Fatalf("replay file transfer completion: %v", err)
 			}
 			if !replayed.ToolResultCommitted {
-				t.Fatal("replayed upload completion did not recognize its durable result")
+				t.Fatal("replayed file transfer completion did not recognize its durable result")
 			}
 		})
 	}
@@ -1464,9 +1869,8 @@ func TestRunCommandTerminalResultRetainsCanonicalProcessHandle(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo done", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo done",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1508,7 +1912,10 @@ func TestRunCommandTerminalResultRetainsCanonicalProcessHandle(t *testing.T) {
 	publicProcessID := publicResourceID(publicid.KindProcess, process.ID)
 	if !strings.Contains(string(completed.ResultContentParts), publicProcessID) ||
 		strings.Contains(string(completed.ResultContentParts), "prc_untrusted") {
-		t.Fatalf("terminal run_command result has the wrong process handle: %s", string(completed.ResultContentParts))
+		t.Fatalf(
+			"terminal run_command result has the wrong process handle: %s",
+			string(completed.ResultContentParts),
+		)
 	}
 }
 
@@ -1530,9 +1937,8 @@ func TestDaemonProcessQueuedWorkCancelsBeforeAccept(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 1", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 1",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1608,17 +2014,15 @@ func TestStartProcessAcceptsPTYIOMode(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("vim", "sh", "pty"),
 		AgentMachineBindingID: fixture.BindingID,
-		IOMode:                "pty",
-		Command:               "vim",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
 		t.Fatalf("start pty process: %v", err)
 	}
-	if process.IOMode != "pty" {
-		t.Fatalf("io mode = %q, want pty", process.IOMode)
+	if process.ExecutionSpec.IOMode() != "pty" {
+		t.Fatalf("io mode = %q, want pty", process.ExecutionSpec.IOMode())
 	}
 }
 
@@ -1644,16 +2048,19 @@ func TestProcessAcceptUsesReplacementGrantAfterGrantRotation(t *testing.T) {
 		ToolCallID:    originalToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
 	if process.AgentMachineBindingID != fixture.BindingID {
-		t.Fatalf("process binding = %s, want fixture binding %s", process.AgentMachineBindingID, fixture.BindingID)
+		t.Fatalf(
+			"process binding = %s, want fixture binding %s",
+			process.AgentMachineBindingID,
+			fixture.BindingID,
+		)
 	}
 	if _, err := fixture.Store.Execution().DeleteProjectMachineGrant(
 		ctx,
@@ -1674,7 +2081,13 @@ func TestProcessAcceptUsesReplacementGrantAfterGrantRotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get revoked-grant tool call: %v", err)
 	}
-	assertCompletedToolCallWithResult(t, fixture.Store, fixture.AgentID, toolCall, "project_machine_grant_revoked")
+	assertCompletedToolCallWithResult(
+		t,
+		fixture.Store,
+		fixture.AgentID,
+		toolCall,
+		"project_machine_grant_revoked",
+	)
 	newGrant, _, err := fixture.Store.Execution().CreateProjectMachineGrant(
 		ctx,
 		executionstore.CreateProjectMachineGrantInput{
@@ -1695,16 +2108,19 @@ func TestProcessAcceptUsesReplacementGrantAfterGrantRotation(t *testing.T) {
 		ToolCallID:    replacementToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("pwd", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "pwd",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
 		t.Fatalf("start replacement-grant process: %v", err)
 	}
 	if replacementProcess.AgentMachineBindingID != fixture.BindingID {
-		t.Fatalf("replacement process binding = %s, want %s", replacementProcess.AgentMachineBindingID, fixture.BindingID)
+		t.Fatalf(
+			"replacement process binding = %s, want %s",
+			replacementProcess.AgentMachineBindingID,
+			fixture.BindingID,
+		)
 	}
 	accept, found, err := acceptDaemonProcessForTest(
 		ctx,
@@ -1743,9 +2159,8 @@ func TestRevokeProjectMachineGrantTerminatesActiveDaemonProcess(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1885,9 +2300,8 @@ func TestArchiveAgentMarksActiveProcessUnknown(t *testing.T) {
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1938,9 +2352,8 @@ func TestReplacementRuntimeMarksUnclaimedGrantedProcessUnknownAfterRuntimeEnds(
 		ToolCallID:    toolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 30", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 30",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2024,6 +2437,13 @@ WHERE call.project_id = $1
 		t.Fatalf("load tool call state: %v", err)
 	}
 	if gotType != wantType || gotState != wantState {
-		t.Fatalf("tool call %s type/state = %s/%s, want %s/%s", toolCallID, gotType, gotState, wantType, wantState)
+		t.Fatalf(
+			"tool call %s type/state = %s/%s, want %s/%s",
+			toolCallID,
+			gotType,
+			gotState,
+			wantType,
+			wantState,
+		)
 	}
 }

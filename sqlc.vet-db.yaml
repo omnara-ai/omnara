@@ -32,10 +32,10 @@ rules:
     message: "agent_profile_versions query must filter deleted_at (or annotate @sqlc-vet-disable agent-profile-versions-deleted-at)"
     rule: >-
       query.sql.matches(r'(?i)\b(from|join|update)\s+agent_profile_versions\b') && !query.sql.contains('deleted_at')
-  - name: integration-installs-deleted-at
-    message: "integration_installs query must filter deleted_at (or annotate @sqlc-vet-disable integration-installs-deleted-at)"
+  - name: integrations-deleted-at
+    message: "integrations query must filter deleted_at (or annotate @sqlc-vet-disable integrations-deleted-at)"
     rule: >-
-      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_installs\b') && !query.sql.contains('deleted_at')
+      query.sql.matches(r'(?i)\b(from|join|update)\s+integrations\b') && !query.sql.contains('deleted_at')
   - name: integration-targets-deleted-at
     message: "integration_targets query must filter deleted_at (or annotate @sqlc-vet-disable integration-targets-deleted-at)"
     rule: >-
@@ -62,7 +62,7 @@ sql:
     queries: "internal/storage/queries"
     database:
       uri: "${SQLC_DATABASE_URL}"
-    rules:
+    rules: &postgres_rules
       - sqlc/db-prepare
       - users-deleted-at
       - orgs-deleted-at
@@ -72,7 +72,7 @@ sql:
       - configured-models-deleted-at
       - agent-profiles-deleted-at
       - agent-profile-versions-deleted-at
-      - integration-installs-deleted-at
+      - integrations-deleted-at
       - integration-targets-deleted-at
       - machine-pools-deleted-at
       - machines-deleted-at
@@ -90,7 +90,31 @@ sql:
         query_parameter_limit: 0
         output_db_file_name: "db_gen.go"
         output_models_file_name: "models_gen.go"
-        overrides:
+        overrides: &postgres_overrides
+          - column: "processes.execution_spec"
+            go_type:
+              import: "github.com/omnara-ai/omnara/internal/processcmd"
+              type: "ExecutionSpec"
+          - db_type: "pg_catalog.uuid"
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+          - db_type: "pg_catalog.uuid"
+            nullable: true
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+              pointer: true
+          - db_type: "uuid"
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+              pointer: true
           - db_type: "pg_catalog.timestamptz"
             go_type:
               import: "time"
@@ -166,3 +190,23 @@ sql:
               import: "encoding/json"
               type: "RawMessage"
               pointer: true
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/storage/internal/agentexecution/queries"
+    database:
+      uri: "${SQLC_DATABASE_URL}"
+    rules: *postgres_rules
+    gen:
+      go:
+        package: "executiondb"
+        emit_methods_with_db_argument: true
+        out: "internal/storage/internal/agentexecution/internal/executiondb"
+        sql_package: "pgx/v5"
+        emit_empty_slices: true
+        emit_json_tags: false
+        emit_interface: false
+        omit_unused_structs: true
+        query_parameter_limit: 0
+        output_db_file_name: "db_gen.go"
+        output_models_file_name: "models_gen.go"
+        overrides: *postgres_overrides

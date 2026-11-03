@@ -8,25 +8,41 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/agent37"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/arker"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/blaxel"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/boxd"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/createos"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/daytona"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/e2b"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/freestyle"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/modal"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/superserve"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/tenki"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/unikraft"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 func TestDefaultCatalogProviders(t *testing.T) {
 	catalog := DefaultCatalog()
-	if len(catalog.definitions) != 4 {
-		t.Fatalf("default catalog providers = %d, want 4", len(catalog.definitions))
+	if len(catalog.definitions) != 12 {
+		t.Fatalf("default catalog providers = %d, want 12", len(catalog.definitions))
 	}
 	for _, test := range []struct {
 		name       string
 		definition any
 	}{
+		{name: "agent37", definition: agent37.Definition{}},
+		{name: "arker", definition: arker.Definition{}},
 		{name: "blaxel", definition: blaxel.Definition{}},
+		{name: "boxd", definition: boxd.Definition{}},
+		{name: "createos", definition: createos.Definition{}},
 		{name: "daytona", definition: daytona.Definition{}},
+		{name: "e2b", definition: e2b.Definition{}},
+		{name: "freestyle", definition: freestyle.Definition{}},
 		{name: "modal", definition: modal.Definition{}},
+		{name: "superserve", definition: superserve.Definition{}},
+		{name: "tenki", definition: tenki.Definition{}},
 		{name: "unikraft", definition: unikraft.Definition{}},
 	} {
 		definition, ok := catalog.definition(test.name)
@@ -111,5 +127,29 @@ func assertJSONEqual(t *testing.T, got, want json.RawMessage) {
 	}
 	if diff := cmp.Diff(wantValue, gotValue); diff != "" {
 		t.Fatalf("JSON value mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestCatalogConfigurableMachineResources(t *testing.T) {
+	for _, test := range []struct {
+		provider    string
+		cpu, memory bool
+	}{
+		{"agent37", true, true}, {"arker", true, true}, {"blaxel", false, true}, {"boxd", false, false},
+		{"createos", false, false}, {"daytona", false, false}, {"e2b", false, false}, {"freestyle", true, true},
+		{"modal", true, true}, {"superserve", false, false}, {"tenki", true, true}, {"unikraft", true, true},
+	} {
+		t.Run(test.provider, func(t *testing.T) {
+			got, err := DefaultCatalog().ConfigurableMachineResources(test.provider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.CPU != test.cpu || got.MemoryMB != test.memory {
+				t.Fatalf("sizing support = %+v", got)
+			}
+		})
+	}
+	if _, err := DefaultCatalog().ConfigurableMachineResources("unknown"); err == nil {
+		t.Fatal("unknown provider accepted")
 	}
 }

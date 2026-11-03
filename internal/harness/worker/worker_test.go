@@ -3,20 +3,25 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type renewalDeadlineStore struct {
@@ -439,7 +444,7 @@ func TestWorkerReturnsWhileRetainedAsyncExecutionDrainsAfterWorkError(t *testing
 		},
 		released:                       make(chan uuid.UUID, 1),
 		renewed:                        make(chan struct{}),
-		firstLocalLeaseBudgetStartedAt: time.Now().Add(-executionstore.MinimumAgentRuntimeLockLeaseDuration),
+		firstLocalLeaseBudgetStartedAt: time.Now().Add(-executionpolicy.MinimumLeaseDuration),
 	}
 	turnErr := errors.New("turn failed after starting async execution")
 	executor := &erroredAsyncExecutor{
@@ -448,7 +453,7 @@ func TestWorkerReturnsWhileRetainedAsyncExecutionDrainsAfterWorkError(t *testing
 		err:     turnErr,
 	}
 	worker := NewWorker(store, executor, Options{
-		RuntimeLockLeaseDuration: executionstore.MinimumAgentRuntimeLockLeaseDuration,
+		RuntimeLockLeaseDuration: executionpolicy.MinimumLeaseDuration,
 		Capacity:                 1,
 		AsyncToolCapacity:        1,
 	})
@@ -497,6 +502,36 @@ func TestWorkerReturnsWhileRetainedAsyncExecutionDrainsAfterWorkError(t *testing
 	}
 }
 
+func TestClaimLoopDoesNotClaimAfterCancellation(t *testing.T) {
+	var claims atomic.Int32
+	store := &retainedRuntimeStore{
+		claim: executionstore.ClaimedAgentWork{
+			ProjectID:   uuid.UUID{1},
+			AgentID:     uuid.UUID{2},
+			Kind:        executionstore.AgentWorkModel,
+			RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: uuid.UUID{3}},
+		},
+		released:          make(chan uuid.UUID, 256),
+		beforeClaimReturn: func() { claims.Add(1) },
+	}
+	worker := NewWorker(store, &failingThenBlockTurnExecutor{secondStarted: make(chan struct{})}, Options{
+		Log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		RuntimeLockLeaseDuration: time.Minute,
+		Capacity:                 1,
+		AsyncToolCapacity:        1,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for range 200 {
+		var executions sync.WaitGroup
+		worker.claimLoop(ctx, context.Background(), make(chan struct{}, 1), &executions)
+		executions.Wait()
+	}
+	if got := claims.Load(); got != 0 {
+		t.Fatalf("claim loop claimed %d times after cancellation", got)
+	}
+}
+
 func TestWorkerLoopContinuesAfterTurnFailure(t *testing.T) {
 	for _, test := range []struct {
 		name       string
@@ -536,7 +571,7 @@ func TestWorkerLoopContinuesAfterTurnFailure(t *testing.T) {
 			loopDone := make(chan struct{})
 			go func() {
 				defer close(loopDone)
-				worker.runLoop(ctx)
+				runClaimLoop(ctx, worker)
 			}()
 
 			select {
@@ -585,7 +620,7 @@ func TestWorkerLoopRetainsMixedShutdownError(t *testing.T) {
 		Options{Log: logger, Capacity: 1},
 	)
 
-	worker.runLoop(ctx)
+	runClaimLoop(ctx, worker)
 
 	record := logs.String()
 	if !strings.Contains(record, `"level":"error"`) {
@@ -641,11 +676,11 @@ func TestWorkerReturnsUnavailableModelGrantError(t *testing.T) {
 
 func TestNewWorkerUsesFixedRuntimeLockLeaseDuration(t *testing.T) {
 	worker := NewWorker(nil, nil, Options{Capacity: 1})
-	if worker.runtimeLockLeaseDuration != executionstore.AgentRuntimeLockLeaseDuration {
+	if worker.runtimeLockLeaseDuration != executionpolicy.DefaultLeaseDuration {
 		t.Fatalf(
 			"runtime-lock lease duration = %s, want %s",
 			worker.runtimeLockLeaseDuration,
-			executionstore.AgentRuntimeLockLeaseDuration,
+			executionpolicy.DefaultLeaseDuration,
 		)
 	}
 }
@@ -753,6 +788,7 @@ func TestRuntimeRenewalUsesLocalMonotonicBudgetAcrossClockSkew(t *testing.T) {
 				uuid.UUID{1},
 				uuid.UUID{2},
 				executionstore.AgentRuntimeLockRecord{ID: uuid.UUID{3}, LeaseExpiresAt: test.leaseExpiresAt},
+				time.Time{},
 			)
 			if err != nil {
 				t.Fatalf("start runtime renewal: %v", err)
@@ -793,6 +829,7 @@ func TestInitialRuntimeRenewalRetriesTransientFailure(t *testing.T) {
 		uuid.UUID{1},
 		uuid.UUID{2},
 		executionstore.AgentRuntimeLockRecord{ID: uuid.UUID{3}, LeaseExpiresAt: leaseExpiresAt},
+		time.Time{},
 	)
 	if err != nil {
 		t.Fatalf("start runtime renewal after transient failure: %v", err)
@@ -801,4 +838,341 @@ func TestInitialRuntimeRenewalRetriesTransientFailure(t *testing.T) {
 	if calls := store.calls.Load(); calls != 2 {
 		t.Fatalf("renewal calls = %d, want initial failure and successful retry", calls)
 	}
+}
+
+func runClaimLoop(ctx context.Context, worker *Worker) {
+	var executions sync.WaitGroup
+	worker.claimLoop(ctx, ctx, make(chan struct{}, worker.capacity), &executions)
+	executions.Wait()
+}
+
+type noopControlSubscriber struct{}
+
+func (noopControlSubscriber) SubscribeWorkerControl(
+	context.Context,
+	uuid.UUID,
+	func(context.Context, notifications.WorkerControl),
+) (notifications.Subscription, error) {
+	return noopSubscription{}, nil
+}
+
+type noopSubscription struct{}
+
+func (noopSubscription) Unsubscribe() error { return nil }
+
+type dispatchStore struct {
+	claimDelay       time.Duration
+	leaseAfterCancel bool
+	activeClaims     atomic.Int32
+	maxClaims        atomic.Int32
+	claims           atomic.Int32
+	renewals         atomic.Int32
+	releaseMu        sync.Mutex
+	released         map[uuid.UUID]int
+}
+
+func (s *dispatchStore) ClaimNextAgentWork(
+	ctx context.Context,
+	_ executionstore.ClaimNextAgentWorkInput,
+) (executionstore.ClaimedAgentWork, bool, error) {
+	active := s.activeClaims.Add(1)
+	defer s.activeClaims.Add(-1)
+	raiseMax(&s.maxClaims, active)
+	select {
+	case <-time.After(s.claimDelay):
+	case <-ctx.Done():
+		if !s.leaseAfterCancel {
+			return executionstore.ClaimedAgentWork{}, false, ctx.Err()
+		}
+	}
+	s.claims.Add(1)
+	return executionstore.ClaimedAgentWork{
+		ProjectID:   uuid.New(),
+		AgentID:     uuid.New(),
+		Kind:        executionstore.AgentWorkModel,
+		RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: uuid.New()},
+		Model: executionstore.ClaimedModelWork{
+			TurnID:               uuid.New(),
+			InputIDs:             []uuid.UUID{uuid.New()},
+			OpeningEventSequence: 1,
+		},
+	}, true, nil
+}
+
+func (s *dispatchStore) ReleaseAgentRuntimeLock(_ context.Context, _, _, runtimeID uuid.UUID) error {
+	s.releaseMu.Lock()
+	defer s.releaseMu.Unlock()
+	if s.released == nil {
+		s.released = make(map[uuid.UUID]int)
+	}
+	s.released[runtimeID]++
+	return nil
+}
+
+func (s *dispatchStore) releaseCounts() []int {
+	s.releaseMu.Lock()
+	defer s.releaseMu.Unlock()
+	counts := make([]int, 0, len(s.released))
+	for _, count := range s.released {
+		counts = append(counts, count)
+	}
+	return counts
+}
+
+func (s *dispatchStore) RenewAgentRuntimeLock(
+	_ context.Context,
+	_, _, runtimeID uuid.UUID,
+	_ time.Duration,
+) (executionstore.AgentRuntimeLockRenewal, error) {
+	s.renewals.Add(1)
+	return executionstore.AgentRuntimeLockRenewal{
+		RuntimeLock:               executionstore.AgentRuntimeLockRecord{ID: runtimeID},
+		LocalLeaseBudgetStartedAt: time.Now(),
+	}, nil
+}
+
+type holdingModelExecutor struct {
+	modelWorkOnlyExecutor
+	active    atomic.Int32
+	maxActive atomic.Int32
+	release   chan struct{}
+	started   chan struct{}
+}
+
+func (e *holdingModelExecutor) ExecuteModelWork(ctx context.Context, _ kernel.ModelWorkExecution) error {
+	raiseMax(&e.maxActive, e.active.Add(1))
+	if e.started != nil {
+		e.started <- struct{}{}
+	}
+	defer e.active.Add(-1)
+	select {
+	case <-e.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func raiseMax(target *atomic.Int32, value int32) {
+	for {
+		current := target.Load()
+		if value <= current || target.CompareAndSwap(current, value) {
+			return
+		}
+	}
+}
+
+func TestWorkerDispatcherBoundsClaimsAndNeverClaimsBeyondCapacity(t *testing.T) {
+	const capacity, claimConcurrency = 6, 2
+	store := &dispatchStore{claimDelay: 20 * time.Millisecond}
+	executor := &holdingModelExecutor{release: make(chan struct{}), started: make(chan struct{}, capacity+1)}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	worker := NewWorker(store, executor, Options{
+		Log:                      log,
+		RuntimeLockLeaseDuration: time.Minute,
+		Capacity:                 capacity,
+		ClaimConcurrency:         claimConcurrency,
+		ControlSubscriber:        noopControlSubscriber{},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- worker.Run(ctx, nil) }()
+
+	defer cancel()
+	for range capacity {
+		select {
+		case <-executor.started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("dispatcher did not fill available slots")
+		}
+	}
+	select {
+	case <-executor.started:
+		t.Fatal("dispatcher started work without an available slot")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if got := store.claims.Load(); got != capacity {
+		t.Fatalf("claims with every slot busy = %d, want %d", got, capacity)
+	}
+	executor.release <- struct{}{}
+	select {
+	case <-executor.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("dispatcher did not fill the released slot")
+	}
+	if got := store.claims.Load(); got != capacity+1 {
+		cancel()
+		t.Fatalf("claims after one slot freed = %d, want %d", got, capacity+1)
+	}
+	cancel()
+	if err := <-runDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error = %v, want context canceled", err)
+	}
+	if got := store.maxClaims.Load(); got > claimConcurrency {
+		t.Fatalf("max concurrent claims = %d, want at most %d", got, claimConcurrency)
+	}
+	if got := executor.maxActive.Load(); got > capacity {
+		t.Fatalf("max concurrent executions = %d, want at most %d", got, capacity)
+	}
+}
+
+func TestWorkerUsesRemainingClaimLeaseBudget(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		age          time.Duration
+		wantRenewals int32
+	}{
+		{"fresh", 0, 0}, {"delayed beyond local cutoff", time.Minute, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &retainedRuntimeStore{
+				claim: executionstore.ClaimedAgentWork{
+					OrgID: uuid.New(), ProjectID: uuid.New(), AgentID: uuid.New(),
+					Kind:        executionstore.AgentWorkModel,
+					RuntimeLock: executionstore.AgentRuntimeLockRecord{ID: uuid.New()},
+				},
+				released: make(chan uuid.UUID, 1),
+			}
+			store.claim.LocalLeaseBudgetStartedAt = time.Now().Add(-test.age)
+			worker := NewWorker(store,
+				&recordingModelWorkExecutor{},
+				Options{RuntimeLockLeaseDuration: time.Minute})
+			worked, err := worker.RunOnce(t.Context())
+			if err != nil || !worked {
+				t.Fatalf("worked=%v err=%v", worked, err)
+			}
+			if len(store.released) != 1 || <-store.released != store.claim.RuntimeLock.ID {
+				t.Fatal("runtime was not released once")
+			}
+			if got := store.renewalCalls.Load(); got != test.wantRenewals {
+				t.Fatalf("renewals=%d want=%d", got, test.wantRenewals)
+			}
+		})
+	}
+}
+
+type drainProbeExecutor struct {
+	modelWorkOnlyExecutor
+	calls           atomic.Int32
+	retainedRelease chan struct{}
+	activeRelease   chan struct{}
+	events          chan string
+}
+
+func newDrainProbeExecutor() *drainProbeExecutor {
+	return &drainProbeExecutor{
+		retainedRelease: make(chan struct{}),
+		activeRelease:   make(chan struct{}),
+		events:          make(chan string, 4),
+	}
+}
+
+func (e *drainProbeExecutor) ExecuteModelWork(ctx context.Context, _ kernel.ModelWorkExecution) error {
+	if e.calls.Add(1) > 1 {
+		return e.wait(ctx, e.activeRelease, "active")
+	}
+	reservation, err := tools.ReserveAsyncExecution(ctx)
+	if err != nil {
+		return err
+	}
+	reservation.Start()
+	go func() { reservation.Done(e.wait(ctx, e.retainedRelease, "retained")) }()
+	return nil
+}
+
+func (e *drainProbeExecutor) wait(ctx context.Context, release <-chan struct{}, name string) error {
+	select {
+	case <-release:
+	case <-ctx.Done():
+	}
+	e.events <- fmt.Sprintf("%s: %v", name, ctx.Err())
+	return ctx.Err()
+}
+
+func receivedEvents(events chan string) []string {
+	var received []string
+	for len(events) > 0 {
+		received = append(received, <-events)
+	}
+	return received
+}
+
+func TestWorkerDrainFinishesActiveThenRetainedWorkBeforeReturning(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const leaseDuration = time.Minute
+		store := &dispatchStore{}
+		executor := newDrainProbeExecutor()
+		worker := NewWorker(store, executor, Options{
+			Log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
+			RuntimeLockLeaseDuration: leaseDuration,
+			Capacity:                 1,
+			ClaimConcurrency:         1,
+			ControlSubscriber:        noopControlSubscriber{},
+		})
+		drain := make(chan struct{})
+		go func() { executor.events <- fmt.Sprintf("run: %v", worker.Run(t.Context(), drain)) }()
+		synctest.Wait()
+		if got := store.claims.Load(); got != 2 {
+			t.Fatalf("claims before drain = %d, want 2", got)
+		}
+
+		close(drain)
+		renewalsAtDrain := store.renewals.Load()
+		time.Sleep(leaseDuration) //nolint:omnaralint // Advance synctest's virtual clock.
+		synctest.Wait()
+		if store.renewals.Load() <= renewalsAtDrain {
+			t.Fatal("runtime leases stopped renewing during the drain")
+		}
+		close(executor.activeRelease)
+		synctest.Wait()
+		close(executor.retainedRelease)
+		synctest.Wait()
+		want := []string{"active: <nil>", "retained: <nil>", "run: <nil>"}
+		if got := receivedEvents(executor.events); !slices.Equal(got, want) {
+			t.Fatalf("drain order = %v, want %v", got, want)
+		}
+		if got := store.claims.Load(); got != 2 {
+			t.Fatalf("claims after drain = %d, want 2", got)
+		}
+		if got := store.releaseCounts(); !slices.Equal(got, []int{1, 1}) {
+			t.Fatalf("runtime release counts = %v, want each of the 2 runtimes released once", got)
+		}
+	})
+}
+
+func TestWorkerDrainInterruptsPendingClaimAndRunsItsLease(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &dispatchStore{claimDelay: time.Hour, leaseAfterCancel: true}
+		executor := &holdingModelExecutor{release: make(chan struct{}), started: make(chan struct{}, 2)}
+		close(executor.release)
+		worker := NewWorker(store, executor, Options{
+			Log:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
+			RuntimeLockLeaseDuration: time.Minute,
+			Capacity:                 1,
+			ClaimConcurrency:         1,
+			ControlSubscriber:        noopControlSubscriber{},
+		})
+		drain := make(chan struct{})
+		runDone := make(chan error, 1)
+		go func() { runDone <- worker.Run(t.Context(), drain) }()
+		synctest.Wait()
+
+		close(drain)
+		drainStartedAt := time.Now()
+		if err := <-runDone; err != nil {
+			t.Fatalf("run error = %v, want nil after drain", err)
+		}
+		if elapsed := time.Since(drainStartedAt); elapsed != 0 {
+			t.Fatalf("worker returned %s after the drain started, want at once", elapsed)
+		}
+		if got := store.claims.Load(); got != 1 {
+			t.Fatalf("claims = %d, want the interrupted claim's lease", got)
+		}
+		if got := len(executor.started); got != 1 {
+			t.Fatalf("executions = %d, want the interrupted claim's lease to run once", got)
+		}
+		if got := store.releaseCounts(); !slices.Equal(got, []int{1}) {
+			t.Fatalf("runtime release counts = %v, want the lease released once", got)
+		}
+	})
 }

@@ -4,13 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"sync"
 
 	kjsonschema "github.com/kaptinlin/jsonschema"
+	openapispec "github.com/omnara-ai/omnara/api/openapi"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
+
+const OpenAPIToolsDefinitionComponent = "AgentConfigToolsDefinition"
 
 type ResolvedTool struct {
 	Name       string
@@ -18,28 +22,33 @@ type ResolvedTool struct {
 	Permission toolpermission.Selection
 }
 
-func compileTools(source AgentConfigSource) (map[string]ToolCompiled, error) {
+func compileTools(
+	source AgentConfigSource,
+	opts CompileOptions,
+) (map[string]ToolCompiled, error) {
 	tools := maps.Clone(source.Tools)
-	for _, name := range missingDefaultToolNames(source) {
-		if tools == nil {
-			tools = make(map[string]AgentConfigToolSource)
-		}
+	defaults := missingDefaultToolNames(source)
+	if tools == nil {
+		tools = map[string]AgentConfigToolSource{}
+	}
+	for _, name := range defaults {
 		tools[name] = AgentConfigToolSource{}
 	}
 	compiled := make(map[string]ToolCompiled, len(tools))
-	if len(tools) == 0 {
-		return compiled, nil
-	}
 	catalog, err := toolcatalog.Default()
 	if err != nil {
 		return nil, err
 	}
-	for name, tool := range tools {
+	for _, name := range slices.Sorted(maps.Keys(tools)) {
+		tool := tools[name]
 		enabled := tool.Enabled == nil || *tool.Enabled
 		var entry ToolCompiled
-		if tool.Type == toolcatalog.ToolTypeCustom {
+		switch {
+		case toolcatalog.UsesIntegrationToolNamespace(name):
+			entry, err = compileIntegrationTool(name, tool, opts)
+		case tool.Type == toolcatalog.ToolTypeCustom:
 			entry, err = compileCustomTool(name, tool, enabled, catalog)
-		} else {
+		default:
 			entry, err = compileBuiltInTool(name, tool, enabled, catalog)
 		}
 		if err != nil {
@@ -51,21 +60,31 @@ func compileTools(source AgentConfigSource) (map[string]ToolCompiled, error) {
 }
 
 var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, error) {
-	schema := agentConfigSourceSchema()
-	schema.Required = nil
-	for name := range *schema.Properties {
-		if name != "tools" && name != "machine_sources" && name != "skills" && name != "subagents" && name != "mcp" {
-			delete(*schema.Properties, name)
-		}
-	}
-	raw, err := json.Marshal(schema)
+	raw, err := openapispec.ComponentJSONSchema(OpenAPIToolsDefinitionComponent)
 	if err != nil {
 		return nil, err
 	}
 	return kjsonschema.NewCompiler().Compile(raw)
 })
 
-func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
+var toolSourceFields = sync.OnceValues(func() (map[string]bool, error) {
+	schemas, err := openapispec.ComponentSchemas()
+	if err != nil {
+		return nil, err
+	}
+	component, _ := schemas[OpenAPIToolsDefinitionComponent].(map[string]any)
+	properties, _ := component["properties"].(map[string]any)
+	if len(properties) == 0 {
+		return nil, fmt.Errorf("openapi %s schema has no properties", OpenAPIToolsDefinitionComponent)
+	}
+	fields := make(map[string]bool, len(properties))
+	for name := range properties {
+		fields[name] = true
+	}
+	return fields, nil
+})
+
+func ToolsFromSource(format SourceFormat, raw []byte, opts CompileOptions) ([]ResolvedTool, error) {
 	jsonSource, root, err := sourceJSON(format, raw)
 	if err != nil {
 		return nil, validationErrorFrom(err, root)
@@ -77,8 +96,12 @@ func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
 	if fields == nil {
 		return nil, fmt.Errorf("agent config source must be an object")
 	}
+	keep, err := toolSourceFields()
+	if err != nil {
+		return nil, err
+	}
 	for name := range fields {
-		if name != "tools" && name != "machine_sources" && name != "skills" && name != "subagents" && name != "mcp" {
+		if !keep[name] {
 			delete(fields, name)
 		}
 	}
@@ -101,7 +124,8 @@ func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
 	if err := json.Unmarshal(jsonSource, &source); err != nil {
 		return nil, err
 	}
-	tools, err := compileTools(source)
+	opts = cacheIntegrationResolver(opts)
+	tools, err := compileTools(source, opts)
 	if err != nil {
 		return nil, validationErrorFrom(err, root)
 	}

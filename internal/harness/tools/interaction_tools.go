@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/interactionform"
@@ -47,29 +46,15 @@ func prepareStructuredQuestion(
 	), nil
 }
 
-func deliverStructuredQuestionPrompts(
-	ctx context.Context,
-	call asyncToolContext,
-) (asyncPhaseResult, error) {
-	interaction, found, err := call.Executor.Store.Execution().GetAgentInteractionByToolCallKind(
-		ctx,
-		call.Turn.ProjectID,
-		call.Turn.AgentID,
-		call.ToolCallID,
-		executionstore.AgentInteractionKindQuestion,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("load question interaction for prompt delivery: %w", err)
+func presentStructuredQuestion(ctx context.Context, call backgroundToolContext) error {
+	interaction, ok := call.CommandResult.(executionstore.AgentInteractionRecord)
+	if !ok {
+		return fmt.Errorf("ask_question command result is %T, want AgentInteractionRecord", call.CommandResult)
 	}
-	if !found {
-		return nil, errors.New("question interaction not found")
+	if len(interaction.Destination) == 0 {
+		return nil
 	}
-	if interaction.State == executionstore.AgentInteractionStateOpen {
-		if err := call.Executor.postIntegrationPrompt(ctx, call.Turn, interaction); err != nil {
-			return nil, fmt.Errorf("deliver question interaction: %w", err)
-		}
-	}
-	return awaitDurableAsynchronously(), nil
+	return call.Executor.interactionPresenter().Present(ctx, interaction.ProjectID, interaction.AgentID, interaction.ID)
 }
 
 func askQuestionForm(raw json.RawMessage) (interactionform.Form, error) {

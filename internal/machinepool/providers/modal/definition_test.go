@@ -72,9 +72,9 @@ func TestDefinitionRejectsInvalidConfigAndCredentials(t *testing.T) {
 		{name: "unknown config", config: json.RawMessage(`{"app":"agents","unknown":true}`), credential: `{"token_id":"ak","token_secret":"as"}`, want: "unknown field"},
 		{name: "invalid environment", config: json.RawMessage(`{"app":"agents","environment":"bad/env"}`), credential: `{"token_id":"ak","token_secret":"as"}`, want: "modal environment"},
 		{name: "environment id", config: json.RawMessage(`{"app":"agents","environment":"en-production"}`), credential: `{"token_id":"ak","token_secret":"as"}`, want: "modal environment"},
-		{name: "plain token", config: json.RawMessage(`{"app":"agents"}`), credential: "token", want: "decode modal provider credentials"},
-		{name: "missing token secret", config: json.RawMessage(`{"app":"agents"}`), credential: `{"token_id":"ak"}`, want: "require token_id and token_secret"},
-		{name: "unknown credential", config: json.RawMessage(`{"app":"agents"}`), credential: `{"token_id":"ak","token_secret":"as","extra":true}`, want: "unknown field"},
+		{name: "plain token", config: json.RawMessage(`{"app":"agents"}`), credential: "token", want: "modal credentials must be JSON"},
+		{name: "missing token secret", config: json.RawMessage(`{"app":"agents"}`), credential: `{"token_id":"ak"}`, want: "modal credentials must be JSON"},
+		{name: "unknown credential", config: json.RawMessage(`{"app":"agents"}`), credential: `{"token_id":"ak","token_secret":"as","extra":true}`, want: "modal credentials must be JSON"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := (Definition{}).NewProvider(

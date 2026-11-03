@@ -10,8 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type AgentInputRecord struct {
@@ -34,7 +32,6 @@ type AgentInputRecord struct {
 	TargetInteractionID uuid.UUID              `json:"target_interaction_id,omitempty"`
 	AgentConfigID       uuid.UUID              `json:"agent_config_id,omitempty"`
 	ResolvedAt          *time.Time             `json:"resolved_at,omitempty"`
-	RejectedReason      string                 `json:"rejected_reason,omitempty"`
 	Metadata            json.RawMessage        `json:"metadata"`
 	ContentBlocks       json.RawMessage        `json:"-"`
 }
@@ -46,8 +43,6 @@ type AgentInputQueueCursor struct {
 	QueuedAt     time.Time
 	ID           uuid.UUID
 }
-
-const agentInputRankStride int64 = 1024
 
 type ListQueuedBacklogInputsInput struct {
 	ProjectID uuid.UUID
@@ -69,57 +64,9 @@ const (
 
 type AgentInputDeliveryMode string
 
-type insertAgentInputInput struct {
-	ID                  uuid.UUID
-	ProjectID           uuid.UUID
-	AgentID             uuid.UUID
-	DeliveryMode        AgentInputDeliveryMode
-	ActorID             uuid.UUID
-	IntegrationTargetID uuid.UUID
-	IdempotencyScope    string
-	InputIdempotencyKey string
-	Metadata            json.RawMessage
-}
-
-func insertAgentInputTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	input insertAgentInputInput,
-) (AgentInputRecord, error) {
-	if input.DeliveryMode == "" {
-		input.DeliveryMode = DeliveryModeQueued
-	}
-	if input.DeliveryMode != DeliveryModeQueued && input.DeliveryMode != DeliveryModeSteering {
-		return AgentInputRecord{}, fmt.Errorf(
-			"unsupported agent input delivery_mode %q",
-			input.DeliveryMode,
-		)
-	}
-	input.Metadata = normalizedJSON(input.Metadata)
-	row, err := dbsqlc.New(tx).InsertAgentInput(ctx, dbsqlc.InsertAgentInputParams{
-		RankStride:          agentInputRankStride,
-		ProjectID:           input.ProjectID,
-		AgentID:             input.AgentID,
-		ID:                  storeutil.IDFromNil(input.ID),
-		DeliveryMode:        string(input.DeliveryMode),
-		ActorID:             storeutil.IDFromNil(input.ActorID),
-		IntegrationTargetID: storeutil.IDFromNil(input.IntegrationTargetID),
-		IdempotencyScope:    storeutil.TextFromEmpty(input.IdempotencyScope),
-		InputIdempotencyKey: storeutil.TextFromEmpty(input.InputIdempotencyKey),
-		Metadata:            input.Metadata,
-	})
-	if err != nil {
-		if storeutil.IsUniqueViolation(err) {
-			return AgentInputRecord{}, storeerr.ErrIdempotencyConflict
-		}
-		return AgentInputRecord{}, fmt.Errorf("insert agent input: %w", err)
-	}
-	return agentInputRecordFromInsertSQLC(row), nil
-}
-
 func loadAgentInputByIdempotencyMaybeTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	projectID, agentID uuid.UUID,
 	scope, key string,
 ) (AgentInputRecord, bool, error) {

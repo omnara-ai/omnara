@@ -28,7 +28,7 @@ export function CreateAgentActions({
   const errorMessage = statusError(status)
 
   return (
-    <div className="bg-sidebar -mx-4 -mb-4 -mt-3 flex flex-col gap-3 px-4 pb-3.5 pt-[1.625rem] sm:-mx-6 sm:-mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-8">
+    <div className="bg-sidebar -mx-4 -mt-3 -mb-4 flex flex-col gap-3 px-4 pt-[1.625rem] pb-3.5 sm:-mx-6 sm:-mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-8">
       <Button
         type="button"
         variant="ghost"
@@ -42,11 +42,11 @@ export function CreateAgentActions({
       </Button>
       <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
         {launchError && webConfig?.billingURL ? (
-          <p className="text-destructive whitespace-pre-wrap text-sm" role="alert">
+          <p className="text-destructive text-sm whitespace-pre-wrap" role="alert">
             <InsufficientCreditsMessage billingHref={webConfig.billingHref} />
           </p>
         ) : errorMessage ? (
-          <p className="text-destructive whitespace-pre-wrap text-sm">{errorMessage}</p>
+          <p className="text-destructive text-sm whitespace-pre-wrap">{errorMessage}</p>
         ) : null}
         <Button
           type="button"

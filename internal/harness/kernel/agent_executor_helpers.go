@@ -34,15 +34,6 @@ func executableToolSet(specs []modelcontext.ToolSpec) map[string]tools.ToolSpec 
 	return executable
 }
 
-func toToolTurn(input ModelWorkExecution) tools.Turn {
-	return tools.Turn{
-		OrgID:         input.OrgID,
-		ProjectID:     input.ProjectID,
-		AgentID:       input.AgentID,
-		RuntimeLockID: input.RuntimeLockID,
-	}
-}
-
 func toolWorkTurn(input ToolWorkExecution, orgID uuid.UUID, specs []modelcontext.ToolSpec) tools.Turn {
 	return tools.Turn{
 		OrgID:              orgID,
@@ -77,9 +68,7 @@ func (e AgentExecutor) configuredToolExecutor() tools.Executor {
 	if executor.SigV4CredentialCache == nil {
 		executor.SigV4CredentialCache = e.SigV4CredentialCache
 	}
-	if executor.Now == nil {
-		executor.Now = e.now
-	}
+
 	if executor.MCPInitializationBackoff == nil {
 		executor.MCPInitializationBackoff = e.MCPInitializationBackoff
 	}

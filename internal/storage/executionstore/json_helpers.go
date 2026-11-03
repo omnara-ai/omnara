@@ -22,18 +22,6 @@ func normalizedJSONArray(value json.RawMessage) json.RawMessage {
 	return value
 }
 
-func normalizedJSONObject(value json.RawMessage, fieldName string) (json.RawMessage, error) {
-	value = normalizedJSON(value)
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(value, &object); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", fieldName, err)
-	}
-	if object == nil {
-		return nil, fmt.Errorf("%s must be a JSON object", fieldName)
-	}
-	return value, nil
-}
-
 func marshalJSON(value any) (json.RawMessage, error) {
 	body, err := json.Marshal(value)
 	if err != nil {

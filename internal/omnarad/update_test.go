@@ -237,6 +237,21 @@ func TestDownloadPublicReleaseRejectsInsecureRedirect(t *testing.T) {
 	}
 }
 
+func TestDownloadPublicReleaseClosesConnection(t *testing.T) {
+	var keptAlive atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		keptAlive.Store(!r.Close)
+		_, _ = w.Write([]byte("manifest"))
+	}))
+	t.Cleanup(server.Close)
+	if err := downloadPublicRelease(context.Background(), server.URL, 1024, io.Discard); err != nil {
+		t.Fatalf("download release: %v", err)
+	}
+	if keptAlive.Load() {
+		t.Fatal("release download kept its connection open")
+	}
+}
+
 func TestStageDaemonUpdateVerifiesChecksumBeforeExecution(t *testing.T) {
 	home := t.TempDir()
 	if err := os.Mkdir(filepath.Join(home, "bin"), 0o700); err != nil {

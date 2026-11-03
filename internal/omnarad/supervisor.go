@@ -14,9 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/machinedaemon"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const supervisedServiceFlag = "--supervised"
@@ -238,6 +238,7 @@ func clearDaemonEnvironmentOverrides() {
 	_ = os.Unsetenv("OMNARA_API_URL")
 	_ = os.Unsetenv("OMNARA_MACHINE_TOKEN")
 	_ = os.Unsetenv("OMNARA_NO_UPDATE")
+	_ = os.Unsetenv("OMNARA_GIT_CREDENTIALS")
 	_ = os.Unsetenv("OMNARA_RUNNER_PATH")
 }
 

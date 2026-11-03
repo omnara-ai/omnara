@@ -194,6 +194,15 @@ DELETE FROM skill_grants
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id)
 RETURNING id, org_id, skill_id, target_project_id, created_at;
 
+-- name: ListSkillGrantTargetProjectIDs :many
+SELECT sg.target_project_id
+FROM skill_grants sg
+JOIN projects project ON project.org_id = sg.org_id
+  AND project.id = sg.target_project_id
+  AND project.deleted_at IS NULL
+WHERE sg.org_id = sqlc.arg(org_id) AND sg.skill_id = sqlc.arg(skill_id)
+ORDER BY sg.target_project_id;
+
 -- name: SkillAvailableToProject :one
 SELECT EXISTS (
   SELECT 1
@@ -343,8 +352,6 @@ ORDER BY CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN sort_key END ASC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN id END DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- Compiled agent configs reference skills by public id, so the caller passes
--- the encoded skill id rather than the raw uuid.
 -- name: SkillHasActiveAgentReferences :one
 SELECT EXISTS (
   SELECT 1
@@ -352,9 +359,12 @@ SELECT EXISTS (
   JOIN agent_configs config
     ON config.project_id = agent.project_id
    AND config.id = agent.current_config_id
+  JOIN agent_config_definitions definition
+    ON definition.project_id = config.project_id
+   AND definition.id = config.definition_id
   WHERE agent.org_id = sqlc.arg(org_id)
     AND agent.state = 'active'
-    AND config.compiled_definition->'skills' @> jsonb_build_array(jsonb_build_object('public_id', sqlc.arg(skill_public_id)::text))
+    AND definition.compiled_definition->'skills' @> jsonb_build_array(jsonb_build_object('id', sqlc.arg(skill_id)::uuid))
 ) AS has_active_agent_references;
 
 -- name: DeleteSkill :execrows

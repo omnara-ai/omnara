@@ -26,7 +26,7 @@ WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id) AND deleted_at IS NULL;
 SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, provider_auth_secret_id, provider_auth_env_var, max_total_machines, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb, metadata, deleted_at, created_at, updated_at, runtime_protection_enabled, min_machine_cpu, min_machine_memory_mb, delete_after_idle_minutes
 FROM machine_pools
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id) AND deleted_at IS NULL
-FOR UPDATE;
+FOR NO KEY UPDATE;
 
 -- name: UpdateMachinePool :one
 UPDATE machine_pools
@@ -143,7 +143,17 @@ SELECT id
 FROM machine_pools
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
-FOR UPDATE;
+FOR NO KEY UPDATE;
+
+-- name: GetMachinePoolUsage :one
+SELECT count(*)::integer AS active_machines,
+       coalesce(sum(cpu), 0)::bigint AS active_cpu,
+       coalesce(sum(memory_mb), 0)::bigint AS active_memory_mb
+FROM machines
+WHERE org_id = sqlc.arg(org_id)
+  AND machine_pool_id = sqlc.arg(machine_pool_id)::uuid
+  AND source_kind = 'pool'
+  AND deleted_at IS NULL;
 
 -- name: ListMachinePools :many
 SELECT id, org_id, name, management_kind, description, provider, default_machine_cpu,
@@ -441,7 +451,7 @@ WITH locked_pool AS MATERIALIZED (
   WHERE machine.org_id = sqlc.arg(org_id)
     AND machine.id = sqlc.arg(machine_id)
     AND machine.source_kind = 'pool'
-  FOR UPDATE OF pool
+  FOR NO KEY UPDATE OF pool
 )
 SELECT machine_grant.project_id
 FROM locked_pool pool
@@ -618,23 +628,19 @@ WITH cleanup_candidates AS (
          'offline'::text AS connection_state,
          machine.last_observed_at, machine.cpu, machine.memory_mb, machine.cwd, machine.env, machine.secret_env, machine.provider_options, coalesce(machine.idempotency_key, '') AS idempotency_key, coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code, machine.lifecycle_reason_message, machine.next_reconcile_after, machine.provision_attempts, machine.delete_attempts, machine.metadata, machine.deleted_at, machine.created_at, machine.updated_at, machine.lifecycle_changed_at, machine.lifecycle_version,
          CASE
-           WHEN machine.lifecycle_state = 'delete_failed'
+           WHEN machine.lifecycle_state IN ('deleting', 'delete_failed')
              AND machine.next_reconcile_after <= transaction_timestamp()
-             THEN 'delete_failed_retry'
+             THEN ''
            WHEN machine.lifecycle_state = 'provisioning'
              AND machine.provision_attempts >= sqlc.arg(max_provision_attempts)::integer
              AND machine.next_reconcile_after <= transaction_timestamp()
              THEN 'provisioning_stale_cleanup'
-           WHEN machine.lifecycle_state = 'deleting'
-             AND machine.next_reconcile_after <= transaction_timestamp()
-             THEN 'deleting_retry'
            WHEN machine.lifecycle_state = 'active'
              AND machine.provider_resource_id IS NOT NULL
              AND machine.lifecycle_changed_at <= transaction_timestamp() - sqlc.arg(stale_bootstrap_age_seconds)::bigint * interval '1 second'
              AND machine.current_daemon_runtime_id IS NULL
              THEN 'startup_or_daemon_bootstrap_failed'
-           ELSE ''
-         END AS cleanup_reason_code
+         END::text AS cleanup_reason_code
   FROM machines machine
   WHERE machine.source_kind = 'pool'
     AND machine.deleted_at IS NULL
@@ -644,7 +650,7 @@ SELECT id, org_id, machine_pool_id, source_kind, display_name, description, prov
        last_observed_at, cpu, memory_mb, cwd, env, secret_env, provider_options, idempotency_key, lifecycle_reason_code, lifecycle_reason_message, next_reconcile_after, provision_attempts, delete_attempts, metadata, deleted_at, created_at, updated_at, lifecycle_changed_at, lifecycle_version,
        cleanup_reason_code
 FROM cleanup_candidates
-WHERE cleanup_reason_code <> ''
+WHERE cleanup_reason_code IS NOT NULL
 ORDER BY created_at, id
 LIMIT sqlc.arg(limit_count)::integer;
 
@@ -653,6 +659,45 @@ SELECT org_id, machine_id
 FROM expired_idle_pool_machine_candidates
 ORDER BY org_id, machine_id
 LIMIT sqlc.arg(limit_count)::integer;
+
+-- name: ListManagedWorkDeniedPoolMachines :many
+SELECT machine.org_id, machine.id AS machine_id, machine.lifecycle_version
+FROM machines machine
+JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+JOIN org_managed_work_admission admission ON admission.org_id = machine.org_id
+WHERE machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND pool.management_kind = 'cluster'
+  AND pool.deleted_at IS NULL
+  AND NOT admission.new_managed_work_allowed
+  AND admission.admission_changed_at <= statement_timestamp()
+    - make_interval(mins => admission.delete_machines_after_minutes)
+ORDER BY machine.org_id, machine.id
+LIMIT sqlc.arg(limit_count)::integer;
+
+-- name: MarkManagedWorkDeniedPoolMachineDeleting :execrows
+UPDATE machines machine
+SET lifecycle_state = 'deleting',
+    lifecycle_changed_at = statement_timestamp(),
+    lifecycle_version = machine.lifecycle_version + 1,
+    lifecycle_reason_code = 'managed_work_admission_denied',
+    lifecycle_reason_message = 'organization was denied managed work past its machine deletion delay',
+    next_reconcile_after = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
+    updated_at = statement_timestamp()
+FROM org_managed_work_admission admission
+WHERE machine.org_id = sqlc.arg(org_id)
+  AND machine.id = sqlc.arg(id)
+  AND machine.lifecycle_version = sqlc.arg(expected_lifecycle_version)::bigint
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND admission.org_id = machine.org_id
+  AND NOT admission.new_managed_work_allowed
+  AND admission.admission_changed_at <= statement_timestamp()
+    - make_interval(mins => admission.delete_machines_after_minutes);
 
 -- name: LockPoolMachineDeletionAttemptForLifecycle :one
 SELECT id, machine_pool_id
@@ -681,8 +726,8 @@ SET lifecycle_state = 'deleted',
     lifecycle_changed_at = statement_timestamp(),
     lifecycle_version = lifecycle_version + 1,
     deleted_at = statement_timestamp(),
-    lifecycle_reason_code = 'provider_deleted',
-    lifecycle_reason_message = '',
+    lifecycle_reason_code = sqlc.arg(lifecycle_reason_code),
+    lifecycle_reason_message = sqlc.arg(lifecycle_reason_message),
     next_reconcile_after = NULL,
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
@@ -723,7 +768,20 @@ WITH candidate AS MATERIALIZED (
              AND candidate_machine.provider_provision_attempted_at <= statement_timestamp() - sqlc.arg(missing_resource_finality_age_seconds)::bigint * interval '1 second'
              THEN true
            ELSE false
-         END AS can_finalize_missing_provider_resource
+         END AS can_finalize_missing_provider_resource,
+         CASE
+           WHEN candidate_machine.lifecycle_state = 'delete_failed'
+             AND candidate_machine.delete_attempts >= 6
+             AND EXISTS (
+               SELECT 1
+               FROM machine_pools pool
+               WHERE pool.org_id = candidate_machine.org_id
+                 AND pool.id = candidate_machine.machine_pool_id
+                 AND pool.management_kind = 'tenant'
+             )
+             THEN true
+           ELSE false
+         END AS can_abandon_provider_resource
   FROM machines candidate_machine
   WHERE candidate_machine.org_id = sqlc.arg(org_id)
     AND candidate_machine.id = sqlc.arg(id)
@@ -752,8 +810,14 @@ UPDATE machines machine
 SET lifecycle_state = 'deleting',
     lifecycle_changed_at = statement_timestamp(),
     lifecycle_version = machine.lifecycle_version + 1,
-    lifecycle_reason_code = sqlc.narg(lifecycle_reason_code),
-    lifecycle_reason_message = sqlc.arg(lifecycle_reason_message),
+    lifecycle_reason_code = CASE
+      WHEN machine.lifecycle_state IN ('deleting', 'delete_failed') THEN machine.lifecycle_reason_code
+      ELSE sqlc.narg(lifecycle_reason_code)::text
+    END,
+    lifecycle_reason_message = CASE
+      WHEN machine.lifecycle_state IN ('deleting', 'delete_failed') THEN machine.lifecycle_reason_message
+      ELSE sqlc.arg(lifecycle_reason_message)::text
+    END,
     next_reconcile_after = statement_timestamp() + sqlc.arg(claim_timeout_seconds)::bigint * interval '1 second',
     delete_attempts = machine.delete_attempts + 1,
     provider_runtime_mismatch_since = CASE
@@ -766,7 +830,7 @@ SET lifecycle_state = 'deleting',
 FROM candidate
 WHERE machine.org_id = sqlc.arg(org_id)
   AND machine.id = candidate.id
-RETURNING machine.id, machine.org_id, machine.machine_pool_id, machine.source_kind, machine.display_name, machine.description, machine.provider, machine.lifecycle_state, machine.provider_resource_id, machine.provider_provision_attempted_at, 'offline'::text AS connection_state, machine.last_observed_at, machine.cpu, machine.memory_mb, machine.cwd, machine.env, machine.secret_env, machine.provider_options, coalesce(machine.idempotency_key, '') AS idempotency_key, coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code, machine.lifecycle_reason_message, machine.next_reconcile_after, machine.provision_attempts, machine.delete_attempts, machine.metadata, machine.deleted_at, machine.created_at, machine.updated_at, machine.lifecycle_changed_at, machine.lifecycle_version, candidate.can_finalize_missing_provider_resource;
+RETURNING machine.id, machine.org_id, machine.machine_pool_id, machine.source_kind, machine.display_name, machine.description, machine.provider, machine.lifecycle_state, machine.provider_resource_id, machine.provider_provision_attempted_at, 'offline'::text AS connection_state, machine.last_observed_at, machine.cpu, machine.memory_mb, machine.cwd, machine.env, machine.secret_env, machine.provider_options, coalesce(machine.idempotency_key, '') AS idempotency_key, coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code, machine.lifecycle_reason_message, machine.next_reconcile_after, machine.provision_attempts, machine.delete_attempts, machine.metadata, machine.deleted_at, machine.created_at, machine.updated_at, machine.lifecycle_changed_at, machine.lifecycle_version, candidate.can_finalize_missing_provider_resource, candidate.can_abandon_provider_resource;
 
 -- name: ClaimExpiredIdlePoolMachineDeletion :one
 WITH candidate AS MATERIALIZED (

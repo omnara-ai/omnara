@@ -17,10 +17,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 type Config struct {
+	GitCredentialsDisabled bool
 	APIURL                 string
 	MachineToken           string
 	DaemonVersion          string
@@ -45,12 +47,13 @@ type DaemonRuntime struct {
 }
 
 type Client struct {
-	cfg            Config
-	instanceID     uuid.UUID
-	http           *http.Client
-	log            *slog.Logger
-	bootstrap      daemonBootstrap
-	runnerLauncher processRunnerLauncher
+	gitCredentialsUnavailable bool
+	cfg                       Config
+	instanceID                uuid.UUID
+	http                      *http.Client
+	log                       *slog.Logger
+	bootstrap                 daemonBootstrap
+	runnerLauncher            processRunnerLauncher
 
 	stateMu sync.Mutex
 	state   *statedb.Store
@@ -66,6 +69,7 @@ type Client struct {
 	wakeSignals   chan struct{}
 	sleepPlatform sleepPlatform
 	sleepDisabled atomic.Bool
+	asleep        atomic.Bool
 }
 
 type registerResponse struct {
@@ -118,19 +122,28 @@ type daemonBootstrap struct {
 type daemonReportedEvent = daemonprotocol.ReportedEvent
 
 type ProcessAssignment struct {
-	Process          Process           `json:"process"`
-	ID               string            `json:"process_id"`
-	Env              map[string]string `json:"env,omitempty"`
-	PreparationError string            `json:"preparation_error,omitempty"`
-	WaitMs           int               `json:"wait_ms,omitempty"`
-	TimeoutSeconds   int               `json:"timeout_seconds"`
+	GitCredentials      bool                 `json:"git_credentials,omitempty"`
+	GitCredentialHelper *gitCredentialHelper `json:"git_credential_helper,omitempty"`
+	Process             Process              `json:"process"`
+	ID                  string               `json:"process_id"`
+	Env                 map[string]string    `json:"env,omitempty"`
+	PreparationError    string               `json:"preparation_error,omitempty"`
+	WaitMs              int                  `json:"wait_ms,omitempty"`
+	TimeoutSeconds      int                  `json:"timeout_seconds"`
+	OutputBytes         int                  `json:"output_bytes,omitempty"`
+	processaction.OutputWait
+}
+
+func (a ProcessAssignment) outputBudget() (int, int) {
+	if a.OutputBytes <= 0 {
+		return processaction.MaxObservationBytes, 0
+	}
+	return min(a.OutputBytes, processaction.MaxObservationBytes), a.HeadBytes
 }
 
 type Process struct {
-	Command       string                   `json:"command"`
-	ShellSelector processcmd.ShellSelector `json:"shell_selector"`
+	ExecutionSpec processcmd.ExecutionSpec `json:"execution_spec"`
 	Cwd           string                   `json:"cwd"`
-	IOMode        processcmd.IOMode        `json:"io_mode"`
 }
 
 type ProcessAction struct {
@@ -202,6 +215,9 @@ type processRuntime struct {
 }
 
 type localProcessRunner struct {
+	fileTransfer        *processcmd.FileTransfer
+	transferReader      *os.File
+	transferResult      chan fileTransferOutcome
 	cmd                 *exec.Cmd
 	startErr            error
 	containment         atomic.Pointer[processContainment]
@@ -209,6 +225,7 @@ type localProcessRunner struct {
 	stdin               *os.File
 	stdinMu             sync.Mutex
 	stdinOK             bool
+	noStdin             bool
 	ptyMode             bool
 	output              processOutput
 	outputDone          chan struct{}
@@ -389,9 +406,7 @@ func (r *localProcessRunner) WriteInput(
 
 func (r *localProcessRunner) CloseInput() error {
 	if r.ptyMode {
-		return errors.New(
-			"close_stdin is not supported for pty-backed processes",
-		)
+		return errors.New("closing input is not supported for pty-backed processes")
 	}
 	r.stdinMu.Lock()
 	defer r.stdinMu.Unlock()
@@ -430,6 +445,10 @@ func (r *localProcessRunner) Slice(
 		useCursor = *cursor
 	}
 	return r.output.Slice(useCursor, maxBytes)
+}
+
+func (r *localProcessRunner) Window(cursor int64, maxBytes, headBytes int) (outputWindow, error) {
+	return r.output.Window(cursor, maxBytes, headBytes)
 }
 
 func (r *localProcessRunner) waitOutputDrain() error {

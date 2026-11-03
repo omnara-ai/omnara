@@ -121,10 +121,7 @@ func (f *Fetcher) Fetch(ctx context.Context, req FetchRequest) (FetchResult, err
 		}
 	}
 	httpReq.Header.Set("User-Agent", f.userAgent)
-	httpReq.Header.Set(
-		"Accept",
-		"text/html,application/xhtml+xml,text/plain;q=0.9,text/markdown;q=0.9,application/json;q=0.8,*/*;q=0.5",
-	)
+	httpReq.Header.Set("Accept", acceptHeader(req.Format))
 
 	resp, err := f.client.Do(httpReq)
 	if err != nil {
@@ -169,12 +166,8 @@ func (f *Fetcher) Fetch(ctx context.Context, req FetchRequest) (FetchResult, err
 	if err != nil {
 		return FetchResult{}, err
 	}
-	content := extracted.Content
-	truncated := false
-	if len(content) > fetchExtractedCapChars {
-		content = textutil.TruncateRunes(content, fetchExtractedCapChars)
-		truncated = true
-	}
+	content := textutil.TruncateRunes(extracted.Content, fetchExtractedCapChars)
+	truncated := len(content) < len(extracted.Content)
 	return FetchResult{
 		URL:         req.URL,
 		FinalURL:    finalURL,
@@ -185,6 +178,14 @@ func (f *Fetcher) Fetch(ctx context.Context, req FetchRequest) (FetchResult, err
 		Bytes:       int64(len(body)),
 		Truncated:   truncated,
 	}, nil
+}
+
+func acceptHeader(format string) string {
+	if format == "text" {
+		return "text/html,application/xhtml+xml,text/plain;q=0.9,application/json;q=0.8,*/*;q=0.5"
+	}
+	return "text/markdown,text/x-markdown;q=0.95,text/html;q=0.9,application/xhtml+xml;q=0.9," +
+		"text/plain;q=0.8,application/json;q=0.8,*/*;q=0.5"
 }
 
 func normalizeFetchURL(raw string, allowInsecureHTTP bool) (string, error) {

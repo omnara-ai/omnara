@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -34,9 +35,8 @@ func TestQueuedProcessActionFailureSkipsCompletedToolCall(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -134,9 +134,8 @@ func TestAcceptDaemonProcessActionRechecksLeaseAfterActionLockWait(t *testing.T)
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 	})
 	if err != nil {
 		t.Fatalf("start process: %v", err)
@@ -275,9 +274,8 @@ func TestCreateProcessActionRechecksRuntimeLeaseAfterProcessLockWait(t *testing.
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 	})
 	if err != nil {
 		t.Fatalf("start process: %v", err)
@@ -397,9 +395,8 @@ func TestAcceptedProcessActionUnknownSkipsCompletedToolCall(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -514,9 +511,8 @@ func TestDaemonProcessFinishedPreservesOutstandingReads(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -669,7 +665,7 @@ func TestDaemonHeartbeatDoesNotDiscardAcceptedWrite(t *testing.T) {
 			builtInProcessToolCallBatchItem("heartbeat_keeps_accepted_write_action", "write_process"),
 		},
 	)
-	processToolCallID, closeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
+	processToolCallID, writeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
 
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -677,9 +673,8 @@ func TestDaemonHeartbeatDoesNotDiscardAcceptedWrite(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -711,15 +706,15 @@ func TestDaemonHeartbeatDoesNotDiscardAcceptedWrite(t *testing.T) {
 	action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
-		ToolCallID:    closeInputToolCallID,
+		ToolCallID:    writeInputToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessActionInput{
 		ProcessID:  process.ID,
 		ActionKind: executionstore.ProcessActionKindWrite,
-		Payload:    json.RawMessage(`{"close_stdin":true}`),
+		Payload:    json.RawMessage(`{"data":"x"}`),
 	})
 	if err != nil {
-		t.Fatalf("create close input action: %v", err)
+		t.Fatalf("create write input action: %v", err)
 	}
 	if _, found, err := acceptDaemonProcessActionForTest(
 		ctx,
@@ -729,9 +724,9 @@ func TestDaemonHeartbeatDoesNotDiscardAcceptedWrite(t *testing.T) {
 		fixture.RuntimeID,
 		process.ID,
 		uuid.Nil); err != nil {
-		t.Fatalf("accept close input action: %v", err)
+		t.Fatalf("accept write input action: %v", err)
 	} else if !found {
-		t.Fatal("expected close input action accept")
+		t.Fatal("expected write input action accept")
 	}
 	exitCode := 0
 	endedAt := fixture.Now.Add(3 * time.Second)
@@ -764,18 +759,18 @@ func TestDaemonHeartbeatDoesNotDiscardAcceptedWrite(t *testing.T) {
 		ctx,
 		testProjectID,
 		fixture.AgentID,
-		closeInputToolCallID,
+		writeInputToolCallID,
 	)
 	if err != nil {
-		t.Fatalf("get completed close input action: %v", err)
+		t.Fatalf("get completed write input action: %v", err)
 	}
 	if !found || updated.ID != action.ID || updated.State != executionstore.ProcessActionStateAccepted ||
 		updated.StateReasonCode != "" {
 		t.Fatalf("write action after process completion = found %v %+v", found, updated)
 	}
-	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, closeInputToolCallID)
+	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, writeInputToolCallID)
 	if err != nil {
-		t.Fatalf("get completed close input tool call: %v", err)
+		t.Fatalf("get completed write input tool call: %v", err)
 	}
 	if toolCall.State != executionstore.ToolCallStateWaiting || toolCall.CompletedAt != nil {
 		t.Fatalf("accepted write tool call = %+v", toolCall)
@@ -796,7 +791,7 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 			builtInProcessToolCallBatchItem("terminal_process_keeps_accepted_mutation_close", "write_process"),
 		},
 	)
-	processToolCallID, closeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
+	processToolCallID, writeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
 
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -804,9 +799,8 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -838,15 +832,15 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 	action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
-		ToolCallID:    closeInputToolCallID,
+		ToolCallID:    writeInputToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessActionInput{
 		ProcessID:  process.ID,
 		ActionKind: executionstore.ProcessActionKindWrite,
-		Payload:    json.RawMessage(`{"close_stdin":true}`),
+		Payload:    json.RawMessage(`{"data":"x"}`),
 	})
 	if err != nil {
-		t.Fatalf("create close input action: %v", err)
+		t.Fatalf("create write input action: %v", err)
 	}
 	if _, found, err := acceptDaemonProcessActionForTest(
 		ctx,
@@ -856,9 +850,9 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 		fixture.RuntimeID,
 		process.ID,
 		uuid.Nil); err != nil {
-		t.Fatalf("accept close input action: %v", err)
+		t.Fatalf("accept write input action: %v", err)
 	} else if !found {
-		t.Fatal("expected close input action accept")
+		t.Fatal("expected write input action accept")
 	}
 	exitCode := 0
 	endedAt := fixture.Now.Add(3 * time.Second)
@@ -893,10 +887,10 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 		ctx,
 		testProjectID,
 		fixture.AgentID,
-		closeInputToolCallID,
+		writeInputToolCallID,
 	)
 	if err != nil {
-		t.Fatalf("get resolved close input action: %v", err)
+		t.Fatalf("get resolved write input action: %v", err)
 	}
 	if !found || pending.ID != action.ID ||
 		pending.State != executionstore.ProcessActionStateAccepted ||
@@ -907,10 +901,10 @@ func TestTerminalProcessDoesNotReofferAcceptedMutation(t *testing.T) {
 		ctx,
 		testProjectID,
 		fixture.AgentID,
-		closeInputToolCallID,
+		writeInputToolCallID,
 	)
 	if err != nil {
-		t.Fatalf("re-read resolved close input action: %v", err)
+		t.Fatalf("re-read resolved write input action: %v", err)
 	}
 	if !found || updated.ID != action.ID || updated.State != executionstore.ProcessActionStateAccepted ||
 		updated.StateReasonCode != "" {
@@ -943,9 +937,8 @@ func TestProcessCompletionKeepsTerminalReadsAvailable(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1135,9 +1128,8 @@ func TestDaemonHeartbeatKeepsQueuedTerminalRead(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1239,7 +1231,7 @@ func TestAcceptedWriteRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 			builtInProcessToolCallBatchItem("terminal_process_keeps_accepted_write_close", "write_process"),
 		},
 	)
-	processToolCallID, closeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
+	processToolCallID, writeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
 
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -1247,9 +1239,8 @@ func TestAcceptedWriteRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1281,15 +1272,15 @@ func TestAcceptedWriteRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 	action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
-		ToolCallID:    closeInputToolCallID,
+		ToolCallID:    writeInputToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessActionInput{
 		ProcessID:  process.ID,
 		ActionKind: executionstore.ProcessActionKindWrite,
-		Payload:    json.RawMessage(`{"close_stdin":true}`),
+		Payload:    json.RawMessage(`{"data":"x"}`),
 	})
 	if err != nil {
-		t.Fatalf("create close input action: %v", err)
+		t.Fatalf("create write input action: %v", err)
 	}
 	if _, found, err := acceptDaemonProcessActionForTest(
 		ctx,
@@ -1299,9 +1290,9 @@ func TestAcceptedWriteRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 		fixture.RuntimeID,
 		process.ID,
 		uuid.Nil); err != nil {
-		t.Fatalf("accept close input action: %v", err)
+		t.Fatalf("accept write input action: %v", err)
 	} else if !found {
-		t.Fatal("expected close input action accept")
+		t.Fatal("expected write input action accept")
 	}
 	exitCode := 0
 	endedAt := fixture.Now.Add(3 * time.Second)
@@ -1324,18 +1315,18 @@ func TestAcceptedWriteRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 		ctx,
 		testProjectID,
 		fixture.AgentID,
-		closeInputToolCallID,
+		writeInputToolCallID,
 	)
 	if err != nil {
-		t.Fatalf("get resolved close input action: %v", err)
+		t.Fatalf("get resolved write input action: %v", err)
 	}
 	if !found || updated.ID != action.ID || updated.State != executionstore.ProcessActionStateAccepted ||
 		updated.StateReasonCode != "" {
 		t.Fatalf("write action after process completion = found %v %+v", found, updated)
 	}
-	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, closeInputToolCallID)
+	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, writeInputToolCallID)
 	if err != nil {
-		t.Fatalf("get resolved close input tool call: %v", err)
+		t.Fatalf("get resolved write input tool call: %v", err)
 	}
 	if toolCall.State != executionstore.ToolCallStateWaiting || toolCall.CompletedAt != nil {
 		t.Fatalf("accepted write tool call = %+v", toolCall)
@@ -1364,9 +1355,8 @@ func TestAcceptedReadRemainsOwnedAfterParentTerminalizes(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1482,9 +1472,8 @@ func TestInterruptRemainsFIFOBehindQueuedWrite(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1581,9 +1570,8 @@ func TestTerminateActionRejectsLaterMutationsButAllowsReads(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1664,9 +1652,8 @@ func TestDaemonProcessActionsGrantOneFIFOActionAtATime(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -1861,9 +1848,8 @@ func TestAcceptedActionKeepsLaterControlActionsFIFO(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2046,9 +2032,8 @@ func TestCompleteProcessPreservesOutstandingReads(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2196,9 +2181,8 @@ func TestCompleteProcessPreservesAcceptedTerminateEvidence(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2714,9 +2698,8 @@ func TestCompleteProcessLeavesAppliedTerminateActionApplied(t *testing.T) {
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -2854,9 +2837,8 @@ func TestDuplicateDaemonProcessActionReportReplaysTerminalState(t *testing.T) {
 					RuntimeLockID: fixture.Lock.ID,
 				},
 				executionstore.CreateProcessInput{
+					ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 					AgentMachineBindingID: fixture.BindingID,
-					Command:               "cat",
-					ShellSelector:         "sh",
 					Cwd:                   "/work",
 				},
 			)
@@ -3026,9 +3008,8 @@ func TestDaemonProcessActionReportRetainsEvidenceWhenAnotherToolResultWon(t *tes
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3167,9 +3148,8 @@ func TestProcessActionAcceptRequiresCurrentMachineRuntimeAndActiveGrant(t *testi
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3293,9 +3273,8 @@ func TestAcceptDaemonProcessActionRejectsKnownActionAfterProjectMachineGrantRevo
 		ToolCallID:    processToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3371,9 +3350,8 @@ func TestProcessActionReplayRejectsDifferentTargetProcess(t *testing.T) {
 		ToolCallID:    processOneToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3396,9 +3374,8 @@ func TestProcessActionReplayRejectsDifferentTargetProcess(t *testing.T) {
 		ToolCallID:    processTwoToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "cat",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -3465,10 +3442,8 @@ func TestProcessAndActionReplayByToolCall(t *testing.T) {
 		RuntimeLockID: fixture.Lock.ID,
 	}
 	processInput := executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("cat", "sh", "pipe"),
 		AgentMachineBindingID: fixture.BindingID,
-		IOMode:                "pipe",
-		Command:               "cat",
-		ShellSelector:         "sh",
 	}
 	process, err := startProcessForTest(ctx, fixture.Store, processTransaction, processInput)
 	if err != nil {

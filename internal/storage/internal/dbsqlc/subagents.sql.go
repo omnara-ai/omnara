@@ -14,19 +14,6 @@ import (
 )
 
 const agentIdleForArchive = `-- name: AgentIdleForArchive :one
-WITH RECURSIVE subtree AS (
-  SELECT agent.project_id, agent.id, 1 AS depth
-  FROM agents agent
-  WHERE agent.project_id = $1
-    AND agent.id = $2
-  UNION ALL
-  SELECT child.project_id, child.id, subtree.depth + 1
-  FROM agents child
-  JOIN subtree ON child.parent_agent_id = subtree.id
-  WHERE child.project_id = subtree.project_id
-    AND child.state = 'active'
-    AND subtree.depth < 64
-)
 SELECT EXISTS (
   SELECT 1
   FROM agents agent
@@ -42,21 +29,7 @@ SELECT EXISTS (
       LIMIT 1
     ), agent.created_at) < coalesce($3::timestamptz, statement_timestamp())
       - make_interval(mins => agent.archive_after_idle_minutes)
-    AND NOT EXISTS (
-      SELECT 1
-      FROM subtree
-      WHERE EXISTS (
-          SELECT 1
-          FROM agent_runtime_locks runtime_lock
-          WHERE runtime_lock.agent_id = subtree.id
-        )
-        OR EXISTS (
-          SELECT 1
-          FROM agent_wakeups wake
-          WHERE wake.agent_id = subtree.id
-        )
-        OR agent_has_incomplete_tool_batch(subtree.project_id, subtree.id)
-    )
+    AND NOT agent_subtree_has_work(agent.project_id, agent.id)
 )::boolean AS idle
 `
 
@@ -130,25 +103,6 @@ func (q *Queries) CountAgentAncestors(ctx context.Context, arg CountAgentAncesto
 	return column_1, err
 }
 
-const getAgentParentID = `-- name: GetAgentParentID :one
-SELECT parent_agent_id
-FROM agents
-WHERE project_id = $1
-  AND id = $2
-`
-
-type GetAgentParentIDParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) GetAgentParentID(ctx context.Context, arg GetAgentParentIDParams) (*uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getAgentParentID, arg.ProjectID, arg.ID)
-	var parent_agent_id *uuid.UUID
-	err := row.Scan(&parent_agent_id)
-	return parent_agent_id, err
-}
-
 const listActiveChildAgentIDs = `-- name: ListActiveChildAgentIDs :many
 SELECT agent.id
 FROM agents agent
@@ -193,20 +147,20 @@ SELECT agent.id,
          ORDER BY event.sequence DESC
          LIMIT 1
        ), agent.created_at) AS last_activity_at,
-       EXISTS (
-         SELECT 1
+       (
+         SELECT count(*)
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'question'
            AND interaction.state = 'open'
-       ) AS has_open_question,
-       EXISTS (
-         SELECT 1
+       )::integer AS open_question_count,
+       (
+         SELECT count(*)
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'permission'
            AND interaction.state = 'open'
-       ) AS has_open_permission,
+       )::integer AS open_permission_count,
        (
          EXISTS (
            SELECT 1
@@ -218,30 +172,46 @@ SELECT agent.id,
            FROM agent_wakeups wake
            WHERE wake.agent_id = agent.id
          )
-         OR agent_next_wakeup_ready_at(agent.project_id, agent.id) IS NOT NULL
-         OR agent_has_incomplete_tool_batch(agent.project_id, agent.id)
-       )::boolean AS is_running
+         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.logical_ready_at IS NOT NULL)
+         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.incomplete_tools)
+       )::boolean AS is_running,
+       ARRAY(
+         SELECT process.id
+         FROM agent_background_processes(agent.project_id, agent.id) process
+         ORDER BY process.created_at, process.id
+       )::uuid[] AS background_process_ids,
+       ARRAY(
+         SELECT child.id
+         FROM agents child
+         WHERE child.project_id = agent.project_id
+           AND child.parent_agent_id = agent.id
+           AND child.state = 'active'
+           AND agent_subtree_has_work(child.project_id, child.id)
+         ORDER BY child.created_at, child.id
+       )::uuid[] AS working_subagent_ids
 FROM agents agent
-WHERE agent.project_id = $1
+WHERE agent.project_id = ANY($1::uuid[])
   AND agent.id = ANY($2::uuid[])
 `
 
 type ListAgentActivityForAgentsParams struct {
-	ProjectID uuid.UUID
-	AgentIds  []uuid.UUID
+	ProjectIds []uuid.UUID
+	AgentIds   []uuid.UUID
 }
 
 type ListAgentActivityForAgentsRow struct {
-	ID                uuid.UUID
-	State             string
-	LastActivityAt    time.Time
-	HasOpenQuestion   bool
-	HasOpenPermission bool
-	IsRunning         bool
+	ID                   uuid.UUID
+	State                string
+	LastActivityAt       time.Time
+	OpenQuestionCount    int32
+	OpenPermissionCount  int32
+	IsRunning            bool
+	BackgroundProcessIds []uuid.UUID
+	WorkingSubagentIds   []uuid.UUID
 }
 
 func (q *Queries) ListAgentActivityForAgents(ctx context.Context, arg ListAgentActivityForAgentsParams) ([]ListAgentActivityForAgentsRow, error) {
-	rows, err := q.db.Query(ctx, listAgentActivityForAgents, arg.ProjectID, arg.AgentIds)
+	rows, err := q.db.Query(ctx, listAgentActivityForAgents, arg.ProjectIds, arg.AgentIds)
 	if err != nil {
 		return nil, err
 	}
@@ -253,9 +223,11 @@ func (q *Queries) ListAgentActivityForAgents(ctx context.Context, arg ListAgentA
 			&i.ID,
 			&i.State,
 			&i.LastActivityAt,
-			&i.HasOpenQuestion,
-			&i.HasOpenPermission,
+			&i.OpenQuestionCount,
+			&i.OpenPermissionCount,
 			&i.IsRunning,
+			&i.BackgroundProcessIds,
+			&i.WorkingSubagentIds,
 		); err != nil {
 			return nil, err
 		}
@@ -315,6 +287,7 @@ SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction
        interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
        interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
        interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
+       interaction.destination, interaction.presentation_receipt,
        agent.name AS agent_name, agent.subagent_key
 FROM agent_interaction_read_projection interaction
 JOIN agents agent ON agent.project_id = interaction.project_id
@@ -340,22 +313,24 @@ type ListAgentInteractionsForAgentsParams struct {
 }
 
 type ListAgentInteractionsForAgentsRow struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	ModelCallContextID uuid.UUID
-	ToolCallID         uuid.UUID
-	ProviderCallID     string
-	InteractionKind    string
-	State              string
-	Request            json.RawMessage
-	Resolution         json.RawMessage
-	ResolvedByInputID  *uuid.UUID
-	CreatedAt          time.Time
-	ResolvedAt         *time.Time
-	AgentName          string
-	SubagentKey        string
+	ID                  uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	TurnID              uuid.UUID
+	ModelCallContextID  uuid.UUID
+	ToolCallID          uuid.UUID
+	ProviderCallID      string
+	InteractionKind     string
+	State               string
+	Request             json.RawMessage
+	Resolution          json.RawMessage
+	ResolvedByInputID   *uuid.UUID
+	CreatedAt           time.Time
+	ResolvedAt          *time.Time
+	Destination         *json.RawMessage
+	PresentationReceipt *json.RawMessage
+	AgentName           string
+	SubagentKey         string
 }
 
 func (q *Queries) ListAgentInteractionsForAgents(ctx context.Context, arg ListAgentInteractionsForAgentsParams) ([]ListAgentInteractionsForAgentsRow, error) {
@@ -389,6 +364,8 @@ func (q *Queries) ListAgentInteractionsForAgents(ctx context.Context, arg ListAg
 			&i.ResolvedByInputID,
 			&i.CreatedAt,
 			&i.ResolvedAt,
+			&i.Destination,
+			&i.PresentationReceipt,
 			&i.AgentName,
 			&i.SubagentKey,
 		); err != nil {
@@ -414,20 +391,20 @@ SELECT agent.id,
          ORDER BY event.sequence DESC
          LIMIT 1
        ), agent.created_at) AS last_activity_at,
-       EXISTS (
-         SELECT 1
+       (
+         SELECT count(*)
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'question'
            AND interaction.state = 'open'
-       ) AS has_open_question,
-       EXISTS (
-         SELECT 1
+       )::integer AS open_question_count,
+       (
+         SELECT count(*)
          FROM agent_interactions interaction
          WHERE interaction.agent_id = agent.id
            AND interaction.interaction_kind = 'permission'
            AND interaction.state = 'open'
-       ) AS has_open_permission,
+       )::integer AS open_permission_count,
        (
          EXISTS (
            SELECT 1
@@ -439,9 +416,23 @@ SELECT agent.id,
            FROM agent_wakeups wake
            WHERE wake.agent_id = agent.id
          )
-         OR agent_next_wakeup_ready_at(agent.project_id, agent.id) IS NOT NULL
-         OR agent_has_incomplete_tool_batch(agent.project_id, agent.id)
-       )::boolean AS is_running
+         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.logical_ready_at IS NOT NULL)
+         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.incomplete_tools)
+       )::boolean AS is_running,
+       ARRAY(
+         SELECT process.id
+         FROM agent_background_processes(agent.project_id, agent.id) process
+         ORDER BY process.created_at, process.id
+       )::uuid[] AS background_process_ids,
+       ARRAY(
+         SELECT child.id
+         FROM agents child
+         WHERE child.project_id = agent.project_id
+           AND child.parent_agent_id = agent.id
+           AND child.state = 'active'
+           AND agent_subtree_has_work(child.project_id, child.id)
+         ORDER BY child.created_at, child.id
+       )::uuid[] AS working_subagent_ids
 FROM agents agent
 WHERE agent.project_id = $1
   AND agent.parent_agent_id = $2
@@ -456,14 +447,16 @@ type ListChildAgentsParams struct {
 }
 
 type ListChildAgentsRow struct {
-	ID                uuid.UUID
-	Name              string
-	State             string
-	SubagentKey       string
-	LastActivityAt    time.Time
-	HasOpenQuestion   bool
-	HasOpenPermission bool
-	IsRunning         bool
+	ID                   uuid.UUID
+	Name                 string
+	State                string
+	SubagentKey          string
+	LastActivityAt       time.Time
+	OpenQuestionCount    int32
+	OpenPermissionCount  int32
+	IsRunning            bool
+	BackgroundProcessIds []uuid.UUID
+	WorkingSubagentIds   []uuid.UUID
 }
 
 func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams) ([]ListChildAgentsRow, error) {
@@ -481,9 +474,11 @@ func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams
 			&i.State,
 			&i.SubagentKey,
 			&i.LastActivityAt,
-			&i.HasOpenQuestion,
-			&i.HasOpenPermission,
+			&i.OpenQuestionCount,
+			&i.OpenPermissionCount,
 			&i.IsRunning,
+			&i.BackgroundProcessIds,
+			&i.WorkingSubagentIds,
 		); err != nil {
 			return nil, err
 		}
@@ -496,7 +491,7 @@ func (q *Queries) ListChildAgents(ctx context.Context, arg ListChildAgentsParams
 }
 
 const listIdleAgentsForArchive = `-- name: ListIdleAgentsForArchive :many
-WITH RECURSIVE candidate AS (
+WITH candidate AS (
   SELECT agent.project_id, agent.id, agent.created_at
   FROM agents agent
   WHERE agent.state = 'active'
@@ -509,37 +504,10 @@ WITH RECURSIVE candidate AS (
       LIMIT 1
     ), agent.created_at) < coalesce($2::timestamptz, statement_timestamp())
       - make_interval(mins => agent.archive_after_idle_minutes)
-), subtree AS (
-  SELECT candidate.id AS root_id, candidate.project_id, candidate.id, 1 AS depth
-  FROM candidate
-  UNION ALL
-  SELECT subtree.root_id, child.project_id, child.id, subtree.depth + 1
-  FROM agents child
-  JOIN subtree ON child.parent_agent_id = subtree.id
-  WHERE child.project_id = subtree.project_id
-    AND child.state = 'active'
-    AND subtree.depth < 64
 )
 SELECT candidate.project_id, candidate.id
 FROM candidate
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM subtree
-  WHERE subtree.root_id = candidate.id
-    AND (
-      EXISTS (
-        SELECT 1
-        FROM agent_runtime_locks runtime_lock
-        WHERE runtime_lock.agent_id = subtree.id
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM agent_wakeups wake
-        WHERE wake.agent_id = subtree.id
-      )
-      OR agent_has_incomplete_tool_batch(subtree.project_id, subtree.id)
-    )
-)
+WHERE NOT agent_subtree_has_work(candidate.project_id, candidate.id)
 ORDER BY candidate.created_at, candidate.id
 LIMIT $1::integer
 `

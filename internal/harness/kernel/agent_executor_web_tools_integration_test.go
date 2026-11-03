@@ -90,7 +90,7 @@ func TestAgentExecutorWebToolsAsyncLifecycle(t *testing.T) {
 	}
 	executeNextModelWork(t, ctx, fixture, executor, turn)
 
-	// Both tool calls completed with text + structured_data content parts.
+	// Both tool calls completed with text content parts.
 	completed, err := storagetest.ListCompletedToolCallsForTurn(
 		ctx,
 		fixture.Store,
@@ -110,8 +110,8 @@ func TestAgentExecutorWebToolsAsyncLifecycle(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s missing from completed tool calls: %v", providerCallID, partsByCall)
 		}
-		if !strings.Contains(resultParts, `"structured_data"`) || !strings.Contains(resultParts, `"text"`) {
-			t.Fatalf("%s content parts missing text/structured_data: %s", providerCallID, resultParts)
+		if !strings.Contains(resultParts, `"text"`) {
+			t.Fatalf("%s content parts missing text: %s", providerCallID, resultParts)
 		}
 		if strings.Contains(resultParts, kernelTestExaSecret) {
 			t.Fatalf("%s content parts leak the provider API key", providerCallID)
@@ -287,7 +287,10 @@ WHERE project_id = $1
 	var runnable int
 	if err := fixture.Pool.QueryRow(ctx, `
 SELECT count(*)
-FROM agent_tool_work_frontiers($1, $2)
+FROM agent_execution_state h JOIN agents a ON a.id=h.agent_id
+WHERE a.project_id=$1 AND h.agent_id=$2 AND EXISTS(SELECT 1 FROM tool_calls t
+ WHERE t.agent_id=h.agent_id AND t.model_output_id=h.pending_tool_output_id
+ AND (t.state='awaiting_authorization' OR t.state='ready' AND t.type IN ('built_in','mcp')))
 `, kernelTestProjectID, agentID).Scan(&runnable); err != nil {
 		t.Fatalf("count runnable tool work: %v", err)
 	}

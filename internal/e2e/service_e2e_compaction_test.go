@@ -379,16 +379,19 @@ func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {
 				failModelRequest(w, http.StatusBadRequest, "first request unexpectedly used the compaction prompt: %+v", body)
 				return
 			}
-			writeOpenAIFunctionCall(
-				w,
-				failModelRequest,
-				"resp_tool_before_split_compaction",
-				"call_split_tool_group",
-				"run_command",
-				map[string]any{
-					"command": "printf '" + commandNeedle + "\\n' " + strings.Repeat("&& true ", 80),
-				},
-			)
+			response := map[string]any{
+				"id": "resp_tool_before_split_compaction", "status": "completed",
+				"output": []map[string]any{{
+					"type": "function_call", "call_id": "call_split_tool_group", "name": "run_command",
+					"arguments": mustJSONString(map[string]any{
+						"command": "printf '" + commandNeedle + "\\n' " + strings.Repeat("&& true ", 80),
+					}),
+				}},
+				"usage": map[string]int{"input_tokens": 2200, "output_tokens": 64},
+			}
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				failModelRequest(w, http.StatusInternalServerError, "encode tool-call response: %v", err)
+			}
 		case 2:
 			instructions, _ := body["instructions"].(string)
 			if !strings.Contains(instructions, "compact a closed Omnara event prefix") {
@@ -429,20 +432,24 @@ func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {
 	defer openai.Close()
 
 	env.startAPI(t, ctx)
-	project := env.bootstrapProjectViaAPIWithToolsAndModelOptions(
+	project := env.bootstrapProjectViaAPIWithSourceAndModelOptions(
 		t,
 		ctx,
 		"deterministic-compaction-tool-group",
-		"openai-prod",
-		"service-e2e-local",
+		`instruction: Help the user make progress.
+model:
+  provider_config: openai-prod
+  name: service-e2e-local
+tools:
+  run_command: {}
+`,
 		serviceE2EConfiguredModelOptionsByIdentity{
 			{ProviderConfigName: "openai-prod", ConfiguredModelName: "service-e2e-local"}: {
-				ContextWindowTokens:    2100,
+				ContextWindowTokens:    2700,
 				MaxOutputTokens:        512,
 				DefaultMaxOutputTokens: 64,
 			},
 		},
-		"run_command",
 	)
 	agentID := project.createAgent(t, ctx)
 	project.createInput(t, ctx, agentID, "compactable service user history "+strings.Repeat("old user detail ", 120))

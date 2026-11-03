@@ -25,13 +25,21 @@ func Validate(expression, timezone string) error {
 	if _, err := parseExpression(expression); err != nil {
 		return fmt.Errorf("invalid cron expression: %w", err)
 	}
-	if timezone == "" || timezone == "Local" {
-		return fmt.Errorf("invalid timezone: %q", timezone)
-	}
-	if _, err := time.LoadLocation(timezone); err != nil {
-		return fmt.Errorf("invalid timezone: %w", err)
+	if _, err := LoadLocation(timezone); err != nil {
+		return err
 	}
 	return nil
+}
+
+func LoadLocation(timezone string) (*time.Location, error) {
+	if timezone == "" || timezone == "Local" {
+		return nil, fmt.Errorf("invalid timezone: %q", timezone)
+	}
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		return nil, fmt.Errorf("invalid timezone: %w", err)
+	}
+	return location, nil
 }
 
 func Next(expression, timezone string, after time.Time) (time.Time, error) {

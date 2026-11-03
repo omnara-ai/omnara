@@ -1,6 +1,7 @@
 package dbsafe
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -19,6 +20,9 @@ func TestText(t *testing.T) {
 			err := Text(test.value)
 			if (err != nil) != test.wantErr {
 				t.Fatalf("Text(%q) error = %v, wantErr %v", test.value, err, test.wantErr)
+			}
+			if test.wantErr && !errors.Is(err, ErrInvalidText) {
+				t.Fatalf("Text(%q) error = %v, want ErrInvalidText", test.value, err)
 			}
 		})
 	}
@@ -40,6 +44,9 @@ func TestJSONStrings(t *testing.T) {
 			err := JSONStrings(test.value)
 			if (err != nil) != test.wantErr {
 				t.Fatalf("JSONStrings(%s) error = %v, wantErr %v", test.value, err, test.wantErr)
+			}
+			if test.wantErr && !errors.Is(err, ErrInvalidText) {
+				t.Fatalf("JSONStrings(%s) error = %v, want ErrInvalidText", test.value, err)
 			}
 		})
 	}

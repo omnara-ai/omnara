@@ -1,10 +1,15 @@
 import { useAgents, useAgentUsage, useMachine, useServerInfo } from '@omnara/react'
 import type { Agent, AgentMcpConnection, AgentProfile, UsageReport } from '@omnara/sdk'
-import { Link } from '@tanstack/react-router'
 import { type ReactNode, useState } from 'react'
 
+import {
+  AgentReferenceLink,
+  FetchedAgentReferenceLink,
+  ProfileReferenceLink,
+} from '@/components/agents/AgentReferenceLinks'
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
+import { EventWebhooksSection } from '@/components/agents/EventWebhooksSection'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ChevronDown, InfoIcon, PlusIcon, UserGroupIcon, UserIcon } from '@/components/icons'
 import { registryServerLabel } from '@/components/mcp/mcpRegistry'
@@ -82,25 +87,21 @@ export function AgentSidebar({
                   {
                     label: 'Profile',
                     value: profile ? (
-                      <Link
-                        to="/projects/$projectId/agent-profiles/$profileId"
-                        params={{ projectId, profileId: profile.id }}
-                        className="hover:underline"
-                      >
-                        {profile.name}
-                      </Link>
+                      <ProfileReferenceLink
+                        projectId={projectId}
+                        profileId={profile.id}
+                        name={profile.name}
+                      />
                     ) : undefined,
                   },
                   {
                     label: 'Parent',
                     value: agent.parent_agent_id ? (
-                      <Link
-                        to="/projects/$projectId/agents/$agentId"
-                        params={{ projectId, agentId: agent.parent_agent_id }}
-                        className="font-mono text-xs hover:underline"
-                      >
-                        {agent.parent_agent_id}
-                      </Link>
+                      <FetchedAgentReferenceLink
+                        orgId={orgId}
+                        projectId={projectId}
+                        agentId={agent.parent_agent_id}
+                      />
                     ) : undefined,
                   },
                   { label: 'Key', value: agent.subagent_key, mono: true },
@@ -114,6 +115,18 @@ export function AgentSidebar({
           <AgentSubagentsGroup orgId={orgId} projectId={projectId} agentId={agent.id} />
           <AgentMcpGroup connections={mcpConnections} />
           <AgentUsageGroup orgId={orgId} projectId={projectId} agentId={agent.id} />
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <EventWebhooksSection
+                orgId={orgId}
+                projectId={projectId}
+                scope={{ type: 'agent', agent_id: agent.id }}
+                canManage={canManage}
+                profileId={agent.agent_profile_id}
+                sidebar
+              />
+            </SidebarGroupContent>
+          </SidebarGroup>
           <AgentCronGroup
             orgId={orgId}
             projectId={projectId}
@@ -192,13 +205,10 @@ function AgentSubagentsGroup({
                 className="flex items-center justify-between gap-2 py-1.5 text-sm"
               >
                 <span className="flex min-w-0 flex-col">
-                  <Link
-                    to="/projects/$projectId/agents/$agentId"
-                    params={{ projectId, agentId: subagent.id }}
-                    className="truncate hover:underline"
-                  >
-                    {subagent.name || subagent.subagent_key}
-                  </Link>
+                  <AgentReferenceLink
+                    agent={subagent}
+                    name={subagent.name || (subagent.subagent_key ?? 'Agent')}
+                  />
                   <span className="text-muted-foreground truncate font-mono text-xs">
                     {subagent.subagent_key}
                   </span>
@@ -237,7 +247,8 @@ function AgentUsageGroup({
   projectId: string
   agentId: string
 }) {
-  const [includeSubagents, setIncludeSubagents] = useState(false)
+  // Includes subagents by default, matching the cost on the agent's card.
+  const [includeSubagents, setIncludeSubagents] = useState(true)
   const query = useAgentUsage(orgId, projectId, agentId, includeSubagents)
   return (
     <SidebarGroup>
@@ -258,7 +269,12 @@ function AgentUsageGroup({
             {errorMessage(query.error, 'Could not load usage.')}
           </p>
         ) : query.data.totals.model_calls === 0 ? (
-          <p className="text-muted-foreground truncate py-1.5 text-sm">No model usage yet.</p>
+          // All-time usage, so "yet" holds here unlike the 30-day usage pages.
+          <p className="text-muted-foreground py-1.5 text-sm">
+            {includeSubagents
+              ? "This agent and its subagents haven't used a model yet."
+              : "This agent hasn't used a model yet."}
+          </p>
         ) : (
           <AgentUsageDetails report={query.data} />
         )}
@@ -481,7 +497,7 @@ function AgentMcpConnectionItem({ connection }: { connection: AgentMcpConnection
           <div className="text-muted-foreground break-all">{connection.endpoint_url}</div>
           <div className="text-muted-foreground">
             {stateLabel}
-            {connection.protocol_version ? ` · MCP ${connection.protocol_version}` : ''}
+            {connection.protocol_version && <span>{` · MCP ${connection.protocol_version}`}</span>}
           </div>
           {connection.initialize_error && (
             <div className="text-destructive break-words">{connection.initialize_error}</div>
@@ -489,7 +505,7 @@ function AgentMcpConnectionItem({ connection }: { connection: AgentMcpConnection
         </TooltipContent>
       </Tooltip>
       {connection.state === 'failed' && connection.initialize_error && (
-        <p role="alert" className="text-destructive mt-1 line-clamp-4 break-words text-xs">
+        <p role="alert" className="text-destructive mt-1 line-clamp-4 text-xs break-words">
           {connection.initialize_error}
         </p>
       )}

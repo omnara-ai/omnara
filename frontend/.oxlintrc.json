@@ -10,6 +10,11 @@
   "env": {
     "builtin": true
   },
+  "settings": {
+    "jsx-a11y": {
+      "components": { "FieldLabel": "label" }
+    }
+  },
   "ignorePatterns": [
     "**/dist/**",
     "packages/sdk/src/generated/**",
@@ -297,7 +302,7 @@
       }
     },
     {
-      "files": ["packages/cli/src/manifest.ts"],
+      "files": ["**/packages/cli/src/manifest.ts"],
       "rules": {
         "max-lines": "off"
       }

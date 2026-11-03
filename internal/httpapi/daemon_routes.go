@@ -98,6 +98,16 @@ func validateDaemonReportedEvent(event daemonReportedEvent) error {
 				event.Type,
 			)
 		}
+	case daemonprotocol.EventProcessOutputMatched:
+		if event.Sequence <= 0 || event.ObservedAt.IsZero() || event.ProcessActionID != "" {
+			return fmt.Errorf(
+				"%w: process_output_matched requires a positive sequence and observed_at",
+				errDaemonReportValidation,
+			)
+		}
+		if _, err := executionstore.DecodeOutputMatchResult(event.Result); err != nil {
+			return fmt.Errorf("%w: %w", errDaemonReportValidation, err)
+		}
 	default:
 		return fmt.Errorf("%w: unsupported daemon reported event type", errDaemonReportValidation)
 	}
@@ -212,6 +222,16 @@ func (s *Server) applyDaemonReportedEventForProcess(
 			return false, err
 		}
 		return !application.ToolResultCommitted, nil
+	case daemonprotocol.EventProcessOutputMatched:
+		err := s.store.Execution().NotifyProcessOutputMatch(ctx, executionstore.NotifyProcessOutputMatchInput{
+			Authority: authority,
+			ProjectID: process.ProjectID,
+			AgentID:   process.AgentID,
+			ID:        process.ID,
+			Sequence:  body.Sequence,
+			Result:    body.Result,
+		})
+		return false, err
 	default:
 		return false, errors.New("unsupported daemon reported event type")
 	}

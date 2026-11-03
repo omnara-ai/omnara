@@ -35,7 +35,7 @@ export function McpOAuthOutcomeDialog() {
       const failed = results.filter((result) => result.status === 'rejected').length
       if (failed > 0) {
         window.alert(
-          `The MCP secret was connected, but ${failed} project grant${failed === 1 ? '' : 's'} could not be added. You can retry from the secret's actions menu.`,
+          `The MCP secret was connected, but sharing with ${failed} project${failed === 1 ? '' : 's'} failed. You can retry from the secret's actions menu.`,
         )
       }
     })
@@ -63,7 +63,9 @@ function mcpOAuthErrorDescription(code: string) {
     case 'missing_code':
       return 'The MCP server did not return an authorization code. Please try again.'
     case 'exchange_failed':
-      return 'The MCP server did not complete the authorization. Please try again.'
+      return 'The authorization server rejected the authorization. Please try again.'
+    case 'exchange_unavailable':
+      return 'The authorization server did not respond. Please try again.'
     case 'secret_save_failed':
       return 'Omnara could not finish saving the secret. Please try again.'
     case 'access_denied':

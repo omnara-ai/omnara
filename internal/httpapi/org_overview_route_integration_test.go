@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -49,6 +50,10 @@ func TestGetOrgOverview(t *testing.T) {
 	}
 	if profiles := testutil.RequireType[[]any](t, overview["recent_agent_profiles"]); len(profiles) != 0 {
 		t.Fatalf("fresh org recent_agent_profiles = %+v, want empty", profiles)
+	}
+	assertReferencedProfiles(t, overview, map[string]float64{})
+	if activity := testutil.RequireType[[]any](t, overview["project_activity"]); len(activity) != 0 {
+		t.Fatalf("fresh org project_activity = %+v, want empty", activity)
 	}
 
 	configSource := "instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n"
@@ -117,7 +122,7 @@ func TestGetOrgOverview(t *testing.T) {
 		handler,
 		http.MethodPost,
 		secondProject.ProjectPath+"/agents",
-		`{"config":"`+secondConfigID+`"}`,
+		`{"profile":"`+secondProfileID+`","config":"`+secondConfigID+`"}`,
 		"idem-org-overview-agent",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
@@ -148,6 +153,19 @@ func TestGetOrgOverview(t *testing.T) {
 	if agentRow["project_id"] != secondProject.ProjectID {
 		t.Fatalf("recent agent project_id = %v, want %s", agentRow["project_id"], secondProject.ProjectID)
 	}
+	assertReferencedProfiles(t, overview, map[string]float64{secondProfileID: 1, firstProfileID: 0})
+	// Both projects have a profile, and the second project's launched agent is
+	// its latest activity.
+	activity := map[string]time.Time{}
+	for _, raw := range testutil.RequireType[[]any](t, overview["project_activity"]) {
+		row := testutil.RequireType[map[string]any](t, raw)
+		activity[testutil.RequireType[string](t, row["project_id"])] = parseOverviewUsageTime(t, row["last_active_at"])
+	}
+	if len(activity) != 2 || activity[project.ProjectID].IsZero() ||
+		!activity[secondProject.ProjectID].Equal(parseOverviewUsageTime(t, agentRow["updated_at"])) {
+		t.Fatalf("project_activity = %+v, want both projects, the second at agent updated_at %v",
+			activity, agentRow["updated_at"])
+	}
 	if model := testutil.RequireType[map[string]any](
 		t, agentRow["model"],
 	); model["provider_config"] != "openai-prod" || model["name"] != "gpt-test" {
@@ -156,6 +174,13 @@ func TestGetOrgOverview(t *testing.T) {
 	profileRows := testutil.RequireType[[]any](t, overview["recent_agent_profiles"])
 	if len(profileRows) != 2 {
 		t.Fatalf("recent_agent_profiles = %+v, want both profiles", profileRows)
+	}
+	for _, raw := range profileRows {
+		profile := testutil.RequireType[map[string]any](t, raw)
+		config := testutil.RequireType[map[string]any](t, profile["current_config"])
+		if _, included := config["compiled_definition"]; included {
+			t.Fatal("org overview should omit compiled_definition")
+		}
 	}
 	if got := testutil.RequireType[map[string]any](t, profileRows[0])["id"]; got != secondProfileID {
 		t.Fatalf("recent profile order[0] = %v, want %s (newest first)", got, secondProfileID)
@@ -193,6 +218,13 @@ func TestGetOrgOverview(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
+	assertReferencedProfiles(t, overview, map[string]float64{
+		secondProfileID:    1,
+		extraProfileIDs[0]: 0,
+		extraProfileIDs[1]: 0,
+		extraProfileIDs[2]: 0,
+		extraProfileIDs[3]: 0,
+	})
 	profileRows = testutil.RequireType[[]any](t, overview["recent_agent_profiles"])
 	if len(profileRows) != 5 {
 		t.Fatalf("recent_agent_profiles returned %d rows, want cap of 5", len(profileRows))
@@ -271,6 +303,7 @@ func TestGetOrgOverview(t *testing.T) {
 	if len(viewerAgents) != 1 || testutil.RequireType[map[string]any](t, viewerAgents[0])["id"] != launchedAgentID {
 		t.Fatalf("viewer recent_agents = %+v, want the second project's agent", viewerAgents)
 	}
+	assertReferencedProfiles(t, viewerOverview, map[string]float64{secondProfileID: 1})
 	viewerProfiles := testutil.RequireType[[]any](t, viewerOverview["recent_agent_profiles"])
 	if len(viewerProfiles) != 1 || testutil.RequireType[map[string]any](t, viewerProfiles[0])["id"] != secondProfileID {
 		t.Fatalf("viewer recent_agent_profiles = %+v, want the second project's profile", viewerProfiles)
@@ -287,4 +320,25 @@ func TestGetOrgOverview(t *testing.T) {
 		http.StatusNotFound,
 		authHeaders(otherOrg.AdminToken),
 	)
+}
+
+func assertReferencedProfiles(t *testing.T, overview map[string]any, want map[string]float64) {
+	t.Helper()
+	rows := testutil.RequireType[[]any](t, overview["referenced_agent_profiles"])
+	got := make(map[string]float64, len(rows))
+	for _, raw := range rows {
+		row := testutil.RequireType[map[string]any](t, raw)
+		if row["name"] == "" {
+			t.Fatalf("referenced profile %+v has no name", row)
+		}
+		got[testutil.RequireType[string](t, row["id"])] = testutil.RequireType[float64](t, row["agent_count"])
+	}
+	if len(got) != len(want) {
+		t.Fatalf("referenced_agent_profiles = %+v, want %+v", got, want)
+	}
+	for id, count := range want {
+		if agentCount, ok := got[id]; !ok || agentCount != count {
+			t.Fatalf("referenced_agent_profiles[%s] = %v (present %v), want %v", id, agentCount, ok, count)
+		}
+	}
 }

@@ -60,6 +60,13 @@ VALUES
 			t.Fatalf("unexpected project grant %d: %+v", index, grant)
 		}
 	}
+	if _, _, err := store.Execution().CreateProjectMachineGrant(ctx, executionstore.CreateProjectMachineGrantInput{
+		OrgID:     testOrgID,
+		ProjectID: testProjectID,
+		MachineID: result.Machine.ID,
+	}); !errors.Is(err, storeerr.ErrConflict) || errors.Is(err, storeerr.ErrIdempotencyConflict) {
+		t.Fatalf("duplicate project grant error = %v, want ErrConflict", err)
+	}
 	if count := countProjectMachineGrantsForMachineForTest(
 		t,
 		ctx,
@@ -402,17 +409,7 @@ SELECT (SELECT count(*)::integer
 		pool := openIntegrationDB(t, ctx)
 		seedMigratedDB(t, ctx, pool)
 		store := newIntegrationStore(pool)
-		user := mustCreateIdentityUser(
-			t,
-			ctx,
-			store,
-			"organization-deletion-wins@example.com",
-			"Organization Deletion Wins",
-		)
-		actor, err := executionstore.OmnaraActorParams(testOrgID, userPrincipal(user.ID))
-		if err != nil {
-			t.Fatalf("build organization deletion actor: %v", err)
-		}
+		owner := createSecretTestUser(t, ctx, store, "Organization Deletion Wins", "owner")
 
 		controlTx := integrationdb.BeginTx(t, ctx, pool)
 		if _, err := controlTx.Exec(
@@ -427,7 +424,7 @@ SELECT (SELECT count(*)::integer
 			_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
 				ctx,
 				testOrgID,
-				actor,
+				userPrincipal(owner.ID),
 			)
 			return deleteErr
 		})

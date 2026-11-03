@@ -30,10 +30,10 @@ func TestToolCallSourceRecordsRejectedCallsAndReplaysSettledBatch(t *testing.T) 
 		stopReason                               modelenvelope.StopReason
 		acceptedName, rejectedName, rejectedType string
 	}{
-		{"tool_use", modelenvelope.StopReasonToolUse, "read_file", "docs__lookup", toolcatalog.ToolTypeMCP},
+		{"tool_use", modelenvelope.StopReasonToolUse, "storage_read", "docs__lookup", toolcatalog.ToolTypeMCP},
 		{"end_turn with identical names", modelenvelope.StopReasonEndTurn,
 			"unparseable_tool_call", "unparseable_tool_call", toolcatalog.ToolTypeBuiltIn},
-		{"max_tokens", modelenvelope.StopReasonMaxTokens, "read_file", "docs__lookup", toolcatalog.ToolTypeMCP},
+		{"max_tokens", modelenvelope.StopReasonMaxTokens, "storage_read", "docs__lookup", toolcatalog.ToolTypeMCP},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -133,9 +133,7 @@ func TestToolCallSourceRecordsRejectedCallsAndReplaysSettledBatch(t *testing.T) 
 			changed.ProviderResponse.Normalized.Content = slices.Clone(input.ProviderResponse.Normalized.Content)
 			changed.ProviderResponse.Normalized.Content[1].ToolCallError = "tool arguments must be an object"
 			_, _, err = fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(ctx, changed)
-			if !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-				t.Fatalf("changed rejection replay error = %v, want idempotency conflict", err)
-			}
+			require.NoError(t, err)
 			changed.ProviderResponse.Normalized.Content[1].ToolCallError = ""
 			_, _, err = fixture.Store.Execution().RecordToolCallSourceAndCompleteContext(ctx, changed)
 			require.NoError(t, err, "replay without transient rejection evidence")
@@ -180,13 +178,14 @@ func TestToolCallLifecyclePublishesCommittedUpdatesOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "tool_call_updates")
+	createAgentEventWebhook(t, fixture, nil)
 	publisher := &recordingPostCommitPublisher{}
 	fixture.Store = newIntegrationStore(
 		fixture.Store.pool,
 		storage.WithPostCommitPublisher(publisher),
 	)
 
-	_, toolCalls := recordToolCallBatchForContextTest(
+	sourceEvent, toolCalls := recordToolCallBatchForContextTest(
 		t,
 		ctx,
 		fixture,
@@ -194,7 +193,7 @@ func TestToolCallLifecyclePublishesCommittedUpdatesOnce(t *testing.T) {
 		"tool_call_updates",
 		[]toolCallForContextTest{{
 			ProviderCallID: "call_tool_call_updates",
-			Name:           "read_file",
+			Name:           "storage_read",
 			Input:          json.RawMessage(`{"path":"README.md"}`),
 			Type:           toolcatalog.ToolTypeBuiltIn,
 		}},
@@ -238,9 +237,35 @@ func TestToolCallLifecyclePublishesCommittedUpdatesOnce(t *testing.T) {
 		string(executionstore.ToolCallStateReady),
 		string(executionstore.ToolCallStateCompleted),
 	}
+	assertWebhookToolStates(t, fixture, toolCall.ID, want)
 	if got := publisher.toolCallStates(toolCall.ID); !slices.Equal(got, want) {
 		t.Fatalf("tool call update states = %v, want %v", got, want)
 	}
+	var sequences []int64
+	require.NoError(t, fixture.Store.pool.QueryRow(ctx, `
+		SELECT array_agg(event_sequence ORDER BY event_sequence)
+		FROM event_webhook_deliveries
+		WHERE agent_id = $1 AND event_sequence >= $2`,
+		fixture.AgentID, sourceEvent.Sequence).Scan(&sequences))
+	require.Equal(t, []int64{sourceEvent.Sequence, sourceEvent.Sequence + 1}, sequences)
+
+	webhookEvent, err := fixture.Store.Execution().GetAgentEventForWebhook(
+		ctx, testProjectID, fixture.AgentID, sourceEvent.Sequence,
+	)
+	require.NoError(t, err)
+	timeline, err := fixture.Store.Execution().ListAgentEventsForRead(
+		ctx, testProjectID, fixture.AgentID, sourceEvent.Sequence-1, 1,
+	)
+	require.NoError(t, err)
+	require.Len(t, timeline, 1)
+	require.Equal(t, timeline[0], webhookEvent)
+	_, err = fixture.Store.Execution().GetAgentEventForWebhook(ctx, uuid.New(), fixture.AgentID, sourceEvent.Sequence)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+	_, err = fixture.Store.Execution().GetAgentEventForWebhook(ctx, testProjectID, uuid.New(), sourceEvent.Sequence)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+	_, err = fixture.Store.Execution().GetAgentEventForWebhook(ctx, testProjectID, fixture.AgentID, sourceEvent.Sequence+2)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+
 }
 
 func TestToolCallBindingBatchRejectsEnvelopeMismatchWithoutPartialState(t *testing.T) {
@@ -276,7 +301,7 @@ func TestToolCallBindingBatchRejectsEnvelopeMismatchWithoutPartialState(t *testi
 					Content: []modelenvelope.ResponsePart{{
 						Type:           modelenvelope.ResponsePartTypeToolCall,
 						ProviderCallID: "call_from_envelope",
-						ToolName:       "read_file",
+						ToolName:       "storage_read",
 						ToolInput:      json.RawMessage(`{"path":"README.md"}`),
 					}},
 					StopReason: modelenvelope.StopReasonToolUse,
@@ -443,16 +468,12 @@ func TestKernelTypedFrontierToolResultAuthority(t *testing.T) {
 		t.Fatalf("tool result domain content block count = %d, want 2", blockCount)
 	}
 
-	conflict := completion
-	conflict.ResultContentParts = json.RawMessage(
-		`[{"type":"structured_data","value":{"ok":false}}]`,
-	)
-	if _, err := fixture.Store.Execution().CompleteToolCall(ctx, conflict); !errors.Is(
-		err,
-		storeerr.ErrIdempotencyConflict,
-	) {
-		t.Fatalf("conflicting tool result error = %v, want %v", err, storeerr.ErrIdempotencyConflict)
-	}
+	replay := completion
+	replay.ResultContentParts = json.RawMessage(`[{"type":"structured_data","value":{"ok":false}}]`)
+	replayedTool, err := fixture.Store.Execution().CompleteToolCall(ctx, replay)
+	require.NoError(t, err)
+	require.Equal(t, toolCall.ToolCallResultID, replayedTool.ToolCallResultID)
+	require.JSONEq(t, string(toolCall.ResultContentParts), string(replayedTool.ResultContentParts))
 
 	pendingToolCallID := createToolCallForProcessTestWithPermission(
 		t,
@@ -615,14 +636,15 @@ func TestKernelToolCallBlockLinkageConstraints(t *testing.T) {
 	if _, err := executionstore.IntegrationCreateContentBlockTx(
 		ctx,
 		fixture.Store.pool,
-		executionstore.CreateContentBlockInput{
-			ProjectID:          testProjectID,
-			AgentID:            fixture.AgentID,
+		executionstore.IntegrationContentBlockInput{
 			OwnerKind:          executionstore.ContentBlockOwnerModelOutput,
 			OwnerModelOutputID: otherModelOutputID,
-			Ordinal:            1,
-			BlockKind:          executionstore.ContentBlockKindToolCall,
-			ToolCallID:         toolCallID,
+			CreateContentBlockInput: executionstore.CreateContentBlockInput{
+				ProjectID:  testProjectID,
+				AgentID:    fixture.AgentID,
+				Ordinal:    1,
+				BlockKind:  executionstore.ContentBlockKindToolCall,
+				ToolCallID: toolCallID},
 		},
 	); !isPgConstraintViolation(err) {
 		t.Fatalf("mismatched tool call block model output error = %v, want constraint violation", err)
@@ -972,6 +994,9 @@ func TestKernelInvalidToolResultRollsBackCompletion(t *testing.T) {
 		"read_process",
 	)
 
+	publisher := &recordingPostCommitPublisher{}
+	fixture.Store = newIntegrationStore(fixture.Store.pool, storage.WithPostCommitPublisher(publisher))
+
 	_, err := fixture.Store.Execution().CompleteToolCall(ctx, executionstore.CompleteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
@@ -982,6 +1007,7 @@ func TestKernelInvalidToolResultRollsBackCompletion(t *testing.T) {
 			`[{"type":"structured_data","value":{"ok":true},"transport_metadata":"discarded"}]`,
 		),
 	})
+	require.Empty(t, publisher.intents)
 	if !errors.Is(err, storeerr.ErrInvalidRequest) {
 		t.Fatalf("complete tool call error = %v, want invalid request", err)
 	}

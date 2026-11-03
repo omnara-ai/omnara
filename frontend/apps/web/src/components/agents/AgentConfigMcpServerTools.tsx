@@ -9,6 +9,11 @@ import {
 } from '@omnara/sdk'
 import { type ReactNode, useState } from 'react'
 
+import {
+  mcpToolNameAddable,
+  type UnexposableMcpTool,
+  unexposableMcpTools,
+} from '@/components/agents/agentConfigMcp'
 import { AgentConfigMcpToolOverrideList } from '@/components/agents/AgentConfigMcpToolOverrideList'
 import { mcpServerAvailability } from '@/components/agents/mcpAvailability'
 import { mcpServerToolsRequest } from '@/components/agents/mcpServerToolsRequest'
@@ -16,9 +21,6 @@ import {
   type BasicMcpServer,
   type BasicMcpTool,
   type McpAuthType,
-  mcpToolNameAddable,
-  type UnexposableMcpTool,
-  unexposableMcpTools,
 } from '@/components/agents/useAgentBuilderForm'
 import { SearchIcon, TriangleAlert } from '@/components/icons'
 import { Button } from '@/components/ui/button'
@@ -150,10 +152,10 @@ function ToolOverridePicker({
       filter={matchesToolSearch}
     >
       <div className="relative">
-        <SearchIcon className="text-muted-foreground pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" />
+        <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
         <ComboboxPrimitive.Input
           id={inputId}
-          className="placeholder:text-muted-foreground pointer-coarse:text-base control-focus bg-background h-9 w-full rounded-md border pl-9 pr-3 text-base md:text-sm"
+          className="placeholder:text-muted-foreground control-focus bg-background h-9 w-full rounded-md border pr-3 pl-9 text-base md:text-sm pointer-coarse:text-base"
           placeholder="Add a tool override"
           onKeyDown={(event) => {
             if (event.key === 'Enter' && typedNameAddable) {
@@ -297,7 +299,7 @@ function UnexposableTools({ tools }: { tools: UnexposableMcpTool[] }) {
 function detectedAuthType(cause: unknown): McpAuthType | null {
   if (!(cause instanceof ApiError) || cause.status !== 422) return null
   const parsed = schemas.zMcpServerAuthRequiredError.safeParse(cause.body)
-  return parsed.success ? parsed.data.auth.type : null
+  return parsed.success ? (parsed.data.auth?.type ?? null) : null
 }
 
 function discoveryFailureTitle(
@@ -315,8 +317,11 @@ function discoveryFailureTitle(
       ? 'The server rejected the selected secret.'
       : 'This server expects a bearer token. Switch authentication to a bearer secret.'
   }
-  if (cause instanceof ApiError && cause.status === 502) {
-    return 'Could not connect to the MCP server.'
+  if (cause instanceof ApiError && cause.status === 424) {
+    return 'The MCP server failed or did not respond. Try again.'
+  }
+  if (cause instanceof ApiError && cause.status === 422) {
+    return 'The MCP server did not accept the request.'
   }
   if (cause instanceof ApiError && cause.status === 404) {
     return 'The selected secret is not available to this project.'

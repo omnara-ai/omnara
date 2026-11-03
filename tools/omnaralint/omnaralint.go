@@ -81,11 +81,15 @@ func checkGoFile(pass *analysis.Pass, file *ast.File) {
 	inInternal := packageWithin(packagePath, internalPackage)
 	inTestutil := packageWithin(packagePath, testutilPackage)
 	isTest := strings.HasSuffix(filename, "_test.go")
+	checkExecutionAccess(pass, file, isTest)
 
 	for _, imp := range file.Imports {
 		importPath := strings.Trim(imp.Path.Value, `"`)
 		if importPath == dbsqlcImport && !inStorage {
-			pass.Reportf(imp.Pos(), "internal/storage/internal/dbsqlc imports must stay inside internal/storage")
+			pass.Reportf(
+				imp.Pos(),
+				"internal/storage/internal/dbsqlc imports must stay inside internal/storage",
+			)
 		}
 		if forbiddenStateDBImport(packagePath, importPath) {
 			pass.Reportf(

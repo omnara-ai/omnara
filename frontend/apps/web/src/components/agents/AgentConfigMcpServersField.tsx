@@ -1,8 +1,9 @@
 import { useServerInfo } from '@omnara/react'
 import type { Secret, ToolPermissionProfile } from '@omnara/sdk'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { permissionSelection } from '@/components/agents/agentConfigBasicExtract'
+import { mcpServerNameError } from '@/components/agents/agentConfigMcp'
 import { AgentConfigMcpSecretCombobox } from '@/components/agents/AgentConfigMcpSecretCombobox'
 import { AgentConfigMcpSecretDialog } from '@/components/agents/AgentConfigMcpSecretDialog'
 import { AgentConfigMcpServerTools } from '@/components/agents/AgentConfigMcpServerTools'
@@ -26,7 +27,6 @@ import {
   type BasicConfig,
   type BasicMcpServer,
   type McpAuthType,
-  mcpServerNameError,
 } from '@/components/agents/useAgentBuilderForm'
 import { ChevronRightIcon, KeyRound, PlusIcon, Trash2Icon } from '@/components/icons'
 import { registryServerLabel } from '@/components/mcp/mcpRegistry'
@@ -284,6 +284,7 @@ function McpServerRow({
   onRemove: () => void
   onBeforeOAuthRedirect: () => void
 }) {
+  const authInputId = useId()
   const info = useServerInfo(useDebouncedValue(server.url))
   const registryServer = info.data ?? null
   const duplicateName = servers.some(
@@ -300,7 +301,7 @@ function McpServerRow({
       onOpenChange={onExpandedChange}
       className="expanded-surface rounded-xl"
     >
-      <div className="flex items-center gap-2 py-2 pl-1 pr-2">
+      <div className="flex items-center gap-2 py-2 pr-2 pl-1">
         <CollapsibleTrigger asChild>
           <Button
             type="button"
@@ -342,12 +343,12 @@ function McpServerRow({
         </Button>
       </div>
       <CollapseBody open={expanded}>
-        <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
+        <div className="flex flex-col gap-4 px-3 pt-5 pb-5 sm:pl-11">
           {nameError && <FieldError>{nameError}</FieldError>}
           {registryServer ? (
             <p className="text-muted-foreground -mt-3 text-sm">
               {registryServerLabel(registryServer)}
-              {registryServer.description ? ` — ${registryServer.description}` : ''}
+              {registryServer.description && <span>{` — ${registryServer.description}`}</span>}
             </p>
           ) : (
             <Skeleton
@@ -359,14 +360,14 @@ function McpServerRow({
           )}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel>Authentication</FieldLabel>
+              <FieldLabel htmlFor={authInputId}>Authentication</FieldLabel>
               <Select
                 value={server.authType}
                 onValueChange={(authType: McpAuthType) => {
                   onChange({ authType, secretId: '', service: '', region: '' })
                 }}
               >
-                <SelectTrigger className="w-full" aria-label="MCP auth type">
+                <SelectTrigger id={authInputId} className="w-full">
                   <SelectValue>
                     {mcpAuthTypeOptions.find((option) => option.value === server.authType)?.label ??
                       server.authType}
@@ -419,9 +420,9 @@ function McpServerRow({
               defaults={
                 <>
                   <Field className="w-36 shrink-0 items-center">
-                    <FieldLabel className="justify-center whitespace-nowrap">
+                    <div className="type-label text-center whitespace-nowrap">
                       Default Permission
-                    </FieldLabel>
+                    </div>
                     <div className="flex justify-center">
                       <PermissionModeGroup
                         label="MCP default permission"
@@ -443,9 +444,9 @@ function McpServerRow({
                     </div>
                   </Field>
                   <Field className="w-36 shrink-0 items-center">
-                    <FieldLabel className="justify-center whitespace-nowrap">
+                    <div className="type-label text-center whitespace-nowrap">
                       Default Visibility
-                    </FieldLabel>
+                    </div>
                     <div className="flex justify-center">
                       <PermissionModeGroup
                         label="MCP default visibility"

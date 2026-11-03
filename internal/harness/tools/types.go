@@ -34,7 +34,7 @@ type SkillStore interface {
 	GetSkillForDispatch(
 		ctx context.Context,
 		projectID uuid.UUID,
-		publicSkillID string,
+		skillID uuid.UUID,
 	) (skillstore.SkillRecord, error)
 }
 
@@ -67,7 +67,6 @@ type Executor struct {
 	WebFetcher               *webaccess.Fetcher
 	MachinePoolManager       machinePoolManager
 	BackgroundRunner         BackgroundRunner
-	Now                      func() time.Time
 	MCPInitializationBackoff func(attempt int) time.Duration
 	SkillBroadcaster         SkillBroadcaster
 	AgentConfigOptions       agentconfig.CompileOptions

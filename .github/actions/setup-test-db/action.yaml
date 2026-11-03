@@ -1,5 +1,5 @@
 name: Setup test services
-description: Configure CI diagnostics, start Postgres, Redis, and MinIO, and wait for their healthchecks.
+description: Configure CI diagnostics, start Postgres, Redis, and RustFS, and wait for their healthchecks.
 
 runs:
   using: composite
@@ -10,5 +10,5 @@ runs:
         COMPOSE_FILE: ${{ github.workspace }}/compose.yaml:${{ github.workspace }}/.github/compose.ci.yaml
       run: |
         printf 'COMPOSE_FILE=%s\n' "$COMPOSE_FILE" >> "$GITHUB_ENV"
-        docker compose up -d --wait postgres redis minio
-        docker compose run --rm minio-init
+        docker compose up -d --wait postgres redis rustfs
+        docker compose run --rm rustfs-init

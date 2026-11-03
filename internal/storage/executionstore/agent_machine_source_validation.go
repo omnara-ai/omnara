@@ -13,13 +13,13 @@ import (
 )
 
 func validateRuntimeMachineSource(index int, machine agentconfig.RuntimeMachine) error {
-	if machine.MachineID != "" && machine.MachinePoolID != "" {
+	if machine.MachineID != uuid.Nil && machine.MachinePoolID != uuid.Nil {
 		return fmt.Errorf("machine_sources[%d] cannot set both machine_id and machine_pool_id", index)
 	}
-	if machine.MachineID == "" && machine.MachinePoolID == "" {
+	if machine.MachineID == uuid.Nil && machine.MachinePoolID == uuid.Nil {
 		return fmt.Errorf("machine_sources[%d] has no machine source", index)
 	}
-	if machine.MachineID != "" {
+	if machine.MachineID != uuid.Nil {
 		if machine.MaxMachines != 0 {
 			return fmt.Errorf("machine_sources[%d].max_machines is only valid for machine_pool_id sources", index)
 		}
@@ -36,7 +36,7 @@ func validateRuntimeMachineSource(index int, machine agentconfig.RuntimeMachine)
 			)
 		}
 	}
-	if machine.MachinePoolID != "" {
+	if machine.MachinePoolID != uuid.Nil {
 		if machine.MaxMachines < 0 {
 			return fmt.Errorf("machine_sources[%d].max_machines cannot be negative", index)
 		}

@@ -14,10 +14,10 @@ import (
 
 func (s *Store) EnsureUserPrincipalStillActiveTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	principal PrincipalRecord,
 ) error {
-	return ensureUserPrincipalStillActive(ctx, s.q.WithTx(tx), principal)
+	return ensureUserPrincipalStillActive(ctx, dbsqlc.New(tx), principal)
 }
 
 func ensureUserPrincipalStillActive(

@@ -28,7 +28,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -37,6 +36,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationredis"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type capturedAuthEmail struct {
@@ -331,7 +331,7 @@ func TestPublicInvitationFlow(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/invitations",
-		`{"email":"owner@example.com","role":"owner"}`,
+		`{"email":"invalid@example.com","role":"superuser"}`,
 		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
@@ -571,7 +571,7 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 	requestJSONWithHeaders(
 		t, handler, http.MethodDelete,
 		"/api/v1/orgs/"+project.OrgID+"/members/"+project.AdminUserID,
-		"", "", http.StatusForbidden, authHeaders(project.AdminToken),
+		"", "", http.StatusConflict, authHeaders(project.AdminToken),
 	)
 
 	requestJSONWithHeaders(
@@ -1287,7 +1287,10 @@ func TestBearerAuthCancellationPreservesResponseContract(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 
-	handler := newIntegrationServer(pool)
+	server := &Server{store: storage.NewStore(pool)}
+	handler := server.auth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("canceled bearer auth reached the next handler")
+	}))
 	token, err := bearertoken.Generate(bearertoken.KindPersonalAccess)
 	if err != nil {
 		t.Fatalf("format valid personal access token: %v", err)
@@ -2017,11 +2020,13 @@ func TestPasswordAuthOriginAndLimiterGuards(t *testing.T) {
 		t.Fatalf("missing limiter status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
+	const clientLimit = 12
 	redisClient := integrationredis.OpenClient(t)
 	handler := newIntegrationServer(
 		pool,
 		WithPublicURL("http://omnara.test"),
 		WithRedisBackedAuth(redisClient),
+		WithAuthClientRateLimits(authn.ClientRateLimits{Signup: clientLimit}),
 		WithEmailSender(emailSender),
 	)
 	req = newJSONRequest(http.MethodPost, "http://omnara.test/api/auth/signup", `{"email":"`+email+`"}`)
@@ -2051,7 +2056,7 @@ func TestPasswordAuthOriginAndLimiterGuards(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("subject-wide signup limit status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for i := range httpauth.SignupClientLimit - httpauth.SignupLimit {
+	for i := range clientLimit - httpauth.SignupLimit {
 		req = newAuthJSONRequest(
 			http.MethodPost,
 			"/api/auth/signup",
@@ -2772,7 +2777,7 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 	}
 	invalidCancelRec := performRequest(handler, invalidCancelReq)
 	if invalidCancelRec.Code != http.StatusFound ||
-		invalidCancelRec.Header().Get("Location") != "/login?auth_error=invalid_state" {
+		invalidCancelRec.Header().Get("Location") != "/login?auth_connector=github-test&auth_error=invalid_state" {
 		t.Fatalf(
 			"invalid cancel callback status=%d location=%q body=%s",
 			invalidCancelRec.Code,
@@ -2797,7 +2802,7 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 	cancelRec = performRequest(handler, cancelCallbackReq)
 	if cancelRec.Code != http.StatusFound ||
 		cancelRec.Header().Get("Location") !=
-			"/login?auth_error=access_denied&return_to=%2Fdevice%3Fuser_code%3DABCD" {
+			"/login?auth_connector=github-test&auth_error=access_denied&return_to=%2Fdevice%3Fuser_code%3DABCD" {
 		t.Fatalf(
 			"cancel callback status=%d location=%q body=%s",
 			cancelRec.Code,
@@ -2820,7 +2825,7 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 	}
 	cancelReplayRec := performRequest(handler, cancelReplayReq)
 	if cancelReplayRec.Code != http.StatusFound ||
-		cancelReplayRec.Header().Get("Location") != "/login?auth_error=invalid_state" {
+		cancelReplayRec.Header().Get("Location") != "/login?auth_connector=github-test&auth_error=invalid_state" {
 		t.Fatalf(
 			"cancel replay status=%d location=%q body=%s",
 			cancelReplayRec.Code,
@@ -2988,7 +2993,8 @@ func TestOAuthLoginGitHubRequiresPrimaryVerifiedEmail(t *testing.T) {
 	}
 	rec = performRequest(handler, callbackReq)
 	if rec.Code != http.StatusFound ||
-		rec.Header().Get("Location") != "/login?auth_error=identity_failed&return_to=%2Fafter" {
+		rec.Header().Get("Location") !=
+			"/login?auth_connector=github-primary-required&auth_error=email_not_verified&return_to=%2Fafter" {
 		t.Fatalf("callback status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	if sessionToken := cookieValue(rec.Result().Cookies(), httpauth.BrowserSessionCookieName); sessionToken != "" {
@@ -3009,7 +3015,13 @@ func TestOAuthLoginRateLimitsStateCreation(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	redisClient := integrationredis.OpenClient(t)
-	handler := newIntegrationServer(pool, WithPublicURL("http://omnara.test"), WithRedisBackedAuth(redisClient))
+	const clientLimit = 3
+	handler := newIntegrationServer(
+		pool,
+		WithPublicURL("http://omnara.test"),
+		WithRedisBackedAuth(redisClient),
+		WithAuthClientRateLimits(authn.ClientRateLimits{OAuthLoginConnector: clientLimit}),
+	)
 	store := integrationStoreForHandler(t, handler)
 	runKey := identitystore.HashBearerToken(t.Name() + time.Now().UTC().Format(time.RFC3339Nano))[:12]
 	clientBucket := "oauth-rate-client-" + runKey
@@ -3028,7 +3040,7 @@ func TestOAuthLoginRateLimitsStateCreation(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create auth connector: %v", err)
 	}
-	for i := range 30 {
+	for i := range clientLimit {
 		req := httptest.NewRequest(http.MethodGet, "http://omnara.test/api/auth/connectors/github-rate/login", nil)
 		req.RemoteAddr = clientBucket
 		rec := performRequest(handler, req)
@@ -3472,7 +3484,7 @@ func TestSSOOIDCConnectorRejectsMismatchedAuthorizedParty(t *testing.T) {
 	}
 	rec = performRequest(handler, callbackReq)
 	if rec.Code != http.StatusFound ||
-		rec.Header().Get("Location") != "/login?auth_error=identity_failed&return_to=%2Fsso-done" {
+		rec.Header().Get("Location") != "/login?auth_connector=azp-sso&auth_error=identity_failed&return_to=%2Fsso-done" {
 		t.Fatalf("sso callback status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	if sessionToken := cookieValue(rec.Result().Cookies(), httpauth.BrowserSessionCookieName); sessionToken != "" {
@@ -3699,7 +3711,8 @@ func TestSSOOIDCConnectorRejectsSubjectOnlyFirstLogin(t *testing.T) {
 	}
 	rec = performRequest(handler, callbackReq)
 	if rec.Code != http.StatusFound ||
-		rec.Header().Get("Location") != "/login?auth_error=identity_failed&return_to=%2Fsso-done" {
+		rec.Header().Get("Location") !=
+			"/login?auth_connector=subject-only-sso&auth_error=email_not_verified&return_to=%2Fsso-done" {
 		t.Fatalf("sso callback status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	sessionToken := cookieValue(rec.Result().Cookies(), httpauth.BrowserSessionCookieName)
@@ -4204,7 +4217,10 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 			server := &Server{store: store}
 			buffer, logger := newRequestEventCapture()
 			handlerCalls := 0
-			handler := requestLog(logger)(server.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := requestEvents(logger, nil, nil)(server.auth(http.HandlerFunc(func(
+				w http.ResponseWriter,
+				r *http.Request,
+			) {
 				handlerCalls++
 				principal, ok := r.Context().Value(principalContextKey{}).(identitystore.PrincipalRecord)
 				if !ok || principal.ID != user.ID || principal.BrowserSessionID != session.ID {
@@ -4234,10 +4250,10 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 						handlerCalls, rec.Code, rec.Body.String(),
 					)
 				}
-				if event["http.status_code"] != float64(499) || event["level"] != "info" {
+				if event["http.status_code"] != float64(http.StatusOK) || event["level"] != "info" {
 					t.Fatalf("canceled auth misclassified: %+v", event)
 				}
-				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), "i/o timeout") {
+				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), "timeout") {
 					t.Fatalf("missing actual socket timeout: %+v", event)
 				}
 			default:

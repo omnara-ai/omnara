@@ -26,6 +26,7 @@ function oauthAuthorizeApi({
       redirect_host: '127.0.0.1:3000',
       loopback: true,
       resource: 'https://omnara.test/mcp',
+      scope: 'openid email',
     }),
   approve = () => jsonResponse({ redirect_url: 'http://127.0.0.1:3000/callback?code=abc' }),
   deny = neverResponds,
@@ -92,6 +93,7 @@ describe('OAuth authorization decisions', () => {
     await renderOAuthAuthorize()
 
     expect(container.textContent).toContain('Example MCP Client')
+    expect(container.textContent).toContain('will also receive your verified email address')
     expect(container.textContent).toContain('127.0.0.1:3000')
     expect(container.textContent).toContain('redirects to a program running on your own computer')
   })

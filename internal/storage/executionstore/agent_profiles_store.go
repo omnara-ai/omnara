@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -69,7 +70,7 @@ func (s *Store) CreateAgentProfile(
 		}
 		return record, nil
 	}
-	if err := lockAgentConfigModelForUseTx(ctx, qtx, config); err != nil {
+	if err := lockAgentConfigForUseTx(ctx, qtx, config); err != nil {
 		return AgentProfileRecord{}, err
 	}
 	if err := lockResourceCreation(ctx, qtx, resourceAgentProfiles, input.ProjectID.String()); err != nil {
@@ -87,7 +88,7 @@ func (s *Store) CreateAgentProfile(
 		return AgentProfileRecord{}, fmt.Errorf("count active agent profiles: %w", err)
 	}
 	if profileCount > limits.MaxActiveAgentProfilesPerProject {
-		return AgentProfileRecord{}, resourceLimitExceeded(
+		return AgentProfileRecord{}, resourceguard.LimitExceeded(
 			"active agent profiles",
 			limits.MaxActiveAgentProfilesPerProject,
 		)
@@ -198,7 +199,7 @@ func (s *Store) RetargetAgentProfile(
 		}
 		return profile, nil
 	}
-	if err := lockAgentConfigModelForUseTx(ctx, qtx, config); err != nil {
+	if err := lockAgentConfigForUseTx(ctx, qtx, config); err != nil {
 		return AgentProfileRecord{}, err
 	}
 	row, err := qtx.RetargetAgentProfile(
@@ -321,11 +322,41 @@ func (s *Store) GetAgentProfile(ctx context.Context, projectID, id uuid.UUID) (A
 	return record, nil
 }
 
-type ListAgentProfilesForProjectInput struct {
-	ProjectID uuid.UUID
-	Filters   AgentProfileListFilters
-	List      listing.Options
-	Limit     int
+func (s *Store) GetAgentProfileName(ctx context.Context, projectID, id uuid.UUID) (string, error) {
+	name, err := s.q.GetAgentProfileName(ctx, dbsqlc.GetAgentProfileNameParams{ProjectID: projectID, ID: id})
+	if err != nil {
+		return "", fmt.Errorf("get agent profile name: %w", err)
+	}
+	return name, nil
+}
+
+func (s *Store) GetAgentProfileDisplayNames(
+	ctx context.Context, projectID uuid.UUID, ids []uuid.UUID,
+) (map[uuid.UUID]string, error) {
+	if projectID == uuid.Nil || len(ids) > 100 {
+		return nil, errors.New("project and at most 100 profile IDs are required")
+	}
+	names := make(map[uuid.UUID]string, len(ids))
+	if len(ids) == 0 {
+		return names, nil
+	}
+	rows, err := s.q.GetAgentProfileDisplayNames(ctx, dbsqlc.GetAgentProfileDisplayNamesParams{
+		ProjectID: projectID, ProfileIds: ids,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get agent profile display names: %w", err)
+	}
+	for _, row := range rows {
+		names[row.ID] = row.Name
+	}
+	return names, nil
+}
+
+type ListAgentProfilesForProjectsInput struct {
+	ProjectIDs []uuid.UUID
+	Filters    AgentProfileListFilters
+	List       listing.Options
+	Limit      int
 }
 
 type AgentProfileListFilters struct {
@@ -335,32 +366,32 @@ type AgentProfileListFilters struct {
 	APIVariants           []string
 }
 
-type ListAgentProfilesForProjectResult struct {
+type ListAgentProfilesForProjectsResult struct {
 	Profiles []AgentProfileRecord
 	HasMore  bool
 	Next     listing.Cursor
 }
 
-// ListAgentProfilesForProject returns one newest-first page of agent profiles.
-func (s *Store) ListAgentProfilesForProject(
+// ListAgentProfilesForProjects returns one keyset page of agent profiles across the given projects.
+func (s *Store) ListAgentProfilesForProjects(
 	ctx context.Context,
-	input ListAgentProfilesForProjectInput,
-) (ListAgentProfilesForProjectResult, error) {
-	if input.ProjectID == uuid.Nil {
-		return ListAgentProfilesForProjectResult{}, errors.New("project id is required")
-	}
+	input ListAgentProfilesForProjectsInput,
+) (ListAgentProfilesForProjectsResult, error) {
 	if input.Limit <= 0 {
-		return ListAgentProfilesForProjectResult{}, errors.New("limit must be positive")
+		return ListAgentProfilesForProjectsResult{}, errors.New("limit must be positive")
+	}
+	if len(input.ProjectIDs) == 0 {
+		return ListAgentProfilesForProjectsResult{}, nil
 	}
 	input.List = listing.Normalize(input.List)
 	if !listing.SortAllowed(
 		input.List.SortField,
 		"name", "created_at", "updated_at", "model_provider", "model", "api_format", "api_variant",
 	) {
-		return ListAgentProfilesForProjectResult{}, errors.New("unsupported agent profile list sort")
+		return ListAgentProfilesForProjectsResult{}, errors.New("unsupported agent profile list sort")
 	}
-	params := dbsqlc.ListAgentProfilesForProjectParams{
-		ProjectID: input.ProjectID, RowLimit: int64(input.Limit) + 1,
+	params := dbsqlc.ListAgentProfilesForProjectsParams{
+		ProjectIds: input.ProjectIDs, RowLimit: int64(input.Limit) + 1,
 		NamePattern: input.List.NamePattern, SortField: input.List.SortField,
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
 		CursorKey: input.List.After.Key, CursorID: input.List.After.ID,
@@ -368,11 +399,11 @@ func (s *Store) ListAgentProfilesForProject(
 		ConfiguredModelID:     storeutil.IDFromNil(input.Filters.ConfiguredModelID),
 		ApiFormats:            input.Filters.APIFormats, ApiVariants: input.Filters.APIVariants,
 	}
-	rows, err := s.q.ListAgentProfilesForProject(ctx, params)
+	rows, err := s.q.ListAgentProfilesForProjects(ctx, params)
 	if err != nil {
-		return ListAgentProfilesForProjectResult{}, fmt.Errorf("list agent profiles: %w", err)
+		return ListAgentProfilesForProjectsResult{}, fmt.Errorf("list agent profiles: %w", err)
 	}
-	result := ListAgentProfilesForProjectResult{}
+	result := ListAgentProfilesForProjectsResult{}
 	if len(rows) > input.Limit {
 		result.HasMore = true
 		rows = rows[:input.Limit]
@@ -383,10 +414,42 @@ func (s *Store) ListAgentProfilesForProject(
 	}
 	result.Profiles = make([]AgentProfileRecord, 0, len(rows))
 	for _, row := range rows {
-		record := agentProfileRecordFromListForProjectSQLC(row)
+		record := agentProfileRecordFromListForProjectsSQLC(row)
 		result.Profiles = append(result.Profiles, record)
 	}
 	return result, nil
+}
+
+type AgentProfileAgentCountRecord struct {
+	ID         uuid.UUID
+	Name       string
+	AgentCount int64
+}
+
+type ListAgentProfilesWithAgentCountsInput struct {
+	ProjectIDs []uuid.UUID
+	ProfileIDs []uuid.UUID
+}
+
+func (s *Store) ListAgentProfilesWithAgentCounts(
+	ctx context.Context,
+	input ListAgentProfilesWithAgentCountsInput,
+) ([]AgentProfileAgentCountRecord, error) {
+	if len(input.ProjectIDs) == 0 || len(input.ProfileIDs) == 0 {
+		return []AgentProfileAgentCountRecord{}, nil
+	}
+	rows, err := s.q.ListAgentProfilesWithAgentCounts(ctx, dbsqlc.ListAgentProfilesWithAgentCountsParams{
+		ProjectIds: input.ProjectIDs,
+		ProfileIds: input.ProfileIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list agent profiles with agent counts: %w", err)
+	}
+	records := make([]AgentProfileAgentCountRecord, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, AgentProfileAgentCountRecord{ID: row.ID, Name: row.Name, AgentCount: row.AgentCount})
+	}
+	return records, nil
 }
 
 type ListRecentAgentProfilesForProjectsInput struct {
@@ -420,6 +483,37 @@ func (s *Store) ListRecentAgentProfilesForProjects(
 	return records, nil
 }
 
+type ListProjectLastActivityInput struct {
+	// AgentProjectIDs are the projects whose agents count, ProfileProjectIDs
+	// those whose agent profiles do.
+	AgentProjectIDs   []uuid.UUID
+	ProfileProjectIDs []uuid.UUID
+}
+
+// ListProjectLastActivity returns when each project last had an active
+// top-level agent or a live agent profile updated. Projects with neither are
+// omitted.
+func (s *Store) ListProjectLastActivity(
+	ctx context.Context,
+	input ListProjectLastActivityInput,
+) (map[uuid.UUID]time.Time, error) {
+	activity := map[uuid.UUID]time.Time{}
+	if len(input.AgentProjectIDs) == 0 && len(input.ProfileProjectIDs) == 0 {
+		return activity, nil
+	}
+	rows, err := s.q.ListProjectLastActivity(ctx, dbsqlc.ListProjectLastActivityParams{
+		AgentProjectIds:   input.AgentProjectIDs,
+		ProfileProjectIds: input.ProfileProjectIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list project last activity: %w", err)
+	}
+	for _, row := range rows {
+		activity[row.ProjectID] = row.LastActiveAt
+	}
+	return activity, nil
+}
+
 func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID) error {
 	if projectID == uuid.Nil || id == uuid.Nil {
 		return errors.New("project and agent profile are required")
@@ -430,17 +524,15 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if _, err := lockAgentProfileTx(ctx, qtx, projectID, id); err != nil {
+	project, err := loadProjectTx(ctx, qtx, projectID)
+	if err != nil {
 		return err
 	}
-	hasInstall, err := qtx.AgentProfileHasIntegrationInstall(ctx, dbsqlc.AgentProfileHasIntegrationInstallParams{
-		ProjectID: projectID, ProfileID: &id,
-	})
-	if err != nil {
-		return fmt.Errorf("check agent profile integration installs: %w", err)
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, projectID); err != nil {
+		return err
 	}
-	if hasInstall {
-		return fmt.Errorf("agent profile is referenced by an integration install: %w", storeerr.ErrConflict)
+	if _, err := lockAgentProfileTx(ctx, qtx, projectID, id); err != nil {
+		return err
 	}
 	rows, err := qtx.DeleteAgentProfile(
 		ctx,
@@ -461,6 +553,11 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID)
 		ProjectID: projectID, AgentProfileID: &id,
 	}); err != nil {
 		return fmt.Errorf("delete agent profile cron triggers: %w", err)
+	}
+	if err := qtx.DeleteEventWebhooksForAgentProfile(ctx, dbsqlc.DeleteEventWebhooksForAgentProfileParams{
+		ProjectID: projectID, AgentProfileID: &id,
+	}); err != nil {
+		return fmt.Errorf("delete agent profile webhooks: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit delete agent profile: %w", err)
@@ -578,6 +675,24 @@ func lockAgentProfileTx(
 	_, err := qtx.LockAgentProfile(
 		ctx,
 		dbsqlc.LockAgentProfileParams{ProjectID: projectID, ProfileID: id},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AgentProfileRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return AgentProfileRecord{}, fmt.Errorf("lock agent profile: %w", err)
+	}
+	return loadAgentProfileTx(ctx, qtx, projectID, id)
+}
+
+func lockAgentProfileForLaunchTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	projectID, id uuid.UUID,
+) (AgentProfileRecord, error) {
+	_, err := qtx.LockAgentProfileForLaunch(
+		ctx,
+		dbsqlc.LockAgentProfileForLaunchParams{ProjectID: projectID, ProfileID: id},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AgentProfileRecord{}, storeerr.ErrNotFound

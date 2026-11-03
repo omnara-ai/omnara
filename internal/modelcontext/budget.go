@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -43,37 +45,60 @@ func DefaultSafetyMarginTokens(contextTokens int) int {
 // EstimatePreparedRequest replaces inline base64 with the adapter's media-token estimate
 // and drops deferred tool definitions that no tool_reference has loaded into context.
 func EstimatePreparedRequest(body json.RawMessage, media []RenderedMedia) int {
-	projected := projectPreparedRequest(body, media)
-	return len(projected)/4 + 1 + renderedMediaTokenEstimate(media)
+	projected, mediaTokens := projectPreparedRequest(body, media)
+	return estimateSerializedTextTokens(projected) + mediaTokens
 }
 
-func projectPreparedRequest(body json.RawMessage, media []RenderedMedia) json.RawMessage {
-	encodedMedia := map[string]struct{}{}
+func estimateSerializedTextTokens(value []byte) int {
+	denseBytes, denseRunes := 0, 0
+	for index := 0; index < len(value); {
+		if value[index] < utf8.RuneSelf {
+			index++
+			continue
+		}
+		r, size := utf8.DecodeRune(value[index:])
+		if unicode.In(r, unicode.Han, unicode.Hangul, unicode.Hiragana, unicode.Katakana) {
+			denseBytes += size
+			denseRunes++
+		}
+		index += size
+	}
+	return (len(value)-denseBytes+3)/4 + denseRunes
+}
+
+func projectPreparedRequest(body json.RawMessage, media []RenderedMedia) (json.RawMessage, int) {
+	encodedMedia := map[string][]int{}
 	for _, item := range media {
 		if item.Representation != MediaRepresentationInline || len(item.Media.Data) == 0 {
 			continue
 		}
-		encodedMedia[base64.StdEncoding.EncodeToString(item.Media.Data)] = struct{}{}
+		tokens := item.TokenEstimate
+		if tokens <= 0 {
+			tokens = DefaultBinaryDocumentTokenEstimate
+			if item.Media.Kind == AttachmentKindImage {
+				tokens = DefaultImageTokenEstimate
+			}
+		}
+		encoded := base64.StdEncoding.EncodeToString(item.Media.Data)
+		encodedMedia[encoded] = append(encodedMedia[encoded], tokens)
 	}
 	hasDeferredTools := bytes.Contains(body, []byte(`"defer_loading"`))
 	if len(encodedMedia) == 0 && !hasDeferredTools {
-		return body
+		return body, 0
 	}
 	var request any
 	if err := json.Unmarshal(body, &request); err != nil {
-		return body
+		return body, 0
 	}
-	if len(encodedMedia) > 0 {
-		replaceInlineMediaFields(request, encodedMedia)
-	}
+	mediaTokens := replaceRequestMedia(request, encodedMedia)
 	if hasDeferredTools {
 		removeUnloadedDeferredTools(request)
 	}
 	projected, err := json.Marshal(request)
 	if err != nil {
-		return body
+		return body, 0
 	}
-	return projected
+	return projected, mediaTokens
 }
 
 func removeUnloadedDeferredTools(request any) {
@@ -119,75 +144,77 @@ func collectToolReferenceNames(value any, names map[string]struct{}) {
 	}
 }
 
-func replaceInlineMediaFields(value any, encodedMedia map[string]struct{}) {
-	switch typed := value.(type) {
-	case []any:
-		for _, item := range typed {
-			replaceInlineMediaFields(item, encodedMedia)
-		}
-	case map[string]any:
-		switch typed["type"] {
-		case "input_image":
-			replaceDataURLField(typed, "image_url", encodedMedia)
-		case "input_file":
-			replaceDataURLField(typed, "file_data", encodedMedia)
-		case "file":
-			if file, ok := typed["file"].(map[string]any); ok {
-				replaceDataURLField(file, "file_data", encodedMedia)
-			}
-		case "image", "document":
-			if source, ok := typed["source"].(map[string]any); ok && source["type"] == "base64" {
-				replaceEncodedField(source, "data", encodedMedia)
-			}
-		case "image_url":
-			if imageURL, ok := typed["image_url"].(map[string]any); ok {
-				replaceDataURLField(imageURL, "url", encodedMedia)
-			}
-		}
-		for _, item := range typed {
-			replaceInlineMediaFields(item, encodedMedia)
+func replaceRequestMedia(request any, encodedMedia map[string][]int) int {
+	items, _ := request.([]any)
+	if object, ok := request.(map[string]any); ok {
+		items, _ = object["messages"].([]any)
+		if items == nil {
+			items, _ = object["input"].([]any)
 		}
 	}
-}
-
-func replaceDataURLField(object map[string]any, field string, encodedMedia map[string]struct{}) {
-	value, ok := object[field].(string)
-	if !ok {
-		return
-	}
-	marker := ";base64,"
-	index := strings.Index(value, marker)
-	if index < 0 {
-		return
-	}
-	if _, ok := encodedMedia[value[index+len(marker):]]; ok {
-		object[field] = "<resolved-media>"
-	}
-}
-
-func replaceEncodedField(object map[string]any, field string, encodedMedia map[string]struct{}) {
-	value, ok := object[field].(string)
-	if !ok {
-		return
-	}
-	if _, ok := encodedMedia[value]; ok {
-		object[field] = "<resolved-media>"
-	}
-}
-
-func renderedMediaTokenEstimate(media []RenderedMedia) int {
-	estimate := 0
-	for _, item := range media {
-		if item.Representation == MediaRepresentationInlineText {
+	tokens := 0
+	for _, item := range items {
+		object, ok := item.(map[string]any)
+		if !ok {
 			continue
 		}
-		if item.TokenEstimate > 0 {
-			estimate += item.TokenEstimate
-		} else if item.Media.Kind == AttachmentKindImage {
-			estimate += DefaultImageTokenEstimate
-		} else {
-			estimate += DefaultBinaryDocumentTokenEstimate
+		if role, _ := object["role"].(string); role != "" {
+			tokens += replaceMediaContent(object["content"], encodedMedia)
+		} else if object["type"] == "function_call_output" {
+			tokens += replaceMediaContent(object["output"], encodedMedia)
 		}
 	}
-	return estimate
+	return tokens
+}
+
+func replaceMediaContent(content any, encodedMedia map[string][]int) int {
+	blocks, _ := content.([]any)
+	tokens := 0
+	for _, raw := range blocks {
+		block, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		var payload map[string]any
+		var field string
+		switch block["type"] {
+		case "tool_result":
+			tokens += replaceMediaContent(block["content"], encodedMedia)
+			continue
+		case "input_image":
+			payload, field = block, "image_url"
+		case "input_file":
+			payload, field = block, "file_data"
+		case "file":
+			payload, _ = block["file"].(map[string]any)
+			field = "file_data"
+		case "image_url":
+			payload, _ = block["image_url"].(map[string]any)
+			field = "url"
+		case "image", "document":
+			payload, _ = block["source"].(map[string]any)
+			if payload["type"] != "base64" {
+				continue
+			}
+			field = "data"
+		default:
+			continue
+		}
+		encoded, _ := payload[field].(string)
+		if field != "data" {
+			index := strings.Index(encoded, ";base64,")
+			if !strings.HasPrefix(encoded, "data:") || index < 0 {
+				continue
+			}
+			encoded = encoded[index+8:]
+		}
+		estimates := encodedMedia[encoded]
+		if len(estimates) == 0 {
+			continue
+		}
+		payload[field] = "<resolved-media>"
+		tokens += estimates[0]
+		encodedMedia[encoded] = estimates[1:]
+	}
+	return tokens
 }

@@ -40,17 +40,14 @@ func TestRunnerPublishesAuditedCumulativeCheckpoint(t *testing.T) {
 	response.ProviderReportedCostUSD = "0.0000025"
 	client := &summaryModel{results: []summaryResult{{response: response}}}
 	now := time.Unix(123, 0).UTC()
+	compactionInput := runInput(testPlan(1, 2, 2))
 	result, err := testRunner(store, client, func() time.Time { return now }).
-		Run(context.Background(), runInput(testPlan(1, 2, 2)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run compaction: %v", err)
 	}
 	if result.State != RunCompleted || result.Checkpoint == nil {
 		t.Fatalf("run result = %+v, want completed checkpoint", result)
-	}
-	if len(store.claimInputs) != 1 ||
-		store.claimInputs[0].SourceEventSequenceEnd != 2 {
-		t.Fatalf("compaction claim = %+v", store.claimInputs)
 	}
 	if len(store.publishInputs) != 1 ||
 		store.publishInputs[0].ModelCallContextID != result.ModelCallContextID ||
@@ -91,14 +88,13 @@ func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
 	resolver := &reasoningSelectionResolver{client: client}
 	now := time.Unix(123, 0).UTC()
 	runner := Runner{
-		Store:          store,
-		Resolver:       resolver,
-		ContextBuilder: &fakeContextBuilder{},
-		Now:            func() time.Time { return now },
+		Store:    store,
+		Resolver: resolver,
+		Now:      func() time.Time { return now },
 	}
 	store.clock = runner.now
-
-	result, err := runner.Run(context.Background(), runInput(testPlan(1, 2, 2)))
+	compactionInput := runInput(testPlan(1, 2, 2))
+	result, err := runner.RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run compaction with agent reasoning selection: %v", err)
 	}
@@ -113,83 +109,20 @@ func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
 		selection.Overrides.ReasoningEffort != reasoningEffort {
 		t.Fatalf("compaction model selection = %+v", selection)
 	}
-	if len(client.preparedPolicies) != len(client.preparedBundles) ||
-		len(client.preparedPolicies) < 2 {
-		t.Fatalf(
-			"prepared policies=%d bundles=%d, want summary and candidate requests",
-			len(client.preparedPolicies),
-			len(client.preparedBundles),
-		)
+	if len(client.preparedPolicies) == 0 || len(client.requests) != 1 {
+		t.Fatalf("prepared policies=%d provider requests=%d", len(client.preparedPolicies), len(client.requests))
 	}
-	sawSummaryRequest := false
-	sawCandidateRequest := false
 	for index, policy := range client.preparedPolicies {
 		if policy.ReasoningEffort != reasoningEffort {
 			t.Fatalf("prepared policy %d = %+v, want inherited reasoning", index, policy)
 		}
-		if client.preparedBundles[index].ContextCheckpoint == nil {
-			sawSummaryRequest = true
-			if policy.MaxOutputTokens != client.Capabilities().DefaultMaxOutputTokens {
-				t.Fatalf(
-					"summary policy %d output = %d, want %d",
-					index,
-					policy.MaxOutputTokens,
-					client.Capabilities().DefaultMaxOutputTokens,
-				)
-			}
-			continue
+		if policy.MaxOutputTokens != client.Capabilities().DefaultMaxOutputTokens {
+			t.Fatalf(
+				"summary policy %d output = %d, want %d",
+				index,
+				policy.MaxOutputTokens,
+				client.Capabilities().DefaultMaxOutputTokens,
+			)
 		}
-		sawCandidateRequest = true
-		if policy.MaxOutputTokens != 2_048 {
-			t.Fatalf("candidate policy %d output = %d, want normal 2048", index, policy.MaxOutputTokens)
-		}
-	}
-	if !sawSummaryRequest || !sawCandidateRequest || len(client.requests) != 1 {
-		t.Fatalf(
-			"summary=%v candidate=%v provider requests=%d",
-			sawSummaryRequest,
-			sawCandidateRequest,
-			len(client.requests),
-		)
-	}
-}
-
-func TestRunnerReplaysCheckpointByProducingContext(t *testing.T) {
-	now := time.Unix(123, 0).UTC()
-	input := runInput(testPlan(1, 1, 1))
-	claim := newCompactionClaim(compactionClaimInput(input, now), 1, now)
-	claim.Created = false
-	claim.Claimed = false
-	claim.Context.State = executionstore.ModelCallContextSucceeded
-	checkpoint := executionstore.ContextCheckpointRecord{
-		ID:                             testIDN(900),
-		ProjectID:                      input.Plan.ProjectID,
-		AgentID:                        input.Plan.AgentID,
-		SummarizedThroughEventSequence: input.Plan.EventSequenceEnd,
-		ProducerModelCallContextID:     claim.Context.ID,
-		Summary:                        "Existing durable summary.",
-	}
-	store := &fakeStore{
-		events:       []executionstore.CompactionSourceEventRecord{textCompactionEvent(1, "closed source")},
-		claimResults: []executionstore.ModelCallClaim{claim},
-		published:    &checkpoint,
-	}
-
-	client := &summaryModel{}
-	result, err := testRunner(store, client, func() time.Time { return now }).
-		Run(context.Background(), input)
-	if err != nil {
-		t.Fatalf("replay completed compaction: %v", err)
-	}
-	if result.State != RunCompleted || result.Checkpoint == nil ||
-		result.Checkpoint.ID != checkpoint.ID ||
-		result.ModelCallContextID != claim.Context.ID ||
-		len(client.requests) != 0 || len(store.publishInputs) != 0 {
-		t.Fatalf(
-			"replayed result=%+v requests=%+v publications=%+v",
-			result,
-			client.requests,
-			store.publishInputs,
-		)
 	}
 }

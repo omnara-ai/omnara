@@ -38,7 +38,7 @@ func (s strictOpenAPIServer) createMachine(
 	if err != nil {
 		return nil, err
 	}
-	secretEnv, err := rawJSONFromPointer(request.Body.SecretEnv)
+	secretEnv, err := secretIDsFromPointer(request.Body.SecretEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (s strictOpenAPIServer) ConnectBYOMachine(
 	if err != nil {
 		return nil, err
 	}
-	secretEnv, err := rawJSONFromPointer(request.Body.SecretEnv)
+	secretEnv, err := secretIDsFromPointer(request.Body.SecretEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (s strictOpenAPIServer) UpdateMachine(
 	if err != nil {
 		return nil, err
 	}
-	secretEnv, err := rawJSONFromPointer(request.Body.SecretEnv)
+	secretEnv, err := secretIDsFromPointer(request.Body.SecretEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -224,9 +224,17 @@ func (s strictOpenAPIServer) listVisibleMachines(
 			executionstore.MachineSourceKind(*request.Params.SourceKind),
 		}
 	}
+	if request.Params.MachinePoolId != nil {
+		poolID, ok := parseOpenAPIPublicID(publicid.KindMachinePool, *request.Params.MachinePoolId)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid machine_pool_id")
+		}
+		filters.MachinePoolID = poolID
+	}
 	extra := struct {
-		SourceKinds []executionstore.MachineSourceKind
-	}{filters.SourceKinds}
+		SourceKinds   []executionstore.MachineSourceKind
+		MachinePoolID uuid.UUID `json:",omitzero"`
+	}{filters.SourceKinds, filters.MachinePoolID}
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: request.Params.Name, Sort: optionalString(request.Params.Sort),
 		Cursor: request.Params.Cursor, ListKind: "machines",
@@ -340,7 +348,7 @@ func machineResponse(record executionstore.MachineRecord) (openapi.Machine, erro
 		return openapi.Machine{}, err
 	}
 	var secretEnv map[string]string
-	if err := json.Unmarshal(record.SecretEnv, &secretEnv); err != nil {
+	if err := publicSecretIDs(record.SecretEnv, &secretEnv); err != nil {
 		return openapi.Machine{}, err
 	}
 	var failureReport *openapi.MachineFailureReport

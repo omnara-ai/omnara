@@ -16,23 +16,6 @@ func agentConfigRecordFromSQLC(row dbsqlc.GetAgentConfigRow) AgentConfigRecord {
 		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
 		ConfiguredModelID:       row.ConfiguredModelID,
 		CompiledDefinition:      row.CompiledDefinition,
-		CompilerVersion:         row.CompilerVersion,
-		EffectiveDefinitionHash: row.EffectiveDefinitionHash,
-		CreatedAt:               row.CreatedAt,
-	}
-}
-
-func agentConfigRecordFromUpsertSQLC(row dbsqlc.UpsertAgentConfigByHashRow) AgentConfigRecord {
-	return AgentConfigRecord{
-		ID:                      row.ID,
-		OrgID:                   row.OrgID,
-		ProjectID:               row.ProjectID,
-		Source:                  storeutil.TextOrEmpty(row.Source),
-		SourceFormat:            storeutil.TextOrEmpty(row.SourceFormat),
-		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
-		ConfiguredModelID:       row.ConfiguredModelID,
-		CompiledDefinition:      row.CompiledDefinition,
-		CompilerVersion:         row.CompilerVersion,
 		EffectiveDefinitionHash: row.EffectiveDefinitionHash,
 		CreatedAt:               row.CreatedAt,
 	}
@@ -50,7 +33,6 @@ func agentConfigSnapshotFromSQLC(
 		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
 		ConfiguredModelID:       row.ConfiguredModelID,
 		CompiledDefinition:      row.CompiledDefinition,
-		CompilerVersion:         row.CompilerVersion,
 		EffectiveDefinitionHash: row.EffectiveDefinitionHash,
 		CreatedAt:               row.CreatedAt,
 	}
@@ -72,7 +54,6 @@ func agentConfigSnapshotAtWatermarkFromSQLC(
 		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
 		ConfiguredModelID:       row.ConfiguredModelID,
 		CompiledDefinition:      row.CompiledDefinition,
-		CompilerVersion:         row.CompilerVersion,
 		EffectiveDefinitionHash: row.EffectiveDefinitionHash,
 		CreatedAt:               row.CreatedAt,
 	}
@@ -110,7 +91,7 @@ func agentProfileRecordFromGetSQLC(row dbsqlc.GetAgentProfileRow) AgentProfileRe
 	}
 }
 
-func agentProfileRecordFromListForProjectSQLC(row dbsqlc.ListAgentProfilesForProjectRow) AgentProfileRecord {
+func agentProfileRecordFromListForProjectsSQLC(row dbsqlc.ListAgentProfilesForProjectsRow) AgentProfileRecord {
 	record := AgentProfileRecord{
 		ID:                row.ID,
 		OrgID:             row.OrgID,
@@ -131,7 +112,6 @@ func agentProfileRecordFromListForProjectSQLC(row dbsqlc.ListAgentProfilesForPro
 		SourceFormat:            storeutil.TextOrEmpty(row.ConfigSourceFormat),
 		SourceHash:              storeutil.TextOrEmpty(row.ConfigSourceHash),
 		CompiledDefinition:      row.ConfigCompiledDefinition,
-		CompilerVersion:         row.ConfigCompilerVersion,
 		EffectiveDefinitionHash: row.ConfigEffectiveDefinitionHash,
 		CreatedAt:               row.ConfigCreatedAt,
 	}
@@ -161,7 +141,6 @@ func agentProfileRecordFromListRecentForProjectsSQLC(
 		SourceFormat:            storeutil.TextOrEmpty(row.ConfigSourceFormat),
 		SourceHash:              storeutil.TextOrEmpty(row.ConfigSourceHash),
 		CompiledDefinition:      row.ConfigCompiledDefinition,
-		CompilerVersion:         row.ConfigCompilerVersion,
 		EffectiveDefinitionHash: row.ConfigEffectiveDefinitionHash,
 		CreatedAt:               row.ConfigCreatedAt,
 	}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
 	"github.com/omnara-ai/omnara/internal/processaction"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,10 +33,8 @@ func TestAbruptSupervisorDeathNeverRepeatsCommittedEffects(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_supervisor_sigkill",
 			Process: Process{
-				Command:       `printf x >> "$MARKER"; printf x > "$SYNC"; sleep 30`,
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell(`printf x >> "$MARKER"; printf x > "$SYNC"; sleep 30`, "default", "pipe"),
 				Cwd:           commandDir,
-				IOMode:        "pipe",
 			},
 			Env: map[string]string{
 				"MARKER": markerPath,
@@ -204,10 +203,8 @@ func TestNaturalExitWaitsForReconciliationFence(t *testing.T) {
 		ProcessAssignment{
 			ID: "prc_natural_exit_fence",
 			Process: Process{
-				Command:       `exec 3> "$EXITED"; read -r line < "$RELEASE"`,
-				ShellSelector: "default",
+				ExecutionSpec: processcmd.ForShell(`exec 3> "$EXITED"; read -r line < "$RELEASE"`, "default", "pipe"),
 				Cwd:           commandDir,
-				IOMode:        "pipe",
 			},
 			Env: map[string]string{
 				"RELEASE": releasePath,

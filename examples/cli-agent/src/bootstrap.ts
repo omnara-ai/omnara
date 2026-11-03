@@ -4,8 +4,10 @@ import os from 'node:os'
 import type {
   Agent,
   AgentConfig,
-  AgentProfile,
-  LaunchAgentResponse,
+  AgentConfigDefinition,
+  AgentConfigDefinitionTool,
+  AgentProfileSummary,
+  CreateAgentResponse,
   MachinePool,
   OmnaraClient,
   ProjectMachinePoolGrant,
@@ -17,23 +19,9 @@ import type { CliEnv } from './env.js'
 import { complete, progress } from './progress.js'
 import { pickOne } from './select.js'
 
-export interface AgentProfileSource {
-  name?: string
-  model?: {
-    name?: string
-    reasoning?: { effort: string }
-    [key: string]: unknown
-  }
-  machine_sources?: unknown[]
-  tools?: Record<string, AgentProfileToolSource>
-  [key: string]: unknown
-}
+export type AgentProfileSource = AgentConfigDefinition & { name?: string }
 
-export interface AgentProfileToolSource {
-  type?: string
-  permission?: { mode: string; parameters?: Record<string, unknown> }
-  [key: string]: unknown
-}
+export type AgentProfileToolSource = AgentConfigDefinitionTool
 
 export async function ensureOrg(client: OmnaraClient, env: CliEnv): Promise<string> {
   progress('org', 'Listing...')
@@ -502,12 +490,12 @@ export async function ensureAgentProfile(
   projectId: string,
   profileName: string,
   profileSource: AgentProfileSource,
-): Promise<{ profile: AgentProfile; config: AgentConfig }> {
+): Promise<{ profile: AgentProfileSummary; config: AgentConfig }> {
   progress('agent config', 'Compiling...')
   const { data: config } = await sdk.createAgentConfig({
     client,
     path: { orgID: orgId, projectID: projectId },
-    body: { source: JSON.stringify(profileSource), source_format: 'json' },
+    body: { source: profileSource, source_format: 'json' },
   })
   complete('agent config', config.id)
 
@@ -547,13 +535,13 @@ export async function launchAgent(
   client: OmnaraClient,
   orgId: string,
   projectId: string,
-  profile: AgentProfile,
-): Promise<LaunchAgentResponse> {
+  profile: AgentProfileSummary,
+): Promise<CreateAgentResponse> {
   progress('agent', 'Launching...')
   const { data } = await sdk.createAgent({
     client,
     path: { orgID: orgId, projectID: projectId },
-    body: { profile: profile.id, config: profile.current_config_id },
+    body: { profile: profile.id },
   })
   complete('agent', `${data.agent.name || 'agent'} (${data.agent.id})`)
   return data

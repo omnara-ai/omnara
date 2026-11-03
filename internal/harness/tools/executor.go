@@ -20,6 +20,18 @@ func (e Executor) Dispatch(ctx context.Context, turn Turn, call model.ToolCall) 
 	if err != nil {
 		return Result{}, fmt.Errorf("load tool call %s: %w", call.ID, err)
 	}
+	return e.DispatchRecordedToolCall(ctx, turn, proposal)
+}
+
+func (e Executor) DispatchRecordedToolCall(
+	ctx context.Context, turn Turn, proposal executionstore.ToolCallRecord,
+) (Result, error) {
+	if proposal.ProjectID != turn.ProjectID || proposal.AgentID != turn.AgentID ||
+		proposal.ModelCallContextID != turn.ModelCallContextID {
+		return Result{}, storeerr.ErrIdempotencyConflict
+	}
+	call := model.ToolCall{ID: proposal.ProviderCallID, Name: proposal.Name, Input: proposal.Input}
+	var err error
 	if proposal.State == executionstore.ToolCallStateCompleted {
 		return Result{
 			ToolCallID:   call.ID,
@@ -80,15 +92,10 @@ func (e Executor) Dispatch(ctx context.Context, turn Turn, call model.ToolCall) 
 				Disposition: DispatchDeferred,
 			}, nil
 		case toolDispatchCompleted:
-			if replayed, ok, err := e.completedToolResult(ctx, turn, call); err != nil {
-				return Result{}, err
-			} else if ok {
-				return replayed, nil
-			}
-			return Result{}, fmt.Errorf(
-				"tool %s completed during dispatch but no result is available",
-				call.Name,
-			)
+			return Result{
+				ToolCallID: call.ID, Name: call.Name, ContentParts: dispatchResult.record.ResultContentParts,
+				Disposition: DispatchCompleted,
+			}, nil
 		case toolDispatchFailed:
 			content = dispatchResult.content
 			execErr = dispatchResult.cause
@@ -233,7 +240,8 @@ func machineUnavailableToolResult(cause error) (machineUnavailableResult, error)
 		return machineUnavailableResult{Cause: ErrMachineSelectionRequired, Content: content}, nil
 	}
 	if errors.Is(cause, ErrMachineIDUnavailable) {
-		body["error"] = "machine_id is unavailable"
+		body["error"] = "machine_id is unavailable; " +
+			"it may be provisioning, offline, failed, deleted, or not attached to this agent"
 		body["error_code"] = ErrMachineIDUnavailable.Error()
 		body["next_action"] = toolcatalog.ToolNameListMachines
 		content, marshalErr := structuredToolResultContent(body)
@@ -247,30 +255,6 @@ func machineUnavailableToolResult(cause error) (machineUnavailableResult, error)
 		return machineUnavailableResult{}, marshalErr
 	}
 	return machineUnavailableResult{Cause: errors.New(errorCode), Content: content}, nil
-}
-
-func (e Executor) completedToolResult(
-	ctx context.Context,
-	turn Turn,
-	call model.ToolCall,
-) (Result, bool, error) {
-	record, err := e.recordedToolCall(ctx, turn, call)
-	if err != nil {
-		return Result{}, false, err
-	}
-	if !toolCallMatches(record, call) {
-		return Result{}, false, storeerr.ErrIdempotencyConflict
-	}
-	if record.State != executionstore.ToolCallStateCompleted {
-		return Result{}, false, nil
-	}
-	parts := record.ResultContentParts
-	return Result{
-		ToolCallID:   call.ID,
-		Name:         call.Name,
-		ContentParts: parts,
-		Disposition:  DispatchCompleted,
-	}, true, nil
 }
 
 func (e Executor) recordedToolCall(
@@ -304,11 +288,11 @@ func toolCallMatches(record executionstore.ToolCallRecord, call model.ToolCall) 
 func toolAvailabilityError(name string, available map[string]ToolSpec, implemented bool) error {
 	if available != nil {
 		if _, enabled := available[name]; !enabled {
-			return fmt.Errorf("tool %q is not enabled for this agent config", name)
+			return fmt.Errorf("tool \"%s\" is not enabled for this agent config", name)
 		}
 	}
 	if implemented {
 		return nil
 	}
-	return fmt.Errorf("unsupported tool %q", name)
+	return fmt.Errorf("unsupported tool \"%s\"", name)
 }

@@ -193,7 +193,7 @@ func checkLaunchPerMachineMinimum(perMachine int64, minimum *int) error {
 		return nil
 	}
 	if perMachine < int64(*minimum) {
-		return storeerr.ErrStateTransitionConflict
+		return capacityConflict("%d is below the minimum", perMachine)
 	}
 	return nil
 }
@@ -203,10 +203,10 @@ func checkLaunchAggregateCap(current, perMachine int64, requestedMachines int, l
 		return nil
 	}
 	if perMachine <= 0 {
-		return fmt.Errorf("machine config does not define the capped resource: %w", storeerr.ErrStateTransitionConflict)
+		return capacityConflict("machine config does not define the capped resource")
 	}
-	if current+perMachine*int64(requestedMachines) > int64(*limit) {
-		return storeerr.ErrStateTransitionConflict
+	if requested := perMachine * int64(requestedMachines); current+requested > int64(*limit) {
+		return capacityConflict("%d more would exceed the limit", requested)
 	}
 	return nil
 }
@@ -216,10 +216,10 @@ func checkLaunchPerMachineCap(perMachine int64, limit *int) error {
 		return nil
 	}
 	if perMachine <= 0 {
-		return fmt.Errorf("machine config does not define the capped resource: %w", storeerr.ErrStateTransitionConflict)
+		return capacityConflict("machine config does not define the capped resource")
 	}
 	if perMachine > int64(*limit) {
-		return storeerr.ErrStateTransitionConflict
+		return capacityConflict("%d is above the maximum", perMachine)
 	}
 	return nil
 }
@@ -246,11 +246,15 @@ func checkProvisioningResourceAdmission(
 	}
 	if caps.MaxTotalCPU != nil &&
 		currentCPU+resolved.CPU-currentMachine.CPU > int64(*caps.MaxTotalCPU) {
-		return fmt.Errorf("cpu capacity exceeded: %w", storeerr.ErrStateTransitionConflict)
+		return capacityConflict("cpu capacity exceeded")
 	}
 	if caps.MaxTotalMemoryMB != nil &&
 		currentMemoryMB+resolved.MemoryMB-currentMachine.MemoryMB > int64(*caps.MaxTotalMemoryMB) {
-		return fmt.Errorf("memory capacity exceeded: %w", storeerr.ErrStateTransitionConflict)
+		return capacityConflict("memory capacity exceeded")
 	}
 	return nil
+}
+
+func capacityConflict(format string, args ...any) error {
+	return storeerr.Tag(storeerr.ErrStateTransitionConflict, fmt.Errorf(format, args...))
 }

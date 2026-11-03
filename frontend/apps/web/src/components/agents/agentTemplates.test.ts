@@ -21,7 +21,7 @@ describe('defaultAgentTools', () => {
       permission_modes: [],
     }
     const catalog: ToolCatalog = {
-      built_in_tools: ['upload_file', 'download_file'].map((name) =>
+      built_in_tools: ['storage_upload', 'storage_download'].map((name) =>
         catalogEntry(name, 'always_allow'),
       ),
       custom_tool_permissions: permission,

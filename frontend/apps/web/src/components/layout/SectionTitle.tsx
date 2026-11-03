@@ -4,7 +4,7 @@ import { docsUrl, type Guide } from '@/lib/docs'
 
 export function SectionTitle({ title, guide }: { title: string; guide?: Guide }) {
   return (
-    <h2 className="type-title inline-flex items-baseline gap-1.5">
+    <h2 className="type-title inline-flex items-baseline gap-3">
       {title}
       {guide && (
         <Tooltip>

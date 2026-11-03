@@ -3,9 +3,9 @@ package logent
 import (
 	"context"
 
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type AuthScheme string
@@ -76,6 +76,11 @@ func AuthFailedError(ctx context.Context, scheme AuthScheme, kind TokenKind, res
 		log.Attach(ctx, log.Fields{"auth.error": err.Error()})
 		log.Error(ctx, err)
 	}
+}
+
+func ExternalLoginFailed(ctx context.Context, connector string, err error) {
+	log.Attach(ctx, log.Fields{"auth.connector": connector})
+	log.Error(ctx, err)
 }
 
 func OrgAuthorization(ctx context.Context, in identitystore.AuthorizeOrgInput, result OrgAuthResult) {

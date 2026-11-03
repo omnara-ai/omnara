@@ -71,11 +71,18 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		plan.ConversationKey = ""
 	}
 	applyPromptCachePlan(&payload, plan, compat)
-	return apivariantbody.MarshalWithAPIVariantOptions(
-		c.APIVariantOptions,
-		payload,
-		chatCompletionsOwnedFields(reasoningOwned)...,
-	)
+	ownedFields := chatCompletionsOwnedFields(reasoningOwned)
+	baseURL := c.endpoint().ResolvedBaseURL()
+	switch id := input.Context.SafetyIdentifier; {
+	case id == "":
+	case model.IsOpenRouterHost(baseURL):
+		payload.User = id
+		ownedFields = append(ownedFields, "user")
+	case model.IsOpenAIHost(baseURL):
+		payload.SafetyIdentifier = id
+		ownedFields = append(ownedFields, "safety_identifier")
+	}
+	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
 }
 
 func chatCompletionsOwnedFields(reasoningOwned bool) []string {
@@ -122,6 +129,8 @@ type chatCompletionsRequest struct {
 	N                   int                  `json:"n"`
 	PromptCacheKey      string               `json:"prompt_cache_key,omitempty"`
 	SessionID           string               `json:"session_id,omitempty"`
+	User                string               `json:"user,omitempty"`
+	SafetyIdentifier    string               `json:"safety_identifier,omitempty"`
 	ReasoningEffort     string               `json:"reasoning_effort,omitempty"`
 	Reasoning           *chatReasoning       `json:"reasoning,omitempty"`
 	Store               *bool                `json:"store,omitempty"`
@@ -193,12 +202,6 @@ func buildMessages(
 	if bundle.ContextCheckpoint != nil {
 		capacity++
 	}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		capacity++
-	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
-		capacity++
-	}
 	messages := make([]chatMessage, 0, capacity)
 	if systemPrompt := modelcontext.ProjectedSystemPrompt(bundle); strings.TrimSpace(systemPrompt) != "" {
 		messages = append(messages, chatMessage{Role: chatRoleSystem, Content: systemPrompt})
@@ -229,18 +232,6 @@ func buildMessages(
 		if ok {
 			messages = append(messages, message)
 		}
-	}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		messages = append(messages, chatMessage{
-			Role:    chatRoleSystem,
-			Content: modelcontext.AvailableMachinePoolsContent(bundle.AvailableMachinePools),
-		})
-	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
-		messages = append(messages, chatMessage{
-			Role:    chatRoleSystem,
-			Content: modelcontext.IntegrationTargetsContent(bundle.IntegrationTargets),
-		})
 	}
 	if len(messages) == 0 {
 		return []chatMessage{{Role: chatRoleUser, Content: "Continue."}}, nil

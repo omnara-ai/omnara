@@ -45,7 +45,7 @@ export function AgentConfigMcpToolOverrideList({
   const discoveredByName = new Map(discovered.map((tool) => [tool.name, tool]))
   return (
     <div className="overflow-hidden rounded-xl border">
-      <div className="after:border-border/50 after:bg-muted/50 after:shadow-xs relative isolate after:pointer-events-none after:absolute after:-inset-x-px after:-top-px after:-z-10 after:hidden after:h-[calc(2.25rem+2px)] after:rounded-xl after:border sm:after:block">
+      <div className="after:border-border/50 after:bg-muted/50 relative isolate after:pointer-events-none after:absolute after:-inset-x-px after:-top-px after:-z-10 after:hidden after:h-[calc(2.25rem+2px)] after:rounded-xl after:border after:shadow-xs sm:after:block">
         <Table className="block sm:table sm:table-fixed">
           <TableHeader className="hidden bg-transparent sm:table-header-group [&_tr]:border-0">
             <TableRow className="hover:bg-transparent">
@@ -62,7 +62,7 @@ export function AgentConfigMcpToolOverrideList({
               <TableRow className="block sm:table-row">
                 <TableCell
                   colSpan={4}
-                  className="text-muted-foreground block whitespace-normal px-4 py-3 text-center sm:table-cell"
+                  className="text-muted-foreground block px-4 py-3 text-center whitespace-normal sm:table-cell"
                 >
                   No tool overrides
                 </TableCell>

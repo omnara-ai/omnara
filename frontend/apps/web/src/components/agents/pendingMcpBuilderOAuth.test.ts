@@ -12,6 +12,8 @@ import { type BasicConfig, emptyBasicConfig } from './useAgentBuilderForm'
 const draft: BasicConfig = {
   ...emptyBasicConfig,
   instruction: 'Research things',
+  interactionHandlers: { chat: {} },
+  tools: [{ name: 'int__chat__read', permission: null, deferred: true }],
   mcpServers: [
     {
       id: 'server_1',

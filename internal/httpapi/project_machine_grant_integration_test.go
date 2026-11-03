@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -314,25 +315,26 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 		t.Fatalf("insert pool-derived machine grant fixture: %v", err)
 	}
 
-	// Listing requires access-manage and returns only the explicit grant.
-	requestJSONWithHeaders(t, handler, http.MethodGet, grantsPath, "", "", http.StatusForbidden, authHeaders(viewerToken))
+	// Listing requires project read and returns only the explicit grant.
 	requestJSONWithHeaders(t, handler, http.MethodGet, grantsPath, "", "", http.StatusNotFound, authHeaders(memberToken))
-	listed := requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodGet,
-		grantsPath,
-		"",
-		"",
-		http.StatusOK,
-		authHeaders(project.AdminToken),
-	)
-	listedData := testutil.RequireType[[]any](t, listed["data"])
-	if len(listedData) != 1 ||
-		testutil.RequireType[map[string]any](
-			t, testutil.RequireType[map[string]any](t, listedData[0])["grant"],
-		)["id"] != grantID {
-		t.Fatalf("unexpected machine grant list: %+v", listed)
+	for _, token := range []string{project.AdminToken, viewerToken} {
+		listed := requestJSONWithHeaders(
+			t,
+			handler,
+			http.MethodGet,
+			grantsPath,
+			"",
+			"",
+			http.StatusOK,
+			authHeaders(token),
+		)
+		listedData := testutil.RequireType[[]any](t, listed["data"])
+		if len(listedData) != 1 ||
+			testutil.RequireType[map[string]any](
+				t, testutil.RequireType[map[string]any](t, listedData[0])["grant"],
+			)["id"] != grantID {
+			t.Fatalf("unexpected machine grant list: %+v", listed)
+		}
 	}
 
 	// Delete requires access-manage, is a not-found for missing grants, and
@@ -395,4 +397,27 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	if len(afterData) != 0 {
 		t.Fatalf("deleted grant should leave listings: %+v", afterList)
 	}
+}
+
+// createHTTPProjectMemberToken creates an org member with the given project
+// role and returns a personal access token for them.
+func createHTTPProjectMemberToken(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	project publicHTTPProject,
+	seed string,
+	role string,
+) string {
+	t.Helper()
+	user, token := createHTTPOrgMemberToken(t, ctx, pool, project.Store, project.OrgUUID, seed)
+	if _, err := project.Store.Identity().AddProjectMembership(
+		ctx,
+		identitystore.AddProjectMembershipInput{
+			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, UserID: user.ID, Role: role,
+		},
+	); err != nil {
+		t.Fatalf("add %s project membership: %v", seed, err)
+	}
+	return token
 }

@@ -1231,11 +1231,18 @@ func TestTxNotificationsFlushIncludesAgentEvents(t *testing.T) {
 	)
 	tx.AddDaemonProcessTermination(machineID, processID)
 	tx.AddDaemonProcessTermination(machineID, processID)
-	tx.AddAgentEvent(agentA)
-	tx.AddAgentEvent(agentA)
-	tx.AddAgentEvent(agentB)
-	tx.AddToolCallUpdate(agentA, toolCallID, "awaiting_authorization")
-	tx.AddToolCallUpdate(agentA, toolCallID, "ready")
+	tx.AddAgentEvent(agentA, 7, "agent_input")
+	tx.AddAgentEvent(agentA, 8, "agent_input")
+	tx.AddAgentEvent(agentB, 1, "agent_input")
+	wantEvents := []AgentEventReference{{Sequence: 7, Kind: "agent_input"}, {Sequence: 8, Kind: "agent_input"}}
+	if got := tx.AgentEvents()[agentA]; !slices.Equal(got, wantEvents) {
+		t.Fatalf("agent A collected sequences = %v, want [7 8]", got)
+	}
+	if got := tx.AgentEvents()[agentB]; !slices.Equal(got, []AgentEventReference{{Sequence: 1, Kind: "agent_input"}}) {
+		t.Fatalf("agent B collected sequences = %v, want [1]", got)
+	}
+	tx.AddToolCallUpdate(agentA, toolCallID, "awaiting_authorization", nil)
+	tx.AddToolCallUpdate(agentA, toolCallID, "ready", nil)
 	tx.AddWorkerControlCancel(workerID, workerAgentID, workerRuntimeID)
 
 	publisher := &capturingPublisher{}

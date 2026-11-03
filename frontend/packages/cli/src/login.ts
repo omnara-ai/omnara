@@ -50,7 +50,7 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
         }
         cli.store.update({ token: undefined })
         console.log(
-          `Removed the saved token from ${cli.store.path}. It stays valid until revoked on the API Tokens page.`,
+          `Removed the saved token from ${cli.store.path}. It stays valid until revoked under Personal tokens in your account menu.`,
         )
       })
     })

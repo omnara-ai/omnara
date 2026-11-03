@@ -50,9 +50,9 @@ jobs:
         id: release
         run: go run ./tools/cluster-release resolve
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -69,7 +69,7 @@ jobs:
 
       - name: Build and publish image
         id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           annotations: |
             index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -104,7 +104,7 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
         run: go run ./tools/cluster-release record --dir cluster-digest
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cluster-digest-${{ matrix.name }}
           path: cluster-digest/${{ matrix.name }}.json
@@ -130,13 +130,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: cluster-digest-*
           path: cluster-digests
           merge-multiple: true
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Create cluster release manifest
         id: manifest
@@ -184,3 +184,5 @@ jobs:
         run: |
           source_commit=$(jq -er '.source_commit' cluster-release.json)
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/$DOCS_BRANCH" -f sha="$source_commit" -F force=false
+          newest_tag=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName --jq '[.[].tagName | select(test("^cluster-v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | max_by(ltrimstr("cluster-v") | split(".") | map(tonumber))')
+          if [ "$newest_tag" = "$GITHUB_REF_NAME" ]; then gh release edit "$GITHUB_REF_NAME" --latest; fi

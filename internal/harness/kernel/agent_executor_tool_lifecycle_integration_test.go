@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -102,11 +101,12 @@ skills:
 	if err := executor.ExecuteModelWork(ctx, input); err != nil {
 		t.Fatalf("execute skill-enabled model work: %v", err)
 	}
-	if modelClient.preparedCount() != 1 ||
-		len(modelClient.prepared[0].ToolSpecs) != 3 ||
-		modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.ToolNameSkill {
-		t.Fatalf("skill-enabled prompt tools = %+v, want skill", modelClient.prepared)
+	if modelClient.preparedCount() != 1 {
+		t.Fatalf("expected one skill-enabled model prepare, got %d", modelClient.preparedCount())
 	}
+	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
+		toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead, toolcatalog.ToolNameStorageSearch,
+		toolcatalog.ToolNameSkill)
 	scope := executeNextToolWork(t, ctx, fixture, executor, input)
 	<-scope.Done()
 	if err := scope.Err(); err != nil {
@@ -128,6 +128,12 @@ skills:
 		!strings.Contains(string(completed[0].ResultContentParts), "Confirm the default skill store is available.") {
 		t.Fatalf("completed skill calls = %+v, want successful skill content", completed)
 	}
+}
+
+func (e *requeueingToolWorkExecutor) DispatchRecordedToolCall(
+	ctx context.Context, turn tools.Turn, record executionstore.ToolCallRecord,
+) (tools.Result, error) {
+	return e.Dispatch(ctx, turn, modelToolCallFromRecord(record))
 }
 
 func (e *requeueingToolWorkExecutor) Dispatch(
@@ -294,6 +300,7 @@ WHERE call.project_id = $1
 		t.Fatalf("next claim=%+v, want same tool frontier under a new runtime", claim)
 	}
 	nextWork := ToolWorkExecution{
+		Prepared:           claim.Tool.Prepared,
 		ProjectID:          claim.ProjectID,
 		AgentID:            claim.AgentID,
 		TurnID:             claim.Tool.TurnID,
@@ -793,7 +800,6 @@ func (f kernelFixture) kernelAgentConfigInput(
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 }
@@ -838,7 +844,6 @@ tools:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {

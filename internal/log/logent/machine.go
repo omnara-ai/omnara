@@ -3,8 +3,8 @@ package logent
 import (
 	"context"
 
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func Machine(ctx context.Context, r executionstore.MachineRecord) {
@@ -50,4 +50,13 @@ func MachineFailureReport(ctx context.Context, input executionstore.MachineFailu
 	if input.Stage != executionstore.MachineFailureStageDaemonUninstalled {
 		log.Level(ctx, log.WarnLevel)
 	}
+}
+
+func MachinePoolConnectionCheckFailed(ctx context.Context, provider, message string) {
+	log.Attach(ctx, log.Fields{
+		"machine_pool.connection_check.result":   "failed",
+		"machine_pool.connection_check.provider": provider,
+		"machine_pool.connection_check.error":    message,
+	})
+	log.Level(ctx, log.WarnLevel)
 }

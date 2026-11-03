@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 func MCPConnections(ctx context.Context, connections []executionstore.MCPConnectionRecord) {

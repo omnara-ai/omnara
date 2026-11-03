@@ -136,6 +136,16 @@ func (s *Store) ValidateProjectSecretReference(
 	return nil
 }
 
+func (s *Store) ReadProjectAvailableSecretPayloadTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	input ReadProjectAvailableSecretPayloadInput,
+) (SecretPayloadRecord, error) {
+	reader := *s
+	reader.q = s.q.WithTx(tx)
+	return reader.ReadProjectAvailableSecretPayload(ctx, input)
+}
+
 func (s *Store) ReadProjectAvailableSecretPayload(
 	ctx context.Context,
 	input ReadProjectAvailableSecretPayloadInput,
@@ -212,31 +222,24 @@ func (s *Store) ReadOrgOwnedSecretPayload(
 	if err := management.Validate(input.ManagementKind); err != nil {
 		return SecretPayloadRecord{}, invalidSecretRequest("%v", err)
 	}
-	record, err := s.GetSecret(ctx, input.OrgID, input.SecretID)
-	if err != nil {
-		return SecretPayloadRecord{}, err
-	}
-	if record.OwnerKind != SecretOwnerOrg || record.ManagementKind != input.ManagementKind {
-		return SecretPayloadRecord{}, storeerr.ErrNotFound
-	}
-	if record.Kind != input.Kind {
-		return SecretPayloadRecord{}, invalidSecretRequest(
-			"secret kind %q does not match expected kind %q",
-			record.Kind,
-			input.Kind,
-		)
-	}
-	version, err := s.q.GetSecretVersion(
-		ctx,
-		dbsqlc.GetSecretVersionParams{OrgID: input.OrgID, SecretID: input.SecretID, ID: record.CurrentVersionID},
-	)
+	row, err := s.q.GetCurrentSecretPayload(ctx, dbsqlc.GetCurrentSecretPayloadParams{
+		OrgID: input.OrgID, ID: input.SecretID,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return SecretPayloadRecord{}, storeerr.ErrNotFound
 		}
-		return SecretPayloadRecord{}, fmt.Errorf("get current secret version: %w", err)
+		return SecretPayloadRecord{}, fmt.Errorf("get current secret payload: %w", err)
 	}
-	versionRecord := secretVersionFromGetSQLC(version)
+	if row.OwnerKind != string(SecretOwnerOrg) || row.ManagementKind != string(input.ManagementKind) {
+		return SecretPayloadRecord{}, storeerr.ErrNotFound
+	}
+	if row.Kind != string(input.Kind) {
+		return SecretPayloadRecord{}, invalidSecretRequest(
+			"secret kind %q does not match expected kind %q", row.Kind, input.Kind,
+		)
+	}
+	versionRecord := secretVersionFromCurrentPayloadSQLC(row)
 	payload, err := secrets.DecryptPayload(
 		ctx,
 		s.secretKeyWrapper,
@@ -246,7 +249,7 @@ func (s *Store) ReadOrgOwnedSecretPayload(
 			SecretID:      versionRecord.SecretID.String(),
 			VersionID:     versionRecord.ID.String(),
 			VersionNumber: versionRecord.VersionNumber,
-			Kind:          record.Kind,
+			Kind:          secrets.Kind(row.Kind),
 		},
 	)
 	if err != nil {
@@ -254,8 +257,8 @@ func (s *Store) ReadOrgOwnedSecretPayload(
 	}
 	return SecretPayloadRecord{
 		Payload:                   payload,
-		CurrentVersionID:          record.CurrentVersionID,
-		OAuthAccessTokenExpires:   version.OauthAccessTokenExpires,
-		OAuthAccessTokenRemaining: time.Duration(version.OauthAccessTokenRemainingSeconds * float64(time.Second)),
+		CurrentVersionID:          row.ID,
+		OAuthAccessTokenExpires:   row.OauthAccessTokenExpires,
+		OAuthAccessTokenRemaining: time.Duration(row.OauthAccessTokenRemainingSeconds * float64(time.Second)),
 	}, nil
 }

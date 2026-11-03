@@ -1,42 +1,32 @@
 package integrationstore
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-type InstallBinding struct {
-	OrgID          uuid.UUID
-	ProjectID      uuid.UUID
-	AgentProfileID uuid.UUID
-	AgentID        uuid.UUID
-}
-
-type Access interface {
-	ValidateInstallBinding(context.Context, pgx.Tx, InstallBinding) error
-	ClearInstallTargetsFromAgents(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) error
+type Config struct {
+	PostCommitPublisher notifications.PostCommitPublisher
 }
 
 type Store struct {
-	pool               *pgxpool.Pool
-	q                  *dbsqlc.Queries
-	access             Access
-	targetRefGenerator func(string) (string, error)
+	cell *agentexecution.AgentCell
+	pool *storeutil.Pool
+	q    *dbsqlc.Queries
 }
 
-func New(pool *pgxpool.Pool, access Access) *Store {
+func New(pool *pgxpool.Pool, config Config) *Store {
+	db := storeutil.WrapPool(pool)
 	return &Store{
-		pool:               pool,
-		q:                  dbsqlc.New(pool),
-		access:             access,
-		targetRefGenerator: newIntegrationTargetRef,
+		cell: agentexecution.NewCell(pool, config.PostCommitPublisher, nil),
+		pool: db,
+		q:    dbsqlc.New(db),
 	}
 }
 

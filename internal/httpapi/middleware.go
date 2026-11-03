@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
-	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
-	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/bearertoken"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
@@ -17,13 +17,17 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/log/logent"
-	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/observability/httprequest"
+	"github.com/omnara-ai/omnara/observability/metrics"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 type principalContextKey struct{}
@@ -37,11 +41,34 @@ const maxAttachmentRequestBodyBytes int64 = 2 * modelcontext.MaxResolvedMediaByt
 
 const maxSkillUploadRequestBodyBytes int64 = int64(skills.MaxArchiveBytes) + 1024*1024
 
+const (
+	uploadBaseTime          = 30 * time.Second
+	uploadMinBytesPerSecond = 64 * 1024
+)
+
+func uploadBudget(limitBytes int64) time.Duration {
+	return uploadBaseTime + time.Duration(limitBytes/uploadMinBytesPerSecond)*time.Second
+}
+
 func requestBodyLimit(r *http.Request) int64 {
+	if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/memory-stores/") &&
+		strings.HasSuffix(r.URL.Path, "/file") {
+		return daemonprotocol.MaxFileTransferBytes
+	}
 	if r.Method != http.MethodPost {
 		return maxRequestBodyBytes
 	}
 	switch {
+	case r.URL.Path == httpauth.OAuthDeviceAuthorizationPath, r.URL.Path == httpauth.OAuthTokenPath:
+		return httpauth.MaxOAuthFormBytes
+	case r.URL.Path == slackEventsPath:
+		return slack.EventBodyMaxBytes
+	case r.URL.Path == slackActionsPath:
+		return slack.ActionBodyMaxBytes
+	case r.URL.Path == GitHubEventsPath:
+		return integrationstore.IntegrationInboxMaxPayloadBytes
+	case strings.HasPrefix(r.URL.Path, "/api/integrations/discord/") && strings.HasSuffix(r.URL.Path, "/interactions"):
+		return discord.InteractionMaxBytes
 	case strings.HasSuffix(r.URL.Path, "/slack-setup"):
 		return maxSlackSetupRequestBodyBytes
 	case strings.HasSuffix(r.URL.Path, "/inputs"),
@@ -50,9 +77,9 @@ func requestBodyLimit(r *http.Request) int64 {
 		return maxAttachmentRequestBodyBytes
 	case strings.HasSuffix(r.URL.Path, "/skills"), isSkillUpdatePath(r.URL.Path):
 		return maxSkillUploadRequestBodyBytes
-	case strings.HasPrefix(r.URL.Path, openAPIBasePath+"/daemon/tool-calls/") &&
-		strings.HasSuffix(r.URL.Path, "/artifact"):
-		return daemonprotocol.MaxArtifactUploadBytes
+	case strings.HasPrefix(r.URL.Path, openAPIBasePath+"/daemon/processes/") &&
+		strings.HasSuffix(r.URL.Path, "/file"):
+		return daemonprotocol.MaxFileTransferBytes
 	}
 	return maxRequestBodyBytes
 }
@@ -74,47 +101,67 @@ func chain(handler http.Handler, middlewares ...middleware) http.Handler {
 	return handler
 }
 
-func requestLog(log *slog.Logger) middleware {
+func requestEvents(log *slog.Logger, recorder *metrics.HTTPRecorder, mux *http.ServeMux) middleware {
+	config := httprequest.Config{
+		Logger:  log,
+		Metrics: recorder,
+		Mux:     mux,
+		WriteInternalError: func(w http.ResponseWriter) {
+			apierror.Write(w, openapi.ErrorCodeInternalError)
+		},
+	}
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := logpkg.WithLogger(r.Context(), log)
-			ctx, rec, event := logpkg.HTTPRequest(ctx, w, r)
-			defer func() {
-				event.Done(ctx)
-				metrics.SetHTTPRequestStatusCode(ctx, rec.TelemetryStatusCode())
-			}()
-			defer recoverRequestPanic(ctx, rec)
-
-			next.ServeHTTP(rec, r.WithContext(ctx))
-		})
+		return httprequest.Handler(config, next)
 	}
 }
 
-func recoverRequestPanic(ctx context.Context, rec *logpkg.ResponseRecorder) {
-	recovered := recover()
-	if recovered == nil {
-		return
-	}
-	if err, ok := recovered.(error); ok && errors.Is(err, http.ErrAbortHandler) {
-		panic(recovered) //nolint:omnaralint // re-raise net/http's abort sentinel
-	}
-	logpkg.Error(ctx, fmt.Errorf("http handler panicked: %v", recovered))
-	logpkg.Attach(ctx, logpkg.Fields{"error.stack": string(debug.Stack())})
-	if rec.Started() {
-		panic(http.ErrAbortHandler) //nolint:omnaralint // abort the partial response
-	}
-	apierror.Write(rec, openapi.ErrorCodeInternalError)
+func rejectCanceledRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.Context().Err(); err != nil {
+			logpkg.Error(r.Context(), err)
+			closeHTTP1Connection(w, r)
+			apierror.Write(w, openapi.ErrorCodeServiceUnavailable)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
-func maxBody(limit func(*http.Request) int64) middleware {
+func closeHTTP1Connection(w http.ResponseWriter, r *http.Request) {
+	if r.ProtoMajor == 1 {
+		w.Header().Set("Connection", "close")
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now())
+	}
+}
+
+func maxBody(limit func(*http.Request) int64, budget func(int64) time.Duration) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Body != nil {
-				r.Body = http.MaxBytesReader(w, r.Body, limit(r))
+				limitBytes := limit(r)
+				if r.Body != http.NoBody {
+					_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(budget(limitBytes)))
+				}
+				r.Body = limitedBody{ReadCloser: http.MaxBytesReader(w, r.Body, limitBytes), w: w, r: r}
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+type limitedBody struct {
+	io.ReadCloser
+	w http.ResponseWriter
+	r *http.Request
+}
+
+func (b limitedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		closeHTTP1Connection(b.w, b.r)
+	}
+	return n, err
 }
 
 func (s *Server) auth(next http.Handler) http.Handler {

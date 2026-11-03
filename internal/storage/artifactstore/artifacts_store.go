@@ -10,11 +10,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
-	"github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 var ErrBlobStoreNotConfigured = errors.New("blob store is not configured")
@@ -77,6 +79,13 @@ func (s *Store) CreateArtifact(
 	if s.blobs == nil {
 		return ArtifactRecord{}, ErrBlobStoreNotConfigured
 	}
+	if input.IdempotencyKey != "" {
+		input.Digest = blobstore.ContentDigest(input.Content)
+		replay, found, err := findArtifactReplay(ctx, s.q, input)
+		if err != nil || found {
+			return replay, err
+		}
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return ArtifactRecord{}, fmt.Errorf("generate artifact id: %w", err)
@@ -131,7 +140,7 @@ func (s *Store) createArtifactRecord(
 		return ArtifactRecord{}, err
 	}
 	if input.IdempotencyKey != "" {
-		replay, found, err := findArtifactReplayTx(ctx, qtx, input)
+		replay, found, err := findArtifactReplay(ctx, qtx, input)
 		if err != nil {
 			return ArtifactRecord{}, err
 		}
@@ -165,12 +174,12 @@ func (s *Store) createArtifactRecord(
 	return record, nil
 }
 
-func findArtifactReplayTx(
+func findArtifactReplay(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
+	q *dbsqlc.Queries,
 	input CreateArtifactInput,
 ) (ArtifactRecord, bool, error) {
-	row, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
+	row, err := q.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
 		ProjectID:      input.ProjectID,
 		AgentID:        input.AgentID,
 		IdempotencyKey: input.IdempotencyKey,
@@ -227,6 +236,34 @@ func (s *Store) GetArtifactBlob(
 	return content, record, nil
 }
 
+func (s *Store) ListFiles(
+	ctx context.Context, agentID uuid.UUID, artifactID *uuid.UUID, pattern string, offset, limit int32,
+) ([]listing.FileEntry, error) {
+	rows, err := s.q.ListAgentArtifacts(ctx, dbsqlc.ListAgentArtifactsParams{
+		AgentID: agentID, ArtifactID: artifactID, Pattern: pattern, RowLimit: limit, RowOffset: offset,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list artifact files: %w", err)
+	}
+	entries := make([]listing.FileEntry, 0, len(rows))
+	for _, row := range rows {
+		id, err := publicid.Encode(publicid.KindArtifact, row.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list artifact files: %w", err)
+		}
+		entry := listing.FileEntry{Path: "/artifacts/" + id, Type: listing.FileTypeFile, SizeBytes: row.SizeBytes}
+		entry.ContentType, entry.CreatedAt = row.ContentType, &row.CreatedAt
+		if row.Filename != nil {
+			entry.Filename = *row.Filename
+		}
+		if row.Digest != nil {
+			entry.Digest = *row.Digest
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
 func (s *Store) ListAgentArtifactsByIDs(
 	ctx context.Context,
 	projectID, agentID uuid.UUID,
@@ -254,7 +291,7 @@ func (s *Store) ListAgentArtifactsByIDs(
 
 func insertArtifactTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	artifactID uuid.UUID,
 	input CreateArtifactInput,
 ) (ArtifactRecord, error) {

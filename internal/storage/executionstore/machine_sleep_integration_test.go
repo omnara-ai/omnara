@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -80,9 +81,8 @@ WHERE org_id = $1 AND machine_id = $2 AND daemon_runtime_id = $3
 
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "sleep_lifecycle", "run_command")
 	process, err := startSleepProcess(ctx, fixture, toolCallID, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo awake", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo awake",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -152,9 +152,8 @@ func TestSleepDaemonRuntimeVetoes(t *testing.T) {
 	setMachineSandboxURL(t, ctx, fixture.Store, fixture.MachineID, "https://sleep-vetoes.test/")
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "sleep_vetoes", "run_command")
 	if _, err := startSleepProcess(ctx, fixture, toolCallID, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("sleep 3600", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "sleep 3600",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	}); err != nil {
 		t.Fatalf("start process: %v", err)
@@ -183,9 +182,8 @@ func TestAsleepMachineUnreachableExpiry(t *testing.T) {
 
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "sleep_unreachable_expiry", "run_command")
 	process, err := startSleepProcess(ctx, fixture, toolCallID, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo wake", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo wake",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -225,9 +223,8 @@ func TestFailQueuedProcessAfterWakeFailure(t *testing.T) {
 	}
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "sleep_sync_wake_failure", "run_command")
 	process, err := startSleepProcess(ctx, fixture, toolCallID, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo unreachable", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo unreachable",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -288,9 +285,8 @@ func TestFailQueuedProcessAfterWakeFailureSkipsRegisteredMachine(t *testing.T) {
 	}
 	toolCallID := createToolCallForProcessTest(t, ctx, fixture, "sleep_sync_wake_race", "run_command")
 	process, err := startSleepProcess(ctx, fixture, toolCallID, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo reachable", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo reachable",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -346,9 +342,8 @@ func TestFailQueuedProcessActionAfterWakeFailureIsScoped(t *testing.T) {
 		},
 	)
 	process, err := startSleepProcess(ctx, fixture, toolCallIDs[0], executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo done", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo done",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -544,9 +539,8 @@ func TestAsleepUnreachableExpiryIsPerItemFromWorkArrival(t *testing.T) {
 	)
 	firstToolCallID := toolCallIDs[0]
 	firstProcess, err := startSleepProcess(ctx, fixture, firstToolCallID, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo first", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo first",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -555,9 +549,8 @@ func TestAsleepUnreachableExpiryIsPerItemFromWorkArrival(t *testing.T) {
 	waitForDatabaseTime(t, ctx, fixture.Store.pool, firstProcess.CreatedAt.Add(time.Second))
 	secondToolCallID := toolCallIDs[1]
 	secondProcess, err := startSleepProcess(ctx, fixture, secondToolCallID, executionstore.CreateProcessInput{
+		ExecutionSpec:         processcmd.ForShell("echo second", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID,
-		Command:               "echo second",
-		ShellSelector:         "sh",
 		Cwd:                   "/work",
 	})
 	if err != nil {
@@ -617,9 +610,8 @@ func TestSleepRacingStartProcessKeepsWorkWakeable(t *testing.T) {
 	}()
 	go func() {
 		_, err := startSleepProcess(ctx, fixture, toolCallID, executionstore.CreateProcessInput{
+			ExecutionSpec:         processcmd.ForShell("echo race", "sh", ""),
 			AgentMachineBindingID: fixture.BindingID,
-			Command:               "echo race",
-			ShellSelector:         "sh",
 			Cwd:                   "/work",
 		})
 		startErrs <- err

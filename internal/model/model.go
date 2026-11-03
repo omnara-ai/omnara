@@ -74,8 +74,33 @@ func APIFormatForClient(client Client) modelprotocol.APIFormat {
 }
 
 func MediaProjectorForClient(client Client) modelcontext.MediaProjector {
-	projector, _ := client.(modelcontext.MediaProjector)
-	return projector
+	projector, ok := client.(modelcontext.MediaProjector)
+	if !ok {
+		return nil
+	}
+	if CapabilitiesForClient(client).AllowsInputModality(modelcontext.InputModalityImage) {
+		return projector
+	}
+	return imagelessMediaProjector{projector: projector}
+}
+
+type imagelessMediaProjector struct {
+	projector modelcontext.MediaProjector
+}
+
+func (p imagelessMediaProjector) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontext.RenderedMedia {
+	opening := make(map[modelcontext.MediaOccurrenceRef]bool)
+	for _, occurrence := range modelcontext.ResolvedMediaOccurrences(bundle) {
+		opening[occurrence.Ref] = occurrence.Opening
+	}
+	var rendered []modelcontext.RenderedMedia
+	for _, media := range p.projector.ProjectRenderedMedia(bundle) {
+		if media.Media.Kind == modelcontext.AttachmentKindImage && !opening[media.Occurrence] {
+			continue
+		}
+		rendered = append(rendered, media)
+	}
+	return rendered
 }
 
 func APIVariantForClient(client Client) modelprotocol.APIVariant {
@@ -112,6 +137,15 @@ func ProviderReplayIdentityForClient(
 	}
 }
 
+// ProviderReplaySlugsCompatible reports whether replay produced under one model
+// slug can be sent to another on the same provider route. Claude models accept
+// each other's signed thinking, so a conversation's replay outlives a switch.
+func ProviderReplaySlugsCompatible(apiFormat modelprotocol.APIFormat, source, target string) bool {
+	return source == target ||
+		apiFormat == modelprotocol.APIFormatAnthropicMessages &&
+			IsClaudeFamilyModelSlug(source) && IsClaudeFamilyModelSlug(target)
+}
+
 func CapabilitiesForClient(client Client) Capabilities {
 	if client == nil {
 		return Capabilities{}
@@ -136,10 +170,13 @@ type PrepareInput struct {
 type PreparedRequest struct {
 	// Body is the exact JSON byte sequence authorized by Prepare and passed to
 	// the provider transport. Respond must not rebuild or mutate it.
-	Body               json.RawMessage
-	InputTokenEstimate int
-	InputBudget        InputBudgetAssessment
-	MaxOutputTokens    int
+	Body                   json.RawMessage
+	InputFingerprint       string
+	InputTokenEstimate     int
+	InputBudget            InputBudgetAssessment
+	MaxOutputTokens        int
+	RenderedMedia          []modelcontext.RenderedMedia
+	UsesProviderInputUsage bool
 }
 
 type PrepareForSendInput struct {
@@ -187,8 +224,7 @@ func PrepareForSend(
 		return PreparedRequest{}, err
 	}
 	capabilities := CapabilitiesForClient(client)
-	window := modelWindowForRequest(capabilities, input.Policy)
-	window.OutputReserveTokens = max(window.OutputReserveTokens, limits.Minimum)
+	window := workingInputWindow(capabilities, input.Policy, limits)
 	if input.ReserveFullOutputAllowance {
 		window.OutputReserveTokens = input.Policy.MaxOutputTokens
 	}
@@ -203,17 +239,24 @@ func PrepareForSend(
 	if err != nil {
 		return PreparedRequest{}, err
 	}
+	applyRequestInputMeasurement(ctx, &prepared, client, input)
 	usable := window.UsableInputTokens()
 	if !input.ReserveFullOutputAllowance && input.Policy.MaxOutputTokens > 0 && prepared.InputTokenEstimate <= usable {
 		remaining := capabilities.ContextWindowTokens - window.SafetyMarginTokens - prepared.InputTokenEstimate
 		if remaining < input.Policy.MaxOutputTokens {
-			// The reduced allowance leaves exactly this much room for input. Check
-			// the final body too in case an adapter changes its input projection.
 			usable = prepared.InputTokenEstimate
 			input.Policy.MaxOutputTokens = remaining
+			measured := prepared
 			prepared, err = prepareRequest(ctx, client, input)
 			if err != nil {
 				return PreparedRequest{}, err
+			}
+			if measured.UsesProviderInputUsage && measured.InputFingerprint != "" &&
+				measured.InputFingerprint == prepared.InputFingerprint {
+				prepared.InputTokenEstimate = measured.InputTokenEstimate
+				prepared.UsesProviderInputUsage = true
+			} else {
+				applyRequestInputMeasurement(ctx, &prepared, client, input)
 			}
 		}
 	}
@@ -234,6 +277,9 @@ func prepareRequest(ctx context.Context, client Client, input PrepareForSendInpu
 			Kind: ErrorKindInvalidRequest, Source: input.ErrorSource, Code: "empty_prepared_request",
 			Message: "The configured model produced an empty provider request.",
 		}
+	}
+	if prepared.InputFingerprint == "" {
+		prepared.InputFingerprint = RequestInputFingerprint(prepared.Body, "")
 	}
 	if prepared.InputTokenEstimate <= 0 {
 		prepared.InputTokenEstimate = modelcontext.EstimatePreparedRequest(prepared.Body, input.Context.RenderedMedia)
@@ -391,4 +437,17 @@ func modelWindowForRequest(capabilities Capabilities, policy RequestPolicy) mode
 
 func UsableInputTokensForRequest(capabilities Capabilities, policy RequestPolicy) int {
 	return modelWindowForRequest(capabilities, policy).UsableInputTokens()
+}
+
+func TextAttachmentBudgetTokens(client Client) int {
+	capabilities := CapabilitiesForClient(client)
+	return UsableInputTokensForRequest(capabilities, RequestPolicyFromCapabilities(capabilities)) / 4
+}
+
+func workingInputWindow(
+	capabilities Capabilities, policy RequestPolicy, limits OutputTokenLimits,
+) modelcontext.ModelWindow {
+	window := modelWindowForRequest(capabilities, policy)
+	window.OutputReserveTokens = max(window.OutputReserveTokens, limits.Minimum)
+	return window
 }

@@ -2,18 +2,25 @@ package machinepool
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -23,6 +30,7 @@ const (
 	machineWakeAttempts                 = 3
 	machineWakeTimeout                  = 2 * time.Minute
 	providerInspectionTimeout           = 5 * time.Second
+	providerConnectionCheckTimeout      = 15 * time.Second
 	providerDeletionTimeout             = 5 * time.Second
 	providerFailureRetryDelay           = time.Minute
 	providerProvisionRetryAttempts      = 4
@@ -176,6 +184,9 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUI
 			err,
 		)
 	}
+	if err := provider.ValidateMachineConfig(machineProvisioning, machineEnv); err != nil {
+		return m.cleanupFailedProvision(ctx, machine, "machine_config_invalid", err.Error(), err)
+	}
 	providerProvisioning, err := m.Execution.BeginPoolMachineProviderProvisioning(
 		ctx,
 		executionstore.BeginPoolMachineProviderProvisioningInput{
@@ -188,6 +199,7 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUI
 	if err != nil {
 		return err
 	}
+	firstAttempt := machine.ProviderProvisionAttemptedAt == nil
 	machine.ProviderProvisionAttemptedAt = &providerProvisioning.ProviderProvisionAttemptedAt
 	machine.UpdatedAt = providerProvisioning.UpdatedAt
 	providerCtx, cancel = context.WithTimeout(ctx, provider.ProvisioningTimeout())
@@ -199,6 +211,7 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUI
 		machineProvisioning,
 		providerProvisioning.DaemonToken.Token,
 		machineEnv,
+		firstAttempt,
 	)
 	cancel()
 	if provisionResult.ProviderResourceID != "" {
@@ -216,6 +229,9 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUI
 		}
 		machine.ProviderResourceID = observation.ProviderResourceID
 		machine.UpdatedAt = observation.UpdatedAt
+	}
+	if errors.Is(provisionErr, providers.ErrPermanent) {
+		return m.cleanupFailedProvision(ctx, machine, "provider_error", provisionErr.Error(), provisionErr)
 	}
 	if provisionErr != nil {
 		return m.handleProvisionFailure(
@@ -256,6 +272,7 @@ func provisionMachineWithRetry(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
+	firstAttempt bool,
 ) (providers.ProvisionMachineResult, error) {
 	var observed providers.ProvisionMachineResult
 	var provisionErr error
@@ -267,6 +284,7 @@ func provisionMachineWithRetry(
 			machineProvisioning,
 			machineToken,
 			machineEnv,
+			firstAttempt,
 		)
 		provisionErr = err
 		if errors.Is(err, providers.ErrResourceReplaced) {
@@ -288,7 +306,7 @@ func provisionMachineWithRetry(
 		if err == nil {
 			return observed, nil
 		}
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || errors.Is(err, providers.ErrPermanent) {
 			return observed, err
 		}
 		if attempt == providerProvisionRetryAttempts-1 {
@@ -389,7 +407,7 @@ func (m Manager) ReconcileProvisioning(ctx context.Context, limit int32) (int, e
 	if err != nil {
 		return 0, err
 	}
-	return runBoundedReconcile(
+	started, _, err := runBoundedReconcile(
 		ctx,
 		len(machines),
 		poolMachineReconcileConcurrency,
@@ -398,6 +416,7 @@ func (m Manager) ReconcileProvisioning(ctx context.Context, limit int32) (int, e
 			return m.ProvisionMachine(ctx, machine.OrgID, machine.ID)
 		},
 	)
+	return started, err
 }
 
 func (m Manager) ReconcileCleanup(ctx context.Context, limit int32) (int, error) {
@@ -409,7 +428,7 @@ func (m Manager) ReconcileCleanup(ctx context.Context, limit int32) (int, error)
 	if err != nil {
 		return 0, err
 	}
-	return runBoundedReconcile(
+	started, _, err := runBoundedReconcile(
 		ctx,
 		len(candidates),
 		poolMachineReconcileConcurrency,
@@ -417,6 +436,7 @@ func (m Manager) ReconcileCleanup(ctx context.Context, limit int32) (int, error)
 			return m.DeleteMachine(ctx, candidates[i])
 		},
 	)
+	return started, err
 }
 
 func (m Manager) ReconcileIdleDeletion(ctx context.Context, limit int32) (int, error) {
@@ -424,7 +444,7 @@ func (m Manager) ReconcileIdleDeletion(ctx context.Context, limit int32) (int, e
 	if err != nil {
 		return 0, err
 	}
-	_, err = runBoundedReconcile(
+	_, _, err = runBoundedReconcile(
 		ctx,
 		len(candidates),
 		poolMachineReconcileConcurrency,
@@ -445,23 +465,46 @@ func (m Manager) ReconcileIdleDeletion(ctx context.Context, limit int32) (int, e
 	return len(candidates), err
 }
 
+func (m Manager) ReconcileManagedWorkDeniedDeletion(
+	ctx context.Context,
+	logger *slog.Logger,
+	limit int32,
+) (int, error) {
+	candidates, err := m.Execution.ListManagedWorkDeniedPoolMachines(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	_, _, err = runBoundedReconcile(
+		ctx,
+		len(candidates),
+		poolMachineReconcileConcurrency,
+		func(ctx context.Context, i int) error {
+			candidate := candidates[i]
+			marked, err := m.Execution.MarkManagedWorkDeniedPoolMachineDeleting(ctx, candidate)
+			if err != nil || !marked {
+				return err
+			}
+			logger.Info(
+				"marked managed work denied machine for deletion",
+				"org_id", candidate.OrgID,
+				"machine_id", candidate.MachineID,
+			)
+			return nil
+		},
+	)
+	return len(candidates), err
+}
+
 func (m Manager) DeleteMachines(ctx context.Context, machines []executionstore.MachineRecord) (int, error) {
-	return runBoundedReconcile(
+	started, _, err := runBoundedReconcile(
 		ctx,
 		len(machines),
 		poolMachineReconcileConcurrency,
 		func(ctx context.Context, i int) error {
-			machine := machines[i]
-			return m.DeleteMachine(
-				ctx,
-				executionstore.PoolMachineCleanupCandidate{
-					Machine:       machine,
-					ReasonCode:    machine.LifecycleReasonCode,
-					ReasonMessage: machine.LifecycleReasonMessage,
-				},
-			)
+			return m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{Machine: machines[i]})
 		},
 	)
+	return started, err
 }
 
 func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.PoolMachineCleanupCandidate) error {
@@ -498,8 +541,7 @@ func (m Manager) deleteClaimedMachine(
 	if err != nil {
 		return false, m.markDeleteFailed(
 			ctx,
-			machine,
-			deleteBackoff(machine.DeleteAttempts),
+			claim,
 			"provider_config_invalid",
 			"machine config is invalid",
 			err,
@@ -518,8 +560,7 @@ func (m Manager) deleteClaimedMachine(
 		if err != nil {
 			return false, m.markDeleteFailed(
 				ctx,
-				machine,
-				deleteBackoff(machine.DeleteAttempts),
+				claim,
 				reasonCode,
 				reasonMessage,
 				err,
@@ -548,8 +589,7 @@ func (m Manager) deleteClaimedMachine(
 		if err != nil {
 			return true, m.markDeleteFailed(
 				ctx,
-				machine,
-				deleteBackoff(machine.DeleteAttempts),
+				claim,
 				"provider_inspect_error",
 				err.Error(),
 				err,
@@ -560,8 +600,7 @@ func (m Manager) deleteClaimedMachine(
 				err := errors.New("provider inspection returned an empty resource id")
 				return true, m.markDeleteFailed(
 					ctx,
-					machine,
-					deleteBackoff(machine.DeleteAttempts),
+					claim,
 					"provider_inspect_error",
 					err.Error(),
 					err,
@@ -593,8 +632,7 @@ func (m Manager) deleteClaimedMachine(
 			err := errors.New("provider resource was not found by allocation name")
 			return false, m.markDeleteFailed(
 				ctx,
-				machine,
-				deleteBackoff(machine.DeleteAttempts),
+				claim,
 				"provider_resource_not_found",
 				err.Error(),
 				err,
@@ -613,8 +651,7 @@ func (m Manager) deleteClaimedMachine(
 	if err != nil {
 		return true, m.markDeleteFailed(
 			ctx,
-			machine,
-			deleteBackoff(machine.DeleteAttempts),
+			claim,
 			"provider_delete_error",
 			err.Error(),
 			err,
@@ -692,6 +729,118 @@ func (m Manager) providerForMachine(
 	return provider, "", "", nil
 }
 
+type PoolConnectionCheck struct {
+	OrgID                         uuid.UUID
+	Provider                      string
+	ProviderConfig                json.RawMessage
+	ProviderAuthSecretID          uuid.UUID
+	DefaultMachineProviderOptions json.RawMessage
+}
+
+func (m Manager) CheckPoolConnection(ctx context.Context, input PoolConnectionCheck) error {
+	definition, ok := m.Catalog.definition(input.Provider)
+	if !ok {
+		return fmt.Errorf("machine provider %q is not configured", input.Provider)
+	}
+	machineProvisioning, err := executionstore.MachineProvisioningFromDefaults(
+		nil,
+		nil,
+		input.DefaultMachineProviderOptions,
+	)
+	if err != nil {
+		return err
+	}
+	providerAuthToken, err := m.Execution.ResolveMachineProviderAuthToken(
+		ctx,
+		input.OrgID,
+		management.Tenant,
+		input.ProviderAuthSecretID,
+		"",
+	)
+	if err != nil {
+		return errors.New("could not read the credential secret")
+	}
+	if len(input.ProviderConfig) == 0 {
+		input.ProviderConfig = json.RawMessage(`{}`)
+	}
+	provider, err := definition.NewProvider(input.ProviderConfig, providers.RuntimeConfig{
+		OmnaraAPIURL:      m.PublicAPIURL,
+		ProviderAuthToken: providerAuthToken,
+	})
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, providerConnectionCheckTimeout)
+	defer cancel()
+	if err := provider.CheckConnection(ctx, machineProvisioning); err != nil {
+		if errors.Is(err, storeerr.ErrInvalidRequest) {
+			return err
+		}
+		message, upstream := connectionCheckFailure(err)
+		return ConnectionCheckError{Message: message, Details: err.Error(), Upstream: upstream}
+	}
+	return nil
+}
+
+type ConnectionCheckError struct {
+	Message  string
+	Details  string
+	Upstream bool
+}
+
+func (e ConnectionCheckError) Error() string {
+	return e.Message
+}
+
+func connectionCheckFailure(err error) (message string, upstream bool) {
+	const (
+		rejected    = "The provider rejected this API key."
+		forbidden   = "This API key doesn't have access to the configured workspace or resources."
+		notFound    = "The provider couldn't find the configured workspace, environment, or API."
+		rateLimited = "The provider is rate limiting requests. Try again in a minute."
+		unreachable = "Couldn't reach the provider. Try again in a moment."
+	)
+	if code, ok := providers.HTTPStatus(err); ok {
+		switch {
+		case code == 401:
+			return rejected, false
+		case code == 403:
+			return forbidden, false
+		case code == 404:
+			return notFound, false
+		case code == 429:
+			return rateLimited, true
+		case code >= 500:
+			return unreachable, true
+		}
+		return fmt.Sprintf("The provider returned an unexpected error (HTTP %d).", code), false
+	}
+	var dnsErr *net.DNSError
+	var urlErr *url.Error
+	switch {
+	case errors.Is(err, ssrf.ErrBlockedAddress):
+		return "This API address isn't allowed.", false
+	case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+		return "Couldn't find the provider's API. Check the region or API URL.", false
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &urlErr):
+		return unreachable, true
+	}
+	switch status.Code(err) {
+	case codes.Unauthenticated:
+		return rejected, false
+	case codes.PermissionDenied:
+		return forbidden, false
+	case codes.NotFound:
+		return notFound, false
+	case codes.ResourceExhausted:
+		return rateLimited, true
+	case codes.Unavailable, codes.DeadlineExceeded:
+		return unreachable, true
+	default:
+		return "The provider returned an unexpected error.", true
+	}
+}
+
 func (m Manager) markProvisionFailed(
 	ctx context.Context,
 	machine executionstore.MachineRecord,
@@ -751,11 +900,7 @@ func (m Manager) cleanupFailedProvision(
 	if !marked {
 		return cause
 	}
-	if err := m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{
-		Machine:       deleting,
-		ReasonCode:    deleting.LifecycleReasonCode,
-		ReasonMessage: deleting.LifecycleReasonMessage,
-	}); err != nil {
+	if err := m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{Machine: deleting}); err != nil {
 		return err
 	}
 	return cause
@@ -763,17 +908,34 @@ func (m Manager) cleanupFailedProvision(
 
 func (m Manager) markDeleteFailed(
 	ctx context.Context,
-	machine executionstore.MachineRecord,
-	retryDelay time.Duration,
+	claim executionstore.PoolMachineDeletionClaim,
 	reasonCode, reasonMessage string,
 	cause error,
 ) error {
+	machine := claim.Machine
+	if claim.CanAbandonProviderResource {
+		if err := m.Execution.AbandonPoolMachineDeletion(
+			ctx,
+			machine.OrgID,
+			machine.ID,
+			machine.DeleteAttempts,
+			cause.Error(),
+		); err != nil {
+			return err
+		}
+		return fmt.Errorf(
+			"abandoned provider resource for pool machine %s after %d delete attempts: %w",
+			machine.ID,
+			machine.DeleteAttempts,
+			cause,
+		)
+	}
 	err := m.Execution.MarkMachineDeleteFailed(ctx, executionstore.MachineDeleteFailureInput{
 		OrgID:                  machine.OrgID,
 		MachineID:              machine.ID,
 		LifecycleReasonCode:    reasonCode,
 		LifecycleReasonMessage: reasonMessage,
-		RetryDelay:             retryDelay,
+		RetryDelay:             deleteBackoff(machine.DeleteAttempts),
 		DeleteAttempt:          machine.DeleteAttempts,
 	})
 	if err != nil {
@@ -786,9 +948,9 @@ func runBoundedReconcile(
 	ctx context.Context,
 	count, concurrency int,
 	run func(context.Context, int) error,
-) (int, error) {
+) (started, failed int, err error) {
 	if count == 0 {
-		return 0, nil
+		return 0, 0, nil
 	}
 	if concurrency <= 0 {
 		concurrency = 1
@@ -802,7 +964,6 @@ func runBoundedReconcile(
 	var mu sync.Mutex
 	var reconcileErrs []error
 	var suppressedErrors int
-	started := 0
 	recordErr := func(err error) {
 		if ctxErr := ctx.Err(); ctxErr != nil && errutil.OnlyMatches(err, ctxErr) {
 			return
@@ -820,7 +981,8 @@ func runBoundedReconcile(
 		select {
 		case <-ctx.Done():
 			wg.Wait()
-			return started, boundedReconcileError(reconcileErrs, suppressedErrors, ctx.Err())
+			failed = len(reconcileErrs) + suppressedErrors
+			return started, failed, boundedReconcileError(reconcileErrs, suppressedErrors, ctx.Err())
 		case sem <- struct{}{}:
 		}
 
@@ -845,7 +1007,8 @@ func runBoundedReconcile(
 	}
 
 	wg.Wait()
-	return started, boundedReconcileError(reconcileErrs, suppressedErrors, ctx.Err())
+	failed = len(reconcileErrs) + suppressedErrors
+	return started, failed, boundedReconcileError(reconcileErrs, suppressedErrors, ctx.Err())
 }
 
 func boundedReconcileError(reconcileErrs []error, suppressedErrors int, interruption error) error {

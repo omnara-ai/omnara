@@ -12,10 +12,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
-func TestCreateAgentContentInputIdempotencyReplayAndConflict(t *testing.T) {
+func TestCreateAgentContentInputIdempotencyReplay(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -31,7 +34,7 @@ func TestCreateAgentContentInputIdempotencyReplayAndConflict(t *testing.T) {
 		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"same"}]`),
 		IdempotencyKey: "idem-agent-input-replay",
 	}
-	first, _, _, err := store.Execution().CreateAgentContentInput(ctx, create)
+	first, firstContent, _, err := store.Execution().CreateAgentContentInput(ctx, create)
 	if err != nil {
 		t.Fatalf("create agent content input: %v", err)
 	}
@@ -44,10 +47,17 @@ func TestCreateAgentContentInputIdempotencyReplayAndConflict(t *testing.T) {
 	}
 
 	create.ContentBlocks = json.RawMessage(`[{"type":"text","text":"different"}]`)
-	_, _, _, err = store.Execution().CreateAgentContentInput(ctx, create)
-	if !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-		t.Fatalf("conflicting agent input idempotency error = %v, want ErrIdempotencyConflict", err)
-	}
+	create.DeliveryMode = executionstore.DeliveryModeSteering
+	create.Metadata = json.RawMessage(`{"retry":"changed"}`)
+	replayed, content, created, err := store.Execution().CreateAgentContentInput(ctx, create)
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, first, replayed)
+	require.JSONEq(t, string(firstContent), string(content))
+	var count int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='content'`, agentID).Scan(&count))
+	require.Equal(t, 1, count)
 
 	otherUser := mustCreateProjectOperatorUser(t, ctx, store, "input-producer-swap@example.com", "Producer Swap")
 	otherActorID := mustEnsureOmnaraActor(t, ctx, store, testOrgID, testProjectID, otherUser.ID)
@@ -60,6 +70,37 @@ func TestCreateAgentContentInputIdempotencyReplayAndConflict(t *testing.T) {
 	); !isPgCode(err, "25006") {
 		t.Fatalf("mutate producer actor error = %v, want SQLSTATE 25006", err)
 	}
+}
+
+func TestCreateAgentContentInputReplayAfterPromotion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	agentID := mustCreateAgent(t, ctx, store)
+	input := executionstore.CreateAgentContentInputInput{
+		ProjectID: testProjectID, AgentID: agentID,
+		ContentBlocks: json.RawMessage(`[{"type":"text","text":"queued message"}]`),
+		DeliveryMode:  executionstore.DeliveryModeQueued, IdempotencyKey: "promoted-replay",
+	}
+	first, firstContent, created, err := store.Execution().CreateAgentContentInput(ctx, input)
+	require.NoError(t, err)
+	require.True(t, created)
+	require.NoError(t, store.Execution().PromoteQueuedInputToSteering(ctx,
+		executionstore.PromoteQueuedInputToSteeringInput{
+			ProjectID: testProjectID, AgentID: agentID, InputID: first.ID,
+		}))
+	replayed, content, created, err := store.Execution().CreateAgentContentInput(ctx, input)
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, first.ID, replayed.ID)
+	require.Equal(t, executionstore.DeliveryModeSteering, replayed.DeliveryMode)
+	require.JSONEq(t, string(firstContent), string(content))
+	var count int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='content'`, agentID).Scan(&count))
+	require.Equal(t, 1, count)
 }
 
 func TestCreateAgentContentInputIdempotencyIgnoresTransientInteractionCancellation(t *testing.T) {
@@ -173,6 +214,43 @@ func TestCreateAgentContentInputRejectsArchivedAgentButReplaysExisting(t *testin
 	if afterArchiveInputs != 0 {
 		t.Fatalf("post-archive inputs = %d, want 0", afterArchiveInputs)
 	}
+}
+
+func TestCreateAgentContentInputRechecksArchiveAfterAgentLockWait(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	agentID := mustCreateAgent(t, ctx, store)
+	user := mustCreateProjectOperatorUser(t, ctx, store, "input-archive-race@example.com", "Input Archive Race")
+	actor := mustOmnaraActorParams(t, user.ID)
+
+	blocker := integrationdb.BeginTx(t, ctx, pool)
+	_, err := dbsqlc.New(blocker).LockAgentInProject(ctx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agentID})
+	require.NoError(t, err)
+	archive := integrationdb.RunAsyncError(func() error {
+		_, _, err := store.Execution().IntegrationArchiveAgentOnce(ctx, testProjectID, agentID, actor)
+		return err
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
+	admission := integrationdb.RunAsyncError(func() error {
+		_, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID: testProjectID, AgentID: agentID, Actor: actor,
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"waiting during archive"}]`),
+			IdempotencyKey: "input-archive-race",
+		})
+		return err
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
+	require.NoError(t, blocker.Commit(ctx))
+	require.NoError(t, integrationdb.Await(t, archive, "agent archival"))
+	require.ErrorIs(t, integrationdb.Await(t, admission, "input after archive"), storeerr.ErrStateTransitionConflict)
+	var inputs int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='content'`, agentID).Scan(&inputs))
+	require.Zero(t, inputs)
 }
 
 func TestCreateAgentContentInputConcurrentIdempotencyReplay(t *testing.T) {
@@ -338,50 +416,6 @@ func TestAgentWriteActorParamsMaterializeActorsInTx(t *testing.T) {
 	}
 }
 
-func TestCreateAgentContentInputConflictRollsBackExternalActor(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool)
-	agentID := mustCreateAgent(t, ctx, store)
-	user := mustCreateProjectOperatorUser(t, ctx, store, "actor-rollback@example.com", "Actor Rollback")
-
-	create := executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        agentID,
-		Actor:          mustOmnaraActorParams(t, user.ID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"same"}]`),
-		IdempotencyKey: "idem-actor-rollback",
-	}
-	if _, _, _, err := store.Execution().CreateAgentContentInput(ctx, create); err != nil {
-		t.Fatalf("create content input: %v", err)
-	}
-
-	stolen := create
-	stolen.Actor = &executionstore.ActorParams{
-		Provider:         executionstore.ActorProviderExternal,
-		ProviderTenantID: "rollback-tenant",
-		ProviderUserID:   "rollback-external",
-	}
-	if _, _, _, err := store.Execution().CreateAgentContentInput(
-		ctx, stolen,
-	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-		t.Fatalf("stolen idempotency key error = %v, want ErrIdempotencyConflict", err)
-	}
-	leaked, err := store.Execution().ListActors(ctx, executionstore.ListActorsInput{
-		ProjectID:      testProjectID,
-		Provider:       executionstore.ActorProviderExternal,
-		ProviderUserID: "rollback-external",
-	})
-	if err != nil {
-		t.Fatalf("list external actors after conflict: %v", err)
-	}
-	if len(leaked) != 0 {
-		t.Fatalf("conflicting input leaked external actor: %+v", leaked)
-	}
-}
-
 func TestCreateAgentContentInputReplayDoesNotRewriteActor(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -429,6 +463,25 @@ func TestCreateAgentContentInputReplayDoesNotRewriteActor(t *testing.T) {
 	if created || replayed.ID != first.ID {
 		t.Fatalf("replay = id %s created %v, want id %s created false", replayed.ID, created, first.ID)
 	}
+	for _, identity := range []struct{ tenant, user string }{
+		{"different-tenant", "different-user"},
+		{"replay\x00tenant", create.Actor.ProviderUserID},
+		{create.Actor.ProviderTenantID, "replay\x00user"},
+	} {
+		retry := create
+		actor := *create.Actor
+		actor.ProviderTenantID, actor.ProviderUserID = identity.tenant, identity.user
+		retry.Actor = &actor
+		replayed, _, created, err := store.Execution().CreateAgentContentInput(ctx, retry)
+		require.NoError(t, err)
+		require.False(t, created)
+		require.Equal(t, first, replayed)
+	}
+	actors, err := store.Execution().ListActors(ctx, executionstore.ListActorsInput{
+		ProjectID: testProjectID, Provider: executionstore.ActorProviderExternal,
+	})
+	require.NoError(t, err)
+	require.Len(t, actors, 1)
 
 	actor, err := store.Execution().GetActor(ctx, testProjectID, first.ActorID)
 	if err != nil {

@@ -1,7 +1,18 @@
 import { useUpdateModelProvider } from '@omnara/react'
 import { type ModelProviderConfig } from '@omnara/sdk'
-import { type SyntheticEvent, useState } from 'react'
+import { type SyntheticEvent, useId, useState } from 'react'
 
+import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
+import {
+  recordFromSecretRows,
+  recordFromTextRows,
+  type SecretRow,
+  secretRowsFromRecord,
+  secretRowsValid,
+  type TextRow,
+  textRowsFromRecord,
+  textRowsValid,
+} from '@/components/key-value/keyValueRows'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -23,6 +34,8 @@ interface EditModelProviderState {
   timeout: string
   idleTimeout: string
   region: string
+  headerRows: TextRow[]
+  secretHeaderRows: SecretRow[]
   status: SubmitStatus
 }
 
@@ -37,6 +50,7 @@ export function EditModelProviderDialog({
   orgId: string
   provider: ModelProviderConfig
 }) {
+  const idPrefix = useId()
   const mutation = useUpdateModelProvider(orgId)
   const [state, setState] = useState<EditModelProviderState>({
     baseUrl: provider.base_url,
@@ -44,6 +58,8 @@ export function EditModelProviderDialog({
     timeout: String(provider.request_timeout_ms),
     idleTimeout: String(provider.idle_timeout_ms),
     region: provider.auth_options.region ?? '',
+    headerRows: textRowsFromRecord(provider.headers),
+    secretHeaderRows: secretRowsFromRecord(provider.secret_headers),
     status: idle,
   })
   const errorMessage = statusError(state.status)
@@ -65,6 +81,8 @@ export function EditModelProviderDialog({
                 region: state.region.trim(),
               }
             : undefined,
+        headers: recordFromTextRows(state.headerRows) ?? {},
+        secret_headers: recordFromSecretRows(state.secretHeaderRows) ?? {},
       })
       onOpenChange(false)
     } catch (err) {
@@ -78,15 +96,16 @@ export function EditModelProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Edit {provider.name}</DialogTitle>
         </DialogHeader>
         <form onSubmit={(event) => void submit(event)}>
           <FieldGroup>
             <Field>
-              <FieldLabel>Base URL</FieldLabel>
+              <FieldLabel htmlFor={`${idPrefix}-base-url`}>Base URL</FieldLabel>
               <Input
+                id={`${idPrefix}-base-url`}
                 value={state.baseUrl}
                 onChange={(event) => {
                   setState((prev) => ({ ...prev, baseUrl: event.target.value }))
@@ -94,8 +113,9 @@ export function EditModelProviderDialog({
               />
             </Field>
             <Field>
-              <FieldLabel>Endpoint path</FieldLabel>
+              <FieldLabel htmlFor={`${idPrefix}-endpoint-path`}>Endpoint path</FieldLabel>
               <Input
+                id={`${idPrefix}-endpoint-path`}
                 value={state.endpointPath}
                 onChange={(event) => {
                   setState((prev) => ({ ...prev, endpointPath: event.target.value }))
@@ -103,8 +123,9 @@ export function EditModelProviderDialog({
               />
             </Field>
             <Field>
-              <FieldLabel>Total request timeout (ms)</FieldLabel>
+              <FieldLabel htmlFor={`${idPrefix}-timeout`}>Total request timeout (ms)</FieldLabel>
               <Input
+                id={`${idPrefix}-timeout`}
                 type="number"
                 min="1"
                 max="2147483647"
@@ -120,8 +141,9 @@ export function EditModelProviderDialog({
               </FieldDescription>
             </Field>
             <Field>
-              <FieldLabel>Idle timeout (ms)</FieldLabel>
+              <FieldLabel htmlFor={`${idPrefix}-idle-timeout`}>Idle timeout (ms)</FieldLabel>
               <Input
+                id={`${idPrefix}-idle-timeout`}
                 type="number"
                 min="1"
                 max="2147483647"
@@ -138,8 +160,9 @@ export function EditModelProviderDialog({
             </Field>
             {provider.auth_kind === 'sigv4' && (
               <Field>
-                <FieldLabel>AWS signing region</FieldLabel>
+                <FieldLabel htmlFor={`${idPrefix}-region`}>AWS signing region</FieldLabel>
                 <Input
+                  id={`${idPrefix}-region`}
                   required
                   autoCapitalize="none"
                   autoCorrect="off"
@@ -152,6 +175,22 @@ export function EditModelProviderDialog({
                 />
               </Field>
             )}
+            <KeyValueEditor
+              orgId={orgId}
+              enabled={open}
+              label="Headers"
+              itemLabel="Header"
+              keyPlaceholder="Header-Name"
+              textRows={state.headerRows}
+              secretRows={state.secretHeaderRows}
+              onChange={({ textRows, secretRows }) => {
+                setState((prev) => ({
+                  ...prev,
+                  headerRows: textRows,
+                  secretHeaderRows: secretRows,
+                }))
+              }}
+            />
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
               <Button
@@ -159,7 +198,9 @@ export function EditModelProviderDialog({
                 disabled={
                   mutation.isPending ||
                   state.baseUrl.trim() === '' ||
-                  (provider.auth_kind === 'sigv4' && !awsRegionPattern.test(state.region.trim()))
+                  (provider.auth_kind === 'sigv4' && !awsRegionPattern.test(state.region.trim())) ||
+                  !textRowsValid(state.headerRows) ||
+                  !secretRowsValid(state.secretHeaderRows)
                 }
                 loading={mutation.isPending}
               >

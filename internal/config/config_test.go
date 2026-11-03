@@ -2,6 +2,9 @@ package config
 
 import (
 	"encoding/base64"
+	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +13,9 @@ import (
 )
 
 func TestLoadUsesDefaults(t *testing.T) {
+	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "")
+	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "")
+	t.Setenv("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY", "")
 	t.Setenv("OMNARA_API_ADDR", "")
 	t.Setenv("OMNARA_LOG_LEVEL", "")
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
@@ -40,8 +46,23 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.RedisURL != "redis://127.0.0.1:6379/0" {
 		t.Fatalf("expected insecure dev default redis url, got %q", cfg.RedisURL)
 	}
+	if cfg.WorkerEventWebhookConcurrency != 128 {
+		t.Fatalf("expected default event webhook concurrency 128, got %d", cfg.WorkerEventWebhookConcurrency)
+	}
+	if cfg.EventWebhookPerOrgConcurrency != 128 {
+		t.Fatalf("expected default per-org event webhook concurrency 128, got %d", cfg.EventWebhookPerOrgConcurrency)
+	}
+	if cfg.WorkerDiscordCapacity != 1024 {
+		t.Fatalf("expected default Discord capacity 1024, got %d", cfg.WorkerDiscordCapacity)
+	}
+	if cfg.WorkerInboxCapacity != 4 {
+		t.Fatalf("expected default worker inbox capacity 4, got %d", cfg.WorkerInboxCapacity)
+	}
 	if cfg.WorkerCapacity != 4 {
 		t.Fatalf("expected default worker capacity 4, got %d", cfg.WorkerCapacity)
+	}
+	if cfg.WorkerClaimConcurrency != 16 {
+		t.Fatalf("expected default claim concurrency 16, got %d", cfg.WorkerClaimConcurrency)
 	}
 	if cfg.WorkerAsyncToolCapacity != 32 {
 		t.Fatalf("expected default worker async tool capacity 32, got %d", cfg.WorkerAsyncToolCapacity)
@@ -51,6 +72,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 			"expected default worker background tool capacity 8, got %d",
 			cfg.WorkerBackgroundToolCapacity,
 		)
+	}
+	if cfg.WorkerDrainTimeout != 20*time.Second {
+		t.Fatalf("expected default worker drain timeout 20s, got %s", cfg.WorkerDrainTimeout)
 	}
 	if cfg.DaemonSocketFallbackDrainInterval != defaultDaemonSocketFallbackDrainInterval {
 		t.Fatalf("expected default daemon socket fallback drain interval, got %s", cfg.DaemonSocketFallbackDrainInterval)
@@ -329,6 +353,7 @@ func TestValidateAPIDoesNotRequireWorkerConfig(t *testing.T) {
 	t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 	t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 	t.Setenv("OMNARA_EMAIL_DRIVER", "smtp")
 	t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 	t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
@@ -363,6 +388,7 @@ func TestValidateAPIBlobStoreConfig(t *testing.T) {
 
 	// Non-https endpoints outside localhost fail outside dev.
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 	t.Setenv("OMNARA_BLOB_S3_ENDPOINT", "http://blobs.example.com")
 	cfg, err = Load()
 	if err != nil {
@@ -408,6 +434,7 @@ func TestValidateAPIAuthEmailDriverGate(t *testing.T) {
 	t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 	t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 
 	cfg, err := Load()
 	if err != nil {
@@ -436,6 +463,7 @@ func TestValidateAPIEmailDrivers(t *testing.T) {
 	t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 	t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 
 	t.Setenv("OMNARA_EMAIL_DRIVER", "console")
 	cfg, err := Load()
@@ -517,6 +545,7 @@ func TestValidateAPITrustedProxyCIDRs(t *testing.T) {
 	t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 	t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 	t.Setenv("OMNARA_EMAIL_DRIVER", "smtp")
 	t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 	t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
@@ -539,6 +568,46 @@ func TestValidateAPITrustedProxyCIDRs(t *testing.T) {
 	}
 	if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_TRUSTED_PROXY_CIDRS") {
 		t.Fatalf("expected trusted proxy config error, got %v", err)
+	}
+}
+
+func TestLoadAPIRateLimitDefaults(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", "")
+	t.Setenv("OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR", "")
+	t.Setenv("OMNARA_API_RATE_LIMIT_BURST", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	got := []int{cfg.APIRateLimitReadsPerHour, cfg.APIRateLimitWritesPerHour, cfg.APIRateLimitBurst}
+	if want := []int{100000, 50000, 1000}; !slices.Equal(got, want) {
+		t.Fatalf("reads, writes, burst = %v, want %v", got, want)
+	}
+}
+
+func TestValidateAPIRateLimit(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	cases := []struct{ reads, writes, burst, wantErr string }{
+		{reads: "10000", writes: "5000", burst: "100"},
+		{reads: "0", writes: "0", burst: "1000000"},
+		{reads: "-1", writes: "0", burst: "100", wantErr: "OMNARA_API_RATE_LIMIT_READS_PER_HOUR"},
+		{reads: "0", writes: "-1", burst: "100", wantErr: "OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR"},
+		{reads: "10000", writes: "5000", burst: "0", wantErr: "OMNARA_API_RATE_LIMIT_BURST"},
+		{reads: "10000", writes: "5000", burst: "1000001", wantErr: "OMNARA_API_RATE_LIMIT_BURST"},
+	}
+	for _, tc := range cases {
+		t.Setenv("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", tc.reads)
+		t.Setenv("OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR", tc.writes)
+		t.Setenv("OMNARA_API_RATE_LIMIT_BURST", tc.burst)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load %+v: %v", tc, err)
+		}
+		err = cfg.ValidateAPI()
+		if (tc.wantErr == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.wantErr)) {
+			t.Fatalf("validate %+v error = %v", tc, err)
+		}
 	}
 }
 
@@ -686,6 +755,7 @@ func TestValidateAPIAuthConnectorURLsRequireHTTPSOutsideDev(t *testing.T) {
 	t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 	t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 	t.Setenv("OMNARA_EMAIL_DRIVER", "smtp")
 	t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 	t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
@@ -816,6 +886,20 @@ func TestValidateAPIRejectsMissingSecretEncryptionConfigEvenInDevConfig(t *testi
 	}
 }
 
+func TestSafetyIdentifierKeyBytes(t *testing.T) {
+	if key, err := (Config{}).SafetyIdentifierKeyBytes(); key != nil || err != nil {
+		t.Fatalf("unset safety identifier key = %v, err %v", key, err)
+	}
+	short := base64.StdEncoding.EncodeToString([]byte("short"))
+	if _, err := (Config{SafetyIdentifierKey: short}).SafetyIdentifierKeyBytes(); err == nil {
+		t.Fatal("expected short safety identifier key error")
+	}
+	key, err := Config{SafetyIdentifierKey: testSkillDownloadSigningKey()}.SafetyIdentifierKeyBytes()
+	if err != nil || len(key) != 32 {
+		t.Fatalf("safety identifier key = %d bytes, err %v", len(key), err)
+	}
+}
+
 func TestValidateSkillDownloadSigningKey(t *testing.T) {
 	config := Config{}
 	err := validateSkillDownloadSigningKeyConfig(config)
@@ -923,6 +1007,7 @@ func TestValidateAPIAcceptsPublicURL(t *testing.T) {
 			t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 			t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 			t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+			t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 			t.Setenv("OMNARA_EMAIL_DRIVER", "smtp")
 			t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 			t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
@@ -959,6 +1044,7 @@ func TestValidateAPIRejectsNonOriginPublicURLs(t *testing.T) {
 			t.Setenv("OMNARA_SECRET_ENCRYPTION_KEYS", testSecretEncryptionKeys())
 			t.Setenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", "test-key")
 			t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+			t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 			t.Setenv("OMNARA_EMAIL_DRIVER", "smtp")
 			t.Setenv("OMNARA_SMTP_ADDR", "smtp.example.com:587")
 			t.Setenv("OMNARA_EMAIL_FROM", "noreply@example.com")
@@ -1029,6 +1115,7 @@ func TestValidateWorkerRequiresPublicURLOutsideDev(t *testing.T) {
 	t.Setenv("OMNARA_DATABASE_URL", "postgres://example/db")
 	t.Setenv("OMNARA_REDIS_URL", "redis://example:6379")
 	t.Setenv("OMNARA_BLOB_S3_BUCKET", "omnara-prod")
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
 	t.Setenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", testSkillDownloadSigningKey())
 	t.Setenv("OMNARA_PUBLIC_URL", "")
 
@@ -1082,6 +1169,35 @@ func TestValidateWorkerLoadsExplicitWorkerCapacity(t *testing.T) {
 	}
 }
 
+func TestValidateWorkerLoadsExplicitClaimConcurrency(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "2")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err != nil {
+		t.Fatalf("validate worker: %v", err)
+	}
+	if cfg.WorkerClaimConcurrency != 2 {
+		t.Fatalf("unexpected claim concurrency: %+v", cfg)
+	}
+}
+
+func TestValidateWorkerRejectsInvalidClaimConcurrency(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_CLAIM_CONCURRENCY", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err == nil {
+		t.Fatal("expected invalid claim concurrency error")
+	}
+}
+
 func TestValidateWorkerLoadsExplicitAsyncToolCapacity(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	t.Setenv("OMNARA_WORKER_ASYNC_TOOL_CAPACITY", "64")
@@ -1111,6 +1227,40 @@ func TestValidateWorkerLoadsExplicitBackgroundToolCapacity(t *testing.T) {
 	}
 	if cfg.WorkerBackgroundToolCapacity != 16 {
 		t.Fatalf("unexpected background tool capacity: %+v", cfg)
+	}
+}
+
+func TestValidateWorkerLoadsExplicitDrainTimeout(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	for raw, want := range map[string]time.Duration{"45s": 45 * time.Second, "0s": 0} {
+		t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", raw)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config with drain timeout %s: %v", raw, err)
+		}
+		if err := cfg.ValidateWorker(); err != nil {
+			t.Fatalf("validate worker with drain timeout %s: %v", raw, err)
+		}
+		if cfg.WorkerDrainTimeout != want {
+			t.Fatalf("worker drain timeout = %s, want %s", cfg.WorkerDrainTimeout, want)
+		}
+	}
+}
+
+func TestValidateWorkerRejectsInvalidDrainTimeout(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "100")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected unparseable worker drain timeout error")
+	}
+
+	t.Setenv("OMNARA_WORKER_DRAIN_TIMEOUT", "-1s")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err == nil {
+		t.Fatal("expected negative worker drain timeout error")
 	}
 }
 
@@ -1259,5 +1409,138 @@ func TestValidateAPIRequiresDatabaseURLWithoutInsecureDevOptIn(t *testing.T) {
 	}
 	if err := cfg.ValidateAPI(); err == nil {
 		t.Fatal("expected missing database url error")
+	}
+}
+
+func TestValidateWorkerLoadsExplicitEventWebhookConcurrency(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY", "16")
+	t.Setenv("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY", "7")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err != nil {
+		t.Fatalf("validate worker: %v", err)
+	}
+	if cfg.WorkerEventWebhookConcurrency != 16 || cfg.EventWebhookPerOrgConcurrency != 7 {
+		t.Fatalf("unexpected event webhook concurrency: %+v", cfg)
+	}
+}
+
+func TestValidateWorkerRejectsInvalidEventWebhookConcurrency(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.ValidateWorker(); err == nil {
+		t.Fatal("expected invalid event webhook concurrency error")
+	}
+}
+
+func TestValidateWorkerRejectsInvalidEventWebhookPerOrgConcurrency(t *testing.T) {
+	for _, value := range []string{"0", "-1", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY", value)
+			cfg, err := Load()
+			if err == nil {
+				err = cfg.ValidateWorker()
+			}
+			if err == nil || !strings.Contains(err.Error(), "OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY") {
+				t.Fatalf("expected invalid per-org event webhook concurrency error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestWorkerInboxCapacity(t *testing.T) {
+	for _, value := range []string{"1", "4", "100", "0", "-1", "101", "not-an-int"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_WORKER_INBOX_CAPACITY", value)
+			cfg, err := Load()
+			if value == "not-an-int" {
+				if err == nil {
+					t.Fatal("expected invalid integer error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = cfg.ValidateWorker()
+			valid := value == "1" || value == "4" || value == "100"
+			if valid && err != nil {
+				t.Fatal(err)
+			}
+			if !valid && err == nil {
+				t.Fatal("expected capacity bounds error")
+			}
+			if valid && fmt.Sprint(cfg.WorkerInboxCapacity) != value {
+				t.Fatalf("capacity = %d, want %s", cfg.WorkerInboxCapacity, value)
+			}
+		})
+	}
+}
+
+func TestWorkerDiscordCapacity(t *testing.T) {
+	for _, value := range []string{"0", "1", "128"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_WORKER_DISCORD_CAPACITY", value)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cfg.ValidateWorker(); (err != nil) != (value == "0") {
+				t.Fatalf("capacity %s: %v", value, err)
+			}
+			if fmt.Sprint(cfg.WorkerDiscordCapacity) != value {
+				t.Fatalf("capacity = %d, want %s", cfg.WorkerDiscordCapacity, value)
+			}
+		})
+	}
+}
+
+func TestMemoryDirectoryConfiguration(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_MEMORY_DIR", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		t.Fatalf("development memory directory is not absolute: %q", cfg.MemoryDir)
+	}
+	for _, dir := range []string{"", "relative/memory"} {
+		cfg.MemoryDir = dir
+		if err := cfg.ValidateAPI(); err == nil || !strings.Contains(err.Error(), "OMNARA_MEMORY_DIR") {
+			t.Fatalf("API accepted memory directory %q: %v", dir, err)
+		}
+		if err := cfg.ValidateWorker(); err == nil || !strings.Contains(err.Error(), "OMNARA_MEMORY_DIR") {
+			t.Fatalf("worker accepted memory directory %q: %v", dir, err)
+		}
+		if err := cfg.ValidateMaintenance(); err == nil || !strings.Contains(err.Error(), "OMNARA_MEMORY_DIR") {
+			t.Fatalf("maintenance accepted memory directory %q: %v", dir, err)
+		}
+	}
+	t.Setenv("OMNARA_MEMORY_DIR", t.TempDir())
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ValidateAPI(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ValidateWorker(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ValidateMaintenance(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -160,7 +160,7 @@ WHERE agent.project_id = $1
 	}
 }
 
-func TestContextCheckpointPublicationRecordsProviderCost(t *testing.T) {
+func TestContextCheckpointPublicationRecordsProviderCostAndRejectsReplay(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture, admitted, _ := newMultiInputContinuationSeedFixture(t, ctx, "checkpoint_provider_cost")
@@ -209,44 +209,15 @@ func TestContextCheckpointPublicationRecordsProviderCost(t *testing.T) {
 			input.ProviderReportedCostUSD,
 		)
 	}
-}
-
-func TestContextCheckpointPublicationRejectsRepeatedTransition(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fixture, admitted, _ := newMultiInputContinuationSeedFixture(
-		t,
-		ctx,
-		"checkpoint_repeated_publication",
-	)
-	frontier := admitted.Events[len(admitted.Events)-1].Sequence
-	claim := claimSentCompactionForRangeTest(
-		t,
-		ctx,
-		fixture,
-		1,
-		frontier,
-		frontier,
-		fixture.Now.Add(4*time.Second),
-	)
-	input := executionstore.PublishContextCheckpointInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		ModelCallContextID: claim.Context.ID,
-		Summary:            "single checkpoint publication",
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
-		APIVariant:         modelprotocol.APIVariantDefault,
-		ProviderResponseID: "resp_single_checkpoint_publication",
-	}
-	if _, err := fixture.Store.Execution().PublishContextCheckpoint(ctx, input); err != nil {
-		t.Fatalf("publish checkpoint: %v", err)
-	}
 	if _, err := fixture.Store.Execution().PublishContextCheckpoint(
 		ctx,
 		input,
 	); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		t.Fatalf("repeat checkpoint publication error = %v, want %v", err, storeerr.ErrStateTransitionConflict)
+		t.Fatalf(
+			"repeat checkpoint publication error = %v, want %v",
+			err,
+			storeerr.ErrStateTransitionConflict,
+		)
 	}
 }
 
@@ -307,16 +278,13 @@ func TestContextCheckpointLineageDerivesPriorCheckpointFromEvents(t *testing.T) 
 	if err != nil {
 		t.Fatalf("publish second checkpoint: %v", err)
 	}
-	secondSourceStart, err := executionstore.IntegrationCompactionSourceStartTx(ctx, fixture.Store.q, secondClaim.Context)
-	if err != nil {
-		t.Fatalf("derive second compaction source start: %v", err)
-	}
-	if want := firstCheckpoint.SummarizedThroughEventSequence + 1; secondSourceStart != want {
-		t.Fatalf("second compaction source start = %d, want %d", secondSourceStart, want)
-	}
 	if secondCheckpoint.SummarizedThroughEventSequence != secondFrontier ||
 		secondCheckpoint.SummarizedThroughEventSequence <= firstCheckpoint.SummarizedThroughEventSequence {
-		t.Fatalf("checkpoint lineage did not advance: first=%+v second=%+v", firstCheckpoint, secondCheckpoint)
+		t.Fatalf(
+			"checkpoint lineage did not advance: first=%+v second=%+v",
+			firstCheckpoint,
+			secondCheckpoint,
+		)
 	}
 }
 
@@ -389,7 +357,7 @@ func TestContextCheckpointRejectsInactiveRuntimeBeforeReaping(t *testing.T) {
 	}
 }
 
-func TestContextCheckpointAndCancellationSerializeWithOneWinner(t *testing.T) {
+func TestContextCheckpointPublicationRespectsCancellationOrder(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -524,7 +492,13 @@ func TestKernelContextCheckpointRejectsOpenToolCallAuthority(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			fixture := newProcessDaemonFixture(t, ctx, "kernel_checkpoint_"+state+"_tool_call")
 			now := fixture.Now.Add(time.Minute)
-			toolCallID := createToolCallForProcessTest(t, ctx, fixture, "kernel_checkpoint_"+state+"_tool_call", "read_process")
+			toolCallID := createToolCallForProcessTest(
+				t,
+				ctx,
+				fixture,
+				"kernel_checkpoint_"+state+"_tool_call",
+				"read_process",
+			)
 			if state == "running" {
 				claimToolCallForTest(
 					t,
@@ -537,9 +511,24 @@ func TestKernelContextCheckpointRejectsOpenToolCallAuthority(t *testing.T) {
 				)
 			}
 			sourceSequence := toolCallSourceSequenceForCheckpointTest(t, ctx, fixture, toolCallID)
-			claim := claimSentCompactionForRangeTest(t, ctx, fixture, 1, sourceSequence, sourceSequence, now.Add(time.Second))
-			_, err := publishCheckpointForRangeTest(t, ctx, fixture, claim, "unsafe-"+state, now.Add(2*time.Second))
-			if err == nil || !strings.Contains(err.Error(), "cuts an active tool call") {
+			claim := claimSentCompactionForRangeTest(
+				t,
+				ctx,
+				fixture,
+				1,
+				sourceSequence,
+				sourceSequence,
+				now.Add(time.Second),
+			)
+			_, err := publishCheckpointForRangeTest(
+				t,
+				ctx,
+				fixture,
+				claim,
+				"unsafe-"+state,
+				now.Add(2*time.Second),
+			)
+			if !errors.Is(err, storeerr.ErrCheckpointBoundaryUnsafe) {
 				t.Fatalf("checkpoint %s tool authority error = %v", state, err)
 			}
 		})
@@ -548,12 +537,19 @@ func TestKernelContextCheckpointRejectsOpenToolCallAuthority(t *testing.T) {
 	t.Run("completed", func(t *testing.T) {
 		fixture := newProcessDaemonFixture(t, ctx, "kernel_checkpoint_completed_tool_call")
 		now := fixture.Now.Add(time.Minute)
-		toolCallID := createToolCallForProcessTest(t, ctx, fixture, "kernel_checkpoint_completed_tool_call", "read_process")
-		completed, err := fixture.Store.Execution().CompleteToolCall(ctx, executionstore.CompleteToolCallInput{
-			ProjectID: testProjectID, AgentID: fixture.AgentID, ID: toolCallID,
-			Outcome: executionstore.ToolResultOutcomeSucceeded, RuntimeLockID: fixture.Lock.ID,
-			ResultContentParts: json.RawMessage(`[{"type":"structured_data","value":{"ok":true}}]`),
-		})
+		toolCallID := createToolCallForProcessTest(
+			t,
+			ctx,
+			fixture,
+			"kernel_checkpoint_completed_tool_call",
+			"read_process",
+		)
+		completed, err := fixture.Store.Execution().
+			CompleteToolCall(ctx, executionstore.CompleteToolCallInput{
+				ProjectID: testProjectID, AgentID: fixture.AgentID, ID: toolCallID,
+				Outcome: executionstore.ToolResultOutcomeSucceeded, RuntimeLockID: fixture.Lock.ID,
+				ResultContentParts: json.RawMessage(`[{"type":"structured_data","value":{"ok":true}}]`),
+			})
 		if err != nil {
 			t.Fatalf("complete tool call: %v", err)
 		}
@@ -564,12 +560,23 @@ func TestKernelContextCheckpointRejectsOpenToolCallAuthority(t *testing.T) {
 		claim := claimSentCompactionForRangeTest(
 			t, ctx, fixture, 1, appended[0].Sequence, appended[0].Sequence, now.Add(time.Second),
 		)
-		checkpoint, err := publishCheckpointForRangeTest(t, ctx, fixture, claim, "safe", now.Add(2*time.Second))
+		checkpoint, err := publishCheckpointForRangeTest(
+			t,
+			ctx,
+			fixture,
+			claim,
+			"safe",
+			now.Add(2*time.Second),
+		)
 		if err != nil {
 			t.Fatalf("checkpoint closed tool authority: %v", err)
 		}
 		if checkpoint.SummarizedThroughEventSequence != appended[0].Sequence {
-			t.Fatalf("checkpoint end = %d, want %d", checkpoint.SummarizedThroughEventSequence, appended[0].Sequence)
+			t.Fatalf(
+				"checkpoint end = %d, want %d",
+				checkpoint.SummarizedThroughEventSequence,
+				appended[0].Sequence,
+			)
 		}
 	})
 }

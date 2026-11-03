@@ -17,11 +17,11 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	mlog "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/testutil/mcptest"
+	mlog "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 // silentCtx returns a context bound to a discard slog logger so the

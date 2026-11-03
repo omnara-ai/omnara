@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -937,16 +938,19 @@ func TestPublicAuthenticatedInputFlow(t *testing.T) {
 	if testutil.RequireType[map[string]any](t, replayed["agent_input"])["id"] != firstInputID {
 		t.Fatalf("expected idempotent replay, got %+v", replayed)
 	}
-	requestJSONWithHeaders(
+	retried := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents/"+agentID+"/inputs",
 		`{"content_blocks":[{"type":"text","text":"first"}]}`,
 		"idem-input-first",
-		http.StatusConflict,
+		http.StatusOK,
 		authHeaders(otherPAT.Token),
 	)
+	if !reflect.DeepEqual(replayed["agent_input"], retried["agent_input"]) {
+		t.Fatalf("different actor replay changed input: first=%+v replay=%+v", replayed, retried)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -1972,6 +1976,9 @@ func TestPublicEventStreamDeliversLiveWakeupAndToolCallUpdateViaRedis(t *testing
 		AgentID:    agentID,
 		ToolCallID: toolCallID,
 		State:      string(executionstore.ToolCallStateReady),
+		InteractionUpdate: &notifications.AgentInteractionUpdate{
+			ID: httpTestInteractionID, InteractionKind: "permission", State: "resolved",
+		},
 	}); err != nil {
 		t.Fatalf("publish tool call update: %v", err)
 	}
@@ -1989,14 +1996,24 @@ func TestPublicEventStreamDeliversLiveWakeupAndToolCallUpdateViaRedis(t *testing
 				continue
 			}
 			var update struct {
-				ToolCallID string `json:"tool_call_id"`
-				State      string `json:"state"`
+				ToolCallID        string `json:"tool_call_id"`
+				State             string `json:"state"`
+				InteractionUpdate *struct {
+					ID              string `json:"id"`
+					InteractionKind string `json:"interaction_kind"`
+					State           string `json:"state"`
+				} `json:"interaction_update"`
 			}
 			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &update); err != nil {
 				t.Fatalf("decode tool call update: %v", err)
 			}
 			if update.ToolCallID != publicToolCallID || update.State != string(executionstore.ToolCallStateReady) {
 				t.Fatalf("tool call update = %+v, want id=%s state=ready", update, publicToolCallID)
+			}
+			if interaction := update.InteractionUpdate; interaction == nil ||
+				interaction.ID != testPublicID(t, publicid.KindAgentInteraction, httpTestInteractionID) ||
+				interaction.InteractionKind != "permission" || interaction.State != "resolved" {
+				t.Fatalf("unexpected interaction update: %+v", interaction)
 			}
 			return
 		case <-deadline:

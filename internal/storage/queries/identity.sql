@@ -97,8 +97,8 @@ WHERE secret.org_id = version.org_id
     WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id
   )
   AND NOT EXISTS (
-    SELECT 1 FROM integration_installs install
-    WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id
+    SELECT 1 FROM integrations integration
+    WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id
   );
 
 -- name: ListActiveProjectIDsForOrganization :many
@@ -202,12 +202,6 @@ WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 UPDATE integration_targets SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
--- name: DeleteProjectIntegrationInstalls :exec
--- Clearing the credential releases the secret for the deletion below.
-UPDATE integration_installs
-SET credential_secret_id = NULL, deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
-WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
-
 -- name: DeleteSkillRevisionsForOwner :exec
 -- NULL owner_project_id means every skill in the organization.
 UPDATE skill_revisions revision SET deleted_at = transaction_timestamp()
@@ -274,7 +268,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 
@@ -385,7 +379,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 
@@ -854,7 +848,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 
@@ -1184,12 +1178,15 @@ USING candidates
 WHERE flow.id = candidates.id;
 
 -- name: CreateOrgInvitation :one
-INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_at)
-VALUES (sqlc.arg(org_id), sqlc.arg(email), sqlc.arg(normalized_email), sqlc.arg(org_role), statement_timestamp())
-RETURNING id, org_id, email, normalized_email, org_role, created_at;
+INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_by_membership_id, created_at)
+VALUES (
+  sqlc.arg(org_id), sqlc.arg(email), sqlc.arg(normalized_email), sqlc.arg(org_role),
+  sqlc.arg(created_by_membership_id)::uuid, statement_timestamp()
+)
+RETURNING id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id;
 
 -- name: GetPendingOrgInvitationByEmail :one
-SELECT id, org_id, email, normalized_email, org_role, created_at
+SELECT id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 FROM org_invitations
 WHERE org_id = sqlc.arg(org_id)
   AND normalized_email = sqlc.arg(normalized_email);
@@ -1218,7 +1215,7 @@ ORDER BY invitation.created_at ASC, invitation.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ListOrgInvitations :many
-SELECT id, org_id, email, normalized_email, org_role, created_at
+SELECT id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 FROM org_invitations
 WHERE org_id = sqlc.arg(org_id)
   AND (
@@ -1249,18 +1246,19 @@ JOIN orgs org ON org.id = consumed.org_id AND org.deleted_at IS NULL;
 DELETE FROM org_invitations
 WHERE id = sqlc.arg(id)
   AND org_id = sqlc.arg(org_id)
-RETURNING id, org_id, email, normalized_email, org_role, created_at;
+RETURNING id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id;
+
+-- name: DeleteOwnerOrgInvitationsFromSender :exec
+DELETE FROM org_invitations
+WHERE org_id = sqlc.arg(org_id)
+  AND created_by_membership_id = sqlc.arg(created_by_membership_id)::uuid
+  AND org_role = 'owner';
 
 -- name: LockOrg :one
 SELECT id
 FROM orgs
 WHERE id = $1 AND deleted_at IS NULL
 FOR UPDATE;
-
--- name: CountOrgMemberships :one
-SELECT count(*)::bigint
-FROM org_memberships
-WHERE org_id = $1;
 
 -- name: ListProjectAuthorizationRolesForPrincipal :many
 SELECT role
@@ -1280,6 +1278,16 @@ WHERE org_id = sqlc.arg(org_id)
     (sqlc.narg(user_id)::uuid IS NOT NULL AND user_id = sqlc.narg(user_id)::uuid)
     OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND org_api_key_id = sqlc.narg(org_api_key_id)::uuid)
   );
+
+-- name: LockOrgMembershipForPrincipal :one
+SELECT id, role
+FROM org_memberships
+WHERE org_id = sqlc.arg(org_id)
+  AND (
+    (sqlc.narg(user_id)::uuid IS NOT NULL AND user_id = sqlc.narg(user_id)::uuid)
+    OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND org_api_key_id = sqlc.narg(org_api_key_id)::uuid)
+  )
+FOR KEY SHARE;
 
 -- name: ListAgentInputProducerAuthorizationRoles :many
 SELECT roles.role
@@ -1329,7 +1337,7 @@ WHERE (sqlc.narg(user_id)::uuid IS NOT NULL AND roles.user_id = sqlc.narg(user_i
    OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND roles.org_api_key_id = sqlc.narg(org_api_key_id)::uuid);
 
 -- name: CreateOAuthAuthorizationCode :one
-INSERT INTO oauth_authorization_codes(code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, resource, created_at, expires_at)
+INSERT INTO oauth_authorization_codes(code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, resource, scope, nonce, created_at, expires_at)
 VALUES (
   sqlc.arg(code_hash),
   sqlc.arg(user_id),
@@ -1338,6 +1346,8 @@ VALUES (
   sqlc.arg(redirect_uri),
   sqlc.arg(code_challenge),
   sqlc.arg(resource),
+  sqlc.arg(scope),
+  sqlc.arg(nonce),
   transaction_timestamp(),
   transaction_timestamp() + (sqlc.arg(ttl_seconds)::bigint * interval '1 second')
 )
@@ -1356,7 +1366,7 @@ SET consumed_at = transaction_timestamp()
 WHERE code_hash = sqlc.arg(code_hash)
   AND consumed_at IS NULL
   AND expires_at > transaction_timestamp()
-RETURNING id, user_id, client_id, client_name, redirect_uri, code_challenge, resource;
+RETURNING id, user_id, client_id, client_name, redirect_uri, code_challenge, resource, scope, nonce;
 
 -- name: ConsumeOAuthAuthorizationCodesForUser :exec
 UPDATE oauth_authorization_codes
@@ -1377,12 +1387,14 @@ USING candidates
 WHERE oauth_authorization_codes.id = candidates.id;
 
 -- name: CreateOAuthAccessToken :one
-INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
+INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, granted_scope, scope, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
 VALUES (
   sqlc.arg(user_id),
   sqlc.arg(client_id),
   sqlc.arg(client_name),
   sqlc.arg(resource),
+  sqlc.arg(scope),
+  sqlc.arg(scope),
   sqlc.arg(token_hash),
   sqlc.arg(refresh_token_hash),
   transaction_timestamp(),
@@ -1391,8 +1403,8 @@ VALUES (
 )
 RETURNING id;
 
--- name: GetOAuthAccessTokenUserByRefreshToken :one
-SELECT token.user_id
+-- name: GetOAuthAccessTokenGrantByRefreshToken :one
+SELECT token.user_id, token.granted_scope
 FROM oauth_access_tokens token
 LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
 WHERE token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
@@ -1424,13 +1436,14 @@ WITH presented AS (
     )
 ), rotated AS (
   UPDATE oauth_access_tokens token
-  SET token_hash = sqlc.arg(token_hash),
+  SET scope = CASE WHEN sqlc.arg(scope)::text = '' THEN token.granted_scope ELSE sqlc.arg(scope)::text END,
+      token_hash = sqlc.arg(token_hash),
       refresh_token_hash = sqlc.arg(refresh_token_hash),
       expires_at = transaction_timestamp() + (sqlc.arg(access_ttl_seconds)::bigint * interval '1 second'),
       refresh_expires_at = transaction_timestamp() + (sqlc.arg(refresh_ttl_seconds)::bigint * interval '1 second')
   FROM presented
   WHERE token.id = presented.id
-  RETURNING token.id, token.user_id, token.resource
+  RETURNING token.id, token.user_id, token.resource, token.scope
 ), retired AS (
   INSERT INTO oauth_retired_refresh_tokens(refresh_token_hash, oauth_access_token_id, retired_at)
   SELECT old.refresh_token_hash, rotated.id, transaction_timestamp()
@@ -1438,7 +1451,7 @@ WITH presented AS (
   JOIN oauth_access_tokens old ON old.id = rotated.id
   ON CONFLICT (refresh_token_hash) DO NOTHING
 )
-SELECT id, user_id, resource
+SELECT id, user_id, resource, scope
 FROM rotated;
 
 -- name: RevokeOAuthAccessTokenForRefreshTokenReuse :execrows
@@ -1451,7 +1464,7 @@ WHERE retired.oauth_access_token_id = token.id
 
 -- name: AuthenticateOAuthAccessToken :one
 WITH authenticated AS MATERIALIZED (
-  SELECT t.user_id, t.id AS oauth_access_token_id, t.resource
+  SELECT t.user_id, t.id AS oauth_access_token_id, t.resource, t.scope
   FROM oauth_access_tokens t
   WHERE t.token_hash = sqlc.arg(token_hash)
     AND t.revoked_at IS NULL
@@ -1468,7 +1481,7 @@ WITH authenticated AS MATERIALIZED (
     )
   RETURNING token.id
 )
-SELECT user_id, oauth_access_token_id, resource
+SELECT user_id, oauth_access_token_id, resource, scope
 FROM authenticated;
 
 -- name: RevokeOAuthAccessTokensForUser :exec
@@ -1489,3 +1502,16 @@ WITH candidates AS (
 DELETE FROM oauth_access_tokens
 USING candidates
 WHERE oauth_access_tokens.id = candidates.id;
+
+-- name: GetOIDCSigningKey :one
+SELECT encrypted_private_key FROM oidc_signing_keys WHERE id = 'default';
+
+-- name: CreateOIDCSigningKey :exec
+INSERT INTO oidc_signing_keys(id, encrypted_private_key)
+VALUES ('default', sqlc.arg(encrypted_private_key))
+ON CONFLICT (id) DO NOTHING;
+
+-- name: CountOrgMemberships :one
+SELECT count(*)::bigint
+FROM org_memberships
+WHERE org_id = sqlc.arg(org_id);

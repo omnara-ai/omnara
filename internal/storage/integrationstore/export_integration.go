@@ -6,15 +6,19 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 )
 
-func (s *Store) IntegrationSetTargetRefGenerator(generator func(string) (string, error)) {
-	s.targetRefGenerator = generator
-}
-
-func (s *Store) DeleteIntegrationInstallOnceForIntegration(
+func (s *Store) DeleteIntegrationOnceForIntegration(
 	ctx context.Context,
-	projectID, installID uuid.UUID,
+	projectID, integrationID uuid.UUID,
 ) error {
-	return s.deleteIntegrationInstallOnce(ctx, projectID, installID)
+	integration, err := s.GetIntegration(ctx, projectID, integrationID)
+	if err != nil {
+		return err
+	}
+	_, err = agentexecution.ReplanTest(ctx, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, s.deleteIntegrationOnce(ctx, integration.OrgID, projectID, integrationID)
+	})
+	return err
 }

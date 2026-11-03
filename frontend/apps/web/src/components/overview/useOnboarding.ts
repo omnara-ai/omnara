@@ -1,7 +1,7 @@
 import { useOrgOverview, usePersonalAccessTokens } from '@omnara/react'
 import {
   type Agent,
-  type AgentProfile,
+  type AgentProfileSummary,
   isCliLoginToken,
   type OrgOverviewResponse,
   type PersonalAccessToken,
@@ -17,18 +17,15 @@ const tokenPageSize = 50
 export interface OnboardingProgress {
   ready: boolean
   cliToken?: PersonalAccessToken
-  agentProfile?: AgentProfile
+  agentProfile?: AgentProfileSummary
   agent?: Agent
-  live: { agentProfile?: AgentProfile; agent?: Agent }
-  steps: {
-    cli: { login: StepStatus; createProfile: StepStatus; chat: StepStatus }
-    browser: { createProfile: StepStatus; chat: StepStatus }
-  }
+  live: { agentProfile?: AgentProfileSummary; agent?: Agent }
+  steps: { login: StepStatus; createProfile: StepStatus; chat: StepStatus }
 }
 
-function statusAt(index: number, completed: boolean[]): StepStatus {
-  if (completed[index]) return 'done'
-  return completed.indexOf(false) === index ? 'active' : 'upcoming'
+function stepStatus(completed: boolean, open: boolean): StepStatus {
+  if (completed) return 'done'
+  return open ? 'active' : 'upcoming'
 }
 
 function projectProgress(overview: OrgOverviewResponse | undefined, projectId: string) {
@@ -41,10 +38,19 @@ function projectProgress(overview: OrgOverviewResponse | undefined, projectId: s
   return { agentProfile, agent }
 }
 
+/** Polls the overview until an agent shows up in the project, and returns it. */
+export function useProjectAgent(input: { orgId: string; projectId: string }) {
+  const overviewQuery = useOrgOverview(input.orgId, {
+    refetchInterval: (overview) =>
+      projectProgress(overview, input.projectId).agent == null ? pollIntervalMs : false,
+  })
+  return projectProgress(overviewQuery.data, input.projectId).agent
+}
+
 export function useOnboarding(input: { orgId: string; projectId: string }): OnboardingProgress {
   const overviewQuery = useOrgOverview(input.orgId, {
-    refetchInterval: (query) =>
-      projectProgress(query.state.data, input.projectId).agent == null ? pollIntervalMs : false,
+    refetchInterval: (overview) =>
+      projectProgress(overview, input.projectId).agent == null ? pollIntervalMs : false,
   })
   const live = projectProgress(overviewQuery.data, input.projectId)
   const tokensQuery = usePersonalAccessTokens(tokenPageSize, {
@@ -56,12 +62,7 @@ export function useOnboarding(input: { orgId: string; projectId: string }): Onbo
   const cliToken = useInfiniteQueryItems({ data: shownTokens }).find(isCliLoginToken)
 
   const { agentProfile, agent } = projectProgress(shownOverview, input.projectId)
-  const cliCompleted = [
-    cliToken != null || agentProfile != null,
-    agentProfile != null,
-    agent != null,
-  ]
-  const browserCompleted = [agentProfile != null, agent != null]
+  const hasProfile = agentProfile != null
 
   return {
     ready: !tokensQuery.isPending,
@@ -70,15 +71,11 @@ export function useOnboarding(input: { orgId: string; projectId: string }): Onbo
     agent,
     live,
     steps: {
-      cli: {
-        login: statusAt(0, cliCompleted),
-        createProfile: statusAt(1, cliCompleted),
-        chat: statusAt(2, cliCompleted),
-      },
-      browser: {
-        createProfile: statusAt(0, browserCompleted),
-        chat: statusAt(1, browserCompleted),
-      },
+      login: stepStatus(cliToken != null || hasProfile, true),
+      // Open alongside login: only the CLI command needs it, and Run creates the
+      // profile with the browser session.
+      createProfile: stepStatus(hasProfile, true),
+      chat: stepStatus(agent != null, hasProfile),
     },
   }
 }

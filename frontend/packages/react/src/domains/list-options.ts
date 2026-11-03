@@ -9,6 +9,10 @@ export const RESOURCE_LIST_SORTS: readonly ResourceListSort[] = zResourceListSor
 export const CREATED_RESOURCE_LIST_SORTS: readonly CreatedResourceListSort[] =
   zCreatedResourceListSort.unwrap().options
 
+export function exactNameGlob(value: string) {
+  return value.replace(/[\\*?]/g, (wildcard) => `\\${wildcard}`)
+}
+
 export type ListQuery<TData extends { query?: unknown }> = NonNullable<TData['query']>
 
 /** Endpoint-specific filters, derived directly from the generated API query type. */

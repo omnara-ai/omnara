@@ -74,6 +74,7 @@ func (subprocessRunnerLauncher) Prepare(
 	if err != nil {
 		return nil, err
 	}
+	c.prepareGitCredentials(&assignment, supervisorToken)
 	stateStore, err := c.stateStore(ctx)
 	if err != nil {
 		return nil, err

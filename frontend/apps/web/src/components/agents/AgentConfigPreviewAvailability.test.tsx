@@ -13,6 +13,7 @@ import { act, type ReactNode, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
+import { z } from 'zod'
 
 import {
   createBasicConfigSession,
@@ -193,14 +194,24 @@ function SubagentPreviewHarness({ source }: { source: string }) {
               ...row,
               instructionAppend: `${row.instructionAppend} More detail.`,
               description: 'Updated description',
-              modelOverride: { name: 'another-model' },
+              modelOverride: { provider_config: 'anthropic', name: 'another-model' },
             })),
           )
         }}
       >
         Edit subagent details
       </button>
-      <output data-pending={form.toolsPending}>{form.yaml}</output>
+      <button
+        type="button"
+        onClick={() => {
+          form.setSubagents([])
+        }}
+      >
+        Remove subagents
+      </button>
+      <output data-pending={form.toolsPending} data-blocked={form.blocked}>
+        {form.yaml}
+      </output>
     </>
   )
 }
@@ -226,7 +237,7 @@ it('does not refetch tool previews for subagent instruction, description, or mod
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
   const request = schemas.zResolveAgentConfigToolsRequest.parse(requests[0])
-  expect(JSON.parse(request.source)).toHaveProperty('subagents.worker', {
+  expect(request.source).toHaveProperty('subagents.worker', {
     type: 'profile',
     profile: 'helper',
   })
@@ -239,10 +250,32 @@ it('does not refetch tool previews for subagent instruction, description, or mod
   )
 })
 
+it.each([
+  ['2', true],
+  ['9', false],
+])('keeps max_depth %s only if valid when the last subagent is removed', async (maxDepth, kept) => {
+  Providers = testProviders([
+    {
+      method: 'POST',
+      path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
+      respond: () => jsonResponse({ tools: [] }),
+    },
+  ])
+  await renderAndFlush(
+    <SubagentPreviewHarness
+      source={`${includedSource}subagents: {worker: {type: self}}\nmax_depth: ${maxDepth}\n`}
+    />,
+  )
+  clickLabel('Remove subagents')
+  const yaml = container.querySelector('output')?.textContent ?? ''
+  expect(yaml.includes(`max_depth: ${maxDepth}`)).toBe(kept)
+  expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('false')
+})
+
 function ToolPreviewHarness({ source }: { source: string }) {
   const query = useAgentConfigTools('org-test', 'project-test', {
-    source_format: 'yaml',
     source,
+    source_format: 'yaml',
   })
   return (
     <output data-status={query.status} data-fetching={query.isFetching}>
@@ -300,10 +333,10 @@ it('replaces obsolete fallback entries while retaining fetched previews and the 
       method: 'POST',
       path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
       respond: ({ body }) => {
-        const { source } = schemas.zResolveAgentConfigToolsRequest.parse(body)
+        const source = z.string().parse(schemas.zResolveAgentConfigToolsRequest.parse(body).source)
         requests.push(source)
-        if (source === original) return previewResponse(['read_file'])
-        if (source === updated) return previewResponse(['read_file', 'run_command'])
+        if (source === original) return previewResponse(['storage_read'])
+        if (source === updated) return previewResponse(['storage_read', 'run_command'])
         if (source === failed && fail) {
           return jsonResponse({ code: 'internal_error', message: 'Unavailable' }, 500)
         }
@@ -313,27 +346,27 @@ it('replaces obsolete fallback entries while retaining fetched previews and the 
   ])
   await renderAndFlush(<ToolPreviewHarness source={original} />)
   await vi.waitFor(() => {
-    expect(container.textContent).toBe('read_file')
+    expect(container.textContent).toBe('storage_read')
   })
   await renderAndFlush(<ToolPreviewHarness source={failed} />)
   await vi.waitFor(() => {
     expect(container.querySelector('output')?.getAttribute('data-status')).toBe('error')
   })
-  expect(container.textContent).toBe('read_file')
+  expect(container.textContent).toBe('storage_read')
   await renderAndFlush(<ToolPreviewHarness source={updated} />)
   await vi.waitFor(() => {
-    expect(container.textContent).toBe('read_file,run_command')
+    expect(container.textContent).toBe('storage_read,run_command')
   })
   fail = false
   await renderAndFlush(<ToolPreviewHarness source={failed} />)
   expect(container.querySelector('output')?.getAttribute('data-fetching')).toBe('true')
-  expect(container.textContent).toBe('read_file,run_command')
+  expect(container.textContent).toBe('storage_read,run_command')
   await renderAndFlush(<ToolPreviewHarness source={original} />)
-  expect(container.textContent).toBe('read_file')
+  expect(container.textContent).toBe('storage_read')
   expect(requests.filter((source) => source === original)).toHaveLength(1)
   await renderAndFlush(<ToolPreviewHarness source={next} />)
   expect(container.querySelector('output')?.getAttribute('data-fetching')).toBe('true')
-  expect(container.textContent).toBe('read_file')
+  expect(container.textContent).toBe('storage_read')
   await act(async () => {
     release(previewResponse([]))
     await pending

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -10,6 +11,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
+
+func TestSubagentStorageFailurePreservesInfrastructureError(t *testing.T) {
+	cause := errors.New("database unavailable")
+	result, err := failSubagentTransactionForStorageError("spawn_agent_failed", cause)
+	if result != nil || !errors.Is(err, cause) {
+		t.Fatalf("result = %v, error = %v, want unchanged infrastructure error", result, err)
+	}
+}
 
 func TestSubagentToolInputValidation(t *testing.T) {
 	for _, test := range []struct {

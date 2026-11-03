@@ -82,4 +82,11 @@ func TestRenameAgentProfileRoute(t *testing.T) {
 	if fetched["name"] != "Renamed  研究 🚀" {
 		t.Fatalf("fetched profile name = %v, want exact renamed value", fetched["name"])
 	}
+	for _, response := range []map[string]any{profile, renamed, fetched} {
+		currentConfig := testutil.RequireType[map[string]any](t, response["current_config"])
+		compiled := testutil.RequireType[map[string]any](t, currentConfig["compiled_definition"])
+		if compiled["instruction"] != "Help out." {
+			t.Fatalf("profile detail/mutation lost compiled instruction: %+v", compiled)
+		}
+	}
 }

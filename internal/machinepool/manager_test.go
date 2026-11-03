@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,7 +15,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestManagerValidatesDefaultMachinePool(t *testing.T) {
@@ -122,7 +127,7 @@ func TestDeleteBackoff(t *testing.T) {
 func TestRunBoundedReconcileContinuesAfterError(t *testing.T) {
 	expectedErr := errors.New("boom")
 	var ran atomic.Int32
-	count, err := runBoundedReconcile(context.Background(), 5, 2, func(_ context.Context, i int) error {
+	count, _, err := runBoundedReconcile(context.Background(), 5, 2, func(_ context.Context, i int) error {
 		ran.Add(1)
 		if i == 2 {
 			return expectedErr
@@ -142,7 +147,7 @@ func TestRunBoundedReconcileContinuesAfterError(t *testing.T) {
 
 func TestRunBoundedReconcileRetainsConcurrentFailures(t *testing.T) {
 	failures := []error{errors.New("provider failed"), errors.New("storage failed")}
-	count, err := runBoundedReconcile(context.Background(), len(failures), len(failures), func(
+	count, _, err := runBoundedReconcile(context.Background(), len(failures), len(failures), func(
 		_ context.Context,
 		i int,
 	) error {
@@ -169,7 +174,7 @@ func TestRunBoundedReconcileRetainsFailureDuringCancellation(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		count, err := runBoundedReconcile(ctx, 2, 2, func(ctx context.Context, i int) error {
+		count, _, err := runBoundedReconcile(ctx, 2, 2, func(ctx context.Context, i int) error {
 			started <- struct{}{}
 			if i == 0 {
 				<-ctx.Done()
@@ -205,7 +210,7 @@ func TestRunBoundedReconcileReturnsCancellationWithoutFailures(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		count, err := runBoundedReconcile(ctx, 2, 2, func(ctx context.Context, _ int) error {
+		count, _, err := runBoundedReconcile(ctx, 2, 2, func(ctx context.Context, _ int) error {
 			started <- struct{}{}
 			<-ctx.Done()
 			return ctx.Err()
@@ -230,7 +235,7 @@ func TestRunBoundedReconcileRetainsMixedCancellationError(t *testing.T) {
 	failure := errors.New("storage failed")
 	done := make(chan error, 1)
 	go func() {
-		_, err := runBoundedReconcile(ctx, 1, 1, func(ctx context.Context, _ int) error {
+		_, _, err := runBoundedReconcile(ctx, 1, 1, func(ctx context.Context, _ int) error {
 			close(started)
 			<-ctx.Done()
 			return errors.Join(ctx.Err(), failure)
@@ -250,7 +255,7 @@ func TestRunBoundedReconcileRetainsPanicDuringCancellation(t *testing.T) {
 	started := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		_, err := runBoundedReconcile(ctx, 1, 1, func(ctx context.Context, _ int) error {
+		_, _, err := runBoundedReconcile(ctx, 1, 1, func(ctx context.Context, _ int) error {
 			close(started)
 			<-ctx.Done()
 			panic("provider failure")
@@ -273,12 +278,15 @@ func TestRunBoundedReconcileBoundsReportedFailures(t *testing.T) {
 	for i := range failures {
 		failures[i] = fmt.Errorf("failure %d", i)
 	}
-	_, err := runBoundedReconcile(context.Background(), len(failures), 1, func(
+	_, failed, err := runBoundedReconcile(context.Background(), len(failures), 1, func(
 		_ context.Context,
 		i int,
 	) error {
 		return failures[i]
 	})
+	if failed != len(failures) {
+		t.Fatalf("failed = %d, want omitted failures counted in %d", failed, len(failures))
+	}
 	for _, failure := range failures[:maximumReportedReconcileErrors] {
 		if !errors.Is(err, failure) {
 			t.Fatalf("err = %v, want retained failure %v", err, failure)
@@ -293,17 +301,21 @@ func TestRunBoundedReconcileBoundsReportedFailures(t *testing.T) {
 }
 
 func TestRunBoundedReconcileReturnsTaskPanic(t *testing.T) {
-	count, err := runBoundedReconcile(context.Background(), 3, 2, func(_ context.Context, i int) error {
-		if i == 1 {
+	failure := errors.New("provider failed")
+	count, failed, err := runBoundedReconcile(context.Background(), 3, 2, func(_ context.Context, i int) error {
+		switch i {
+		case 0:
+			return failure
+		case 1:
 			panic("provider failure")
 		}
 		return nil
 	})
-	if count != 3 {
-		t.Fatalf("count = %d, want 3", count)
+	if count != 3 || failed != 2 {
+		t.Fatalf("count = %d, failed = %d, want 3 and 2", count, failed)
 	}
-	if err == nil || !strings.Contains(err.Error(), "machine reconciliation 1 panicked: provider failure") {
-		t.Fatalf("err = %v, want contained provider panic", err)
+	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "machine reconciliation 1 panicked: provider failure") {
+		t.Fatalf("err = %v, want the returned failure and the contained provider panic", err)
 	}
 }
 
@@ -318,7 +330,7 @@ func TestRunBoundedReconcileLimitsConcurrency(t *testing.T) {
 	}
 	results := make(chan result, 1)
 	go func() {
-		count, err := runBoundedReconcile(context.Background(), 20, 3, func(_ context.Context, _ int) error {
+		count, _, err := runBoundedReconcile(context.Background(), 20, 3, func(_ context.Context, _ int) error {
 			inFlight := current.Add(1)
 			for {
 				observedMax := maxSeen.Load()
@@ -367,6 +379,7 @@ func (p provisionRetryProvider) ProvisionMachine(
 	executionstore.MachineProvisioningConfig,
 	string,
 	map[string]string,
+	bool,
 ) (providers.ProvisionMachineResult, error) {
 	return p.provision()
 }
@@ -382,6 +395,10 @@ func (provisionRetryProvider) PrepareProvisioning(
 	return executionstore.MachineResourceFacts{}, errors.New("not implemented")
 }
 
+func (provisionRetryProvider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
+}
+
 func (provisionRetryProvider) InspectMachine(
 	context.Context,
 	uuid.UUID,
@@ -390,6 +407,10 @@ func (provisionRetryProvider) InspectMachine(
 	string,
 ) (string, bool, error) {
 	return "", false, errors.New("not implemented")
+}
+
+func (provisionRetryProvider) CheckConnection(context.Context, executionstore.MachineProvisioningConfig) error {
+	return nil
 }
 
 func (provisionRetryProvider) DeleteMachine(
@@ -414,6 +435,7 @@ func provisionWithRetryForTest(
 		executionstore.MachineProvisioningConfig{},
 		"",
 		nil,
+		true,
 	)
 }
 
@@ -505,9 +527,12 @@ func TestProvisionMachineWithRetryPreservesProviderErrorWhenWaitExpires(t *testi
 }
 
 func TestProviderProvisionRetryDelayHonorsRetryAfter(t *testing.T) {
-	providerErr := providers.WithRetryAfter(
+	providerErr := providers.WithResponse(
 		errors.New("rate limited"),
-		http.Header{"Retry-After": []string{"12"}},
+		providers.HTTPResponse{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Retry-After": []string{"12"}},
+		},
 	)
 	if delay := providerProvisionRetryDelay(0, providerErr); delay != 12*time.Second {
 		t.Fatalf("retry delay = %s, want 12s", delay)
@@ -546,6 +571,28 @@ func TestProvisionMachineWithRetryDiscardsReplacedResource(t *testing.T) {
 	}
 }
 
+func TestProvisionMachineWithRetryStopsOnPermanentError(t *testing.T) {
+	stubProvisionRetryDelays(t)
+	calls := 0
+	result, err := provisionWithRetryForTest(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"},
+				fmt.Errorf("snapshot too large: %w", providers.ErrPermanent)
+		},
+	)
+	if !errors.Is(err, providers.ErrPermanent) {
+		t.Fatalf("provision error = %v, want permanent error", err)
+	}
+	if calls != 1 {
+		t.Fatalf("provision calls = %d, want 1", calls)
+	}
+	if result.ProviderResourceID != "resource-1" {
+		t.Fatalf("provision result = %+v, want observed resource", result)
+	}
+}
+
 func TestProvisionMachineWithRetryRejectsConflictingResources(t *testing.T) {
 	stubProvisionRetryDelays(t)
 	calls := 0
@@ -564,5 +611,83 @@ func TestProvisionMachineWithRetryRejectsConflictingResources(t *testing.T) {
 	}
 	if result.ProviderResourceID != "resource-1" {
 		t.Fatalf("provision result = %+v, want first observed resource", result)
+	}
+}
+
+func TestConnectionCheckFailure(t *testing.T) {
+	const (
+		rejected    = "The provider rejected this API key."
+		forbidden   = "This API key doesn't have access to the configured workspace or resources."
+		notFound    = "The provider couldn't find the configured workspace, environment, or API."
+		rateLimited = "The provider is rate limiting requests. Try again in a minute."
+		unreachable = "Couldn't reach the provider. Try again in a moment."
+	)
+	httpStatus := func(code int) error {
+		return fmt.Errorf("check: %w", providers.WithResponse(
+			fmt.Errorf("provider API returned HTTP %d", code),
+			providers.HTTPResponse{StatusCode: code},
+		))
+	}
+	request := func(err error) error {
+		return fmt.Errorf(
+			"provider request failed: %w",
+			&url.Error{Op: "Get", URL: "https://api.example", Err: err},
+		)
+	}
+	for _, test := range []struct {
+		name         string
+		err          error
+		want         string
+		wantUpstream bool
+	}{
+		{"http 401", httpStatus(401), rejected, false},
+		{"http 403", httpStatus(403), forbidden, false},
+		{"http 404", httpStatus(404), notFound, false},
+		{"http 429", httpStatus(429), rateLimited, true},
+		{"http 502", httpStatus(502), unreachable, true},
+		{"http 418", httpStatus(418), "The provider returned an unexpected error (HTTP 418).", false},
+		{
+			"grpc unauthenticated",
+			fmt.Errorf("failed to get auth token: %w", status.Error(codes.Unauthenticated, "Token not found")),
+			rejected,
+			false,
+		},
+		{"grpc permission denied", status.Error(codes.PermissionDenied, "denied"), forbidden, false},
+		{"grpc not found", status.Error(codes.NotFound, "No such environment 'staging'"), notFound, false},
+		{"grpc resource exhausted", status.Error(codes.ResourceExhausted, "slow down"), rateLimited, true},
+		{"grpc unavailable", status.Error(codes.Unavailable, "down"), unreachable, true},
+		{
+			"blocked address",
+			request(fmt.Errorf("dial: %w", ssrf.ErrBlockedAddress)),
+			"This API address isn't allowed.",
+			false,
+		},
+		{
+			"unknown host",
+			request(&net.DNSError{Err: "no such host", Name: "api.example", IsNotFound: true}),
+			"Couldn't find the provider's API. Check the region or API URL.",
+			false,
+		},
+		{
+			"dns timeout",
+			request(&net.DNSError{Err: "i/o timeout", Name: "api.example", IsTimeout: true}),
+			unreachable,
+			true,
+		},
+		{"timeout", fmt.Errorf("wait: %w", context.DeadlineExceeded), unreachable, true},
+		{"connection refused", request(errors.New("connection refused")), unreachable, true},
+		{
+			"unknown",
+			errors.New("decode provider response: unexpected end of JSON input"),
+			"The provider returned an unexpected error.",
+			true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			message, upstream := connectionCheckFailure(test.err)
+			if message != test.want || upstream != test.wantUpstream {
+				t.Fatalf("failure = (%q, %t), want (%q, %t)", message, upstream, test.want, test.wantUpstream)
+			}
+		})
 	}
 }

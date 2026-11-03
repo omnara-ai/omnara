@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -44,10 +45,7 @@ type modelStep struct {
 }
 
 func (e AgentExecutor) executeModelStep(
-	ctx context.Context,
-	input ModelWorkExecution,
-	builder modelcontext.Builder,
-	resolver model.Resolver,
+	ctx context.Context, input ModelWorkExecution, builder modelcontext.Builder, resolver model.Resolver,
 ) (modelStep, error) {
 	var snapshot executionstore.AgentConfigSnapshotRecord
 	var claim executionstore.ModelCallClaim
@@ -80,28 +78,24 @@ func (e AgentExecutor) executeModelStep(
 			}
 		}
 	} else {
-		snapshot, err = e.Store.Execution().CaptureAgentConfigForModelContext(ctx, input.ProjectID, input.AgentID)
-		if err == nil {
-			claim, err = e.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-				ProjectID:                input.ProjectID,
-				AgentID:                  input.AgentID,
-				RuntimeLockID:            input.RuntimeLockID,
-				OpeningInputIDs:          input.InputIDs,
-				AgentConfigID:            snapshot.AgentConfig.ID,
-				InputEventSequence:       snapshot.InputEventSequence,
-				SourceModelCallContextID: input.SourceModelCallContextID,
-				SourceModelOutputID:      input.SourceModelOutputID,
-			})
-		}
+		prepared, prepareErr := e.Store.Execution().PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:                input.ProjectID,
+			AgentID:                  input.AgentID,
+			RuntimeLockID:            input.RuntimeLockID,
+			OpeningInputIDs:          input.InputIDs,
+			SourceModelCallContextID: input.SourceModelCallContextID,
+			SourceModelOutputID:      input.SourceModelOutputID,
+		})
+		err = prepareErr
+		claim, snapshot = prepared.Claim, prepared.Snapshot
 	}
 	if err != nil {
 		return modelStep{}, err
 	}
 	if !claim.Claimed {
 		if claim.Created &&
-			claim.Context.ErrorCode == storeerr.ManagedWorkAdmissionDeniedCode &&
-			shouldPostIntegrationRuntimeError(ctx, storeerr.ErrManagedWorkAdmissionDenied) {
-			e.postIntegrationRuntimeError(ctx, input)
+			claim.Context.ErrorCode == storeerr.ManagedWorkAdmissionDeniedCode {
+			e.notifyModelFailure(ctx, input)
 		}
 		state := modelStepWaiting
 		if claim.Context.State != executionstore.ModelCallContextStarted &&
@@ -112,7 +106,6 @@ func (e AgentExecutor) executeModelStep(
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		snapshot.AgentConfig.CompiledDefinition,
-		snapshot.AgentConfig.CompilerVersion,
 		snapshot.AgentConfig.EffectiveDefinitionHash,
 	)
 	if err != nil {
@@ -181,13 +174,14 @@ func (e AgentExecutor) executeModelStep(
 	}
 	capabilities := model.CapabilitiesForClient(client)
 	bundle, err := builder.Build(ctx, modelcontext.BuildInput{
-		ProjectID:           input.ProjectID,
-		AgentID:             input.AgentID,
-		TurnID:              input.TurnID,
-		OpeningInputIDs:     input.InputIDs,
-		Now:                 input.Now,
-		AgentConfigSnapshot: &snapshot,
-		MediaProjector:      model.MediaProjectorForClient(client),
+		ProjectID:                  input.ProjectID,
+		AgentID:                    input.AgentID,
+		TurnID:                     input.TurnID,
+		OpeningInputIDs:            input.InputIDs,
+		Now:                        input.Now,
+		AgentConfigSnapshot:        &snapshot,
+		MediaProjector:             model.MediaProjectorForClient(client),
+		TextAttachmentBudgetTokens: model.TextAttachmentBudgetTokens(client),
 	})
 	if errors.Is(err, modelcontext.ErrOpeningMediaBudgetExceeded) {
 		cause := model.ProviderError{
@@ -240,6 +234,8 @@ func (e AgentExecutor) executeModelStep(
 			},
 		)
 	}
+	bundle.ConfiguredModelRevisionID = claim.Context.ConfiguredModelRevisionID
+	bundle.SafetyIdentifier = e.safetyIdentifier(input.OrgID)
 	prepared, err := model.PrepareForSend(
 		ctx,
 		client,
@@ -266,15 +262,7 @@ func (e AgentExecutor) executeModelStep(
 		if triggerErr != nil {
 			return modelStep{}, triggerErr
 		}
-		return e.enterContextMaintenance(
-			ctx,
-			input,
-			claim,
-			resolved,
-			trigger,
-			false,
-			model.Response{},
-		)
+		return e.enterContextMaintenance(ctx, input, claim, resolved, trigger, false, model.Response{})
 	}
 	request := model.Request{
 		ProviderRequest: prepared.Body,
@@ -326,6 +314,7 @@ func (e AgentExecutor) executeModelStep(
 			response,
 		)
 	}
+	envelope.InputFingerprint = prepared.InputFingerprint
 	step := modelStep{
 		Context:             claim.Context,
 		Bundle:              bundle,
@@ -346,8 +335,16 @@ func (e AgentExecutor) finishModelResponse(
 	errorSource := modelErrorSourceForClient(client)
 	calls := model.ToolCallsFromEnvelope(step.Envelope)
 	reason := step.Envelope.Normalized.StopReason
-	if cause := invalidModelResponse(errorSource, reason, calls); cause != nil {
-		return e.recordNormalFailure(
+	cause := invalidModelResponse(errorSource, reason, calls)
+	if cause == nil && reason == model.StopReasonMaxTokens && len(calls) == 0 &&
+		strings.TrimSpace(step.Envelope.Text()) == "" {
+		cause = model.ProviderError{
+			Kind: model.ErrorKindTransient, Source: errorSource, Code: "model_output_no_progress",
+			Message: "The model exhausted its output allowance without producing text or a tool call.",
+		}
+	}
+	if cause != nil {
+		return e.recordNormalFailureForAttempt(
 			ctx,
 			input,
 			executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
@@ -355,6 +352,7 @@ func (e AgentExecutor) finishModelResponse(
 			cause,
 			true,
 			step.Response,
+			modelretry.Attempt{Number: step.Context.AttemptNumber},
 		)
 	}
 	if len(calls) > 0 {
@@ -521,9 +519,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 	if err != nil {
 		return modelStep{}, errors.Join(cause, err)
 	}
-	if ctx.Err() == nil {
-		e.postIntegrationRuntimeError(ctx, input)
-	}
+	e.notifyModelFailure(ctx, input)
 	return modelStep{State: modelStepDone, Context: claim.Context, Resolved: resolved}, nil
 }
 

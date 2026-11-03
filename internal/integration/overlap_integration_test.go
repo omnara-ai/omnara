@@ -1,0 +1,271 @@
+//go:build integration
+
+package integration
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
+
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
+	"github.com/stretchr/testify/require"
+)
+
+func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t *testing.T) {
+	t.Parallel()
+	pool, store, ids, integrationID := integrationWorkerFixture(t)
+	ctx := t.Context()
+	inbox := store.Integrations()
+	router := NewIntegrationRouter(store.Execution(), inbox)
+	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
+		"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
+	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
+		ProjectID: ids.ProjectID, Name: "reviewer", CurrentConfigID: base.ID,
+	})
+	require.NoError(t, err)
+	integration, err := inbox.UpdateIntegration(ctx, integrationID, integrationstore.SaveIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationKind: integrationdefinition.SlackThread,
+		Settings: integrationtest.ChatSettings(profile.ID),
+	})
+	require.NoError(t, err)
+	integrations := []integrationstore.IntegrationRecord{
+		integration,
+		seedIndependentIntegration(t, pool, integration, "other-chat"),
+	}
+	capture := func(
+		integration integrationstore.IntegrationRecord,
+		key string,
+	) integrationstore.IntegrationInboxRecord {
+		t.Helper()
+		_, created, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+			ProjectID: ids.ProjectID, IntegrationID: integration.ID, ReceiptKey: key, Payload: []byte(`{}`),
+		})
+		require.NoError(t, err)
+		require.True(t, created)
+		receipt, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+			ProjectID: ids.ProjectID, IntegrationID: integration.ID, LeaseDuration: time.Minute,
+		})
+		require.NoError(t, err)
+		require.True(t, found)
+		return receipt
+	}
+	event := IntegrationEvent{
+		Event: integrationdefinition.Event{Kind: integrationdefinition.EventMessage, Mentioned: true,
+			Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}},
+		SemanticKey: "slack:message:T123:C123:1.2", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
+		Actor: integrationTestActor(t, integrations[0], "U123"),
+	}
+	agents := map[uuid.UUID]uuid.UUID{}
+	for _, integration := range integrations {
+		event.Actor = integrationTestActor(t, integration, "U123")
+		receipt := capture(integration, "same-physical-delivery")
+		plan, err := freezeTestIntegrationEvent(ctx, router, receipt.Lease(), &event)
+		require.NoError(t, err)
+		require.Len(t, plan.Recipients, 1, "each receipt belongs only to its saved integration")
+		for _, recipient := range plan.Recipients {
+			require.Equal(t, integration.ID, recipient.LaunchClaim.IntegrationID)
+			require.Len(t, recipient.Launch.Subscriptions, 1)
+			require.Equal(t, integration.ID, recipient.Launch.Subscriptions[0].IntegrationID)
+		}
+		results, err := router.Admit(ctx, receipt.Lease(), nil)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		require.True(t, results[0].Launch.Created)
+		agents[integration.ID] = results[0].Launch.Agent.ID
+		results, err = router.Admit(ctx, receipt.Lease(), nil)
+		require.NoError(t, err)
+		require.False(t, results[0].Launch.Created)
+		wrongProject := receipt.Lease()
+		wrongProject.ProjectID = uuid.New()
+		_, err = router.Admit(ctx, wrongProject, nil)
+		require.ErrorIs(t, err, storeerr.ErrNotFound)
+	}
+	require.NotEqual(t, agents[integrations[0].ID], agents[integrations[1].ID])
+	for _, integration := range integrations {
+		for _, replay := range []bool{true, false} {
+			next := event
+			next.Actor = integrationTestActor(t, integration, "U123")
+			key := "duplicate-provider-shape"
+			if !replay {
+				key, next.SemanticKey, next.Event.Mentioned = "reply", "slack:message:T123:C123:1.3", false
+			}
+			receipt := capture(integration, key)
+			plan, err := freezeTestIntegrationEvent(ctx, router, receipt.Lease(), &next)
+			require.NoError(t, err)
+			require.Len(t, plan.Recipients, 1)
+			for _, recipient := range plan.Recipients {
+				require.Equal(t, agents[integration.ID], recipient.AgentID)
+				require.Nil(t, recipient.Launch)
+				require.NotNil(t, recipient.Subscription)
+				require.Equal(t, []integrationstore.ConversationAddress{{Kind: "thread", Ref: "C123:1.2"}},
+					recipient.Subscription.Alternatives)
+			}
+			results, err := router.Admit(ctx, receipt.Lease(), nil)
+			require.NoError(t, err)
+			require.Equal(t, !replay, results[0].Input.Created)
+		}
+	}
+	var subscriptions, inputs int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM integration_subscriptions WHERE project_id=$1),
+		(SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content')`, ids.ProjectID).
+		Scan(&subscriptions, &inputs))
+	require.Equal(t, 2, subscriptions)
+	require.Equal(t, 4, inputs)
+
+	next := event
+	next.Actor = integrationTestActor(t, integrations[0], "U123")
+	next.Event.Scope.Slack = &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "2.1"}
+	next.SemanticKey = "slack:message:T123:C123:2.1"
+	receipt := capture(integrations[0], "choice-before-edit")
+	decided, _, err := testIntegrationLaunchWorkflow(
+		router,
+	).Decide(ctx, receipt.Lease(), receipt, integrations[0], next)
+	require.NoError(t, err)
+	replacement, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
+		ProjectID: ids.ProjectID, Name: "replacement", CurrentConfigID: base.ID,
+	})
+	require.NoError(t, err)
+	settings := integrationtest.ChatSettings(replacement.ID)
+	_, err = inbox.UpdateIntegration(ctx, integrations[0].ID, integrationstore.SaveIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: integrations[0].Name,
+		IntegrationKind: integrations[0].IntegrationKind, Settings: settings,
+	})
+	require.NoError(t, err)
+	_, _, err = router.Freeze(ctx, receipt.Lease(), decided, nil)
+	require.ErrorIs(t, err, ErrIntegrationLaunchUnavailable)
+	unchanged, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
+	require.NoError(t, err)
+	require.Empty(t, unchanged.Plan)
+	attempts := 0
+	worker := NewIntegrationInboxWorker(inbox, integrationWorkerConsumerFunc(func(
+		ctx context.Context, lease integrationstore.IntegrationInboxLease,
+	) ([]IntegrationRecipientAdmission, error) {
+		attempts++
+		if attempts == 1 {
+			_, _, err := router.Freeze(ctx, lease, decided, nil)
+			return nil, err
+		}
+		if _, err := freezeTestIntegrationEvent(ctx, router, lease, &next); err != nil {
+			return nil, err
+		}
+		return router.Admit(ctx, lease, nil)
+	}), IntegrationInboxWorkerOptions{})
+	require.ErrorIs(t, worker.consume(ctx, receipt), ErrIntegrationLaunchUnavailable)
+	_, err = pool.Exec(ctx, `UPDATE integration_inbox SET next_attempt_at=now() WHERE id=$1`, receipt.ID)
+	require.NoError(t, err)
+	worked, err := worker.RunOnce(ctx)
+	require.NoError(t, err)
+	require.True(t, worked)
+	require.Equal(t, 2, attempts)
+}
+
+func TestIntegrationRouterDirectedSettledIntentWithoutSubscription(t *testing.T) {
+	t.Parallel()
+	pool, store, ids, integrationSetup := integrationWorkerFixture(t)
+	ctx := t.Context()
+	inbox := store.Integrations()
+	router := NewIntegrationRouter(store.Execution(), inbox)
+	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
+		"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
+	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
+		ProjectID: ids.ProjectID, Name: "reviewer", CurrentConfigID: base.ID,
+	})
+	require.NoError(t, err)
+	integration, err := inbox.UpdateIntegration(ctx, integrationSetup, integrationstore.SaveIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationKind: integrationdefinition.SlackThread,
+		Settings: integrationtest.ChatSettings(profile.ID),
+	})
+	require.NoError(t, err)
+	capture := func(key string) integrationstore.IntegrationInboxRecord {
+		t.Helper()
+		_, _, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+			ProjectID: ids.ProjectID, IntegrationID: integrationSetup, ReceiptKey: key, Payload: []byte(`{}`),
+		})
+		require.NoError(t, err)
+		receipt, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+			ProjectID: ids.ProjectID, IntegrationID: integrationSetup, LeaseDuration: time.Minute,
+		})
+		require.NoError(t, err)
+		require.True(t, found)
+		return receipt
+	}
+	event := IntegrationEvent{
+		Event: integrationdefinition.Event{Kind: integrationdefinition.EventMessage, Mentioned: true,
+			Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}},
+		SemanticKey: "slack:message:T123:C123:1.2", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
+		Actor: integrationTestActor(t, integration, "U123"),
+	}
+	initial := capture("initial")
+	plan, err := freezeTestIntegrationEvent(ctx, router, initial.Lease(), &event)
+	require.NoError(t, err)
+	require.Len(t, plan.Recipients, 1)
+	results, err := router.Admit(ctx, initial.Lease(), nil)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.True(t, results[0].Launch.Created)
+	agentID, targetID := results[0].Launch.Agent.ID, results[0].Launch.IntegrationTarget.ID
+	removeTestAgentSubscriptions(t, store, integration, agentID)
+
+	for _, directed := range []bool{false, true} {
+		key := "ordinary-followup"
+		nextEvent := event
+		nextEvent.Event.Mentioned = true
+		if directed {
+			key = "original-choice-replay"
+			nextEvent.Directed = true
+			nextEvent.Launches = []IntegrationLaunchIntent{
+				{IntegrationID: integration.ID, LaunchKey: integrationdefinition.ProfileLaunchKey, ProfileID: profile.ID},
+			}
+		} else {
+			nextEvent.SemanticKey = "slack:message:T123:C123:1.3"
+		}
+		next := capture(key)
+		if directed {
+			plan, _, err = router.Freeze(ctx, next.Lease(), &nextEvent, nil)
+		} else {
+			plan, err = freezeTestIntegrationEvent(ctx, router, next.Lease(), &nextEvent)
+		}
+		require.NoError(t, err)
+		if directed {
+			require.Len(t, plan.Recipients, 1)
+			for _, recipient := range plan.Recipients {
+				require.Equal(t, agentID, recipient.AgentID)
+				require.Nil(t, recipient.Launch)
+				require.Nil(t, recipient.Launch)
+				require.Nil(t, recipient.LaunchClaim)
+				require.Nil(t, recipient.Subscription)
+			}
+		} else {
+			require.Empty(t, plan.Recipients)
+		}
+		results, err = router.Admit(ctx, next.Lease(), nil)
+		require.NoError(t, err)
+		if directed {
+			require.Len(t, results, 1)
+			require.False(t, results[0].Input.Created)
+			require.Equal(t, targetID, results[0].Input.AgentInput.IntegrationTargetID)
+		} else {
+			require.Empty(t, results)
+		}
+	}
+	var agents, targets, subscriptions, inputs int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM agents WHERE project_id=$1),
+		(SELECT count(*) FROM integration_targets WHERE project_id=$1),
+		(SELECT count(*) FROM integration_subscriptions WHERE project_id=$1),
+		(SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content')`,
+		ids.ProjectID).Scan(&agents, &targets, &subscriptions, &inputs))
+	require.Equal(t, 1, agents)
+	require.Equal(t, 1, targets)
+	require.Zero(t, subscriptions)
+	require.Equal(t, 1, inputs)
+}

@@ -78,6 +78,13 @@ func TestListAgentProfiles(t *testing.T) {
 	if len(data) != 2 {
 		t.Fatalf("expected 2 agent profiles, got %d: %+v", len(data), data)
 	}
+	for _, raw := range data {
+		profile := testutil.RequireType[map[string]any](t, raw)
+		config := testutil.RequireType[map[string]any](t, profile["current_config"])
+		if _, included := config["compiled_definition"]; included {
+			t.Fatal("profile list should omit compiled_definition")
+		}
+	}
 	if _, ok := listed["next_cursor"]; !ok {
 		t.Fatalf("response missing next_cursor: %+v", listed)
 	}

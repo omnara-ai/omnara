@@ -71,10 +71,6 @@ const (
 	ProjectActionSecretsManage = authz.ProjectSecretsManage
 	AgentActionRead            = authz.AgentRead
 	AgentActionOperate         = authz.AgentOperate
-
-	ActorProviderOmnara   = "omnara"
-	ActorProviderSlack    = "slack"
-	ActorProviderExternal = "external"
 )
 
 func ProjectRolesAllow(roles []string, action string) bool {
@@ -288,6 +284,8 @@ type CreateOAuthAuthorizationCodeInput struct {
 	RedirectURI      string
 	CodeChallenge    string
 	Resource         string
+	Scope            string
+	Nonce            string
 }
 
 type ExchangeOAuthAuthorizationCodeInput struct {
@@ -299,12 +297,18 @@ type ExchangeOAuthAuthorizationCodeInput struct {
 }
 
 type RefreshOAuthAccessTokenInput struct {
+	Scope        string
 	RefreshToken string
 	ClientID     string
 	Resource     string
 }
 
 type OAuthTokenSetRecord struct {
+	UserID       uuid.UUID
+	ClientID     string
+	Scope        string
+	Nonce        string
+	Email        string
 	AccessToken  string
 	RefreshToken string
 	ExpiresIn    time.Duration
@@ -312,6 +316,7 @@ type OAuthTokenSetRecord struct {
 }
 
 type OAuthAccessTokenAuthentication struct {
+	Scope     string
 	Principal PrincipalRecord
 	Resource  string
 }
@@ -344,9 +349,10 @@ type DenyDeviceAuthFlowInput struct {
 }
 
 type CreateOrgInvitationInput struct {
-	OrgID uuid.UUID
-	Email string
-	Role  string
+	OrgID          uuid.UUID
+	Email          string
+	Role           string
+	ActorPrincipal PrincipalRecord
 }
 
 type OrgInvitationRecord struct {
@@ -420,14 +426,16 @@ type ProjectMembershipRecord struct {
 }
 
 type UpdateOrgMemberRoleInput struct {
-	OrgID  uuid.UUID
-	UserID uuid.UUID
-	Role   string
+	OrgID          uuid.UUID
+	UserID         uuid.UUID
+	Role           string
+	ActorPrincipal PrincipalRecord
 }
 
 type RemoveOrgMemberInput struct {
-	OrgID  uuid.UUID
-	UserID uuid.UUID
+	OrgID          uuid.UUID
+	UserID         uuid.UUID
+	ActorPrincipal PrincipalRecord
 }
 
 type RemoveProjectMembershipInput struct {

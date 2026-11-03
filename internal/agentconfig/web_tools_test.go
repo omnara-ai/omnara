@@ -87,7 +87,7 @@ tools:
 	if err != nil {
 		t.Fatalf("compile web tools: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(json.RawMessage(compiled.CanonicalJSON), CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(json.RawMessage(compiled.CanonicalJSON), compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}

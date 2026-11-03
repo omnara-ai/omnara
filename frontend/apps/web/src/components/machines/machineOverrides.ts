@@ -3,20 +3,6 @@ import {
   machinePoolProviderDefinitions,
 } from '@/components/org/machinePoolProviders'
 
-export interface EnvOverlayRow {
-  id: string
-  key: string
-  /** null is an unset entry: the overlay removes the pool's value for this key. */
-  value: string | null
-}
-
-export interface SecretEnvOverlayRow {
-  id: string
-  key: string
-  /** null is an unset entry: the overlay removes the pool's value for this key. */
-  secretId: string | null
-}
-
 export interface ProviderOptionsDraft {
   resource: string
   location: string
@@ -29,51 +15,6 @@ export const emptyProviderOptions: ProviderOptionsDraft = {
   startupScript: '',
 }
 
-export function newEnvOverlayRow(): EnvOverlayRow {
-  return { id: crypto.randomUUID(), key: '', value: '' }
-}
-
-export function newSecretEnvOverlayRow(): SecretEnvOverlayRow {
-  return { id: crypto.randomUUID(), key: '', secretId: '' }
-}
-
-function overlayKeysValid(rows: { key: string }[]) {
-  const keys = rows.map((row) => row.key.trim())
-  return keys.every((key) => key !== '') && new Set(keys).size === keys.length
-}
-
-export function envOverlayRowsValid(rows: EnvOverlayRow[]) {
-  return overlayKeysValid(rows)
-}
-
-export function secretEnvOverlayRowsValid(rows: SecretEnvOverlayRow[]) {
-  return overlayKeysValid(rows) && rows.every((row) => row.secretId !== '')
-}
-
-export function envFromRows(rows: EnvOverlayRow[]): Record<string, string> | undefined {
-  if (rows.length === 0) return undefined
-  return Object.fromEntries(rows.map((row) => [row.key.trim(), row.value ?? '']))
-}
-
-export function secretEnvFromRows(rows: SecretEnvOverlayRow[]): Record<string, string> | undefined {
-  if (rows.length === 0) return undefined
-  return Object.fromEntries(rows.map((row) => [row.key.trim(), row.secretId ?? '']))
-}
-
-export function envOverlayFromRows(
-  rows: EnvOverlayRow[],
-): Record<string, string | null> | undefined {
-  if (rows.length === 0) return undefined
-  return Object.fromEntries(rows.map((row) => [row.key.trim(), row.value]))
-}
-
-export function secretEnvOverlayFromRows(
-  rows: SecretEnvOverlayRow[],
-): Record<string, string | null> | undefined {
-  if (rows.length === 0) return undefined
-  return Object.fromEntries(rows.map((row) => [row.key.trim(), row.secretId]))
-}
-
 export function providerOptionsOverlay(
   provider: MachinePoolProvider,
   draft: ProviderOptionsDraft,
@@ -83,7 +24,9 @@ export function providerOptionsOverlay(
   const overlay: Record<string, string> = {}
   if (!clusterManaged) {
     if (draft.resource.trim() !== '') overlay[definition.resource.key] = draft.resource.trim()
-    if (draft.location.trim() !== '') overlay[definition.location.key] = draft.location.trim()
+    if (definition.location && draft.location.trim() !== '') {
+      overlay[definition.location.key] = draft.location.trim()
+    }
   }
   if (draft.startupScript.trim() !== '') overlay.startup_script = draft.startupScript
   return Object.keys(overlay).length > 0 ? overlay : undefined

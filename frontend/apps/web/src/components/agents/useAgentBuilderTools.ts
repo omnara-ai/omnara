@@ -1,4 +1,5 @@
 import { useAgentConfigTools } from '@omnara/react'
+import { type AgentConfigToolsDefinition, ApiError } from '@omnara/sdk'
 
 import type { McpEntry } from '@/components/agents/agentConfigBasicExtract'
 import { mcpWire } from '@/components/agents/agentConfigMcp'
@@ -9,8 +10,9 @@ import {
   toolWire,
 } from '@/components/agents/useAgentBuilderForm'
 
-export function agentBuilderToolsSource(source: BasicConfig): string {
-  return JSON.stringify({
+export function agentBuilderToolsDefinition(source: BasicConfig): AgentConfigToolsDefinition {
+  return {
+    interaction_handlers: source.interactionHandlers,
     tools: Object.fromEntries(source.tools.map((tool) => [tool.name, toolWire(tool)])),
     mcp: Object.fromEntries(
       source.mcpServers
@@ -23,13 +25,15 @@ export function agentBuilderToolsSource(source: BasicConfig): string {
         row.kind === 'pool' ? { machine_pool_name: row.name } : { machine_name: row.name },
       ),
     skills: source.skillIds,
+    memory_stores: source.memoryStores,
+    git_credentials: source.gitCredentials,
     subagents: Object.fromEntries(
       source.subagents.filter(subagentValid).map((row) => {
         const { type, profile } = subagentWire(row)
         return [row.key, { type, profile }]
       }),
     ),
-  })
+  }
 }
 
 function mcpPreviewWire(server: BasicMcpServer): McpEntry {
@@ -45,8 +49,14 @@ export function useAgentBuilderTools(
   source: BasicConfig,
   scope: { orgId: string; projectId: string },
 ) {
-  return useAgentConfigTools(scope.orgId, scope.projectId, {
+  const query = useAgentConfigTools(scope.orgId, scope.projectId, {
+    source: agentBuilderToolsDefinition(source),
     source_format: 'json',
-    source: agentBuilderToolsSource(source),
   })
+  const error = query.error
+  const detail =
+    error instanceof ApiError
+      ? error.issues.map((issue) => `${issue.path}: ${issue.message}`).join('; ') || error.message
+      : ''
+  return { ...query, errorMessage: `Couldn’t load built-in tools${detail ? ': ' + detail : '.'}` }
 }

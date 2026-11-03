@@ -299,9 +299,9 @@ func (c *restClient) doRequest(
 	}
 	statusCode, raw := response.StatusCode, response.Body
 	if statusCode < 200 || statusCode >= 300 {
-		return providers.WithRetryAfter(
+		return providers.WithResponse(
 			apiError{StatusCode: statusCode},
-			response.Header,
+			response,
 		)
 	}
 	if out == nil || len(raw) == 0 {

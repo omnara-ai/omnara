@@ -1,6 +1,8 @@
+import { useId } from 'react'
+
 import { Plus, X } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -26,6 +28,7 @@ export function OAuthTokenFields({
   onChange: (entries: OAuthEntry[]) => void
   hiddenKeys?: OAuthKey[]
 }) {
+  const titleId = useId()
   const usedKeys = new Set([...entries.map((entry) => entry.key), ...hiddenKeys])
   const firstUnusedKey = oauthKeys.find((option) => !usedKeys.has(option.value))?.value
   function patchEntry(id: string, patch: Partial<OAuthEntry>) {
@@ -33,8 +36,10 @@ export function OAuthTokenFields({
   }
 
   return (
-    <Field>
-      <FieldLabel>Token fields</FieldLabel>
+    <Field aria-labelledby={titleId}>
+      <div id={titleId} className="type-label">
+        Token fields
+      </div>
       <div className="flex flex-col gap-2">
         {entries.map((entry) => (
           <div key={entry.id} className="flex gap-2">
@@ -44,7 +49,7 @@ export function OAuthTokenFields({
                 if (isOAuthKey(value)) patchEntry(entry.id, { key: value })
               }}
             >
-              <SelectTrigger className="w-2/5">
+              <SelectTrigger className="w-2/5" aria-label="Token field">
                 <SelectValue>
                   {oauthKeys.find((option) => option.value === entry.key)?.label ?? entry.key}
                 </SelectValue>

@@ -25,7 +25,10 @@ import (
 	"github.com/oapi-codegen/nullable"
 	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 // Defines values for AWSCredentialsSecretMaterialKind.
@@ -45,9 +48,9 @@ func (e AWSCredentialsSecretMaterialKind) Valid() bool {
 
 // Defines values for ActorProvider.
 const (
-	ActorProviderExternal ActorProvider = "external"
-	ActorProviderOmnara   ActorProvider = "omnara"
-	ActorProviderSlack    ActorProvider = "slack"
+	ActorProviderExternal    ActorProvider = "external"
+	ActorProviderIntegration ActorProvider = "integration"
+	ActorProviderOmnara      ActorProvider = "omnara"
 )
 
 // Valid indicates whether the value is a known member of the ActorProvider enum.
@@ -55,9 +58,9 @@ func (e ActorProvider) Valid() bool {
 	switch e {
 	case ActorProviderExternal:
 		return true
-	case ActorProviderOmnara:
+	case ActorProviderIntegration:
 		return true
-	case ActorProviderSlack:
+	case ActorProviderOmnara:
 		return true
 	default:
 		return false
@@ -124,6 +127,24 @@ func (e AgentConfigSourceFormat) Valid() bool {
 	}
 }
 
+// Defines values for AgentConfigSummarySourceFormat.
+const (
+	AgentConfigSummarySourceFormatJson AgentConfigSummarySourceFormat = "json"
+	AgentConfigSummarySourceFormatYaml AgentConfigSummarySourceFormat = "yaml"
+)
+
+// Valid indicates whether the value is a known member of the AgentConfigSummarySourceFormat enum.
+func (e AgentConfigSummarySourceFormat) Valid() bool {
+	switch e {
+	case AgentConfigSummarySourceFormatJson:
+		return true
+	case AgentConfigSummarySourceFormatYaml:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentControlType.
 const (
 	AgentControlTypeCancelCurrent AgentControlType = "cancel_current"
@@ -148,6 +169,21 @@ const (
 func (e AgentCronTriggerTargetType) Valid() bool {
 	switch e {
 	case AgentCronTriggerTargetTypeAgent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentEventWebhookScopeType.
+const (
+	AgentEventWebhookScopeTypeAgent AgentEventWebhookScopeType = "agent"
+)
+
+// Valid indicates whether the value is a known member of the AgentEventWebhookScopeType enum.
+func (e AgentEventWebhookScopeType) Valid() bool {
+	switch e {
+	case AgentEventWebhookScopeTypeAgent:
 		return true
 	default:
 		return false
@@ -328,63 +364,108 @@ func (e AgentProfileCronTriggerTargetType) Valid() bool {
 	}
 }
 
-// Defines values for ClientErrorCode.
+// Defines values for AgentProfileEventWebhookScopeType.
 const (
-	ClientErrorCodeConflict                  ClientErrorCode = "conflict"
-	ClientErrorCodeCsrfCheckFailed           ClientErrorCode = "csrf_check_failed"
-	ClientErrorCodeDaemonRuntimeUnregistered ClientErrorCode = "daemon_runtime_unregistered"
-	ClientErrorCodeForbidden                 ClientErrorCode = "forbidden"
-	ClientErrorCodeGone                      ClientErrorCode = "gone"
-	ClientErrorCodeIdempotencyKeyConflict    ClientErrorCode = "idempotency_key_conflict"
-	ClientErrorCodeInvalidRequest            ClientErrorCode = "invalid_request"
-	ClientErrorCodeNotFound                  ClientErrorCode = "not_found"
-	ClientErrorCodeNotWakeCapable            ClientErrorCode = "not_wake_capable"
-	ClientErrorCodePendingWork               ClientErrorCode = "pending_work"
-	ClientErrorCodeRateLimited               ClientErrorCode = "rate_limited"
-	ClientErrorCodeRequestTooLarge           ClientErrorCode = "request_too_large"
-	ClientErrorCodeStateTransitionConflict   ClientErrorCode = "state_transition_conflict"
-	ClientErrorCodeUnauthorized              ClientErrorCode = "unauthorized"
-	ClientErrorCodeUnprocessable             ClientErrorCode = "unprocessable"
-	ClientErrorCodeUnsupportedMediaType      ClientErrorCode = "unsupported_media_type"
-	ClientErrorCodeValidationFailed          ClientErrorCode = "validation_failed"
+	AgentProfileEventWebhookScopeTypeProfile AgentProfileEventWebhookScopeType = "profile"
 )
 
-// Valid indicates whether the value is a known member of the ClientErrorCode enum.
-func (e ClientErrorCode) Valid() bool {
+// Valid indicates whether the value is a known member of the AgentProfileEventWebhookScopeType enum.
+func (e AgentProfileEventWebhookScopeType) Valid() bool {
 	switch e {
-	case ClientErrorCodeConflict:
+	case AgentProfileEventWebhookScopeTypeProfile:
 		return true
-	case ClientErrorCodeCsrfCheckFailed:
+	default:
+		return false
+	}
+}
+
+// Defines values for CompiledMCPAuthBearerType.
+const (
+	CompiledMCPAuthBearerTypeBearer CompiledMCPAuthBearerType = "bearer"
+)
+
+// Valid indicates whether the value is a known member of the CompiledMCPAuthBearerType enum.
+func (e CompiledMCPAuthBearerType) Valid() bool {
+	switch e {
+	case CompiledMCPAuthBearerTypeBearer:
 		return true
-	case ClientErrorCodeDaemonRuntimeUnregistered:
+	default:
+		return false
+	}
+}
+
+// Defines values for CompiledMCPAuthOAuthType.
+const (
+	CompiledMCPAuthOAuthTypeOAuth CompiledMCPAuthOAuthType = "oauth"
+)
+
+// Valid indicates whether the value is a known member of the CompiledMCPAuthOAuthType enum.
+func (e CompiledMCPAuthOAuthType) Valid() bool {
+	switch e {
+	case CompiledMCPAuthOAuthTypeOAuth:
 		return true
-	case ClientErrorCodeForbidden:
+	default:
+		return false
+	}
+}
+
+// Defines values for CompiledMCPAuthSigV4Type.
+const (
+	CompiledMCPAuthSigV4TypeSigV4 CompiledMCPAuthSigV4Type = "sigv4"
+)
+
+// Valid indicates whether the value is a known member of the CompiledMCPAuthSigV4Type enum.
+func (e CompiledMCPAuthSigV4Type) Valid() bool {
+	switch e {
+	case CompiledMCPAuthSigV4TypeSigV4:
 		return true
-	case ClientErrorCodeGone:
+	default:
+		return false
+	}
+}
+
+// Defines values for CompiledProfileSubagentType.
+const (
+	CompiledProfileSubagentTypeProfile CompiledProfileSubagentType = "profile"
+)
+
+// Valid indicates whether the value is a known member of the CompiledProfileSubagentType enum.
+func (e CompiledProfileSubagentType) Valid() bool {
+	switch e {
+	case CompiledProfileSubagentTypeProfile:
 		return true
-	case ClientErrorCodeIdempotencyKeyConflict:
+	default:
+		return false
+	}
+}
+
+// Defines values for CompiledSelfSubagentType.
+const (
+	CompiledSelfSubagentTypeSelf CompiledSelfSubagentType = "self"
+)
+
+// Valid indicates whether the value is a known member of the CompiledSelfSubagentType enum.
+func (e CompiledSelfSubagentType) Valid() bool {
+	switch e {
+	case CompiledSelfSubagentTypeSelf:
 		return true
-	case ClientErrorCodeInvalidRequest:
+	default:
+		return false
+	}
+}
+
+// Defines values for CompiledToolType.
+const (
+	CompiledToolTypeBuiltIn CompiledToolType = "built_in"
+	CompiledToolTypeCustom  CompiledToolType = "custom"
+)
+
+// Valid indicates whether the value is a known member of the CompiledToolType enum.
+func (e CompiledToolType) Valid() bool {
+	switch e {
+	case CompiledToolTypeBuiltIn:
 		return true
-	case ClientErrorCodeNotFound:
-		return true
-	case ClientErrorCodeNotWakeCapable:
-		return true
-	case ClientErrorCodePendingWork:
-		return true
-	case ClientErrorCodeRateLimited:
-		return true
-	case ClientErrorCodeRequestTooLarge:
-		return true
-	case ClientErrorCodeStateTransitionConflict:
-		return true
-	case ClientErrorCodeUnauthorized:
-		return true
-	case ClientErrorCodeUnprocessable:
-		return true
-	case ClientErrorCodeUnsupportedMediaType:
-		return true
-	case ClientErrorCodeValidationFailed:
+	case CompiledToolTypeCustom:
 		return true
 	default:
 		return false
@@ -393,13 +474,13 @@ func (e ClientErrorCode) Valid() bool {
 
 // Defines values for ContextCheckpointEventEventKind.
 const (
-	ContextCheckpoint ContextCheckpointEventEventKind = "context_checkpoint"
+	ContextCheckpointEventEventKindContextCheckpoint ContextCheckpointEventEventKind = "context_checkpoint"
 )
 
 // Valid indicates whether the value is a known member of the ContextCheckpointEventEventKind enum.
 func (e ContextCheckpointEventEventKind) Valid() bool {
 	switch e {
-	case ContextCheckpoint:
+	case ContextCheckpointEventEventKindContextCheckpoint:
 		return true
 	default:
 		return false
@@ -520,6 +601,30 @@ func (e CronTriggerDeliveryMode) Valid() bool {
 	}
 }
 
+// Defines values for CronTriggerLastRunState.
+const (
+	CronTriggerLastRunStateCompleted  CronTriggerLastRunState = "completed"
+	CronTriggerLastRunStateFailed     CronTriggerLastRunState = "failed"
+	CronTriggerLastRunStateProcessing CronTriggerLastRunState = "processing"
+	CronTriggerLastRunStateQueued     CronTriggerLastRunState = "queued"
+)
+
+// Valid indicates whether the value is a known member of the CronTriggerLastRunState enum.
+func (e CronTriggerLastRunState) Valid() bool {
+	switch e {
+	case CronTriggerLastRunStateCompleted:
+		return true
+	case CronTriggerLastRunStateFailed:
+		return true
+	case CronTriggerLastRunStateProcessing:
+		return true
+	case CronTriggerLastRunStateQueued:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DaemonRuntimeState.
 const (
 	DaemonRuntimeStateActive DaemonRuntimeState = "active"
@@ -570,16 +675,21 @@ func (e DirectSkillAvailabilitySource) Valid() bool {
 
 // Defines values for ErrorCode.
 const (
+	ErrorCodeAgentBacklogFull           ErrorCode = "agent_backlog_full"
 	ErrorCodeAuthenticationUnavailable  ErrorCode = "authentication_unavailable"
 	ErrorCodeConflict                   ErrorCode = "conflict"
 	ErrorCodeCsrfCheckFailed            ErrorCode = "csrf_check_failed"
 	ErrorCodeDaemonRuntimeUnregistered  ErrorCode = "daemon_runtime_unregistered"
+	ErrorCodeExpectedDigestRequired     ErrorCode = "expected_digest_required"
+	ErrorCodeFileContentConflict        ErrorCode = "file_content_conflict"
+	ErrorCodeFileReadOnly               ErrorCode = "file_read_only"
 	ErrorCodeForbidden                  ErrorCode = "forbidden"
 	ErrorCodeGone                       ErrorCode = "gone"
 	ErrorCodeIdempotencyKeyConflict     ErrorCode = "idempotency_key_conflict"
 	ErrorCodeInternalError              ErrorCode = "internal_error"
 	ErrorCodeInvalidRequest             ErrorCode = "invalid_request"
 	ErrorCodeManagedWorkAdmissionDenied ErrorCode = "managed_work_admission_denied"
+	ErrorCodeNotAFile                   ErrorCode = "not_a_file"
 	ErrorCodeNotFound                   ErrorCode = "not_found"
 	ErrorCodeNotWakeCapable             ErrorCode = "not_wake_capable"
 	ErrorCodePendingWork                ErrorCode = "pending_work"
@@ -590,13 +700,15 @@ const (
 	ErrorCodeUnauthorized               ErrorCode = "unauthorized"
 	ErrorCodeUnprocessable              ErrorCode = "unprocessable"
 	ErrorCodeUnsupportedMediaType       ErrorCode = "unsupported_media_type"
-	ErrorCodeUpstreamError              ErrorCode = "upstream_error"
+	ErrorCodeUpstreamUnavailable        ErrorCode = "upstream_unavailable"
 	ErrorCodeValidationFailed           ErrorCode = "validation_failed"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
 func (e ErrorCode) Valid() bool {
 	switch e {
+	case ErrorCodeAgentBacklogFull:
+		return true
 	case ErrorCodeAuthenticationUnavailable:
 		return true
 	case ErrorCodeConflict:
@@ -604,6 +716,12 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeCsrfCheckFailed:
 		return true
 	case ErrorCodeDaemonRuntimeUnregistered:
+		return true
+	case ErrorCodeExpectedDigestRequired:
+		return true
+	case ErrorCodeFileContentConflict:
+		return true
+	case ErrorCodeFileReadOnly:
 		return true
 	case ErrorCodeForbidden:
 		return true
@@ -616,6 +734,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeInvalidRequest:
 		return true
 	case ErrorCodeManagedWorkAdmissionDenied:
+		return true
+	case ErrorCodeNotAFile:
 		return true
 	case ErrorCodeNotFound:
 		return true
@@ -637,7 +757,7 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeUnsupportedMediaType:
 		return true
-	case ErrorCodeUpstreamError:
+	case ErrorCodeUpstreamUnavailable:
 		return true
 	case ErrorCodeValidationFailed:
 		return true
@@ -661,6 +781,129 @@ func (e ErrorContentBlockType) Valid() bool {
 	}
 }
 
+// Defines values for EventWebhookAgentInputEventEvent.
+const (
+	EventWebhookEventAgentInput EventWebhookAgentInputEventEvent = "agent_input"
+)
+
+// Valid indicates whether the value is a known member of the EventWebhookAgentInputEventEvent enum.
+func (e EventWebhookAgentInputEventEvent) Valid() bool {
+	switch e {
+	case EventWebhookEventAgentInput:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EventWebhookContextCheckpointEventEvent.
+const (
+	EventWebhookEventContextCheckpoint EventWebhookContextCheckpointEventEvent = "context_checkpoint"
+)
+
+// Valid indicates whether the value is a known member of the EventWebhookContextCheckpointEventEvent enum.
+func (e EventWebhookContextCheckpointEventEvent) Valid() bool {
+	switch e {
+	case EventWebhookEventContextCheckpoint:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EventWebhookEventType.
+const (
+	EventWebhookEventTypeAgentInput        EventWebhookEventType = "agent_input"
+	EventWebhookEventTypeContextCheckpoint EventWebhookEventType = "context_checkpoint"
+	EventWebhookEventTypeModelOutput       EventWebhookEventType = "model_output"
+	EventWebhookEventTypeToolCallUpdate    EventWebhookEventType = "tool_call_update"
+	EventWebhookEventTypeToolResult        EventWebhookEventType = "tool_result"
+)
+
+// Valid indicates whether the value is a known member of the EventWebhookEventType enum.
+func (e EventWebhookEventType) Valid() bool {
+	switch e {
+	case EventWebhookEventTypeAgentInput:
+		return true
+	case EventWebhookEventTypeContextCheckpoint:
+		return true
+	case EventWebhookEventTypeModelOutput:
+		return true
+	case EventWebhookEventTypeToolCallUpdate:
+		return true
+	case EventWebhookEventTypeToolResult:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EventWebhookModelOutputEventEvent.
+const (
+	EventWebhookEventModelOutput EventWebhookModelOutputEventEvent = "model_output"
+)
+
+// Valid indicates whether the value is a known member of the EventWebhookModelOutputEventEvent enum.
+func (e EventWebhookModelOutputEventEvent) Valid() bool {
+	switch e {
+	case EventWebhookEventModelOutput:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EventWebhookScopeType.
+const (
+	EventWebhookScopeAgent        EventWebhookScopeType = "agent"
+	EventWebhookScopeAgentProfile EventWebhookScopeType = "profile"
+	EventWebhookScopeProject      EventWebhookScopeType = "project"
+)
+
+// Valid indicates whether the value is a known member of the EventWebhookScopeType enum.
+func (e EventWebhookScopeType) Valid() bool {
+	switch e {
+	case EventWebhookScopeAgent:
+		return true
+	case EventWebhookScopeAgentProfile:
+		return true
+	case EventWebhookScopeProject:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EventWebhookToolCallUpdateEvent.
+const (
+	EventWebhookEventToolCallUpdate EventWebhookToolCallUpdateEvent = "tool_call_update"
+)
+
+// Valid indicates whether the value is a known member of the EventWebhookToolCallUpdateEvent enum.
+func (e EventWebhookToolCallUpdateEvent) Valid() bool {
+	switch e {
+	case EventWebhookEventToolCallUpdate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EventWebhookToolResultEventEvent.
+const (
+	EventWebhookEventToolResult EventWebhookToolResultEventEvent = "tool_result"
+)
+
+// Valid indicates whether the value is a known member of the EventWebhookToolResultEventEvent enum.
+func (e EventWebhookToolResultEventEvent) Valid() bool {
+	switch e {
+	case EventWebhookEventToolResult:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GenericSecretMaterialKind.
 const (
 	Generic GenericSecretMaterialKind = "generic"
@@ -670,6 +913,21 @@ const (
 func (e GenericSecretMaterialKind) Valid() bool {
 	switch e {
 	case Generic:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GitHubAppCredentialsSecretMaterialKind.
+const (
+	GithubAppCredentials GitHubAppCredentialsSecretMaterialKind = "github_app_credentials"
+)
+
+// Valid indicates whether the value is a known member of the GitHubAppCredentialsSecretMaterialKind enum.
+func (e GitHubAppCredentialsSecretMaterialKind) Valid() bool {
+	switch e {
+	case GithubAppCredentials:
 		return true
 	default:
 		return false
@@ -796,18 +1054,54 @@ func (e InlineMediaContentBlockType) Valid() bool {
 	}
 }
 
-// Defines values for IntegrationInstallState.
+// Defines values for IntegrationCronTriggerTargetType.
 const (
-	IntegrationInstallStateActive   IntegrationInstallState = "active"
-	IntegrationInstallStateDisabled IntegrationInstallState = "disabled"
+	IntegrationCronTriggerTargetTypeIntegration IntegrationCronTriggerTargetType = "integration"
 )
 
-// Valid indicates whether the value is a known member of the IntegrationInstallState enum.
-func (e IntegrationInstallState) Valid() bool {
+// Valid indicates whether the value is a known member of the IntegrationCronTriggerTargetType enum.
+func (e IntegrationCronTriggerTargetType) Valid() bool {
 	switch e {
-	case IntegrationInstallStateActive:
+	case IntegrationCronTriggerTargetTypeIntegration:
 		return true
-	case IntegrationInstallStateDisabled:
+	default:
+		return false
+	}
+}
+
+// Defines values for IntegrationKind.
+const (
+	IntegrationKindDiscordThread IntegrationKind = "discord_thread"
+	IntegrationKindGitHubPR      IntegrationKind = "github_pr"
+	IntegrationKindSlackThread   IntegrationKind = "slack_thread"
+)
+
+// Valid indicates whether the value is a known member of the IntegrationKind enum.
+func (e IntegrationKind) Valid() bool {
+	switch e {
+	case IntegrationKindDiscordThread:
+		return true
+	case IntegrationKindGitHubPR:
+		return true
+	case IntegrationKindSlackThread:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IntegrationState.
+const (
+	IntegrationStateActive       IntegrationState = "active"
+	IntegrationStateDisconnected IntegrationState = "disconnected"
+)
+
+// Valid indicates whether the value is a known member of the IntegrationState enum.
+func (e IntegrationState) Valid() bool {
+	switch e {
+	case IntegrationStateActive:
+		return true
+	case IntegrationStateDisconnected:
 		return true
 	default:
 		return false
@@ -1006,6 +1300,24 @@ func (e MachineLifecycleState) Valid() bool {
 	}
 }
 
+// Defines values for MachinePoolConnectionCheckErrorCode.
+const (
+	MachinePoolConnectionCheckErrorCodeUnprocessable       MachinePoolConnectionCheckErrorCode = "unprocessable"
+	MachinePoolConnectionCheckErrorCodeUpstreamUnavailable MachinePoolConnectionCheckErrorCode = "upstream_unavailable"
+)
+
+// Valid indicates whether the value is a known member of the MachinePoolConnectionCheckErrorCode enum.
+func (e MachinePoolConnectionCheckErrorCode) Valid() bool {
+	switch e {
+	case MachinePoolConnectionCheckErrorCodeUnprocessable:
+		return true
+	case MachinePoolConnectionCheckErrorCodeUpstreamUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MachineSourceKind.
 const (
 	MachineSourceKindBYO  MachineSourceKind = "byo"
@@ -1051,6 +1363,54 @@ const (
 func (e MediaRefContentBlockType) Valid() bool {
 	switch e {
 	case MediaRef:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemoryDirectoryType.
+const (
+	MemoryDirectoryTypeDirectory MemoryDirectoryType = "directory"
+)
+
+// Valid indicates whether the value is a known member of the MemoryDirectoryType enum.
+func (e MemoryDirectoryType) Valid() bool {
+	switch e {
+	case MemoryDirectoryTypeDirectory:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemoryRegularFileType.
+const (
+	MemoryRegularFileTypeFile MemoryRegularFileType = "file"
+)
+
+// Valid indicates whether the value is a known member of the MemoryRegularFileType enum.
+func (e MemoryRegularFileType) Valid() bool {
+	switch e {
+	case MemoryRegularFileTypeFile:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemoryStoreAccess.
+const (
+	MemoryStoreAccessRead      MemoryStoreAccess = "read"
+	MemoryStoreAccessReadWrite MemoryStoreAccess = "read_write"
+)
+
+// Valid indicates whether the value is a known member of the MemoryStoreAccess enum.
+func (e MemoryStoreAccess) Valid() bool {
+	switch e {
+	case MemoryStoreAccessRead:
+		return true
+	case MemoryStoreAccessReadWrite:
 		return true
 	default:
 		return false
@@ -1164,13 +1524,13 @@ func (e ModelOutputErrorDeltaKind) Valid() bool {
 
 // Defines values for ModelOutputEventEventKind.
 const (
-	ModelOutput ModelOutputEventEventKind = "model_output"
+	ModelOutputEventEventKindModelOutput ModelOutputEventEventKind = "model_output"
 )
 
 // Valid indicates whether the value is a known member of the ModelOutputEventEventKind enum.
 func (e ModelOutputEventEventKind) Valid() bool {
 	switch e {
-	case ModelOutput:
+	case ModelOutputEventEventKindModelOutput:
 		return true
 	default:
 		return false
@@ -1541,6 +1901,7 @@ func (e OrgSkillOwnerInputKind) Valid() bool {
 const (
 	ProcessActionReconciliationClaimActionKindInterrupt ProcessActionReconciliationClaimActionKind = "interrupt"
 	ProcessActionReconciliationClaimActionKindTerminate ProcessActionReconciliationClaimActionKind = "terminate"
+	ProcessActionReconciliationClaimActionKindWatch     ProcessActionReconciliationClaimActionKind = "watch"
 	ProcessActionReconciliationClaimActionKindWrite     ProcessActionReconciliationClaimActionKind = "write"
 )
 
@@ -1550,6 +1911,8 @@ func (e ProcessActionReconciliationClaimActionKind) Valid() bool {
 	case ProcessActionReconciliationClaimActionKindInterrupt:
 		return true
 	case ProcessActionReconciliationClaimActionKindTerminate:
+		return true
+	case ProcessActionReconciliationClaimActionKindWatch:
 		return true
 	case ProcessActionReconciliationClaimActionKindWrite:
 		return true
@@ -1581,6 +1944,7 @@ const (
 	ProcessActionReconciliationDirectiveActionKindInterrupt ProcessActionReconciliationDirectiveActionKind = "interrupt"
 	ProcessActionReconciliationDirectiveActionKindRead      ProcessActionReconciliationDirectiveActionKind = "read"
 	ProcessActionReconciliationDirectiveActionKindTerminate ProcessActionReconciliationDirectiveActionKind = "terminate"
+	ProcessActionReconciliationDirectiveActionKindWatch     ProcessActionReconciliationDirectiveActionKind = "watch"
 	ProcessActionReconciliationDirectiveActionKindWrite     ProcessActionReconciliationDirectiveActionKind = "write"
 )
 
@@ -1592,6 +1956,8 @@ func (e ProcessActionReconciliationDirectiveActionKind) Valid() bool {
 	case ProcessActionReconciliationDirectiveActionKindRead:
 		return true
 	case ProcessActionReconciliationDirectiveActionKindTerminate:
+		return true
+	case ProcessActionReconciliationDirectiveActionKindWatch:
 		return true
 	case ProcessActionReconciliationDirectiveActionKindWrite:
 		return true
@@ -1666,6 +2032,21 @@ func (e ProcessReconciliationDirectiveDisposition) Valid() bool {
 	case ProcessReconciliationDirectiveDispositionRetain:
 		return true
 	case ProcessReconciliationDirectiveDispositionStart:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectEventWebhookScopeType.
+const (
+	ProjectEventWebhookScopeTypeProject ProjectEventWebhookScopeType = "project"
+)
+
+// Valid indicates whether the value is a known member of the ProjectEventWebhookScopeType enum.
+func (e ProjectEventWebhookScopeType) Valid() bool {
+	switch e {
+	case ProjectEventWebhookScopeTypeProject:
 		return true
 	default:
 		return false
@@ -1815,10 +2196,11 @@ func (e ResourceListSort) Valid() bool {
 
 // Defines values for SecretKind.
 const (
-	SecretKindAWSCredentials      SecretKind = "aws_credentials"
-	SecretKindGeneric             SecretKind = "generic"
-	SecretKindOAuthTokenSet       SecretKind = "oauth_token_set"
-	SecretKindSlackAppCredentials SecretKind = "slack_app_credentials"
+	SecretKindAWSCredentials       SecretKind = "aws_credentials"
+	SecretKindGeneric              SecretKind = "generic"
+	SecretKindGitHubAppCredentials SecretKind = "github_app_credentials"
+	SecretKindOAuthTokenSet        SecretKind = "oauth_token_set"
+	SecretKindSlackAppCredentials  SecretKind = "slack_app_credentials"
 )
 
 // Valid indicates whether the value is a known member of the SecretKind enum.
@@ -1828,33 +2210,11 @@ func (e SecretKind) Valid() bool {
 		return true
 	case SecretKindGeneric:
 		return true
+	case SecretKindGitHubAppCredentials:
+		return true
 	case SecretKindOAuthTokenSet:
 		return true
 	case SecretKindSlackAppCredentials:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ServerErrorCode.
-const (
-	ServerErrorCodeAuthenticationUnavailable ServerErrorCode = "authentication_unavailable"
-	ServerErrorCodeInternalError             ServerErrorCode = "internal_error"
-	ServerErrorCodeServiceUnavailable        ServerErrorCode = "service_unavailable"
-	ServerErrorCodeUpstreamError             ServerErrorCode = "upstream_error"
-)
-
-// Valid indicates whether the value is a known member of the ServerErrorCode enum.
-func (e ServerErrorCode) Valid() bool {
-	switch e {
-	case ServerErrorCodeAuthenticationUnavailable:
-		return true
-	case ServerErrorCodeInternalError:
-		return true
-	case ServerErrorCodeServiceUnavailable:
-		return true
-	case ServerErrorCodeUpstreamError:
 		return true
 	default:
 		return false
@@ -2032,6 +2392,102 @@ func (e UpdateAgentConfigRequestSourceFormat) Valid() bool {
 	}
 }
 
+// Defines values for UsageTimeseriesGroupBy.
+const (
+	UsageTimeseriesGroupByModel   UsageTimeseriesGroupBy = "model"
+	UsageTimeseriesGroupByProfile UsageTimeseriesGroupBy = "profile"
+)
+
+// Valid indicates whether the value is a known member of the UsageTimeseriesGroupBy enum.
+func (e UsageTimeseriesGroupBy) Valid() bool {
+	switch e {
+	case UsageTimeseriesGroupByModel:
+		return true
+	case UsageTimeseriesGroupByProfile:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UsageTimeseriesInterval.
+const (
+	UsageTimeseriesIntervalDay   UsageTimeseriesInterval = "day"
+	UsageTimeseriesIntervalHour  UsageTimeseriesInterval = "hour"
+	UsageTimeseriesIntervalMonth UsageTimeseriesInterval = "month"
+	UsageTimeseriesIntervalWeek  UsageTimeseriesInterval = "week"
+)
+
+// Valid indicates whether the value is a known member of the UsageTimeseriesInterval enum.
+func (e UsageTimeseriesInterval) Valid() bool {
+	switch e {
+	case UsageTimeseriesIntervalDay:
+		return true
+	case UsageTimeseriesIntervalHour:
+		return true
+	case UsageTimeseriesIntervalMonth:
+		return true
+	case UsageTimeseriesIntervalWeek:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UsageTimeseriesMetric.
+const (
+	UsageTimeseriesMetricCountModelCalls UsageTimeseriesMetric = "count_model_calls"
+	UsageTimeseriesMetricSumCost         UsageTimeseriesMetric = "sum_cost"
+	UsageTimeseriesMetricSumInputTokens  UsageTimeseriesMetric = "sum_input_tokens"
+	UsageTimeseriesMetricSumOutputTokens UsageTimeseriesMetric = "sum_output_tokens"
+	UsageTimeseriesMetricSumTokens       UsageTimeseriesMetric = "sum_tokens"
+)
+
+// Valid indicates whether the value is a known member of the UsageTimeseriesMetric enum.
+func (e UsageTimeseriesMetric) Valid() bool {
+	switch e {
+	case UsageTimeseriesMetricCountModelCalls:
+		return true
+	case UsageTimeseriesMetricSumCost:
+		return true
+	case UsageTimeseriesMetricSumInputTokens:
+		return true
+	case UsageTimeseriesMetricSumOutputTokens:
+		return true
+	case UsageTimeseriesMetricSumTokens:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UsageTimeseriesSeriesKind.
+const (
+	UsageTimeseriesSeriesKindAll       UsageTimeseriesSeriesKind = "all"
+	UsageTimeseriesSeriesKindModel     UsageTimeseriesSeriesKind = "model"
+	UsageTimeseriesSeriesKindNoProfile UsageTimeseriesSeriesKind = "no_profile"
+	UsageTimeseriesSeriesKindOther     UsageTimeseriesSeriesKind = "other"
+	UsageTimeseriesSeriesKindProfile   UsageTimeseriesSeriesKind = "profile"
+)
+
+// Valid indicates whether the value is a known member of the UsageTimeseriesSeriesKind enum.
+func (e UsageTimeseriesSeriesKind) Valid() bool {
+	switch e {
+	case UsageTimeseriesSeriesKindAll:
+		return true
+	case UsageTimeseriesSeriesKindModel:
+		return true
+	case UsageTimeseriesSeriesKindNoProfile:
+		return true
+	case UsageTimeseriesSeriesKindOther:
+		return true
+	case UsageTimeseriesSeriesKindProfile:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UserSecretOwnerKind.
 const (
 	UserSecretOwnerKindUser UserSecretOwnerKind = "user"
@@ -2200,6 +2656,24 @@ func (e RecordMachineFailureParamsStage) Valid() bool {
 	}
 }
 
+// Defines values for GetAgentConfigGeneratedSourceParamsSourceFormat.
+const (
+	GetAgentConfigGeneratedSourceParamsSourceFormatJson GetAgentConfigGeneratedSourceParamsSourceFormat = "json"
+	GetAgentConfigGeneratedSourceParamsSourceFormatYaml GetAgentConfigGeneratedSourceParamsSourceFormat = "yaml"
+)
+
+// Valid indicates whether the value is a known member of the GetAgentConfigGeneratedSourceParamsSourceFormat enum.
+func (e GetAgentConfigGeneratedSourceParamsSourceFormat) Valid() bool {
+	switch e {
+	case GetAgentConfigGeneratedSourceParamsSourceFormatJson:
+		return true
+	case GetAgentConfigGeneratedSourceParamsSourceFormatYaml:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListProjectAvailableSecretsParamsOwnerKind.
 const (
 	ListProjectAvailableSecretsParamsOwnerKindOrg     ListProjectAvailableSecretsParamsOwnerKind = "org"
@@ -2341,33 +2815,43 @@ type Actor struct {
 	DisplayName *string   `json:"display_name,omitempty"`
 	Id          ActorID   `json:"id"`
 
-	// Metadata Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
-	Metadata  Metadata       `json:"metadata"`
-	OrgId     OrganizationID `json:"org_id"`
-	ProjectId ProjectID      `json:"project_id"`
+	// Metadata Saved actor attributes. Hosted integration actors store source_label (such as Slack) for display without a live integration lookup.
+	Metadata Metadata       `json:"metadata"`
+	OrgId    OrganizationID `json:"org_id"`
 
-	// Provider omnara for project members, an integration provider such as slack, or external for API-managed actors.
-	Provider         ActorProvider `json:"provider"`
-	ProviderTenantId *string       `json:"provider_tenant_id,omitempty"`
-	ProviderUserId   string        `json:"provider_user_id"`
-	UpdatedAt        Timestamp     `json:"updated_at"`
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+
+	// Provider omnara for Omnara identities, integration for hosted integration senders, or external for API-managed actors.
+	Provider ActorProvider `json:"provider"`
+
+	// ProviderTenantId Project-scoped identity namespace. Integration actors use a stable platform namespace (slack:<workspace ID>, discord, or github:github.com), shared across configured bots and integration kinds on that platform. Retained for attribution after integration deletion; not an authorization principal.
+	ProviderTenantId *string `json:"provider_tenant_id,omitempty"`
+
+	// ProviderUserId Stable sender identifier within the actor identity namespace.
+	ProviderUserId string    `json:"provider_user_id"`
+	UpdatedAt      Timestamp `json:"updated_at"`
 }
 
 // ActorID defines model for ActorID.
 type ActorID = string
 
-// ActorProvider omnara for project members, an integration provider such as slack, or external for API-managed actors.
+// ActorProvider omnara for Omnara identities, integration for hosted integration senders, or external for API-managed actors.
 type ActorProvider string
 
 // Agent defines model for Agent.
 type Agent struct {
-	// Activity Current activity, present on list responses.
-	Activity          *AgentActivity     `json:"activity,omitempty"`
-	AgentProfileId    *AgentProfileID    `json:"agent_profile_id,omitempty"`
-	ArchivedAt        *Timestamp         `json:"archived_at,omitempty"`
-	CreatedAt         Timestamp          `json:"created_at"`
-	CurrentConfigId   *AgentConfigID     `json:"current_config_id,omitempty"`
-	Id                AgentID            `json:"id"`
+	// Activity Current activity, present on list and get responses.
+	Activity       *AgentActivity  `json:"activity,omitempty"`
+	AgentProfileId *AgentProfileID `json:"agent_profile_id,omitempty"`
+	ArchivedAt     *Timestamp      `json:"archived_at,omitempty"`
+	CreatedAt      Timestamp       `json:"created_at"`
+
+	// CurrentConfigId Agent config ID (acfg_...).
+	CurrentConfigId *AgentConfigID `json:"current_config_id,omitempty"`
+	Id              AgentID        `json:"id"`
+
+	// IntegrationTarget Selected question/approval destination. Automatic mode updates it when content inputs are admitted. Prompts use it only while the integration and handler remain eligible. It is not launch provenance or permission to post.
 	IntegrationTarget *IntegrationTarget `json:"integration_target,omitempty"`
 	Model             *AgentModel        `json:"model,omitempty"`
 
@@ -2376,13 +2860,18 @@ type Agent struct {
 	OrgId OrganizationID `json:"org_id"`
 
 	// ParentAgentId Set when this agent is a subagent spawned by another agent.
-	ParentAgentId *AgentID   `json:"parent_agent_id,omitempty"`
-	ProjectId     ProjectID  `json:"project_id"`
-	State         AgentState `json:"state"`
+	ParentAgentId *AgentID `json:"parent_agent_id,omitempty"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID  `json:"project_id"`
+	State     AgentState `json:"state"`
 
 	// SubagentKey The `subagents` key this agent was spawned from.
 	SubagentKey *string   `json:"subagent_key,omitempty"`
 	UpdatedAt   Timestamp `json:"updated_at"`
+
+	// Usage All-time model usage by the agent and its subagents. Present when the list was requested with `include_usage`.
+	Usage *UsageTotals `json:"usage,omitempty"`
 }
 
 // AgentState defines model for Agent.State.
@@ -2393,29 +2882,111 @@ type AgentActivity struct {
 	// LastActivityAt When the agent's latest event was recorded, or its creation time before any event.
 	LastActivityAt Timestamp `json:"last_activity_at"`
 
-	// State running while the agent has work in progress, waiting_on_interaction while it has an open question or permission request, idle otherwise, and archived once the agent is archived.
+	// OpenInteractions The agent's open questions and permission requests.
+	OpenInteractions AgentOpenInteractions `json:"open_interactions"`
+
+	// RunningProcesses Commands the agent left running that will send it a message when they end. process_ids lists the first 20, oldest first.
+	RunningProcesses AgentRunningProcesses `json:"running_processes"`
+
+	// State running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived. Running processes and working subagents do not change it; see running_processes and working_subagents.
 	State AgentActivityState `json:"state"`
+
+	// WorkingSubagents Active subagents that are still working, including through their own subagents or processes. agent_ids lists the first 20, oldest first.
+	WorkingSubagents AgentWorkingSubagents `json:"working_subagents"`
 }
 
-// AgentActivityState running while the agent has work in progress, waiting_on_interaction while it has an open question or permission request, idle otherwise, and archived once the agent is archived.
+// AgentActivityState running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived. Running processes and working subagents do not change it; see running_processes and working_subagents.
 type AgentActivityState string
 
 // AgentConfig defines model for AgentConfig.
 type AgentConfig struct {
-	CompilerVersion         *string                  `json:"compiler_version,omitempty"`
-	CreatedAt               Timestamp                `json:"created_at"`
-	EffectiveDefinitionHash string                   `json:"effective_definition_hash"`
-	Id                      AgentConfigID            `json:"id"`
-	InstructionHash         *string                  `json:"instruction_hash,omitempty"`
-	Model                   AgentConfigModel         `json:"model"`
-	OrgId                   OrganizationID           `json:"org_id"`
-	ProjectId               ProjectID                `json:"project_id"`
-	Source                  *string                  `json:"source,omitempty"`
-	SourceFormat            *AgentConfigSourceFormat `json:"source_format,omitempty"`
+	// CompiledDefinition Read-only saved compiled configuration, including default tools and derived subagent overrides.
+	CompiledDefinition      CompiledAgentConfig `json:"compiled_definition"`
+	CreatedAt               Timestamp           `json:"created_at"`
+	EffectiveDefinitionHash string              `json:"effective_definition_hash"`
+
+	// Id Agent config ID (acfg_...).
+	Id              AgentConfigID    `json:"id"`
+	InstructionHash *string          `json:"instruction_hash,omitempty"`
+	Model           AgentConfigModel `json:"model"`
+	OrgId           OrganizationID   `json:"org_id"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+
+	// Source Saved source text, exactly as sent.
+	Source       *string                  `json:"source,omitempty"`
+	SourceFormat *AgentConfigSourceFormat `json:"source_format,omitempty"`
 }
 
 // AgentConfigSourceFormat defines model for AgentConfig.SourceFormat.
 type AgentConfigSourceFormat string
+
+// AgentConfigDefinition An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.
+type AgentConfigDefinition = json.RawMessage
+
+// AgentConfigDefinitionGitCredentials Integration whose git credentials the agent's machines use.
+type AgentConfigDefinitionGitCredentials = json.RawMessage
+
+// AgentConfigDefinitionInteractionHandler Enables an integration's interaction handler. Takes no settings.
+type AgentConfigDefinitionInteractionHandler = agentconfig.AgentConfigIntegrationCapabilitySource
+
+// AgentConfigDefinitionInteractionHandlers Interaction handlers keyed by integration name.
+type AgentConfigDefinitionInteractionHandlers = json.RawMessage
+
+// AgentConfigDefinitionMCPAuth defines model for AgentConfigDefinitionMCPAuth.
+type AgentConfigDefinitionMCPAuth = json.RawMessage
+
+// AgentConfigDefinitionMCPServer defines model for AgentConfigDefinitionMCPServer.
+type AgentConfigDefinitionMCPServer = json.RawMessage
+
+// AgentConfigDefinitionMCPServers defines model for AgentConfigDefinitionMCPServers.
+type AgentConfigDefinitionMCPServers = json.RawMessage
+
+// AgentConfigDefinitionMCPTool defines model for AgentConfigDefinitionMCPTool.
+type AgentConfigDefinitionMCPTool = json.RawMessage
+
+// AgentConfigDefinitionMachineSource defines model for AgentConfigDefinitionMachineSource.
+type AgentConfigDefinitionMachineSource = json.RawMessage
+
+// AgentConfigDefinitionMachineSources defines model for AgentConfigDefinitionMachineSources.
+type AgentConfigDefinitionMachineSources = json.RawMessage
+
+// AgentConfigDefinitionMemoryStore defines model for AgentConfigDefinitionMemoryStore.
+type AgentConfigDefinitionMemoryStore = json.RawMessage
+
+// AgentConfigDefinitionMemoryStores defines model for AgentConfigDefinitionMemoryStores.
+type AgentConfigDefinitionMemoryStores = json.RawMessage
+
+// AgentConfigDefinitionModel defines model for AgentConfigDefinitionModel.
+type AgentConfigDefinitionModel = json.RawMessage
+
+// AgentConfigDefinitionSkills defines model for AgentConfigDefinitionSkills.
+type AgentConfigDefinitionSkills = json.RawMessage
+
+// AgentConfigDefinitionSubagent defines model for AgentConfigDefinitionSubagent.
+type AgentConfigDefinitionSubagent = json.RawMessage
+
+// AgentConfigDefinitionSubagentInstruction defines model for AgentConfigDefinitionSubagentInstruction.
+type AgentConfigDefinitionSubagentInstruction = json.RawMessage
+
+// AgentConfigDefinitionSubagentModel defines model for AgentConfigDefinitionSubagentModel.
+type AgentConfigDefinitionSubagentModel = json.RawMessage
+
+// AgentConfigDefinitionSubagents defines model for AgentConfigDefinitionSubagents.
+type AgentConfigDefinitionSubagents = json.RawMessage
+
+// AgentConfigDefinitionTool defines model for AgentConfigDefinitionTool.
+type AgentConfigDefinitionTool = agentconfig.AgentConfigToolSource
+
+// AgentConfigDefinitionToolInputSchema A JSON Schema for the tool's input. Keywords beyond those listed, such as additionalProperties or description, are allowed.
+type AgentConfigDefinitionToolInputSchema = json.RawMessage
+
+// AgentConfigDefinitionToolPermission defines model for AgentConfigDefinitionToolPermission.
+type AgentConfigDefinitionToolPermission = json.RawMessage
+
+// AgentConfigDefinitionTools defines model for AgentConfigDefinitionTools.
+type AgentConfigDefinitionTools = json.RawMessage
 
 // AgentConfigErrorIssue defines model for AgentConfigErrorIssue.
 type AgentConfigErrorIssue struct {
@@ -2432,16 +3003,22 @@ type AgentConfigErrorIssue struct {
 	Path string `json:"path"`
 }
 
-// AgentConfigID defines model for AgentConfigID.
+// AgentConfigGeneratedSource defines model for AgentConfigGeneratedSource.
+type AgentConfigGeneratedSource struct {
+	Source string `json:"source"`
+}
+
+// AgentConfigID Agent config ID (acfg_...).
 type AgentConfigID = string
 
 // AgentConfigModel defines model for AgentConfigModel.
 type AgentConfigModel struct {
+	// ApiFormat Wire protocol the model endpoint speaks: openai-responses, openai-chat-completions, or anthropic-messages.
 	ApiFormat         ModelAPIFormat                  `json:"api_format"`
 	ApiVariant        ModelProviderAPIVariantResponse `json:"api_variant"`
 	ConfiguredModelId ConfiguredModelID               `json:"configured_model_id"`
 
-	// ContextWindowTokens Effective token window after configured-model, project-grant, and agent-config settings are applied.
+	// ContextWindowTokens Effective context budget for input and output tokens after model, project, and agent settings are applied. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
 	ContextWindowTokens int                       `json:"context_window_tokens"`
 	CurrentRevisionId   ConfiguredModelRevisionID `json:"current_revision_id"`
 
@@ -2469,6 +3046,32 @@ type AgentConfigModel struct {
 	SupportsReasoning         bool     `json:"supports_reasoning"`
 	SupportsTools             bool     `json:"supports_tools"`
 }
+
+// AgentConfigSourceInput Agent config source as YAML or JSON text, or, with source_format json, as a JSON object.
+type AgentConfigSourceInput = json.RawMessage
+
+// AgentConfigSummary defines model for AgentConfigSummary.
+type AgentConfigSummary struct {
+	CreatedAt               Timestamp `json:"created_at"`
+	EffectiveDefinitionHash string    `json:"effective_definition_hash"`
+
+	// Id Agent config ID (acfg_...).
+	Id              AgentConfigID    `json:"id"`
+	InstructionHash *string          `json:"instruction_hash,omitempty"`
+	Model           AgentConfigModel `json:"model"`
+	OrgId           OrganizationID   `json:"org_id"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId    ProjectID                       `json:"project_id"`
+	Source       *string                         `json:"source,omitempty"`
+	SourceFormat *AgentConfigSummarySourceFormat `json:"source_format,omitempty"`
+}
+
+// AgentConfigSummarySourceFormat defines model for AgentConfigSummary.SourceFormat.
+type AgentConfigSummarySourceFormat string
+
+// AgentConfigToolsDefinition The parts of an agent config definition that determine its effective tools. Other fields are ignored.
+type AgentConfigToolsDefinition = json.RawMessage
 
 // AgentControlType defines model for AgentControlType.
 type AgentControlType string
@@ -2500,6 +3103,15 @@ type AgentEventID = string
 type AgentEventStreamData struct {
 	union json.RawMessage
 }
+
+// AgentEventWebhookScope Watches only this agent, not its descendants.
+type AgentEventWebhookScope struct {
+	AgentId AgentID                    `json:"agent_id"`
+	Type    AgentEventWebhookScopeType `json:"type"`
+}
+
+// AgentEventWebhookScopeType defines model for AgentEventWebhookScope.Type.
+type AgentEventWebhookScopeType string
 
 // AgentID defines model for AgentID.
 type AgentID = string
@@ -2558,7 +3170,9 @@ type AgentInputEvent struct {
 	InteractionId  *AgentInteractionID `json:"interaction_id,omitempty"`
 	IsOpeningEvent bool                `json:"is_opening_event"`
 	OrgId          OrganizationID      `json:"org_id"`
-	ProjectId      ProjectID           `json:"project_id"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
 
 	// Sequence Positive per-agent event, turn, or live-frame sequence.
 	Sequence AgentSequence `json:"sequence"`
@@ -2582,17 +3196,25 @@ type AgentInteraction struct {
 	AgentId AgentID `json:"agent_id"`
 
 	// AgentName Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
-	AgentName       *AgentName             `json:"agent_name,omitempty"`
-	CreatedAt       Timestamp              `json:"created_at"`
-	Id              AgentInteractionID     `json:"id"`
-	InteractionKind AgentInteractionKind   `json:"interaction_kind"`
-	OrgId           OrganizationID         `json:"org_id"`
-	ProjectId       ProjectID              `json:"project_id"`
-	Request         InteractionForm        `json:"request"`
-	Resolution      *InteractionResolution `json:"resolution,omitempty"`
-	ResolvedAt      *Timestamp             `json:"resolved_at,omitempty"`
+	AgentName *AgentName `json:"agent_name,omitempty"`
+	CreatedAt Timestamp  `json:"created_at"`
 
-	// ResolvedByInputId The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on system resolutions such as prompt delivery failure. The input's actor_id attributes the resolution.
+	// Destination Captured built-in integration destination. Absent for dashboard-only or older interactions; never reconstructed from the current agent selection.
+	Destination     *AgentInteractionDestination `json:"destination,omitempty"`
+	Id              AgentInteractionID           `json:"id"`
+	InteractionKind AgentInteractionKind         `json:"interaction_kind"`
+	OrgId           OrganizationID               `json:"org_id"`
+
+	// PresentationReceipt Confirmed provider presentation metadata, when recorded. This is not an execution grant or a delivery guarantee. Absence does not prove a remote send failed. Customer-hosted presenters maintain their own delivery records.
+	PresentationReceipt *InteractionPresentationReceipt `json:"presentation_receipt,omitempty"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId  ProjectID              `json:"project_id"`
+	Request    InteractionForm        `json:"request"`
+	Resolution *InteractionResolution `json:"resolution,omitempty"`
+	ResolvedAt *Timestamp             `json:"resolved_at,omitempty"`
+
+	// ResolvedByInputId The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on resolutions without an attributed input. The input's actor_id attributes the resolution.
 	ResolvedByInputId *AgentInputID         `json:"resolved_by_input_id,omitempty"`
 	State             AgentInteractionState `json:"state"`
 
@@ -2606,6 +3228,18 @@ type AgentInteraction struct {
 	ToolName *string `json:"tool_name,omitempty"`
 }
 
+// AgentInteractionDestination Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current integration and handler authority. Dashboard/API resolution remains available independently.
+type AgentInteractionDestination struct {
+	// Conversation One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+	Conversation  IntegrationConversation `json:"conversation"`
+	HandlerKey    string                  `json:"handler_key"`
+	IntegrationId IntegrationID           `json:"integration_id"`
+
+	// IntegrationKind Registered integration implementation; independent of the saved integration's name and immutable ID.
+	IntegrationKind     IntegrationKind     `json:"integration_kind"`
+	IntegrationTargetId IntegrationTargetID `json:"integration_target_id"`
+}
+
 // AgentInteractionID defines model for AgentInteractionID.
 type AgentInteractionID = string
 
@@ -2614,6 +3248,20 @@ type AgentInteractionKind string
 
 // AgentInteractionState defines model for AgentInteractionState.
 type AgentInteractionState string
+
+// AgentInteractionUpdate defines model for AgentInteractionUpdate.
+type AgentInteractionUpdate struct {
+	Id              AgentInteractionID    `json:"id"`
+	InteractionKind AgentInteractionKind  `json:"interaction_kind"`
+	State           AgentInteractionState `json:"state"`
+}
+
+// AgentLaunchInitialInput Initial queued text input, committed atomically with the agent and any derived config. Mutually exclusive with message. Initial inline media is not supported; upload it through the agent input endpoint after launch.
+type AgentLaunchInitialInput struct {
+	// Actor Optional external actor for API key authentication. User-authenticated requests must omit this field. Without it, the authenticated user or API key is the actor.
+	Actor         *ExternalActorParams `json:"actor,omitempty"`
+	ContentBlocks []TextContentBlock   `json:"content_blocks"`
+}
 
 // AgentMCPConnection defines model for AgentMCPConnection.
 type AgentMCPConnection struct {
@@ -2640,8 +3288,12 @@ type AgentMachineBinding struct {
 	// EnvOverlay Env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
 	EnvOverlay map[string]*string    `json:"env_overlay"`
 	Id         AgentMachineBindingID `json:"id"`
-	MachineId  MachineID             `json:"machine_id"`
-	ProjectId  ProjectID             `json:"project_id"`
+
+	// MachineId Machine ID (mch_...).
+	MachineId MachineID `json:"machine_id"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
 
 	// SecretEnvOverlay Secret env overlay applied to processes launched through this binding. For pool bindings it is also applied to the machine environment when the pool machine is provisioned, so the provider_options startup_script and the daemon run with it; connected machines keep their own environment. A null entry removes the key.
 	SecretEnvOverlay map[string]*SecretID     `json:"secret_env_overlay"`
@@ -2670,19 +3322,29 @@ type AgentModel struct {
 // AgentName Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
 type AgentName = string
 
+// AgentOpenInteractions The agent's open questions and permission requests.
+type AgentOpenInteractions struct {
+	PermissionRequestCount int `json:"permission_request_count"`
+	QuestionCount          int `json:"question_count"`
+}
+
 // AgentProfile defines model for AgentProfile.
 type AgentProfile struct {
-	CreatedAt         Timestamp      `json:"created_at"`
-	CurrentConfig     AgentConfig    `json:"current_config"`
+	CreatedAt     Timestamp   `json:"created_at"`
+	CurrentConfig AgentConfig `json:"current_config"`
+
+	// CurrentConfigId Agent config ID (acfg_...).
 	CurrentConfigId   AgentConfigID  `json:"current_config_id"`
 	CurrentGeneration int32          `json:"current_generation"`
 	Id                AgentProfileID `json:"id"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-	Name      ResourceName   `json:"name"`
-	OrgId     OrganizationID `json:"org_id"`
-	ProjectId ProjectID      `json:"project_id"`
-	UpdatedAt Timestamp      `json:"updated_at"`
+	Name  ResourceName   `json:"name"`
+	OrgId OrganizationID `json:"org_id"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+	UpdatedAt Timestamp `json:"updated_at"`
 }
 
 // AgentProfileCronTriggerTarget defines model for AgentProfileCronTriggerTarget.
@@ -2694,8 +3356,54 @@ type AgentProfileCronTriggerTarget struct {
 // AgentProfileCronTriggerTargetType defines model for AgentProfileCronTriggerTarget.Type.
 type AgentProfileCronTriggerTargetType string
 
+// AgentProfileEventWebhookScope defines model for AgentProfileEventWebhookScope.
+type AgentProfileEventWebhookScope struct {
+	AgentProfileId AgentProfileID                    `json:"agent_profile_id"`
+	Type           AgentProfileEventWebhookScopeType `json:"type"`
+}
+
+// AgentProfileEventWebhookScopeType defines model for AgentProfileEventWebhookScope.Type.
+type AgentProfileEventWebhookScopeType string
+
 // AgentProfileID defines model for AgentProfileID.
 type AgentProfileID = string
+
+// AgentProfileStats Present when the list was requested with `include_stats`.
+type AgentProfileStats struct {
+	// AgentCount Unarchived top-level agents launched from the profile.
+	AgentCount int64 `json:"agent_count"`
+
+	// Usage Model usage by the profile's agents and their subagents since `stats_since`.
+	Usage UsageTotals `json:"usage"`
+}
+
+// AgentProfileSummary defines model for AgentProfileSummary.
+type AgentProfileSummary struct {
+	CreatedAt     Timestamp          `json:"created_at"`
+	CurrentConfig AgentConfigSummary `json:"current_config"`
+
+	// CurrentConfigId Agent config ID (acfg_...).
+	CurrentConfigId   AgentConfigID  `json:"current_config_id"`
+	CurrentGeneration int32          `json:"current_generation"`
+	Id                AgentProfileID `json:"id"`
+
+	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
+	Name  ResourceName   `json:"name"`
+	OrgId OrganizationID `json:"org_id"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+
+	// Stats Present when the list was requested with `include_stats`.
+	Stats     *AgentProfileStats `json:"stats,omitempty"`
+	UpdatedAt Timestamp          `json:"updated_at"`
+}
+
+// AgentRunningProcesses Commands the agent left running that will send it a message when they end. process_ids lists the first 20, oldest first.
+type AgentRunningProcesses struct {
+	Count      int         `json:"count"`
+	ProcessIds []ProcessID `json:"process_ids"`
+}
 
 // AgentSequence Positive per-agent event, turn, or live-frame sequence.
 type AgentSequence = int64
@@ -2723,6 +3431,12 @@ type AgentTurn struct {
 // AgentTurnID defines model for AgentTurnID.
 type AgentTurnID = string
 
+// AgentWorkingSubagents Active subagents that are still working, including through their own subagents or processes. agent_ids lists the first 20, oldest first.
+type AgentWorkingSubagents struct {
+	AgentIds []AgentID `json:"agent_ids"`
+	Count    int       `json:"count"`
+}
+
 // Artifact defines model for Artifact.
 type Artifact struct {
 	AgentId     AgentID        `json:"agent_id"`
@@ -2732,8 +3446,10 @@ type Artifact struct {
 	Filename    *string        `json:"filename,omitempty"`
 	Id          ArtifactID     `json:"id"`
 	OrgId       OrganizationID `json:"org_id"`
-	ProjectId   ProjectID      `json:"project_id"`
-	SizeBytes   *int64         `json:"size_bytes,omitempty"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+	SizeBytes *int64    `json:"size_bytes,omitempty"`
 }
 
 // ArtifactID defines model for ArtifactID.
@@ -2742,7 +3458,9 @@ type ArtifactID = string
 // BootstrapDaemonResponse defines model for BootstrapDaemonResponse.
 type BootstrapDaemonResponse struct {
 	InstallationId InstallationID `json:"installation_id"`
-	MachineId      MachineID      `json:"machine_id"`
+
+	// MachineId Machine ID (mch_...).
+	MachineId MachineID `json:"machine_id"`
 }
 
 // CancelAgentRequest defines model for CancelAgentRequest.
@@ -2764,15 +3482,237 @@ type CancelAgentResponse struct {
 	RuntimeCancelRequested bool `json:"runtime_cancel_requested"`
 }
 
+// ChatIntegrationLauncher defines model for ChatIntegrationLauncher.
+type ChatIntegrationLauncher = json.RawMessage
+
+// ChatIntegrationSettings defines model for ChatIntegrationSettings.
+type ChatIntegrationSettings = json.RawMessage
+
+// CheckMachinePoolConnectionRequest defines model for CheckMachinePoolConnectionRequest.
+type CheckMachinePoolConnectionRequest struct {
+	DefaultMachineProviderOptions *map[string]interface{} `json:"default_machine_provider_options,omitempty"`
+	Provider                      string                  `json:"provider"`
+
+	// ProviderAuthSecretId Secret ID (sec_...).
+	ProviderAuthSecretId SecretID                `json:"provider_auth_secret_id"`
+	ProviderConfig       *map[string]interface{} `json:"provider_config,omitempty"`
+}
+
 // ClientErrorCode Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
-type ClientErrorCode string
+type ClientErrorCode = string
+
+// CompiledAgentConfig Read-only saved compiled configuration, including default tools and derived subagent overrides.
+type CompiledAgentConfig struct {
+	// GitCredentials Pinned GitHub integration supplying machine Git credentials, optionally limited to repositories and read-only access.
+	GitCredentials      *CompiledGitCredentials                  `json:"git_credentials,omitempty"`
+	Instruction         string                                   `json:"instruction"`
+	InteractionHandlers map[string]CompiledIntegrationCapability `json:"interaction_handlers,omitempty"`
+	MachineSources      []CompiledMachineSource                  `json:"machine_sources,omitempty"`
+	MaxDepth            *int                                     `json:"max_depth,omitempty"`
+	MaxSubagents        *int                                     `json:"max_subagents,omitempty"`
+	Mcp                 map[string]CompiledMCPServer             `json:"mcp,omitempty"`
+	MemoryStores        []CompiledMemoryStore                    `json:"memory_stores,omitempty"`
+	Model               CompiledAgentModel                       `json:"model"`
+	Skills              []CompiledSkill                          `json:"skills,omitempty"`
+	Subagents           map[string]CompiledSubagent              `json:"subagents,omitempty"`
+	Tools               map[string]CompiledTool                  `json:"tools,omitempty"`
+	Version             string                                   `json:"version,omitempty"`
+}
+
+// CompiledAgentModel defines model for CompiledAgentModel.
+type CompiledAgentModel struct {
+	// CacheRetention Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache, which on Bedrock requires Claude 4.5 or newer) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
+	CacheRetention         ModelCacheRetention     `json:"cache_retention,omitempty"`
+	ConfiguredModelId      publicid.ID             `json:"configured_model_id"`
+	ContextWindowTokens    *int                    `json:"context_window_tokens,omitempty"`
+	DefaultMaxOutputTokens *int                    `json:"default_max_output_tokens,omitempty"`
+	Reasoning              *CompiledModelReasoning `json:"reasoning,omitempty"`
+}
+
+// CompiledGitCredentials Pinned GitHub integration supplying machine Git credentials, optionally limited to repositories and read-only access.
+type CompiledGitCredentials struct {
+	// Integration Immutable, project-unique integration name used in config keys and qualified tool names.
+	Integration   IntegrationName `json:"integration"`
+	IntegrationId publicid.ID     `json:"integration_id"`
+	ReadOnly      bool            `json:"read_only,omitempty"`
+	RepositoryIds []int64         `json:"repository_ids,omitempty"`
+}
+
+// CompiledIntegrationCapability defines model for CompiledIntegrationCapability.
+type CompiledIntegrationCapability struct {
+	IntegrationId publicid.ID `json:"integration_id"`
+}
+
+// CompiledMCPAuth defines model for CompiledMCPAuth.
+type CompiledMCPAuth struct {
+	union json.RawMessage
+}
+
+// CompiledMCPAuthBearer defines model for CompiledMCPAuthBearer.
+type CompiledMCPAuthBearer struct {
+	// SecretId Secret ID (sec_...).
+	SecretId publicid.ID               `json:"secret_id"`
+	Type     CompiledMCPAuthBearerType `json:"type"`
+}
+
+// CompiledMCPAuthBearerType defines model for CompiledMCPAuthBearer.Type.
+type CompiledMCPAuthBearerType string
+
+// CompiledMCPAuthOAuth defines model for CompiledMCPAuthOAuth.
+type CompiledMCPAuthOAuth struct {
+	// SecretId Secret ID (sec_...).
+	SecretId publicid.ID              `json:"secret_id"`
+	Type     CompiledMCPAuthOAuthType `json:"type"`
+}
+
+// CompiledMCPAuthOAuthType defines model for CompiledMCPAuthOAuth.Type.
+type CompiledMCPAuthOAuthType string
+
+// CompiledMCPAuthSigV4 defines model for CompiledMCPAuthSigV4.
+type CompiledMCPAuthSigV4 struct {
+	Region string `json:"region"`
+
+	// SecretId Secret ID (sec_...).
+	SecretId publicid.ID              `json:"secret_id"`
+	Service  string                   `json:"service"`
+	Type     CompiledMCPAuthSigV4Type `json:"type"`
+}
+
+// CompiledMCPAuthSigV4Type defines model for CompiledMCPAuthSigV4.Type.
+type CompiledMCPAuthSigV4Type string
+
+// CompiledMCPServer defines model for CompiledMCPServer.
+type CompiledMCPServer struct {
+	Auth           *CompiledMCPAuth           `json:"auth,omitempty"`
+	DefaultEnabled bool                       `json:"default_enabled"`
+	Deferred       bool                       `json:"deferred,omitempty"`
+	Permission     toolpermission.Selection   `json:"permission"`
+	Tools          map[string]CompiledMCPTool `json:"tools,omitempty"`
+	Url            string                     `json:"url"`
+}
+
+// CompiledMCPTool defines model for CompiledMCPTool.
+type CompiledMCPTool struct {
+	Deferred   *bool                     `json:"deferred,omitempty"`
+	Enabled    *bool                     `json:"enabled,omitempty"`
+	Permission *toolpermission.Selection `json:"permission,omitempty"`
+}
+
+// CompiledMachineSource defines model for CompiledMachineSource.
+type CompiledMachineSource struct {
+	Cwd                    string             `json:"cwd,omitempty"`
+	DeleteAfterIdleMinutes *int               `json:"delete_after_idle_minutes,omitempty"`
+	Description            string             `json:"description,omitempty"`
+	EnvOverlay             map[string]*string `json:"env_overlay,omitempty"`
+	InitialNumMachines     int                `json:"initial_num_machines,omitempty"`
+	MachineCpu             *int               `json:"machine_cpu,omitempty"`
+
+	// MachineId Machine ID (mch_...).
+	MachineId       publicid.ID `json:"machine_id,omitempty"`
+	MachineMemoryMb *int        `json:"machine_memory_mb,omitempty"`
+
+	// MachinePoolId Machine pool ID (mpo_...).
+	MachinePoolId                 publicid.ID                `json:"machine_pool_id,omitempty"`
+	MachineProviderOptionsOverlay map[string]json.RawMessage `json:"machine_provider_options_overlay,omitempty"`
+	MaxMachines                   int                        `json:"max_machines,omitempty"`
+	SecretEnvOverlay              map[string]*publicid.ID    `json:"secret_env_overlay,omitempty"`
+}
+
+// CompiledMemoryStore defines model for CompiledMemoryStore.
+type CompiledMemoryStore struct {
+	Access MemoryStoreAccess `json:"access"`
+	Id     publicid.ID       `json:"id"`
+}
+
+// CompiledModelReasoning defines model for CompiledModelReasoning.
+type CompiledModelReasoning struct {
+	Effort string `json:"effort"`
+}
+
+// CompiledProfileSubagent defines model for CompiledProfileSubagent.
+type CompiledProfileSubagent struct {
+	ArchiveAfterIdleMinutes *int                        `json:"archive_after_idle_minutes,omitempty"`
+	Description             string                      `json:"description,omitempty"`
+	InstructionAppend       string                      `json:"instruction_append,omitempty"`
+	MaxInstances            *int                        `json:"max_instances,omitempty"`
+	Model                   *CompiledSubagentModel      `json:"model,omitempty"`
+	ProfileId               publicid.ID                 `json:"profile_id"`
+	Type                    CompiledProfileSubagentType `json:"type"`
+}
+
+// CompiledProfileSubagentType defines model for CompiledProfileSubagent.Type.
+type CompiledProfileSubagentType string
+
+// CompiledSelfSubagent defines model for CompiledSelfSubagent.
+type CompiledSelfSubagent struct {
+	ArchiveAfterIdleMinutes *int                     `json:"archive_after_idle_minutes,omitempty"`
+	Description             string                   `json:"description,omitempty"`
+	InstructionAppend       string                   `json:"instruction_append,omitempty"`
+	MaxInstances            *int                     `json:"max_instances,omitempty"`
+	Model                   *CompiledSubagentModel   `json:"model,omitempty"`
+	Type                    CompiledSelfSubagentType `json:"type"`
+}
+
+// CompiledSelfSubagentType defines model for CompiledSelfSubagent.Type.
+type CompiledSelfSubagentType string
+
+// CompiledSkill defines model for CompiledSkill.
+type CompiledSkill struct {
+	Id publicid.ID `json:"id"`
+}
+
+// CompiledSubagent defines model for CompiledSubagent.
+type CompiledSubagent struct {
+	union json.RawMessage
+}
+
+// CompiledSubagentModel defines model for CompiledSubagentModel.
+type CompiledSubagentModel struct {
+	// CacheRetention Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache, which on Bedrock requires Claude 4.5 or newer) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
+	CacheRetention         ModelCacheRetention     `json:"cache_retention,omitempty"`
+	ConfiguredModelId      publicid.ID             `json:"configured_model_id,omitempty"`
+	ContextWindowTokens    *int                    `json:"context_window_tokens,omitempty"`
+	DefaultMaxOutputTokens *int                    `json:"default_max_output_tokens,omitempty"`
+	Reasoning              *CompiledModelReasoning `json:"reasoning,omitempty"`
+}
+
+// CompiledTool defines model for CompiledTool.
+type CompiledTool struct {
+	Deferred      bool                     `json:"deferred,omitempty"`
+	Description   string                   `json:"description,omitempty"`
+	Enabled       bool                     `json:"enabled"`
+	InputSchema   json.RawMessage          `json:"input_schema,omitempty"`
+	IntegrationId publicid.ID              `json:"integration_id,omitempty"`
+	Permission    toolpermission.Selection `json:"permission"`
+	Type          CompiledToolType         `json:"type,omitempty"`
+}
+
+// CompiledToolType defines model for CompiledTool.Type.
+type CompiledToolType string
+
+// ConfigureIntegrationRequest Verifies credentials for this saved integration. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant is the Application ID; its generic secret contains the bot token, from which the bot User ID is discovered automatically. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
+type ConfigureIntegrationRequest struct {
+	// CredentialSecretId Secret ID (sec_...).
+	CredentialSecretId    SecretID `json:"credential_secret_id"`
+	ExpectedSetupRevision int64    `json:"expected_setup_revision"`
+
+	// ProviderAccountRef Required GitHub Installation ID. Optional for Discord; an explicitly supplied bot User ID must match the token.
+	ProviderAccountRef *string `json:"provider_account_ref,omitempty"`
+
+	// ProviderAgentDisplayName Optional display label. Discord credential verification defaults to the bot's current name when omitted; cached settings saves preserve the saved label.
+	ProviderAgentDisplayName *IntegrationProviderDisplayName `json:"provider_agent_display_name,omitempty"`
+
+	// ProviderConfig Omit to preserve current provider settings. A supplied object replaces them; include every setting you intend to retain.
+	ProviderConfig   *IntegrationProviderConfig `json:"provider_config,omitempty"`
+	ProviderTenantId string                     `json:"provider_tenant_id"`
+}
 
 // ConfiguredModel defines model for ConfiguredModel.
 type ConfiguredModel struct {
 	// ApiVariantOptions Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters. Omnara-managed OpenRouter providers accept only sampling, reasoning, and per-model routing options here.
 	ApiVariantOptions ModelAPIVariantOptions `json:"api_variant_options"`
 
-	// ContextWindowTokens Total token window for this model, including input and output.
+	// ContextWindowTokens Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
 	ContextWindowTokens int                       `json:"context_window_tokens"`
 	CreatedAt           Timestamp                 `json:"created_at"`
 	CurrentRevisionId   ConfiguredModelRevisionID `json:"current_revision_id"`
@@ -2851,17 +3791,26 @@ type ConfiguredModelSummary struct {
 
 // ConnectBYOMachineRequest defines model for ConnectBYOMachineRequest.
 type ConnectBYOMachineRequest struct {
-	Cwd         *string `json:"cwd,omitempty"`
+	// Cwd Default working directory for processes started on the machine.
+	Cwd *string `json:"cwd,omitempty"`
+
+	// Description Optional description of the machine.
 	Description *string `json:"description,omitempty"`
 
 	// DisplayName Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-	DisplayName ResourceName       `json:"display_name"`
-	Env         *map[string]string `json:"env,omitempty"`
+	DisplayName ResourceName `json:"display_name"`
+
+	// Env Environment variables set for processes started on the machine.
+	Env *map[string]string `json:"env,omitempty"`
 
 	// Metadata User-supplied metadata stored on a machine, provided directly or copied from the machine pool that provisions it. A restriction of Metadata that leaves room for one reserved pair - Omnara sets observed_platform on the machine to the platform reported by its daemon, so the key is reserved and at most 15 user pairs are accepted.
-	Metadata   MachineMetadata      `json:"metadata,omitempty"`
-	ProjectIds *[]ProjectID         `json:"project_ids,omitempty"`
-	SecretEnv  *map[string]SecretID `json:"secret_env,omitempty"`
+	Metadata MachineMetadata `json:"metadata,omitempty"`
+
+	// ProjectIds Projects to grant the machine to in the same call (up to 100).
+	ProjectIds *[]ProjectID `json:"project_ids,omitempty"`
+
+	// SecretEnv Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
+	SecretEnv *map[string]SecretID `json:"secret_env,omitempty"`
 
 	// TokenName Optional daemon token name. Omitted values default to daemon.
 	TokenName *ResourceName `json:"token_name,omitempty"`
@@ -2889,7 +3838,9 @@ type ContextCheckpointEvent struct {
 	Id                  AgentEventID                         `json:"id"`
 	IsOpeningEvent      ContextCheckpointEventIsOpeningEvent `json:"is_opening_event"`
 	OrgId               OrganizationID                       `json:"org_id"`
-	ProjectId           ProjectID                            `json:"project_id"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
 
 	// Sequence Positive per-agent event, turn, or live-frame sequence.
 	Sequence AgentSequence `json:"sequence"`
@@ -2912,13 +3863,16 @@ type ContextCheckpointEventIsOpeningEvent bool
 // ContextCheckpointID defines model for ContextCheckpointID.
 type ContextCheckpointID = string
 
-// CreateAgentConfigRequest defines model for CreateAgentConfigRequest.
+// CreateAgentConfigRequest An agent config to compile. The source, YAML or JSON, as text or as a JSON object, is stored exactly as sent, so comments and formatting survive. Configs whose sources compile to the same definition share it, however their sources are formatted.
 type CreateAgentConfigRequest struct {
-	Source       string                               `json:"source"`
+	// Source Agent config source as YAML or JSON text, or, with source_format json, as a JSON object.
+	Source AgentConfigSourceInput `json:"source"`
+
+	// SourceFormat Format of source: yaml or json.
 	SourceFormat CreateAgentConfigRequestSourceFormat `json:"source_format"`
 }
 
-// CreateAgentConfigRequestSourceFormat defines model for CreateAgentConfigRequest.SourceFormat.
+// CreateAgentConfigRequestSourceFormat Format of source: yaml or json.
 type CreateAgentConfigRequestSourceFormat string
 
 // CreateAgentInputContentBlock defines model for CreateAgentInputContentBlock.
@@ -2944,20 +3898,57 @@ type CreateAgentInputRequest struct {
 
 // CreateAgentProfileRequest defines model for CreateAgentProfileRequest.
 type CreateAgentProfileRequest struct {
+	// Config Agent config ID (acfg_...).
 	Config AgentConfigID `json:"config"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
 	Name ResourceName `json:"name"`
 }
 
-// CreateAgentRequest defines model for CreateAgentRequest.
+// CreateAgentRequest Send at least one of profile, config, or config_source, and not both config and config_source. With only profile, the agent runs the profile's current config. With profile and config or config_source, the agent is attributed to the profile but runs the given config, which need not be one of the profile's versions. config_source is compiled and saved as a new config during the launch.
 type CreateAgentRequest struct {
-	Config  AgentConfigID `json:"config"`
-	Message *string       `json:"message,omitempty"`
+	// Config Agent config ID (acfg_...).
+	Config *AgentConfigID `json:"config,omitempty"`
+
+	// ConfigSource An agent config to compile. The source, YAML or JSON, as text or as a JSON object, is stored exactly as sent, so comments and formatting survive. Configs whose sources compile to the same definition share it, however their sources are formatted.
+	ConfigSource *CreateAgentConfigRequest `json:"config_source,omitempty"`
+
+	// InitialInput Initial queued text input, committed atomically with the agent and any derived config. Mutually exclusive with message. Initial inline media is not supported; upload it through the agent input endpoint after launch.
+	InitialInput *AgentLaunchInitialInput `json:"initial_input,omitempty"`
+
+	// InteractionHandlers Additional integration interaction handlers, keyed by immutable integration name with empty object values. Slack and Discord handlers require an assigned conversation and accept empty runtime args. Adding a handler does not assign a conversation. Existing entries win unchanged. Requires project management permission.
+	InteractionHandlers *map[string]AgentConfigDefinitionInteractionHandler `json:"interaction_handlers,omitempty"`
+
+	// Message Optional initial text message. Mutually exclusive with initial_input.
+	Message *string `json:"message,omitempty"`
 
 	// Name Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
 	Name    *AgentName      `json:"name,omitempty"`
 	Profile *AgentProfileID `json:"profile,omitempty"`
+
+	// Subscriptions Integration-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
+	Subscriptions *[]IntegrationSubscriptionAttachment `json:"subscriptions,omitempty"`
+
+	// Tools Additional integration tool entries (int__<integration-name>__<operation>) and optional list_interaction_handlers or set_interaction_handler tools for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
+	Tools *map[string]AgentConfigDefinitionTool `json:"tools,omitempty"`
+	union json.RawMessage
+}
+
+// CreateAgentRequest0 defines model for CreateAgentRequest.0.
+type CreateAgentRequest0 struct {
+	Profile AgentProfileID `json:"profile"`
+}
+
+// CreateAgentRequest1 defines model for CreateAgentRequest.1.
+type CreateAgentRequest1 struct {
+	// Config Agent config ID (acfg_...).
+	Config AgentConfigID `json:"config"`
+}
+
+// CreateAgentRequest2 defines model for CreateAgentRequest.2.
+type CreateAgentRequest2 struct {
+	// ConfigSource An agent config to compile. The source, YAML or JSON, as text or as a JSON object, is stored exactly as sent, so comments and formatting survive. Configs whose sources compile to the same definition share it, however their sources are formatted.
+	ConfigSource CreateAgentConfigRequest `json:"config_source"`
 }
 
 // CreateConfiguredModelRequest defines model for CreateConfiguredModelRequest.
@@ -2965,7 +3956,7 @@ type CreateConfiguredModelRequest struct {
 	// ApiVariantOptions Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters. Omnara-managed OpenRouter providers accept only sampling, reasoning, and per-model routing options here.
 	ApiVariantOptions ModelAPIVariantOptions `json:"api_variant_options,omitempty"`
 
-	// ContextWindowTokens Total token window for this model, including input and output.
+	// ContextWindowTokens Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
 	ContextWindowTokens int `json:"context_window_tokens"`
 
 	// DefaultCacheRetention Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache, which on Bedrock requires Claude 4.5 or newer) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
@@ -3005,27 +3996,72 @@ type CreateConfiguredModelRequest struct {
 // CreateCronTriggerRequest defines model for CreateCronTriggerRequest.
 type CreateCronTriggerRequest struct {
 	// Cron Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
-	Cron    CronExpression `json:"cron"`
-	Enabled *bool          `json:"enabled,omitempty"`
+	Cron CronExpression `json:"cron"`
 
-	// MessageTemplate Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
-	MessageTemplate CronMessageTemplate `json:"message_template"`
+	// Enabled Whether the trigger fires on schedule; false pauses it.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// MessageTemplate Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. Required for agent and profile targets; omitted for integration targets, which use their own settings. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+	MessageTemplate *CronMessageTemplate `json:"message_template,omitempty"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-	Name   ResourceName      `json:"name"`
+	Name ResourceName `json:"name"`
+
+	// Target What each firing does: type agent sends the message to an existing agent, type profile launches a new agent from a profile, and type integration hands the firing to an integration, such as a new Slack or Discord thread.
 	Target CronTriggerTarget `json:"target"`
 
 	// Timezone IANA time zone the schedule is evaluated in.
 	Timezone *CronTimezone `json:"timezone,omitempty"`
 }
 
+// CreateEventWebhookRequest defines model for CreateEventWebhookRequest.
+type CreateEventWebhookRequest struct {
+	EventTypes []EventWebhookEventType `json:"event_types"`
+	Scope      EventWebhookScope       `json:"scope"`
+
+	// SigningSecretId Optional project-available generic secret.
+	SigningSecretId *SecretID `json:"signing_secret_id,omitempty"`
+
+	// Url Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+	Url string `json:"url"`
+}
+
+// CreateGitHubSetupRequest defines model for CreateGitHubSetupRequest.
+type CreateGitHubSetupRequest struct {
+	// AppName Optional initial GitHub App name suggestion. When omitted, the user chooses a name on GitHub during registration.
+	AppName               *string `json:"app_name,omitempty"`
+	ExpectedSetupRevision int64   `json:"expected_setup_revision"`
+
+	// Organization GitHub organization login. Omit to register under a personal account.
+	Organization *string `json:"organization,omitempty"`
+}
+
 // CreateIntegrationOAuthSetupRequest defines model for CreateIntegrationOAuthSetupRequest.
 type CreateIntegrationOAuthSetupRequest struct {
 	ClientId      string  `json:"client_id"`
 	ClientSecret  string  `json:"client_secret"`
-	Provider      *string `json:"provider,omitempty"`
 	ReturnTo      *string `json:"return_to,omitempty"`
 	SigningSecret string  `json:"signing_secret"`
+}
+
+// CreateIntegrationRequest Creates a disconnected integration. Name and integration_kind are immutable. Configure credentials through this integration's setup endpoints.
+type CreateIntegrationRequest struct {
+	// IntegrationKind Registered integration implementation; independent of the saved integration's name and immutable ID.
+	IntegrationKind IntegrationKind `json:"integration_kind"`
+
+	// Name Immutable, project-unique integration name used in config keys and qualified tool names.
+	Name IntegrationName `json:"name"`
+
+	// Settings Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack and Discord integrations use ChatIntegrationSettings.
+	Settings IntegrationSettings `json:"settings"`
+}
+
+// CreateIntegrationSubscriptionRequest defines model for CreateIntegrationSubscriptionRequest.
+type CreateIntegrationSubscriptionRequest struct {
+	AgentId AgentID `json:"agent_id"`
+
+	// Conversation One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+	Conversation IntegrationConversation `json:"conversation"`
 }
 
 // CreateMachineDaemonTokenRequest defines model for CreateMachineDaemonTokenRequest.
@@ -3044,7 +4080,7 @@ type CreateMachineDaemonTokenResponse struct {
 	TokenRecord MachineDaemonToken `json:"token_record"`
 }
 
-// CreateMachinePoolRequest defines model for CreateMachinePoolRequest.
+// CreateMachinePoolRequest Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
 type CreateMachinePoolRequest = CreateMachinePoolRequestBase
 
 // CreateMachinePoolRequestBase defines model for CreateMachinePoolRequestBase.
@@ -3075,8 +4111,10 @@ type CreateMachinePoolRequestBase struct {
 	MinMachineMemoryMb *int32          `json:"min_machine_memory_mb,omitempty"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-	Name                 ResourceName            `json:"name"`
-	Provider             string                  `json:"provider"`
+	Name     ResourceName `json:"name"`
+	Provider string       `json:"provider"`
+
+	// ProviderAuthSecretId Secret ID (sec_...).
 	ProviderAuthSecretId SecretID                `json:"provider_auth_secret_id"`
 	ProviderConfig       *map[string]interface{} `json:"provider_config,omitempty"`
 
@@ -3098,34 +4136,58 @@ type CreateMachineRequest struct {
 	SecretEnv *map[string]SecretID `json:"secret_env,omitempty"`
 }
 
+// CreateMemoryStore defines model for CreateMemoryStore.
+type CreateMemoryStore struct {
+	AgentAccess *MemoryStoreAccess `json:"agent_access,omitempty"`
+	Description *string            `json:"description,omitempty"`
+
+	// Name Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.
+	Name MemoryStoreName `json:"name"`
+}
+
 // CreateModelProviderConfigRequest Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format.
 type CreateModelProviderConfigRequest struct {
-	ApiFormat  *ModelAPIFormat          `json:"api_format,omitempty"`
+	// ApiFormat Wire protocol the model endpoint speaks: openai-responses, openai-chat-completions, or anthropic-messages.
+	ApiFormat *ModelAPIFormat `json:"api_format,omitempty"`
+
+	// ApiVariant Provider-specific flavor of the API format: default, openrouter, or bedrock.
 	ApiVariant *ModelProviderAPIVariant `json:"api_variant,omitempty"`
-	AuthKind   *ModelProviderAuthKind   `json:"auth_kind,omitempty"`
+
+	// AuthKind How the credential is sent: bearer_token, api_key_header, or sigv4 (AWS).
+	AuthKind *ModelProviderAuthKind `json:"auth_kind,omitempty"`
 
 	// AuthOptions Non-secret authentication settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}; Anthropic Messages defaults to {"header_name":"x-api-key"}. With sigv4, set the AWS signing service and region.
 	AuthOptions json.RawMessage `json:"auth_options,omitempty"`
 
 	// BaseUrl Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
-	BaseUrl            *string  `json:"base_url,omitempty"`
+	BaseUrl *string `json:"base_url,omitempty"`
+
+	// CredentialSecretId Secret ID (sec_...).
 	CredentialSecretId SecretID `json:"credential_secret_id"`
 
 	// EndpointPath URL path under base_url. Defaults to /responses for OpenAI Responses, /chat/completions for Chat Completions, and /messages for Anthropic Messages.
 	EndpointPath *string `json:"endpoint_path,omitempty"`
 
+	// Headers Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens.
+	Headers *map[string]string `json:"headers,omitempty"`
+
 	// IdleTimeoutMs Maximum wait for response headers or the next response bytes, in milliseconds. Heartbeats count as activity. Defaults to 300000 (5 minutes). Local response processing does not consume this idle budget.
 	IdleTimeoutMs *int `json:"idle_timeout_ms,omitempty"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-	Name   ResourceName                            `json:"name"`
+	Name ResourceName `json:"name"`
+
+	// Preset Built-in provider settings: openai, openrouter, or anthropic. A preset fills in api_format, api_variant, base_url, endpoint_path, auth_kind, and auth_options, so omit those when using one.
 	Preset *CreateModelProviderConfigRequestPreset `json:"preset,omitempty"`
 
 	// RequestTimeoutMs Total deadline for one provider attempt, including reasoning and response streaming, in milliseconds. Defaults to 3600000 (60 minutes). Retries have separate deadlines.
 	RequestTimeoutMs *int `json:"request_timeout_ms,omitempty"`
+
+	// SecretHeaders Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references.
+	SecretHeaders *map[string]SecretID `json:"secret_headers,omitempty"`
 }
 
-// CreateModelProviderConfigRequestPreset defines model for CreateModelProviderConfigRequest.Preset.
+// CreateModelProviderConfigRequestPreset Built-in provider settings: openai, openrouter, or anthropic. A preset fills in api_format, api_variant, base_url, endpoint_path, auth_kind, and auth_options, so omit those when using one.
 type CreateModelProviderConfigRequestPreset string
 
 // CreateModelProviderConfigResponse defines model for CreateModelProviderConfigResponse.
@@ -3187,8 +4249,11 @@ type CreatePersonalAccessTokenResponse struct {
 
 // CreateProjectMachineGrantRequest defines model for CreateProjectMachineGrantRequest.
 type CreateProjectMachineGrantRequest struct {
-	Description *string   `json:"description,omitempty"`
-	MachineId   MachineID `json:"machine_id"`
+	// Description Optional note about this grant.
+	Description *string `json:"description,omitempty"`
+
+	// MachineId Machine ID (mch_...).
+	MachineId MachineID `json:"machine_id"`
 
 	// Metadata Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
 	Metadata Metadata `json:"metadata,omitempty"`
@@ -3202,38 +4267,63 @@ type CreateProjectMachineGrantResponse struct {
 
 // CreateProjectMachinePoolGrantRequest defines model for CreateProjectMachinePoolGrantRequest.
 type CreateProjectMachinePoolGrantRequest struct {
-	DefaultCwd        *string `json:"default_cwd,omitempty"`
-	DefaultMachineCpu *int32  `json:"default_machine_cpu,omitempty"`
+	// DefaultCwd Default working directory for processes on this project's machines from the pool.
+	DefaultCwd *string `json:"default_cwd,omitempty"`
+
+	// DefaultMachineCpu Default CPU count for machines this project creates from the pool, overriding the pool's default.
+	DefaultMachineCpu *int32 `json:"default_machine_cpu,omitempty"`
 
 	// DefaultMachineEnvOverlay Env overlay merged over the pool's default_machine_env for machines materialized through this grant; a null entry removes the key.
-	DefaultMachineEnvOverlay             *map[string]*string     `json:"default_machine_env_overlay,omitempty"`
-	DefaultMachineMemoryMb               *int32                  `json:"default_machine_memory_mb,omitempty"`
+	DefaultMachineEnvOverlay *map[string]*string `json:"default_machine_env_overlay,omitempty"`
+
+	// DefaultMachineMemoryMb Default memory in MB for machines this project creates from the pool, overriding the pool's default.
+	DefaultMachineMemoryMb *int32 `json:"default_machine_memory_mb,omitempty"`
+
+	// DefaultMachineProviderOptionsOverlay Provider-specific options layered over the pool's provider options for this project's machines.
 	DefaultMachineProviderOptionsOverlay *map[string]interface{} `json:"default_machine_provider_options_overlay,omitempty"`
 
 	// DefaultMachineSecretEnvOverlay Secret env overlay merged over the pool's default_machine_secret_env for machines materialized through this grant; a null entry removes the key.
 	DefaultMachineSecretEnvOverlay *map[string]*string `json:"default_machine_secret_env_overlay,omitempty"`
 
 	// DeleteAfterIdleMinutes Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default. Values from 1 through 4 are invalid.
-	DeleteAfterIdleMinutes *int32        `json:"delete_after_idle_minutes,omitempty"`
-	Description            *string       `json:"description,omitempty"`
-	MachinePoolId          MachinePoolID `json:"machine_pool_id"`
-	MaxMachineCpu          *int32        `json:"max_machine_cpu,omitempty"`
-	MaxMachineMemoryMb     *int32        `json:"max_machine_memory_mb,omitempty"`
-	MaxTotalCpu            *int32        `json:"max_total_cpu,omitempty"`
-	MaxTotalMachines       *int32        `json:"max_total_machines,omitempty"`
-	MaxTotalMemoryMb       *int32        `json:"max_total_memory_mb,omitempty"`
+	DeleteAfterIdleMinutes *int32 `json:"delete_after_idle_minutes,omitempty"`
+
+	// Description Optional note about this grant.
+	Description *string `json:"description,omitempty"`
+
+	// MachinePoolId Machine pool ID (mpo_...).
+	MachinePoolId MachinePoolID `json:"machine_pool_id"`
+
+	// MaxMachineCpu Largest CPU count one of this project's machines can request.
+	MaxMachineCpu *int32 `json:"max_machine_cpu,omitempty"`
+
+	// MaxMachineMemoryMb Largest memory in MB one of this project's machines can request.
+	MaxMachineMemoryMb *int32 `json:"max_machine_memory_mb,omitempty"`
+
+	// MaxTotalCpu Maximum total CPU across this project's live machines from the pool.
+	MaxTotalCpu *int32 `json:"max_total_cpu,omitempty"`
+
+	// MaxTotalMachines Maximum number of live machines this project can have from the pool.
+	MaxTotalMachines *int32 `json:"max_total_machines,omitempty"`
+
+	// MaxTotalMemoryMb Maximum total memory in MB across this project's live machines from the pool.
+	MaxTotalMemoryMb *int32 `json:"max_total_memory_mb,omitempty"`
 
 	// Metadata Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
-	Metadata           Metadata `json:"metadata,omitempty"`
-	MinMachineCpu      *int32   `json:"min_machine_cpu,omitempty"`
-	MinMachineMemoryMb *int32   `json:"min_machine_memory_mb,omitempty"`
+	Metadata Metadata `json:"metadata,omitempty"`
+
+	// MinMachineCpu Smallest CPU count one of this project's machines can request.
+	MinMachineCpu *int32 `json:"min_machine_cpu,omitempty"`
+
+	// MinMachineMemoryMb Smallest memory in MB one of this project's machines can request.
+	MinMachineMemoryMb *int32 `json:"min_machine_memory_mb,omitempty"`
 }
 
 // CreateProjectModelGrantRequest Grant a project access to a configured model. Optional fields can narrow the model's limits for this project; omitted fields inherit from the org-level configured model.
 type CreateProjectModelGrantRequest struct {
 	ConfiguredModelId ConfiguredModelID `json:"configured_model_id"`
 
-	// ContextWindowTokens Optional project token-window limit. Cannot exceed the configured model's current limit.
+	// ContextWindowTokens Optional project context budget for input and output tokens. Cannot exceed the configured model's budget. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
 	ContextWindowTokens *int `json:"context_window_tokens,omitempty"`
 
 	// DefaultCacheRetention Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache, which on Bedrock requires Claude 4.5 or newer) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
@@ -3272,13 +4362,16 @@ type CreateProjectRequest struct {
 
 // CreateSecretRequest defines model for CreateSecretRequest.
 type CreateSecretRequest struct {
+	// Material The secret's value. kind selects its shape: generic, oauth_token_set, aws_credentials, or github_app_credentials.
 	Material SecretMaterial `json:"material"`
 
 	// Metadata Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
 	Metadata Metadata `json:"metadata,omitempty"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-	Name  ResourceName     `json:"name"`
+	Name ResourceName `json:"name"`
+
+	// Owner Who owns the secret: {"kind":"org"}, {"kind":"project","project_id":"proj_..."}, or {"kind":"user"}. The owner cannot change later.
 	Owner SecretOwnerInput `json:"owner"`
 }
 
@@ -3302,7 +4395,7 @@ type CreatedResourceListSort string
 // CronExpression Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
 type CronExpression = string
 
-// CronMessageTemplate Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+// CronMessageTemplate Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. Required for agent and profile targets; omitted for integration targets, which use their own settings. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
 type CronMessageTemplate = string
 
 // CronTimezone IANA time zone the schedule is evaluated in.
@@ -3320,11 +4413,14 @@ type CronTrigger struct {
 	FailureReport nullable.Nullable[CronTriggerFailureReport] `json:"failure_report"`
 	Id            CronTriggerID                               `json:"id"`
 
-	// LastFiredAt When the trigger last fired, or null if it has never fired.
+	// LastFiredAt When the trigger last fired, or null if it has never fired. For integration targets this means durable inbox handoff.
 	LastFiredAt nullable.Nullable[Timestamp] `json:"last_fired_at"`
 
-	// MessageTemplate Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
-	MessageTemplate CronMessageTemplate `json:"message_template"`
+	// LastRun Status of the latest accepted scheduled integration launch, scoped to this project and integration. Null for ordinary cron, before any launch is accepted, or when retained details have expired. Never falls back to an older launch. Schedule firing failures remain separate in failure_report. Deleting or disabling a schedule does not cancel launch work already accepted by the integration.
+	LastRun nullable.Nullable[CronTriggerLastRun] `json:"last_run"`
+
+	// MessageTemplate Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. Required for agent and profile targets; omitted for integration targets, which use their own settings. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+	MessageTemplate *CronMessageTemplate `json:"message_template,omitempty"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
 	Name ResourceName `json:"name"`
@@ -3332,8 +4428,12 @@ type CronTrigger struct {
 	// NextFireAt Next scheduled firing, or null while the trigger is disabled.
 	NextFireAt nullable.Nullable[Timestamp] `json:"next_fire_at"`
 	OrgId      OrganizationID               `json:"org_id"`
-	ProjectId  ProjectID                    `json:"project_id"`
-	Target     CronTriggerTarget            `json:"target"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+
+	// Target What each firing does: type agent sends the message to an existing agent, type profile launches a new agent from a profile, and type integration hands the firing to an integration, such as a new Slack or Discord thread.
+	Target CronTriggerTarget `json:"target"`
 
 	// Timezone IANA time zone the schedule is evaluated in.
 	Timezone  CronTimezone `json:"timezone"`
@@ -3357,7 +4457,22 @@ type CronTriggerFailureReport struct {
 // CronTriggerID defines model for CronTriggerID.
 type CronTriggerID = string
 
-// CronTriggerTarget defines model for CronTriggerTarget.
+// CronTriggerLastRun defines model for CronTriggerLastRun.
+type CronTriggerLastRun struct {
+	CreatedAt Timestamp `json:"created_at"`
+
+	// FailureMessage Coarse scheduled action failure description; no raw provider errors.
+	FailureMessage nullable.Nullable[string] `json:"failure_message"`
+
+	// State State of the latest accepted scheduled integration action. Completed means the integration handled the occurrence; it does not indicate completion of any agent task that action started.
+	State     CronTriggerLastRunState `json:"state"`
+	UpdatedAt Timestamp               `json:"updated_at"`
+}
+
+// CronTriggerLastRunState State of the latest accepted scheduled integration action. Completed means the integration handled the occurrence; it does not indicate completion of any agent task that action started.
+type CronTriggerLastRunState string
+
+// CronTriggerTarget What each firing does: type agent sends the message to an existing agent, type profile launches a new agent from a profile, and type integration hands the firing to an integration, such as a new Slack or Discord thread.
 type CronTriggerTarget struct {
 	union json.RawMessage
 }
@@ -3397,20 +4512,22 @@ type CurrentUserOrg struct {
 
 // DaemonRuntime defines model for DaemonRuntime.
 type DaemonRuntime struct {
-	Capacity             map[string]interface{}       `json:"capacity"`
-	CreatedAt            Timestamp                    `json:"created_at"`
-	DaemonInstanceId     openapi_types.UUID           `json:"daemon_instance_id"`
-	DaemonVersion        string                       `json:"daemon_version"`
-	EndedAt              nullable.Nullable[Timestamp] `json:"ended_at"`
-	Id                   DaemonRuntimeID              `json:"id"`
-	LastSeenAt           Timestamp                    `json:"last_seen_at"`
-	LeaseExpiresAt       Timestamp                    `json:"lease_expires_at"`
-	MachineId            MachineID                    `json:"machine_id"`
-	NextHeartbeatAfterMs int64                        `json:"next_heartbeat_after_ms"`
-	OrgId                OrganizationID               `json:"org_id"`
-	State                DaemonRuntimeState           `json:"state"`
-	StateReasonCode      string                       `json:"state_reason_code"`
-	StateReasonMessage   string                       `json:"state_reason_message"`
+	Capacity         map[string]interface{}       `json:"capacity"`
+	CreatedAt        Timestamp                    `json:"created_at"`
+	DaemonInstanceId openapi_types.UUID           `json:"daemon_instance_id"`
+	DaemonVersion    string                       `json:"daemon_version"`
+	EndedAt          nullable.Nullable[Timestamp] `json:"ended_at"`
+	Id               DaemonRuntimeID              `json:"id"`
+	LastSeenAt       Timestamp                    `json:"last_seen_at"`
+	LeaseExpiresAt   Timestamp                    `json:"lease_expires_at"`
+
+	// MachineId Machine ID (mch_...).
+	MachineId            MachineID          `json:"machine_id"`
+	NextHeartbeatAfterMs int64              `json:"next_heartbeat_after_ms"`
+	OrgId                OrganizationID     `json:"org_id"`
+	State                DaemonRuntimeState `json:"state"`
+	StateReasonCode      string             `json:"state_reason_code"`
+	StateReasonMessage   string             `json:"state_reason_message"`
 }
 
 // DaemonRuntimeID defines model for DaemonRuntimeID.
@@ -3426,6 +4543,7 @@ type DaemonRuntimeState string
 
 // DirectSecretAvailability defines model for DirectSecretAvailability.
 type DirectSecretAvailability struct {
+	// ProjectId Project ID (proj_...).
 	ProjectId ProjectID                      `json:"project_id"`
 	Source    DirectSecretAvailabilitySource `json:"source"`
 }
@@ -3463,12 +4581,24 @@ type DiscoveredProviderModel struct {
 
 	// Slug Provider model slug usable as a configured model's provider_model_slug.
 	Slug string `json:"slug"`
+
+	// SupportedReasoningEfforts Reasoning effort values the model accepts, when reported.
+	SupportedReasoningEfforts *[]string `json:"supported_reasoning_efforts,omitempty"`
+
+	// SupportsReasoning Whether Omnara can send this model a reasoning effort, when the provider or the public model catalog reports it.
+	SupportsReasoning *bool `json:"supports_reasoning,omitempty"`
 }
+
+// EnvironmentVariableName defines model for EnvironmentVariableName.
+type EnvironmentVariableName = string
 
 // Error defines model for Error.
 type Error struct {
 	// Code Stable error code for programmatic handling.
 	Code ErrorCode `json:"code"`
+
+	// CurrentDigest Current file digest for file_content_conflict or expected_digest_required; absent if the file no longer exists. A replacement must be confirmed before retrying with this digest.
+	CurrentDigest *string `json:"current_digest,omitempty"`
 
 	// Error Human-readable error message. Do not match on it programmatically.
 	Error string `json:"error"`
@@ -3477,7 +4607,7 @@ type Error struct {
 	Issues *[]AgentConfigErrorIssue `json:"issues,omitempty"`
 }
 
-// ErrorCode Stable error code for programmatic handling.
+// ErrorCode Known error codes.
 type ErrorCode string
 
 // ErrorContentBlock defines model for ErrorContentBlock.
@@ -3491,7 +4621,91 @@ type ErrorContentBlock struct {
 // ErrorContentBlockType defines model for ErrorContentBlock.Type.
 type ErrorContentBlockType string
 
-// ExternalActorParams Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and integration providers own their own actor identities.
+// EventWebhook defines model for EventWebhook.
+type EventWebhook struct {
+	CreatedAt  time.Time               `json:"created_at"`
+	EventTypes []EventWebhookEventType `json:"event_types"`
+	Id         EventWebhookID          `json:"id"`
+	OrgId      OrganizationID          `json:"org_id"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID         `json:"project_id"`
+	Scope     EventWebhookScope `json:"scope"`
+
+	// SigningSecretId Optional project-available generic secret.
+	SigningSecretId *SecretID `json:"signing_secret_id,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at"`
+
+	// Url Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+	Url string `json:"url"`
+}
+
+// EventWebhookAgentInputEvent defines model for EventWebhookAgentInputEvent.
+type EventWebhookAgentInputEvent struct {
+	Data  AgentInputEvent                  `json:"data"`
+	Event EventWebhookAgentInputEventEvent `json:"event"`
+}
+
+// EventWebhookAgentInputEventEvent defines model for EventWebhookAgentInputEvent.Event.
+type EventWebhookAgentInputEventEvent string
+
+// EventWebhookContextCheckpointEvent defines model for EventWebhookContextCheckpointEvent.
+type EventWebhookContextCheckpointEvent struct {
+	Data  ContextCheckpointEvent                  `json:"data"`
+	Event EventWebhookContextCheckpointEventEvent `json:"event"`
+}
+
+// EventWebhookContextCheckpointEventEvent defines model for EventWebhookContextCheckpointEvent.Event.
+type EventWebhookContextCheckpointEventEvent string
+
+// EventWebhookEventType defines model for EventWebhookEventType.
+type EventWebhookEventType string
+
+// EventWebhookID defines model for EventWebhookID.
+type EventWebhookID = string
+
+// EventWebhookModelOutputEvent defines model for EventWebhookModelOutputEvent.
+type EventWebhookModelOutputEvent struct {
+	Data  ModelOutputEvent                  `json:"data"`
+	Event EventWebhookModelOutputEventEvent `json:"event"`
+}
+
+// EventWebhookModelOutputEventEvent defines model for EventWebhookModelOutputEvent.Event.
+type EventWebhookModelOutputEventEvent string
+
+// EventWebhookPayload JSON body posted to an event webhook. Each event name determines its data schema.
+type EventWebhookPayload struct {
+	union json.RawMessage
+}
+
+// EventWebhookScope defines model for EventWebhookScope.
+type EventWebhookScope struct {
+	union json.RawMessage
+}
+
+// EventWebhookScopeType defines model for EventWebhookScopeType.
+type EventWebhookScopeType string
+
+// EventWebhookToolCallUpdate defines model for EventWebhookToolCallUpdate.
+type EventWebhookToolCallUpdate struct {
+	// Data A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
+	Data  ToolCallUpdate                  `json:"data"`
+	Event EventWebhookToolCallUpdateEvent `json:"event"`
+}
+
+// EventWebhookToolCallUpdateEvent defines model for EventWebhookToolCallUpdate.Event.
+type EventWebhookToolCallUpdateEvent string
+
+// EventWebhookToolResultEvent defines model for EventWebhookToolResultEvent.
+type EventWebhookToolResultEvent struct {
+	Data  ToolResultEvent                  `json:"data"`
+	Event EventWebhookToolResultEventEvent `json:"event"`
+}
+
+// EventWebhookToolResultEventEvent defines model for EventWebhookToolResultEvent.Event.
+type EventWebhookToolResultEventEvent string
+
+// ExternalActorParams Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and hosted integrations own their own actor identities.
 type ExternalActorParams struct {
 	DisplayName *string `json:"display_name,omitempty"`
 
@@ -3521,9 +4735,67 @@ type GetAgentResponse struct {
 	McpConnections []AgentMCPConnection `json:"mcp_connections"`
 }
 
+// GitHubAppCredentialsSecretMaterial defines model for GitHubAppCredentialsSecretMaterial.
+type GitHubAppCredentialsSecretMaterial struct {
+	AppId string                                 `json:"app_id"`
+	Kind  GitHubAppCredentialsSecretMaterialKind `json:"kind"`
+
+	// PrivateKey Unencrypted RSA private key in PEM format. Stored encrypted.
+	PrivateKey    string `json:"private_key"`
+	WebhookSecret string `json:"webhook_secret"`
+}
+
+// GitHubAppCredentialsSecretMaterialKind defines model for GitHubAppCredentialsSecretMaterial.Kind.
+type GitHubAppCredentialsSecretMaterialKind string
+
+// GitHubInstallations defines model for GitHubInstallations.
+type GitHubInstallations struct {
+	// InstallUrl Verified GitHub App installation URL. Its state may carry the public credential secret ID as a recovery hint, never credentials or authorization.
+	InstallUrl    string                    `json:"install_url"`
+	Installations []GitHubSetupInstallation `json:"installations"`
+	Name          string                    `json:"name"`
+	NextPage      *int                      `json:"next_page,omitempty"`
+	ProviderAppId string                    `json:"provider_app_id"`
+	Slug          string                    `json:"slug"`
+}
+
+// GitHubIntegrationLauncher defines model for GitHubIntegrationLauncher.
+type GitHubIntegrationLauncher = json.RawMessage
+
+// GitHubIntegrationSettings defines model for GitHubIntegrationSettings.
+type GitHubIntegrationSettings = json.RawMessage
+
+// GitHubRepository defines model for GitHubRepository.
+type GitHubRepository struct {
+	Id   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// GitHubSetup defines model for GitHubSetup.
+type GitHubSetup struct {
+	ExpiresAt     Timestamp     `json:"expires_at"`
+	IntegrationId IntegrationID `json:"integration_id"`
+
+	// Manifest Server-authored GitHub App manifest. Serialize this object to the manifest form field when posting to registration_url.
+	Manifest        map[string]interface{} `json:"manifest"`
+	RegistrationUrl string                 `json:"registration_url"`
+	SetupRevision   int64                  `json:"setup_revision"`
+}
+
+// GitHubSetupInstallation defines model for GitHubSetupInstallation.
+type GitHubSetupInstallation struct {
+	// Account Provider-verified installation account login.
+	Account     string  `json:"account"`
+	AccountType *string `json:"account_type,omitempty"`
+	Id          string  `json:"id"`
+	SettingsUrl string  `json:"settings_url"`
+}
+
 // GrantedSecretAvailability defines model for GrantedSecretAvailability.
 type GrantedSecretAvailability struct {
-	GrantId   SecretGrantID                   `json:"grant_id"`
+	GrantId SecretGrantID `json:"grant_id"`
+
+	// ProjectId Project ID (proj_...).
 	ProjectId ProjectID                       `json:"project_id"`
 	Source    GrantedSecretAvailabilitySource `json:"source"`
 }
@@ -3558,55 +4830,200 @@ type InlineMediaContentBlockMediaType string
 // InlineMediaContentBlockType defines model for InlineMediaContentBlock.Type.
 type InlineMediaContentBlockType string
 
+// InspectGitHubInstallationsRequest defines model for InspectGitHubInstallationsRequest.
+type InspectGitHubInstallationsRequest struct {
+	// CredentialSecretId Secret ID (sec_...).
+	CredentialSecretId SecretID `json:"credential_secret_id"`
+	Page               *int     `json:"page,omitempty"`
+}
+
 // InstallationID defines model for InstallationID.
 type InstallationID = string
 
-// IntegrationInstall A provider app installation that connects an agent profile or a single agent to an external app. Exactly one of agent_profile_id and agent_id is set. Provider credentials are never returned.
-type IntegrationInstall struct {
-	AgentId                  *AgentID                `json:"agent_id,omitempty"`
-	AgentProfileId           *AgentProfileID         `json:"agent_profile_id,omitempty"`
-	ConnectionMode           string                  `json:"connection_mode"`
-	CreatedAt                Timestamp               `json:"created_at"`
-	Id                       IntegrationInstallID    `json:"id"`
-	IntegrationKind          string                  `json:"integration_kind"`
-	OrgId                    OrganizationID          `json:"org_id"`
-	ProjectId                ProjectID               `json:"project_id"`
-	Provider                 string                  `json:"provider"`
-	ProviderAccountRef       string                  `json:"provider_account_ref"`
-	ProviderAgentDisplayName string                  `json:"provider_agent_display_name"`
-	ProviderTenantId         string                  `json:"provider_tenant_id"`
-	State                    IntegrationInstallState `json:"state"`
-	UpdatedAt                Timestamp               `json:"updated_at"`
+// Integration defines model for Integration.
+type Integration struct {
+	// BotMention GitHub App mention including the leading @, derived from the verified App slug. Omitted when the verified slug is unavailable or the integration is not GitHub. Retained after disconnect.
+	BotMention   *string                 `json:"bot_mention,omitempty"`
+	Capabilities IntegrationCapabilities `json:"capabilities"`
+	CreatedAt    Timestamp               `json:"created_at"`
+
+	// CredentialSecretId Secret ID (sec_...).
+	CredentialSecretId *SecretID     `json:"credential_secret_id,omitempty"`
+	Id                 IntegrationID `json:"id"`
+
+	// IntegrationKind Registered integration implementation; independent of the saved integration's name and immutable ID.
+	IntegrationKind IntegrationKind         `json:"integration_kind"`
+	LastOauthFlowId *IntegrationOAuthFlowID `json:"last_oauth_flow_id,omitempty"`
+
+	// Name Immutable, project-unique integration name used in config keys and qualified tool names.
+	Name IntegrationName `json:"name"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+
+	// ProviderAccountRef Verified provider account, omitted until first connection. Retained after disconnect.
+	ProviderAccountRef *string `json:"provider_account_ref,omitempty"`
+
+	// ProviderAgentDisplayName Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace is trimmed on save. Empty means no label; an omitted or empty value clears the label on account-management updates.
+	ProviderAgentDisplayName IntegrationProviderDisplayName `json:"provider_agent_display_name"`
+
+	// ProviderConfig Non-secret provider configuration, validated for the selected provider. Slack and GitHub integrations require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks). Omnara manages one Gateway connection per Discord integration. Credentials and integration behavior are not accepted here.
+	ProviderConfig IntegrationProviderConfig `json:"provider_config"`
+
+	// ProviderTenantId Verified provider identity, omitted until first connection. Retained after disconnect.
+	ProviderTenantId *string `json:"provider_tenant_id,omitempty"`
+
+	// RuntimeFailure Most recent connection failure for the active integration's current setup and credential version. Returned only by Get integration, not list or mutation responses. Omission does not establish provider connectivity; a runtime lease is not a connection check.
+	RuntimeFailure *IntegrationRuntimeFailure `json:"runtime_failure,omitempty"`
+
+	// Settings Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack and Discord integrations use ChatIntegrationSettings.
+	Settings IntegrationSettings `json:"settings"`
+
+	// SetupRevision Credential and transport revision. Launcher edits leave this value unchanged.
+	SetupRevision int64            `json:"setup_revision"`
+	State         IntegrationState `json:"state"`
+	UpdatedAt     Timestamp        `json:"updated_at"`
 }
 
-// IntegrationInstallState defines model for IntegrationInstall.State.
-type IntegrationInstallState string
+// IntegrationCapabilities defines model for IntegrationCapabilities.
+type IntegrationCapabilities struct {
+	InteractionHandler *IntegrationCapabilityDefinition `json:"interaction_handler,omitempty"`
+	Schedule           *IntegrationCapabilityDefinition `json:"schedule,omitempty"`
 
-// IntegrationInstallID defines model for IntegrationInstallID.
-type IntegrationInstallID = string
+	// Settings Schema for this integration's complete settings document, including its optional launcher.
+	Settings *IntegrationCapabilityDefinition `json:"settings,omitempty"`
+
+	// Subscription Present when the integration supports forwarding from a conversation. The integration owns forwarding policy.
+	Subscription *IntegrationSubscriptionDefinition         `json:"subscription,omitempty"`
+	Tools        map[string]IntegrationCapabilityDefinition `json:"tools"`
+}
+
+// IntegrationCapabilityDefinition defines model for IntegrationCapabilityDefinition.
+type IntegrationCapabilityDefinition struct {
+	Description *string `json:"description,omitempty"`
+
+	// InputSchema Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Shipped interaction handlers use the assigned conversation and accept empty arguments.
+	InputSchema map[string]interface{} `json:"input_schema"`
+}
+
+// IntegrationConversation One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+type IntegrationConversation = json.RawMessage
+
+// IntegrationCronTriggerTarget defines model for IntegrationCronTriggerTarget.
+type IntegrationCronTriggerTarget struct {
+	IntegrationId IntegrationID `json:"integration_id"`
+
+	// Settings Settings validated by the target integration's published schedule input schema. Each accepted occurrence retains its own copy. Integration resource references are resolved when the integration handles the occurrence.
+	Settings map[string]interface{}           `json:"settings"`
+	Type     IntegrationCronTriggerTargetType `json:"type"`
+}
+
+// IntegrationCronTriggerTargetType defines model for IntegrationCronTriggerTarget.Type.
+type IntegrationCronTriggerTargetType string
+
+// IntegrationDefinition defines model for IntegrationDefinition.
+type IntegrationDefinition struct {
+	Capabilities IntegrationCapabilities `json:"capabilities"`
+
+	// IntegrationKind Registered integration implementation; independent of the saved integration's name and immutable ID.
+	IntegrationKind IntegrationKind `json:"integration_kind"`
+}
+
+// IntegrationID defines model for IntegrationID.
+type IntegrationID = string
+
+// IntegrationKind Registered integration implementation; independent of the saved integration's name and immutable ID.
+type IntegrationKind string
+
+// IntegrationName Immutable, project-unique integration name used in config keys and qualified tool names.
+type IntegrationName = string
 
 // IntegrationOAuthFlowID defines model for IntegrationOAuthFlowID.
 type IntegrationOAuthFlowID = string
 
 // IntegrationOAuthSetup defines model for IntegrationOAuthSetup.
 type IntegrationOAuthSetup struct {
-	ActionsUrl  string                 `json:"actions_url"`
-	EventsUrl   string                 `json:"events_url"`
-	ExpiresAt   Timestamp              `json:"expires_at"`
-	FlowId      IntegrationOAuthFlowID `json:"flow_id"`
-	OauthUrl    string                 `json:"oauth_url"`
-	Provider    string                 `json:"provider"`
-	RedirectUri string                 `json:"redirect_uri"`
+	ActionsUrl    string                 `json:"actions_url"`
+	EventsUrl     string                 `json:"events_url"`
+	ExpiresAt     Timestamp              `json:"expires_at"`
+	FlowId        IntegrationOAuthFlowID `json:"flow_id"`
+	IntegrationId IntegrationID          `json:"integration_id"`
+	OauthUrl      string                 `json:"oauth_url"`
+	Provider      string                 `json:"provider"`
+	RedirectUri   string                 `json:"redirect_uri"`
+
+	// SetupRevision Integration setup revision captured by this authorization flow.
+	SetupRevision int64 `json:"setup_revision"`
 }
+
+// IntegrationProviderConfig Non-secret provider configuration, validated for the selected provider. Slack and GitHub integrations require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks). Omnara manages one Gateway connection per Discord integration. Credentials and integration behavior are not accepted here.
+type IntegrationProviderConfig map[string]interface{}
+
+// IntegrationProviderDisplayName Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace is trimmed on save. Empty means no label; an omitted or empty value clears the label on account-management updates.
+type IntegrationProviderDisplayName = string
+
+// IntegrationRuntimeFailure Most recent connection failure for the active integration's current setup and credential version. Returned only by Get integration, not list or mutation responses. Omission does not establish provider connectivity; a runtime lease is not a connection check.
+type IntegrationRuntimeFailure struct {
+	// Message Connection failure recorded by the integration runtime.
+	Message string `json:"message"`
+
+	// RetryAt Earliest time the runtime may retry. A retry can start later.
+	RetryAt Timestamp `json:"retry_at"`
+}
+
+// IntegrationSettings Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack and Discord integrations use ChatIntegrationSettings.
+type IntegrationSettings map[string]interface{}
+
+// IntegrationState defines model for IntegrationState.
+type IntegrationState string
+
+// IntegrationSubscription defines model for IntegrationSubscription.
+type IntegrationSubscription struct {
+	AgentId AgentID `json:"agent_id"`
+
+	// AgentName Agent name. Empty means the agent is unnamed; non-empty values use the ResourceName policy.
+	AgentName AgentName `json:"agent_name"`
+
+	// Conversation One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+	Conversation IntegrationConversation `json:"conversation"`
+
+	// ConversationName Saved display name for the conversation, when available.
+	ConversationName *string                   `json:"conversation_name,omitempty"`
+	CreatedAt        Timestamp                 `json:"created_at"`
+	Id               IntegrationSubscriptionID `json:"id"`
+	IntegrationId    IntegrationID             `json:"integration_id"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+}
+
+// IntegrationSubscriptionAttachment defines model for IntegrationSubscriptionAttachment.
+type IntegrationSubscriptionAttachment struct {
+	// Conversation One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+	Conversation  IntegrationConversation `json:"conversation"`
+	IntegrationId IntegrationID           `json:"integration_id"`
+}
+
+// IntegrationSubscriptionDefinition defines model for IntegrationSubscriptionDefinition.
+type IntegrationSubscriptionDefinition struct {
+	// ConversationSchema Schema for one concrete provider conversation address.
+	ConversationSchema map[string]interface{} `json:"conversation_schema"`
+}
+
+// IntegrationSubscriptionID defines model for IntegrationSubscriptionID.
+type IntegrationSubscriptionID = string
 
 // IntegrationTarget defines model for IntegrationTarget.
 type IntegrationTarget struct {
-	DisplayName     string  `json:"display_name"`
-	Provider        string  `json:"provider"`
-	ProviderRef     string  `json:"provider_ref"`
-	ProviderRefKind string  `json:"provider_ref_kind"`
-	ProviderUri     *string `json:"provider_uri,omitempty"`
+	// Conversation One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+	Conversation IntegrationConversation `json:"conversation"`
+	DisplayName  string                  `json:"display_name"`
+	Provider     string                  `json:"provider"`
+	ProviderUri  *string                 `json:"provider_uri,omitempty"`
 }
+
+// IntegrationTargetID defines model for IntegrationTargetID.
+type IntegrationTargetID = string
 
 // InteractionAnswer defines model for InteractionAnswer.
 type InteractionAnswer struct {
@@ -3643,6 +5060,9 @@ type InteractionFormQuestion struct {
 	Options  []InteractionFormOption `json:"options"`
 	Prompt   string                  `json:"prompt"`
 }
+
+// InteractionPresentationReceipt Confirmed provider presentation metadata, when recorded. This is not an execution grant or a delivery guarantee. Absence does not prove a remote send failed. Customer-hosted presenters maintain their own delivery records.
+type InteractionPresentationReceipt map[string]interface{}
 
 // InteractionResolution defines model for InteractionResolution.
 type InteractionResolution struct {
@@ -3695,7 +5115,7 @@ type ListAgentInteractionsResponse struct {
 
 // ListAgentProfilesResponse defines model for ListAgentProfilesResponse.
 type ListAgentProfilesResponse struct {
-	Data []AgentProfile `json:"data"`
+	Data []AgentProfileSummary `json:"data"`
 
 	// NextCursor Opaque cursor for the next page, or null when this is the last page.
 	NextCursor nullable.Nullable[string] `json:"next_cursor"`
@@ -3725,11 +5145,33 @@ type ListCronTriggersResponse struct {
 	NextCursor nullable.Nullable[string] `json:"next_cursor"`
 }
 
-// ListIntegrationInstallsResponse defines model for ListIntegrationInstallsResponse.
-type ListIntegrationInstallsResponse struct {
-	Data []IntegrationInstall `json:"data"`
+// ListEventWebhooksResponse defines model for ListEventWebhooksResponse.
+type ListEventWebhooksResponse struct {
+	Data []EventWebhook `json:"data"`
+}
+
+// ListGitHubRepositoriesResponse defines model for ListGitHubRepositoriesResponse.
+type ListGitHubRepositoriesResponse struct {
+	Data       []GitHubRepository        `json:"data"`
+	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+}
+
+// ListIntegrationDefinitionsResponse defines model for ListIntegrationDefinitionsResponse.
+type ListIntegrationDefinitionsResponse struct {
+	Data []IntegrationDefinition `json:"data"`
+}
+
+// ListIntegrationSubscriptionsResponse defines model for ListIntegrationSubscriptionsResponse.
+type ListIntegrationSubscriptionsResponse struct {
+	Data []IntegrationSubscription `json:"data"`
 
 	// NextCursor Opaque cursor for the next page, or null when this is the last page.
+	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+}
+
+// ListIntegrationsResponse defines model for ListIntegrationsResponse.
+type ListIntegrationsResponse struct {
+	Data       []Integration             `json:"data"`
 	NextCursor nullable.Nullable[string] `json:"next_cursor"`
 }
 
@@ -3893,7 +5335,9 @@ type MCPOAuthStartRequest struct {
 	Metadata MCPOAuthStartMetadata `json:"metadata,omitempty"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-	Name     ResourceName     `json:"name"`
+	Name ResourceName `json:"name"`
+
+	// Owner Who owns the secret: {"kind":"org"}, {"kind":"project","project_id":"proj_..."}, or {"kind":"user"}. The owner cannot change later.
 	Owner    SecretOwnerInput `json:"owner"`
 	ReturnTo *string          `json:"return_to,omitempty"`
 	Scopes   *[]string        `json:"scopes,omitempty"`
@@ -4002,7 +5446,7 @@ type MCPServerAuthOAuthType string
 
 // MCPServerAuthRequiredError defines model for MCPServerAuthRequiredError.
 type MCPServerAuthRequiredError struct {
-	Auth MCPServerAuthHint              `json:"auth"`
+	Auth *MCPServerAuthHint             `json:"auth,omitempty"`
 	Code MCPServerAuthRequiredErrorCode `json:"code"`
 
 	// Error Human-readable error message. Do not match on it programmatically.
@@ -4094,7 +5538,9 @@ type Machine struct {
 	Env         map[string]string `json:"env"`
 
 	// FailureReport The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports. Runtime crash reports remain as historical diagnostics; recovery may clear other failure stages.
-	FailureReport          *MachineFailureReport            `json:"failure_report,omitempty"`
+	FailureReport *MachineFailureReport `json:"failure_report,omitempty"`
+
+	// Id Machine ID (mch_...).
 	Id                     MachineID                        `json:"id"`
 	LastObservedAt         nullable.Nullable[Timestamp]     `json:"last_observed_at"`
 	LifecycleReasonCode    string                           `json:"lifecycle_reason_code"`
@@ -4124,7 +5570,9 @@ type MachineAccessSource struct {
 	GrantId         *ProjectMachineGrantID         `json:"grant_id,omitempty"`
 	GrantSourceKind *ProjectMachineGrantSourceKind `json:"grant_source_kind,omitempty"`
 	Kind            MachineAccessSourceKind        `json:"kind"`
-	ProjectId       *ProjectID                     `json:"project_id,omitempty"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId *ProjectID `json:"project_id,omitempty"`
 }
 
 // MachineAccessSourceKind defines model for MachineAccessSourceKind.
@@ -4138,7 +5586,9 @@ type MachineDaemonToken struct {
 	CreatedAt  Timestamp                    `json:"created_at"`
 	Id         MachineDaemonTokenID         `json:"id"`
 	LastUsedAt nullable.Nullable[Timestamp] `json:"last_used_at"`
-	MachineId  MachineID                    `json:"machine_id"`
+
+	// MachineId Machine ID (mch_...).
+	MachineId MachineID `json:"machine_id"`
 
 	// Metadata Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
 	Metadata Metadata `json:"metadata"`
@@ -4167,7 +5617,7 @@ type MachineFailureReport struct {
 // MachineFailureReportStage defines model for MachineFailureReport.Stage.
 type MachineFailureReportStage string
 
-// MachineID defines model for MachineID.
+// MachineID Machine ID (mch_...).
 type MachineID = string
 
 // MachineLifecycleState defines model for MachineLifecycleState.
@@ -4193,7 +5643,9 @@ type MachinePool struct {
 	// DeleteAfterIdleMinutes Idle minutes before deleting a machine from this pool, or null when the pool default is unset.
 	DeleteAfterIdleMinutes nullable.Nullable[int32] `json:"delete_after_idle_minutes"`
 	Description            string                   `json:"description"`
-	Id                     MachinePoolID            `json:"id"`
+
+	// Id Machine pool ID (mpo_...).
+	Id MachinePoolID `json:"id"`
 
 	// ManagementKind Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.
 	ManagementKind     ManagementKind           `json:"management_kind"`
@@ -4209,9 +5661,11 @@ type MachinePool struct {
 	MinMachineMemoryMb nullable.Nullable[int32] `json:"min_machine_memory_mb"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-	Name                 ResourceName           `json:"name"`
-	OrgId                OrganizationID         `json:"org_id"`
-	Provider             string                 `json:"provider"`
+	Name     ResourceName   `json:"name"`
+	OrgId    OrganizationID `json:"org_id"`
+	Provider string         `json:"provider"`
+
+	// ProviderAuthSecretId Secret ID (sec_...).
 	ProviderAuthSecretId *SecretID              `json:"provider_auth_secret_id,omitempty"`
 	ProviderConfig       map[string]interface{} `json:"provider_config"`
 
@@ -4219,18 +5673,34 @@ type MachinePool struct {
 	RuntimeProtectionEnabled bool      `json:"runtime_protection_enabled"`
 	UpdatedAt                Timestamp `json:"updated_at"`
 
-	// Usage Current quota-consuming usage. Populated when the machine pool is returned by the list endpoint.
+	// Usage Current quota-consuming usage. Populated when the machine pool is returned by the list or get endpoint.
 	Usage *MachinePoolUsage `json:"usage,omitempty"`
 }
 
-// MachinePoolID defines model for MachinePoolID.
+// MachinePoolConnectionCheckError defines model for MachinePoolConnectionCheckError.
+type MachinePoolConnectionCheckError struct {
+	Code MachinePoolConnectionCheckErrorCode `json:"code"`
+
+	// Details The provider's original error, for troubleshooting. Present when the provider call failed.
+	Details *string `json:"details,omitempty"`
+
+	// Error Why the check failed, in plain language. Do not match on it programmatically.
+	Error string `json:"error"`
+}
+
+// MachinePoolConnectionCheckErrorCode defines model for MachinePoolConnectionCheckError.Code.
+type MachinePoolConnectionCheckErrorCode string
+
+// MachinePoolID Machine pool ID (mpo_...).
 type MachinePoolID = string
 
 // MachinePoolSummary defines model for MachinePoolSummary.
 type MachinePoolSummary struct {
-	CreatedAt   Timestamp     `json:"created_at"`
-	Description string        `json:"description"`
-	Id          MachinePoolID `json:"id"`
+	CreatedAt   Timestamp `json:"created_at"`
+	Description string    `json:"description"`
+
+	// Id Machine pool ID (mpo_...).
+	Id MachinePoolID `json:"id"`
 
 	// ManagementKind Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.
 	ManagementKind ManagementKind `json:"management_kind"`
@@ -4263,7 +5733,9 @@ type MachineSummaryFields struct {
 	Description     string                       `json:"description"`
 
 	// DisplayName Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-	DisplayName    ResourceName                 `json:"display_name"`
+	DisplayName ResourceName `json:"display_name"`
+
+	// Id Machine ID (mch_...).
 	Id             MachineID                    `json:"id"`
 	LastObservedAt nullable.Nullable[Timestamp] `json:"last_observed_at"`
 	LifecycleState MachineLifecycleState        `json:"lifecycle_state"`
@@ -4291,10 +5763,72 @@ type MediaRefContentBlock struct {
 // MediaRefContentBlockType defines model for MediaRefContentBlock.Type.
 type MediaRefContentBlockType string
 
+// MemoryDirectory defines model for MemoryDirectory.
+type MemoryDirectory struct {
+	ModifiedAt Timestamp           `json:"modified_at"`
+	Path       string              `json:"path"`
+	Type       MemoryDirectoryType `json:"type"`
+}
+
+// MemoryDirectoryType defines model for MemoryDirectory.Type.
+type MemoryDirectoryType string
+
+// MemoryFile defines model for MemoryFile.
+type MemoryFile struct {
+	union json.RawMessage
+}
+
+// MemoryFileList defines model for MemoryFileList.
+type MemoryFileList struct {
+	Data       []MemoryFile              `json:"data"`
+	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+}
+
+// MemoryRegularFile defines model for MemoryRegularFile.
+type MemoryRegularFile struct {
+	ModifiedAt Timestamp             `json:"modified_at"`
+	Path       string                `json:"path"`
+	SizeBytes  int64                 `json:"size_bytes"`
+	Type       MemoryRegularFileType `json:"type"`
+}
+
+// MemoryRegularFileType defines model for MemoryRegularFile.Type.
+type MemoryRegularFileType string
+
+// MemoryStore defines model for MemoryStore.
+type MemoryStore struct {
+	AgentAccess MemoryStoreAccess `json:"agent_access"`
+	CreatedAt   time.Time         `json:"created_at"`
+	Description string            `json:"description"`
+	Id          MemoryStoreID     `json:"id"`
+
+	// Name Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.
+	Name MemoryStoreName `json:"name"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// MemoryStoreAccess defines model for MemoryStoreAccess.
+type MemoryStoreAccess string
+
+// MemoryStoreID defines model for MemoryStoreID.
+type MemoryStoreID = string
+
+// MemoryStoreList defines model for MemoryStoreList.
+type MemoryStoreList struct {
+	Data       []MemoryStore             `json:"data"`
+	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+}
+
+// MemoryStoreName Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.
+type MemoryStoreName = string
+
 // Metadata Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
 type Metadata = resourcemeta.Metadata
 
-// ModelAPIFormat defines model for ModelAPIFormat.
+// ModelAPIFormat Wire protocol the model endpoint speaks: openai-responses, openai-chat-completions, or anthropic-messages.
 type ModelAPIFormat string
 
 // ModelAPIVariantOptions Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters. Omnara-managed OpenRouter providers accept only sampling, reasoning, and per-model routing options here.
@@ -4382,7 +5916,9 @@ type ModelOutputEvent struct {
 	IsOpeningEvent     ModelOutputEventIsOpeningEvent `json:"is_opening_event"`
 	ModelCallContextId ModelCallContextID             `json:"model_call_context_id"`
 	OrgId              OrganizationID                 `json:"org_id"`
-	ProjectId          ProjectID                      `json:"project_id"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
 
 	// ProviderMetadata Facts the provider reported about this call, keyed by provider (for example `openrouter.provider` names the upstream that served an OpenRouter request). Present only when the provider reported something.
 	ProviderMetadata json.RawMessage `json:"provider_metadata,omitempty"`
@@ -4492,13 +6028,13 @@ type ModelOutputToolUseStreamBlock struct {
 // ModelOutputToolUseStreamBlockKind defines model for ModelOutputToolUseStreamBlock.Kind.
 type ModelOutputToolUseStreamBlockKind string
 
-// ModelProviderAPIVariant defines model for ModelProviderAPIVariant.
+// ModelProviderAPIVariant Provider-specific flavor of the API format: default, openrouter, or bedrock.
 type ModelProviderAPIVariant string
 
 // ModelProviderAPIVariantResponse defines model for ModelProviderAPIVariantResponse.
 type ModelProviderAPIVariantResponse = string
 
-// ModelProviderAuthKind defines model for ModelProviderAuthKind.
+// ModelProviderAuthKind How the credential is sent: bearer_token, api_key_header, or sigv4 (AWS).
 type ModelProviderAuthKind string
 
 // ModelProviderAuthKindResponse defines model for ModelProviderAuthKindResponse.
@@ -4506,6 +6042,7 @@ type ModelProviderAuthKindResponse = string
 
 // ModelProviderConfig defines model for ModelProviderConfig.
 type ModelProviderConfig struct {
+	// ApiFormat Wire protocol the model endpoint speaks: openai-responses, openai-chat-completions, or anthropic-messages.
 	ApiFormat  ModelAPIFormat                  `json:"api_format"`
 	ApiVariant ModelProviderAPIVariantResponse `json:"api_variant"`
 	AuthKind   ModelProviderAuthKindResponse   `json:"auth_kind"`
@@ -4514,12 +6051,17 @@ type ModelProviderConfig struct {
 	AuthOptions json.RawMessage `json:"auth_options"`
 
 	// BaseUrl Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs.
-	BaseUrl            string                `json:"base_url"`
-	CreatedAt          Timestamp             `json:"created_at"`
-	CredentialSecretId SecretID              `json:"credential_secret_id"`
-	EndpointPath       string                `json:"endpoint_path"`
-	Id                 ModelProviderConfigID `json:"id"`
-	IdleTimeoutMs      int                   `json:"idle_timeout_ms"`
+	BaseUrl   string    `json:"base_url"`
+	CreatedAt Timestamp `json:"created_at"`
+
+	// CredentialSecretId Secret ID (sec_...).
+	CredentialSecretId SecretID `json:"credential_secret_id"`
+	EndpointPath       string   `json:"endpoint_path"`
+
+	// Headers Extra HTTP headers sent with every request to this provider.
+	Headers       map[string]string     `json:"headers"`
+	Id            ModelProviderConfigID `json:"id"`
+	IdleTimeoutMs int                   `json:"idle_timeout_ms"`
 
 	// ManagementKind Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.
 	ManagementKind ManagementKind `json:"management_kind"`
@@ -4528,7 +6070,10 @@ type ModelProviderConfig struct {
 	Name             ResourceName   `json:"name"`
 	OrgId            OrganizationID `json:"org_id"`
 	RequestTimeoutMs int            `json:"request_timeout_ms"`
-	UpdatedAt        Timestamp      `json:"updated_at"`
+
+	// SecretHeaders Extra HTTP headers whose values come from the referenced secrets.
+	SecretHeaders map[string]SecretID `json:"secret_headers"`
+	UpdatedAt     Timestamp           `json:"updated_at"`
 }
 
 // ModelProviderConfigID defines model for ModelProviderConfigID.
@@ -4675,16 +6220,40 @@ type OrgMember struct {
 	UserId UserID `json:"user_id"`
 }
 
+// OrgOverviewAgentProfileReference defines model for OrgOverviewAgentProfileReference.
+type OrgOverviewAgentProfileReference struct {
+	// AgentCount Agents, not counting subagents, launched from the profile, including archived ones.
+	AgentCount int64          `json:"agent_count"`
+	Id         AgentProfileID `json:"id"`
+
+	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
+	Name ResourceName `json:"name"`
+}
+
+// OrgOverviewProjectActivity defines model for OrgOverviewProjectActivity.
+type OrgOverviewProjectActivity struct {
+	LastActiveAt Timestamp `json:"last_active_at"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+}
+
 // OrgOverviewResponse defines model for OrgOverviewResponse.
 type OrgOverviewResponse struct {
-	// Projects Projects visible to the caller, newest first (capped).
+	// ProjectActivity When each listed project last had an active top-level agent or an agent profile updated, among those the caller can read. Projects with neither are omitted.
+	ProjectActivity []OrgOverviewProjectActivity `json:"project_activity"`
+
+	// Projects Projects visible to the caller, most recently active first, capped at 200. Recents and activity still cover every visible project.
 	Projects []VisibleProject `json:"projects"`
 
 	// RecentAgentProfiles Most recently updated agent profiles across the caller's readable projects, ordered by updated_at descending.
-	RecentAgentProfiles []AgentProfile `json:"recent_agent_profiles"`
+	RecentAgentProfiles []AgentProfileSummary `json:"recent_agent_profiles"`
 
 	// RecentAgents Most recently active agents across the caller's readable projects, ordered by updated_at descending.
 	RecentAgents []Agent `json:"recent_agents"`
+
+	// ReferencedAgentProfiles The agent profiles that recent_agents and recent_agent_profiles reference, with how many agents were launched from each. Profiles since deleted are omitted.
+	ReferencedAgentProfiles []OrgOverviewAgentProfileReference `json:"referenced_agent_profiles"`
 }
 
 // OrgSecretOwner defines model for OrgSecretOwner.
@@ -4830,10 +6399,20 @@ type ProjectAccess struct {
 	CanRead         bool `json:"can_read"`
 }
 
+// ProjectEventWebhookScope defines model for ProjectEventWebhookScope.
+type ProjectEventWebhookScope struct {
+	Type ProjectEventWebhookScopeType `json:"type"`
+}
+
+// ProjectEventWebhookScopeType defines model for ProjectEventWebhookScope.Type.
+type ProjectEventWebhookScopeType string
+
 // ProjectFields Shared project fields composed into project response schemas. Composing schemas close their final shape with unevaluatedProperties.
 type ProjectFields struct {
 	CreatedAt Timestamp `json:"created_at"`
-	Id        ProjectID `json:"id"`
+
+	// Id Project ID (proj_...).
+	Id ProjectID `json:"id"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
 	Name      ResourceName   `json:"name"`
@@ -4841,7 +6420,7 @@ type ProjectFields struct {
 	UpdatedAt Timestamp      `json:"updated_at"`
 }
 
-// ProjectID defines model for ProjectID.
+// ProjectID Project ID (proj_...).
 type ProjectID = string
 
 // ProjectMachineGrant defines model for ProjectMachineGrant.
@@ -4849,11 +6428,15 @@ type ProjectMachineGrant struct {
 	CreatedAt   Timestamp             `json:"created_at"`
 	Description string                `json:"description"`
 	Id          ProjectMachineGrantID `json:"id"`
-	MachineId   MachineID             `json:"machine_id"`
+
+	// MachineId Machine ID (mch_...).
+	MachineId MachineID `json:"machine_id"`
 
 	// Metadata Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
-	Metadata                  Metadata                                     `json:"metadata"`
-	OrgId                     OrganizationID                               `json:"org_id"`
+	Metadata Metadata       `json:"metadata"`
+	OrgId    OrganizationID `json:"org_id"`
+
+	// ProjectId Project ID (proj_...).
 	ProjectId                 ProjectID                                    `json:"project_id"`
 	ProjectMachinePoolGrantId nullable.Nullable[ProjectMachinePoolGrantID] `json:"project_machine_pool_grant_id,omitempty"`
 	SourceKind                ProjectMachineGrantSourceKind                `json:"source_kind"`
@@ -4890,20 +6473,24 @@ type ProjectMachinePoolGrant struct {
 	DeleteAfterIdleMinutes nullable.Nullable[int32]  `json:"delete_after_idle_minutes"`
 	Description            string                    `json:"description"`
 	Id                     ProjectMachinePoolGrantID `json:"id"`
-	MachinePoolId          MachinePoolID             `json:"machine_pool_id"`
-	MaxMachineCpu          nullable.Nullable[int32]  `json:"max_machine_cpu"`
-	MaxMachineMemoryMb     nullable.Nullable[int32]  `json:"max_machine_memory_mb"`
-	MaxTotalCpu            nullable.Nullable[int32]  `json:"max_total_cpu"`
-	MaxTotalMachines       nullable.Nullable[int32]  `json:"max_total_machines"`
-	MaxTotalMemoryMb       nullable.Nullable[int32]  `json:"max_total_memory_mb"`
+
+	// MachinePoolId Machine pool ID (mpo_...).
+	MachinePoolId      MachinePoolID            `json:"machine_pool_id"`
+	MaxMachineCpu      nullable.Nullable[int32] `json:"max_machine_cpu"`
+	MaxMachineMemoryMb nullable.Nullable[int32] `json:"max_machine_memory_mb"`
+	MaxTotalCpu        nullable.Nullable[int32] `json:"max_total_cpu"`
+	MaxTotalMachines   nullable.Nullable[int32] `json:"max_total_machines"`
+	MaxTotalMemoryMb   nullable.Nullable[int32] `json:"max_total_memory_mb"`
 
 	// Metadata Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
 	Metadata           Metadata                 `json:"metadata"`
 	MinMachineCpu      nullable.Nullable[int32] `json:"min_machine_cpu"`
 	MinMachineMemoryMb nullable.Nullable[int32] `json:"min_machine_memory_mb"`
 	OrgId              OrganizationID           `json:"org_id"`
-	ProjectId          ProjectID                `json:"project_id"`
-	UpdatedAt          Timestamp                `json:"updated_at"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+	UpdatedAt Timestamp `json:"updated_at"`
 }
 
 // ProjectMachinePoolGrantID defines model for ProjectMachinePoolGrantID.
@@ -4918,6 +6505,8 @@ type ProjectMachinePoolGrantListItem struct {
 // ProjectMembershipGrant defines model for ProjectMembershipGrant.
 type ProjectMembershipGrant struct {
 	CreatedAt Timestamp `json:"created_at"`
+
+	// ProjectId Project ID (proj_...).
 	ProjectId ProjectID `json:"project_id"`
 
 	// ProjectName Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
@@ -4931,7 +6520,7 @@ type ProjectMembershipGrant struct {
 type ProjectModelGrant struct {
 	ConfiguredModelId ConfiguredModelID `json:"configured_model_id"`
 
-	// ContextWindowTokens Project token-window limit, or omitted/null to inherit from the configured model.
+	// ContextWindowTokens Project context budget for input and output tokens, or omitted/null to inherit from the configured model. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
 	ContextWindowTokens nullable.Nullable[int] `json:"context_window_tokens,omitempty"`
 	CreatedAt           Timestamp              `json:"created_at"`
 
@@ -4953,8 +6542,10 @@ type ProjectModelGrant struct {
 	OrgId           OrganizationID         `json:"org_id"`
 
 	// OutputModalities Project subset of configured-model output types. Empty means inherit.
-	OutputModalities []string  `json:"output_modalities"`
-	ProjectId        ProjectID `json:"project_id"`
+	OutputModalities []string `json:"output_modalities"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
 
 	// SupportedReasoningEfforts Project subset of configured-model reasoning efforts. Empty means inherit. When non-empty, default_reasoning_effort must resolve to one of these values.
 	SupportedReasoningEfforts []string `json:"supported_reasoning_efforts"`
@@ -4967,6 +6558,18 @@ type ProjectModelGrant struct {
 	UpdatedAt     Timestamp               `json:"updated_at"`
 }
 
+// ProjectModelGrantEffectiveReasoning Reasoning settings agents in this project get for the model, after project grant overrides are applied to the configured model's current revision.
+type ProjectModelGrantEffectiveReasoning struct {
+	// DefaultReasoningEffort Reasoning effort sent when an agent config does not set model.reasoning.effort. Empty means the provider default.
+	DefaultReasoningEffort string `json:"default_reasoning_effort"`
+
+	// SupportedReasoningEfforts Values an agent config may set as model.reasoning.effort, including limits the model's API format imposes when the configured model lists none. Empty means any value is accepted.
+	SupportedReasoningEfforts []string `json:"supported_reasoning_efforts"`
+
+	// SupportsReasoning Whether agents can use this model's reasoning features. False when the grant no longer fits the configured model.
+	SupportsReasoning bool `json:"supports_reasoning"`
+}
+
 // ProjectModelGrantEnvelope defines model for ProjectModelGrantEnvelope.
 type ProjectModelGrantEnvelope struct {
 	Grant ProjectModelGrant `json:"grant"`
@@ -4977,8 +6580,10 @@ type ProjectModelGrantID = string
 
 // ProjectModelGrantListItem defines model for ProjectModelGrantListItem.
 type ProjectModelGrantListItem struct {
-	Grant ProjectModelGrant      `json:"grant"`
-	Model ConfiguredModelSummary `json:"model"`
+	// EffectiveReasoning Reasoning settings agents in this project get for the model, after project grant overrides are applied to the configured model's current revision.
+	EffectiveReasoning ProjectModelGrantEffectiveReasoning `json:"effective_reasoning"`
+	Grant              ProjectModelGrant                   `json:"grant"`
+	Model              ConfiguredModelSummary              `json:"model"`
 }
 
 // ProjectSecretAccess defines model for ProjectSecretAccess.
@@ -4989,8 +6594,10 @@ type ProjectSecretAccess struct {
 
 // ProjectSecretOwner defines model for ProjectSecretOwner.
 type ProjectSecretOwner struct {
-	Kind      ProjectSecretOwnerKind `json:"kind"`
-	ProjectId ProjectID              `json:"project_id"`
+	Kind ProjectSecretOwnerKind `json:"kind"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
 }
 
 // ProjectSecretOwnerKind defines model for ProjectSecretOwner.Kind.
@@ -4998,8 +6605,10 @@ type ProjectSecretOwnerKind string
 
 // ProjectSecretOwnerInput defines model for ProjectSecretOwnerInput.
 type ProjectSecretOwnerInput struct {
-	Kind      ProjectSecretOwnerInputKind `json:"kind"`
-	ProjectId ProjectID                   `json:"project_id"`
+	Kind ProjectSecretOwnerInputKind `json:"kind"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
 }
 
 // ProjectSecretOwnerInputKind defines model for ProjectSecretOwnerInput.Kind.
@@ -5008,14 +6617,18 @@ type ProjectSecretOwnerInputKind string
 // ProjectSkillAccess defines model for ProjectSkillAccess.
 type ProjectSkillAccess struct {
 	Availability SkillAvailability `json:"availability"`
-	ProjectId    ProjectID         `json:"project_id"`
-	Skill        Skill             `json:"skill"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
+	Skill     Skill     `json:"skill"`
 }
 
 // ProjectSkillOwner defines model for ProjectSkillOwner.
 type ProjectSkillOwner struct {
-	Kind      ProjectSkillOwnerKind `json:"kind"`
-	ProjectId ProjectID             `json:"project_id"`
+	Kind ProjectSkillOwnerKind `json:"kind"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
 }
 
 // ProjectSkillOwnerKind defines model for ProjectSkillOwner.Kind.
@@ -5023,8 +6636,10 @@ type ProjectSkillOwnerKind string
 
 // ProjectSkillOwnerInput defines model for ProjectSkillOwnerInput.
 type ProjectSkillOwnerInput struct {
-	Kind      ProjectSkillOwnerInputKind `json:"kind"`
-	ProjectId ProjectID                  `json:"project_id"`
+	Kind ProjectSkillOwnerInputKind `json:"kind"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
 }
 
 // ProjectSkillOwnerInputKind defines model for ProjectSkillOwnerInput.Kind.
@@ -5070,7 +6685,8 @@ type RenameAgentProfileRequest struct {
 
 // ResolveAgentConfigToolsRequest defines model for ResolveAgentConfigToolsRequest.
 type ResolveAgentConfigToolsRequest struct {
-	Source       string                                     `json:"source"`
+	// Source Agent config source as YAML or JSON text, or, with source_format json, as a JSON object. Only the fields that determine tools are read.
+	Source       json.RawMessage                            `json:"source"`
 	SourceFormat ResolveAgentConfigToolsRequestSourceFormat `json:"source_format"`
 }
 
@@ -5102,12 +6718,17 @@ type ResourceListSort string
 // ResourceName Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
 type ResourceName = string
 
+// ResourceNameReference Name of an existing resource, resolved when the config is compiled.
+type ResourceNameReference = string
+
 // Secret defines model for Secret.
 type Secret struct {
-	CreatedAt            Timestamp  `json:"created_at"`
-	CurrentVersionNumber int32      `json:"current_version_number"`
-	Id                   SecretID   `json:"id"`
-	Kind                 SecretKind `json:"kind"`
+	CreatedAt            Timestamp `json:"created_at"`
+	CurrentVersionNumber int32     `json:"current_version_number"`
+
+	// Id Secret ID (sec_...).
+	Id   SecretID   `json:"id"`
+	Kind SecretKind `json:"kind"`
 
 	// ManagementKind Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.
 	ManagementKind ManagementKind `json:"management_kind"`
@@ -5130,15 +6751,20 @@ type SecretAvailability struct {
 
 // SecretGrant defines model for SecretGrant.
 type SecretGrant struct {
-	CreatedAt       Timestamp      `json:"created_at"`
-	Id              SecretGrantID  `json:"id"`
-	OrgId           OrganizationID `json:"org_id"`
-	SecretId        SecretID       `json:"secret_id"`
-	TargetProjectId ProjectID      `json:"target_project_id"`
+	CreatedAt Timestamp      `json:"created_at"`
+	Id        SecretGrantID  `json:"id"`
+	OrgId     OrganizationID `json:"org_id"`
+
+	// SecretId Secret ID (sec_...).
+	SecretId SecretID `json:"secret_id"`
+
+	// TargetProjectId Project ID (proj_...).
+	TargetProjectId ProjectID `json:"target_project_id"`
 }
 
 // SecretGrantCreateRequest defines model for SecretGrantCreateRequest.
 type SecretGrantCreateRequest struct {
+	// TargetProjectId Project ID (proj_...).
 	TargetProjectId ProjectID `json:"target_project_id"`
 }
 
@@ -5151,13 +6777,13 @@ type SecretGrantListItem struct {
 	TargetProject Project     `json:"target_project"`
 }
 
-// SecretID defines model for SecretID.
+// SecretID Secret ID (sec_...).
 type SecretID = string
 
 // SecretKind defines model for SecretKind.
 type SecretKind string
 
-// SecretMaterial defines model for SecretMaterial.
+// SecretMaterial The secret's value. kind selects its shape: generic, oauth_token_set, aws_credentials, or github_app_credentials.
 type SecretMaterial struct {
 	union json.RawMessage
 }
@@ -5167,18 +6793,19 @@ type SecretOwner struct {
 	union json.RawMessage
 }
 
-// SecretOwnerInput defines model for SecretOwnerInput.
+// SecretOwnerInput Who owns the secret: {"kind":"org"}, {"kind":"project","project_id":"proj_..."}, or {"kind":"user"}. The owner cannot change later.
 type SecretOwnerInput struct {
 	union json.RawMessage
 }
 
 // SecretVersionRequest defines model for SecretVersionRequest.
 type SecretVersionRequest struct {
+	// Material The secret's value. kind selects its shape: generic, oauth_token_set, aws_credentials, or github_app_credentials.
 	Material SecretMaterial `json:"material"`
 }
 
 // ServerErrorCode Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
-type ServerErrorCode string
+type ServerErrorCode = string
 
 // SetProjectMembershipRequest defines model for SetProjectMembershipRequest.
 type SetProjectMembershipRequest struct {
@@ -5220,15 +6847,18 @@ type SkillFile struct {
 
 // SkillGrant defines model for SkillGrant.
 type SkillGrant struct {
-	CreatedAt       Timestamp      `json:"created_at"`
-	Id              SkillGrantID   `json:"id"`
-	OrgId           OrganizationID `json:"org_id"`
-	SkillId         SkillID        `json:"skill_id"`
-	TargetProjectId ProjectID      `json:"target_project_id"`
+	CreatedAt Timestamp      `json:"created_at"`
+	Id        SkillGrantID   `json:"id"`
+	OrgId     OrganizationID `json:"org_id"`
+	SkillId   SkillID        `json:"skill_id"`
+
+	// TargetProjectId Project ID (proj_...).
+	TargetProjectId ProjectID `json:"target_project_id"`
 }
 
 // SkillGrantCreateRequest defines model for SkillGrantCreateRequest.
 type SkillGrantCreateRequest struct {
+	// TargetProjectId Project ID (proj_...).
 	TargetProjectId ProjectID `json:"target_project_id"`
 }
 
@@ -5262,14 +6892,18 @@ type SkillRevisionID = string
 
 // SlackSetup defines model for SlackSetup.
 type SlackSetup struct {
-	ActionsUrl  string                 `json:"actions_url"`
-	EventsUrl   string                 `json:"events_url"`
-	ExpiresAt   Timestamp              `json:"expires_at"`
-	FlowId      IntegrationOAuthFlowID `json:"flow_id"`
-	OauthUrl    string                 `json:"oauth_url"`
-	Provider    string                 `json:"provider"`
-	RedirectUri string                 `json:"redirect_uri"`
-	SlackAppId  string                 `json:"slack_app_id"`
+	ActionsUrl    string                 `json:"actions_url"`
+	EventsUrl     string                 `json:"events_url"`
+	ExpiresAt     Timestamp              `json:"expires_at"`
+	FlowId        IntegrationOAuthFlowID `json:"flow_id"`
+	IntegrationId IntegrationID          `json:"integration_id"`
+	OauthUrl      string                 `json:"oauth_url"`
+	Provider      string                 `json:"provider"`
+	RedirectUri   string                 `json:"redirect_uri"`
+
+	// SetupRevision Integration setup revision captured by this authorization flow.
+	SetupRevision int64  `json:"setup_revision"`
+	SlackAppId    string `json:"slack_app_id"`
 }
 
 // SlackSetupIcon defines model for SlackSetupIcon.
@@ -5364,10 +6998,13 @@ type ToolCallState string
 // ToolCallType Identifies who manages execution. Built-in and MCP calls are platform-managed; custom calls wait for an external consumer to submit their result.
 type ToolCallType string
 
-// ToolCallUpdate An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
+// ToolCallUpdate A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
 type ToolCallUpdate struct {
 	// AgentId The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
 	AgentId *AgentID `json:"agent_id,omitempty"`
+
+	// InteractionUpdate Only present when this transition opens, resolves, or cancels an interaction.
+	InteractionUpdate *AgentInteractionUpdate `json:"interaction_update,omitempty"`
 
 	// State Current lifecycle state. awaiting_authorization has not evaluated its permission mode; awaiting_permission has an open authorization prompt; ready is authorized and eligible to run; running has an active worker; waiting has durable work that will complete the call independently; completed is terminal and includes outcome and completed_at. Custom calls remain ready until a consumer submits their result.
 	State      ToolCallState `json:"state"`
@@ -5443,8 +7080,10 @@ type ToolResultEvent struct {
 	OrgId          OrganizationID                `json:"org_id"`
 
 	// Outcome Terminal outcome, present only when state is completed.
-	Outcome   ToolCallOutcome `json:"outcome"`
-	ProjectId ProjectID       `json:"project_id"`
+	Outcome ToolCallOutcome `json:"outcome"`
+
+	// ProjectId Project ID (proj_...).
+	ProjectId ProjectID `json:"project_id"`
 
 	// Sequence Positive per-agent event, turn, or live-frame sequence.
 	Sequence   AgentSequence `json:"sequence"`
@@ -5463,12 +7102,17 @@ type ToolResultEventIsOpeningEvent bool
 
 // UpdateAgentConfigRequest Replaces a live agent's config. expected_current_config_id makes the change conditional on the agent still running that config, so concurrent editors get a conflict instead of silently overwriting each other.
 type UpdateAgentConfigRequest struct {
-	ExpectedCurrentConfigId *AgentConfigID                       `json:"expected_current_config_id,omitempty"`
-	Source                  string                               `json:"source"`
-	SourceFormat            UpdateAgentConfigRequestSourceFormat `json:"source_format"`
+	// ExpectedCurrentConfigId Agent config ID (acfg_...).
+	ExpectedCurrentConfigId *AgentConfigID `json:"expected_current_config_id,omitempty"`
+
+	// Source Agent config source as YAML or JSON text, or, with source_format json, as a JSON object.
+	Source AgentConfigSourceInput `json:"source"`
+
+	// SourceFormat Format of source: yaml or json.
+	SourceFormat UpdateAgentConfigRequestSourceFormat `json:"source_format"`
 }
 
-// UpdateAgentConfigRequestSourceFormat defines model for UpdateAgentConfigRequest.SourceFormat.
+// UpdateAgentConfigRequestSourceFormat Format of source: yaml or json.
 type UpdateAgentConfigRequestSourceFormat string
 
 // UpdateAgentConfigResponse defines model for UpdateAgentConfigResponse.
@@ -5480,7 +7124,10 @@ type UpdateAgentConfigResponse struct {
 
 // UpdateAgentProfileRequest defines model for UpdateAgentProfileRequest.
 type UpdateAgentProfileRequest struct {
-	Config                  AgentConfigID `json:"config"`
+	// Config Agent config ID (acfg_...).
+	Config AgentConfigID `json:"config"`
+
+	// ExpectedCurrentConfigId Agent config ID (acfg_...).
 	ExpectedCurrentConfigId AgentConfigID `json:"expected_current_config_id"`
 }
 
@@ -5489,7 +7136,7 @@ type UpdateConfiguredModelRequest struct {
 	// ApiVariantOptions Extra top-level JSON fields to include in provider requests for this configured model. Use this for provider-specific settings that Omnara does not expose as typed fields, such as OpenRouter `provider` routing or sampling parameters. Omnara still controls the fields it needs to run the agent correctly, including the model, prompt/messages, streaming, tools, output-token limit, and selected reasoning policy. Provider passthrough values for those fields are ignored. For OpenRouter routing options, see https://openrouter.ai/docs/guides/routing/provider-selection and general request parameters at https://openrouter.ai/docs/api/reference/parameters. Omnara-managed OpenRouter providers accept only sampling, reasoning, and per-model routing options here.
 	ApiVariantOptions ModelAPIVariantOptions `json:"api_variant_options,omitempty"`
 
-	// ContextWindowTokens Total token window for this model, including input and output.
+	// ContextWindowTokens Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
 	ContextWindowTokens *int `json:"context_window_tokens,omitempty"`
 
 	// DefaultCacheRetention Prompt-cache preference for model requests; `short` when omitted. `short` applies the route's default caching (explicit cache breakpoints where the provider requires them) and, where the route accepts one, a stable conversation key for cache-aware routing. `long` prefers the route's extended cache lifetime where one exists (currently Anthropic's one-hour cache, which on Bedrock requires Claude 4.5 or newer) and behaves like `short` elsewhere. `none` sends no Omnara-managed cache controls or conversation key; providers may still cache prefixes on their own.
@@ -5529,53 +7176,99 @@ type UpdateConfiguredModelRequest struct {
 // UpdateCronTriggerRequest defines model for UpdateCronTriggerRequest.
 type UpdateCronTriggerRequest struct {
 	// Cron Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
-	Cron    *CronExpression `json:"cron,omitempty"`
-	Enabled *bool           `json:"enabled,omitempty"`
+	Cron *CronExpression `json:"cron,omitempty"`
 
-	// MessageTemplate Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+	// Enabled Whether the trigger fires on schedule; false pauses it.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// MessageTemplate Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. Required for agent and profile targets; omitted for integration targets, which use their own settings. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
 	MessageTemplate *CronMessageTemplate `json:"message_template,omitempty"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
 	Name *ResourceName `json:"name,omitempty"`
 
-	// Target Updates target options. The target type and ID cannot change. Omitted delivery_mode preserves the current mode.
+	// Target Updates target options. The target type and ID cannot change. Integration settings can change for future occurrences. Omitted delivery_mode preserves the current mode.
 	Target *CronTriggerTarget `json:"target,omitempty"`
 
 	// Timezone IANA time zone the schedule is evaluated in.
 	Timezone *CronTimezone `json:"timezone,omitempty"`
 }
 
+// UpdateEventWebhookRequest defines model for UpdateEventWebhookRequest.
+type UpdateEventWebhookRequest struct {
+	EventTypes *[]EventWebhookEventType `json:"event_types,omitempty"`
+
+	// SigningSecretId Project-available generic secret. Omit to preserve signing, or set to null to remove it.
+	SigningSecretId nullable.Nullable[SecretID] `json:"signing_secret_id,omitempty"`
+
+	// Url Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+	Url *string `json:"url,omitempty"`
+}
+
+// UpdateIntegrationRequest Replaces integration settings. Name and integration_kind are immutable and only accepted on create. Preserve integration-level fields when editing launcher settings.
+type UpdateIntegrationRequest struct {
+	// Settings Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack and Discord integrations use ChatIntegrationSettings.
+	Settings IntegrationSettings `json:"settings"`
+}
+
 // UpdateMachinePoolRequest defines model for UpdateMachinePoolRequest.
 type UpdateMachinePoolRequest struct {
-	DefaultCwd        *string                  `json:"default_cwd,omitempty"`
+	// DefaultCwd Default working directory for processes on machines created from the pool after this change.
+	DefaultCwd *string `json:"default_cwd,omitempty"`
+
+	// DefaultMachineCpu Default CPU count for new machines in the pool.
 	DefaultMachineCpu nullable.Nullable[int32] `json:"default_machine_cpu,omitempty"`
 
 	// DefaultMachineEnv Default environment for pool machines. A machine's environment, including resolved secret_env values, is applied to the provider machine at provisioning, so the provider_options startup_script and the daemon run with it, and is resolved again for each process at launch.
-	DefaultMachineEnv             *map[string]string       `json:"default_machine_env,omitempty"`
-	DefaultMachineMemoryMb        nullable.Nullable[int32] `json:"default_machine_memory_mb,omitempty"`
-	DefaultMachineProviderOptions *map[string]interface{}  `json:"default_machine_provider_options,omitempty"`
+	DefaultMachineEnv *map[string]string `json:"default_machine_env,omitempty"`
+
+	// DefaultMachineMemoryMb Default memory in MB for new machines in the pool.
+	DefaultMachineMemoryMb nullable.Nullable[int32] `json:"default_machine_memory_mb,omitempty"`
+
+	// DefaultMachineProviderOptions Provider-specific options applied to new machines in the pool.
+	DefaultMachineProviderOptions *map[string]interface{} `json:"default_machine_provider_options,omitempty"`
 
 	// DefaultMachineSecretEnv Default secret environment for pool machines, mapping env names to generic secret references. References are resolved to secret values wherever the machine environment is applied.
 	DefaultMachineSecretEnv *map[string]SecretID `json:"default_machine_secret_env,omitempty"`
 
 	// DeleteAfterIdleMinutes Idle minutes before deleting a machine from this pool. Null clears the pool default; omitted leaves it unchanged.
 	DeleteAfterIdleMinutes nullable.Nullable[int32] `json:"delete_after_idle_minutes,omitempty"`
-	Description            *string                  `json:"description,omitempty"`
-	MaxMachineCpu          nullable.Nullable[int32] `json:"max_machine_cpu,omitempty"`
-	MaxMachineMemoryMb     nullable.Nullable[int32] `json:"max_machine_memory_mb,omitempty"`
-	MaxTotalCpu            nullable.Nullable[int32] `json:"max_total_cpu,omitempty"`
-	MaxTotalMachines       *int32                   `json:"max_total_machines,omitempty"`
-	MaxTotalMemoryMb       nullable.Nullable[int32] `json:"max_total_memory_mb,omitempty"`
+
+	// Description Optional description of the pool.
+	Description *string `json:"description,omitempty"`
+
+	// MaxMachineCpu Largest CPU count a single machine in the pool can use.
+	MaxMachineCpu nullable.Nullable[int32] `json:"max_machine_cpu,omitempty"`
+
+	// MaxMachineMemoryMb Largest memory in MB a single machine in the pool can use.
+	MaxMachineMemoryMb nullable.Nullable[int32] `json:"max_machine_memory_mb,omitempty"`
+
+	// MaxTotalCpu Maximum total CPU across the pool's live machines.
+	MaxTotalCpu nullable.Nullable[int32] `json:"max_total_cpu,omitempty"`
+
+	// MaxTotalMachines Maximum number of live machines in the pool.
+	MaxTotalMachines *int32 `json:"max_total_machines,omitempty"`
+
+	// MaxTotalMemoryMb Maximum total memory in MB across the pool's live machines.
+	MaxTotalMemoryMb nullable.Nullable[int32] `json:"max_total_memory_mb,omitempty"`
 
 	// Metadata User-supplied metadata stored on a machine, provided directly or copied from the machine pool that provisions it. A restriction of Metadata that leaves room for one reserved pair - Omnara sets observed_platform on the machine to the platform reported by its daemon, so the key is reserved and at most 15 user pairs are accepted.
-	Metadata           MachineMetadata          `json:"metadata,omitempty"`
-	MinMachineCpu      nullable.Nullable[int32] `json:"min_machine_cpu,omitempty"`
+	Metadata MachineMetadata `json:"metadata,omitempty"`
+
+	// MinMachineCpu Smallest CPU count a single machine in the pool can use.
+	MinMachineCpu nullable.Nullable[int32] `json:"min_machine_cpu,omitempty"`
+
+	// MinMachineMemoryMb Smallest memory in MB a single machine in the pool can use.
 	MinMachineMemoryMb nullable.Nullable[int32] `json:"min_machine_memory_mb,omitempty"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-	Name                 *ResourceName           `json:"name,omitempty"`
-	ProviderAuthSecretId *SecretID               `json:"provider_auth_secret_id,omitempty"`
-	ProviderConfig       *map[string]interface{} `json:"provider_config,omitempty"`
+	Name *ResourceName `json:"name,omitempty"`
+
+	// ProviderAuthSecretId Secret ID (sec_...).
+	ProviderAuthSecretId *SecretID `json:"provider_auth_secret_id,omitempty"`
+
+	// ProviderConfig Provider-specific settings for the pool.
+	ProviderConfig *map[string]interface{} `json:"provider_config,omitempty"`
 
 	// RuntimeProtectionEnabled Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
 	RuntimeProtectionEnabled *bool `json:"runtime_protection_enabled,omitempty"`
@@ -5583,30 +7276,50 @@ type UpdateMachinePoolRequest struct {
 
 // UpdateMachineRequest defines model for UpdateMachineRequest.
 type UpdateMachineRequest struct {
-	Cwd       *string              `json:"cwd,omitempty"`
-	Env       *map[string]string   `json:"env,omitempty"`
+	// Cwd Default working directory for processes started on the machine.
+	Cwd *string `json:"cwd,omitempty"`
+
+	// Env Environment variables set for processes started on the machine.
+	Env *map[string]string `json:"env,omitempty"`
+
+	// SecretEnv Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
 	SecretEnv *map[string]SecretID `json:"secret_env,omitempty"`
+}
+
+// UpdateMemoryStore defines model for UpdateMemoryStore.
+type UpdateMemoryStore struct {
+	AgentAccess *MemoryStoreAccess `json:"agent_access,omitempty"`
+	Description *string            `json:"description,omitempty"`
 }
 
 // UpdateModelProviderConfigRequest Update a provider config. Omitted fields keep their current values.
 type UpdateModelProviderConfigRequest struct {
+	// AuthKind How the credential is sent: bearer_token, api_key_header, or sigv4 (AWS).
 	AuthKind *ModelProviderAuthKind `json:"auth_kind,omitempty"`
 
 	// AuthOptions Non-secret authentication settings. Use an empty object with bearer_token. With api_key_header, set {"header_name":"..."}. With sigv4, set the AWS signing service and region.
 	AuthOptions json.RawMessage `json:"auth_options,omitempty"`
 
 	// BaseUrl Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
-	BaseUrl            *string   `json:"base_url,omitempty"`
+	BaseUrl *string `json:"base_url,omitempty"`
+
+	// CredentialSecretId Secret ID (sec_...).
 	CredentialSecretId *SecretID `json:"credential_secret_id,omitempty"`
 
 	// EndpointPath URL path under base_url. This changes where requests are sent, not which API format Omnara speaks.
 	EndpointPath *string `json:"endpoint_path,omitempty"`
+
+	// Headers Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens. Replaces all headers when provided.
+	Headers *map[string]string `json:"headers,omitempty"`
 
 	// IdleTimeoutMs Maximum wait for response headers or the next response bytes, in milliseconds. Heartbeats count as activity. Local response processing does not consume this idle budget.
 	IdleTimeoutMs *int `json:"idle_timeout_ms,omitempty"`
 
 	// RequestTimeoutMs Total deadline for one provider attempt, including reasoning and response streaming, in milliseconds. Retries have separate deadlines.
 	RequestTimeoutMs *int `json:"request_timeout_ms,omitempty"`
+
+	// SecretHeaders Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references. Replaces all secret headers when provided.
+	SecretHeaders *map[string]SecretID `json:"secret_headers,omitempty"`
 }
 
 // UpdateOrgAPIKeyRequest defines model for UpdateOrgAPIKeyRequest.
@@ -5620,37 +7333,64 @@ type UpdateOrgAPIKeyRequest struct {
 
 // UpdateOrgMemberRequest defines model for UpdateOrgMemberRequest.
 type UpdateOrgMemberRequest struct {
-	// Role The member's new org role (admin or member).
+	// Role The member's new org role (owner, admin, or member).
 	Role string `json:"role"`
 }
 
 // UpdateProjectMachinePoolGrantRequest Update a project machine pool grant. Omitted fields keep their current values. Null clears an override so the grant follows the machine pool again. Overlay objects and metadata are replaced whole when present; send an empty object to clear them.
 type UpdateProjectMachinePoolGrantRequest struct {
-	DefaultCwd                           *string                  `json:"default_cwd,omitempty"`
-	DefaultMachineCpu                    nullable.Nullable[int32] `json:"default_machine_cpu,omitempty"`
-	DefaultMachineEnvOverlay             *map[string]*string      `json:"default_machine_env_overlay,omitempty"`
-	DefaultMachineMemoryMb               nullable.Nullable[int32] `json:"default_machine_memory_mb,omitempty"`
-	DefaultMachineProviderOptionsOverlay *map[string]interface{}  `json:"default_machine_provider_options_overlay,omitempty"`
-	DefaultMachineSecretEnvOverlay       *map[string]*string      `json:"default_machine_secret_env_overlay,omitempty"`
+	// DefaultCwd Default working directory for processes on this project's machines created from the pool after this change.
+	DefaultCwd *string `json:"default_cwd,omitempty"`
+
+	// DefaultMachineCpu Default CPU count for machines this project creates from the pool, overriding the pool's default.
+	DefaultMachineCpu nullable.Nullable[int32] `json:"default_machine_cpu,omitempty"`
+
+	// DefaultMachineEnvOverlay Env overlay merged over the pool's default_machine_env for machines this project creates from the pool afterward; a null entry removes the key.
+	DefaultMachineEnvOverlay *map[string]*string `json:"default_machine_env_overlay,omitempty"`
+
+	// DefaultMachineMemoryMb Default memory in MB for machines this project creates from the pool, overriding the pool's default.
+	DefaultMachineMemoryMb nullable.Nullable[int32] `json:"default_machine_memory_mb,omitempty"`
+
+	// DefaultMachineProviderOptionsOverlay Provider-specific options layered over the pool's provider options for this project's machines.
+	DefaultMachineProviderOptionsOverlay *map[string]interface{} `json:"default_machine_provider_options_overlay,omitempty"`
+
+	// DefaultMachineSecretEnvOverlay Secret env overlay merged over the pool's default_machine_secret_env for machines this project creates from the pool afterward; a null entry removes the key.
+	DefaultMachineSecretEnvOverlay *map[string]*string `json:"default_machine_secret_env_overlay,omitempty"`
 
 	// DeleteAfterIdleMinutes Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged. Values from 1 through 4 are invalid.
 	DeleteAfterIdleMinutes nullable.Nullable[int32] `json:"delete_after_idle_minutes,omitempty"`
-	Description            *string                  `json:"description,omitempty"`
-	MaxMachineCpu          nullable.Nullable[int32] `json:"max_machine_cpu,omitempty"`
-	MaxMachineMemoryMb     nullable.Nullable[int32] `json:"max_machine_memory_mb,omitempty"`
-	MaxTotalCpu            nullable.Nullable[int32] `json:"max_total_cpu,omitempty"`
-	MaxTotalMachines       nullable.Nullable[int32] `json:"max_total_machines,omitempty"`
-	MaxTotalMemoryMb       nullable.Nullable[int32] `json:"max_total_memory_mb,omitempty"`
+
+	// Description Optional note about this grant.
+	Description *string `json:"description,omitempty"`
+
+	// MaxMachineCpu Largest CPU count one of this project's machines can request.
+	MaxMachineCpu nullable.Nullable[int32] `json:"max_machine_cpu,omitempty"`
+
+	// MaxMachineMemoryMb Largest memory in MB one of this project's machines can request.
+	MaxMachineMemoryMb nullable.Nullable[int32] `json:"max_machine_memory_mb,omitempty"`
+
+	// MaxTotalCpu Maximum total CPU across this project's live machines from the pool.
+	MaxTotalCpu nullable.Nullable[int32] `json:"max_total_cpu,omitempty"`
+
+	// MaxTotalMachines Maximum number of live machines this project can have from the pool.
+	MaxTotalMachines nullable.Nullable[int32] `json:"max_total_machines,omitempty"`
+
+	// MaxTotalMemoryMb Maximum total memory in MB across this project's live machines from the pool.
+	MaxTotalMemoryMb nullable.Nullable[int32] `json:"max_total_memory_mb,omitempty"`
 
 	// Metadata Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
-	Metadata           Metadata                 `json:"metadata,omitempty"`
-	MinMachineCpu      nullable.Nullable[int32] `json:"min_machine_cpu,omitempty"`
+	Metadata Metadata `json:"metadata,omitempty"`
+
+	// MinMachineCpu Smallest CPU count one of this project's machines can request.
+	MinMachineCpu nullable.Nullable[int32] `json:"min_machine_cpu,omitempty"`
+
+	// MinMachineMemoryMb Smallest memory in MB one of this project's machines can request.
 	MinMachineMemoryMb nullable.Nullable[int32] `json:"min_machine_memory_mb,omitempty"`
 }
 
 // UpdateProjectModelGrantRequest Update a project model grant's overrides. Omitted fields keep their current values. Null clears an override so the project inherits from the configured model; for arrays, an empty array clears the override.
 type UpdateProjectModelGrantRequest struct {
-	// ContextWindowTokens Project token-window limit. Cannot exceed the configured model's current limit.
+	// ContextWindowTokens Project context budget for input and output tokens. Cannot exceed the configured model's budget. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
 	ContextWindowTokens   nullable.Nullable[int]                 `json:"context_window_tokens,omitempty"`
 	DefaultCacheRetention nullable.Nullable[ModelCacheRetention] `json:"default_cache_retention,omitempty"`
 
@@ -5707,9 +7447,10 @@ type UpdateSkillRequest1 struct {
 	SkillMd string `json:"skill_md"`
 }
 
-// UploadArtifactResponse defines model for UploadArtifactResponse.
-type UploadArtifactResponse struct {
-	ArtifactId ArtifactID `json:"artifact_id"`
+// UploadFileResponse Returns the uploaded file's path and digest.
+type UploadFileResponse struct {
+	Digest string `json:"digest"`
+	Path   string `json:"path"`
 }
 
 // UsageCostTotals defines model for UsageCostTotals.
@@ -5739,6 +7480,68 @@ type UsageReport struct {
 	ByModel []ModelUsageTotals `json:"by_model"`
 	Totals  UsageTotals        `json:"totals"`
 }
+
+// UsageTimeseries defines model for UsageTimeseries.
+type UsageTimeseries struct {
+	// ActiveAgents Agents, not counting subagents, that made at least one model call in the window.
+	ActiveAgents int64 `json:"active_agents"`
+
+	// BucketStarts Start of each bucket in `timezone`, oldest first, including buckets without usage. The first bucket starts at the beginning of the interval containing `since`, but only usage at or after `since` counts.
+	BucketStarts []Timestamp             `json:"bucket_starts"`
+	GroupBy      *UsageTimeseriesGroupBy `json:"group_by,omitempty"`
+	Interval     UsageTimeseriesInterval `json:"interval"`
+
+	// Metric `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
+	Metric UsageTimeseriesMetric `json:"metric"`
+
+	// Series Without `group_by`, a single `all` series. With it, one series per ranked group, most first, then an `other` series when usage remains.
+	Series []UsageTimeseriesSeries `json:"series"`
+
+	// Timezone IANA time zone the buckets follow.
+	Timezone string `json:"timezone"`
+
+	// Totals All usage in the window, regardless of `metric` and `group_by`.
+	Totals UsageTotals `json:"totals"`
+
+	// Until End of the window; usage at or after this instant is excluded.
+	Until Timestamp `json:"until"`
+}
+
+// UsageTimeseriesGroupBy defines model for UsageTimeseriesGroupBy.
+type UsageTimeseriesGroupBy string
+
+// UsageTimeseriesInterval defines model for UsageTimeseriesInterval.
+type UsageTimeseriesInterval string
+
+// UsageTimeseriesMetric `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
+type UsageTimeseriesMetric string
+
+// UsageTimeseriesSeries defines model for UsageTimeseriesSeries.
+type UsageTimeseriesSeries struct {
+	// Id Configured model ID for `model` series, agent profile ID for `profile` series.
+	Id *string `json:"id,omitempty"`
+
+	// Kind `no_profile` groups usage from agents launched without a profile; `other` folds together every group beyond `group_limit`.
+	Kind UsageTimeseriesSeriesKind `json:"kind"`
+
+	// ModelProviderConfigName Name of the configured model's provider config, so same-named models can be told apart. Present on `model` series.
+	ModelProviderConfigName *ResourceName `json:"model_provider_config_name,omitempty"`
+
+	// Name Configured model or agent profile name, resolved even if it has since been deleted. Present with `id`.
+	Name *ResourceName `json:"name,omitempty"`
+
+	// ProjectName Name of the agent profile's project, so same-named profiles in different projects can be told apart. Present on `profile` series.
+	ProjectName *ResourceName `json:"project_name,omitempty"`
+
+	// Total Metric over the whole window.
+	Total float64 `json:"total"`
+
+	// Values Metric in each bucket, aligned with `bucket_starts`.
+	Values []float64 `json:"values"`
+}
+
+// UsageTimeseriesSeriesKind `no_profile` groups usage from agents launched without a profile; `other` folds together every group beyond `group_limit`.
+type UsageTimeseriesSeriesKind string
 
 // UsageTokenTotals Summed token counts across the tallied model calls. Input totals are the sum of uncached, cache-read, and cache-write tokens; output totals include reasoning tokens.
 type UsageTokenTotals struct {
@@ -5807,7 +7610,9 @@ type VisibleMachine struct {
 	Description     string                       `json:"description"`
 
 	// DisplayName Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
-	DisplayName    ResourceName                 `json:"display_name"`
+	DisplayName ResourceName `json:"display_name"`
+
+	// Id Machine ID (mch_...).
 	Id             MachineID                    `json:"id"`
 	LastObservedAt nullable.Nullable[Timestamp] `json:"last_observed_at"`
 	LifecycleState MachineLifecycleState        `json:"lifecycle_state"`
@@ -5821,7 +7626,9 @@ type VisibleMachine struct {
 type VisibleProject struct {
 	Access    ProjectAccess `json:"access"`
 	CreatedAt Timestamp     `json:"created_at"`
-	Id        ProjectID     `json:"id"`
+
+	// Id Project ID (proj_...).
+	Id ProjectID `json:"id"`
 
 	// Name Human-readable name. Spaces and punctuation are allowed; leading or trailing whitespace and invisible or control characters are not.
 	Name      ResourceName   `json:"name"`
@@ -5829,14 +7636,17 @@ type VisibleProject struct {
 	UpdatedAt Timestamp      `json:"updated_at"`
 }
 
+// AgentIncludeUsage defines model for AgentIncludeUsage.
+type AgentIncludeUsage = bool
+
+// AgentProfileIncludeStats defines model for AgentProfileIncludeStats.
+type AgentProfileIncludeStats = bool
+
+// AgentProfileStatsSince defines model for AgentProfileStatsSince.
+type AgentProfileStatsSince = time.Time
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
-
-// IntegrationInstallAgentProfileFilter defines model for IntegrationInstallAgentProfileFilter.
-type IntegrationInstallAgentProfileFilter = AgentProfileID
-
-// IntegrationInstallOAuthFlowIDFilter defines model for IntegrationInstallOAuthFlowIDFilter.
-type IntegrationInstallOAuthFlowIDFilter = IntegrationOAuthFlowID
 
 // MachineSourceKindFilter defines model for MachineSourceKindFilter.
 type MachineSourceKindFilter = MachineSourceKind
@@ -5865,7 +7675,7 @@ type SecretMetadataFilter map[string]string
 // SecretOwnerKindFilter defines model for SecretOwnerKindFilter.
 type SecretOwnerKindFilter string
 
-// SecretOwnerProjectIDFilter defines model for SecretOwnerProjectIDFilter.
+// SecretOwnerProjectIDFilter Project ID (proj_...).
 type SecretOwnerProjectIDFilter = ProjectID
 
 // SkillAvailabilitySourceFilter defines model for SkillAvailabilitySourceFilter.
@@ -5874,7 +7684,7 @@ type SkillAvailabilitySourceFilter string
 // SkillOwnerKindFilter defines model for SkillOwnerKindFilter.
 type SkillOwnerKindFilter string
 
-// SkillOwnerProjectIDFilter defines model for SkillOwnerProjectIDFilter.
+// SkillOwnerProjectIDFilter Project ID (proj_...).
 type SkillOwnerProjectIDFilter = ProjectID
 
 // UsageExcludeProjectIDs defines model for UsageExcludeProjectIDs.
@@ -5888,9 +7698,6 @@ type UsageSince = time.Time
 
 // UsageUntil defines model for UsageUntil.
 type UsageUntil = time.Time
-
-// BadGateway defines model for BadGateway.
-type BadGateway = Error
 
 // BadRequest defines model for BadRequest.
 type BadRequest = Error
@@ -5906,6 +7713,9 @@ type ClientError struct {
 
 // Conflict defines model for Conflict.
 type Conflict = Error
+
+// FailedDependency defines model for FailedDependency.
+type FailedDependency = Error
 
 // Forbidden defines model for Forbidden.
 type Forbidden = Error
@@ -5952,16 +7762,17 @@ type RecordMachineFailureParams struct {
 // RecordMachineFailureParamsStage defines parameters for RecordMachineFailure.
 type RecordMachineFailureParamsStage string
 
+// UploadDaemonFileParams defines parameters for UploadDaemonFile.
+type UploadDaemonFileParams struct {
+	// Filename Required for artifact uploads; ignored for memory uploads.
+	Filename *string `form:"filename,omitempty" json:"filename,omitempty"`
+}
+
 // GetDaemonSkillArchiveParams defines parameters for GetDaemonSkillArchive.
 type GetDaemonSkillArchiveParams struct {
 	RevisionId    string `form:"revision_id" json:"revision_id"`
 	ExpiresAt     int64  `form:"expires_at" json:"expires_at"`
 	DownloadToken string `form:"download_token" json:"download_token"`
-}
-
-// UploadDaemonArtifactParams defines parameters for UploadDaemonArtifact.
-type UploadDaemonArtifactParams struct {
-	Filename string `form:"filename" json:"filename"`
 }
 
 // ListPendingInvitationsParams defines parameters for ListPendingInvitations.
@@ -5994,8 +7805,67 @@ type CreateOrganizationParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListOrgAgentProfilesParams defines parameters for ListOrgAgentProfiles.
+type ListOrgAgentProfilesParams struct {
+	// Name Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+	Name *ResourceNameFilter `form:"name,omitempty" json:"name,omitempty"`
+
+	// IncludeStats Include each profile's `stats`, so a list can show instance counts and usage without a request per profile.
+	IncludeStats *AgentProfileIncludeStats `form:"include_stats,omitempty" json:"include_stats,omitempty"`
+
+	// StatsSince Start of the window `stats.usage` tallies, with `include_stats`. Omit to tally from the earliest recorded call.
+	StatsSince *AgentProfileStatsSince `form:"stats_since,omitempty" json:"stats_since,omitempty"`
+	Sort       *ResourceListSort       `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// Limit Maximum number of items to return in one page.
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListOrgAgentsParams defines parameters for ListOrgAgents.
+type ListOrgAgentsParams struct {
+	// Name Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+	Name *ResourceNameFilter `form:"name,omitempty" json:"name,omitempty"`
+
+	// AgentProfileId Return only agents launched from this agent profile.
+	AgentProfileId *AgentProfileID `form:"agent_profile_id,omitempty" json:"agent_profile_id,omitempty"`
+
+	// ParentAgentId Return only subagents spawned by this agent.
+	ParentAgentId *AgentID `form:"parent_agent_id,omitempty" json:"parent_agent_id,omitempty"`
+
+	// IncludeSubagents Include subagents alongside top-level agents. Defaults to false, so only agents without a parent are returned unless parent_agent_id is set.
+	IncludeSubagents *bool `form:"include_subagents,omitempty" json:"include_subagents,omitempty"`
+
+	// IncludeArchived Include archived agents. Defaults to false.
+	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+
+	// IncludeUsage Include each agent's `usage`, so a list can show costs without a request per agent.
+	IncludeUsage *AgentIncludeUsage `form:"include_usage,omitempty" json:"include_usage,omitempty"`
+	Sort         *ResourceListSort  `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// Limit Maximum number of items to return in one page.
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
 // ListOrgAPIKeysParams defines parameters for ListOrgAPIKeys.
 type ListOrgAPIKeysParams struct {
+	// Limit Maximum number of items to return in one page.
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListOrgIntegrationsParams defines parameters for ListOrgIntegrations.
+type ListOrgIntegrationsParams struct {
+	// Name Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+	Name *ResourceNameFilter `form:"name,omitempty" json:"name,omitempty"`
+
 	// Limit Maximum number of items to return in one page.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
@@ -6032,7 +7902,10 @@ type ListVisibleMachinesParams struct {
 
 	// SourceKind Filter machines by source kind. Omit to include both BYO and pooled machines.
 	SourceKind *MachineSourceKindFilter `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	Sort       *ResourceListSort        `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// MachinePoolId Return only machines provisioned by this machine pool.
+	MachinePoolId *MachinePoolID    `form:"machine_pool_id,omitempty" json:"machine_pool_id,omitempty"`
+	Sort          *ResourceListSort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// Limit Maximum number of items to return in one page.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
@@ -6064,6 +7937,18 @@ type ListOrgMembersParams struct {
 
 	// Limit Maximum number of items to return in one page.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListOrgMemoryStoresParams defines parameters for ListOrgMemoryStores.
+type ListOrgMemoryStoresParams struct {
+	// Limit Maximum number of items to return in one page.
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Name Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+	Name *ResourceNameFilter `form:"name,omitempty" json:"name,omitempty"`
 
 	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
 	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -6119,11 +8004,26 @@ type ListActorsParams struct {
 	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// GetAgentConfigGeneratedSourceParams defines parameters for GetAgentConfigGeneratedSource.
+type GetAgentConfigGeneratedSourceParams struct {
+	// SourceFormat Format of the returned source.
+	SourceFormat *GetAgentConfigGeneratedSourceParamsSourceFormat `form:"source_format,omitempty" json:"source_format,omitempty"`
+}
+
+// GetAgentConfigGeneratedSourceParamsSourceFormat defines parameters for GetAgentConfigGeneratedSource.
+type GetAgentConfigGeneratedSourceParamsSourceFormat string
+
 // ListAgentProfilesParams defines parameters for ListAgentProfiles.
 type ListAgentProfilesParams struct {
 	// Name Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
 	Name *ResourceNameFilter `form:"name,omitempty" json:"name,omitempty"`
-	Sort *ResourceListSort   `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// IncludeStats Include each profile's `stats`, so a list can show instance counts and usage without a request per profile.
+	IncludeStats *AgentProfileIncludeStats `form:"include_stats,omitempty" json:"include_stats,omitempty"`
+
+	// StatsSince Start of the window `stats.usage` tallies, with `include_stats`. Omit to tally from the earliest recorded call.
+	StatsSince *AgentProfileStatsSince `form:"stats_since,omitempty" json:"stats_since,omitempty"`
+	Sort       *ResourceListSort       `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// Limit Maximum number of items to return in one page.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
@@ -6171,8 +8071,11 @@ type ListAgentsParams struct {
 	IncludeSubagents *bool `form:"include_subagents,omitempty" json:"include_subagents,omitempty"`
 
 	// IncludeArchived Include archived agents. Defaults to false.
-	IncludeArchived *bool             `form:"include_archived,omitempty" json:"include_archived,omitempty"`
-	Sort            *ResourceListSort `form:"sort,omitempty" json:"sort,omitempty"`
+	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+
+	// IncludeUsage Include each agent's `usage`, so a list can show costs without a request per agent.
+	IncludeUsage *AgentIncludeUsage `form:"include_usage,omitempty" json:"include_usage,omitempty"`
+	Sort         *ResourceListSort  `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// Limit Maximum number of items to return in one page.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
@@ -6297,8 +8200,11 @@ type ListCronTriggersParams struct {
 	AgentId *AgentID `form:"agent_id,omitempty" json:"agent_id,omitempty"`
 
 	// AgentProfileId Only return triggers targeting this agent profile.
-	AgentProfileId *AgentProfileID   `form:"agent_profile_id,omitempty" json:"agent_profile_id,omitempty"`
-	Sort           *ResourceListSort `form:"sort,omitempty" json:"sort,omitempty"`
+	AgentProfileId *AgentProfileID `form:"agent_profile_id,omitempty" json:"agent_profile_id,omitempty"`
+
+	// IntegrationId Only return scheduled launches for this integration.
+	IntegrationId *IntegrationID    `form:"integration_id,omitempty" json:"integration_id,omitempty"`
+	Sort          *ResourceListSort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// Limit Maximum number of items to return in one page.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
@@ -6313,18 +8219,33 @@ type CreateCronTriggerParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
-// ListIntegrationInstallsParams defines parameters for ListIntegrationInstalls.
-type ListIntegrationInstallsParams struct {
+// ListEventWebhooksParams defines parameters for ListEventWebhooks.
+type ListEventWebhooksParams struct {
+	ScopeType      EventWebhookScopeType `form:"scope_type" json:"scope_type"`
+	AgentProfileId *AgentProfileID       `form:"agent_profile_id,omitempty" json:"agent_profile_id,omitempty"`
+	AgentId        *AgentID              `form:"agent_id,omitempty" json:"agent_id,omitempty"`
+}
+
+// ListIntegrationsParams defines parameters for ListIntegrations.
+type ListIntegrationsParams struct {
 	// Name Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
 	Name *ResourceNameFilter `form:"name,omitempty" json:"name,omitempty"`
 
-	// AgentProfileId Only return integration installs bound to this agent profile.
-	AgentProfileId *IntegrationInstallAgentProfileFilter `form:"agent_profile_id,omitempty" json:"agent_profile_id,omitempty"`
+	// Limit Maximum number of items to return in one page.
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// OauthFlowId Only return the integration install completed by this OAuth setup flow.
-	OauthFlowId *IntegrationInstallOAuthFlowIDFilter `form:"oauth_flow_id,omitempty" json:"oauth_flow_id,omitempty"`
-	Sort        *ResourceListSort                    `form:"sort,omitempty" json:"sort,omitempty"`
+	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
 
+// ListIntegrationGitHubRepositoriesParams defines parameters for ListIntegrationGitHubRepositories.
+type ListIntegrationGitHubRepositoriesParams struct {
+	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListIntegrationSubscriptionsParams defines parameters for ListIntegrationSubscriptions.
+type ListIntegrationSubscriptionsParams struct {
 	// Limit Maximum number of items to return in one page.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
 
@@ -6355,7 +8276,10 @@ type CreateProjectMachineGrantParams struct {
 type ListProjectMachinePoolGrantsParams struct {
 	// Name Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
 	Name *ResourceNameFilter `form:"name,omitempty" json:"name,omitempty"`
-	Sort *ResourceListSort   `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// MachinePoolId Return only the grant for this machine pool.
+	MachinePoolId *MachinePoolID    `form:"machine_pool_id,omitempty" json:"machine_pool_id,omitempty"`
+	Sort          *ResourceListSort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// Limit Maximum number of items to return in one page.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
@@ -6377,7 +8301,58 @@ type ListVisibleProjectMachinesParams struct {
 
 	// SourceKind Filter machines by source kind. Omit to include both BYO and pooled machines.
 	SourceKind *MachineSourceKindFilter `form:"source_kind,omitempty" json:"source_kind,omitempty"`
-	Sort       *ResourceListSort        `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// MachinePoolId Return only machines provisioned by this machine pool.
+	MachinePoolId *MachinePoolID    `form:"machine_pool_id,omitempty" json:"machine_pool_id,omitempty"`
+	Sort          *ResourceListSort `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// Limit Maximum number of items to return in one page.
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListMemoryStoresParams defines parameters for ListMemoryStores.
+type ListMemoryStoresParams struct {
+	// Limit Maximum number of items to return in one page.
+	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Name Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+	Name *ResourceNameFilter `form:"name,omitempty" json:"name,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+	Cursor *PageCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// DeleteMemoryFileParams defines parameters for DeleteMemoryFile.
+type DeleteMemoryFileParams struct {
+	// Path Literal path relative to the store root.
+	Path string `form:"path" json:"path"`
+
+	// ExpectedDigest Digest of the contents being replaced or deleted. Required to change an existing file.
+	ExpectedDigest string `form:"expected_digest" json:"expected_digest"`
+}
+
+// DownloadMemoryFileParams defines parameters for DownloadMemoryFile.
+type DownloadMemoryFileParams struct {
+	// Path Literal path relative to the store root.
+	Path string `form:"path" json:"path"`
+}
+
+// WriteMemoryFileParams defines parameters for WriteMemoryFile.
+type WriteMemoryFileParams struct {
+	// Path Literal path relative to the store root.
+	Path string `form:"path" json:"path"`
+
+	// ExpectedDigest Digest of the contents being replaced or deleted. Required to change an existing file.
+	ExpectedDigest *string `form:"expected_digest,omitempty" json:"expected_digest,omitempty"`
+}
+
+// ListMemoryFilesParams defines parameters for ListMemoryFiles.
+type ListMemoryFilesParams struct {
+	// Path Literal path relative to the store root.
+	Path *string `form:"path,omitempty" json:"path,omitempty"`
 
 	// Limit Maximum number of items to return in one page.
 	Limit *PageLimit `form:"limit,omitempty" json:"limit,omitempty"`
@@ -6554,8 +8529,41 @@ type GetOrgUsageParams struct {
 	// IncludeProjectIds Only tally model calls from these projects. Cannot be combined with `exclude_project_ids`.
 	IncludeProjectIds *UsageIncludeProjectIDs `form:"include_project_ids,omitempty" json:"include_project_ids,omitempty"`
 
-	// ExcludeProjectIds Tally model calls from every project except these. Cannot be combined with `include_project_ids`.
+	// ExcludeProjectIds Tally model calls from every readable project except these. Cannot be combined with `include_project_ids`.
 	ExcludeProjectIds *UsageExcludeProjectIDs `form:"exclude_project_ids,omitempty" json:"exclude_project_ids,omitempty"`
+}
+
+// GetOrgUsageTimeseriesParams defines parameters for GetOrgUsageTimeseries.
+type GetOrgUsageTimeseriesParams struct {
+	// Since Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+	Since *UsageSince `form:"since,omitempty" json:"since,omitempty"`
+
+	// Until Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+	Until *UsageUntil `form:"until,omitempty" json:"until,omitempty"`
+
+	// Timezone IANA time zone that decides where each bucket starts.
+	Timezone *string `form:"timezone,omitempty" json:"timezone,omitempty"`
+
+	// Interval Bucket width. Omit to pick one from the window length: days up to 92 days, weeks up to 730 days, months beyond. Hourly buckets are used only when requested. The window may span at most 400 buckets.
+	Interval *UsageTimeseriesInterval `form:"interval,omitempty" json:"interval,omitempty"`
+
+	// Metric Value plotted in each bucket. Defaults to `sum_tokens`.
+	Metric *UsageTimeseriesMetric `form:"metric,omitempty" json:"metric,omitempty"`
+
+	// GroupBy Break the metric down into one series per group. Omit for a single series.
+	GroupBy *UsageTimeseriesGroupBy `form:"group_by,omitempty" json:"group_by,omitempty"`
+
+	// GroupLimit With `group_by`, how many groups get their own series, ranked by the metric. The rest are folded into one `other` series.
+	GroupLimit *int `form:"group_limit,omitempty" json:"group_limit,omitempty"`
+
+	// ProjectIds Only count usage from these projects.
+	ProjectIds *[]ProjectID `form:"project_ids,omitempty" json:"project_ids,omitempty"`
+
+	// AgentProfileIds Only count usage from top-level agents launched from these agent profiles.
+	AgentProfileIds *[]AgentProfileID `form:"agent_profile_ids,omitempty" json:"agent_profile_ids,omitempty"`
+
+	// IncludeSubagents With `agent_profile_ids`, also count usage from subagents spawned by those agents.
+	IncludeSubagents *bool `form:"include_subagents,omitempty" json:"include_subagents,omitempty"`
 }
 
 // ListPersonalAccessTokensParams defines parameters for ListPersonalAccessTokens.
@@ -6590,6 +8598,9 @@ type CreateOrgInvitationJSONRequestBody = CreateOrgInvitationRequest
 
 // CreateMachinePoolJSONRequestBody defines body for CreateMachinePool for application/json ContentType.
 type CreateMachinePoolJSONRequestBody = CreateMachinePoolRequest
+
+// CheckMachinePoolConnectionJSONRequestBody defines body for CheckMachinePoolConnection for application/json ContentType.
+type CheckMachinePoolConnectionJSONRequestBody = CheckMachinePoolConnectionRequest
 
 // UpdateMachinePoolJSONRequestBody defines body for UpdateMachinePool for application/json ContentType.
 type UpdateMachinePoolJSONRequestBody = UpdateMachinePoolRequest
@@ -6645,12 +8656,6 @@ type RenameAgentProfileJSONRequestBody = RenameAgentProfileRequest
 // UpdateAgentProfileJSONRequestBody defines body for UpdateAgentProfile for application/json ContentType.
 type UpdateAgentProfileJSONRequestBody = UpdateAgentProfileRequest
 
-// CreateIntegrationOAuthSetupJSONRequestBody defines body for CreateIntegrationOAuthSetup for application/json ContentType.
-type CreateIntegrationOAuthSetupJSONRequestBody = CreateIntegrationOAuthSetupRequest
-
-// CreateSlackSetupJSONRequestBody defines body for CreateSlackSetup for application/json ContentType.
-type CreateSlackSetupJSONRequestBody = CreateSlackSetupRequest
-
 // CreateAgentJSONRequestBody defines body for CreateAgent for application/json ContentType.
 type CreateAgentJSONRequestBody = CreateAgentRequest
 
@@ -6681,6 +8686,36 @@ type CreateCronTriggerJSONRequestBody = CreateCronTriggerRequest
 // UpdateCronTriggerJSONRequestBody defines body for UpdateCronTrigger for application/json ContentType.
 type UpdateCronTriggerJSONRequestBody = UpdateCronTriggerRequest
 
+// CreateEventWebhookJSONRequestBody defines body for CreateEventWebhook for application/json ContentType.
+type CreateEventWebhookJSONRequestBody = CreateEventWebhookRequest
+
+// UpdateEventWebhookJSONRequestBody defines body for UpdateEventWebhook for application/json ContentType.
+type UpdateEventWebhookJSONRequestBody = UpdateEventWebhookRequest
+
+// CreateIntegrationJSONRequestBody defines body for CreateIntegration for application/json ContentType.
+type CreateIntegrationJSONRequestBody = CreateIntegrationRequest
+
+// UpdateIntegrationJSONRequestBody defines body for UpdateIntegration for application/json ContentType.
+type UpdateIntegrationJSONRequestBody = UpdateIntegrationRequest
+
+// CreateIntegrationGitHubSetupJSONRequestBody defines body for CreateIntegrationGitHubSetup for application/json ContentType.
+type CreateIntegrationGitHubSetupJSONRequestBody = CreateGitHubSetupRequest
+
+// InspectIntegrationGitHubInstallationsJSONRequestBody defines body for InspectIntegrationGitHubInstallations for application/json ContentType.
+type InspectIntegrationGitHubInstallationsJSONRequestBody = InspectGitHubInstallationsRequest
+
+// CreateIntegrationOAuthSetupJSONRequestBody defines body for CreateIntegrationOAuthSetup for application/json ContentType.
+type CreateIntegrationOAuthSetupJSONRequestBody = CreateIntegrationOAuthSetupRequest
+
+// ConfigureIntegrationJSONRequestBody defines body for ConfigureIntegration for application/json ContentType.
+type ConfigureIntegrationJSONRequestBody = ConfigureIntegrationRequest
+
+// CreateIntegrationSlackSetupJSONRequestBody defines body for CreateIntegrationSlackSetup for application/json ContentType.
+type CreateIntegrationSlackSetupJSONRequestBody = CreateSlackSetupRequest
+
+// CreateIntegrationSubscriptionJSONRequestBody defines body for CreateIntegrationSubscription for application/json ContentType.
+type CreateIntegrationSubscriptionJSONRequestBody = CreateIntegrationSubscriptionRequest
+
 // CreateProjectMachineGrantJSONRequestBody defines body for CreateProjectMachineGrant for application/json ContentType.
 type CreateProjectMachineGrantJSONRequestBody = CreateProjectMachineGrantRequest
 
@@ -6692,6 +8727,12 @@ type UpdateProjectMachinePoolGrantJSONRequestBody = UpdateProjectMachinePoolGran
 
 // ListMCPServerToolsJSONRequestBody defines body for ListMCPServerTools for application/json ContentType.
 type ListMCPServerToolsJSONRequestBody = MCPServerToolsRequest
+
+// CreateMemoryStoreJSONRequestBody defines body for CreateMemoryStore for application/json ContentType.
+type CreateMemoryStoreJSONRequestBody = CreateMemoryStore
+
+// UpdateMemoryStoreJSONRequestBody defines body for UpdateMemoryStore for application/json ContentType.
+type UpdateMemoryStoreJSONRequestBody = UpdateMemoryStore
 
 // CreateProjectModelGrantJSONRequestBody defines body for CreateProjectModelGrant for application/json ContentType.
 type CreateProjectModelGrantJSONRequestBody = CreateProjectModelGrantRequest
@@ -7114,6 +9155,244 @@ func (t *AgentInputContentBlock) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsCompiledMCPAuthBearer returns the union data inside the CompiledMCPAuth as a CompiledMCPAuthBearer
+func (t CompiledMCPAuth) AsCompiledMCPAuthBearer() (CompiledMCPAuthBearer, error) {
+	var body CompiledMCPAuthBearer
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCompiledMCPAuthBearer overwrites any union data inside the CompiledMCPAuth as the provided CompiledMCPAuthBearer
+func (t *CompiledMCPAuth) FromCompiledMCPAuthBearer(v CompiledMCPAuthBearer) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"bearer"}`))
+	t.union = b
+	return err
+}
+
+// MergeCompiledMCPAuthBearer performs a merge with any union data inside the CompiledMCPAuth, using the provided CompiledMCPAuthBearer
+func (t *CompiledMCPAuth) MergeCompiledMCPAuthBearer(v CompiledMCPAuthBearer) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"bearer"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCompiledMCPAuthOAuth returns the union data inside the CompiledMCPAuth as a CompiledMCPAuthOAuth
+func (t CompiledMCPAuth) AsCompiledMCPAuthOAuth() (CompiledMCPAuthOAuth, error) {
+	var body CompiledMCPAuthOAuth
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCompiledMCPAuthOAuth overwrites any union data inside the CompiledMCPAuth as the provided CompiledMCPAuthOAuth
+func (t *CompiledMCPAuth) FromCompiledMCPAuthOAuth(v CompiledMCPAuthOAuth) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"oauth"}`))
+	t.union = b
+	return err
+}
+
+// MergeCompiledMCPAuthOAuth performs a merge with any union data inside the CompiledMCPAuth, using the provided CompiledMCPAuthOAuth
+func (t *CompiledMCPAuth) MergeCompiledMCPAuthOAuth(v CompiledMCPAuthOAuth) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"oauth"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCompiledMCPAuthSigV4 returns the union data inside the CompiledMCPAuth as a CompiledMCPAuthSigV4
+func (t CompiledMCPAuth) AsCompiledMCPAuthSigV4() (CompiledMCPAuthSigV4, error) {
+	var body CompiledMCPAuthSigV4
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCompiledMCPAuthSigV4 overwrites any union data inside the CompiledMCPAuth as the provided CompiledMCPAuthSigV4
+func (t *CompiledMCPAuth) FromCompiledMCPAuthSigV4(v CompiledMCPAuthSigV4) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"sigv4"}`))
+	t.union = b
+	return err
+}
+
+// MergeCompiledMCPAuthSigV4 performs a merge with any union data inside the CompiledMCPAuth, using the provided CompiledMCPAuthSigV4
+func (t *CompiledMCPAuth) MergeCompiledMCPAuthSigV4(v CompiledMCPAuthSigV4) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"sigv4"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t CompiledMCPAuth) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t CompiledMCPAuth) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "bearer":
+		return t.AsCompiledMCPAuthBearer()
+	case "oauth":
+		return t.AsCompiledMCPAuthOAuth()
+	case "sigv4":
+		return t.AsCompiledMCPAuthSigV4()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t CompiledMCPAuth) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *CompiledMCPAuth) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsCompiledSelfSubagent returns the union data inside the CompiledSubagent as a CompiledSelfSubagent
+func (t CompiledSubagent) AsCompiledSelfSubagent() (CompiledSelfSubagent, error) {
+	var body CompiledSelfSubagent
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCompiledSelfSubagent overwrites any union data inside the CompiledSubagent as the provided CompiledSelfSubagent
+func (t *CompiledSubagent) FromCompiledSelfSubagent(v CompiledSelfSubagent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"self"}`))
+	t.union = b
+	return err
+}
+
+// MergeCompiledSelfSubagent performs a merge with any union data inside the CompiledSubagent, using the provided CompiledSelfSubagent
+func (t *CompiledSubagent) MergeCompiledSelfSubagent(v CompiledSelfSubagent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"self"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCompiledProfileSubagent returns the union data inside the CompiledSubagent as a CompiledProfileSubagent
+func (t CompiledSubagent) AsCompiledProfileSubagent() (CompiledProfileSubagent, error) {
+	var body CompiledProfileSubagent
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCompiledProfileSubagent overwrites any union data inside the CompiledSubagent as the provided CompiledProfileSubagent
+func (t *CompiledSubagent) FromCompiledProfileSubagent(v CompiledProfileSubagent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"profile"}`))
+	t.union = b
+	return err
+}
+
+// MergeCompiledProfileSubagent performs a merge with any union data inside the CompiledSubagent, using the provided CompiledProfileSubagent
+func (t *CompiledSubagent) MergeCompiledProfileSubagent(v CompiledProfileSubagent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"profile"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t CompiledSubagent) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t CompiledSubagent) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "profile":
+		return t.AsCompiledProfileSubagent()
+	case "self":
+		return t.AsCompiledSelfSubagent()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t CompiledSubagent) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *CompiledSubagent) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsTextContentBlock returns the union data inside the CreateAgentInputContentBlock as a TextContentBlock
 func (t CreateAgentInputContentBlock) AsTextContentBlock() (TextContentBlock, error) {
 	var body TextContentBlock
@@ -7215,6 +9494,240 @@ func (t *CreateAgentInputContentBlock) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsCreateAgentRequest0 returns the union data inside the CreateAgentRequest as a CreateAgentRequest0
+func (t CreateAgentRequest) AsCreateAgentRequest0() (CreateAgentRequest0, error) {
+	var body CreateAgentRequest0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCreateAgentRequest0 overwrites any union data inside the CreateAgentRequest as the provided CreateAgentRequest0
+func (t *CreateAgentRequest) FromCreateAgentRequest0(v CreateAgentRequest0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCreateAgentRequest0 performs a merge with any union data inside the CreateAgentRequest, using the provided CreateAgentRequest0
+func (t *CreateAgentRequest) MergeCreateAgentRequest0(v CreateAgentRequest0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCreateAgentRequest1 returns the union data inside the CreateAgentRequest as a CreateAgentRequest1
+func (t CreateAgentRequest) AsCreateAgentRequest1() (CreateAgentRequest1, error) {
+	var body CreateAgentRequest1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCreateAgentRequest1 overwrites any union data inside the CreateAgentRequest as the provided CreateAgentRequest1
+func (t *CreateAgentRequest) FromCreateAgentRequest1(v CreateAgentRequest1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCreateAgentRequest1 performs a merge with any union data inside the CreateAgentRequest, using the provided CreateAgentRequest1
+func (t *CreateAgentRequest) MergeCreateAgentRequest1(v CreateAgentRequest1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCreateAgentRequest2 returns the union data inside the CreateAgentRequest as a CreateAgentRequest2
+func (t CreateAgentRequest) AsCreateAgentRequest2() (CreateAgentRequest2, error) {
+	var body CreateAgentRequest2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCreateAgentRequest2 overwrites any union data inside the CreateAgentRequest as the provided CreateAgentRequest2
+func (t *CreateAgentRequest) FromCreateAgentRequest2(v CreateAgentRequest2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeCreateAgentRequest2 performs a merge with any union data inside the CreateAgentRequest, using the provided CreateAgentRequest2
+func (t *CreateAgentRequest) MergeCreateAgentRequest2(v CreateAgentRequest2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t CreateAgentRequest) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.Config != nil {
+		object["config"], err = json.Marshal(t.Config)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'config': %w", err)
+		}
+	}
+
+	if t.ConfigSource != nil {
+		object["config_source"], err = json.Marshal(t.ConfigSource)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'config_source': %w", err)
+		}
+	}
+
+	if t.InitialInput != nil {
+		object["initial_input"], err = json.Marshal(t.InitialInput)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'initial_input': %w", err)
+		}
+	}
+
+	if t.InteractionHandlers != nil {
+		object["interaction_handlers"], err = json.Marshal(t.InteractionHandlers)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'interaction_handlers': %w", err)
+		}
+	}
+
+	if t.Message != nil {
+		object["message"], err = json.Marshal(t.Message)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'message': %w", err)
+		}
+	}
+
+	if t.Name != nil {
+		object["name"], err = json.Marshal(t.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'name': %w", err)
+		}
+	}
+
+	if t.Profile != nil {
+		object["profile"], err = json.Marshal(t.Profile)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'profile': %w", err)
+		}
+	}
+
+	if t.Subscriptions != nil {
+		object["subscriptions"], err = json.Marshal(t.Subscriptions)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'subscriptions': %w", err)
+		}
+	}
+
+	if t.Tools != nil {
+		object["tools"], err = json.Marshal(t.Tools)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'tools': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *CreateAgentRequest) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["config"]; found {
+		err = json.Unmarshal(raw, &t.Config)
+		if err != nil {
+			return fmt.Errorf("error reading 'config': %w", err)
+		}
+	}
+
+	if raw, found := object["config_source"]; found {
+		err = json.Unmarshal(raw, &t.ConfigSource)
+		if err != nil {
+			return fmt.Errorf("error reading 'config_source': %w", err)
+		}
+	}
+
+	if raw, found := object["initial_input"]; found {
+		err = json.Unmarshal(raw, &t.InitialInput)
+		if err != nil {
+			return fmt.Errorf("error reading 'initial_input': %w", err)
+		}
+	}
+
+	if raw, found := object["interaction_handlers"]; found {
+		err = json.Unmarshal(raw, &t.InteractionHandlers)
+		if err != nil {
+			return fmt.Errorf("error reading 'interaction_handlers': %w", err)
+		}
+	}
+
+	if raw, found := object["message"]; found {
+		err = json.Unmarshal(raw, &t.Message)
+		if err != nil {
+			return fmt.Errorf("error reading 'message': %w", err)
+		}
+	}
+
+	if raw, found := object["name"]; found {
+		err = json.Unmarshal(raw, &t.Name)
+		if err != nil {
+			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["profile"]; found {
+		err = json.Unmarshal(raw, &t.Profile)
+		if err != nil {
+			return fmt.Errorf("error reading 'profile': %w", err)
+		}
+	}
+
+	if raw, found := object["subscriptions"]; found {
+		err = json.Unmarshal(raw, &t.Subscriptions)
+		if err != nil {
+			return fmt.Errorf("error reading 'subscriptions': %w", err)
+		}
+	}
+
+	if raw, found := object["tools"]; found {
+		err = json.Unmarshal(raw, &t.Tools)
+		if err != nil {
+			return fmt.Errorf("error reading 'tools': %w", err)
+		}
+	}
+
+	return err
+}
+
 // AsAgentCronTriggerTarget returns the union data inside the CronTriggerTarget as a AgentCronTriggerTarget
 func (t CronTriggerTarget) AsAgentCronTriggerTarget() (AgentCronTriggerTarget, error) {
 	var body AgentCronTriggerTarget
@@ -7283,6 +9796,40 @@ func (t *CronTriggerTarget) MergeAgentProfileCronTriggerTarget(v AgentProfileCro
 	return err
 }
 
+// AsIntegrationCronTriggerTarget returns the union data inside the CronTriggerTarget as a IntegrationCronTriggerTarget
+func (t CronTriggerTarget) AsIntegrationCronTriggerTarget() (IntegrationCronTriggerTarget, error) {
+	var body IntegrationCronTriggerTarget
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIntegrationCronTriggerTarget overwrites any union data inside the CronTriggerTarget as the provided IntegrationCronTriggerTarget
+func (t *CronTriggerTarget) FromIntegrationCronTriggerTarget(v IntegrationCronTriggerTarget) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"integration"}`))
+	t.union = b
+	return err
+}
+
+// MergeIntegrationCronTriggerTarget performs a merge with any union data inside the CronTriggerTarget, using the provided IntegrationCronTriggerTarget
+func (t *CronTriggerTarget) MergeIntegrationCronTriggerTarget(v IntegrationCronTriggerTarget) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"integration"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t CronTriggerTarget) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"type"`
@@ -7299,6 +9846,8 @@ func (t CronTriggerTarget) ValueByDiscriminator() (interface{}, error) {
 	switch discriminator {
 	case "agent":
 		return t.AsAgentCronTriggerTarget()
+	case "integration":
+		return t.AsIntegrationCronTriggerTarget()
 	case "profile":
 		return t.AsAgentProfileCronTriggerTarget()
 	default:
@@ -7312,6 +9861,352 @@ func (t CronTriggerTarget) MarshalJSON() ([]byte, error) {
 }
 
 func (t *CronTriggerTarget) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsEventWebhookAgentInputEvent returns the union data inside the EventWebhookPayload as a EventWebhookAgentInputEvent
+func (t EventWebhookPayload) AsEventWebhookAgentInputEvent() (EventWebhookAgentInputEvent, error) {
+	var body EventWebhookAgentInputEvent
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEventWebhookAgentInputEvent overwrites any union data inside the EventWebhookPayload as the provided EventWebhookAgentInputEvent
+func (t *EventWebhookPayload) FromEventWebhookAgentInputEvent(v EventWebhookAgentInputEvent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"event":"agent_input"}`))
+	t.union = b
+	return err
+}
+
+// MergeEventWebhookAgentInputEvent performs a merge with any union data inside the EventWebhookPayload, using the provided EventWebhookAgentInputEvent
+func (t *EventWebhookPayload) MergeEventWebhookAgentInputEvent(v EventWebhookAgentInputEvent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"event":"agent_input"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsEventWebhookModelOutputEvent returns the union data inside the EventWebhookPayload as a EventWebhookModelOutputEvent
+func (t EventWebhookPayload) AsEventWebhookModelOutputEvent() (EventWebhookModelOutputEvent, error) {
+	var body EventWebhookModelOutputEvent
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEventWebhookModelOutputEvent overwrites any union data inside the EventWebhookPayload as the provided EventWebhookModelOutputEvent
+func (t *EventWebhookPayload) FromEventWebhookModelOutputEvent(v EventWebhookModelOutputEvent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"event":"model_output"}`))
+	t.union = b
+	return err
+}
+
+// MergeEventWebhookModelOutputEvent performs a merge with any union data inside the EventWebhookPayload, using the provided EventWebhookModelOutputEvent
+func (t *EventWebhookPayload) MergeEventWebhookModelOutputEvent(v EventWebhookModelOutputEvent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"event":"model_output"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsEventWebhookToolResultEvent returns the union data inside the EventWebhookPayload as a EventWebhookToolResultEvent
+func (t EventWebhookPayload) AsEventWebhookToolResultEvent() (EventWebhookToolResultEvent, error) {
+	var body EventWebhookToolResultEvent
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEventWebhookToolResultEvent overwrites any union data inside the EventWebhookPayload as the provided EventWebhookToolResultEvent
+func (t *EventWebhookPayload) FromEventWebhookToolResultEvent(v EventWebhookToolResultEvent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"event":"tool_result"}`))
+	t.union = b
+	return err
+}
+
+// MergeEventWebhookToolResultEvent performs a merge with any union data inside the EventWebhookPayload, using the provided EventWebhookToolResultEvent
+func (t *EventWebhookPayload) MergeEventWebhookToolResultEvent(v EventWebhookToolResultEvent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"event":"tool_result"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsEventWebhookContextCheckpointEvent returns the union data inside the EventWebhookPayload as a EventWebhookContextCheckpointEvent
+func (t EventWebhookPayload) AsEventWebhookContextCheckpointEvent() (EventWebhookContextCheckpointEvent, error) {
+	var body EventWebhookContextCheckpointEvent
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEventWebhookContextCheckpointEvent overwrites any union data inside the EventWebhookPayload as the provided EventWebhookContextCheckpointEvent
+func (t *EventWebhookPayload) FromEventWebhookContextCheckpointEvent(v EventWebhookContextCheckpointEvent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"event":"context_checkpoint"}`))
+	t.union = b
+	return err
+}
+
+// MergeEventWebhookContextCheckpointEvent performs a merge with any union data inside the EventWebhookPayload, using the provided EventWebhookContextCheckpointEvent
+func (t *EventWebhookPayload) MergeEventWebhookContextCheckpointEvent(v EventWebhookContextCheckpointEvent) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"event":"context_checkpoint"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsEventWebhookToolCallUpdate returns the union data inside the EventWebhookPayload as a EventWebhookToolCallUpdate
+func (t EventWebhookPayload) AsEventWebhookToolCallUpdate() (EventWebhookToolCallUpdate, error) {
+	var body EventWebhookToolCallUpdate
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromEventWebhookToolCallUpdate overwrites any union data inside the EventWebhookPayload as the provided EventWebhookToolCallUpdate
+func (t *EventWebhookPayload) FromEventWebhookToolCallUpdate(v EventWebhookToolCallUpdate) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"event":"tool_call_update"}`))
+	t.union = b
+	return err
+}
+
+// MergeEventWebhookToolCallUpdate performs a merge with any union data inside the EventWebhookPayload, using the provided EventWebhookToolCallUpdate
+func (t *EventWebhookPayload) MergeEventWebhookToolCallUpdate(v EventWebhookToolCallUpdate) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"event":"tool_call_update"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t EventWebhookPayload) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"event"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t EventWebhookPayload) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "agent_input":
+		return t.AsEventWebhookAgentInputEvent()
+	case "context_checkpoint":
+		return t.AsEventWebhookContextCheckpointEvent()
+	case "model_output":
+		return t.AsEventWebhookModelOutputEvent()
+	case "tool_call_update":
+		return t.AsEventWebhookToolCallUpdate()
+	case "tool_result":
+		return t.AsEventWebhookToolResultEvent()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t EventWebhookPayload) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *EventWebhookPayload) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsProjectEventWebhookScope returns the union data inside the EventWebhookScope as a ProjectEventWebhookScope
+func (t EventWebhookScope) AsProjectEventWebhookScope() (ProjectEventWebhookScope, error) {
+	var body ProjectEventWebhookScope
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromProjectEventWebhookScope overwrites any union data inside the EventWebhookScope as the provided ProjectEventWebhookScope
+func (t *EventWebhookScope) FromProjectEventWebhookScope(v ProjectEventWebhookScope) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"project"}`))
+	t.union = b
+	return err
+}
+
+// MergeProjectEventWebhookScope performs a merge with any union data inside the EventWebhookScope, using the provided ProjectEventWebhookScope
+func (t *EventWebhookScope) MergeProjectEventWebhookScope(v ProjectEventWebhookScope) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"project"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAgentProfileEventWebhookScope returns the union data inside the EventWebhookScope as a AgentProfileEventWebhookScope
+func (t EventWebhookScope) AsAgentProfileEventWebhookScope() (AgentProfileEventWebhookScope, error) {
+	var body AgentProfileEventWebhookScope
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAgentProfileEventWebhookScope overwrites any union data inside the EventWebhookScope as the provided AgentProfileEventWebhookScope
+func (t *EventWebhookScope) FromAgentProfileEventWebhookScope(v AgentProfileEventWebhookScope) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"profile"}`))
+	t.union = b
+	return err
+}
+
+// MergeAgentProfileEventWebhookScope performs a merge with any union data inside the EventWebhookScope, using the provided AgentProfileEventWebhookScope
+func (t *EventWebhookScope) MergeAgentProfileEventWebhookScope(v AgentProfileEventWebhookScope) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"profile"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAgentEventWebhookScope returns the union data inside the EventWebhookScope as a AgentEventWebhookScope
+func (t EventWebhookScope) AsAgentEventWebhookScope() (AgentEventWebhookScope, error) {
+	var body AgentEventWebhookScope
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAgentEventWebhookScope overwrites any union data inside the EventWebhookScope as the provided AgentEventWebhookScope
+func (t *EventWebhookScope) FromAgentEventWebhookScope(v AgentEventWebhookScope) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"agent"}`))
+	t.union = b
+	return err
+}
+
+// MergeAgentEventWebhookScope performs a merge with any union data inside the EventWebhookScope, using the provided AgentEventWebhookScope
+func (t *EventWebhookScope) MergeAgentEventWebhookScope(v AgentEventWebhookScope) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"agent"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t EventWebhookScope) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t EventWebhookScope) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "agent":
+		return t.AsAgentEventWebhookScope()
+	case "profile":
+		return t.AsAgentProfileEventWebhookScope()
+	case "project":
+		return t.AsProjectEventWebhookScope()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t EventWebhookScope) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *EventWebhookScope) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -7485,6 +10380,107 @@ func (t MCPServerAuth) MarshalJSON() ([]byte, error) {
 }
 
 func (t *MCPServerAuth) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsMemoryRegularFile returns the union data inside the MemoryFile as a MemoryRegularFile
+func (t MemoryFile) AsMemoryRegularFile() (MemoryRegularFile, error) {
+	var body MemoryRegularFile
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMemoryRegularFile overwrites any union data inside the MemoryFile as the provided MemoryRegularFile
+func (t *MemoryFile) FromMemoryRegularFile(v MemoryRegularFile) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"file"}`))
+	t.union = b
+	return err
+}
+
+// MergeMemoryRegularFile performs a merge with any union data inside the MemoryFile, using the provided MemoryRegularFile
+func (t *MemoryFile) MergeMemoryRegularFile(v MemoryRegularFile) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"file"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMemoryDirectory returns the union data inside the MemoryFile as a MemoryDirectory
+func (t MemoryFile) AsMemoryDirectory() (MemoryDirectory, error) {
+	var body MemoryDirectory
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMemoryDirectory overwrites any union data inside the MemoryFile as the provided MemoryDirectory
+func (t *MemoryFile) FromMemoryDirectory(v MemoryDirectory) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"directory"}`))
+	t.union = b
+	return err
+}
+
+// MergeMemoryDirectory performs a merge with any union data inside the MemoryFile, using the provided MemoryDirectory
+func (t *MemoryFile) MergeMemoryDirectory(v MemoryDirectory) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"type":"directory"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t MemoryFile) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t MemoryFile) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "directory":
+		return t.AsMemoryDirectory()
+	case "file":
+		return t.AsMemoryRegularFile()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t MemoryFile) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *MemoryFile) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -8319,6 +11315,40 @@ func (t *SecretMaterial) MergeAWSCredentialsSecretMaterial(v AWSCredentialsSecre
 	return err
 }
 
+// AsGitHubAppCredentialsSecretMaterial returns the union data inside the SecretMaterial as a GitHubAppCredentialsSecretMaterial
+func (t SecretMaterial) AsGitHubAppCredentialsSecretMaterial() (GitHubAppCredentialsSecretMaterial, error) {
+	var body GitHubAppCredentialsSecretMaterial
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGitHubAppCredentialsSecretMaterial overwrites any union data inside the SecretMaterial as the provided GitHubAppCredentialsSecretMaterial
+func (t *SecretMaterial) FromGitHubAppCredentialsSecretMaterial(v GitHubAppCredentialsSecretMaterial) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"github_app_credentials"}`))
+	t.union = b
+	return err
+}
+
+// MergeGitHubAppCredentialsSecretMaterial performs a merge with any union data inside the SecretMaterial, using the provided GitHubAppCredentialsSecretMaterial
+func (t *SecretMaterial) MergeGitHubAppCredentialsSecretMaterial(v GitHubAppCredentialsSecretMaterial) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"github_app_credentials"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t SecretMaterial) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"kind"`
@@ -8337,6 +11367,8 @@ func (t SecretMaterial) ValueByDiscriminator() (interface{}, error) {
 		return t.AsAWSCredentialsSecretMaterial()
 	case "generic":
 		return t.AsGenericSecretMaterial()
+	case "github_app_credentials":
+		return t.AsGitHubAppCredentialsSecretMaterial()
 	case "oauth_token_set":
 		return t.AsOAuthTokenSetSecretMaterial()
 	default:
@@ -9395,6 +12427,15 @@ type ServerInterface interface {
 	// RecordMachineFailure Record machine failure
 	// (POST /daemon/failures)
 	RecordMachineFailure(w http.ResponseWriter, r *http.Request, params RecordMachineFailureParams)
+	// DownloadDaemonFile Download daemon file
+	// (GET /daemon/processes/{processID}/file)
+	DownloadDaemonFile(w http.ResponseWriter, r *http.Request, processID ProcessID)
+	// UploadDaemonFile Upload daemon file
+	// (POST /daemon/processes/{processID}/file)
+	UploadDaemonFile(w http.ResponseWriter, r *http.Request, processID ProcessID, params UploadDaemonFileParams)
+	// GetDaemonGitCredentials Get Git credentials for an active daemon process
+	// (POST /daemon/processes/{processID}/git-credentials)
+	GetDaemonGitCredentials(w http.ResponseWriter, r *http.Request, processID ProcessID)
 	// RegisterMachineDaemonRuntime Register machine daemon runtime
 	// (POST /daemon/runtimes)
 	RegisterMachineDaemonRuntime(w http.ResponseWriter, r *http.Request)
@@ -9410,12 +12451,6 @@ type ServerInterface interface {
 	// GetDaemonSkillArchive Get daemon skill archive
 	// (GET /daemon/skills/{skillID}/archive)
 	GetDaemonSkillArchive(w http.ResponseWriter, r *http.Request, skillID string, params GetDaemonSkillArchiveParams)
-	// UploadDaemonArtifact Upload daemon artifact
-	// (POST /daemon/tool-calls/{toolCallID}/artifact)
-	UploadDaemonArtifact(w http.ResponseWriter, r *http.Request, toolCallID ToolCallID, params UploadDaemonArtifactParams)
-	// DownloadDaemonArtifact Download daemon artifact
-	// (GET /daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content)
-	DownloadDaemonArtifact(w http.ResponseWriter, r *http.Request, toolCallID ToolCallID, artifactID ArtifactID)
 	// ListPendingInvitations List pending invitations
 	// (GET /invitations)
 	ListPendingInvitations(w http.ResponseWriter, r *http.Request, params ListPendingInvitationsParams)
@@ -9443,6 +12478,12 @@ type ServerInterface interface {
 	// DeleteOrganization Delete organization
 	// (DELETE /orgs/{orgID})
 	DeleteOrganization(w http.ResponseWriter, r *http.Request, orgID string)
+	// ListOrgAgentProfiles List agent profiles across projects
+	// (GET /orgs/{orgID}/agent-profiles)
+	ListOrgAgentProfiles(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params ListOrgAgentProfilesParams)
+	// ListOrgAgents List agents across projects
+	// (GET /orgs/{orgID}/agents)
+	ListOrgAgents(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params ListOrgAgentsParams)
 	// ListOrgAPIKeys List org API keys
 	// (GET /orgs/{orgID}/api-keys)
 	ListOrgAPIKeys(w http.ResponseWriter, r *http.Request, orgID string, params ListOrgAPIKeysParams)
@@ -9467,6 +12508,9 @@ type ServerInterface interface {
 	// RevokeOrgAPIKey Revoke an org API key
 	// (POST /orgs/{orgID}/api-keys/{keyID}/revoke)
 	RevokeOrgAPIKey(w http.ResponseWriter, r *http.Request, orgID string, keyID string)
+	// ListOrgIntegrations List integrations across projects
+	// (GET /orgs/{orgID}/integrations)
+	ListOrgIntegrations(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params ListOrgIntegrationsParams)
 	// ListOrgInvitations List org invitations
 	// (GET /orgs/{orgID}/invitations)
 	ListOrgInvitations(w http.ResponseWriter, r *http.Request, orgID string, params ListOrgInvitationsParams)
@@ -9482,6 +12526,9 @@ type ServerInterface interface {
 	// CreateMachinePool Create machine pool
 	// (POST /orgs/{orgID}/machine-pools)
 	CreateMachinePool(w http.ResponseWriter, r *http.Request, orgID string)
+	// CheckMachinePoolConnection Check machine pool connection
+	// (POST /orgs/{orgID}/machine-pools/check-connection)
+	CheckMachinePoolConnection(w http.ResponseWriter, r *http.Request, orgID string)
 	// DeleteMachinePool Delete machine pool
 	// (DELETE /orgs/{orgID}/machine-pools/{poolID})
 	DeleteMachinePool(w http.ResponseWriter, r *http.Request, orgID string, poolID string)
@@ -9536,6 +12583,9 @@ type ServerInterface interface {
 	// SetMemberProjectAccess Set a member's role on a project
 	// (PUT /orgs/{orgID}/members/{userID}/projects/{projectID})
 	SetMemberProjectAccess(w http.ResponseWriter, r *http.Request, orgID string, userID string, projectID string)
+	// ListOrgMemoryStores List memory stores across projects
+	// (GET /orgs/{orgID}/memory-stores)
+	ListOrgMemoryStores(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params ListOrgMemoryStoresParams)
 	// ListModelProviderConfigs List model provider configs
 	// (GET /orgs/{orgID}/model-provider-configs)
 	ListModelProviderConfigs(w http.ResponseWriter, r *http.Request, orgID string, params ListModelProviderConfigsParams)
@@ -9596,6 +12646,9 @@ type ServerInterface interface {
 	// GetAgentConfig Get agent config
 	// (GET /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID})
 	GetAgentConfig(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentConfigID string)
+	// GetAgentConfigGeneratedSource Get generated agent config source
+	// (GET /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}/generated-source)
+	GetAgentConfigGeneratedSource(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentConfigID string, params GetAgentConfigGeneratedSourceParams)
 	// ListAgentProfiles List agent profiles
 	// (GET /orgs/{orgID}/projects/{projectID}/agent-profiles)
 	ListAgentProfiles(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListAgentProfilesParams)
@@ -9614,12 +12667,6 @@ type ServerInterface interface {
 	// UpdateAgentProfile Update agent profile
 	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config)
 	UpdateAgentProfile(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentProfileID string, params UpdateAgentProfileParams)
-	// CreateIntegrationOAuthSetup Create integration OAuth setup
-	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup)
-	CreateIntegrationOAuthSetup(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentProfileID string)
-	// CreateSlackSetup Create Slack app and OAuth setup
-	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup)
-	CreateSlackSetup(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentProfileID string)
 	// GetAgentProfileUsage Get agent profile usage
 	// (GET /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/usage)
 	GetAgentProfileUsage(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, agentProfileID AgentProfileID, params GetAgentProfileUsageParams)
@@ -9707,12 +12754,66 @@ type ServerInterface interface {
 	// UpdateCronTrigger Update cron trigger
 	// (PATCH /orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
 	UpdateCronTrigger(w http.ResponseWriter, r *http.Request, orgID string, projectID string, cronTriggerID CronTriggerID)
-	// ListIntegrationInstalls List integration installs
-	// (GET /orgs/{orgID}/projects/{projectID}/integration-installs)
-	ListIntegrationInstalls(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListIntegrationInstallsParams)
-	// DeleteIntegrationInstall Delete integration install
-	// (DELETE /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID})
-	DeleteIntegrationInstall(w http.ResponseWriter, r *http.Request, orgID string, projectID string, integrationInstallID string)
+	// ListEventWebhooks List event webhooks for one scope
+	// (GET /orgs/{orgID}/projects/{projectID}/event-webhooks)
+	ListEventWebhooks(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, params ListEventWebhooksParams)
+	// CreateEventWebhook Create an event webhook
+	// (POST /orgs/{orgID}/projects/{projectID}/event-webhooks)
+	CreateEventWebhook(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID)
+	// DeleteEventWebhook Delete an event webhook
+	// (DELETE /orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID})
+	DeleteEventWebhook(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, webhookID EventWebhookID)
+	// UpdateEventWebhook Update event webhook settings
+	// (PATCH /orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID})
+	UpdateEventWebhook(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, webhookID EventWebhookID)
+	// ListIntegrationDefinitions List installed integration implementations and their capabilities
+	// (GET /orgs/{orgID}/projects/{projectID}/integration-definitions)
+	ListIntegrationDefinitions(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID)
+	// ListIntegrations List project integrations
+	// (GET /orgs/{orgID}/projects/{projectID}/integrations)
+	ListIntegrations(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, params ListIntegrationsParams)
+	// CreateIntegration Create an integration and optional launcher
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations)
+	CreateIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID)
+	// DeleteIntegration Delete integration setup and revoke its capabilities
+	// (DELETE /orgs/{orgID}/projects/{projectID}/integrations/{integrationID})
+	DeleteIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID)
+	// GetIntegration Get project integration
+	// (GET /orgs/{orgID}/projects/{projectID}/integrations/{integrationID})
+	GetIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID)
+	// UpdateIntegration Update integration settings
+	// (PUT /orgs/{orgID}/projects/{projectID}/integrations/{integrationID})
+	UpdateIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID)
+	// DisconnectIntegration Disconnect this integration without deleting its configuration
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/disconnect)
+	DisconnectIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID)
+	// ListIntegrationGitHubRepositories List repositories a GitHub integration can access
+	// (GET /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-repositories)
+	ListIntegrationGitHubRepositories(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID, params ListIntegrationGitHubRepositoriesParams)
+	// CreateIntegrationGitHubSetup Start registration of a customer-owned GitHub App
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup)
+	CreateIntegrationGitHubSetup(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID)
+	// InspectIntegrationGitHubInstallations Inspect installations of a customer-owned GitHub App
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup/installations)
+	InspectIntegrationGitHubInstallations(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID)
+	// CreateIntegrationOAuthSetup Connect an integration through OAuth
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/oauth/setup)
+	CreateIntegrationOAuthSetup(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID)
+	// ConfigureIntegration Verify and configure integration credentials
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup)
+	ConfigureIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID)
+	// CreateIntegrationSlackSetup Create a Slack provider app and connect it to an Omnara integration
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/slack-setup)
+	CreateIntegrationSlackSetup(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID)
+	// ListIntegrationSubscriptions List integration conversation subscriptions
+	// (GET /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions)
+	ListIntegrationSubscriptions(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID, params ListIntegrationSubscriptionsParams)
+	// CreateIntegrationSubscription Attach an agent to an integration conversation
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions)
+	CreateIntegrationSubscription(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID)
+	// DeleteIntegrationSubscription Stop forwarding an integration conversation to an agent
+	// (DELETE /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions/{subscriptionID})
+	DeleteIntegrationSubscription(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID, subscriptionID IntegrationSubscriptionID)
 	// ListProjectMachineGrants List project machine grants
 	// (GET /orgs/{orgID}/projects/{projectID}/machine-grants)
 	ListProjectMachineGrants(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListProjectMachineGrantsParams)
@@ -9743,6 +12844,33 @@ type ServerInterface interface {
 	// ListMCPServerTools List an MCP server's tools
 	// (POST /orgs/{orgID}/projects/{projectID}/mcp-servers/tools)
 	ListMCPServerTools(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID)
+	// ListMemoryStores List memory stores
+	// (GET /orgs/{orgID}/projects/{projectID}/memory-stores)
+	ListMemoryStores(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, params ListMemoryStoresParams)
+	// CreateMemoryStore Create memory store
+	// (POST /orgs/{orgID}/projects/{projectID}/memory-stores)
+	CreateMemoryStore(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID)
+	// DeleteMemoryStore Delete memory store
+	// (DELETE /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID})
+	DeleteMemoryStore(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID)
+	// GetMemoryStore Get memory store
+	// (GET /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID})
+	GetMemoryStore(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID)
+	// UpdateMemoryStore Update memory store
+	// (PATCH /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID})
+	UpdateMemoryStore(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID)
+	// DeleteMemoryFile Delete memory file
+	// (DELETE /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file)
+	DeleteMemoryFile(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID, params DeleteMemoryFileParams)
+	// DownloadMemoryFile Download memory file
+	// (GET /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file)
+	DownloadMemoryFile(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID, params DownloadMemoryFileParams)
+	// WriteMemoryFile Write memory file
+	// (PUT /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file)
+	WriteMemoryFile(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID, params WriteMemoryFileParams)
+	// ListMemoryFiles List memory files
+	// (GET /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/files)
+	ListMemoryFiles(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID, params ListMemoryFilesParams)
 	// ListProjectModelGrants List project model grants
 	// (GET /orgs/{orgID}/projects/{projectID}/model-grants)
 	ListProjectModelGrants(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListProjectModelGrantsParams)
@@ -9824,6 +12952,9 @@ type ServerInterface interface {
 	// GetOrgUsage Get org usage
 	// (GET /orgs/{orgID}/usage)
 	GetOrgUsage(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params GetOrgUsageParams)
+	// GetOrgUsageTimeseries Get usage timeseries
+	// (GET /orgs/{orgID}/usage/timeseries)
+	GetOrgUsageTimeseries(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params GetOrgUsageTimeseriesParams)
 	// ListPersonalAccessTokens List the authenticated user's personal access tokens
 	// (GET /personal-access-tokens)
 	ListPersonalAccessTokens(w http.ResponseWriter, r *http.Request, params ListPersonalAccessTokensParams)
@@ -9937,6 +13068,100 @@ func (siw *ServerInterfaceWrapper) RecordMachineFailure(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RecordMachineFailure(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DownloadDaemonFile operation middleware
+func (siw *ServerInterfaceWrapper) DownloadDaemonFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "processID" -------------
+	var processID ProcessID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "processID", r.PathValue("processID"), &processID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "processID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadDaemonFile(w, r, processID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadDaemonFile operation middleware
+func (siw *ServerInterfaceWrapper) UploadDaemonFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "processID" -------------
+	var processID ProcessID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "processID", r.PathValue("processID"), &processID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "processID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UploadDaemonFileParams
+
+	// ------------- Optional query parameter "filename" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "filename", r.URL.Query(), &params.Filename, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "filename"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "filename", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadDaemonFile(w, r, processID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDaemonGitCredentials operation middleware
+func (siw *ServerInterfaceWrapper) GetDaemonGitCredentials(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "processID" -------------
+	var processID ProcessID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "processID", r.PathValue("processID"), &processID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "processID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDaemonGitCredentials(w, r, processID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10097,83 +13322,6 @@ func (siw *ServerInterfaceWrapper) GetDaemonSkillArchive(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDaemonSkillArchive(w, r, skillID, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UploadDaemonArtifact operation middleware
-func (siw *ServerInterfaceWrapper) UploadDaemonArtifact(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "toolCallID" -------------
-	var toolCallID ToolCallID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "toolCallID", r.PathValue("toolCallID"), &toolCallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "toolCallID", Err: err})
-		return
-	}
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params UploadDaemonArtifactParams
-
-	// ------------- Required query parameter "filename" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, true, "filename", r.URL.Query(), &params.Filename, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "filename"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "filename", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UploadDaemonArtifact(w, r, toolCallID, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DownloadDaemonArtifact operation middleware
-func (siw *ServerInterfaceWrapper) DownloadDaemonArtifact(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "toolCallID" -------------
-	var toolCallID ToolCallID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "toolCallID", r.PathValue("toolCallID"), &toolCallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "toolCallID", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "artifactID" -------------
-	var artifactID ArtifactID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "artifactID", r.PathValue("artifactID"), &artifactID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "artifactID", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DownloadDaemonArtifact(w, r, toolCallID, artifactID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10453,6 +13601,259 @@ func (siw *ServerInterfaceWrapper) DeleteOrganization(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteOrganization(w, r, orgID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrgAgentProfiles operation middleware
+func (siw *ServerInterfaceWrapper) ListOrgAgentProfiles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOrgAgentProfilesParams
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_stats" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_stats", r.URL.Query(), &params.IncludeStats, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_stats"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_stats", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "stats_since" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "stats_since", r.URL.Query(), &params.StatsSince, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "stats_since"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stats_since", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrgAgentProfiles(w, r, orgID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrgAgents operation middleware
+func (siw *ServerInterfaceWrapper) ListOrgAgents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOrgAgentsParams
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "agent_profile_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_profile_id", r.URL.Query(), &params.AgentProfileId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent_profile_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent_profile_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "parent_agent_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "parent_agent_id", r.URL.Query(), &params.ParentAgentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "parent_agent_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "parent_agent_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_subagents" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_subagents", r.URL.Query(), &params.IncludeSubagents, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_subagents"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_subagents", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_archived" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_archived", r.URL.Query(), &params.IncludeArchived, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_usage" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_usage", r.URL.Query(), &params.IncludeUsage, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_usage"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_usage", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrgAgents(w, r, orgID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10771,6 +14172,74 @@ func (siw *ServerInterfaceWrapper) RevokeOrgAPIKey(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// ListOrgIntegrations operation middleware
+func (siw *ServerInterfaceWrapper) ListOrgIntegrations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOrgIntegrationsParams
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrgIntegrations(w, r, orgID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListOrgInvitations operation middleware
 func (siw *ServerInterfaceWrapper) ListOrgInvitations(w http.ResponseWriter, r *http.Request) {
 
@@ -10994,6 +14463,32 @@ func (siw *ServerInterfaceWrapper) CreateMachinePool(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// CheckMachinePoolConnection operation middleware
+func (siw *ServerInterfaceWrapper) CheckMachinePoolConnection(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CheckMachinePoolConnection(w, r, orgID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteMachinePool operation middleware
 func (siw *ServerInterfaceWrapper) DeleteMachinePool(w http.ResponseWriter, r *http.Request) {
 
@@ -11139,6 +14634,19 @@ func (siw *ServerInterfaceWrapper) ListVisibleMachines(w http.ResponseWriter, r 
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "source_kind"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source_kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "machine_pool_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "machine_pool_id", r.URL.Query(), &params.MachinePoolId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "machine_pool_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "machine_pool_id", Err: err})
 		}
 		return
 	}
@@ -11782,6 +15290,74 @@ func (siw *ServerInterfaceWrapper) SetMemberProjectAccess(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetMemberProjectAccess(w, r, orgID, userID, projectID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOrgMemoryStores operation middleware
+func (siw *ServerInterfaceWrapper) ListOrgMemoryStores(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOrgMemoryStoresParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOrgMemoryStores(w, r, orgID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -12687,6 +16263,66 @@ func (siw *ServerInterfaceWrapper) GetAgentConfig(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// GetAgentConfigGeneratedSource operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentConfigGeneratedSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "agentConfigID" -------------
+	var agentConfigID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentConfigID", r.PathValue("agentConfigID"), &agentConfigID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentConfigID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAgentConfigGeneratedSourceParams
+
+	// ------------- Optional query parameter "source_format" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "source_format", r.URL.Query(), &params.SourceFormat, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "source_format"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source_format", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAgentConfigGeneratedSource(w, r, orgID, projectID, agentConfigID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListAgentProfiles operation middleware
 func (siw *ServerInterfaceWrapper) ListAgentProfiles(w http.ResponseWriter, r *http.Request) {
 
@@ -12723,6 +16359,32 @@ func (siw *ServerInterfaceWrapper) ListAgentProfiles(w http.ResponseWriter, r *h
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_stats" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_stats", r.URL.Query(), &params.IncludeStats, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_stats"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_stats", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "stats_since" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "stats_since", r.URL.Query(), &params.StatsSince, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "stats_since"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stats_since", Err: err})
 		}
 		return
 	}
@@ -13036,94 +16698,6 @@ func (siw *ServerInterfaceWrapper) UpdateAgentProfile(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
-// CreateIntegrationOAuthSetup operation middleware
-func (siw *ServerInterfaceWrapper) CreateIntegrationOAuthSetup(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "orgID" -------------
-	var orgID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "projectID" -------------
-	var projectID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "agentProfileID" -------------
-	var agentProfileID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "agentProfileID", r.PathValue("agentProfileID"), &agentProfileID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentProfileID", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateIntegrationOAuthSetup(w, r, orgID, projectID, agentProfileID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateSlackSetup operation middleware
-func (siw *ServerInterfaceWrapper) CreateSlackSetup(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "orgID" -------------
-	var orgID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "projectID" -------------
-	var projectID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "agentProfileID" -------------
-	var agentProfileID string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "agentProfileID", r.PathValue("agentProfileID"), &agentProfileID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentProfileID", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateSlackSetup(w, r, orgID, projectID, agentProfileID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // GetAgentProfileUsage operation middleware
 func (siw *ServerInterfaceWrapper) GetAgentProfileUsage(w http.ResponseWriter, r *http.Request) {
 
@@ -13298,6 +16872,19 @@ func (siw *ServerInterfaceWrapper) ListAgents(w http.ResponseWriter, r *http.Req
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_usage" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_usage", r.URL.Query(), &params.IncludeUsage, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_usage"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_usage", Err: err})
 		}
 		return
 	}
@@ -14874,6 +18461,19 @@ func (siw *ServerInterfaceWrapper) ListCronTriggers(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// ------------- Optional query parameter "integration_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "integration_id", r.URL.Query(), &params.IntegrationId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "integration_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration_id", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "sort" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -15115,14 +18715,14 @@ func (siw *ServerInterfaceWrapper) UpdateCronTrigger(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
-// ListIntegrationInstalls operation middleware
-func (siw *ServerInterfaceWrapper) ListIntegrationInstalls(w http.ResponseWriter, r *http.Request) {
+// ListEventWebhooks operation middleware
+func (siw *ServerInterfaceWrapper) ListEventWebhooks(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// ------------- Path parameter "orgID" -------------
-	var orgID string
+	var orgID OrganizationID
 
 	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
@@ -15131,7 +18731,7 @@ func (siw *ServerInterfaceWrapper) ListIntegrationInstalls(w http.ResponseWriter
 	}
 
 	// ------------- Path parameter "projectID" -------------
-	var projectID string
+	var projectID ProjectID
 
 	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
@@ -15140,17 +18740,17 @@ func (siw *ServerInterfaceWrapper) ListIntegrationInstalls(w http.ResponseWriter
 	}
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListIntegrationInstallsParams
+	var params ListEventWebhooksParams
 
-	// ------------- Optional query parameter "name" -------------
+	// ------------- Required query parameter "scope_type" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope_type", r.URL.Query(), &params.ScopeType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope_type"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope_type", Err: err})
 		}
 		return
 	}
@@ -15168,28 +18768,224 @@ func (siw *ServerInterfaceWrapper) ListIntegrationInstalls(w http.ResponseWriter
 		return
 	}
 
-	// ------------- Optional query parameter "oauth_flow_id" -------------
+	// ------------- Optional query parameter "agent_id" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "oauth_flow_id", r.URL.Query(), &params.OauthFlowId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_id", r.URL.Query(), &params.AgentId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "oauth_flow_id"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent_id"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "oauth_flow_id", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent_id", Err: err})
 		}
 		return
 	}
 
-	// ------------- Optional query parameter "sort" -------------
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEventWebhooks(w, r, orgID, projectID, params)
+	}))
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateEventWebhook operation middleware
+func (siw *ServerInterfaceWrapper) CreateEventWebhook(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateEventWebhook(w, r, orgID, projectID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteEventWebhook operation middleware
+func (siw *ServerInterfaceWrapper) DeleteEventWebhook(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "webhookID" -------------
+	var webhookID EventWebhookID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "webhookID", r.PathValue("webhookID"), &webhookID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "webhookID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteEventWebhook(w, r, orgID, projectID, webhookID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateEventWebhook operation middleware
+func (siw *ServerInterfaceWrapper) UpdateEventWebhook(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "webhookID" -------------
+	var webhookID EventWebhookID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "webhookID", r.PathValue("webhookID"), &webhookID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "webhookID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateEventWebhook(w, r, orgID, projectID, webhookID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListIntegrationDefinitions operation middleware
+func (siw *ServerInterfaceWrapper) ListIntegrationDefinitions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListIntegrationDefinitions(w, r, orgID, projectID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListIntegrations operation middleware
+func (siw *ServerInterfaceWrapper) ListIntegrations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListIntegrationsParams
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
 		}
 		return
 	}
@@ -15221,7 +19017,7 @@ func (siw *ServerInterfaceWrapper) ListIntegrationInstalls(w http.ResponseWriter
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListIntegrationInstalls(w, r, orgID, projectID, params)
+		siw.Handler.ListIntegrations(w, r, orgID, projectID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -15231,14 +19027,14 @@ func (siw *ServerInterfaceWrapper) ListIntegrationInstalls(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteIntegrationInstall operation middleware
-func (siw *ServerInterfaceWrapper) DeleteIntegrationInstall(w http.ResponseWriter, r *http.Request) {
+// CreateIntegration operation middleware
+func (siw *ServerInterfaceWrapper) CreateIntegration(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// ------------- Path parameter "orgID" -------------
-	var orgID string
+	var orgID OrganizationID
 
 	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
@@ -15247,7 +19043,7 @@ func (siw *ServerInterfaceWrapper) DeleteIntegrationInstall(w http.ResponseWrite
 	}
 
 	// ------------- Path parameter "projectID" -------------
-	var projectID string
+	var projectID ProjectID
 
 	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
@@ -15255,17 +19051,634 @@ func (siw *ServerInterfaceWrapper) DeleteIntegrationInstall(w http.ResponseWrite
 		return
 	}
 
-	// ------------- Path parameter "integrationInstallID" -------------
-	var integrationInstallID string
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateIntegration(w, r, orgID, projectID)
+	}))
 
-	err = runtime.BindStyledParameterWithOptions("simple", "integrationInstallID", r.PathValue("integrationInstallID"), &integrationInstallID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteIntegration operation middleware
+func (siw *ServerInterfaceWrapper) DeleteIntegration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationInstallID", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
 		return
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteIntegrationInstall(w, r, orgID, projectID, integrationInstallID)
+		siw.Handler.DeleteIntegration(w, r, orgID, projectID, integrationID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetIntegration operation middleware
+func (siw *ServerInterfaceWrapper) GetIntegration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetIntegration(w, r, orgID, projectID, integrationID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateIntegration operation middleware
+func (siw *ServerInterfaceWrapper) UpdateIntegration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateIntegration(w, r, orgID, projectID, integrationID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisconnectIntegration operation middleware
+func (siw *ServerInterfaceWrapper) DisconnectIntegration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisconnectIntegration(w, r, orgID, projectID, integrationID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListIntegrationGitHubRepositories operation middleware
+func (siw *ServerInterfaceWrapper) ListIntegrationGitHubRepositories(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListIntegrationGitHubRepositoriesParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListIntegrationGitHubRepositories(w, r, orgID, projectID, integrationID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateIntegrationGitHubSetup operation middleware
+func (siw *ServerInterfaceWrapper) CreateIntegrationGitHubSetup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateIntegrationGitHubSetup(w, r, orgID, projectID, integrationID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// InspectIntegrationGitHubInstallations operation middleware
+func (siw *ServerInterfaceWrapper) InspectIntegrationGitHubInstallations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InspectIntegrationGitHubInstallations(w, r, orgID, projectID, integrationID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateIntegrationOAuthSetup operation middleware
+func (siw *ServerInterfaceWrapper) CreateIntegrationOAuthSetup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateIntegrationOAuthSetup(w, r, orgID, projectID, integrationID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConfigureIntegration operation middleware
+func (siw *ServerInterfaceWrapper) ConfigureIntegration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConfigureIntegration(w, r, orgID, projectID, integrationID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateIntegrationSlackSetup operation middleware
+func (siw *ServerInterfaceWrapper) CreateIntegrationSlackSetup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateIntegrationSlackSetup(w, r, orgID, projectID, integrationID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListIntegrationSubscriptions operation middleware
+func (siw *ServerInterfaceWrapper) ListIntegrationSubscriptions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListIntegrationSubscriptionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListIntegrationSubscriptions(w, r, orgID, projectID, integrationID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateIntegrationSubscription operation middleware
+func (siw *ServerInterfaceWrapper) CreateIntegrationSubscription(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateIntegrationSubscription(w, r, orgID, projectID, integrationID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteIntegrationSubscription operation middleware
+func (siw *ServerInterfaceWrapper) DeleteIntegrationSubscription(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integrationID" -------------
+	var integrationID IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integrationID", r.PathValue("integrationID"), &integrationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integrationID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "subscriptionID" -------------
+	var subscriptionID IntegrationSubscriptionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "subscriptionID", r.PathValue("subscriptionID"), &subscriptionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "subscriptionID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteIntegrationSubscription(w, r, orgID, projectID, integrationID, subscriptionID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -15504,6 +19917,19 @@ func (siw *ServerInterfaceWrapper) ListProjectMachinePoolGrants(w http.ResponseW
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "machine_pool_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "machine_pool_id", r.URL.Query(), &params.MachinePoolId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "machine_pool_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "machine_pool_id", Err: err})
 		}
 		return
 	}
@@ -15802,6 +20228,19 @@ func (siw *ServerInterfaceWrapper) ListVisibleProjectMachines(w http.ResponseWri
 		return
 	}
 
+	// ------------- Optional query parameter "machine_pool_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "machine_pool_id", r.URL.Query(), &params.MachinePoolId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "machine_pool_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "machine_pool_id", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "sort" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -15878,6 +20317,542 @@ func (siw *ServerInterfaceWrapper) ListMCPServerTools(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListMCPServerTools(w, r, orgID, projectID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMemoryStores operation middleware
+func (siw *ServerInterfaceWrapper) ListMemoryStores(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMemoryStoresParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMemoryStores(w, r, orgID, projectID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateMemoryStore operation middleware
+func (siw *ServerInterfaceWrapper) CreateMemoryStore(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateMemoryStore(w, r, orgID, projectID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMemoryStore operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMemoryStore(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "memoryStoreID" -------------
+	var memoryStoreID MemoryStoreID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "memoryStoreID", r.PathValue("memoryStoreID"), &memoryStoreID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "memoryStoreID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMemoryStore(w, r, orgID, projectID, memoryStoreID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMemoryStore operation middleware
+func (siw *ServerInterfaceWrapper) GetMemoryStore(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "memoryStoreID" -------------
+	var memoryStoreID MemoryStoreID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "memoryStoreID", r.PathValue("memoryStoreID"), &memoryStoreID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "memoryStoreID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMemoryStore(w, r, orgID, projectID, memoryStoreID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMemoryStore operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMemoryStore(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "memoryStoreID" -------------
+	var memoryStoreID MemoryStoreID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "memoryStoreID", r.PathValue("memoryStoreID"), &memoryStoreID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "memoryStoreID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMemoryStore(w, r, orgID, projectID, memoryStoreID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMemoryFile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMemoryFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "memoryStoreID" -------------
+	var memoryStoreID MemoryStoreID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "memoryStoreID", r.PathValue("memoryStoreID"), &memoryStoreID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "memoryStoreID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteMemoryFileParams
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "expected_digest" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "expected_digest", r.URL.Query(), &params.ExpectedDigest, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "expected_digest"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "expected_digest", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMemoryFile(w, r, orgID, projectID, memoryStoreID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DownloadMemoryFile operation middleware
+func (siw *ServerInterfaceWrapper) DownloadMemoryFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "memoryStoreID" -------------
+	var memoryStoreID MemoryStoreID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "memoryStoreID", r.PathValue("memoryStoreID"), &memoryStoreID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "memoryStoreID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DownloadMemoryFileParams
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadMemoryFile(w, r, orgID, projectID, memoryStoreID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// WriteMemoryFile operation middleware
+func (siw *ServerInterfaceWrapper) WriteMemoryFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "memoryStoreID" -------------
+	var memoryStoreID MemoryStoreID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "memoryStoreID", r.PathValue("memoryStoreID"), &memoryStoreID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "memoryStoreID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params WriteMemoryFileParams
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "expected_digest" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "expected_digest", r.URL.Query(), &params.ExpectedDigest, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "expected_digest"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "expected_digest", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.WriteMemoryFile(w, r, orgID, projectID, memoryStoreID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMemoryFiles operation middleware
+func (siw *ServerInterfaceWrapper) ListMemoryFiles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectID", r.PathValue("projectID"), &projectID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "memoryStoreID" -------------
+	var memoryStoreID MemoryStoreID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "memoryStoreID", r.PathValue("memoryStoreID"), &memoryStoreID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "memoryStoreID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMemoryFilesParams
+
+	// ------------- Optional query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMemoryFiles(w, r, orgID, projectID, memoryStoreID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -17461,6 +22436,165 @@ func (siw *ServerInterfaceWrapper) GetOrgUsage(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrgUsageTimeseries operation middleware
+func (siw *ServerInterfaceWrapper) GetOrgUsageTimeseries(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "orgID" -------------
+	var orgID OrganizationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "orgID", r.PathValue("orgID"), &orgID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "orgID", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetOrgUsageTimeseriesParams
+
+	// ------------- Optional query parameter "since" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "since", r.URL.Query(), &params.Since, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "since"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "since", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "until" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "until", r.URL.Query(), &params.Until, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "until"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "until", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "timezone" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "timezone", r.URL.Query(), &params.Timezone, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "timezone"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "timezone", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "interval" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "interval", r.URL.Query(), &params.Interval, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "interval"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "interval", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "metric" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "metric", r.URL.Query(), &params.Metric, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "metric"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "metric", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "group_by" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "group_by", r.URL.Query(), &params.GroupBy, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "group_by"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "group_by", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "group_limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "group_limit", r.URL.Query(), &params.GroupLimit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "group_limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "group_limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "project_ids" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_ids", r.URL.Query(), &params.ProjectIds, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_ids"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_ids", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "agent_profile_ids" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent_profile_ids", r.URL.Query(), &params.AgentProfileIds, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent_profile_ids"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent_profile_ids", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_subagents" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_subagents", r.URL.Query(), &params.IncludeSubagents, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_subagents"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_subagents", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrgUsageTimeseries(w, r, orgID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListPersonalAccessTokens operation middleware
 func (siw *ServerInterfaceWrapper) ListPersonalAccessTokens(w http.ResponseWriter, r *http.Request) {
 
@@ -17681,6 +22815,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/event-webhooks", wrapper.ListEventWebhooks)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/event-webhooks", wrapper.CreateEventWebhook)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID}", wrapper.DeleteEventWebhook)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID}", wrapper.UpdateEventWebhook)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/personal-access-tokens", wrapper.ListPersonalAccessTokens)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/personal-access-tokens", wrapper.CreatePersonalAccessToken)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/personal-access-tokens/{tokenID}/revoke", wrapper.RevokePersonalAccessToken)
@@ -17696,6 +22834,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/invitations/{invitationID}/decline", wrapper.DeclineInvitation)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/overview", wrapper.GetOrgOverview)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/usage", wrapper.GetOrgUsage)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/usage/timeseries", wrapper.GetOrgUsageTimeseries)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/agents", wrapper.ListOrgAgents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/agent-profiles", wrapper.ListOrgAgentProfiles)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects", wrapper.ListVisibleProjects)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects", wrapper.CreateProject)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}", wrapper.DeleteProject)
@@ -17726,6 +22867,16 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/skills/{skillID}/grants", wrapper.CreateSkillGrant)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/skills/{skillID}/grants/{grantID}", wrapper.DeleteSkillGrant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/skills", wrapper.ListProjectAvailableSkills)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/memory-stores", wrapper.ListOrgMemoryStores)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/memory-stores", wrapper.ListMemoryStores)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/memory-stores", wrapper.CreateMemoryStore)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}", wrapper.DeleteMemoryStore)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}", wrapper.GetMemoryStore)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}", wrapper.UpdateMemoryStore)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/files", wrapper.ListMemoryFiles)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file", wrapper.DeleteMemoryFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file", wrapper.DownloadMemoryFile)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file", wrapper.WriteMemoryFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/secrets", wrapper.ListSecrets)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/secrets", wrapper.CreateSecret)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/secrets/mcp-oauth", wrapper.StartSecretMCPOAuth)
@@ -17736,14 +22887,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}/grants", wrapper.ListSecretGrants)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}/grants", wrapper.CreateSecretGrant)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/secrets/{secretID}/grants/{grantID}", wrapper.DeleteSecretGrant)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-installs", wrapper.ListIntegrationInstalls)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}", wrapper.DeleteIntegrationInstall)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-configs/tools", wrapper.ResolveAgentConfigTools)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-configs", wrapper.CreateAgentConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tool-catalog", wrapper.GetToolCatalog)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/mcp-servers", wrapper.ListMCPServers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/mcp-servers/tools", wrapper.ListMCPServerTools)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}", wrapper.GetAgentConfig)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}/generated-source", wrapper.GetAgentConfigGeneratedSource)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles", wrapper.ListAgentProfiles)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles", wrapper.CreateAgentProfile)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}", wrapper.DeleteAgentProfile)
@@ -17751,8 +22901,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}", wrapper.RenameAgentProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/usage", wrapper.GetAgentProfileUsage)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config", wrapper.UpdateAgentProfile)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup", wrapper.CreateIntegrationOAuthSetup)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup", wrapper.CreateSlackSetup)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/oauth/setup", wrapper.CreateIntegrationOAuthSetup)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/slack-setup", wrapper.CreateIntegrationSlackSetup)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup", wrapper.CreateIntegrationGitHubSetup)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup/installations", wrapper.InspectIntegrationGitHubInstallations)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/cron-triggers", wrapper.ListCronTriggers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/cron-triggers", wrapper.CreateCronTrigger)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID}", wrapper.DeleteCronTrigger)
@@ -17812,6 +22964,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}", wrapper.UpdateProjectModelGrant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/machine-pools", wrapper.ListMachinePools)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/machine-pools", wrapper.CreateMachinePool)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/machine-pools/check-connection", wrapper.CheckMachinePoolConnection)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/machine-pools/{poolID}", wrapper.DeleteMachinePool)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/machine-pools/{poolID}", wrapper.GetMachinePool)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/orgs/{orgID}/machine-pools/{poolID}", wrapper.UpdateMachinePool)
@@ -17827,14 +22980,26 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/daemon/runtimes/{runtimeID}/socket", wrapper.SocketMachineDaemonRuntime)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/runtimes/{runtimeID}/end", wrapper.EndMachineDaemonRuntime)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/runtimes/{runtimeID}/sleep", wrapper.SleepMachineDaemonRuntime)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/processes/{processID}/git-credentials", wrapper.GetDaemonGitCredentials)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/daemon/skills/{skillID}/archive", wrapper.GetDaemonSkillArchive)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/tool-calls/{toolCallID}/artifact", wrapper.UploadDaemonArtifact)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content", wrapper.DownloadDaemonArtifact)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/daemon/processes/{processID}/file", wrapper.DownloadDaemonFile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/daemon/processes/{processID}/file", wrapper.UploadDaemonFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/integrations", wrapper.ListOrgIntegrations)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations", wrapper.ListIntegrations)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations", wrapper.CreateIntegration)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}", wrapper.DeleteIntegration)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}", wrapper.GetIntegration)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}", wrapper.UpdateIntegration)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions", wrapper.ListIntegrationSubscriptions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions", wrapper.CreateIntegrationSubscription)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions/{subscriptionID}", wrapper.DeleteIntegrationSubscription)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup", wrapper.ConfigureIntegration)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/disconnect", wrapper.DisconnectIntegration)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-repositories", wrapper.ListIntegrationGitHubRepositories)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/orgs/{orgID}/projects/{projectID}/integration-definitions", wrapper.ListIntegrationDefinitions)
 
 	return m
 }
-
-type BadGatewayJSONResponse Error
 
 type BadRequestJSONResponse Error
 
@@ -17847,6 +23012,8 @@ type ClientErrorJSONResponse struct {
 }
 
 type ConflictJSONResponse Error
+
+type FailedDependencyJSONResponse Error
 
 type ForbiddenJSONResponse Error
 
@@ -18101,6 +23268,512 @@ type RecordMachineFailure5XXJSONResponse struct {
 }
 
 func (response RecordMachineFailure5XXJSONResponse) VisitRecordMachineFailureResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadDaemonFileRequestObject struct {
+	ProcessID ProcessID `json:"processID"`
+}
+
+type DownloadDaemonFileResponseObject interface {
+	VisitDownloadDaemonFileResponse(w http.ResponseWriter) error
+}
+
+type DownloadDaemonFile200ResponseHeaders struct {
+	ETag              *string
+	XOmnaraFileDigest *string
+}
+
+type DownloadDaemonFile200AsteriskResponse struct {
+	Body          io.Reader
+	Headers       DownloadDaemonFile200ResponseHeaders
+	ContentType   string
+	ContentLength int64
+}
+
+func (response DownloadDaemonFile200AsteriskResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	if response.Headers.XOmnaraFileDigest != nil {
+		w.Header().Set("X-Omnara-File-Digest", fmt.Sprint(*response.Headers.XOmnaraFileDigest))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type DownloadDaemonFile400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DownloadDaemonFile400JSONResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadDaemonFile401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DownloadDaemonFile401JSONResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadDaemonFile403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DownloadDaemonFile403JSONResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadDaemonFile404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DownloadDaemonFile404JSONResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadDaemonFile409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DownloadDaemonFile409JSONResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadDaemonFile4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DownloadDaemonFile4XXJSONResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadDaemonFile500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
+
+func (response DownloadDaemonFile500JSONResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadDaemonFile503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response DownloadDaemonFile503JSONResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadDaemonFile5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DownloadDaemonFile5XXJSONResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDaemonFileRequestObject struct {
+	ProcessID ProcessID `json:"processID"`
+	Params    UploadDaemonFileParams
+	Body      io.Reader
+}
+
+type UploadDaemonFileResponseObject interface {
+	VisitUploadDaemonFileResponse(w http.ResponseWriter) error
+}
+
+type UploadDaemonFile201JSONResponse UploadFileResponse
+
+func (response UploadDaemonFile201JSONResponse) VisitUploadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDaemonFile400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UploadDaemonFile400JSONResponse) VisitUploadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDaemonFile401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UploadDaemonFile401JSONResponse) VisitUploadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDaemonFile403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UploadDaemonFile403JSONResponse) VisitUploadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDaemonFile404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UploadDaemonFile404JSONResponse) VisitUploadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDaemonFile409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UploadDaemonFile409JSONResponse) VisitUploadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDaemonFile413JSONResponse Error
+
+func (response UploadDaemonFile413JSONResponse) VisitUploadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDaemonFile4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response UploadDaemonFile4XXJSONResponse) VisitUploadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDaemonFile500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
+
+func (response UploadDaemonFile500JSONResponse) VisitUploadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDaemonFile503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response UploadDaemonFile503JSONResponse) VisitUploadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadDaemonFile5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response UploadDaemonFile5XXJSONResponse) VisitUploadDaemonFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDaemonGitCredentialsRequestObject struct {
+	ProcessID ProcessID `json:"processID"`
+}
+
+type GetDaemonGitCredentialsResponseObject interface {
+	VisitGetDaemonGitCredentialsResponse(w http.ResponseWriter) error
+}
+
+type GetDaemonGitCredentials200ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetDaemonGitCredentials200JSONResponse struct {
+	Body struct {
+		ExpiresAt Timestamp `json:"expires_at"`
+		Token     string    `json:"token"`
+	}
+	Headers GetDaemonGitCredentials200ResponseHeaders
+}
+
+func (response GetDaemonGitCredentials200JSONResponse) VisitGetDaemonGitCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDaemonGitCredentials401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetDaemonGitCredentials401JSONResponse) VisitGetDaemonGitCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDaemonGitCredentials404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetDaemonGitCredentials404JSONResponse) VisitGetDaemonGitCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDaemonGitCredentials409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GetDaemonGitCredentials409JSONResponse) VisitGetDaemonGitCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDaemonGitCredentials4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetDaemonGitCredentials4XXJSONResponse) VisitGetDaemonGitCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDaemonGitCredentials503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response GetDaemonGitCredentials503JSONResponse) VisitGetDaemonGitCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDaemonGitCredentials5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetDaemonGitCredentials5XXJSONResponse) VisitGetDaemonGitCredentialsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -18904,292 +24577,6 @@ type GetDaemonSkillArchive5XXJSONResponse struct {
 }
 
 func (response GetDaemonSkillArchive5XXJSONResponse) VisitGetDaemonSkillArchiveResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UploadDaemonArtifactRequestObject struct {
-	ToolCallID ToolCallID `json:"toolCallID"`
-	Params     UploadDaemonArtifactParams
-	Body       io.Reader
-}
-
-type UploadDaemonArtifactResponseObject interface {
-	VisitUploadDaemonArtifactResponse(w http.ResponseWriter) error
-}
-
-type UploadDaemonArtifact201JSONResponse UploadArtifactResponse
-
-func (response UploadDaemonArtifact201JSONResponse) VisitUploadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UploadDaemonArtifact400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response UploadDaemonArtifact400JSONResponse) VisitUploadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UploadDaemonArtifact401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response UploadDaemonArtifact401JSONResponse) VisitUploadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UploadDaemonArtifact403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response UploadDaemonArtifact403JSONResponse) VisitUploadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UploadDaemonArtifact404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response UploadDaemonArtifact404JSONResponse) VisitUploadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UploadDaemonArtifact413JSONResponse Error
-
-func (response UploadDaemonArtifact413JSONResponse) VisitUploadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(413)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UploadDaemonArtifact4XXJSONResponse struct {
-	Body struct {
-		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
-		Code ClientErrorCode `json:"code"`
-
-		// Error Human-readable error message. Do not match on it programmatically.
-		Error string `json:"error"`
-	}
-	StatusCode int
-}
-
-func (response UploadDaemonArtifact4XXJSONResponse) VisitUploadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UploadDaemonArtifact503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response UploadDaemonArtifact503JSONResponse) VisitUploadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UploadDaemonArtifact5XXJSONResponse struct {
-	Body struct {
-		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
-		Code ServerErrorCode `json:"code"`
-
-		// Error Human-readable error message. Do not match on it programmatically.
-		Error string `json:"error"`
-	}
-	StatusCode int
-}
-
-func (response UploadDaemonArtifact5XXJSONResponse) VisitUploadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DownloadDaemonArtifactRequestObject struct {
-	ToolCallID ToolCallID `json:"toolCallID"`
-	ArtifactID ArtifactID `json:"artifactID"`
-}
-
-type DownloadDaemonArtifactResponseObject interface {
-	VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error
-}
-
-type DownloadDaemonArtifact200AsteriskResponse struct {
-	Body          io.Reader
-	ContentType   string
-	ContentLength int64
-}
-
-func (response DownloadDaemonArtifact200AsteriskResponse) VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", response.ContentType)
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
-}
-
-type DownloadDaemonArtifact401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response DownloadDaemonArtifact401JSONResponse) VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DownloadDaemonArtifact403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response DownloadDaemonArtifact403JSONResponse) VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DownloadDaemonArtifact404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response DownloadDaemonArtifact404JSONResponse) VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DownloadDaemonArtifact4XXJSONResponse struct {
-	Body struct {
-		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
-		Code ClientErrorCode `json:"code"`
-
-		// Error Human-readable error message. Do not match on it programmatically.
-		Error string `json:"error"`
-	}
-	StatusCode int
-}
-
-func (response DownloadDaemonArtifact4XXJSONResponse) VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DownloadDaemonArtifact503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response DownloadDaemonArtifact503JSONResponse) VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DownloadDaemonArtifact5XXJSONResponse struct {
-	Body struct {
-		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
-		Code ServerErrorCode `json:"code"`
-
-		// Error Human-readable error message. Do not match on it programmatically.
-		Error string `json:"error"`
-	}
-	StatusCode int
-}
-
-func (response DownloadDaemonArtifact5XXJSONResponse) VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -20487,6 +25874,284 @@ func (response DeleteOrganization5XXJSONResponse) VisitDeleteOrganizationRespons
 	return err
 }
 
+type ListOrgAgentProfilesRequestObject struct {
+	OrgID  OrganizationID `json:"orgID"`
+	Params ListOrgAgentProfilesParams
+}
+
+type ListOrgAgentProfilesResponseObject interface {
+	VisitListOrgAgentProfilesResponse(w http.ResponseWriter) error
+}
+
+type ListOrgAgentProfiles200JSONResponse ListAgentProfilesResponse
+
+func (response ListOrgAgentProfiles200JSONResponse) VisitListOrgAgentProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgentProfiles400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListOrgAgentProfiles400JSONResponse) VisitListOrgAgentProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgentProfiles401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListOrgAgentProfiles401JSONResponse) VisitListOrgAgentProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgentProfiles403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListOrgAgentProfiles403JSONResponse) VisitListOrgAgentProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgentProfiles404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListOrgAgentProfiles404JSONResponse) VisitListOrgAgentProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgentProfiles4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListOrgAgentProfiles4XXJSONResponse) VisitListOrgAgentProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgentProfiles503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ListOrgAgentProfiles503JSONResponse) VisitListOrgAgentProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgentProfiles5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListOrgAgentProfiles5XXJSONResponse) VisitListOrgAgentProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgentsRequestObject struct {
+	OrgID  OrganizationID `json:"orgID"`
+	Params ListOrgAgentsParams
+}
+
+type ListOrgAgentsResponseObject interface {
+	VisitListOrgAgentsResponse(w http.ResponseWriter) error
+}
+
+type ListOrgAgents200JSONResponse ListAgentsResponse
+
+func (response ListOrgAgents200JSONResponse) VisitListOrgAgentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgents400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListOrgAgents400JSONResponse) VisitListOrgAgentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgents401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListOrgAgents401JSONResponse) VisitListOrgAgentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgents403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListOrgAgents403JSONResponse) VisitListOrgAgentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgents404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListOrgAgents404JSONResponse) VisitListOrgAgentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgents4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListOrgAgents4XXJSONResponse) VisitListOrgAgentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgents503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ListOrgAgents503JSONResponse) VisitListOrgAgentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgAgents5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListOrgAgents5XXJSONResponse) VisitListOrgAgentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListOrgAPIKeysRequestObject struct {
 	OrgID  string `json:"orgID"`
 	Params ListOrgAPIKeysParams
@@ -21653,6 +27318,131 @@ func (response RevokeOrgAPIKey5XXJSONResponse) VisitRevokeOrgAPIKeyResponse(w ht
 	return err
 }
 
+type ListOrgIntegrationsRequestObject struct {
+	OrgID  OrganizationID `json:"orgID"`
+	Params ListOrgIntegrationsParams
+}
+
+type ListOrgIntegrationsResponseObject interface {
+	VisitListOrgIntegrationsResponse(w http.ResponseWriter) error
+}
+
+type ListOrgIntegrations200JSONResponse ListIntegrationsResponse
+
+func (response ListOrgIntegrations200JSONResponse) VisitListOrgIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgIntegrations400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListOrgIntegrations400JSONResponse) VisitListOrgIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgIntegrations401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListOrgIntegrations401JSONResponse) VisitListOrgIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgIntegrations403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListOrgIntegrations403JSONResponse) VisitListOrgIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgIntegrations404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListOrgIntegrations404JSONResponse) VisitListOrgIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgIntegrations4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListOrgIntegrations4XXJSONResponse) VisitListOrgIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgIntegrations5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListOrgIntegrations5XXJSONResponse) VisitListOrgIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListOrgInvitationsRequestObject struct {
 	OrgID  string `json:"orgID"`
 	Params ListOrgInvitationsParams
@@ -22415,6 +28205,167 @@ type CreateMachinePool5XXJSONResponse struct {
 }
 
 func (response CreateMachinePool5XXJSONResponse) VisitCreateMachinePoolResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckMachinePoolConnectionRequestObject struct {
+	OrgID string `json:"orgID"`
+	Body  *CheckMachinePoolConnectionJSONRequestBody
+}
+
+type CheckMachinePoolConnectionResponseObject interface {
+	VisitCheckMachinePoolConnectionResponse(w http.ResponseWriter) error
+}
+
+type CheckMachinePoolConnection204Response struct {
+}
+
+func (response CheckMachinePoolConnection204Response) VisitCheckMachinePoolConnectionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CheckMachinePoolConnection400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CheckMachinePoolConnection400JSONResponse) VisitCheckMachinePoolConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckMachinePoolConnection401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CheckMachinePoolConnection401JSONResponse) VisitCheckMachinePoolConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckMachinePoolConnection403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CheckMachinePoolConnection403JSONResponse) VisitCheckMachinePoolConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckMachinePoolConnection404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CheckMachinePoolConnection404JSONResponse) VisitCheckMachinePoolConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckMachinePoolConnection422JSONResponse MachinePoolConnectionCheckError
+
+func (response CheckMachinePoolConnection422JSONResponse) VisitCheckMachinePoolConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckMachinePoolConnection424JSONResponse MachinePoolConnectionCheckError
+
+func (response CheckMachinePoolConnection424JSONResponse) VisitCheckMachinePoolConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(424)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckMachinePoolConnection4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CheckMachinePoolConnection4XXJSONResponse) VisitCheckMachinePoolConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckMachinePoolConnection503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response CheckMachinePoolConnection503JSONResponse) VisitCheckMachinePoolConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckMachinePoolConnection5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CheckMachinePoolConnection5XXJSONResponse) VisitCheckMachinePoolConnectionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -25140,6 +31091,145 @@ func (response SetMemberProjectAccess5XXJSONResponse) VisitSetMemberProjectAcces
 	return err
 }
 
+type ListOrgMemoryStoresRequestObject struct {
+	OrgID  OrganizationID `json:"orgID"`
+	Params ListOrgMemoryStoresParams
+}
+
+type ListOrgMemoryStoresResponseObject interface {
+	VisitListOrgMemoryStoresResponse(w http.ResponseWriter) error
+}
+
+type ListOrgMemoryStores200JSONResponse MemoryStoreList
+
+func (response ListOrgMemoryStores200JSONResponse) VisitListOrgMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgMemoryStores400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListOrgMemoryStores400JSONResponse) VisitListOrgMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgMemoryStores401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListOrgMemoryStores401JSONResponse) VisitListOrgMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgMemoryStores403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListOrgMemoryStores403JSONResponse) VisitListOrgMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgMemoryStores404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListOrgMemoryStores404JSONResponse) VisitListOrgMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgMemoryStores4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListOrgMemoryStores4XXJSONResponse) VisitListOrgMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgMemoryStores503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ListOrgMemoryStores503JSONResponse) VisitListOrgMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOrgMemoryStores5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListOrgMemoryStores5XXJSONResponse) VisitListOrgMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListModelProviderConfigsRequestObject struct {
 	OrgID  string `json:"orgID"`
 	Params ListModelProviderConfigsParams
@@ -26686,6 +32776,20 @@ func (response GetOrgOverview200JSONResponse) VisitGetOrgOverviewResponse(w http
 	return err
 }
 
+type GetOrgOverview400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetOrgOverview400JSONResponse) VisitGetOrgOverviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetOrgOverview401JSONResponse struct{ UnauthorizedJSONResponse }
 
 func (response GetOrgOverview401JSONResponse) VisitGetOrgOverviewResponse(w http.ResponseWriter) error {
@@ -28163,6 +34267,161 @@ func (response GetAgentConfig5XXJSONResponse) VisitGetAgentConfigResponse(w http
 	return err
 }
 
+type GetAgentConfigGeneratedSourceRequestObject struct {
+	OrgID         string `json:"orgID"`
+	ProjectID     string `json:"projectID"`
+	AgentConfigID string `json:"agentConfigID"`
+	Params        GetAgentConfigGeneratedSourceParams
+}
+
+type GetAgentConfigGeneratedSourceResponseObject interface {
+	VisitGetAgentConfigGeneratedSourceResponse(w http.ResponseWriter) error
+}
+
+type GetAgentConfigGeneratedSource200JSONResponse AgentConfigGeneratedSource
+
+func (response GetAgentConfigGeneratedSource200JSONResponse) VisitGetAgentConfigGeneratedSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentConfigGeneratedSource400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetAgentConfigGeneratedSource400JSONResponse) VisitGetAgentConfigGeneratedSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentConfigGeneratedSource401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetAgentConfigGeneratedSource401JSONResponse) VisitGetAgentConfigGeneratedSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentConfigGeneratedSource403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetAgentConfigGeneratedSource403JSONResponse) VisitGetAgentConfigGeneratedSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentConfigGeneratedSource404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetAgentConfigGeneratedSource404JSONResponse) VisitGetAgentConfigGeneratedSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentConfigGeneratedSource409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GetAgentConfigGeneratedSource409JSONResponse) VisitGetAgentConfigGeneratedSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentConfigGeneratedSource4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetAgentConfigGeneratedSource4XXJSONResponse) VisitGetAgentConfigGeneratedSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentConfigGeneratedSource503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response GetAgentConfigGeneratedSource503JSONResponse) VisitGetAgentConfigGeneratedSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAgentConfigGeneratedSource5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetAgentConfigGeneratedSource5XXJSONResponse) VisitGetAgentConfigGeneratedSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListAgentProfilesRequestObject struct {
 	OrgID     string `json:"orgID"`
 	ProjectID string `json:"projectID"`
@@ -29074,316 +35333,6 @@ type UpdateAgentProfile5XXJSONResponse struct {
 }
 
 func (response UpdateAgentProfile5XXJSONResponse) VisitUpdateAgentProfileResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateIntegrationOAuthSetupRequestObject struct {
-	OrgID          string `json:"orgID"`
-	ProjectID      string `json:"projectID"`
-	AgentProfileID string `json:"agentProfileID"`
-	Body           *CreateIntegrationOAuthSetupJSONRequestBody
-}
-
-type CreateIntegrationOAuthSetupResponseObject interface {
-	VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error
-}
-
-type CreateIntegrationOAuthSetup201JSONResponse IntegrationOAuthSetup
-
-func (response CreateIntegrationOAuthSetup201JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateIntegrationOAuthSetup400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response CreateIntegrationOAuthSetup400JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateIntegrationOAuthSetup401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response CreateIntegrationOAuthSetup401JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateIntegrationOAuthSetup403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response CreateIntegrationOAuthSetup403JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateIntegrationOAuthSetup404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response CreateIntegrationOAuthSetup404JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateIntegrationOAuthSetup409JSONResponse struct{ ConflictJSONResponse }
-
-func (response CreateIntegrationOAuthSetup409JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateIntegrationOAuthSetup4XXJSONResponse struct {
-	Body struct {
-		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
-		Code ClientErrorCode `json:"code"`
-
-		// Error Human-readable error message. Do not match on it programmatically.
-		Error string `json:"error"`
-	}
-	StatusCode int
-}
-
-func (response CreateIntegrationOAuthSetup4XXJSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateIntegrationOAuthSetup503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response CreateIntegrationOAuthSetup503JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateIntegrationOAuthSetup5XXJSONResponse struct {
-	Body struct {
-		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
-		Code ServerErrorCode `json:"code"`
-
-		// Error Human-readable error message. Do not match on it programmatically.
-		Error string `json:"error"`
-	}
-	StatusCode int
-}
-
-func (response CreateIntegrationOAuthSetup5XXJSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSlackSetupRequestObject struct {
-	OrgID          string `json:"orgID"`
-	ProjectID      string `json:"projectID"`
-	AgentProfileID string `json:"agentProfileID"`
-	Body           *CreateSlackSetupJSONRequestBody
-}
-
-type CreateSlackSetupResponseObject interface {
-	VisitCreateSlackSetupResponse(w http.ResponseWriter) error
-}
-
-type CreateSlackSetup201JSONResponse SlackSetup
-
-func (response CreateSlackSetup201JSONResponse) VisitCreateSlackSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSlackSetup400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response CreateSlackSetup400JSONResponse) VisitCreateSlackSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSlackSetup401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response CreateSlackSetup401JSONResponse) VisitCreateSlackSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSlackSetup403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response CreateSlackSetup403JSONResponse) VisitCreateSlackSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSlackSetup404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response CreateSlackSetup404JSONResponse) VisitCreateSlackSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSlackSetup409JSONResponse struct{ ConflictJSONResponse }
-
-func (response CreateSlackSetup409JSONResponse) VisitCreateSlackSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSlackSetup4XXJSONResponse struct {
-	Body struct {
-		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
-		Code ClientErrorCode `json:"code"`
-
-		// Error Human-readable error message. Do not match on it programmatically.
-		Error string `json:"error"`
-	}
-	StatusCode int
-}
-
-func (response CreateSlackSetup4XXJSONResponse) VisitCreateSlackSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSlackSetup503JSONResponse struct{ ServiceUnavailableJSONResponse }
-
-func (response CreateSlackSetup503JSONResponse) VisitCreateSlackSetupResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateSlackSetup5XXJSONResponse struct {
-	Body struct {
-		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
-		Code ServerErrorCode `json:"code"`
-
-		// Error Human-readable error message. Do not match on it programmatically.
-		Error string `json:"error"`
-	}
-	StatusCode int
-}
-
-func (response CreateSlackSetup5XXJSONResponse) VisitCreateSlackSetupResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -33767,19 +39716,19 @@ func (response UpdateCronTrigger5XXJSONResponse) VisitUpdateCronTriggerResponse(
 	return err
 }
 
-type ListIntegrationInstallsRequestObject struct {
-	OrgID     string `json:"orgID"`
-	ProjectID string `json:"projectID"`
-	Params    ListIntegrationInstallsParams
+type ListEventWebhooksRequestObject struct {
+	OrgID     OrganizationID `json:"orgID"`
+	ProjectID ProjectID      `json:"projectID"`
+	Params    ListEventWebhooksParams
 }
 
-type ListIntegrationInstallsResponseObject interface {
-	VisitListIntegrationInstallsResponse(w http.ResponseWriter) error
+type ListEventWebhooksResponseObject interface {
+	VisitListEventWebhooksResponse(w http.ResponseWriter) error
 }
 
-type ListIntegrationInstalls200JSONResponse ListIntegrationInstallsResponse
+type ListEventWebhooks200JSONResponse ListEventWebhooksResponse
 
-func (response ListIntegrationInstalls200JSONResponse) VisitListIntegrationInstallsResponse(w http.ResponseWriter) error {
+func (response ListEventWebhooks200JSONResponse) VisitListEventWebhooksResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -33791,9 +39740,9 @@ func (response ListIntegrationInstalls200JSONResponse) VisitListIntegrationInsta
 	return err
 }
 
-type ListIntegrationInstalls400JSONResponse struct{ BadRequestJSONResponse }
+type ListEventWebhooks400JSONResponse struct{ BadRequestJSONResponse }
 
-func (response ListIntegrationInstalls400JSONResponse) VisitListIntegrationInstallsResponse(w http.ResponseWriter) error {
+func (response ListEventWebhooks400JSONResponse) VisitListEventWebhooksResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -33805,9 +39754,9 @@ func (response ListIntegrationInstalls400JSONResponse) VisitListIntegrationInsta
 	return err
 }
 
-type ListIntegrationInstalls401JSONResponse struct{ UnauthorizedJSONResponse }
+type ListEventWebhooks401JSONResponse struct{ UnauthorizedJSONResponse }
 
-func (response ListIntegrationInstalls401JSONResponse) VisitListIntegrationInstallsResponse(w http.ResponseWriter) error {
+func (response ListEventWebhooks401JSONResponse) VisitListEventWebhooksResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -33819,9 +39768,9 @@ func (response ListIntegrationInstalls401JSONResponse) VisitListIntegrationInsta
 	return err
 }
 
-type ListIntegrationInstalls403JSONResponse struct{ ForbiddenJSONResponse }
+type ListEventWebhooks403JSONResponse struct{ ForbiddenJSONResponse }
 
-func (response ListIntegrationInstalls403JSONResponse) VisitListIntegrationInstallsResponse(w http.ResponseWriter) error {
+func (response ListEventWebhooks403JSONResponse) VisitListEventWebhooksResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -33833,9 +39782,9 @@ func (response ListIntegrationInstalls403JSONResponse) VisitListIntegrationInsta
 	return err
 }
 
-type ListIntegrationInstalls404JSONResponse struct{ NotFoundJSONResponse }
+type ListEventWebhooks404JSONResponse struct{ NotFoundJSONResponse }
 
-func (response ListIntegrationInstalls404JSONResponse) VisitListIntegrationInstallsResponse(w http.ResponseWriter) error {
+func (response ListEventWebhooks404JSONResponse) VisitListEventWebhooksResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -33847,7 +39796,21 @@ func (response ListIntegrationInstalls404JSONResponse) VisitListIntegrationInsta
 	return err
 }
 
-type ListIntegrationInstalls4XXJSONResponse struct {
+type ListEventWebhooks409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ListEventWebhooks409JSONResponse) VisitListEventWebhooksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEventWebhooks4XXJSONResponse struct {
 	Body struct {
 		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
 		Code ClientErrorCode `json:"code"`
@@ -33858,7 +39821,7 @@ type ListIntegrationInstalls4XXJSONResponse struct {
 	StatusCode int
 }
 
-func (response ListIntegrationInstalls4XXJSONResponse) VisitListIntegrationInstallsResponse(w http.ResponseWriter) error {
+func (response ListEventWebhooks4XXJSONResponse) VisitListEventWebhooksResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -33870,9 +39833,9 @@ func (response ListIntegrationInstalls4XXJSONResponse) VisitListIntegrationInsta
 	return err
 }
 
-type ListIntegrationInstalls503JSONResponse struct{ ServiceUnavailableJSONResponse }
+type ListEventWebhooks503JSONResponse struct{ ServiceUnavailableJSONResponse }
 
-func (response ListIntegrationInstalls503JSONResponse) VisitListIntegrationInstallsResponse(w http.ResponseWriter) error {
+func (response ListEventWebhooks503JSONResponse) VisitListEventWebhooksResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -33884,7 +39847,7 @@ func (response ListIntegrationInstalls503JSONResponse) VisitListIntegrationInsta
 	return err
 }
 
-type ListIntegrationInstalls5XXJSONResponse struct {
+type ListEventWebhooks5XXJSONResponse struct {
 	Body struct {
 		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
 		Code ServerErrorCode `json:"code"`
@@ -33895,7 +39858,7 @@ type ListIntegrationInstalls5XXJSONResponse struct {
 	StatusCode int
 }
 
-func (response ListIntegrationInstalls5XXJSONResponse) VisitListIntegrationInstallsResponse(w http.ResponseWriter) error {
+func (response ListEventWebhooks5XXJSONResponse) VisitListEventWebhooksResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -33907,27 +39870,181 @@ func (response ListIntegrationInstalls5XXJSONResponse) VisitListIntegrationInsta
 	return err
 }
 
-type DeleteIntegrationInstallRequestObject struct {
-	OrgID                string `json:"orgID"`
-	ProjectID            string `json:"projectID"`
-	IntegrationInstallID string `json:"integrationInstallID"`
+type CreateEventWebhookRequestObject struct {
+	OrgID     OrganizationID `json:"orgID"`
+	ProjectID ProjectID      `json:"projectID"`
+	Body      *CreateEventWebhookJSONRequestBody
 }
 
-type DeleteIntegrationInstallResponseObject interface {
-	VisitDeleteIntegrationInstallResponse(w http.ResponseWriter) error
+type CreateEventWebhookResponseObject interface {
+	VisitCreateEventWebhookResponse(w http.ResponseWriter) error
 }
 
-type DeleteIntegrationInstall204Response struct {
+type CreateEventWebhook201JSONResponse EventWebhook
+
+func (response CreateEventWebhook201JSONResponse) VisitCreateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
-func (response DeleteIntegrationInstall204Response) VisitDeleteIntegrationInstallResponse(w http.ResponseWriter) error {
+type CreateEventWebhook400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateEventWebhook400JSONResponse) VisitCreateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEventWebhook401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateEventWebhook401JSONResponse) VisitCreateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEventWebhook403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateEventWebhook403JSONResponse) VisitCreateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEventWebhook404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateEventWebhook404JSONResponse) VisitCreateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEventWebhook409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateEventWebhook409JSONResponse) VisitCreateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEventWebhook4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateEventWebhook4XXJSONResponse) VisitCreateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEventWebhook503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response CreateEventWebhook503JSONResponse) VisitCreateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEventWebhook5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateEventWebhook5XXJSONResponse) VisitCreateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteEventWebhookRequestObject struct {
+	OrgID     OrganizationID `json:"orgID"`
+	ProjectID ProjectID      `json:"projectID"`
+	WebhookID EventWebhookID `json:"webhookID"`
+}
+
+type DeleteEventWebhookResponseObject interface {
+	VisitDeleteEventWebhookResponse(w http.ResponseWriter) error
+}
+
+type DeleteEventWebhook204Response struct {
+}
+
+func (response DeleteEventWebhook204Response) VisitDeleteEventWebhookResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
 }
 
-type DeleteIntegrationInstall400JSONResponse struct{ BadRequestJSONResponse }
+type DeleteEventWebhook400JSONResponse struct{ BadRequestJSONResponse }
 
-func (response DeleteIntegrationInstall400JSONResponse) VisitDeleteIntegrationInstallResponse(w http.ResponseWriter) error {
+func (response DeleteEventWebhook400JSONResponse) VisitDeleteEventWebhookResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -33939,9 +40056,9 @@ func (response DeleteIntegrationInstall400JSONResponse) VisitDeleteIntegrationIn
 	return err
 }
 
-type DeleteIntegrationInstall401JSONResponse struct{ UnauthorizedJSONResponse }
+type DeleteEventWebhook401JSONResponse struct{ UnauthorizedJSONResponse }
 
-func (response DeleteIntegrationInstall401JSONResponse) VisitDeleteIntegrationInstallResponse(w http.ResponseWriter) error {
+func (response DeleteEventWebhook401JSONResponse) VisitDeleteEventWebhookResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -33953,9 +40070,9 @@ func (response DeleteIntegrationInstall401JSONResponse) VisitDeleteIntegrationIn
 	return err
 }
 
-type DeleteIntegrationInstall403JSONResponse struct{ ForbiddenJSONResponse }
+type DeleteEventWebhook403JSONResponse struct{ ForbiddenJSONResponse }
 
-func (response DeleteIntegrationInstall403JSONResponse) VisitDeleteIntegrationInstallResponse(w http.ResponseWriter) error {
+func (response DeleteEventWebhook403JSONResponse) VisitDeleteEventWebhookResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -33967,9 +40084,9 @@ func (response DeleteIntegrationInstall403JSONResponse) VisitDeleteIntegrationIn
 	return err
 }
 
-type DeleteIntegrationInstall404JSONResponse struct{ NotFoundJSONResponse }
+type DeleteEventWebhook404JSONResponse struct{ NotFoundJSONResponse }
 
-func (response DeleteIntegrationInstall404JSONResponse) VisitDeleteIntegrationInstallResponse(w http.ResponseWriter) error {
+func (response DeleteEventWebhook404JSONResponse) VisitDeleteEventWebhookResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -33981,7 +40098,21 @@ func (response DeleteIntegrationInstall404JSONResponse) VisitDeleteIntegrationIn
 	return err
 }
 
-type DeleteIntegrationInstall4XXJSONResponse struct {
+type DeleteEventWebhook409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeleteEventWebhook409JSONResponse) VisitDeleteEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteEventWebhook4XXJSONResponse struct {
 	Body struct {
 		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
 		Code ClientErrorCode `json:"code"`
@@ -33992,7 +40123,7 @@ type DeleteIntegrationInstall4XXJSONResponse struct {
 	StatusCode int
 }
 
-func (response DeleteIntegrationInstall4XXJSONResponse) VisitDeleteIntegrationInstallResponse(w http.ResponseWriter) error {
+func (response DeleteEventWebhook4XXJSONResponse) VisitDeleteEventWebhookResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -34004,9 +40135,9 @@ func (response DeleteIntegrationInstall4XXJSONResponse) VisitDeleteIntegrationIn
 	return err
 }
 
-type DeleteIntegrationInstall503JSONResponse struct{ ServiceUnavailableJSONResponse }
+type DeleteEventWebhook503JSONResponse struct{ ServiceUnavailableJSONResponse }
 
-func (response DeleteIntegrationInstall503JSONResponse) VisitDeleteIntegrationInstallResponse(w http.ResponseWriter) error {
+func (response DeleteEventWebhook503JSONResponse) VisitDeleteEventWebhookResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -34018,7 +40149,7 @@ func (response DeleteIntegrationInstall503JSONResponse) VisitDeleteIntegrationIn
 	return err
 }
 
-type DeleteIntegrationInstall5XXJSONResponse struct {
+type DeleteEventWebhook5XXJSONResponse struct {
 	Body struct {
 		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
 		Code ServerErrorCode `json:"code"`
@@ -34029,7 +40160,2511 @@ type DeleteIntegrationInstall5XXJSONResponse struct {
 	StatusCode int
 }
 
-func (response DeleteIntegrationInstall5XXJSONResponse) VisitDeleteIntegrationInstallResponse(w http.ResponseWriter) error {
+func (response DeleteEventWebhook5XXJSONResponse) VisitDeleteEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEventWebhookRequestObject struct {
+	OrgID     OrganizationID `json:"orgID"`
+	ProjectID ProjectID      `json:"projectID"`
+	WebhookID EventWebhookID `json:"webhookID"`
+	Body      *UpdateEventWebhookJSONRequestBody
+}
+
+type UpdateEventWebhookResponseObject interface {
+	VisitUpdateEventWebhookResponse(w http.ResponseWriter) error
+}
+
+type UpdateEventWebhook200JSONResponse EventWebhook
+
+func (response UpdateEventWebhook200JSONResponse) VisitUpdateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEventWebhook400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateEventWebhook400JSONResponse) VisitUpdateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEventWebhook401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateEventWebhook401JSONResponse) VisitUpdateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEventWebhook403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateEventWebhook403JSONResponse) VisitUpdateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEventWebhook404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateEventWebhook404JSONResponse) VisitUpdateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEventWebhook409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateEventWebhook409JSONResponse) VisitUpdateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEventWebhook4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response UpdateEventWebhook4XXJSONResponse) VisitUpdateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEventWebhook503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response UpdateEventWebhook503JSONResponse) VisitUpdateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateEventWebhook5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response UpdateEventWebhook5XXJSONResponse) VisitUpdateEventWebhookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationDefinitionsRequestObject struct {
+	OrgID     OrganizationID `json:"orgID"`
+	ProjectID ProjectID      `json:"projectID"`
+}
+
+type ListIntegrationDefinitionsResponseObject interface {
+	VisitListIntegrationDefinitionsResponse(w http.ResponseWriter) error
+}
+
+type ListIntegrationDefinitions200JSONResponse ListIntegrationDefinitionsResponse
+
+func (response ListIntegrationDefinitions200JSONResponse) VisitListIntegrationDefinitionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationDefinitions400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListIntegrationDefinitions400JSONResponse) VisitListIntegrationDefinitionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationDefinitions401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListIntegrationDefinitions401JSONResponse) VisitListIntegrationDefinitionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationDefinitions403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListIntegrationDefinitions403JSONResponse) VisitListIntegrationDefinitionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationDefinitions404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListIntegrationDefinitions404JSONResponse) VisitListIntegrationDefinitionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationDefinitions409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ListIntegrationDefinitions409JSONResponse) VisitListIntegrationDefinitionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationDefinitions4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListIntegrationDefinitions4XXJSONResponse) VisitListIntegrationDefinitionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationDefinitions503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ListIntegrationDefinitions503JSONResponse) VisitListIntegrationDefinitionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationDefinitions5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListIntegrationDefinitions5XXJSONResponse) VisitListIntegrationDefinitionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationsRequestObject struct {
+	OrgID     OrganizationID `json:"orgID"`
+	ProjectID ProjectID      `json:"projectID"`
+	Params    ListIntegrationsParams
+}
+
+type ListIntegrationsResponseObject interface {
+	VisitListIntegrationsResponse(w http.ResponseWriter) error
+}
+
+type ListIntegrations200JSONResponse ListIntegrationsResponse
+
+func (response ListIntegrations200JSONResponse) VisitListIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrations400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListIntegrations400JSONResponse) VisitListIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrations401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListIntegrations401JSONResponse) VisitListIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrations403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListIntegrations403JSONResponse) VisitListIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrations404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListIntegrations404JSONResponse) VisitListIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrations409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ListIntegrations409JSONResponse) VisitListIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrations4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListIntegrations4XXJSONResponse) VisitListIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrations5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListIntegrations5XXJSONResponse) VisitListIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationRequestObject struct {
+	OrgID     OrganizationID `json:"orgID"`
+	ProjectID ProjectID      `json:"projectID"`
+	Body      *CreateIntegrationJSONRequestBody
+}
+
+type CreateIntegrationResponseObject interface {
+	VisitCreateIntegrationResponse(w http.ResponseWriter) error
+}
+
+type CreateIntegration201JSONResponse Integration
+
+func (response CreateIntegration201JSONResponse) VisitCreateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegration400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateIntegration400JSONResponse) VisitCreateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegration401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateIntegration401JSONResponse) VisitCreateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegration403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateIntegration403JSONResponse) VisitCreateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegration404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateIntegration404JSONResponse) VisitCreateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegration409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateIntegration409JSONResponse) VisitCreateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegration4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateIntegration4XXJSONResponse) VisitCreateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegration5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateIntegration5XXJSONResponse) VisitCreateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegrationRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+}
+
+type DeleteIntegrationResponseObject interface {
+	VisitDeleteIntegrationResponse(w http.ResponseWriter) error
+}
+
+type DeleteIntegration204Response struct {
+}
+
+func (response DeleteIntegration204Response) VisitDeleteIntegrationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteIntegration400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DeleteIntegration400JSONResponse) VisitDeleteIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegration401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteIntegration401JSONResponse) VisitDeleteIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegration403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteIntegration403JSONResponse) VisitDeleteIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegration404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteIntegration404JSONResponse) VisitDeleteIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegration409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeleteIntegration409JSONResponse) VisitDeleteIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegration4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeleteIntegration4XXJSONResponse) VisitDeleteIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegration5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeleteIntegration5XXJSONResponse) VisitDeleteIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIntegrationRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+}
+
+type GetIntegrationResponseObject interface {
+	VisitGetIntegrationResponse(w http.ResponseWriter) error
+}
+
+type GetIntegration200JSONResponse Integration
+
+func (response GetIntegration200JSONResponse) VisitGetIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIntegration400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetIntegration400JSONResponse) VisitGetIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIntegration401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetIntegration401JSONResponse) VisitGetIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIntegration403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetIntegration403JSONResponse) VisitGetIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIntegration404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetIntegration404JSONResponse) VisitGetIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIntegration409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GetIntegration409JSONResponse) VisitGetIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIntegration4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetIntegration4XXJSONResponse) VisitGetIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIntegration5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetIntegration5XXJSONResponse) VisitGetIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIntegrationRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+	Body          *UpdateIntegrationJSONRequestBody
+}
+
+type UpdateIntegrationResponseObject interface {
+	VisitUpdateIntegrationResponse(w http.ResponseWriter) error
+}
+
+type UpdateIntegration200JSONResponse Integration
+
+func (response UpdateIntegration200JSONResponse) VisitUpdateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIntegration400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateIntegration400JSONResponse) VisitUpdateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIntegration401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateIntegration401JSONResponse) VisitUpdateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIntegration403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateIntegration403JSONResponse) VisitUpdateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIntegration404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateIntegration404JSONResponse) VisitUpdateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIntegration409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateIntegration409JSONResponse) VisitUpdateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIntegration4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response UpdateIntegration4XXJSONResponse) VisitUpdateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIntegration5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response UpdateIntegration5XXJSONResponse) VisitUpdateIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisconnectIntegrationRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+}
+
+type DisconnectIntegrationResponseObject interface {
+	VisitDisconnectIntegrationResponse(w http.ResponseWriter) error
+}
+
+type DisconnectIntegration200JSONResponse Integration
+
+func (response DisconnectIntegration200JSONResponse) VisitDisconnectIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisconnectIntegration400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DisconnectIntegration400JSONResponse) VisitDisconnectIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisconnectIntegration401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DisconnectIntegration401JSONResponse) VisitDisconnectIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisconnectIntegration403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DisconnectIntegration403JSONResponse) VisitDisconnectIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisconnectIntegration404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DisconnectIntegration404JSONResponse) VisitDisconnectIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisconnectIntegration409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DisconnectIntegration409JSONResponse) VisitDisconnectIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisconnectIntegration4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DisconnectIntegration4XXJSONResponse) VisitDisconnectIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisconnectIntegration503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response DisconnectIntegration503JSONResponse) VisitDisconnectIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisconnectIntegration5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DisconnectIntegration5XXJSONResponse) VisitDisconnectIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationGitHubRepositoriesRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+	Params        ListIntegrationGitHubRepositoriesParams
+}
+
+type ListIntegrationGitHubRepositoriesResponseObject interface {
+	VisitListIntegrationGitHubRepositoriesResponse(w http.ResponseWriter) error
+}
+
+type ListIntegrationGitHubRepositories200JSONResponse ListGitHubRepositoriesResponse
+
+func (response ListIntegrationGitHubRepositories200JSONResponse) VisitListIntegrationGitHubRepositoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationGitHubRepositories400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListIntegrationGitHubRepositories400JSONResponse) VisitListIntegrationGitHubRepositoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationGitHubRepositories401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListIntegrationGitHubRepositories401JSONResponse) VisitListIntegrationGitHubRepositoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationGitHubRepositories403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListIntegrationGitHubRepositories403JSONResponse) VisitListIntegrationGitHubRepositoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationGitHubRepositories404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListIntegrationGitHubRepositories404JSONResponse) VisitListIntegrationGitHubRepositoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationGitHubRepositories409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ListIntegrationGitHubRepositories409JSONResponse) VisitListIntegrationGitHubRepositoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationGitHubRepositories4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListIntegrationGitHubRepositories4XXJSONResponse) VisitListIntegrationGitHubRepositoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationGitHubRepositories503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ListIntegrationGitHubRepositories503JSONResponse) VisitListIntegrationGitHubRepositoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationGitHubRepositories5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListIntegrationGitHubRepositories5XXJSONResponse) VisitListIntegrationGitHubRepositoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationGitHubSetupRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+	Body          *CreateIntegrationGitHubSetupJSONRequestBody
+}
+
+type CreateIntegrationGitHubSetupResponseObject interface {
+	VisitCreateIntegrationGitHubSetupResponse(w http.ResponseWriter) error
+}
+
+type CreateIntegrationGitHubSetup201JSONResponse GitHubSetup
+
+func (response CreateIntegrationGitHubSetup201JSONResponse) VisitCreateIntegrationGitHubSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationGitHubSetup400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateIntegrationGitHubSetup400JSONResponse) VisitCreateIntegrationGitHubSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationGitHubSetup401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateIntegrationGitHubSetup401JSONResponse) VisitCreateIntegrationGitHubSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationGitHubSetup403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateIntegrationGitHubSetup403JSONResponse) VisitCreateIntegrationGitHubSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationGitHubSetup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateIntegrationGitHubSetup404JSONResponse) VisitCreateIntegrationGitHubSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationGitHubSetup409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateIntegrationGitHubSetup409JSONResponse) VisitCreateIntegrationGitHubSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationGitHubSetup4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateIntegrationGitHubSetup4XXJSONResponse) VisitCreateIntegrationGitHubSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationGitHubSetup503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response CreateIntegrationGitHubSetup503JSONResponse) VisitCreateIntegrationGitHubSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationGitHubSetup5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateIntegrationGitHubSetup5XXJSONResponse) VisitCreateIntegrationGitHubSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InspectIntegrationGitHubInstallationsRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+	Body          *InspectIntegrationGitHubInstallationsJSONRequestBody
+}
+
+type InspectIntegrationGitHubInstallationsResponseObject interface {
+	VisitInspectIntegrationGitHubInstallationsResponse(w http.ResponseWriter) error
+}
+
+type InspectIntegrationGitHubInstallations200JSONResponse GitHubInstallations
+
+func (response InspectIntegrationGitHubInstallations200JSONResponse) VisitInspectIntegrationGitHubInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InspectIntegrationGitHubInstallations400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response InspectIntegrationGitHubInstallations400JSONResponse) VisitInspectIntegrationGitHubInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InspectIntegrationGitHubInstallations401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response InspectIntegrationGitHubInstallations401JSONResponse) VisitInspectIntegrationGitHubInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InspectIntegrationGitHubInstallations403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response InspectIntegrationGitHubInstallations403JSONResponse) VisitInspectIntegrationGitHubInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InspectIntegrationGitHubInstallations404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response InspectIntegrationGitHubInstallations404JSONResponse) VisitInspectIntegrationGitHubInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InspectIntegrationGitHubInstallations409JSONResponse struct{ ConflictJSONResponse }
+
+func (response InspectIntegrationGitHubInstallations409JSONResponse) VisitInspectIntegrationGitHubInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InspectIntegrationGitHubInstallations4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response InspectIntegrationGitHubInstallations4XXJSONResponse) VisitInspectIntegrationGitHubInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InspectIntegrationGitHubInstallations503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response InspectIntegrationGitHubInstallations503JSONResponse) VisitInspectIntegrationGitHubInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InspectIntegrationGitHubInstallations5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response InspectIntegrationGitHubInstallations5XXJSONResponse) VisitInspectIntegrationGitHubInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationOAuthSetupRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+	Body          *CreateIntegrationOAuthSetupJSONRequestBody
+}
+
+type CreateIntegrationOAuthSetupResponseObject interface {
+	VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error
+}
+
+type CreateIntegrationOAuthSetup201JSONResponse IntegrationOAuthSetup
+
+func (response CreateIntegrationOAuthSetup201JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationOAuthSetup400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateIntegrationOAuthSetup400JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationOAuthSetup401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateIntegrationOAuthSetup401JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationOAuthSetup403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateIntegrationOAuthSetup403JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationOAuthSetup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateIntegrationOAuthSetup404JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationOAuthSetup409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateIntegrationOAuthSetup409JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationOAuthSetup4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateIntegrationOAuthSetup4XXJSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationOAuthSetup503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response CreateIntegrationOAuthSetup503JSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationOAuthSetup5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateIntegrationOAuthSetup5XXJSONResponse) VisitCreateIntegrationOAuthSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfigureIntegrationRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+	Body          *ConfigureIntegrationJSONRequestBody
+}
+
+type ConfigureIntegrationResponseObject interface {
+	VisitConfigureIntegrationResponse(w http.ResponseWriter) error
+}
+
+type ConfigureIntegration200JSONResponse Integration
+
+func (response ConfigureIntegration200JSONResponse) VisitConfigureIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfigureIntegration400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ConfigureIntegration400JSONResponse) VisitConfigureIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfigureIntegration401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ConfigureIntegration401JSONResponse) VisitConfigureIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfigureIntegration403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ConfigureIntegration403JSONResponse) VisitConfigureIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfigureIntegration404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ConfigureIntegration404JSONResponse) VisitConfigureIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfigureIntegration409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ConfigureIntegration409JSONResponse) VisitConfigureIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfigureIntegration4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ConfigureIntegration4XXJSONResponse) VisitConfigureIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfigureIntegration503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ConfigureIntegration503JSONResponse) VisitConfigureIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfigureIntegration5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ConfigureIntegration5XXJSONResponse) VisitConfigureIntegrationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSlackSetupRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+	Body          *CreateIntegrationSlackSetupJSONRequestBody
+}
+
+type CreateIntegrationSlackSetupResponseObject interface {
+	VisitCreateIntegrationSlackSetupResponse(w http.ResponseWriter) error
+}
+
+type CreateIntegrationSlackSetup201JSONResponse SlackSetup
+
+func (response CreateIntegrationSlackSetup201JSONResponse) VisitCreateIntegrationSlackSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSlackSetup400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateIntegrationSlackSetup400JSONResponse) VisitCreateIntegrationSlackSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSlackSetup401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateIntegrationSlackSetup401JSONResponse) VisitCreateIntegrationSlackSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSlackSetup403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateIntegrationSlackSetup403JSONResponse) VisitCreateIntegrationSlackSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSlackSetup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateIntegrationSlackSetup404JSONResponse) VisitCreateIntegrationSlackSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSlackSetup409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateIntegrationSlackSetup409JSONResponse) VisitCreateIntegrationSlackSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSlackSetup4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateIntegrationSlackSetup4XXJSONResponse) VisitCreateIntegrationSlackSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSlackSetup503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response CreateIntegrationSlackSetup503JSONResponse) VisitCreateIntegrationSlackSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSlackSetup5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateIntegrationSlackSetup5XXJSONResponse) VisitCreateIntegrationSlackSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationSubscriptionsRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+	Params        ListIntegrationSubscriptionsParams
+}
+
+type ListIntegrationSubscriptionsResponseObject interface {
+	VisitListIntegrationSubscriptionsResponse(w http.ResponseWriter) error
+}
+
+type ListIntegrationSubscriptions200JSONResponse ListIntegrationSubscriptionsResponse
+
+func (response ListIntegrationSubscriptions200JSONResponse) VisitListIntegrationSubscriptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationSubscriptions400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListIntegrationSubscriptions400JSONResponse) VisitListIntegrationSubscriptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationSubscriptions401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListIntegrationSubscriptions401JSONResponse) VisitListIntegrationSubscriptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationSubscriptions403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListIntegrationSubscriptions403JSONResponse) VisitListIntegrationSubscriptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationSubscriptions404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListIntegrationSubscriptions404JSONResponse) VisitListIntegrationSubscriptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationSubscriptions409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ListIntegrationSubscriptions409JSONResponse) VisitListIntegrationSubscriptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationSubscriptions4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListIntegrationSubscriptions4XXJSONResponse) VisitListIntegrationSubscriptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationSubscriptions5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListIntegrationSubscriptions5XXJSONResponse) VisitListIntegrationSubscriptionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSubscriptionRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	IntegrationID IntegrationID  `json:"integrationID"`
+	Body          *CreateIntegrationSubscriptionJSONRequestBody
+}
+
+type CreateIntegrationSubscriptionResponseObject interface {
+	VisitCreateIntegrationSubscriptionResponse(w http.ResponseWriter) error
+}
+
+type CreateIntegrationSubscription201JSONResponse IntegrationSubscription
+
+func (response CreateIntegrationSubscription201JSONResponse) VisitCreateIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSubscription400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateIntegrationSubscription400JSONResponse) VisitCreateIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSubscription401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateIntegrationSubscription401JSONResponse) VisitCreateIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSubscription403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateIntegrationSubscription403JSONResponse) VisitCreateIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSubscription404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateIntegrationSubscription404JSONResponse) VisitCreateIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSubscription409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateIntegrationSubscription409JSONResponse) VisitCreateIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSubscription4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateIntegrationSubscription4XXJSONResponse) VisitCreateIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIntegrationSubscription5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateIntegrationSubscription5XXJSONResponse) VisitCreateIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegrationSubscriptionRequestObject struct {
+	OrgID          OrganizationID            `json:"orgID"`
+	ProjectID      ProjectID                 `json:"projectID"`
+	IntegrationID  IntegrationID             `json:"integrationID"`
+	SubscriptionID IntegrationSubscriptionID `json:"subscriptionID"`
+}
+
+type DeleteIntegrationSubscriptionResponseObject interface {
+	VisitDeleteIntegrationSubscriptionResponse(w http.ResponseWriter) error
+}
+
+type DeleteIntegrationSubscription204Response struct {
+}
+
+func (response DeleteIntegrationSubscription204Response) VisitDeleteIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteIntegrationSubscription400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DeleteIntegrationSubscription400JSONResponse) VisitDeleteIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegrationSubscription401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteIntegrationSubscription401JSONResponse) VisitDeleteIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegrationSubscription403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteIntegrationSubscription403JSONResponse) VisitDeleteIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegrationSubscription404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteIntegrationSubscription404JSONResponse) VisitDeleteIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegrationSubscription409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeleteIntegrationSubscription409JSONResponse) VisitDeleteIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegrationSubscription4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeleteIntegrationSubscription4XXJSONResponse) VisitDeleteIntegrationSubscriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegrationSubscription5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeleteIntegrationSubscription5XXJSONResponse) VisitDeleteIntegrationSubscriptionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -35526,6 +44161,20 @@ func (response ListMCPServerTools404JSONResponse) VisitListMCPServerToolsRespons
 	return err
 }
 
+type ListMCPServerTools409JSONResponse Error
+
+func (response ListMCPServerTools409JSONResponse) VisitListMCPServerToolsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMCPServerTools422JSONResponse MCPServerAuthRequiredError
 
 func (response ListMCPServerTools422JSONResponse) VisitListMCPServerToolsResponse(w http.ResponseWriter) error {
@@ -35536,6 +44185,20 @@ func (response ListMCPServerTools422JSONResponse) VisitListMCPServerToolsRespons
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMCPServerTools424JSONResponse struct{ FailedDependencyJSONResponse }
+
+func (response ListMCPServerTools424JSONResponse) VisitListMCPServerToolsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(424)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -35563,16 +44226,18 @@ func (response ListMCPServerTools4XXJSONResponse) VisitListMCPServerToolsRespons
 	return err
 }
 
-type ListMCPServerTools502JSONResponse struct{ BadGatewayJSONResponse }
+type ListMCPServerTools500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
 
-func (response ListMCPServerTools502JSONResponse) VisitListMCPServerToolsResponse(w http.ResponseWriter) error {
+func (response ListMCPServerTools500JSONResponse) VisitListMCPServerToolsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(502)
+	w.WriteHeader(500)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -35603,6 +44268,1574 @@ type ListMCPServerTools5XXJSONResponse struct {
 }
 
 func (response ListMCPServerTools5XXJSONResponse) VisitListMCPServerToolsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryStoresRequestObject struct {
+	OrgID     OrganizationID `json:"orgID"`
+	ProjectID ProjectID      `json:"projectID"`
+	Params    ListMemoryStoresParams
+}
+
+type ListMemoryStoresResponseObject interface {
+	VisitListMemoryStoresResponse(w http.ResponseWriter) error
+}
+
+type ListMemoryStores200JSONResponse MemoryStoreList
+
+func (response ListMemoryStores200JSONResponse) VisitListMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryStores400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListMemoryStores400JSONResponse) VisitListMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryStores401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListMemoryStores401JSONResponse) VisitListMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryStores403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListMemoryStores403JSONResponse) VisitListMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryStores404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListMemoryStores404JSONResponse) VisitListMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryStores409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ListMemoryStores409JSONResponse) VisitListMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryStores4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListMemoryStores4XXJSONResponse) VisitListMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryStores500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
+
+func (response ListMemoryStores500JSONResponse) VisitListMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryStores503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ListMemoryStores503JSONResponse) VisitListMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryStores5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListMemoryStores5XXJSONResponse) VisitListMemoryStoresResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMemoryStoreRequestObject struct {
+	OrgID     OrganizationID `json:"orgID"`
+	ProjectID ProjectID      `json:"projectID"`
+	Body      *CreateMemoryStoreJSONRequestBody
+}
+
+type CreateMemoryStoreResponseObject interface {
+	VisitCreateMemoryStoreResponse(w http.ResponseWriter) error
+}
+
+type CreateMemoryStore201JSONResponse MemoryStore
+
+func (response CreateMemoryStore201JSONResponse) VisitCreateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMemoryStore400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateMemoryStore400JSONResponse) VisitCreateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMemoryStore401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateMemoryStore401JSONResponse) VisitCreateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMemoryStore403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateMemoryStore403JSONResponse) VisitCreateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMemoryStore404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateMemoryStore404JSONResponse) VisitCreateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMemoryStore409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateMemoryStore409JSONResponse) VisitCreateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMemoryStore4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateMemoryStore4XXJSONResponse) VisitCreateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMemoryStore500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
+
+func (response CreateMemoryStore500JSONResponse) VisitCreateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMemoryStore503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response CreateMemoryStore503JSONResponse) VisitCreateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMemoryStore5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response CreateMemoryStore5XXJSONResponse) VisitCreateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryStoreRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	MemoryStoreID MemoryStoreID  `json:"memoryStoreID"`
+}
+
+type DeleteMemoryStoreResponseObject interface {
+	VisitDeleteMemoryStoreResponse(w http.ResponseWriter) error
+}
+
+type DeleteMemoryStore204Response struct {
+}
+
+func (response DeleteMemoryStore204Response) VisitDeleteMemoryStoreResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMemoryStore400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DeleteMemoryStore400JSONResponse) VisitDeleteMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryStore401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteMemoryStore401JSONResponse) VisitDeleteMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryStore403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteMemoryStore403JSONResponse) VisitDeleteMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryStore404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteMemoryStore404JSONResponse) VisitDeleteMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryStore409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeleteMemoryStore409JSONResponse) VisitDeleteMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryStore4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeleteMemoryStore4XXJSONResponse) VisitDeleteMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryStore500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
+
+func (response DeleteMemoryStore500JSONResponse) VisitDeleteMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryStore503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response DeleteMemoryStore503JSONResponse) VisitDeleteMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryStore5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeleteMemoryStore5XXJSONResponse) VisitDeleteMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryStoreRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	MemoryStoreID MemoryStoreID  `json:"memoryStoreID"`
+}
+
+type GetMemoryStoreResponseObject interface {
+	VisitGetMemoryStoreResponse(w http.ResponseWriter) error
+}
+
+type GetMemoryStore200JSONResponse MemoryStore
+
+func (response GetMemoryStore200JSONResponse) VisitGetMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryStore400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetMemoryStore400JSONResponse) VisitGetMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryStore401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetMemoryStore401JSONResponse) VisitGetMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryStore403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetMemoryStore403JSONResponse) VisitGetMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryStore404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetMemoryStore404JSONResponse) VisitGetMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryStore409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GetMemoryStore409JSONResponse) VisitGetMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryStore4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetMemoryStore4XXJSONResponse) VisitGetMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryStore500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
+
+func (response GetMemoryStore500JSONResponse) VisitGetMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryStore503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response GetMemoryStore503JSONResponse) VisitGetMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryStore5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetMemoryStore5XXJSONResponse) VisitGetMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemoryStoreRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	MemoryStoreID MemoryStoreID  `json:"memoryStoreID"`
+	Body          *UpdateMemoryStoreJSONRequestBody
+}
+
+type UpdateMemoryStoreResponseObject interface {
+	VisitUpdateMemoryStoreResponse(w http.ResponseWriter) error
+}
+
+type UpdateMemoryStore200JSONResponse MemoryStore
+
+func (response UpdateMemoryStore200JSONResponse) VisitUpdateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemoryStore400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateMemoryStore400JSONResponse) VisitUpdateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemoryStore401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateMemoryStore401JSONResponse) VisitUpdateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemoryStore403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateMemoryStore403JSONResponse) VisitUpdateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemoryStore404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateMemoryStore404JSONResponse) VisitUpdateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemoryStore409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateMemoryStore409JSONResponse) VisitUpdateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemoryStore4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response UpdateMemoryStore4XXJSONResponse) VisitUpdateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemoryStore500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
+
+func (response UpdateMemoryStore500JSONResponse) VisitUpdateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemoryStore503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response UpdateMemoryStore503JSONResponse) VisitUpdateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMemoryStore5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response UpdateMemoryStore5XXJSONResponse) VisitUpdateMemoryStoreResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryFileRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	MemoryStoreID MemoryStoreID  `json:"memoryStoreID"`
+	Params        DeleteMemoryFileParams
+}
+
+type DeleteMemoryFileResponseObject interface {
+	VisitDeleteMemoryFileResponse(w http.ResponseWriter) error
+}
+
+type DeleteMemoryFile204Response struct {
+}
+
+func (response DeleteMemoryFile204Response) VisitDeleteMemoryFileResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMemoryFile400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DeleteMemoryFile400JSONResponse) VisitDeleteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryFile401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteMemoryFile401JSONResponse) VisitDeleteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryFile403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteMemoryFile403JSONResponse) VisitDeleteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryFile404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteMemoryFile404JSONResponse) VisitDeleteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryFile409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeleteMemoryFile409JSONResponse) VisitDeleteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryFile4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeleteMemoryFile4XXJSONResponse) VisitDeleteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryFile500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
+
+func (response DeleteMemoryFile500JSONResponse) VisitDeleteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryFile503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response DeleteMemoryFile503JSONResponse) VisitDeleteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryFile5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DeleteMemoryFile5XXJSONResponse) VisitDeleteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadMemoryFileRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	MemoryStoreID MemoryStoreID  `json:"memoryStoreID"`
+	Params        DownloadMemoryFileParams
+}
+
+type DownloadMemoryFileResponseObject interface {
+	VisitDownloadMemoryFileResponse(w http.ResponseWriter) error
+}
+
+type DownloadMemoryFile200ResponseHeaders struct {
+	CacheControl        *string
+	ContentDisposition  *string
+	ETag                *string
+	XContentTypeOptions *string
+	XOmnaraFileDigest   *string
+}
+
+type DownloadMemoryFile200ApplicationoctetStreamResponse struct {
+	Body          io.Reader
+	Headers       DownloadMemoryFile200ResponseHeaders
+	ContentLength int64
+}
+
+func (response DownloadMemoryFile200ApplicationoctetStreamResponse) VisitDownloadMemoryFileResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	if response.Headers.ContentDisposition != nil {
+		w.Header().Set("Content-Disposition", fmt.Sprint(*response.Headers.ContentDisposition))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	if response.Headers.XContentTypeOptions != nil {
+		w.Header().Set("X-Content-Type-Options", fmt.Sprint(*response.Headers.XContentTypeOptions))
+	}
+	if response.Headers.XOmnaraFileDigest != nil {
+		w.Header().Set("X-Omnara-File-Digest", fmt.Sprint(*response.Headers.XOmnaraFileDigest))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type DownloadMemoryFile400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DownloadMemoryFile400JSONResponse) VisitDownloadMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadMemoryFile401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DownloadMemoryFile401JSONResponse) VisitDownloadMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadMemoryFile403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DownloadMemoryFile403JSONResponse) VisitDownloadMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadMemoryFile404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DownloadMemoryFile404JSONResponse) VisitDownloadMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadMemoryFile409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DownloadMemoryFile409JSONResponse) VisitDownloadMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadMemoryFile4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DownloadMemoryFile4XXJSONResponse) VisitDownloadMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadMemoryFile500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
+
+func (response DownloadMemoryFile500JSONResponse) VisitDownloadMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadMemoryFile503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response DownloadMemoryFile503JSONResponse) VisitDownloadMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadMemoryFile5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response DownloadMemoryFile5XXJSONResponse) VisitDownloadMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteMemoryFileRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	MemoryStoreID MemoryStoreID  `json:"memoryStoreID"`
+	Params        WriteMemoryFileParams
+	Body          io.Reader
+}
+
+type WriteMemoryFileResponseObject interface {
+	VisitWriteMemoryFileResponse(w http.ResponseWriter) error
+}
+
+type WriteMemoryFile200JSONResponse UploadFileResponse
+
+func (response WriteMemoryFile200JSONResponse) VisitWriteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteMemoryFile400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response WriteMemoryFile400JSONResponse) VisitWriteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteMemoryFile401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response WriteMemoryFile401JSONResponse) VisitWriteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteMemoryFile403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response WriteMemoryFile403JSONResponse) VisitWriteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteMemoryFile404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response WriteMemoryFile404JSONResponse) VisitWriteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteMemoryFile409JSONResponse struct{ ConflictJSONResponse }
+
+func (response WriteMemoryFile409JSONResponse) VisitWriteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteMemoryFile413JSONResponse Error
+
+func (response WriteMemoryFile413JSONResponse) VisitWriteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteMemoryFile4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response WriteMemoryFile4XXJSONResponse) VisitWriteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteMemoryFile500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
+
+func (response WriteMemoryFile500JSONResponse) VisitWriteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteMemoryFile503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response WriteMemoryFile503JSONResponse) VisitWriteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteMemoryFile5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response WriteMemoryFile5XXJSONResponse) VisitWriteMemoryFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryFilesRequestObject struct {
+	OrgID         OrganizationID `json:"orgID"`
+	ProjectID     ProjectID      `json:"projectID"`
+	MemoryStoreID MemoryStoreID  `json:"memoryStoreID"`
+	Params        ListMemoryFilesParams
+}
+
+type ListMemoryFilesResponseObject interface {
+	VisitListMemoryFilesResponse(w http.ResponseWriter) error
+}
+
+type ListMemoryFiles200JSONResponse MemoryFileList
+
+func (response ListMemoryFiles200JSONResponse) VisitListMemoryFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryFiles400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListMemoryFiles400JSONResponse) VisitListMemoryFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryFiles401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListMemoryFiles401JSONResponse) VisitListMemoryFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryFiles403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListMemoryFiles403JSONResponse) VisitListMemoryFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryFiles404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListMemoryFiles404JSONResponse) VisitListMemoryFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryFiles409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ListMemoryFiles409JSONResponse) VisitListMemoryFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryFiles4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListMemoryFiles4XXJSONResponse) VisitListMemoryFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryFiles500JSONResponse struct {
+	InternalServerErrorJSONResponse
+}
+
+func (response ListMemoryFiles500JSONResponse) VisitListMemoryFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryFiles503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response ListMemoryFiles503JSONResponse) VisitListMemoryFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryFiles5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response ListMemoryFiles5XXJSONResponse) VisitListMemoryFilesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -37252,6 +47485,20 @@ func (response StartSecretMCPOAuth422JSONResponse) VisitStartSecretMCPOAuthRespo
 	return err
 }
 
+type StartSecretMCPOAuth424JSONResponse struct{ FailedDependencyJSONResponse }
+
+func (response StartSecretMCPOAuth424JSONResponse) VisitStartSecretMCPOAuthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(424)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type StartSecretMCPOAuth4XXJSONResponse struct {
 	Body struct {
 		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -37287,20 +47534,6 @@ func (response StartSecretMCPOAuth500JSONResponse) VisitStartSecretMCPOAuthRespo
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type StartSecretMCPOAuth502JSONResponse struct{ BadGatewayJSONResponse }
-
-func (response StartSecretMCPOAuth502JSONResponse) VisitStartSecretMCPOAuthResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(502)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -39917,6 +50150,145 @@ func (response GetOrgUsage5XXJSONResponse) VisitGetOrgUsageResponse(w http.Respo
 	return err
 }
 
+type GetOrgUsageTimeseriesRequestObject struct {
+	OrgID  OrganizationID `json:"orgID"`
+	Params GetOrgUsageTimeseriesParams
+}
+
+type GetOrgUsageTimeseriesResponseObject interface {
+	VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error
+}
+
+type GetOrgUsageTimeseries200JSONResponse UsageTimeseries
+
+func (response GetOrgUsageTimeseries200JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GetOrgUsageTimeseries400JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetOrgUsageTimeseries401JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetOrgUsageTimeseries403JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetOrgUsageTimeseries404JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries4XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
+		Code ClientErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetOrgUsageTimeseries4XXJSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries503JSONResponse struct{ ServiceUnavailableJSONResponse }
+
+func (response GetOrgUsageTimeseries503JSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrgUsageTimeseries5XXJSONResponse struct {
+	Body struct {
+		// Code Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
+		Code ServerErrorCode `json:"code"`
+
+		// Error Human-readable error message. Do not match on it programmatically.
+		Error string `json:"error"`
+	}
+	StatusCode int
+}
+
+func (response GetOrgUsageTimeseries5XXJSONResponse) VisitGetOrgUsageTimeseriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListPersonalAccessTokensRequestObject struct {
 	Params ListPersonalAccessTokensParams
 }
@@ -40448,6 +50820,15 @@ type StrictServerInterface interface {
 	// RecordMachineFailure Record machine failure
 	// (POST /daemon/failures)
 	RecordMachineFailure(ctx context.Context, request RecordMachineFailureRequestObject) (RecordMachineFailureResponseObject, error)
+	// DownloadDaemonFile Download daemon file
+	// (GET /daemon/processes/{processID}/file)
+	DownloadDaemonFile(ctx context.Context, request DownloadDaemonFileRequestObject) (DownloadDaemonFileResponseObject, error)
+	// UploadDaemonFile Upload daemon file
+	// (POST /daemon/processes/{processID}/file)
+	UploadDaemonFile(ctx context.Context, request UploadDaemonFileRequestObject) (UploadDaemonFileResponseObject, error)
+	// GetDaemonGitCredentials Get Git credentials for an active daemon process
+	// (POST /daemon/processes/{processID}/git-credentials)
+	GetDaemonGitCredentials(ctx context.Context, request GetDaemonGitCredentialsRequestObject) (GetDaemonGitCredentialsResponseObject, error)
 	// RegisterMachineDaemonRuntime Register machine daemon runtime
 	// (POST /daemon/runtimes)
 	RegisterMachineDaemonRuntime(ctx context.Context, request RegisterMachineDaemonRuntimeRequestObject) (RegisterMachineDaemonRuntimeResponseObject, error)
@@ -40463,12 +50844,6 @@ type StrictServerInterface interface {
 	// GetDaemonSkillArchive Get daemon skill archive
 	// (GET /daemon/skills/{skillID}/archive)
 	GetDaemonSkillArchive(ctx context.Context, request GetDaemonSkillArchiveRequestObject) (GetDaemonSkillArchiveResponseObject, error)
-	// UploadDaemonArtifact Upload daemon artifact
-	// (POST /daemon/tool-calls/{toolCallID}/artifact)
-	UploadDaemonArtifact(ctx context.Context, request UploadDaemonArtifactRequestObject) (UploadDaemonArtifactResponseObject, error)
-	// DownloadDaemonArtifact Download daemon artifact
-	// (GET /daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content)
-	DownloadDaemonArtifact(ctx context.Context, request DownloadDaemonArtifactRequestObject) (DownloadDaemonArtifactResponseObject, error)
 	// ListPendingInvitations List pending invitations
 	// (GET /invitations)
 	ListPendingInvitations(ctx context.Context, request ListPendingInvitationsRequestObject) (ListPendingInvitationsResponseObject, error)
@@ -40496,6 +50871,12 @@ type StrictServerInterface interface {
 	// DeleteOrganization Delete organization
 	// (DELETE /orgs/{orgID})
 	DeleteOrganization(ctx context.Context, request DeleteOrganizationRequestObject) (DeleteOrganizationResponseObject, error)
+	// ListOrgAgentProfiles List agent profiles across projects
+	// (GET /orgs/{orgID}/agent-profiles)
+	ListOrgAgentProfiles(ctx context.Context, request ListOrgAgentProfilesRequestObject) (ListOrgAgentProfilesResponseObject, error)
+	// ListOrgAgents List agents across projects
+	// (GET /orgs/{orgID}/agents)
+	ListOrgAgents(ctx context.Context, request ListOrgAgentsRequestObject) (ListOrgAgentsResponseObject, error)
 	// ListOrgAPIKeys List org API keys
 	// (GET /orgs/{orgID}/api-keys)
 	ListOrgAPIKeys(ctx context.Context, request ListOrgAPIKeysRequestObject) (ListOrgAPIKeysResponseObject, error)
@@ -40520,6 +50901,9 @@ type StrictServerInterface interface {
 	// RevokeOrgAPIKey Revoke an org API key
 	// (POST /orgs/{orgID}/api-keys/{keyID}/revoke)
 	RevokeOrgAPIKey(ctx context.Context, request RevokeOrgAPIKeyRequestObject) (RevokeOrgAPIKeyResponseObject, error)
+	// ListOrgIntegrations List integrations across projects
+	// (GET /orgs/{orgID}/integrations)
+	ListOrgIntegrations(ctx context.Context, request ListOrgIntegrationsRequestObject) (ListOrgIntegrationsResponseObject, error)
 	// ListOrgInvitations List org invitations
 	// (GET /orgs/{orgID}/invitations)
 	ListOrgInvitations(ctx context.Context, request ListOrgInvitationsRequestObject) (ListOrgInvitationsResponseObject, error)
@@ -40535,6 +50919,9 @@ type StrictServerInterface interface {
 	// CreateMachinePool Create machine pool
 	// (POST /orgs/{orgID}/machine-pools)
 	CreateMachinePool(ctx context.Context, request CreateMachinePoolRequestObject) (CreateMachinePoolResponseObject, error)
+	// CheckMachinePoolConnection Check machine pool connection
+	// (POST /orgs/{orgID}/machine-pools/check-connection)
+	CheckMachinePoolConnection(ctx context.Context, request CheckMachinePoolConnectionRequestObject) (CheckMachinePoolConnectionResponseObject, error)
 	// DeleteMachinePool Delete machine pool
 	// (DELETE /orgs/{orgID}/machine-pools/{poolID})
 	DeleteMachinePool(ctx context.Context, request DeleteMachinePoolRequestObject) (DeleteMachinePoolResponseObject, error)
@@ -40589,6 +50976,9 @@ type StrictServerInterface interface {
 	// SetMemberProjectAccess Set a member's role on a project
 	// (PUT /orgs/{orgID}/members/{userID}/projects/{projectID})
 	SetMemberProjectAccess(ctx context.Context, request SetMemberProjectAccessRequestObject) (SetMemberProjectAccessResponseObject, error)
+	// ListOrgMemoryStores List memory stores across projects
+	// (GET /orgs/{orgID}/memory-stores)
+	ListOrgMemoryStores(ctx context.Context, request ListOrgMemoryStoresRequestObject) (ListOrgMemoryStoresResponseObject, error)
 	// ListModelProviderConfigs List model provider configs
 	// (GET /orgs/{orgID}/model-provider-configs)
 	ListModelProviderConfigs(ctx context.Context, request ListModelProviderConfigsRequestObject) (ListModelProviderConfigsResponseObject, error)
@@ -40649,6 +51039,9 @@ type StrictServerInterface interface {
 	// GetAgentConfig Get agent config
 	// (GET /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID})
 	GetAgentConfig(ctx context.Context, request GetAgentConfigRequestObject) (GetAgentConfigResponseObject, error)
+	// GetAgentConfigGeneratedSource Get generated agent config source
+	// (GET /orgs/{orgID}/projects/{projectID}/agent-configs/{agentConfigID}/generated-source)
+	GetAgentConfigGeneratedSource(ctx context.Context, request GetAgentConfigGeneratedSourceRequestObject) (GetAgentConfigGeneratedSourceResponseObject, error)
 	// ListAgentProfiles List agent profiles
 	// (GET /orgs/{orgID}/projects/{projectID}/agent-profiles)
 	ListAgentProfiles(ctx context.Context, request ListAgentProfilesRequestObject) (ListAgentProfilesResponseObject, error)
@@ -40667,12 +51060,6 @@ type StrictServerInterface interface {
 	// UpdateAgentProfile Update agent profile
 	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config)
 	UpdateAgentProfile(ctx context.Context, request UpdateAgentProfileRequestObject) (UpdateAgentProfileResponseObject, error)
-	// CreateIntegrationOAuthSetup Create integration OAuth setup
-	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup)
-	CreateIntegrationOAuthSetup(ctx context.Context, request CreateIntegrationOAuthSetupRequestObject) (CreateIntegrationOAuthSetupResponseObject, error)
-	// CreateSlackSetup Create Slack app and OAuth setup
-	// (POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup)
-	CreateSlackSetup(ctx context.Context, request CreateSlackSetupRequestObject) (CreateSlackSetupResponseObject, error)
 	// GetAgentProfileUsage Get agent profile usage
 	// (GET /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/usage)
 	GetAgentProfileUsage(ctx context.Context, request GetAgentProfileUsageRequestObject) (GetAgentProfileUsageResponseObject, error)
@@ -40760,12 +51147,66 @@ type StrictServerInterface interface {
 	// UpdateCronTrigger Update cron trigger
 	// (PATCH /orgs/{orgID}/projects/{projectID}/cron-triggers/{cronTriggerID})
 	UpdateCronTrigger(ctx context.Context, request UpdateCronTriggerRequestObject) (UpdateCronTriggerResponseObject, error)
-	// ListIntegrationInstalls List integration installs
-	// (GET /orgs/{orgID}/projects/{projectID}/integration-installs)
-	ListIntegrationInstalls(ctx context.Context, request ListIntegrationInstallsRequestObject) (ListIntegrationInstallsResponseObject, error)
-	// DeleteIntegrationInstall Delete integration install
-	// (DELETE /orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID})
-	DeleteIntegrationInstall(ctx context.Context, request DeleteIntegrationInstallRequestObject) (DeleteIntegrationInstallResponseObject, error)
+	// ListEventWebhooks List event webhooks for one scope
+	// (GET /orgs/{orgID}/projects/{projectID}/event-webhooks)
+	ListEventWebhooks(ctx context.Context, request ListEventWebhooksRequestObject) (ListEventWebhooksResponseObject, error)
+	// CreateEventWebhook Create an event webhook
+	// (POST /orgs/{orgID}/projects/{projectID}/event-webhooks)
+	CreateEventWebhook(ctx context.Context, request CreateEventWebhookRequestObject) (CreateEventWebhookResponseObject, error)
+	// DeleteEventWebhook Delete an event webhook
+	// (DELETE /orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID})
+	DeleteEventWebhook(ctx context.Context, request DeleteEventWebhookRequestObject) (DeleteEventWebhookResponseObject, error)
+	// UpdateEventWebhook Update event webhook settings
+	// (PATCH /orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID})
+	UpdateEventWebhook(ctx context.Context, request UpdateEventWebhookRequestObject) (UpdateEventWebhookResponseObject, error)
+	// ListIntegrationDefinitions List installed integration implementations and their capabilities
+	// (GET /orgs/{orgID}/projects/{projectID}/integration-definitions)
+	ListIntegrationDefinitions(ctx context.Context, request ListIntegrationDefinitionsRequestObject) (ListIntegrationDefinitionsResponseObject, error)
+	// ListIntegrations List project integrations
+	// (GET /orgs/{orgID}/projects/{projectID}/integrations)
+	ListIntegrations(ctx context.Context, request ListIntegrationsRequestObject) (ListIntegrationsResponseObject, error)
+	// CreateIntegration Create an integration and optional launcher
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations)
+	CreateIntegration(ctx context.Context, request CreateIntegrationRequestObject) (CreateIntegrationResponseObject, error)
+	// DeleteIntegration Delete integration setup and revoke its capabilities
+	// (DELETE /orgs/{orgID}/projects/{projectID}/integrations/{integrationID})
+	DeleteIntegration(ctx context.Context, request DeleteIntegrationRequestObject) (DeleteIntegrationResponseObject, error)
+	// GetIntegration Get project integration
+	// (GET /orgs/{orgID}/projects/{projectID}/integrations/{integrationID})
+	GetIntegration(ctx context.Context, request GetIntegrationRequestObject) (GetIntegrationResponseObject, error)
+	// UpdateIntegration Update integration settings
+	// (PUT /orgs/{orgID}/projects/{projectID}/integrations/{integrationID})
+	UpdateIntegration(ctx context.Context, request UpdateIntegrationRequestObject) (UpdateIntegrationResponseObject, error)
+	// DisconnectIntegration Disconnect this integration without deleting its configuration
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/disconnect)
+	DisconnectIntegration(ctx context.Context, request DisconnectIntegrationRequestObject) (DisconnectIntegrationResponseObject, error)
+	// ListIntegrationGitHubRepositories List repositories a GitHub integration can access
+	// (GET /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-repositories)
+	ListIntegrationGitHubRepositories(ctx context.Context, request ListIntegrationGitHubRepositoriesRequestObject) (ListIntegrationGitHubRepositoriesResponseObject, error)
+	// CreateIntegrationGitHubSetup Start registration of a customer-owned GitHub App
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup)
+	CreateIntegrationGitHubSetup(ctx context.Context, request CreateIntegrationGitHubSetupRequestObject) (CreateIntegrationGitHubSetupResponseObject, error)
+	// InspectIntegrationGitHubInstallations Inspect installations of a customer-owned GitHub App
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup/installations)
+	InspectIntegrationGitHubInstallations(ctx context.Context, request InspectIntegrationGitHubInstallationsRequestObject) (InspectIntegrationGitHubInstallationsResponseObject, error)
+	// CreateIntegrationOAuthSetup Connect an integration through OAuth
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/oauth/setup)
+	CreateIntegrationOAuthSetup(ctx context.Context, request CreateIntegrationOAuthSetupRequestObject) (CreateIntegrationOAuthSetupResponseObject, error)
+	// ConfigureIntegration Verify and configure integration credentials
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup)
+	ConfigureIntegration(ctx context.Context, request ConfigureIntegrationRequestObject) (ConfigureIntegrationResponseObject, error)
+	// CreateIntegrationSlackSetup Create a Slack provider app and connect it to an Omnara integration
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/slack-setup)
+	CreateIntegrationSlackSetup(ctx context.Context, request CreateIntegrationSlackSetupRequestObject) (CreateIntegrationSlackSetupResponseObject, error)
+	// ListIntegrationSubscriptions List integration conversation subscriptions
+	// (GET /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions)
+	ListIntegrationSubscriptions(ctx context.Context, request ListIntegrationSubscriptionsRequestObject) (ListIntegrationSubscriptionsResponseObject, error)
+	// CreateIntegrationSubscription Attach an agent to an integration conversation
+	// (POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions)
+	CreateIntegrationSubscription(ctx context.Context, request CreateIntegrationSubscriptionRequestObject) (CreateIntegrationSubscriptionResponseObject, error)
+	// DeleteIntegrationSubscription Stop forwarding an integration conversation to an agent
+	// (DELETE /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions/{subscriptionID})
+	DeleteIntegrationSubscription(ctx context.Context, request DeleteIntegrationSubscriptionRequestObject) (DeleteIntegrationSubscriptionResponseObject, error)
 	// ListProjectMachineGrants List project machine grants
 	// (GET /orgs/{orgID}/projects/{projectID}/machine-grants)
 	ListProjectMachineGrants(ctx context.Context, request ListProjectMachineGrantsRequestObject) (ListProjectMachineGrantsResponseObject, error)
@@ -40796,6 +51237,33 @@ type StrictServerInterface interface {
 	// ListMCPServerTools List an MCP server's tools
 	// (POST /orgs/{orgID}/projects/{projectID}/mcp-servers/tools)
 	ListMCPServerTools(ctx context.Context, request ListMCPServerToolsRequestObject) (ListMCPServerToolsResponseObject, error)
+	// ListMemoryStores List memory stores
+	// (GET /orgs/{orgID}/projects/{projectID}/memory-stores)
+	ListMemoryStores(ctx context.Context, request ListMemoryStoresRequestObject) (ListMemoryStoresResponseObject, error)
+	// CreateMemoryStore Create memory store
+	// (POST /orgs/{orgID}/projects/{projectID}/memory-stores)
+	CreateMemoryStore(ctx context.Context, request CreateMemoryStoreRequestObject) (CreateMemoryStoreResponseObject, error)
+	// DeleteMemoryStore Delete memory store
+	// (DELETE /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID})
+	DeleteMemoryStore(ctx context.Context, request DeleteMemoryStoreRequestObject) (DeleteMemoryStoreResponseObject, error)
+	// GetMemoryStore Get memory store
+	// (GET /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID})
+	GetMemoryStore(ctx context.Context, request GetMemoryStoreRequestObject) (GetMemoryStoreResponseObject, error)
+	// UpdateMemoryStore Update memory store
+	// (PATCH /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID})
+	UpdateMemoryStore(ctx context.Context, request UpdateMemoryStoreRequestObject) (UpdateMemoryStoreResponseObject, error)
+	// DeleteMemoryFile Delete memory file
+	// (DELETE /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file)
+	DeleteMemoryFile(ctx context.Context, request DeleteMemoryFileRequestObject) (DeleteMemoryFileResponseObject, error)
+	// DownloadMemoryFile Download memory file
+	// (GET /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file)
+	DownloadMemoryFile(ctx context.Context, request DownloadMemoryFileRequestObject) (DownloadMemoryFileResponseObject, error)
+	// WriteMemoryFile Write memory file
+	// (PUT /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file)
+	WriteMemoryFile(ctx context.Context, request WriteMemoryFileRequestObject) (WriteMemoryFileResponseObject, error)
+	// ListMemoryFiles List memory files
+	// (GET /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/files)
+	ListMemoryFiles(ctx context.Context, request ListMemoryFilesRequestObject) (ListMemoryFilesResponseObject, error)
 	// ListProjectModelGrants List project model grants
 	// (GET /orgs/{orgID}/projects/{projectID}/model-grants)
 	ListProjectModelGrants(ctx context.Context, request ListProjectModelGrantsRequestObject) (ListProjectModelGrantsResponseObject, error)
@@ -40877,6 +51345,9 @@ type StrictServerInterface interface {
 	// GetOrgUsage Get org usage
 	// (GET /orgs/{orgID}/usage)
 	GetOrgUsage(ctx context.Context, request GetOrgUsageRequestObject) (GetOrgUsageResponseObject, error)
+	// GetOrgUsageTimeseries Get usage timeseries
+	// (GET /orgs/{orgID}/usage/timeseries)
+	GetOrgUsageTimeseries(ctx context.Context, request GetOrgUsageTimeseriesRequestObject) (GetOrgUsageTimeseriesResponseObject, error)
 	// ListPersonalAccessTokens List the authenticated user's personal access tokens
 	// (GET /personal-access-tokens)
 	ListPersonalAccessTokens(ctx context.Context, request ListPersonalAccessTokensRequestObject) (ListPersonalAccessTokensResponseObject, error)
@@ -40983,6 +51454,87 @@ func (sh *strictHandler) RecordMachineFailure(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RecordMachineFailureResponseObject); ok {
 		if err := validResponse.VisitRecordMachineFailureResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DownloadDaemonFile operation middleware
+func (sh *strictHandler) DownloadDaemonFile(w http.ResponseWriter, r *http.Request, processID ProcessID) {
+	var request DownloadDaemonFileRequestObject
+
+	request.ProcessID = processID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DownloadDaemonFile(ctx, request.(DownloadDaemonFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DownloadDaemonFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DownloadDaemonFileResponseObject); ok {
+		if err := validResponse.VisitDownloadDaemonFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UploadDaemonFile operation middleware
+func (sh *strictHandler) UploadDaemonFile(w http.ResponseWriter, r *http.Request, processID ProcessID, params UploadDaemonFileParams) {
+	var request UploadDaemonFileRequestObject
+
+	request.ProcessID = processID
+	request.Params = params
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UploadDaemonFile(ctx, request.(UploadDaemonFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UploadDaemonFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UploadDaemonFileResponseObject); ok {
+		if err := validResponse.VisitUploadDaemonFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetDaemonGitCredentials operation middleware
+func (sh *strictHandler) GetDaemonGitCredentials(w http.ResponseWriter, r *http.Request, processID ProcessID) {
+	var request GetDaemonGitCredentialsRequestObject
+
+	request.ProcessID = processID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDaemonGitCredentials(ctx, request.(GetDaemonGitCredentialsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDaemonGitCredentials")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDaemonGitCredentialsResponseObject); ok {
+		if err := validResponse.VisitGetDaemonGitCredentialsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -41119,62 +51671,6 @@ func (sh *strictHandler) GetDaemonSkillArchive(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetDaemonSkillArchiveResponseObject); ok {
 		if err := validResponse.VisitGetDaemonSkillArchiveResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// UploadDaemonArtifact operation middleware
-func (sh *strictHandler) UploadDaemonArtifact(w http.ResponseWriter, r *http.Request, toolCallID ToolCallID, params UploadDaemonArtifactParams) {
-	var request UploadDaemonArtifactRequestObject
-
-	request.ToolCallID = toolCallID
-	request.Params = params
-
-	request.Body = r.Body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.UploadDaemonArtifact(ctx, request.(UploadDaemonArtifactRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UploadDaemonArtifact")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(UploadDaemonArtifactResponseObject); ok {
-		if err := validResponse.VisitUploadDaemonArtifactResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DownloadDaemonArtifact operation middleware
-func (sh *strictHandler) DownloadDaemonArtifact(w http.ResponseWriter, r *http.Request, toolCallID ToolCallID, artifactID ArtifactID) {
-	var request DownloadDaemonArtifactRequestObject
-
-	request.ToolCallID = toolCallID
-	request.ArtifactID = artifactID
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DownloadDaemonArtifact(ctx, request.(DownloadDaemonArtifactRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DownloadDaemonArtifact")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DownloadDaemonArtifactResponseObject); ok {
-		if err := validResponse.VisitDownloadDaemonArtifactResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -41410,6 +51906,60 @@ func (sh *strictHandler) DeleteOrganization(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DeleteOrganizationResponseObject); ok {
 		if err := validResponse.VisitDeleteOrganizationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListOrgAgentProfiles operation middleware
+func (sh *strictHandler) ListOrgAgentProfiles(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params ListOrgAgentProfilesParams) {
+	var request ListOrgAgentProfilesRequestObject
+
+	request.OrgID = orgID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListOrgAgentProfiles(ctx, request.(ListOrgAgentProfilesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListOrgAgentProfiles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListOrgAgentProfilesResponseObject); ok {
+		if err := validResponse.VisitListOrgAgentProfilesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListOrgAgents operation middleware
+func (sh *strictHandler) ListOrgAgents(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params ListOrgAgentsParams) {
+	var request ListOrgAgentsRequestObject
+
+	request.OrgID = orgID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListOrgAgents(ctx, request.(ListOrgAgentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListOrgAgents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListOrgAgentsResponseObject); ok {
+		if err := validResponse.VisitListOrgAgentsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -41655,6 +52205,33 @@ func (sh *strictHandler) RevokeOrgAPIKey(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// ListOrgIntegrations operation middleware
+func (sh *strictHandler) ListOrgIntegrations(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params ListOrgIntegrationsParams) {
+	var request ListOrgIntegrationsRequestObject
+
+	request.OrgID = orgID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListOrgIntegrations(ctx, request.(ListOrgIntegrationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListOrgIntegrations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListOrgIntegrationsResponseObject); ok {
+		if err := validResponse.VisitListOrgIntegrationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListOrgInvitations operation middleware
 func (sh *strictHandler) ListOrgInvitations(w http.ResponseWriter, r *http.Request, orgID string, params ListOrgInvitationsParams) {
 	var request ListOrgInvitationsRequestObject
@@ -41795,6 +52372,39 @@ func (sh *strictHandler) CreateMachinePool(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateMachinePoolResponseObject); ok {
 		if err := validResponse.VisitCreateMachinePoolResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CheckMachinePoolConnection operation middleware
+func (sh *strictHandler) CheckMachinePoolConnection(w http.ResponseWriter, r *http.Request, orgID string) {
+	var request CheckMachinePoolConnectionRequestObject
+
+	request.OrgID = orgID
+
+	var body CheckMachinePoolConnectionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CheckMachinePoolConnection(ctx, request.(CheckMachinePoolConnectionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CheckMachinePoolConnection")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CheckMachinePoolConnectionResponseObject); ok {
+		if err := validResponse.VisitCheckMachinePoolConnectionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -42336,6 +52946,33 @@ func (sh *strictHandler) SetMemberProjectAccess(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetMemberProjectAccessResponseObject); ok {
 		if err := validResponse.VisitSetMemberProjectAccessResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListOrgMemoryStores operation middleware
+func (sh *strictHandler) ListOrgMemoryStores(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params ListOrgMemoryStoresParams) {
+	var request ListOrgMemoryStoresRequestObject
+
+	request.OrgID = orgID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListOrgMemoryStores(ctx, request.(ListOrgMemoryStoresRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListOrgMemoryStores")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListOrgMemoryStoresResponseObject); ok {
+		if err := validResponse.VisitListOrgMemoryStoresResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -42943,6 +53580,35 @@ func (sh *strictHandler) GetAgentConfig(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+// GetAgentConfigGeneratedSource operation middleware
+func (sh *strictHandler) GetAgentConfigGeneratedSource(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentConfigID string, params GetAgentConfigGeneratedSourceParams) {
+	var request GetAgentConfigGeneratedSourceRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.AgentConfigID = agentConfigID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAgentConfigGeneratedSource(ctx, request.(GetAgentConfigGeneratedSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAgentConfigGeneratedSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAgentConfigGeneratedSourceResponseObject); ok {
+		if err := validResponse.VisitGetAgentConfigGeneratedSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListAgentProfiles operation middleware
 func (sh *strictHandler) ListAgentProfiles(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListAgentProfilesParams) {
 	var request ListAgentProfilesRequestObject
@@ -43126,76 +53792,6 @@ func (sh *strictHandler) UpdateAgentProfile(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateAgentProfileResponseObject); ok {
 		if err := validResponse.VisitUpdateAgentProfileResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateIntegrationOAuthSetup operation middleware
-func (sh *strictHandler) CreateIntegrationOAuthSetup(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentProfileID string) {
-	var request CreateIntegrationOAuthSetupRequestObject
-
-	request.OrgID = orgID
-	request.ProjectID = projectID
-	request.AgentProfileID = agentProfileID
-
-	var body CreateIntegrationOAuthSetupJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateIntegrationOAuthSetup(ctx, request.(CreateIntegrationOAuthSetupRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateIntegrationOAuthSetup")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateIntegrationOAuthSetupResponseObject); ok {
-		if err := validResponse.VisitCreateIntegrationOAuthSetupResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateSlackSetup operation middleware
-func (sh *strictHandler) CreateSlackSetup(w http.ResponseWriter, r *http.Request, orgID string, projectID string, agentProfileID string) {
-	var request CreateSlackSetupRequestObject
-
-	request.OrgID = orgID
-	request.ProjectID = projectID
-	request.AgentProfileID = agentProfileID
-
-	var body CreateSlackSetupJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateSlackSetup(ctx, request.(CreateSlackSetupRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateSlackSetup")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateSlackSetupResponseObject); ok {
-		if err := validResponse.VisitCreateSlackSetupResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -44111,27 +54707,27 @@ func (sh *strictHandler) UpdateCronTrigger(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// ListIntegrationInstalls operation middleware
-func (sh *strictHandler) ListIntegrationInstalls(w http.ResponseWriter, r *http.Request, orgID string, projectID string, params ListIntegrationInstallsParams) {
-	var request ListIntegrationInstallsRequestObject
+// ListEventWebhooks operation middleware
+func (sh *strictHandler) ListEventWebhooks(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, params ListEventWebhooksParams) {
+	var request ListEventWebhooksRequestObject
 
 	request.OrgID = orgID
 	request.ProjectID = projectID
 	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListIntegrationInstalls(ctx, request.(ListIntegrationInstallsRequestObject))
+		return sh.ssi.ListEventWebhooks(ctx, request.(ListEventWebhooksRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListIntegrationInstalls")
+		handler = middleware(handler, "ListEventWebhooks")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListIntegrationInstallsResponseObject); ok {
-		if err := validResponse.VisitListIntegrationInstallsResponse(w); err != nil {
+	} else if validResponse, ok := response.(ListEventWebhooksResponseObject); ok {
+		if err := validResponse.VisitListEventWebhooksResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -44139,27 +54735,601 @@ func (sh *strictHandler) ListIntegrationInstalls(w http.ResponseWriter, r *http.
 	}
 }
 
-// DeleteIntegrationInstall operation middleware
-func (sh *strictHandler) DeleteIntegrationInstall(w http.ResponseWriter, r *http.Request, orgID string, projectID string, integrationInstallID string) {
-	var request DeleteIntegrationInstallRequestObject
+// CreateEventWebhook operation middleware
+func (sh *strictHandler) CreateEventWebhook(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID) {
+	var request CreateEventWebhookRequestObject
 
 	request.OrgID = orgID
 	request.ProjectID = projectID
-	request.IntegrationInstallID = integrationInstallID
+
+	var body CreateEventWebhookJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteIntegrationInstall(ctx, request.(DeleteIntegrationInstallRequestObject))
+		return sh.ssi.CreateEventWebhook(ctx, request.(CreateEventWebhookRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteIntegrationInstall")
+		handler = middleware(handler, "CreateEventWebhook")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteIntegrationInstallResponseObject); ok {
-		if err := validResponse.VisitDeleteIntegrationInstallResponse(w); err != nil {
+	} else if validResponse, ok := response.(CreateEventWebhookResponseObject); ok {
+		if err := validResponse.VisitCreateEventWebhookResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteEventWebhook operation middleware
+func (sh *strictHandler) DeleteEventWebhook(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, webhookID EventWebhookID) {
+	var request DeleteEventWebhookRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.WebhookID = webhookID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteEventWebhook(ctx, request.(DeleteEventWebhookRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteEventWebhook")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteEventWebhookResponseObject); ok {
+		if err := validResponse.VisitDeleteEventWebhookResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateEventWebhook operation middleware
+func (sh *strictHandler) UpdateEventWebhook(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, webhookID EventWebhookID) {
+	var request UpdateEventWebhookRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.WebhookID = webhookID
+
+	var body UpdateEventWebhookJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateEventWebhook(ctx, request.(UpdateEventWebhookRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateEventWebhook")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateEventWebhookResponseObject); ok {
+		if err := validResponse.VisitUpdateEventWebhookResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListIntegrationDefinitions operation middleware
+func (sh *strictHandler) ListIntegrationDefinitions(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID) {
+	var request ListIntegrationDefinitionsRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListIntegrationDefinitions(ctx, request.(ListIntegrationDefinitionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListIntegrationDefinitions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListIntegrationDefinitionsResponseObject); ok {
+		if err := validResponse.VisitListIntegrationDefinitionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListIntegrations operation middleware
+func (sh *strictHandler) ListIntegrations(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, params ListIntegrationsParams) {
+	var request ListIntegrationsRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListIntegrations(ctx, request.(ListIntegrationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListIntegrations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListIntegrationsResponseObject); ok {
+		if err := validResponse.VisitListIntegrationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateIntegration operation middleware
+func (sh *strictHandler) CreateIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID) {
+	var request CreateIntegrationRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+
+	var body CreateIntegrationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateIntegration(ctx, request.(CreateIntegrationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateIntegration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateIntegrationResponseObject); ok {
+		if err := validResponse.VisitCreateIntegrationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteIntegration operation middleware
+func (sh *strictHandler) DeleteIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID) {
+	var request DeleteIntegrationRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteIntegration(ctx, request.(DeleteIntegrationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteIntegration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteIntegrationResponseObject); ok {
+		if err := validResponse.VisitDeleteIntegrationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetIntegration operation middleware
+func (sh *strictHandler) GetIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID) {
+	var request GetIntegrationRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetIntegration(ctx, request.(GetIntegrationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetIntegration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetIntegrationResponseObject); ok {
+		if err := validResponse.VisitGetIntegrationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateIntegration operation middleware
+func (sh *strictHandler) UpdateIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID) {
+	var request UpdateIntegrationRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+
+	var body UpdateIntegrationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateIntegration(ctx, request.(UpdateIntegrationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateIntegration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateIntegrationResponseObject); ok {
+		if err := validResponse.VisitUpdateIntegrationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DisconnectIntegration operation middleware
+func (sh *strictHandler) DisconnectIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID) {
+	var request DisconnectIntegrationRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DisconnectIntegration(ctx, request.(DisconnectIntegrationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DisconnectIntegration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DisconnectIntegrationResponseObject); ok {
+		if err := validResponse.VisitDisconnectIntegrationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListIntegrationGitHubRepositories operation middleware
+func (sh *strictHandler) ListIntegrationGitHubRepositories(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID, params ListIntegrationGitHubRepositoriesParams) {
+	var request ListIntegrationGitHubRepositoriesRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListIntegrationGitHubRepositories(ctx, request.(ListIntegrationGitHubRepositoriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListIntegrationGitHubRepositories")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListIntegrationGitHubRepositoriesResponseObject); ok {
+		if err := validResponse.VisitListIntegrationGitHubRepositoriesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateIntegrationGitHubSetup operation middleware
+func (sh *strictHandler) CreateIntegrationGitHubSetup(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID) {
+	var request CreateIntegrationGitHubSetupRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+
+	var body CreateIntegrationGitHubSetupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateIntegrationGitHubSetup(ctx, request.(CreateIntegrationGitHubSetupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateIntegrationGitHubSetup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateIntegrationGitHubSetupResponseObject); ok {
+		if err := validResponse.VisitCreateIntegrationGitHubSetupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// InspectIntegrationGitHubInstallations operation middleware
+func (sh *strictHandler) InspectIntegrationGitHubInstallations(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID) {
+	var request InspectIntegrationGitHubInstallationsRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+
+	var body InspectIntegrationGitHubInstallationsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.InspectIntegrationGitHubInstallations(ctx, request.(InspectIntegrationGitHubInstallationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "InspectIntegrationGitHubInstallations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(InspectIntegrationGitHubInstallationsResponseObject); ok {
+		if err := validResponse.VisitInspectIntegrationGitHubInstallationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateIntegrationOAuthSetup operation middleware
+func (sh *strictHandler) CreateIntegrationOAuthSetup(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID) {
+	var request CreateIntegrationOAuthSetupRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+
+	var body CreateIntegrationOAuthSetupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateIntegrationOAuthSetup(ctx, request.(CreateIntegrationOAuthSetupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateIntegrationOAuthSetup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateIntegrationOAuthSetupResponseObject); ok {
+		if err := validResponse.VisitCreateIntegrationOAuthSetupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ConfigureIntegration operation middleware
+func (sh *strictHandler) ConfigureIntegration(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID) {
+	var request ConfigureIntegrationRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+
+	var body ConfigureIntegrationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ConfigureIntegration(ctx, request.(ConfigureIntegrationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ConfigureIntegration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ConfigureIntegrationResponseObject); ok {
+		if err := validResponse.VisitConfigureIntegrationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateIntegrationSlackSetup operation middleware
+func (sh *strictHandler) CreateIntegrationSlackSetup(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID) {
+	var request CreateIntegrationSlackSetupRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+
+	var body CreateIntegrationSlackSetupJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateIntegrationSlackSetup(ctx, request.(CreateIntegrationSlackSetupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateIntegrationSlackSetup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateIntegrationSlackSetupResponseObject); ok {
+		if err := validResponse.VisitCreateIntegrationSlackSetupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListIntegrationSubscriptions operation middleware
+func (sh *strictHandler) ListIntegrationSubscriptions(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID, params ListIntegrationSubscriptionsParams) {
+	var request ListIntegrationSubscriptionsRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListIntegrationSubscriptions(ctx, request.(ListIntegrationSubscriptionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListIntegrationSubscriptions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListIntegrationSubscriptionsResponseObject); ok {
+		if err := validResponse.VisitListIntegrationSubscriptionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateIntegrationSubscription operation middleware
+func (sh *strictHandler) CreateIntegrationSubscription(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID) {
+	var request CreateIntegrationSubscriptionRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+
+	var body CreateIntegrationSubscriptionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateIntegrationSubscription(ctx, request.(CreateIntegrationSubscriptionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateIntegrationSubscription")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateIntegrationSubscriptionResponseObject); ok {
+		if err := validResponse.VisitCreateIntegrationSubscriptionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteIntegrationSubscription operation middleware
+func (sh *strictHandler) DeleteIntegrationSubscription(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, integrationID IntegrationID, subscriptionID IntegrationSubscriptionID) {
+	var request DeleteIntegrationSubscriptionRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.IntegrationID = integrationID
+	request.SubscriptionID = subscriptionID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteIntegrationSubscription(ctx, request.(DeleteIntegrationSubscriptionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteIntegrationSubscription")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteIntegrationSubscriptionResponseObject); ok {
+		if err := validResponse.VisitDeleteIntegrationSubscriptionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -44467,6 +55637,277 @@ func (sh *strictHandler) ListMCPServerTools(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListMCPServerToolsResponseObject); ok {
 		if err := validResponse.VisitListMCPServerToolsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMemoryStores operation middleware
+func (sh *strictHandler) ListMemoryStores(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, params ListMemoryStoresParams) {
+	var request ListMemoryStoresRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMemoryStores(ctx, request.(ListMemoryStoresRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMemoryStores")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMemoryStoresResponseObject); ok {
+		if err := validResponse.VisitListMemoryStoresResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateMemoryStore operation middleware
+func (sh *strictHandler) CreateMemoryStore(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID) {
+	var request CreateMemoryStoreRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+
+	var body CreateMemoryStoreJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateMemoryStore(ctx, request.(CreateMemoryStoreRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateMemoryStore")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateMemoryStoreResponseObject); ok {
+		if err := validResponse.VisitCreateMemoryStoreResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMemoryStore operation middleware
+func (sh *strictHandler) DeleteMemoryStore(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID) {
+	var request DeleteMemoryStoreRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.MemoryStoreID = memoryStoreID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMemoryStore(ctx, request.(DeleteMemoryStoreRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMemoryStore")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMemoryStoreResponseObject); ok {
+		if err := validResponse.VisitDeleteMemoryStoreResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMemoryStore operation middleware
+func (sh *strictHandler) GetMemoryStore(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID) {
+	var request GetMemoryStoreRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.MemoryStoreID = memoryStoreID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMemoryStore(ctx, request.(GetMemoryStoreRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMemoryStore")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMemoryStoreResponseObject); ok {
+		if err := validResponse.VisitGetMemoryStoreResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMemoryStore operation middleware
+func (sh *strictHandler) UpdateMemoryStore(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID) {
+	var request UpdateMemoryStoreRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.MemoryStoreID = memoryStoreID
+
+	var body UpdateMemoryStoreJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMemoryStore(ctx, request.(UpdateMemoryStoreRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMemoryStore")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMemoryStoreResponseObject); ok {
+		if err := validResponse.VisitUpdateMemoryStoreResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMemoryFile operation middleware
+func (sh *strictHandler) DeleteMemoryFile(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID, params DeleteMemoryFileParams) {
+	var request DeleteMemoryFileRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.MemoryStoreID = memoryStoreID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMemoryFile(ctx, request.(DeleteMemoryFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMemoryFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMemoryFileResponseObject); ok {
+		if err := validResponse.VisitDeleteMemoryFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DownloadMemoryFile operation middleware
+func (sh *strictHandler) DownloadMemoryFile(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID, params DownloadMemoryFileParams) {
+	var request DownloadMemoryFileRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.MemoryStoreID = memoryStoreID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DownloadMemoryFile(ctx, request.(DownloadMemoryFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DownloadMemoryFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DownloadMemoryFileResponseObject); ok {
+		if err := validResponse.VisitDownloadMemoryFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// WriteMemoryFile operation middleware
+func (sh *strictHandler) WriteMemoryFile(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID, params WriteMemoryFileParams) {
+	var request WriteMemoryFileRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.MemoryStoreID = memoryStoreID
+	request.Params = params
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.WriteMemoryFile(ctx, request.(WriteMemoryFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "WriteMemoryFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(WriteMemoryFileResponseObject); ok {
+		if err := validResponse.VisitWriteMemoryFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMemoryFiles operation middleware
+func (sh *strictHandler) ListMemoryFiles(w http.ResponseWriter, r *http.Request, orgID OrganizationID, projectID ProjectID, memoryStoreID MemoryStoreID, params ListMemoryFilesParams) {
+	var request ListMemoryFilesRequestObject
+
+	request.OrgID = orgID
+	request.ProjectID = projectID
+	request.MemoryStoreID = memoryStoreID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMemoryFiles(ctx, request.(ListMemoryFilesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMemoryFiles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMemoryFilesResponseObject); ok {
+		if err := validResponse.VisitListMemoryFilesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -45281,6 +56722,33 @@ func (sh *strictHandler) GetOrgUsage(w http.ResponseWriter, r *http.Request, org
 	}
 }
 
+// GetOrgUsageTimeseries operation middleware
+func (sh *strictHandler) GetOrgUsageTimeseries(w http.ResponseWriter, r *http.Request, orgID OrganizationID, params GetOrgUsageTimeseriesParams) {
+	var request GetOrgUsageTimeseriesRequestObject
+
+	request.OrgID = orgID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetOrgUsageTimeseries(ctx, request.(GetOrgUsageTimeseriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetOrgUsageTimeseries")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetOrgUsageTimeseriesResponseObject); ok {
+		if err := validResponse.VisitGetOrgUsageTimeseriesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListPersonalAccessTokens operation middleware
 func (sh *strictHandler) ListPersonalAccessTokens(w http.ResponseWriter, r *http.Request, params ListPersonalAccessTokensParams) {
 	var request ListPersonalAccessTokensRequestObject
@@ -45393,732 +56861,1142 @@ func (sh *strictHandler) GetToolCatalog(w http.ResponseWriter, r *http.Request) 
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

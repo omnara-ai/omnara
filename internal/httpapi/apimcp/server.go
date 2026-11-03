@@ -19,7 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	logpkg "github.com/omnara-ai/omnara/internal/log"
+	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 const (
@@ -119,9 +119,10 @@ func NewServer(spec *openapi3.T, tools []Tool, options Options) (*mcp.Server, er
 		}
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        tool.Name,
+			Title:       tool.Title,
 			Description: description,
 			InputSchema: inputSchema,
-			Annotations: annotationsFor(compiled.method, tool.Destructive),
+			Annotations: annotationsFor(tool, compiled.method),
 		}, compiled.handle)
 	}
 	if options.Grants != nil {
@@ -141,20 +142,16 @@ func NewHandler(server *mcp.Server) http.Handler {
 	)
 }
 
-func annotationsFor(method string, destructive bool) *mcp.ToolAnnotations {
+func annotationsFor(tool Tool, method string) *mcp.ToolAnnotations {
 	readOnly := method == http.MethodGet
-	idempotent := readOnly || method == http.MethodPut || method == http.MethodDelete
-	annotations := &mcp.ToolAnnotations{
-		ReadOnlyHint:   readOnly,
-		IdempotentHint: idempotent,
+	destructive := !readOnly && (tool.Destructive || method != http.MethodPost)
+	return &mcp.ToolAnnotations{
+		Title:           tool.Title,
+		ReadOnlyHint:    readOnly,
+		IdempotentHint:  readOnly || method == http.MethodPut || method == http.MethodDelete,
+		DestructiveHint: &destructive,
+		OpenWorldHint:   &tool.OpenWorld,
 	}
-	switch {
-	case readOnly:
-		annotations.DestructiveHint = new(false)
-	case destructive || method == http.MethodDelete:
-		annotations.DestructiveHint = new(true)
-	}
-	return annotations
 }
 
 func specVersion(spec *openapi3.T) string {
@@ -245,7 +242,7 @@ func compileOperation(
 		default:
 			return nil, nil, fmt.Errorf(unsupportedParameter, parameter.Name, tool.OperationID, parameter.In)
 		}
-		schema, err := parameterSchemaJSON(parameter)
+		schema, err := parameterSchemaJSON(spec, parameter)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -253,13 +250,15 @@ func compileOperation(
 			return nil, nil, err
 		}
 	}
+	var bodyConstraints map[string]any
 	if body := jsonRequestBody(source.operation); body != nil {
 		compiled.hasBody = true
 		bodySchema := body.Value
-		if isFlatObjectSchema(bodySchema) {
+		if constraints, flat := flatObjectConstraints(bodySchema); flat {
 			compiled.bodyFlattened = true
+			bodyConstraints = constraints
 			for name, property := range bodySchema.Properties {
-				schema, err := property.MarshalJSON()
+				schema, err := inlinedSchemaJSON(spec, property)
 				if err != nil {
 					return nil, nil, fmt.Errorf("marshal body property %q: %w", name, err)
 				}
@@ -269,7 +268,7 @@ func compileOperation(
 				compiled.bodyKeys = append(compiled.bodyKeys, name)
 			}
 		} else {
-			schema, err := body.MarshalJSON()
+			schema, err := inlinedSchemaJSON(spec, body)
 			if err != nil {
 				return nil, nil, fmt.Errorf("marshal request body schema: %w", err)
 			}
@@ -280,7 +279,7 @@ func compileOperation(
 		}
 	}
 	slices.Sort(required)
-	inputSchema, err := assembleInputSchema(spec, properties, required)
+	inputSchema, err := assembleInputSchema(spec, properties, required, bodyConstraints)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -291,11 +290,11 @@ func isArrayParameter(parameter *openapi3.Parameter) bool {
 	return parameter.Schema != nil && parameter.Schema.Value != nil && parameter.Schema.Value.Type.Is(openapi3.TypeArray)
 }
 
-func parameterSchemaJSON(parameter *openapi3.Parameter) (json.RawMessage, error) {
+func parameterSchemaJSON(spec *openapi3.T, parameter *openapi3.Parameter) (json.RawMessage, error) {
 	if parameter.Schema == nil {
 		return json.RawMessage(`{"type":"string"}`), nil
 	}
-	schema, err := parameter.Schema.MarshalJSON()
+	schema, err := inlinedSchemaJSON(spec, parameter.Schema)
 	if err != nil {
 		return nil, fmt.Errorf("marshal parameter %q schema: %w", parameter.Name, err)
 	}
@@ -305,19 +304,111 @@ func parameterSchemaJSON(parameter *openapi3.Parameter) (json.RawMessage, error)
 	return withDescription(schema, parameter.Description)
 }
 
+func inlinedSchemaJSON(spec *openapi3.T, ref *openapi3.SchemaRef) (json.RawMessage, error) {
+	encoded, err := ref.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		return nil, err
+	}
+	name, ok := soleComponentReference(decoded)
+	if !ok {
+		return encoded, nil
+	}
+	component, ok := spec.Components.Schemas[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown component schema %q", name)
+	}
+	inlined, err := component.Value.MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("marshal component schema %q: %w", name, err)
+	}
+	inlined, err = withInferredObjectType(spec, inlined)
+	if err != nil {
+		return nil, err
+	}
+	description, ok := decoded["description"].(string)
+	if !ok || description == "" {
+		return inlined, nil
+	}
+	return withDescription(inlined, description)
+}
+
+func soleComponentReference(decoded map[string]any) (string, bool) {
+	target := decoded
+	if allOf, ok := decoded["allOf"].([]any); ok {
+		if len(allOf) != 1 || !hasOnlyKeys(decoded, "allOf", "description") {
+			return "", false
+		}
+		member, ok := allOf[0].(map[string]any)
+		if !ok {
+			return "", false
+		}
+		target = member
+	}
+	ref, ok := target["$ref"].(string)
+	if !ok || !hasOnlyKeys(target, "$ref", "description") || !strings.HasPrefix(ref, componentSchemaRef) {
+		return "", false
+	}
+	return strings.TrimPrefix(ref, componentSchemaRef), true
+}
+
+func hasOnlyKeys(decoded map[string]any, allowed ...string) bool {
+	for key := range decoded {
+		if !slices.Contains(allowed, key) {
+			return false
+		}
+	}
+	return true
+}
+
 func withDescription(schema json.RawMessage, description string) (json.RawMessage, error) {
 	var decoded map[string]any
 	if err := json.Unmarshal(schema, &decoded); err != nil {
 		return nil, err
 	}
-	if _, has := decoded["description"]; has {
-		return schema, nil
-	}
-	if _, isRef := decoded["$ref"]; isRef {
-		return json.Marshal(map[string]any{"allOf": []any{decoded}, "description": description})
-	}
 	decoded["description"] = description
 	return json.Marshal(decoded)
+}
+
+func withInferredObjectType(spec *openapi3.T, schema json.RawMessage) (json.RawMessage, error) {
+	var decoded map[string]any
+	if err := json.Unmarshal(schema, &decoded); err != nil {
+		return nil, err
+	}
+	if _, typed := decoded["type"]; typed || !isObjectComposition(spec, decoded) {
+		return schema, nil
+	}
+	decoded["type"] = openapi3.TypeObject
+	return json.Marshal(decoded)
+}
+
+func isObjectComposition(spec *openapi3.T, decoded map[string]any) bool {
+	if ref, ok := decoded["$ref"].(string); ok {
+		component, found := spec.Components.Schemas[strings.TrimPrefix(ref, componentSchemaRef)]
+		return found && component.Value != nil && component.Value.Type.Is(openapi3.TypeObject)
+	}
+	if typed, ok := decoded["type"].(string); ok {
+		return typed == openapi3.TypeObject
+	}
+	branches := make([]any, 0)
+	for _, keyword := range []string{"allOf", "oneOf"} {
+		if members, ok := decoded[keyword].([]any); ok {
+			branches = append(branches, members...)
+		}
+	}
+	if len(branches) == 0 {
+		return false
+	}
+	for _, branch := range branches {
+		member, ok := branch.(map[string]any)
+		if !ok || !isObjectComposition(spec, member) {
+			return false
+		}
+	}
+	return true
 }
 
 func jsonRequestBody(op *openapi3.Operation) *openapi3.SchemaRef {
@@ -331,17 +422,64 @@ func jsonRequestBody(op *openapi3.Operation) *openapi3.SchemaRef {
 	return media.Schema
 }
 
-func isFlatObjectSchema(schema *openapi3.Schema) bool {
-	if schema == nil || len(schema.Properties) == 0 {
-		return false
+// flatObjectConstraints reports whether a body schema can be flattened into tool
+// arguments. Its anyOf, oneOf and not clauses may only require properties the body
+// declares; they are returned as required-only clauses for the tool input schema.
+func flatObjectConstraints(schema *openapi3.Schema) (map[string]any, bool) {
+	if schema == nil || len(schema.Properties) == 0 || len(schema.AllOf) > 0 {
+		return nil, false
 	}
-	return len(schema.AllOf) == 0 && len(schema.OneOf) == 0 && len(schema.AnyOf) == 0
+	requiredOnly := func(ref *openapi3.SchemaRef) (map[string]any, bool) {
+		if ref == nil || ref.Value == nil {
+			return nil, false
+		}
+		branch := ref.Value
+		if len(branch.Required) == 0 || len(branch.AllOf) > 0 || len(branch.AnyOf) > 0 ||
+			len(branch.OneOf) > 0 || branch.Not != nil {
+			return nil, false
+		}
+		for name := range branch.Properties {
+			if _, declared := schema.Properties[name]; !declared {
+				return nil, false
+			}
+		}
+		for _, name := range branch.Required {
+			if _, declared := schema.Properties[name]; !declared {
+				return nil, false
+			}
+		}
+		return map[string]any{"required": slices.Clone(branch.Required)}, true
+	}
+	constraints := map[string]any{}
+	for keyword, branches := range map[string]openapi3.SchemaRefs{"anyOf": schema.AnyOf, "oneOf": schema.OneOf} {
+		if len(branches) == 0 {
+			continue
+		}
+		clauses := make([]any, 0, len(branches))
+		for _, branch := range branches {
+			clause, ok := requiredOnly(branch)
+			if !ok {
+				return nil, false
+			}
+			clauses = append(clauses, clause)
+		}
+		constraints[keyword] = clauses
+	}
+	if schema.Not != nil {
+		clause, ok := requiredOnly(schema.Not)
+		if !ok {
+			return nil, false
+		}
+		constraints["not"] = clause
+	}
+	return constraints, true
 }
 
 func assembleInputSchema(
 	spec *openapi3.T,
 	properties map[string]json.RawMessage,
 	required []string,
+	constraints map[string]any,
 ) (map[string]any, error) {
 	encodedProperties, err := json.Marshal(properties)
 	if err != nil {
@@ -358,6 +496,9 @@ func assembleInputSchema(
 	}
 	if len(required) > 0 {
 		schema["required"] = required
+	}
+	for keyword, clause := range constraints {
+		schema[keyword] = clause
 	}
 	if len(definitions) > 0 {
 		schema[definitionsKey] = definitions

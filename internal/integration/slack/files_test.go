@@ -181,7 +181,7 @@ func TestUploadFileRejectsUnsafeUploadURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upload file: %v", err)
 	}
-	if fileID != "" || !result.PermanentFailure || result.Code != "invalid_file_url" {
+	if fileID != "" || !result.PermanentFailure || result.Code != InvalidFileURL {
 		t.Fatalf("upload result = %+v", result)
 	}
 }
@@ -204,8 +204,8 @@ func TestUploadFileContentHidesSignedURLOnTransportFailure(t *testing.T) {
 func TestFilePreShareResultExplainsMissingScope(t *testing.T) {
 	t.Parallel()
 	result := filePreShareResult(ErrorResult("missing_scope"))
-	if result.Code != "permanent_failure" || result.ProviderCode != "missing_scope" ||
-		result.Message != "Slack integration must be reauthorized with files:write before it can send artifacts." {
+	if result.Code != PermanentFailure || result.ProviderCode != "missing_scope" ||
+		result.Message != "Slack app must be reauthorized with files:write before it can send artifacts." {
 		t.Fatalf("pre-share result = %+v", result)
 	}
 }
@@ -552,7 +552,7 @@ func TestDownloadFileRejectsUnsafeURL(t *testing.T) {
 			if err != nil {
 				t.Fatalf("download file: %v", err)
 			}
-			if len(content) != 0 || contentType != "" || !result.PermanentFailure || result.Code != "invalid_file_url" {
+			if len(content) != 0 || contentType != "" || !result.PermanentFailure || result.Code != InvalidFileURL {
 				t.Fatalf("result content=%q contentType=%q api=%+v", content, contentType, result)
 			}
 		})

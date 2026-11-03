@@ -14,6 +14,8 @@ import (
 
 const APIVersion = "2023-06-01"
 
+const thinkingBindingControlsBeta = "thinking-binding-controls-2026-08-01"
+
 type Client struct {
 	ModelProviderConfigID string
 	Auth                  route.Auth
@@ -39,6 +41,10 @@ func (c Client) APIFormat() modelprotocol.APIFormat {
 
 func (c Client) ModelAPIVariant() modelprotocol.APIVariant {
 	return normalizeAPIVariant(c.APIVariant)
+}
+
+func (c Client) supportsThinkingBindingControls() bool {
+	return model.IsClaudeFamilyModelSlug(c.ProviderModelSlug)
 }
 
 func (c Client) Capabilities() model.Capabilities {

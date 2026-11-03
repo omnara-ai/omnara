@@ -1,5 +1,6 @@
 dist
 node_modules
+.vite
 pnpm-lock.yaml
 packages/sdk/src/generated
 apps/web/playwright-report

@@ -86,7 +86,7 @@ export function SecretRowActions({
                 setGrantOpen(true)
               }}
             >
-              Grant to project
+              Share with project
             </DropdownMenuItem>
           )}
           {canCopyMcpConfig && (
@@ -143,7 +143,7 @@ function SecretDeleteAction({
   const isGrant = availability?.source === 'grant'
 
   async function deleteSecret() {
-    const message = isGrant ? 'Remove this secret grant?' : 'Delete this secret?'
+    const message = isGrant ? 'Stop sharing this secret with the project?' : 'Delete this secret?'
     if (!window.confirm(message)) {
       return
     }
@@ -171,7 +171,7 @@ function SecretDeleteAction({
     >
       {isGrant ? (
         <span className="flex flex-col gap-0.5">
-          <span>Remove secret grant</span>
+          <span>Stop sharing secret</span>
           <span className="text-muted-foreground text-xs font-normal">
             Removes {projectName ?? 'this project'}&rsquo;s access to this secret
           </span>

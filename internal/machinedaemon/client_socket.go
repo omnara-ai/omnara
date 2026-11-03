@@ -663,17 +663,18 @@ func (t *daemonSocketTransport) offerProcess(
 	offer daemonprotocol.ProcessOffer,
 ) {
 	assignment := ProcessAssignment{
-		ID: offer.ProcessID,
+		ID:             offer.ProcessID,
+		GitCredentials: offer.GitCredentials,
 		Process: Process{
-			Command:       offer.Command,
-			ShellSelector: offer.ShellSelector,
+			ExecutionSpec: offer.ExecutionSpec,
 			Cwd:           offer.Cwd,
-			IOMode:        offer.IOMode,
 		},
 		Env:              offer.Env,
 		PreparationError: offer.PreparationError,
 		WaitMs:           offer.WaitMs,
 		TimeoutSeconds:   offer.TimeoutSeconds,
+		OutputBytes:      offer.OutputBytes,
+		OutputWait:       offer.OutputWait,
 	}
 
 	t.mu.Lock()
@@ -1159,11 +1160,13 @@ func (t *daemonSocketTransport) runAcceptedRead(
 		cursor = *payload.Cursor
 	}
 	deadline := time.Now().Add(time.Duration(payload.WaitMS) * time.Millisecond)
+	settle := newOutputSettle(payload.OutputWait)
 	for {
-		output, start, next, truncated, readErr := readProcessOutputSnapshot(
+		window, readErr := readProcessOutputSnapshotWindow(
 			root,
 			cursor,
 			payload.MaxBytes,
+			payload.HeadBytes,
 		)
 		if readErr != nil {
 			return t.reportDirectReadFailure(
@@ -1181,14 +1184,18 @@ func (t *daemonSocketTransport) runAcceptedRead(
 		if terminalErr != nil {
 			return terminalErr
 		}
-		if output != "" || terminal || payload.WaitMS == 0 ||
-			!time.Now().Before(deadline) {
+		if settle.ready(window) || terminal || payload.WaitMS == 0 ||
+			!time.Now().Before(deadline) ||
+			t.newerProcessActionOffered(accepted.processID, accepted.action.Seq) {
 			result, err := marshalJSON(processaction.ReadObservation{
-				ProcessID:  accepted.processID,
-				Output:     output,
-				Cursor:     start,
-				NextCursor: next,
-				Truncated:  truncated,
+				ProcessID:     accepted.processID,
+				Output:        window.Output,
+				Cursor:        window.Start,
+				NextCursor:    window.Next,
+				Truncated:     window.Truncated,
+				OutputTail:    window.Tail,
+				OmittedCursor: window.HeadEnd,
+				TailCursor:    window.TailStart,
 			})
 			if err != nil {
 				return err
@@ -1206,6 +1213,25 @@ func (t *daemonSocketTransport) runAcceptedRead(
 			return err
 		}
 	}
+}
+
+// newerProcessActionOffered reports whether the server has offered an action
+// after seq for the process. The server offers a process's next action only
+// once none before it is still accepted, so a newer offer means the server has
+// already settled the action at seq (for example, by canceling the turn) and
+// a read still waiting on it would only hold up the newer action.
+func (t *daemonSocketTransport) newerProcessActionOffered(
+	processID string,
+	seq int64,
+) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, action := range t.pendingActions {
+		if action.processID == processID && action.action.Seq > seq {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *daemonSocketTransport) readProcessTerminal(
@@ -1274,15 +1300,58 @@ func (t *daemonSocketTransport) reportDirectRead(
 	if err != nil {
 		return err
 	}
-	ack, err := t.SendReport(ctx, statedb.Report{
+	report := statedb.Report{
 		ID:        uuid.NewString(),
 		ProcessID: accepted.processID,
 		ActionID:  accepted.action.ID,
 		Kind:      statedb.ReportActionTerminal,
 		Body:      body,
-	})
-	if err != nil {
-		return err
+	}
+	var ack daemonReportAck
+	delay := directReadReportRetryDelay
+	for attempt := 1; ; attempt++ {
+		ack, err = t.SendReport(ctx, report)
+		if err != nil {
+			return err
+		}
+		if !storageUnavailableAck(ack) || attempt == directReadReportAttempts {
+			break
+		}
+		if err := sleepContext(ctx, delay); err != nil {
+			return err
+		}
+		delay *= 2
+	}
+	if eventType == daemonprotocol.EventProcessActionApplied {
+		var reason string
+		var cause error
+		switch {
+		case ack.status == daemonprotocol.AckStatusPermanentReject:
+			reason = daemonprotocol.ProcessActionReasonInvalidReadObservation
+			cause = fmt.Errorf("the server rejected the process read observation (%s)", ack.code)
+		case storageUnavailableAck(ack):
+			reason = daemonprotocol.ProcessActionReasonStorageUnavailable
+			cause = fmt.Errorf(
+				"server storage remained unavailable after %d attempts to report the process read",
+				directReadReportAttempts,
+			)
+		}
+		if cause != nil {
+			t.client.log.Warn(
+				"process read report rejected; failing the read",
+				"process_id",
+				accepted.processID,
+				"process_action_id",
+				accepted.action.ID,
+				"ack_status",
+				ack.status,
+				"error_code",
+				ack.code,
+				"error",
+				ack.err,
+			)
+			return t.reportDirectReadFailure(ctx, accepted, reason, cause)
+		}
 	}
 	switch ack.status {
 	case daemonprotocol.AckStatusCommitted,
@@ -1322,6 +1391,15 @@ func (t *daemonSocketTransport) reportDirectRead(
 			accepted.action.Seq,
 		)
 	})
+}
+
+const directReadReportAttempts = 6
+
+var directReadReportRetryDelay = time.Second
+
+func storageUnavailableAck(ack daemonReportAck) bool {
+	return ack.status == daemonprotocol.AckStatusTransientError &&
+		ack.code == daemonprotocol.ErrorCodeStorageUnavailable
 }
 
 func (t *daemonSocketTransport) waitActionReleased(
@@ -1548,7 +1626,7 @@ func (t *daemonSocketTransport) skillSyncManager() (
 	t.skillsync = skillsync.NewManager(
 		store,
 		transportSkillSender{transport: t},
-		t.client.http.Transport,
+		NewRetryAfterTransport(t.client.http.Transport),
 		t.client.cfg.APIURL,
 		t.client.cfg.MachineToken,
 		t.client.log,

@@ -6,7 +6,7 @@ omnara skills create --owner-kind org --archive release-notes/ --json
 ```bash REST
 curl "$OMNARA_API/orgs/$ORG/skills" \
   -H "Authorization: Bearer $OMNARA_TOKEN" \
-  -F 'owner={"kind": "org"}' \
+  -F 'owner={"kind": "org"};type=application/json' \
   -F "archive=@release-notes-skill.zip"
 ```
 

@@ -5,12 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
@@ -236,7 +235,7 @@ mcp:
 // an extra schema property would be silently dropped on decode, and a
 // missing one would reject valid configs.
 func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
-	schemaJSON, err := agentConfigSourceJSONSchemaJSON()
+	schemaJSON, err := SourceJSONSchema()
 	if err != nil {
 		t.Fatalf("generate source schema: %v", err)
 	}
@@ -249,60 +248,46 @@ func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
 		t.Fatal("source schema has no $defs object")
 	}
 	structsByDef := map[string]reflect.Type{
-		"AgentConfigModelSource":               reflect.TypeOf(AgentConfigModelSource{}),
-		"AgentConfigMachineSource":             reflect.TypeOf(AgentConfigMachineSource{}),
-		"AgentConfigToolSource":                reflect.TypeOf(AgentConfigToolSource{}),
-		"AgentConfigMCPSource":                 reflect.TypeOf(AgentConfigMCPSource{}),
-		"AgentConfigMCPAuthSource":             reflect.TypeOf(AgentConfigMCPAuthSource{}),
-		"AgentConfigMCPToolSource":             reflect.TypeOf(AgentConfigMCPToolSource{}),
-		"ToolPermissionSelection":              reflect.TypeOf(toolpermission.Selection{}),
-		"AgentConfigSubagentSource":            reflect.TypeOf(AgentConfigSubagentSource{}),
-		"AgentConfigSubagentModelSource":       reflect.TypeOf(AgentConfigSubagentModelSource{}),
-		"AgentConfigSubagentInstructionSource": reflect.TypeOf(AgentConfigSubagentInstructionSource{}),
+		"AgentConfigDefinitionGitCredentials":      reflect.TypeOf(GitCredentialsSource{}),
+		"AgentConfigDefinitionInteractionHandler":  reflect.TypeOf(AgentConfigIntegrationCapabilitySource{}),
+		"AgentConfigDefinitionModel":               reflect.TypeOf(AgentConfigModelSource{}),
+		"AgentConfigDefinitionMachineSource":       reflect.TypeOf(AgentConfigMachineSource{}),
+		"AgentConfigDefinitionTool":                reflect.TypeOf(AgentConfigToolSource{}),
+		"AgentConfigDefinitionMCPServer":           reflect.TypeOf(AgentConfigMCPSource{}),
+		"AgentConfigDefinitionMCPAuth":             reflect.TypeOf(AgentConfigMCPAuthSource{}),
+		"AgentConfigDefinitionMCPTool":             reflect.TypeOf(AgentConfigMCPToolSource{}),
+		"AgentConfigDefinitionToolPermission":      reflect.TypeOf(toolpermission.Selection{}),
+		"AgentConfigDefinitionSubagent":            reflect.TypeOf(AgentConfigSubagentSource{}),
+		"AgentConfigDefinitionSubagentModel":       reflect.TypeOf(AgentConfigSubagentModelSource{}),
+		"AgentConfigDefinitionSubagentInstruction": reflect.TypeOf(AgentConfigSubagentInstructionSource{}),
+		"AgentConfigDefinitionMemoryStore":         reflect.TypeOf(MemoryStoreSource{}),
 	}
-	// Custom tool input_schema decodes into map[string]any, so its schema
-	// stays deliberately open.
-	openDefs := map[string]bool{"AgentToolInputSchema": true}
+	openDefs := map[string]bool{
+		"AgentConfigDefinitionToolInputSchema":     true,
+		"AgentConfigDefinitionMachineSources":      true,
+		"AgentConfigDefinitionInteractionHandlers": true,
+		"AgentConfigDefinitionMCPServers":          true,
+		"AgentConfigDefinitionMemoryStores":        true,
+		"AgentConfigDefinitionSkills":              true,
+		"AgentConfigDefinitionSubagents":           true,
+		"AgentConfigDefinitionTools":               true,
+		"EnvironmentVariableName":                  true,
+		"MemoryStoreName":                          true,
+		"ResourceNameReference":                    true,
+	}
 	for name := range defs {
 		if !openDefs[name] && structsByDef[name] == nil {
 			t.Errorf("schema $def %q is not mapped to a Go struct here; map it or mark it open", name)
 		}
 	}
-	assertSchemaMatchesStruct(t, "root", schema, reflect.TypeOf(AgentConfigSource{}))
+	testutil.AssertSchemaMatchesStruct(t, "root", schema, reflect.TypeOf(AgentConfigSource{}))
 	for name, structType := range structsByDef {
 		def, ok := defs[name].(map[string]any)
 		if !ok {
 			t.Errorf("schema $def %q is missing", name)
 			continue
 		}
-		assertSchemaMatchesStruct(t, name, def, structType)
-	}
-}
-
-func assertSchemaMatchesStruct(t *testing.T, name string, schema map[string]any, structType reflect.Type) {
-	t.Helper()
-	if extra, ok := schema["additionalProperties"].(bool); !ok || extra {
-		t.Errorf("%s: schema must set additionalProperties=false to reject unknown fields before Go decode", name)
-	}
-	properties, _ := schema["properties"].(map[string]any)
-	structFields := make(map[string]bool, structType.NumField())
-	for i := range structType.NumField() {
-		tagName, _, _ := strings.Cut(structType.Field(i).Tag.Get("json"), ",")
-		if tagName == "" || tagName == "-" {
-			t.Errorf("%s: struct field %s needs an explicit JSON tag", name, structType.Field(i).Name)
-			continue
-		}
-		structFields[tagName] = true
-	}
-	for field := range properties {
-		if !structFields[field] {
-			t.Errorf("%s: schema property %q has no Go struct field; its value would be silently dropped on decode", name, field)
-		}
-	}
-	for field := range structFields {
-		if _, ok := properties[field]; !ok {
-			t.Errorf("%s: Go struct field %q is not declared in the schema; configs using it would be rejected", name, field)
-		}
+		testutil.AssertSchemaMatchesStruct(t, name, def, structType)
 	}
 }
 
@@ -365,41 +350,4 @@ machine_sources:
 	if err != nil {
 		t.Fatalf("parse source with raw process env names: %v", err)
 	}
-}
-
-func TestGeneratedAgentConfigSourceSchemaIsCurrent(t *testing.T) {
-	path := filepath.Join("generated", "agent_config.schema.json")
-	expected, err := agentConfigSourceJSONSchemaJSON()
-	if err != nil {
-		t.Fatalf("generate source schema: %v", err)
-	}
-	if os.Getenv("OMNARA_REGEN_AGENT_CONFIG_SCHEMA") == "1" {
-		pretty, err := prettyJSON(expected)
-		if err != nil {
-			t.Fatalf("pretty-print schema: %v", err)
-		}
-		if err := os.WriteFile(path, pretty, 0o644); err != nil {
-			t.Fatalf("write regenerated schema: %v", err)
-		}
-		return
-	}
-	generated, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read generated schema: %v", err)
-	}
-	if string(canonicalizeJSON(generated)) != string(canonicalizeJSON(expected)) {
-		t.Fatal("generated/agent_config.schema.json is stale; rerun with OMNARA_REGEN_AGENT_CONFIG_SCHEMA=1 to refresh it")
-	}
-}
-
-func prettyJSON(raw []byte) ([]byte, error) {
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return nil, err
-	}
-	out, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(out, '\n'), nil
 }

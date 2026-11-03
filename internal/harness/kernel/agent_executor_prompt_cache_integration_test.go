@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAgentExecutorKeepsPromptPrefixStableAcrossTurns(t *testing.T) {
@@ -91,7 +92,6 @@ skills:
 		t.Fatalf("launch agent: %v", err)
 	}
 	agentID := launch.Agent.ID
-	attachKernelSlackTarget(t, ctx, fixture, agentID, profile.ID, "prompt-cache", "C_PROMPT_CACHE:1.0")
 
 	text := func(id, value string) model.Response {
 		return model.Response{
@@ -151,27 +151,27 @@ skills:
 		bundles = append(bundles, snapshot.Bundle)
 	}
 	last := bundles[len(bundles)-1]
-	dispatchSpecs, err := executor.modelContextToolRuntime(ctx, kernelTestProjectID, agentID,
-		executionstore.ModelCallContextRecord{AgentConfigID: profile.CurrentConfigID}, now)
+	config, found, err := fixture.Store.Execution().GetAgentConfig(ctx, kernelTestProjectID, profile.CurrentConfigID)
+	require.NoError(t, err)
+	require.True(t, found)
+	dispatchSpecs, err := executor.toolRuntimeFromConfig(ctx, kernelTestProjectID, agentID,
+		config, now)
 	if err != nil {
 		t.Fatalf("reload tool runtime: %v", err)
 	}
 	for _, name := range []string{
 		"run_command", "write_process", "read_process", "stop_process", "list_processes",
-		"create_machine", "delete_machine", "list_machines", "inspect_machine", "upload_file", "download_file",
+		"create_machine", "delete_machine", "list_machines", "inspect_machine", "storage_upload", "storage_download",
 	} {
 		if !modelcontext.HasTool(last.ToolSpecs, name) || !modelcontext.HasTool(dispatchSpecs, name) {
 			t.Fatalf("default machine tool %s missing from prompt or dispatch", name)
 		}
 	}
 	if !modelcontext.HasTool(last.ToolSpecs, toolcatalog.ToolNameSkill) ||
-		!modelcontext.HasTool(last.ToolSpecs, toolcatalog.ToolNameSendIntegrationMessage) ||
 		!modelcontext.HasTool(last.ToolSpecs, "lookup_customer") ||
-		len(last.AvailableMachinePools) != 1 ||
-		len(last.IntegrationTargets) != 1 ||
 		len(last.ToolResults) != 1 ||
 		!strings.Contains(last.SystemPrompt, "<available_skills>") {
-		t.Fatalf("final bundle lacks the expected tools, pool, target, tool result, or skill catalog: %+v", last)
+		t.Fatalf("final bundle lacks the expected tools, tool result, or skill catalog: %+v", last)
 	}
 
 	routes := []struct {

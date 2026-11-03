@@ -78,6 +78,15 @@ func TestPreparedOutputAllowanceUsesAdapterWireFields(t *testing.T) {
 					allowance != prepared.MaxOutputTokens {
 					t.Fatalf("allowance=%d remaining=%d recorded=%d", allowance, remaining, prepared.MaxOutputTokens)
 				}
+				smaller, err := model.PrepareForSend(t.Context(), tc.client, model.PrepareForSendInput{
+					Context: modelcontext.Bundle{SystemPrompt: "Small setup context."},
+					Policy:  model.RequestPolicyFromCapabilities(caps),
+				})
+				require.NoError(t, err)
+				require.Equal(t, *caps.MaxOutputTokens, smaller.MaxOutputTokens)
+				require.NoError(t, json.Unmarshal(smaller.Body, &wire))
+				require.NoError(t, json.Unmarshal(wire[tc.field], &allowance))
+				require.Equal(t, *caps.MaxOutputTokens, allowance)
 			})
 		}
 	}

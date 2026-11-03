@@ -131,6 +131,9 @@ func toolImplementationFor(name string) (toolImplementation, bool, error) {
 	if err != nil {
 		return toolImplementation{}, false, err
 	}
+	if implementation, ok := integrationToolImplementation(name); ok {
+		return implementation, true, nil
+	}
 	if implementation, ok := mcpToolImplementation(name); ok {
 		return implementation, true, nil
 	}
@@ -155,6 +158,11 @@ func mcpToolImplementation(name string) (toolImplementation, bool) {
 func (tool toolImplementation) validateInput(input json.RawMessage) error {
 	if tool.inputSchemaValidator != nil {
 		if err := tool.inputSchemaValidator.Validate(input); err != nil {
+			if tool.semanticInputValidator != nil {
+				if semanticErr := tool.semanticInputValidator(input); semanticErr != nil {
+					return fmt.Errorf("tool %q input: %w\n%w", tool.name, semanticErr, err)
+				}
+			}
 			return fmt.Errorf("tool %q input: %w", tool.name, err)
 		}
 	}
@@ -165,17 +173,24 @@ func (tool toolImplementation) validateInput(input json.RawMessage) error {
 }
 
 func builtInToolRegistrations() []toolRegistration {
-	return []toolRegistration{
+	registrations := interactionToolRegistrations()
+	return append(registrations, []toolRegistration{
 		{
-			name:                   toolcatalog.ToolNameReadFile,
-			semanticInputValidator: validateReadFileInput,
-			handler:                toolHandler{Async: runReadFileAsync},
+			name:                   toolcatalog.ToolNameStorageRead,
+			semanticInputValidator: validateStorageReadInput,
+			handler:                toolHandler{Async: runStorageReadAsync},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameSearchFiles,
-			semanticInputValidator: validateSearchFilesInput,
-			handler:                toolHandler{Async: runSearchFilesAsync},
+			name:                   toolcatalog.ToolNameStorageWrite,
+			semanticInputValidator: validateStorageWriteInput,
+			handler:                toolHandler{Async: runStorageWriteAsync},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
+			name:                   toolcatalog.ToolNameStorageSearch,
+			semanticInputValidator: validateStorageSearchInput,
+			handler:                toolHandler{Async: runStorageSearchAsync},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
@@ -185,16 +200,16 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes:        commonPermissionModeHandlers(runCommandPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameUploadFile,
-			semanticInputValidator: validateUploadFileInput,
-			handler:                toolHandler{Transactional: runUploadFile, Background: wakeProcessTool},
-			permissionModes:        commonPermissionModeHandlers(uploadFilePermissionChallenge),
+			name:                   toolcatalog.ToolNameStorageUpload,
+			semanticInputValidator: validateStorageUploadInput,
+			handler:                toolHandler{Transactional: runStorageUpload, Background: wakeProcessTool},
+			permissionModes:        commonPermissionModeHandlers(storageUploadPermissionChallenge),
 		},
 		{
-			name:                   toolcatalog.ToolNameDownloadFile,
-			semanticInputValidator: validateDownloadFileInput,
-			handler:                toolHandler{Transactional: runDownloadFile, Background: wakeProcessTool},
-			permissionModes:        commonPermissionModeHandlers(downloadFilePermissionChallenge),
+			name:                   toolcatalog.ToolNameStorageDownload,
+			semanticInputValidator: validateStorageDownloadInput,
+			handler:                toolHandler{Transactional: runStorageDownload, Background: wakeProcessTool},
+			permissionModes:        commonPermissionModeHandlers(storageDownloadPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameWriteProcess,
@@ -212,6 +227,12 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes: commonPermissionModeHandlers(
 				processObservationPermissionChallenge(processObservationRead),
 			),
+		},
+		{
+			name:                   toolcatalog.ToolNameWatchProcess,
+			semanticInputValidator: validateWatchProcessInput,
+			handler:                toolHandler{Transactional: watchProcess},
+			permissionModes:        commonPermissionModeHandlers(watchProcessPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameStopProcess,
@@ -246,6 +267,12 @@ func builtInToolRegistrations() []toolRegistration {
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
+			name:                   toolcatalog.ToolNameStorageList,
+			semanticInputValidator: validateStorageList,
+			handler:                toolHandler{Async: runStorageList},
+			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+		},
+		{
 			name:                   toolcatalog.ToolNameListMachines,
 			semanticInputValidator: validateListMachinesInput,
 			handler:                toolHandler{Transactional: listMachines},
@@ -256,6 +283,11 @@ func builtInToolRegistrations() []toolRegistration {
 			semanticInputValidator: validateInspectMachineInput,
 			handler:                toolHandler{Transactional: inspectMachine},
 			permissionModes:        commonPermissionModeHandlers(inspectMachinePermissionChallenge),
+		},
+		{
+			name:            toolcatalog.ToolNameListGitHubRepositories,
+			handler:         toolHandler{Async: runListGitHubRepositories},
+			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameSpawnAgent,
@@ -304,23 +336,9 @@ func builtInToolRegistrations() []toolRegistration {
 			semanticInputValidator: validateQuestionInput,
 			handler: toolHandler{
 				Transactional: prepareStructuredQuestion,
-				Async:         deliverStructuredQuestionPrompts,
+				Background:    presentStructuredQuestion,
 			},
 			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
-		},
-		{
-			name:                   toolcatalog.ToolNameSendIntegrationMessage,
-			semanticInputValidator: validateIntegrationMessageInput,
-			handler:                toolHandler{Async: runIntegrationMessageAsync},
-			permissionModes:        alwaysAllowPermissionModeHandlers(),
-		},
-		{
-			name:                   toolcatalog.ToolNameSetIntegrationTarget,
-			semanticInputValidator: validateIntegrationTargetInput,
-			handler:                toolHandler{Transactional: setIntegrationTarget},
-			permissionModes: commonPermissionModeHandlers(
-				setIntegrationTargetPermissionChallenge,
-			),
 		},
 		{
 			name:                   toolcatalog.ToolNameWebSearch,
@@ -340,7 +358,7 @@ func builtInToolRegistrations() []toolRegistration {
 			handler:                toolHandler{Async: runSkillTool},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
-	}
+	}...)
 }
 
 func validateWriteProcessInput(input json.RawMessage) error {
@@ -355,6 +373,11 @@ func processObservationInputValidator(
 		_, err := resolveProcessObservationRequest(input, mode)
 		return err
 	}
+}
+
+func validateWatchProcessInput(input json.RawMessage) error {
+	_, _, err := watchProcessPayload(input)
+	return err
 }
 
 func validateStopProcessInput(input json.RawMessage) error {

@@ -1,4 +1,6 @@
+import type { AgentConfigDefinition } from '@omnara/sdk'
 import { parse } from 'yaml'
+import * as z from 'zod'
 
 import { type BasicConfig, createBasicConfigSession } from '@/components/agents/useAgentBuilderForm'
 import type { CodeContent } from '@/components/overview/CodeBlock'
@@ -8,14 +10,21 @@ export const cliLoginCommand = 'npx omnara login'
 export function shellCode(command: string): CodeContent {
   return { copy: command, segments: [{ text: command }], language: 'shell' }
 }
-export const cliSetupPrompt =
-  'Read https://omnara.com/SKILL.md and help me create an Omnara agent profile.'
+export const skillUrl = 'https://www.omnara.com/SKILL.md'
+export const cliSetupPrompt = `Read ${skillUrl} and help me create an Omnara agent profile.`
+// Same prompt as the omnara.com hero, so the landing page and the app hand off identically.
+export const agentSetupPrompt = `Read ${skillUrl} and follow it to set up my Omnara agent.`
 function shellLines(parts: string[]) {
   return parts.join(' \\\n  ')
 }
 
+const zDefinitionObject = z.custom<AgentConfigDefinition>(
+  (value) => z.record(z.string(), z.unknown()).safeParse(value).success,
+)
+
 export interface ProfileCreateSpec {
   name: string
+  definition: AgentConfigDefinition
   json: string
   command: CodeContent
 }
@@ -26,8 +35,10 @@ export function profileCreateSpec(input: {
   name: string
   config: BasicConfig
 }): ProfileCreateSpec {
-  const source: unknown = parse(createBasicConfigSession('').apply(input.config))
-  const json = JSON.stringify(source ?? {}, null, 1).replaceAll(/\n\s*/g, ' ')
+  const definition = zDefinitionObject.parse(
+    parse(createBasicConfigSession('').apply(input.config)) ?? {},
+  )
+  const json = JSON.stringify(definition, null, 1).replaceAll(/\n\s*/g, ' ')
   const shellJson = json.replaceAll("'", "'\\''")
   const prefix = shellLines([
     'npx omnara profiles create',
@@ -38,6 +49,7 @@ export function profileCreateSpec(input: {
   ])
   return {
     name: input.name,
+    definition,
     json,
     command: {
       copy: `${prefix}${shellJson}'`,

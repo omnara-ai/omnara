@@ -7,7 +7,6 @@ import { AppShell } from '@/components/app-shell/AppShell'
 import { BrandMark } from '@/components/brand/OmnaraMark'
 import { MailCheck } from '@/components/icons'
 import { PendingInvitationList } from '@/components/invitations/PendingInvitationList'
-import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import {
   Empty,
@@ -77,8 +76,6 @@ function InvitationsContent({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
-      {hasOrganizations && <PageBreadcrumb items={[{ id: 'invitations', label: 'Invitations' }]} />}
-
       <div className="flex flex-col gap-2">
         <h1 className="type-title">Pending invitations</h1>
         <p className="text-muted-foreground text-sm">
@@ -86,9 +83,8 @@ function InvitationsContent({
         </p>
       </div>
 
-      {invitations.length > 0 ? (
-        <PendingInvitationList invitations={invitations} onAccepted={onAccepted} />
-      ) : (
+      <PendingInvitationList invitations={invitations} onAccepted={onAccepted} />
+      {invitations.length === 0 && (
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -96,7 +92,8 @@ function InvitationsContent({
             </EmptyMedia>
             <EmptyTitle>No pending invitations</EmptyTitle>
             <EmptyDescription>
-              New organization invitations will appear here when they arrive.
+              New organization invitations will appear here when they arrive. Accepted, declined, or
+              canceled invitations are no longer listed.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>

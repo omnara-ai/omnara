@@ -1,10 +1,15 @@
-import type { ReactNode } from 'react'
+import { useParams } from '@tanstack/react-router'
+import { type ReactNode, useState } from 'react'
 
+import { agentPaneWidth } from '@/components/agents/agent-pane'
 import { NavUser } from '@/components/app-shell/NavUser'
 import { OrganizationNav } from '@/components/app-shell/OrganizationNav'
 import { OrgSwitcher } from '@/components/app-shell/OrgSwitcher'
-import { ProjectsNav } from '@/components/app-shell/ProjectsNav'
+import { PendingInvitationsNav } from '@/components/app-shell/PendingInvitationsNav'
+import { ProjectNav } from '@/components/app-shell/ProjectNav'
+import { ProjectSwitcher } from '@/components/app-shell/ProjectSwitcher'
 import { ArrowUpRight, BookOpen } from '@/components/icons'
+import { BreadcrumbSlotContext } from '@/components/layout/breadcrumb-slot-context'
 import {
   Sidebar,
   SidebarContent,
@@ -18,6 +23,8 @@ import {
   SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar'
+import type { CssVariables } from '@/lib/css'
+import { cn } from '@/lib/utils'
 
 function AppSidebar({ children }: { children: ReactNode }) {
   const { isMobile, setOpenMobile } = useSidebar()
@@ -25,6 +32,7 @@ function AppSidebar({ children }: { children: ReactNode }) {
   return (
     <Sidebar
       collapsible={isMobile ? 'offcanvas' : 'none'}
+      className="md:border-sidebar-border/60 md:border-r"
       onClick={(event) => {
         if (isMobile && event.target instanceof Element && event.target.closest('a')) {
           setOpenMobile(false)
@@ -36,19 +44,29 @@ function AppSidebar({ children }: { children: ReactNode }) {
   )
 }
 
+const insetStyle: CssVariables = { '--agent-pane-width': agentPaneWidth }
+
+function ScopedNav() {
+  const projectId = useParams({ strict: false, select: (params) => params.projectId })
+  return projectId ? <ProjectNav projectId={projectId} /> : <OrganizationNav />
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
+  const [breadcrumbSlot, setBreadcrumbSlot] = useState<HTMLDivElement | null>(null)
+  const [scrolled, setScrolled] = useState(false)
+
   return (
     <SidebarProvider className="h-svh" keyboardShortcut={false}>
       <AppSidebar>
-        <SidebarHeader>
+        <SidebarHeader className="h-12 shrink-0 justify-center border-b py-0">
           <OrgSwitcher />
         </SidebarHeader>
-        <SidebarContent>
-          <OrganizationNav />
-          <ProjectsNav />
+        <SidebarContent className="pt-2">
+          <PendingInvitationsNav />
+          <ScopedNav />
         </SidebarContent>
         <SidebarFooter>
-          <SidebarMenu>
+          <SidebarMenu className="gap-1">
             <SidebarMenuItem>
               <SidebarMenuButton asChild>
                 <a href="https://docs.omnara.com" target="_blank" rel="noreferrer">
@@ -63,11 +81,34 @@ export function AppShell({ children }: { children: ReactNode }) {
         </SidebarFooter>
       </AppSidebar>
 
-      <SidebarInset>
-        <div className="bg-background flex h-12 shrink-0 items-center border-b px-4 md:hidden">
-          <SidebarTrigger className="size-10 sm:size-10" />
-        </div>
-        <div className="relative min-h-0 flex-1 overflow-auto p-4 sm:p-6">{children}</div>
+      <SidebarInset
+        style={insetStyle}
+        className="group/inset md:[&:has([data-side=right][data-state=expanded])>header]:pr-[calc(var(--agent-pane-width)+1rem)]"
+      >
+        {/* A page marked data-transparent-header draws under the header, which floats over it
+            until the page scrolls, so content never shows through it. */}
+        <header
+          className={cn(
+            'bg-background grid h-12 shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-b px-4 group-has-[[data-transparent-header]]/inset:absolute group-has-[[data-transparent-header]]/inset:inset-x-0 group-has-[[data-transparent-header]]/inset:top-0 group-has-[[data-transparent-header]]/inset:z-10 md:grid-cols-[1fr_minmax(0,auto)_1fr]',
+            !scrolled && 'group-has-[[data-transparent-header]]/inset:bg-transparent',
+          )}
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <SidebarTrigger className="size-10 sm:size-10 md:hidden" />
+            <ProjectSwitcher />
+          </div>
+          <div ref={setBreadcrumbSlot} className="flex min-w-0 justify-end md:justify-center" />
+        </header>
+        <BreadcrumbSlotContext value={breadcrumbSlot}>
+          <div
+            className="relative min-h-0 flex-1 overflow-auto p-4 pt-6 sm:p-6 sm:pt-9"
+            onScroll={(event) => {
+              setScrolled(event.currentTarget.scrollTop > 0)
+            }}
+          >
+            {children}
+          </div>
+        </BreadcrumbSlotContext>
       </SidebarInset>
     </SidebarProvider>
   )

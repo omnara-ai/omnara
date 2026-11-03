@@ -40,6 +40,7 @@ export function DataTable<TData>({
   isError,
   onRetry,
   emptyMessage,
+  emptyAction,
 }: {
   columns: readonly DataTableColumn<TData>[]
   /** The rows of the current page. Paging and filtering happen in the caller. */
@@ -57,6 +58,8 @@ export function DataTable<TData>({
   isError?: boolean
   onRetry?: () => void
   emptyMessage: string
+  /** Call to action shown under the empty message when the list is empty and unfiltered. */
+  emptyAction?: ReactNode
 }) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const resizing = useColumnResizing(columns)
@@ -77,7 +80,7 @@ export function DataTable<TData>({
       <div className="@container overflow-hidden rounded-xl border">
         <div
           className={cn(
-            'after:border-border/50 after:bg-muted/50 after:shadow-xs relative isolate after:pointer-events-none after:absolute after:-inset-x-px after:-top-px after:-z-10 after:h-[calc(2.25rem+2px)] after:rounded-xl after:border',
+            'after:border-border/50 after:bg-muted/50 relative isolate after:pointer-events-none after:absolute after:-inset-x-px after:-top-px after:-z-10 after:h-[calc(2.25rem+2px)] after:rounded-xl after:border after:shadow-xs',
             !hasDataRows && 'max-md:after:hidden',
           )}
         >
@@ -111,6 +114,7 @@ export function DataTable<TData>({
                   isFiltered={isFiltered}
                   onRetry={onRetry}
                   emptyMessage={emptyMessage}
+                  emptyAction={emptyAction}
                 />
               ) : (
                 data.map((item) => {
@@ -153,6 +157,7 @@ function DataTableStateRows({
   isFiltered,
   onRetry,
   emptyMessage,
+  emptyAction,
 }: {
   columnCount: number
   isPending?: boolean
@@ -160,6 +165,7 @@ function DataTableStateRows({
   isFiltered?: boolean
   onRetry?: () => void
   emptyMessage: string
+  emptyAction?: ReactNode
 }) {
   if (isPending) {
     return [0, 1].map((index) => (
@@ -194,12 +200,17 @@ function DataTableStateRows({
         <EmptyHeader>
           <EmptyDescription>{isFiltered ? 'No results.' : emptyMessage}</EmptyDescription>
         </EmptyHeader>
+        {!isFiltered && emptyAction && (
+          <EmptyContent className="flex-row flex-wrap justify-center gap-2">
+            {emptyAction}
+          </EmptyContent>
+        )}
       </Empty>
     </StateRow>
   )
 }
 
-function DataTablePagination({ pagination }: { pagination: PaginationControls }) {
+export function DataTablePagination({ pagination }: { pagination: PaginationControls }) {
   if (!pagination.canPrev && !pagination.canNext && pagination.page === 0) return null
   return (
     <div className="bg-muted/50 flex items-center justify-end gap-3 rounded-xl px-4 py-1.5">
@@ -251,7 +262,7 @@ function DataTableHeaderRow<TData>({
               type="button"
               aria-label={`Resize ${column.header || 'actions'} column`}
               className={cn(
-                'after:bg-border hover:after:bg-ring focus-visible:after:bg-ring absolute inset-y-0 -right-1 z-20 hidden w-2 cursor-col-resize touch-none select-none border-0 bg-transparent p-0 outline-none after:absolute after:inset-y-2 after:left-1/2 after:w-px after:transition-colors lg:block',
+                'after:bg-border hover:after:bg-ring focus-visible:after:bg-ring absolute inset-y-0 -right-1 z-20 hidden w-2 cursor-col-resize touch-none border-0 bg-transparent p-0 outline-none select-none after:absolute after:inset-y-2 after:left-1/2 after:w-px after:transition-colors lg:block',
                 resizing.resizingColumn === index && 'after:bg-ring',
               )}
               onPointerDown={(event) => {
@@ -308,7 +319,7 @@ function DataRow<TData>({
                 className={cn(
                   'flex justify-end',
                   column.revealOnHover !== false &&
-                    'has-aria-expanded:opacity-100 transition-opacity lg:opacity-0 lg:focus-within:opacity-100 lg:group-hover/row:opacity-100',
+                    'transition-opacity has-aria-expanded:opacity-100 lg:opacity-0 lg:group-hover/row:opacity-100 lg:focus-within:opacity-100',
                 )}
               >
                 {column.cell(item)}
@@ -321,7 +332,7 @@ function DataRow<TData>({
       </TableRow>
       {expanded && (
         <TableRow className="bg-muted/30 hover:bg-muted/30">
-          <TableCell colSpan={columns.length} className="whitespace-normal px-4 py-3">
+          <TableCell colSpan={columns.length} className="px-4 py-3 whitespace-normal">
             <div className="sticky left-0 w-[calc(100cqw-2rem)] lg:static lg:w-auto">
               {rowExpanded?.(item)}
             </div>
@@ -335,7 +346,7 @@ function DataRow<TData>({
 function StateRow({ columnCount, children }: { columnCount: number; children: ReactNode }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={columnCount} className="whitespace-normal p-0">
+      <TableCell colSpan={columnCount} className="p-0 whitespace-normal">
         {children}
       </TableCell>
     </TableRow>

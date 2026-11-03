@@ -1,0 +1,17 @@
+---
+title: SEO audit agent
+description: Audits a web page for SEO, answer engines, and AI search citations, and delivers a PDF report
+icon: "magnifying-glass-chart"
+---
+
+Give it a URL and it audits the page for classic search (SEO), answer engines (AEO), and AI search citations (GEO): what crawlers can see before and after JavaScript, whether AI crawlers are blocked, Lighthouse speed, metadata and structured data, and how the page compares with the pages that compete for its query. The report grades each area, ranks the fixes, and writes them ready to paste, delivered as a PDF plus a markdown copy. It needs no API keys; a Google key adds real-user speed data, and an OpenAI key adds measured AI search citations.
+
+## Deploy
+
+Give this prompt to Claude Code, Codex, Cursor, or any other coding agent. It asks which page to audit first and whether to add any keys, creates the agent in your Omnara project, and runs the first audit.
+
+```text
+Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/seo-audit-agent/SKILL.md and follow it to deploy the SEO audit agent.
+```
+
+To see how it works or adapt it, browse [`examples/seo-audit-agent`](https://github.com/omnara-ai/omnara/tree/main/examples/seo-audit-agent) on GitHub.

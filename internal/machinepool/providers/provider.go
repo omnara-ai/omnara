@@ -14,10 +14,18 @@ import (
 )
 
 const (
-	Blaxel   = "blaxel"
-	Daytona  = "daytona"
-	Modal    = "modal"
-	Unikraft = "unikraft"
+	Agent37    = "agent37"
+	Arker      = "arker"
+	Blaxel     = "blaxel"
+	Boxd       = "boxd"
+	CreateOS   = "createos"
+	Daytona    = "daytona"
+	E2B        = "e2b"
+	Freestyle  = "freestyle"
+	Modal      = "modal"
+	Superserve = "superserve"
+	Tenki      = "tenki"
+	Unikraft   = "unikraft"
 )
 
 type RuntimeConfig struct {
@@ -34,6 +42,8 @@ type ProvisionMachineResult struct {
 // and any previously observed resource id is stale; the next retry may observe
 // a different id for the same machine.
 var ErrResourceReplaced = errors.New("provider resource was replaced")
+
+var ErrPermanent = errors.New("permanent provider error")
 
 type WakeMachineInput struct {
 	ProviderResourceID string
@@ -64,6 +74,9 @@ type Provider interface {
 		context.Context,
 		executionstore.MachineProvisioningConfig,
 	) (executionstore.MachineResourceFacts, error)
+	// ValidateMachineConfig runs with the resolved environment before the
+	// provisioning attempt is recorded; an error permanently fails the machine.
+	ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error
 	// ProvisionMachine must be idempotent by installation and machine identity;
 	// the caller may retry it immediately after any error.
 	// Calling it is the external side-effect boundary and must be recorded durably first.
@@ -75,13 +88,16 @@ type Provider interface {
 	// wrapping ErrResourceReplaced so callers discard previously observed ids.
 	// machineEnv is the machine's resolved environment and is applied to the
 	// provider resource at creation; retries that adopt an existing resource
-	// keep the environment it was created with.
+	// keep the environment it was created with. firstAttempt is true until a
+	// provisioning attempt has been recorded for the machine, including retries
+	// within that attempt.
 	ProvisionMachine(
 		ctx context.Context,
 		installationID, machineID uuid.UUID,
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		machineToken string,
 		machineEnv map[string]string,
+		firstAttempt bool,
 	) (ProvisionMachineResult, error)
 	InspectMachine(
 		ctx context.Context,
@@ -89,9 +105,11 @@ type Provider interface {
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		providerResourceID string,
 	) (string, bool, error)
+	CheckConnection(context.Context, executionstore.MachineProvisioningConfig) error
 }
 
 type Definition interface {
+	ResourcePolicy() MachineResourcePolicy
 	NewProvider(json.RawMessage, RuntimeConfig) (Provider, error)
 	ResolveMachineProviderOptions(
 		defaultOptions map[string]json.RawMessage,

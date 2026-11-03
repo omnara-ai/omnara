@@ -3,6 +3,7 @@ import {
   getCurrentUserQueryKey,
   listMemberProjectAccessOptions,
   listMemberProjectAccessQueryKey,
+  listOrgInvitationsQueryKey,
   listOrgMembersQueryKey,
 } from '@omnara/sdk/tanstack'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -26,6 +27,9 @@ export function useUpdateOrgMemberRole(orgID: string) {
         queryClient.invalidateQueries({
           queryKey: listOrgMembersQueryKey({ path: { orgID }, client }),
         }),
+        queryClient.invalidateQueries({
+          queryKey: listOrgInvitationsQueryKey({ path: { orgID }, client }),
+        }),
         queryClient.invalidateQueries({ queryKey: getCurrentUserQueryKey({ client }) }),
       ])
     },
@@ -44,6 +48,9 @@ export function useRemoveOrgMember(orgID: string) {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: listOrgMembersQueryKey({ path: { orgID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: listOrgInvitationsQueryKey({ path: { orgID }, client }),
         }),
         queryClient.invalidateQueries({ queryKey: getCurrentUserQueryKey({ client }) }),
       ])

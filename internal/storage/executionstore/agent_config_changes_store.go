@@ -7,11 +7,10 @@ import (
 	"reflect"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/events"
-	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -49,31 +48,60 @@ type ChangeAgentConfigResult struct {
 	DeleteMachines []MachineRecord
 }
 
-func (s *Store) ChangeAgentConfig(ctx context.Context, input ChangeAgentConfigInput) (ChangeAgentConfigResult, error) {
+func (s *Store) ChangeAgentConfig(
+	ctx context.Context,
+	input ChangeAgentConfigInput,
+) (ChangeAgentConfigResult, error) {
 	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil {
 		return ChangeAgentConfigResult{}, errors.New("project and agent are required")
 	}
-	return storeutil.RetryTransaction(ctx, "change_agent_config", func() (ChangeAgentConfigResult, error) {
-		return s.changeAgentConfigOnce(ctx, input)
-	})
+	return agentexecution.Retry(ctx,
+		"change_agent_config",
+		func(ctx context.Context) (ChangeAgentConfigResult, error) {
+			result, err := s.changeAgentConfigOnce(ctx, input)
+			if isUniqueViolationOnConstraint(err, "agent_inputs_idempotency_idx") {
+				err = storeutil.ErrRetryTransaction
+			}
+			return result, err
+		})
 }
 
 func (s *Store) changeAgentConfigOnce(
 	ctx context.Context,
 	input ChangeAgentConfigInput,
 ) (ChangeAgentConfigResult, error) {
-	txNotifications := s.newTxNotifications()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	unit, err := s.cell.Begin(ctx)
 	if err != nil {
-		return ChangeAgentConfigResult{}, fmt.Errorf("begin change agent config: %w", err)
+		return ChangeAgentConfigResult{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
+	defer func() { _ = unit.Rollback(ctx) }()
+	tx := unit.DB()
+	txNotifications := unit.Notifications()
+	qtx := dbsqlc.New(tx)
 	project, err := loadProjectTx(ctx, qtx, input.ProjectID)
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	replay := func() (ChangeAgentConfigResult, bool, error) {
+		stored, found, err := loadAgentInputByIdempotencyMaybeTx(ctx,
+			tx,
+			input.ProjectID,
+			input.AgentID,
+			"agent_config_change",
+			input.IdempotencyKey)
+		if err != nil || !found {
+			return ChangeAgentConfigResult{}, false, err
+		}
+		result, err := replayAgentConfigChangeTx(ctx, unit, qtx, input, stored)
+		return result, true, err
+	}
+	if result, replayed, err := replay(); replayed || err != nil {
+		return result, err
+	}
+	if err := lockConfigChangeIntegrationsTx(ctx, tx, qtx, input); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
 	if err := qtx.LockAgentMachineSources(
@@ -82,6 +110,9 @@ func (s *Store) changeAgentConfigOnce(
 	); err != nil {
 		return ChangeAgentConfigResult{}, fmt.Errorf("lock agent machine sources for config change: %w", err)
 	}
+	if result, replayed, err := replay(); replayed || err != nil {
+		return result, err
+	}
 	agent, err := qtx.GetAgentInProject(
 		ctx,
 		dbsqlc.GetAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
@@ -89,28 +120,7 @@ func (s *Store) changeAgentConfigOnce(
 	if err != nil {
 		return ChangeAgentConfigResult{}, fmt.Errorf("load agent for config change: %w", err)
 	}
-	if agent.ParentAgentID != nil {
-		return ChangeAgentConfigResult{}, storeerr.InvalidRequest(errors.New("subagent configurations are read-only"))
-	}
-	idempotentReplay := false
-	if input.IdempotencyKey != "" {
-		_, replayErr := qtx.GetAgentInputByIdempotency(
-			ctx,
-			dbsqlc.GetAgentInputByIdempotencyParams{
-				ProjectID:           input.ProjectID,
-				AgentID:             input.AgentID,
-				IdempotencyScope:    "agent_config_change",
-				InputIdempotencyKey: input.IdempotencyKey,
-			},
-		)
-		switch {
-		case replayErr == nil:
-			idempotentReplay = true
-		case !errors.Is(replayErr, pgx.ErrNoRows):
-			return ChangeAgentConfigResult{}, fmt.Errorf("load idempotent config change: %w", replayErr)
-		}
-	}
-	if !idempotentReplay && AgentState(agent.State) != AgentStateActive {
+	if AgentState(agent.State) != AgentStateActive {
 		return ChangeAgentConfigResult{}, storeerr.ErrStateTransitionConflict
 	}
 	configInput := input.CreateAgentConfigInput
@@ -126,7 +136,7 @@ func (s *Store) changeAgentConfigOnce(
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	config, err := insertAgentConfigTx(ctx, qtx, configInput)
+	config, err := insertAgentConfigTx(ctx, qtx, configInput, unit.TrackCreation)
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
@@ -148,7 +158,7 @@ func (s *Store) changeAgentConfigOnce(
 		IdempotencyKey: input.IdempotencyKey,
 	}
 	var nextSources []launchMachineSource
-	if !idempotentReplay && !reflect.DeepEqual(currentContract.MachineSources, nextContract.MachineSources) {
+	if !reflect.DeepEqual(currentContract.MachineSources, nextContract.MachineSources) {
 		nextSources, err = decodeLaunchMachineSources(nextContract)
 		if err != nil {
 			return ChangeAgentConfigResult{}, err
@@ -171,7 +181,10 @@ func (s *Store) changeAgentConfigOnce(
 			},
 		)
 		if err != nil {
-			return ChangeAgentConfigResult{}, fmt.Errorf("list agent pool machines for config change: %w", err)
+			return ChangeAgentConfigResult{}, fmt.Errorf(
+				"list agent pool machines for config change: %w",
+				err,
+			)
 		}
 		if err := lockLaunchMachineSourcesTx(
 			ctx,
@@ -183,7 +196,7 @@ func (s *Store) changeAgentConfigOnce(
 			return ChangeAgentConfigResult{}, err
 		}
 	}
-	if err := lockAgentForConfigActivationTx(ctx, qtx, activationInput); err != nil {
+	if err := lockAgentForConfigActivationTx(ctx, unit, activationInput); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
 	if err := authorizeAgentConfigChangeTx(ctx, qtx, activationInput); err != nil {
@@ -193,7 +206,6 @@ func (s *Store) changeAgentConfigOnce(
 		if err := s.resolveLaunchExplicitMachineSourcesTx(
 			ctx,
 			qtx,
-			project.OrgID,
 			input.ProjectID,
 			nextSources,
 		); err != nil {
@@ -202,8 +214,7 @@ func (s *Store) changeAgentConfigOnce(
 	}
 	configChange, err := activateLockedAuthorizedAgentConfigTx(
 		ctx,
-		txNotifications,
-		tx,
+		unit,
 		qtx,
 		activationInput,
 	)
@@ -211,7 +222,7 @@ func (s *Store) changeAgentConfigOnce(
 		return ChangeAgentConfigResult{}, err
 	}
 	var deleteMachines []MachineRecord
-	if !idempotentReplay && agent.CurrentConfigID != config.ID {
+	if agent.CurrentConfigID != config.ID {
 		currentAgent, err := qtx.GetAgentInProject(
 			ctx,
 			dbsqlc.GetAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
@@ -220,12 +231,14 @@ func (s *Store) changeAgentConfigOnce(
 			return ChangeAgentConfigResult{}, fmt.Errorf("reload agent after config change: %w", err)
 		}
 		if currentAgent.CurrentConfigID == config.ID {
+			if _, err := s.ReconcileInteractionSelectionInUnit(ctx, unit, input.ProjectID, input.AgentID); err != nil {
+				return ChangeAgentConfigResult{}, err
+			}
 			deleteMachines, err = s.reconcileAgentMachineSourcesTx(
 				ctx,
 				txNotifications,
-				tx,
+				unit,
 				qtx,
-				project.OrgID,
 				input.ProjectID,
 				input.AgentID,
 				currentContract,
@@ -237,32 +250,68 @@ func (s *Store) changeAgentConfigOnce(
 			}
 		}
 	}
-	if idempotentReplay {
-		poolMachines, err := listPoolMachinesTx(ctx, qtx, input.ProjectID, input.AgentID)
-		if err != nil {
-			return ChangeAgentConfigResult{}, err
-		}
-		for _, poolMachine := range poolMachines {
-			machine := poolMachine.Machine
-			if machine.LifecycleState == MachineLifecycleStateDeleting &&
-				machine.LifecycleReasonCode == "agent_config_machine_source_removed" {
-				deleteMachines = append(deleteMachines, machine)
-			}
-		}
-	}
-	if err := qtx.ReconcileAgentWakeup(ctx, dbsqlc.ReconcileAgentWakeupParams{
-		ProjectID: input.ProjectID,
-		AgentID:   input.AgentID,
-		Metadata:  []byte(`{"reason":"config_change"}`),
-	}); err != nil {
-		return ChangeAgentConfigResult{}, fmt.Errorf("reconcile config-change wakeup: %w", err)
-	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "change agent config"); err != nil {
+	if err := unit.Commit(ctx, "change agent config"); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
 	return ChangeAgentConfigResult{
 		AgentConfig:    config,
 		ConfigChange:   configChange,
+		DeleteMachines: deleteMachines,
+	}, nil
+}
+
+func replayAgentConfigChangeTx(
+	ctx context.Context,
+	unit *agentexecution.Unit,
+	qtx *dbsqlc.Queries,
+	input ChangeAgentConfigInput,
+	stored AgentInputRecord,
+) (ChangeAgentConfigResult, error) {
+	if err := authorizeAgentConfigChangeTx(ctx,
+		qtx,
+		ActivateAgentConfigInput{ProjectID: input.ProjectID,
+			AgentID:       input.AgentID,
+			AgentConfigID: stored.AgentConfigID,
+			ActorType:     input.ActorType,
+			ActorID:       input.ActorID}); err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+
+	if stored.State != "resolved" {
+		return ChangeAgentConfigResult{}, storeerr.ErrStateTransitionConflict
+	}
+	config, err := loadAgentConfigTx(ctx, qtx, input.ProjectID, stored.AgentConfigID)
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	eventRow, err := qtx.GetEventByProjectAgentIdempotencyKey(ctx, dbsqlc.GetEventByProjectAgentIdempotencyKeyParams{
+		ProjectID: input.ProjectID, AgentID: input.AgentID, IdempotencyKey: "agent_input:" + stored.ID.String(),
+	})
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	event, err := eventFromProjectIdempotencySQLC(eventRow)
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	poolMachines, err := listPoolMachinesTx(ctx, qtx, input.ProjectID, input.AgentID)
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	var deleteMachines []MachineRecord
+	for _, poolMachine := range poolMachines {
+		machine := poolMachine.Machine
+		if machine.LifecycleState == MachineLifecycleStateDeleting &&
+			poolMachine.DeleteReasonCode == "agent_config_machine_source_removed" {
+			deleteMachines = append(deleteMachines, machine)
+		}
+	}
+	if err := unit.Commit(ctx, "replay agent config change"); err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
+	return ChangeAgentConfigResult{
+		AgentConfig:    config,
+		ConfigChange:   AgentConfigChangeRecord{AgentInput: stored, Event: event},
 		DeleteMachines: deleteMachines,
 	}, nil
 }
@@ -274,16 +323,8 @@ func validateLiveAgentConfigChangeTx(
 	next CreateAgentConfigInput,
 ) (agentconfig.RuntimeContract, agentconfig.RuntimeContract, error) {
 	next = withDefaultAgentConfigCompilation(next)
-	if next.CompilerVersion != agentconfig.CompilerVersion {
-		return agentconfig.RuntimeContract{}, agentconfig.RuntimeContract{}, fmt.Errorf(
-			"agent config compiler contract %q is not activatable: %w",
-			next.CompilerVersion,
-			storeerr.ErrStateTransitionConflict,
-		)
-	}
 	nextContract, err := agentconfig.RuntimeContractFromCompiled(
 		next.CompiledDefinition,
-		next.CompilerVersion,
 		next.EffectiveDefinitionHash,
 	)
 	if err != nil {
@@ -301,7 +342,6 @@ func validateLiveAgentConfigChangeTx(
 	}
 	currentContract, err := agentconfig.RuntimeContractFromCompiled(
 		current.CompiledDefinition,
-		current.CompilerVersion,
 		current.EffectiveDefinitionHash,
 	)
 	if err != nil {
@@ -315,29 +355,25 @@ func validateLiveAgentConfigChangeTx(
 
 func activateNewAgentConfigTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	input ActivateAgentConfigInput,
 ) (AgentConfigChangeRecord, error) {
 	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.AgentConfigID == uuid.Nil {
 		return AgentConfigChangeRecord{}, errors.New("project, agent, and config are required")
 	}
-	return activateLockedAuthorizedAgentConfigTx(ctx, txNotifications, tx, qtx, input)
+	return activateLockedAuthorizedAgentConfigTx(ctx, unit, qtx, input)
 }
 
 func lockAgentForConfigActivationTx(
 	ctx context.Context,
-	qtx *dbsqlc.Queries,
+	unit *agentexecution.Unit,
 	input ActivateAgentConfigInput,
 ) error {
 	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.AgentConfigID == uuid.Nil {
 		return errors.New("project, agent, and config are required")
 	}
-	if _, err := qtx.LockAgentInProject(
-		ctx,
-		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-	); err != nil {
+	if _, err := lockExecution(ctx, unit, input.ProjectID, input.AgentID, false, uuid.Nil); err != nil {
 		return fmt.Errorf("lock agent for config change: %w", err)
 	}
 	return nil
@@ -366,8 +402,7 @@ func authorizeAgentConfigChangeTx(
 
 func activateLockedAuthorizedAgentConfigTx(
 	ctx context.Context,
-	txNotifications *notifications.TxNotifications,
-	tx pgx.Tx,
+	unit *agentexecution.Unit,
 	qtx *dbsqlc.Queries,
 	input ActivateAgentConfigInput,
 ) (AgentConfigChangeRecord, error) {
@@ -387,95 +422,50 @@ func activateLockedAuthorizedAgentConfigTx(
 		if err != nil {
 			return AgentConfigChangeRecord{}, err
 		}
-		actorID, err = resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, actorParams, uuid.Nil)
+		actorID, err = resolveActorTx(ctx, qtx, input.ProjectID, actorParams)
 		if err != nil {
 			return AgentConfigChangeRecord{}, err
 		}
 	default:
-		return AgentConfigChangeRecord{}, fmt.Errorf("unsupported agent config change actor type %q", input.ActorType)
+		return AgentConfigChangeRecord{}, fmt.Errorf(
+			"unsupported agent config change actor type %q",
+			input.ActorType,
+		)
 	}
-	metadata, err := marshalJSON(map[string]any{"agent_config_id": input.AgentConfigID, "reason": input.Reason})
+	metadata, err := marshalJSON(
+		map[string]any{"agent_config_id": input.AgentConfigID, "reason": input.Reason},
+	)
 	if err != nil {
 		return AgentConfigChangeRecord{}, fmt.Errorf("marshal config change metadata: %w", err)
 	}
-	row, err := qtx.InsertConfigChangeAgentInput(ctx, dbsqlc.InsertConfigChangeAgentInputParams{
-		AgentConfigID:       storeutil.IDFromNil(input.AgentConfigID),
-		ActorID:             storeutil.IDFromNil(actorID),
-		IdempotencyScope:    storeutil.TextFromEmpty("agent_config_change"),
-		InputIdempotencyKey: storeutil.TextFromEmpty(input.IdempotencyKey),
-		Metadata:            metadata,
-		ProjectID:           input.ProjectID,
-		AgentID:             input.AgentID,
-	})
+	h, err := unit.Handle(input.ProjectID, input.AgentID)
 	if err != nil {
-		return AgentConfigChangeRecord{}, fmt.Errorf("insert config-change agent input: %w", err)
+		return AgentConfigChangeRecord{}, err
 	}
-	agentInput := agentInputRecordFromConfigChangeSQLC(row)
-	if agentInput.ActorID != actorID ||
-		agentInput.AgentConfigID != input.AgentConfigID {
-		return AgentConfigChangeRecord{}, storeerr.ErrIdempotencyConflict
+	result, err := h.ActivateConfig(ctx, agentexecution.ActivateConfigInput{
+		ConfigID: input.AgentConfigID, ActorID: actorID, IdempotencyKey: input.IdempotencyKey, Metadata: metadata})
+	if err != nil {
+		return AgentConfigChangeRecord{}, err
 	}
-	if !sameJSON(agentInput.Metadata, metadata) {
-		return AgentConfigChangeRecord{}, storeerr.ErrIdempotencyConflict
-	}
-	if agentInput.State == "resolved" {
-		eventRow, err := qtx.GetEventByProjectAgentIdempotencyKey(
-			ctx,
-			dbsqlc.GetEventByProjectAgentIdempotencyKeyParams{
-				ProjectID:      input.ProjectID,
-				AgentID:        input.AgentID,
-				IdempotencyKey: "agent_input:" + agentInput.ID.String(),
-			},
-		)
-		if err != nil {
-			return AgentConfigChangeRecord{}, fmt.Errorf("load idempotent config-change event: %w", err)
-		}
-		event, err := eventFromProjectIdempotencySQLC(eventRow)
-		if err != nil {
-			return AgentConfigChangeRecord{}, err
-		}
-		if agentInput.AdmittedEventID != event.ID {
-			return AgentConfigChangeRecord{}, storeerr.ErrStateTransitionConflict
-		}
-		return AgentConfigChangeRecord{AgentInput: agentInput, Event: event}, nil
-	}
-	eventRecord, _, _, err := appendEventToCurrentOrNewAgentTurnTx(
+	row, err := qtx.GetAgentInput(
 		ctx,
-		txNotifications,
-		tx,
-		qtx,
-		AppendTypedAgentEventInput{
-			ProjectID:      input.ProjectID,
-			AgentID:        input.AgentID,
-			Kind:           events.KindAgentInput,
-			IdempotencyKey: "agent_input:" + agentInput.ID.String(),
-			AgentInputID:   agentInput.ID,
-		},
-		true,
+		dbsqlc.GetAgentInputParams{ProjectID: input.ProjectID, AgentID: input.AgentID, ID: result.InputID},
 	)
 	if err != nil {
 		return AgentConfigChangeRecord{}, err
 	}
-	resolved, err := qtx.ResolveConfigChangeAgentInput(
+	eventRow, err := qtx.GetEventByProjectAgentIdempotencyKey(
 		ctx,
-		dbsqlc.ResolveConfigChangeAgentInputParams{
-			ProjectID: input.ProjectID,
-			AgentID:   input.AgentID,
-			ID:        agentInput.ID,
-			EventID:   eventRecord.Event.ID,
-		},
+		dbsqlc.GetEventByProjectAgentIdempotencyKeyParams{
+			ProjectID:      input.ProjectID,
+			AgentID:        input.AgentID,
+			IdempotencyKey: "agent_input:" + result.InputID.String()},
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return AgentConfigChangeRecord{}, storeerr.ErrStateTransitionConflict
-	}
 	if err != nil {
-		return AgentConfigChangeRecord{}, fmt.Errorf("resolve config-change agent input: %w", err)
+		return AgentConfigChangeRecord{}, err
 	}
-	agentInput.State = "resolved"
-	agentInput.AdmittedEventID = eventRecord.Event.ID
-	agentInput.AdmittedAt = resolved.AdmittedAt
-	agentInput.ResolvedAt = resolved.ResolvedAt
-	return AgentConfigChangeRecord{AgentInput: agentInput, Event: eventRecord.Event}, nil
+	event, err := eventFromProjectIdempotencySQLC(eventRow)
+	return AgentConfigChangeRecord{AgentInput: agentInputRecordFromGetSQLC(row), Event: event}, err
 }
 
 func validateProjectPrincipalActionTx(
@@ -507,29 +497,4 @@ func validateProjectPrincipalActionTx(
 		return nil
 	}
 	return storeerr.ErrUnauthorized
-}
-
-func agentInputRecordFromConfigChangeSQLC(row dbsqlc.InsertConfigChangeAgentInputRow) AgentInputRecord {
-	return AgentInputRecord{
-		ID:                  row.ID,
-		ProjectID:           row.ProjectID,
-		AgentID:             row.AgentID,
-		State:               row.State,
-		InputRank:           row.InputRank,
-		ActorID:             storeutil.IDFromPtr(row.ActorID),
-		InputKind:           row.InputKind,
-		IdempotencyScope:    row.IdempotencyScope,
-		InputIdempotencyKey: row.InputIdempotencyKey,
-		QueuedAt:            row.QueuedAt,
-		AdmittedEventID:     storeutil.IDFromPtr(row.AdmittedEventID),
-		AdmittedAt:          row.AdmittedAt,
-		CanceledAt:          row.CanceledAt,
-		DeliveryMode:        AgentInputDeliveryMode(row.DeliveryMode),
-		ControlType:         row.ControlType,
-		TargetInteractionID: storeutil.IDFromPtr(row.TargetInteractionID),
-		AgentConfigID:       storeutil.IDFromPtr(row.AgentConfigID),
-		ResolvedAt:          row.ResolvedAt,
-		RejectedReason:      row.RejectedReason,
-		Metadata:            row.Metadata,
-	}
 }

@@ -128,17 +128,17 @@ func TestAlreadyStoppedProcessResult(t *testing.T) {
 	}
 }
 
-func TestProcessActionPayloadSupportsWriteAndClose(t *testing.T) {
+func TestProcessActionPayloadRequiresData(t *testing.T) {
 	t.Parallel()
 
-	processID, payload, err := writeProcessPayload(
-		json.RawMessage(`{"process_id":"prc","data":"x","close_stdin":true}`),
-	)
-	if err != nil {
-		t.Fatalf("write and close payload: %v", err)
-	}
-	if processID != "prc" || string(payload) != `{"close_stdin":true,"data":"x"}` {
-		t.Fatalf("unexpected write-and-close payload process_id=%q payload=%s", processID, payload)
+	for _, raw := range []string{
+		`{"process_id":"prc"}`,
+		`{"process_id":"prc","data":""}`,
+		`{"process_id":"prc","close_stdin":true}`,
+	} {
+		if _, _, err := writeProcessPayload(json.RawMessage(raw)); err == nil {
+			t.Fatalf("expected write_process request %s to be rejected", raw)
+		}
 	}
 }
 
@@ -170,7 +170,7 @@ func TestRunCommandRequestTrimsCwdBeforeCanonicalization(t *testing.T) {
 func TestListProcessesRequestRejectsObservationFields(t *testing.T) {
 	t.Parallel()
 
-	if _, err := resolveProcessObservationRequest(json.RawMessage(`{"cursor":0}`), processObservationList); err == nil {
+	if _, err := resolveProcessObservationRequest(json.RawMessage(`{"offset_byte":0}`), processObservationList); err == nil {
 		t.Fatal("expected list_processes to reject read observation fields")
 	}
 	if _, err := resolveProcessObservationRequest(json.RawMessage(`null`), processObservationList); err == nil {
@@ -181,40 +181,38 @@ func TestListProcessesRequestRejectsObservationFields(t *testing.T) {
 	}
 }
 
-func TestProcessObservationActionPayloadOmitsAbsentFields(t *testing.T) {
+func TestProcessObservationActionPayload(t *testing.T) {
 	t.Parallel()
 
-	cursor := int64(0)
+	offset := int64(0)
+	shellWait := processaction.OutputWait{WaitForExit: true, HeadBytes: processaction.AgentHeadBytes}
 	tests := []struct {
 		name    string
 		request processObservationRequest
+		wait    processaction.OutputWait
 		want    string
 	}{
 		{
-			name: "read preserves explicit zero cursor without wait",
-			request: processObservationRequest{
-				Cursor:   &cursor,
-				MaxBytes: 4096,
-			},
-			want: `{"cursor":0,"max_bytes":4096}`,
+			name:    "read preserves explicit zero offset without wait",
+			request: processObservationRequest{OffsetByte: &offset},
+			want:    `{"cursor":0,"max_bytes":16384}`,
 		},
 		{
-			name: "wait includes only wait duration",
-			request: processObservationRequest{
-				WaitMS: 2000,
-			},
-			want: `{"wait_ms":2000}`,
+			name:    "wait waits for exit and keeps head and tail",
+			request: processObservationRequest{WaitMS: 2000},
+			wait:    shellWait,
+			want:    `{"max_bytes":16384,"wait_ms":2000,"wait_for_exit":true,"head_bytes":2048}`,
 		},
 		{
 			name:    "all optional fields absent",
 			request: processObservationRequest{},
-			want:    `{}`,
+			want:    `{"max_bytes":16384}`,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := processObservationActionPayload(test.request)
+			got, err := processObservationActionPayload(test.request, test.wait)
 			require.NoError(t, err)
 			if string(got) != test.want {
 				t.Fatalf("process observation payload = %s, want %s", got, test.want)
@@ -227,16 +225,10 @@ func TestProcessObserveRequestCapsObservationFields(t *testing.T) {
 	t.Parallel()
 
 	if _, err := resolveProcessObservationRequest(
-		json.RawMessage(`{"process_id":"prc","max_bytes":65537}`),
+		json.RawMessage(`{"process_id":"prc","limit_bytes":64}`),
 		processObservationRead,
 	); err == nil {
-		t.Fatal("expected oversized max_bytes to be rejected")
-	}
-	if _, err := resolveProcessObservationRequest(
-		json.RawMessage(`{"process_id":"prc","max_bytes":null}`),
-		processObservationRead,
-	); err == nil {
-		t.Fatal("expected null max_bytes to be rejected")
+		t.Fatal("expected removed limit_bytes field to be rejected")
 	}
 	if _, err := resolveProcessObservationRequest(
 		json.RawMessage(`{"process_id":"prc","wait_ms":null}`),
@@ -244,9 +236,72 @@ func TestProcessObserveRequestCapsObservationFields(t *testing.T) {
 	); err == nil {
 		t.Fatal("expected null wait_ms to be rejected")
 	}
+	if _, err := resolveProcessObservationRequest(
+		json.RawMessage(`{"process_id":"prc","offset_byte":-1}`),
+		processObservationRead,
+	); err == nil || err.Error() != "offset_byte must be non-negative" {
+		t.Fatalf("negative offset_byte error = %v", err)
+	}
+	if _, err := resolveProcessObservationRequest(
+		json.RawMessage(`{"process_id":"prc","cursor":0}`),
+		processObservationRead,
+	); err == nil {
+		t.Fatal("expected legacy cursor field to be rejected")
+	}
+	read, err := resolveProcessObservationRequest(
+		json.RawMessage(`{"process_id":"prc","offset_byte":7}`),
+		processObservationRead,
+	)
+	if err != nil {
+		t.Fatalf("resolve read_process range: %v", err)
+	}
+	if read.OffsetByte == nil || *read.OffsetByte != 7 {
+		t.Fatalf("read_process range = %+v", read)
+	}
 	if _, _, err := writeProcessPayload(
 		json.RawMessage(`{"process_id":"prc","data":""}`),
 	); err == nil {
 		t.Fatal("expected empty write data to be rejected")
+	}
+}
+
+func TestWatchProcessPayload(t *testing.T) {
+	t.Parallel()
+
+	processID, payload, err := watchProcessPayload(
+		json.RawMessage(`{"process_id":"prc","pattern":"listening|ERROR"}`),
+	)
+	if err != nil {
+		t.Fatalf("watch payload: %v", err)
+	}
+	if processID != "prc" || string(payload) != `{"pattern":"listening|ERROR","timeout_seconds":300}` {
+		t.Fatalf("unexpected watch payload process_id=%q payload=%s", processID, payload)
+	}
+	_, payload, err = watchProcessPayload(
+		json.RawMessage(`{"process_id":"prc","pattern":"x","timeout_seconds":60,"offset_byte":42}`),
+	)
+	if err != nil || string(payload) != `{"pattern":"x","timeout_seconds":60,"cursor":42}` {
+		t.Fatalf("watch payload with timeout and offset = %s, %v", payload, err)
+	}
+	_, payload, err = watchProcessPayload(json.RawMessage(`{"process_id":"prc","timeout_seconds":0}`))
+	if err != nil || string(payload) != `{"timeout_seconds":0}` {
+		t.Fatalf("cancel watch payload = %s, %v", payload, err)
+	}
+	for _, tc := range []struct{ raw, want string }{
+		{`{"pattern":"x"}`, "requires process_id"},
+		{`{"process_id":"prc"}`, "pattern must be 1 to 500 bytes"},
+		{`{"process_id":"prc","pattern":"(listening"}`, "not a valid regular expression"},
+		{`{"process_id":"prc","pattern":"listening\u0000"}`, "cannot contain NUL"},
+		{`{"process_id":"prc","pattern":"x","timeout_seconds":0}`, "takes no pattern or offset"},
+		{`{"process_id":"prc","timeout_seconds":0,"offset_byte":3}`, "takes no pattern or offset"},
+		{`{"process_id":"prc","pattern":"x","timeout_seconds":-1}`, "timeout_seconds must be between 0 and 3600"},
+		{`{"process_id":"prc","pattern":"x","timeout_seconds":3601}`, "timeout_seconds must be between 0 and 3600"},
+		{`{"process_id":"prc","pattern":"x","offset_byte":-1}`, "cursor cannot be negative"},
+		{`{"process_id":"prc","pattern":"x","timeout_seconds":null}`, "cannot be null"},
+	} {
+		if _, _, err := watchProcessPayload(json.RawMessage(tc.raw)); err == nil ||
+			!strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("watch_process %s error = %v, want %q", tc.raw, err, tc.want)
+		}
 	}
 }

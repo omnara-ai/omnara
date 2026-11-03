@@ -12,20 +12,22 @@ const (
 	ToolNameWriteProcess           = "write_process"
 	ToolNameReadProcess            = "read_process"
 	ToolNameStopProcess            = "stop_process"
+	ToolNameWatchProcess           = "watch_process"
 	ToolNameListProcesses          = "list_processes"
 	ToolNameCreateMachine          = "create_machine"
 	ToolNameDeleteMachine          = "delete_machine"
 	ToolNameListMachines           = "list_machines"
 	ToolNameInspectMachine         = "inspect_machine"
+	ToolNameListGitHubRepositories = "list_github_repositories"
 	ToolNameAskQuestion            = "ask_question"
-	ToolNameSendIntegrationMessage = "send_integration_message"
-	ToolNameSetIntegrationTarget   = "set_integration_target"
 	ToolNameWebSearch              = "web_search"
 	ToolNameWebFetch               = "web_fetch"
-	ToolNameReadFile               = "read_file"
-	ToolNameSearchFiles            = "search_files"
-	ToolNameUploadFile             = "upload_file"
-	ToolNameDownloadFile           = "download_file"
+	ToolNameStorageList            = "storage_list"
+	ToolNameStorageWrite           = "storage_write"
+	ToolNameStorageRead            = "storage_read"
+	ToolNameStorageSearch          = "storage_search"
+	ToolNameStorageUpload          = "storage_upload"
+	ToolNameStorageDownload        = "storage_download"
 	ToolNameSkill                  = "skill"
 	ToolNameSpawnAgent             = "spawn_agent"
 	ToolNameReadAgent              = "read_agent"
@@ -45,11 +47,12 @@ func MachineToolNames() []string {
 		ToolNameWriteProcess,
 		ToolNameReadProcess,
 		ToolNameStopProcess,
+		ToolNameWatchProcess,
 		ToolNameListProcesses,
 		ToolNameListMachines,
 		ToolNameInspectMachine,
-		ToolNameUploadFile,
-		ToolNameDownloadFile,
+		ToolNameStorageUpload,
+		ToolNameStorageDownload,
 	}
 }
 
@@ -76,9 +79,11 @@ func IsSubagentToolName(name string) bool {
 }
 
 func implicit(name string) bool {
-	return slices.Contains(MachineToolNames(), name) || slices.Contains(MachinePoolToolNames(), name) ||
-		IsSubagentToolName(name) || name == ToolNameSkill || name == ToolNameSendIntegrationMessage ||
-		name == ToolNameReadFile || name == ToolNameSearchFiles || name == ToolNameToolSearch
+	return UsesIntegrationToolNamespace(name) || slices.Contains(MachineToolNames(), name) ||
+		slices.Contains(MachinePoolToolNames(), name) || name == ToolNameListGitHubRepositories ||
+		IsSubagentToolName(name) || name == ToolNameSkill ||
+		name == ToolNameStorageList || name == ToolNameStorageRead || name == ToolNameStorageSearch ||
+		name == ToolNameStorageWrite || name == ToolNameToolSearch
 }
 
 var toolNamePattern = regexp.MustCompile(ToolNamePattern)

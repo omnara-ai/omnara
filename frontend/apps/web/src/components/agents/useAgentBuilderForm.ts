@@ -1,10 +1,12 @@
+import type { AgentConfigDefinition, AgentConfigDefinitionInteractionHandler } from '@omnara/sdk'
 import { useState } from 'react'
-import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
+import { Document, isNode, type Node } from 'yaml'
 
 import {
-  extractBasicConfig,
+  type BasicMemoryStore,
   type MachineEntry,
   normalizeMultiline,
+  parseBasicConfigSource,
   type PoolEntry,
   type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
@@ -12,35 +14,51 @@ import {
   type BasicMcpServer,
   type BasicMcpTool,
   type McpAuthType,
+  mcpServerNamesUnique,
+  mcpServerValid,
   mcpWire,
   permissionWire,
 } from '@/components/agents/agentConfigMcp'
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import {
   type BasicSubagent,
+  maxDepthValid,
   subagentsValid,
   subagentWire,
 } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { useAgentBuilderTools } from '@/components/agents/useAgentBuilderTools'
 import {
+  overlayFromSecretRows,
+  overlayFromTextRows,
+  type SecretRow,
+  secretRowsValid,
+  type TextRow,
+  textRowsValid,
+} from '@/components/key-value/keyValueRows'
+import {
   emptyProviderOptions,
-  envOverlayFromRows,
-  type EnvOverlayRow,
-  envOverlayRowsValid,
   optionalIdleDeletionMinutesValid,
   optionalPositiveInt32Valid,
   type ProviderOptionsDraft,
   providerOptionsOverlay,
-  secretEnvOverlayFromRows,
-  type SecretEnvOverlayRow,
-  secretEnvOverlayRowsValid,
 } from '@/components/machines/machineOverrides'
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
 import { memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
 import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
 
 export { type BasicMcpServer, type BasicMcpTool, type McpAuthType }
+export {
+  mcpRuntimeToolName,
+  mcpRuntimeToolNameError,
+  mcpRuntimeToolNameMaxLength,
+  mcpServerNameError,
+  mcpServerNameMaxLength,
+  mcpToolEnabled,
+  mcpToolNameAddable,
+  type UnexposableMcpTool,
+  unexposableMcpTools,
+} from '@/components/agents/agentConfigMcp'
 
 export type MachineSourceKind = 'pool' | 'machine'
 
@@ -57,18 +75,22 @@ export interface BasicMachineSource {
   machineCpu: string
   machineMemoryGb: string
   providerOptions: ProviderOptionsDraft
-  envRows: EnvOverlayRow[]
-  secretEnvRows: SecretEnvOverlayRow[]
+  envRows: TextRow[]
+  secretEnvRows: SecretRow[]
 }
 
 export interface BasicConfig {
   instruction: string
   providerConfig: string
   modelName: string
+  reasoningEffort: string
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
+  interactionHandlers: Record<string, AgentConfigDefinitionInteractionHandler>
+  gitCredentials: AgentConfigDefinition['git_credentials']
   mcpServers: BasicMcpServer[]
   skillIds: string[]
+  memoryStores: BasicMemoryStore[]
   subagents: BasicSubagent[]
   maxSubagents: string
   maxDepth: string
@@ -97,10 +119,14 @@ export const emptyBasicConfig: BasicConfig = {
   instruction: '',
   providerConfig: '',
   modelName: '',
+  reasoningEffort: '',
   machineSources: [],
   tools: [],
+  interactionHandlers: {},
+  gitCredentials: undefined,
   mcpServers: [],
   skillIds: [],
+  memoryStores: [],
   subagents: [],
   maxSubagents: '',
   maxDepth: '',
@@ -112,8 +138,7 @@ export interface BasicConfigSession {
 }
 
 export function createBasicConfigSession(source: string): BasicConfigSession {
-  const doc = parseSourceDocument(source)
-  const initialDraft = doc == null ? null : extractBasicConfig(doc)
+  const { doc, initialDraft } = parseBasicConfigSource(source)
   return {
     initialDraft,
     apply(config) {
@@ -155,15 +180,23 @@ export function useAgentBuilderForm(
     resolvedTools: tools.data?.tools,
     toolsPending: tools.isPending,
     toolsError: tools.isError,
+    toolsErrorMessage: tools.errorMessage,
     retryTools: () => void tools.refetch(),
     reset: (config: BasicConfig | null) => {
       setDraft(config ?? emptyBasicConfig)
     },
     instruction: draft.instruction,
-    model: { providerConfig: draft.providerConfig, modelName: draft.modelName },
+    model: {
+      providerConfig: draft.providerConfig,
+      modelName: draft.modelName,
+      reasoningEffort: draft.reasoningEffort,
+    },
     machineSources: draft.machineSources,
     tools: draft.tools,
+    interactionHandlers: draft.interactionHandlers,
+    gitCredentials: draft.gitCredentials,
     skillIds: draft.skillIds,
+    memoryStores: draft.memoryStores,
     mcpServers: draft.mcpServers,
     subagents: draft.subagents,
     maxSubagents: draft.maxSubagents,
@@ -172,7 +205,11 @@ export function useAgentBuilderForm(
       patch({ instruction })
     },
     setModel: (model: ModelSelection) => {
-      patch({ providerConfig: model.providerConfig, modelName: model.modelName })
+      patch({
+        providerConfig: model.providerConfig,
+        modelName: model.modelName,
+        reasoningEffort: model.reasoningEffort,
+      })
     },
     setMachineSources: (machineSources: BasicMachineSource[]) => {
       patch({ machineSources })
@@ -180,8 +217,14 @@ export function useAgentBuilderForm(
     setTools: (tools: BasicTool[]) => {
       patch({ tools })
     },
+    setGitCredentials: (gitCredentials: BasicConfig['gitCredentials']) => {
+      patch({ gitCredentials })
+    },
     setSkillIds: (skillIds: string[]) => {
       patch({ skillIds })
+    },
+    setMemoryStores: (memoryStores: BasicMemoryStore[]) => {
+      patch({ memoryStores })
     },
     setMcpServers: (mcpServers: BasicMcpServer[]) => {
       patch({ mcpServers })
@@ -192,7 +235,7 @@ export function useAgentBuilderForm(
           ? {
               subagents,
               maxSubagents: '',
-              maxDepth: '',
+              maxDepth: maxDepthValid(draft.maxDepth) ? draft.maxDepth : '',
               tools: draft.tools.filter((tool) => tool.name !== 'spawn_agent'),
             }
           : { subagents },
@@ -231,8 +274,8 @@ function machineCountValid(value: string) {
 function machineSourceValid(source: BasicMachineSource) {
   return (
     resourceNameValid(source.name) &&
-    envOverlayRowsValid(source.envRows) &&
-    secretEnvOverlayRowsValid(source.secretEnvRows) &&
+    textRowsValid(source.envRows) &&
+    secretRowsValid(source.secretEnvRows) &&
     (source.kind === 'machine' ||
       (machineCountValid(source.initialNumMachines) &&
         machineCountValid(source.maxMachines) &&
@@ -240,98 +283,6 @@ function machineSourceValid(source: BasicMachineSource) {
         optionalPositiveInt32Valid(source.machineCpu) &&
         memoryGbDraftValid(source.machineMemoryGb, { optional: true })))
   )
-}
-
-export const mcpServerNameMaxLength = 32
-
-const mcpServerNamePattern = /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/
-
-export function mcpServerNameError(name: string): string | undefined {
-  if (name === '') return 'Name is required.'
-  if (name.length > mcpServerNameMaxLength) {
-    return `Name cannot exceed ${mcpServerNameMaxLength} characters.`
-  }
-  if (!/^[a-zA-Z]/.test(name)) return 'Name must start with a letter.'
-  if (!mcpServerNamePattern.test(name)) {
-    return 'Name may only contain letters, numbers, and hyphens.'
-  }
-  return undefined
-}
-
-export const mcpRuntimeToolNameMaxLength = 64
-
-export function mcpRuntimeToolName(serverName: string, toolName: string) {
-  return `mcp__${serverName}__${toolName}`
-}
-
-export function mcpToolEnabled(server: BasicMcpServer, toolName: string) {
-  return server.tools.find((tool) => tool.name === toolName)?.enabled ?? server.defaultEnabled
-}
-
-const mcpToolNamePattern = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/
-
-export function mcpToolNameAddable(toolName: string) {
-  return mcpToolNamePattern.test(toolName)
-}
-
-export function mcpRuntimeToolNameError(serverName: string, toolName: string): string | undefined {
-  if (toolName === '') return 'Tool name is required.'
-  if (!/^[a-zA-Z]/.test(toolName)) {
-    return `"${toolName}" must start with a letter, but the model only accepts tool names that begin with a letter.`
-  }
-  if (!/^[a-zA-Z0-9_-]*$/.test(toolName)) {
-    return `"${toolName}" contains characters other than letters, numbers, underscores, and hyphens, which the model does not accept in tool names.`
-  }
-  const runtimeName = mcpRuntimeToolName(serverName, toolName)
-  if (runtimeName.length <= mcpRuntimeToolNameMaxLength) return undefined
-  const maxServerNameLength = mcpRuntimeToolNameMaxLength - mcpRuntimeToolName('', toolName).length
-  const prefixed = `"${toolName}" becomes "${runtimeName}" (${runtimeName.length} characters) once the server name is prefixed, but the model only accepts tool names of ${mcpRuntimeToolNameMaxLength} characters or fewer.`
-  return maxServerNameLength >= 1
-    ? `${prefixed} Shorten the server name to ${maxServerNameLength} characters or fewer.`
-    : `${prefixed} The tool name itself is too long to expose under any server name.`
-}
-
-export interface UnexposableMcpTool {
-  name: string
-  error: string
-}
-
-export function unexposableMcpTools(
-  server: BasicMcpServer,
-  discoveredNames: string[],
-): UnexposableMcpTool[] {
-  const names = new Set([...discoveredNames, ...server.tools.map((tool) => tool.name)])
-  return [...names].flatMap((name) => {
-    if (!mcpToolEnabled(server, name)) return []
-    const error = mcpRuntimeToolNameError(server.name, name)
-    return error === undefined ? [] : [{ name, error }]
-  })
-}
-
-function mcpServerValid(server: BasicMcpServer) {
-  return (
-    mcpServerNameError(server.name) === undefined &&
-    server.url.trim() !== '' &&
-    (server.authType === 'none' ||
-      (server.secretId.trim() !== '' &&
-        (server.authType !== 'sigv4' ||
-          (server.service.trim() !== '' && server.region.trim() !== ''))))
-  )
-}
-
-function mcpServerNamesUnique(servers: BasicMcpServer[]) {
-  const names = servers.map((server) => server.name)
-  return new Set(names).size === names.length
-}
-
-function parseSourceDocument(source: string): Document | null {
-  try {
-    const doc = parseDocument(source)
-    if (doc.errors.length > 0 || doc.contents == null || !isMap(doc.contents)) return null
-    return doc
-  } catch {
-    return null
-  }
 }
 
 type WireValue = string | number | boolean | null | undefined | WireValue[] | WireObject
@@ -366,6 +317,12 @@ function applyToDocument(
     if (doc.deleteIn(path)) edits.count += 1
   }
 
+  const applyList = (key: string, items: WireValue[], baseline: WireValue[] | null) => {
+    if (baseline != null && deepEqual(items, baseline)) return
+    if (items.length === 0) del([key])
+    else set([key], items)
+  }
+
   const instruction = normalizeMultiline(config.instruction)
   if (instruction !== (baseline?.instruction ?? '')) set(['instruction'], instruction)
   const providerConfig = normalizeResourceName(config.providerConfig)
@@ -375,6 +332,11 @@ function applyToDocument(
   const modelName = normalizeResourceName(config.modelName)
   if (modelName !== normalizeResourceName(baseline?.modelName ?? ''))
     set(['model', 'name'], modelName)
+  const reasoningEffort = config.reasoningEffort.trim()
+  if (reasoningEffort !== (baseline?.reasoningEffort ?? '')) {
+    if (reasoningEffort === '') del(['model', 'reasoning'])
+    else set(['model', 'reasoning', 'effort'], reasoningEffort)
+  }
 
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(
@@ -384,7 +346,19 @@ function applyToDocument(
     set,
     del,
   )
-  applySkills(config.skillIds, baseline?.skillIds ?? null, set, del)
+  applyNamedEntries(
+    'interaction_handlers',
+    Object.entries(config.interactionHandlers),
+    baseline == null ? null : Object.entries(baseline.interactionHandlers),
+    set,
+    del,
+  )
+  if (!deepEqual(config.gitCredentials, baseline?.gitCredentials)) {
+    if (config.gitCredentials == null) del(['git_credentials'])
+    else set(['git_credentials'], config.gitCredentials)
+  }
+  applyList('memory_stores', config.memoryStores, baseline?.memoryStores ?? null)
+  applyList('skills', config.skillIds, baseline?.skillIds ?? null)
   applyNamedEntries(
     'subagents',
     config.subagents.map((subagent) => [subagent.key, subagentWire(subagent)]),
@@ -460,15 +434,6 @@ function applyMachineSources(
   set(['machine_sources'], items)
 }
 
-function applySkills(skillIds: string[], baselineIds: string[] | null, set: Setter, del: Deleter) {
-  if (baselineIds != null && deepEqual(skillIds, baselineIds)) return
-  if (skillIds.length === 0) {
-    del(['skills'])
-    return
-  }
-  set(['skills'], [...skillIds])
-}
-
 function machineSourceComparable(source: BasicMachineSource) {
   return {
     kind: source.kind,
@@ -480,8 +445,8 @@ function machineSourceComparable(source: BasicMachineSource) {
     machineCpu: source.machineCpu,
     machineMemoryGb: source.machineMemoryGb,
     providerOptions: { ...source.providerOptions },
-    env: envOverlayFromRows(source.envRows) ?? null,
-    secretEnv: secretEnvOverlayFromRows(source.secretEnvRows) ?? null,
+    env: overlayFromTextRows(source.envRows) ?? null,
+    secretEnv: overlayFromSecretRows(source.secretEnvRows) ?? null,
   }
 }
 
@@ -529,14 +494,14 @@ function machineSourceWire(source: BasicMachineSource): PoolEntry | MachineEntry
 
 function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachineSource) {
   if (source.defaultCwd.trim() !== '') wire.cwd = source.defaultCwd.trim()
-  const envOverlay = envOverlayFromRows(source.envRows)
+  const envOverlay = overlayFromTextRows(source.envRows)
   if (envOverlay) wire.env_overlay = envOverlay
-  const secretEnvOverlay = secretEnvOverlayFromRows(source.secretEnvRows)
+  const secretEnvOverlay = overlayFromSecretRows(source.secretEnvRows)
   if (secretEnvOverlay) wire.secret_env_overlay = secretEnvOverlay
 }
 
 export function toolWire(tool: BasicTool): ToolEntry {
-  const wire: ToolEntry = { type: 'built_in' }
+  const wire: ToolEntry = tool.name.startsWith('int__') ? {} : { type: 'built_in' }
   if (tool.enabled === false) wire.enabled = false
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
   if (tool.deferred) wire.deferred = true

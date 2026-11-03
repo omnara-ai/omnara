@@ -4,14 +4,20 @@ package executionstore_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +31,7 @@ func TestCreateAgentConfigWithoutSource(t *testing.T) {
 	compiled := mustCompileAgentYAMLResolved(t, ctx, store, source)
 	input := executionstore.CreateAgentConfigInput{
 		ProjectID: testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
-		CompiledDefinition: compiled.CanonicalJSON, CompilerVersion: compiled.CompilerVersion,
+		CompiledDefinition:      compiled.CanonicalJSON,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 	first, err := store.Execution().CreateAgentConfig(ctx, input)
@@ -52,12 +58,134 @@ func TestCreateAgentConfigWithoutSource(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, first.ID, authored.ID)
 	require.Equal(t, source, authored.Source)
-	for _, config := range []executionstore.AgentConfigRecord{first, authored} {
-		var legacyMatches bool
-		require.NoError(t, pool.QueryRow(ctx,
-			`SELECT definition = compiled_definition FROM agent_configs WHERE id = $1`, config.ID,
-		).Scan(&legacyMatches))
-		require.True(t, legacyMatches)
+}
+
+// Versions have no unique key, so only the advisory lock keeps concurrent
+// identical creates from inserting duplicates.
+func TestCreateAgentConfigConcurrentIdenticalCreatesShareOneVersion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	source := "instruction: concurrent\nmodel:\n  provider_config: openai-prod\n  name: test\n"
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, source)
+	base := executionstore.CreateAgentConfigInput{
+		ProjectID: testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
+		CompiledDefinition:      compiled.CanonicalJSON,
+		EffectiveDefinitionHash: compiled.Hash,
+	}
+	// Seed the definition so its unique key cannot serialize the creates below.
+	seedInput := base
+	seedInput.Source = "# seed\n" + source
+	seed, err := store.Execution().CreateAgentConfig(ctx, seedInput)
+	require.NoError(t, err)
+	var definitionID uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT definition_id FROM agent_configs WHERE id = $1`, seed.ID).Scan(&definitionID))
+
+	withSource := base
+	withSource.Source = source
+	sourceHash := sha256.Sum256([]byte(source))
+	for name, tc := range map[string]struct {
+		input      executionstore.CreateAgentConfigInput
+		sourceHash string
+	}{
+		"with source": {input: withSource, sourceHash: hex.EncodeToString(sourceHash[:])},
+		"sourceless":  {input: base},
+	} {
+		control := integrationdb.BeginTx(t, ctx, pool)
+		_, err := control.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(
+    'agent_config_version:' || $1::uuid::text || ':' || $2::uuid::text || ':' || $3::text, 0))`,
+			testProjectID, definitionID, tc.sourceHash)
+		require.NoError(t, err)
+
+		const workers = 2
+		records := make([]executionstore.AgentConfigRecord, workers)
+		errs := make([]error, workers)
+		var wg sync.WaitGroup
+		for index := range workers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				records[index], errs[index] = store.Execution().CreateAgentConfig(ctx, tc.input)
+			}()
+		}
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentConfigVersionKey", workers)
+		require.NoError(t, control.Rollback(ctx))
+		wg.Wait()
+
+		created := 0
+		for index := range workers {
+			require.NoError(t, errs[index], name)
+			require.Equal(t, records[0].ID, records[index].ID, "%s: identical creates must return one config", name)
+			if records[index].Created {
+				created++
+			}
+		}
+		require.Equal(t, 1, created, "%s: exactly one create should insert", name)
+		var versions int
+		require.NoError(t, pool.QueryRow(ctx, `
+SELECT count(*)
+FROM agent_configs config
+JOIN agent_configs created ON created.id = $1
+WHERE config.project_id = created.project_id
+  AND config.definition_id = created.definition_id
+  AND config.source IS NOT DISTINCT FROM created.source`, records[0].ID).Scan(&versions))
+		require.Equal(t, 1, versions, "%s: concurrent creates must not insert duplicate versions", name)
+	}
+}
+
+func TestCreateAgentConfigMemoryStoreIDs(t *testing.T) {
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	admin := createSecretTestUser(t, ctx, store, "Memory Admin", "admin")
+	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
+	var attachments []agentconfig.MemoryStoreCompiled
+	for _, name := range []string{"first", "second"} {
+		memory, err := store.Memories().Create(ctx, scope, name, "", agentconfig.MemoryStoreAccessReadWrite)
+		require.NoError(t, err)
+		attachments = append(attachments, agentconfig.MemoryStoreCompiled{
+			ID: memory.ID, Access: agentconfig.MemoryStoreAccessRead,
+		})
+	}
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, testAgentConfigYAML())
+	var definition agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(compiled.CanonicalJSON, &definition))
+	writable := attachments[0]
+	writable.Access = agentconfig.MemoryStoreAccessReadWrite
+	for _, test := range []struct {
+		name        string
+		attachments []agentconfig.MemoryStoreCompiled
+		invalid     bool
+	}{
+		{name: "distinct", attachments: attachments},
+		{
+			name: "duplicate", invalid: true,
+			attachments: []agentconfig.MemoryStoreCompiled{attachments[0], attachments[1], attachments[0]},
+		},
+		{
+			name: "conflicting access", invalid: true,
+			attachments: []agentconfig.MemoryStoreCompiled{attachments[0], attachments[1], writable},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			definition.MemoryStores = test.attachments
+			encoded, err := agentconfig.EncodeCompiled(definition)
+			require.NoError(t, err)
+			_, err = store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+				ProjectID: testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
+				CompiledDefinition: encoded.CanonicalJSON, EffectiveDefinitionHash: encoded.Hash,
+			})
+			if test.invalid {
+				require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+				require.ErrorContains(t, err, "duplicate memory store id")
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 
@@ -97,7 +225,6 @@ func TestCreateAgentConfigRejectsUnresolvedModelContract(t *testing.T) {
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err == nil {
@@ -134,7 +261,6 @@ model:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModelID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if !errors.Is(err, storeerr.ErrNotFound) {
@@ -162,7 +288,6 @@ model:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
@@ -225,7 +350,6 @@ model:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}); err != nil {
 		t.Fatalf("create agent config with project modality restrictions: %v", err)

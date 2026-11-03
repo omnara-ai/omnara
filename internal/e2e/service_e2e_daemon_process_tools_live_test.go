@@ -122,15 +122,15 @@ func liveDockerDaemonProcessPrompt(nonce string) string {
 		"Use the exact commands below. Do not improvise alternate commands.",
 		"Perform these operations in order:",
 		"1. Use run_command once with this command: printf '%s\\n' '" + nonce + "' > live-quick-command.txt && cat live-quick-command.txt",
-		"2. Use run_command with this command: while IFS= read -r line; do if [ \"$line\" = CREATE ]; then printf '%s\\n' created > live-stdin.txt; printf '%s\\n' CREATED; elif [ \"$line\" = DELETE ]; then rm -f live-stdin.txt; printf '%s\\n' DELETED; fi; done",
+		"2. Use run_command with io_mode pty and this command: while IFS= read -r line; do if [ \"$line\" = END ]; then break; elif [ \"$line\" = CREATE ]; then printf '%s\\n' created > live-stdin.txt; printf '%s\\n' CREATED; elif [ \"$line\" = DELETE ]; then rm -f live-stdin.txt; printf '%s\\n' DELETED; fi; done",
 		"3. Use write_process to send exactly CREATE plus a newline, then use read_process once to observe CREATED.",
 		"4. Use write_process to send exactly DELETE plus a newline, then use read_process once to observe DELETED.",
-		"5. Use write_process with close_stdin=true and then read_process with wait_ms until that process is done.",
-		"6. Use run_command with this command: trap 'printf \"%s\\n\" INTERRUPTED; exit 130' INT TERM; printf '%s\\n' READY; sleep 20",
+		"5. Use write_process to send exactly END plus a newline, then use read_process with wait_ms until that process is done.",
+		"6. Use run_command with this command: trap 'printf \"%s\\n\" INTERRUPTED; exit 130' INT TERM; printf '%s\\n' READY; tail -f /dev/null",
 		"7. Use read_process to observe READY, then use stop_process with mode=interrupt, then use read_process with wait_ms to observe INTERRUPTED or done.",
-		"8. Use run_command with this command: sleep 20",
+		"8. Use run_command with this command: tail -f /dev/null",
 		"9. Use list_processes once.",
-		"10. Use stop_process with mode=terminate on the sleeping process from step 8, then use read_process with wait_ms until it is done.",
+		"10. Use stop_process with mode=terminate on the process from step 8, then use read_process with wait_ms until it is done.",
 		"Only after the tool evidence is complete, reply with exactly DAEMON_LIVE_DONE_" + nonce,
 	}, "\n")
 }
@@ -319,7 +319,8 @@ FROM process_actions
 WHERE project_id = $1 AND agent_id = $2`, projectUUID, agentUUID)
 	processStates = scanSummary(`
 SELECT coalesce(string_agg(
-  state || ':granted=' || (execution_granted_at IS NOT NULL)::text || ':cmd=' || command,
+  state || ':granted=' || (execution_granted_at IS NOT NULL)::text || ':cmd='
+      || coalesce(execution_spec->'shell'->>'command', ''),
   ',' ORDER BY created_at, id
 ), '')
 FROM processes

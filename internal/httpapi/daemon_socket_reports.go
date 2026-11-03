@@ -9,6 +9,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -41,7 +42,7 @@ func (s *daemonSocket) handleProcessAccept(ctx context.Context, msg daemonprotoc
 		Type:      daemonprotocol.MessageProcessAcceptAck,
 		ProcessID: processPublicID,
 	})
-	s.enqueueDrain(ctx)
+	s.enqueueDrain()
 	return nil
 }
 
@@ -91,7 +92,7 @@ func (s *daemonSocket) handleActionAccept(ctx context.Context, msg daemonprotoco
 			},
 		},
 	)
-	s.enqueueDrain(ctx)
+	s.enqueueDrain()
 	return nil
 }
 
@@ -132,18 +133,18 @@ func (s *daemonSocket) handleReport(ctx context.Context, msg daemonprotocol.Mess
 		},
 	)
 	s.recordSocketEvent("report", string(ackStatus), "none")
-	s.enqueueDrain(ctx)
+	s.enqueueDrain()
 	return nil
 }
 
 func (s *daemonSocket) drainLoop(ctx context.Context) {
-	drainCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	drainCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	stop := make(chan struct{})
 	go func() {
 		select {
 		case <-s.done:
-			cancel()
+			cancel(s.cancellationCause(nil))
 		case <-stop:
 		}
 	}()
@@ -264,14 +265,17 @@ func daemonProcessOfferMessage(processID string, offer executionstore.DaemonProc
 	}
 	if processOffer.PreparationError == "" {
 		processOffer = &daemonprotocol.ProcessOffer{
+			ExecutionSpec:  offer.Process.ExecutionSpec,
 			ProcessID:      processID,
-			IOMode:         offer.Process.IOMode,
-			Command:        offer.Process.Command,
-			ShellSelector:  offer.Process.ShellSelector,
 			Cwd:            offer.Process.Cwd,
 			Env:            offer.Env,
+			GitCredentials: offer.GitCredentials,
 			WaitMs:         offer.Process.InitialWaitMS,
 			TimeoutSeconds: offer.Process.TimeoutSeconds,
+		}
+		if wait, ok := offer.Process.ExecutionSpec.AgentOutputWait(); ok {
+			processOffer.OutputBytes = processaction.AgentOutputBytes
+			processOffer.OutputWait = wait
 		}
 	}
 	message := daemonprotocol.Message{
@@ -344,5 +348,6 @@ func (s *daemonSocket) forgetAcceptedWork(event *daemonprotocol.ReportedEvent) {
 		if actionErr == nil {
 			delete(s.acceptedActions, actionID)
 		}
+	case daemonprotocol.EventProcessOutputMatched:
 	}
 }

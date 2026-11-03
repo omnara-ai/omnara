@@ -5,34 +5,35 @@ package executionstore_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConcurrentRetryClaimsReuseOneDurableContext(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fixture, admitted, agent := newMultiInputContinuationSeedFixture(t, ctx, "concurrent_retry_claim")
+	fixture, admitted, _ := newMultiInputContinuationSeedFixture(t, ctx, "concurrent_retry_claim")
 	openingInputIDs := make([]uuid.UUID, 0, len(admitted.Inputs))
 	for _, input := range admitted.Inputs {
 		openingInputIDs = append(openingInputIDs, input.ID)
 	}
-	claim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          testProjectID,
-		AgentID:            fixture.AgentID,
-		RuntimeLockID:      fixture.Lock.ID,
-		OpeningInputIDs:    openingInputIDs,
-		AgentConfigID:      agent.CurrentConfigID,
-		InputEventSequence: admitted.Events[len(admitted.Events)-1].Sequence,
-	})
+	prepared1, err := fixture.Store.Execution().
+		PrepareNormalModelCall(ctx, executionstore.PrepareNormalModelCallInput{
+			ProjectID:       testProjectID,
+			AgentID:         fixture.AgentID,
+			RuntimeLockID:   fixture.Lock.ID,
+			OpeningInputIDs: openingInputIDs,
+		})
+	claim := prepared1.Claim
+
 	if err != nil {
 		t.Fatalf("claim initial model call: %v", err)
 	}
@@ -111,11 +112,19 @@ func TestConcurrentRetryClaimsReuseOneDurableContext(t *testing.T) {
 	if first.claim.Context.ID != second.claim.Context.ID ||
 		first.claim.Context.ID == claim.Context.ID ||
 		first.claim.Context.AttemptNumber != 2 || second.claim.Context.AttemptNumber != 2 {
-		t.Fatalf("concurrent retry claims = %+v / %+v, want one shared retry context 2", first.claim, second.claim)
+		t.Fatalf(
+			"concurrent retry claims = %+v / %+v, want one shared retry context 2",
+			first.claim,
+			second.claim,
+		)
 	}
 	if first.claim.Created == second.claim.Created || first.claim.Claimed == second.claim.Claimed ||
 		first.claim.Created != first.claim.Claimed || second.claim.Created != second.claim.Claimed {
-		t.Fatalf("concurrent retry claims = %+v / %+v, want exactly one creator and sender", first.claim, second.claim)
+		t.Fatalf(
+			"concurrent retry claims = %+v / %+v, want exactly one creator and sender",
+			first.claim,
+			second.claim,
+		)
 	}
 	var contextRows, liveRows int
 	if err := fixture.Store.pool.QueryRow(ctx, `
@@ -167,10 +176,10 @@ func TestRetryClaimRejectedAfterStopEvent(t *testing.T) {
 	var turnID uuid.UUID
 	if err := fixture.Store.pool.QueryRow(ctx, `
 SELECT turn_id
-FROM model_call_context_turns
+FROM model_call_contexts
 WHERE project_id = $1
   AND agent_id = $2
-  AND model_call_context_id = $3
+  AND id = $3
 `, testProjectID, fixture.AgentID, claim.Context.ID).Scan(&turnID); err != nil {
 		t.Fatalf("load failed context turn: %v", err)
 	}
@@ -204,7 +213,7 @@ func TestExhaustedNormalContextCanHandOffAndTerminalizeCompaction(t *testing.T) 
 		ctx,
 		"exhausted_normal_context_compaction_handoff",
 	)
-	if claim.Context.AttemptNumber != executionstore.MaxModelCallRetriesPerOperation+1 ||
+	if claim.Context.AttemptNumber != executionpolicy.MaxModelCallRetriesPerOperation+1 ||
 		claim.Context.State != executionstore.ModelCallContextStarted {
 		t.Fatalf("exhausted normal context = %+v", claim.Context)
 	}
@@ -231,7 +240,7 @@ func TestExhaustedNormalContextCanHandOffAndTerminalizeCompaction(t *testing.T) 
 		t.Fatalf("handoff exhausted normal context to compaction: %v", err)
 	}
 	if handoff.BoundaryPreempted ||
-		handoff.ParentContext.AttemptNumber != executionstore.MaxModelCallRetriesPerOperation+1 ||
+		handoff.ParentContext.AttemptNumber != executionpolicy.MaxModelCallRetriesPerOperation+1 ||
 		handoff.ParentContext.RecoveryKind != executionstore.ModelCallRecoveryCompact {
 		t.Fatalf("parent handoff = %+v", handoff)
 	}
@@ -557,14 +566,12 @@ func TestTerminalModelCallErrorStopsUntilNewInput(t *testing.T) {
 	if replayedErrorEvent.ID != errorEvent.ID {
 		t.Fatalf("replayed terminal error = %+v, want existing event %s", replayedErrorEvent, errorEvent.ID)
 	}
-	conflictingTerminalErrorInput := terminalErrorInput
-	conflictingTerminalErrorInput.ErrorMessage = "different terminal error"
-	if _, err := fixture.Store.Execution().RecordModelCallErrorAndCompleteContext(
-		ctx,
-		conflictingTerminalErrorInput,
-	); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-		t.Fatalf("conflicting terminal error replay err = %v, want ErrIdempotencyConflict", err)
-	}
+	changedErrorInput := terminalErrorInput
+	changedErrorInput.ErrorMessage = "different terminal error"
+	replayedErrorEvent, err = fixture.Store.Execution().RecordModelCallErrorAndCompleteContext(ctx, changedErrorInput)
+	require.NoError(t, err)
+	require.Equal(t, errorEvent.ID, replayedErrorEvent.ID)
+
 	output, found, err := fixture.Store.Execution().GetModelOutputForContext(
 		ctx,
 		testProjectID,

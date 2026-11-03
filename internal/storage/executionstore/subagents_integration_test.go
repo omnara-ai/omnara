@@ -7,57 +7,95 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
+	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
 )
 
-func TestSubagentConfigChangesAreRejected(t *testing.T) {
+func TestSubagentMachineSourceEdits(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
 	store := newIntegrationStore(pool)
-	user := mustCreateProjectDeveloperUser(t, ctx, store, "readonly-child@example.com", "Read-only child")
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t, ctx, store, "readonly-child", "Read-only child", subagentParentYAML,
-	)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-machine-edits@example.com", "Machine edits")
+	names := map[uuid.UUID]string{}
+	for _, name := range []string{"edit-shared", "edit-own"} {
+		machine, err := store.Execution().CreateDaemonMachine(ctx, executionstore.CreateDaemonMachineInput{
+			OrgID: testOrgID, DisplayName: name, IdempotencyKey: "idem-" + name,
+		})
+		require.NoError(t, err)
+		_, _, err = store.Execution().CreateProjectMachineGrant(ctx, executionstore.CreateProjectMachineGrantInput{
+			OrgID: testOrgID, ProjectID: testProjectID, MachineID: machine.ID, IdempotencyKey: "idem-grant-" + name,
+		})
+		require.NoError(t, err)
+		names[machine.ID] = name
+	}
+	withMachines := func(sources string) string {
+		return "instruction: Edit machines.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n" +
+			"machine_sources:\n" + sources
+	}
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "machine-edits", "Machine edits",
+		withMachines("  - {machine_name: edit-shared, cwd: /parent}\n"))
 	parent, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID: testProjectID, ProfileID: profile.ID, AgentConfigID: profile.CurrentConfigID,
-		LaunchedBy: userPrincipal(user.ID), IdempotencyKey: "readonly-parent",
+		LaunchedBy: userPrincipal(user.ID), IdempotencyKey: "machine-edits-parent",
 	})
 	require.NoError(t, err)
-	compiled := mustCompileAgentYAMLResolved(t, ctx, store, subagentParentYAML)
-	for _, source := range []string{subagentParentYAML, ""} {
-		config := executionstore.CreateAgentConfigInput{
-			ProjectID: testProjectID, Source: source,
-			ConfiguredModelID:  parseConfiguredModelID(t, compiled),
-			CompiledDefinition: compiled.CanonicalJSON, CompilerVersion: compiled.CompilerVersion,
-			EffectiveDefinitionHash: compiled.Hash,
-		}
-		child, err := spawnSubagentForTest(t, ctx, store, parent.Agent, uuid.Nil,
-			"readonly-child", "readonly-child-"+fmt.Sprint(len(source)), nil,
-			func(input *executionstore.LaunchAgentInput) { input.DerivedConfig = &config })
+	childConfig := mustCreateAgentConfigFromYAML(t, ctx, store,
+		withMachines("  - {machine_name: edit-own, cwd: /profile}\n"))
+	child, err := spawnSubagentForTest(t, ctx, store, parent.Agent, childConfig.ID, "helper", "machine-edits-child", nil)
+	require.NoError(t, err)
+	cwds := func(agentID uuid.UUID) map[string]string {
+		bindings, err := store.Execution().ListAgentMachineBindings(ctx, testProjectID, agentID)
 		require.NoError(t, err)
-		_, err = store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-			CreateAgentConfigInput: config, AgentID: child.Agent.ID,
-			ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID,
+		out := map[string]string{}
+		for _, binding := range bindings {
+			if binding.State == executionstore.AgentMachineBindingStateAttached {
+				out[names[binding.MachineID]] = binding.Cwd
+			}
+		}
+		return out
+	}
+	for _, step := range []struct {
+		sources string
+		want    map[string]string
+	}{
+		{
+			"  - {machine_name: edit-own, cwd: /changed}\n",
+			map[string]string{"edit-shared": "/parent", "edit-own": "/changed"},
+		},
+		{
+			"  - {machine_name: edit-own, cwd: /changed}\n  - {machine_name: edit-shared, cwd: /child}\n",
+			map[string]string{"edit-shared": "/child", "edit-own": "/changed"},
+		},
+		{"  - {machine_name: edit-own, cwd: /changed}\n", map[string]string{"edit-own": "/changed"}},
+	} {
+		compiled := mustCompileAgentYAMLResolved(t, ctx, store, withMachines(step.sources))
+		_, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+			CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
+				ProjectID: testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
+				CompiledDefinition: compiled.CanonicalJSON, EffectiveDefinitionHash: compiled.Hash,
+			},
+			AgentID: child.Agent.ID, ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID,
 		})
-		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-		require.ErrorContains(t, err, "subagent configurations are read-only")
+		require.NoError(t, err)
+		require.Equal(t, step.want, cwds(child.Agent.ID))
+		require.Equal(t, map[string]string{"edit-shared": "/parent"}, cwds(parent.Agent.ID))
 	}
 }
 
@@ -176,10 +214,10 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 		t.Fatalf("subagents = %+v", subagents)
 	}
 
-	topLevel, err := store.Execution().ListAgentsForProject(ctx, executionstore.ListAgentsForProjectInput{
-		ProjectID: testProjectID,
-		Limit:     50,
-		List:      defaultAgentListingForTest(),
+	topLevel, err := store.Execution().ListAgentsForProjects(ctx, executionstore.ListAgentsForProjectsInput{
+		ProjectIDs: []uuid.UUID{testProjectID},
+		Limit:      50,
+		List:       defaultAgentListingForTest(),
 	})
 	if err != nil {
 		t.Fatalf("list top-level agents: %v", err)
@@ -187,11 +225,11 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 	if containsAgentID(topLevel.Agents, child.Agent.ID) || !containsAgentID(topLevel.Agents, parent.ID) {
 		t.Fatalf("top-level listing should hide subagents: %+v", agentIDsForTest(topLevel.Agents))
 	}
-	withChildren, err := store.Execution().ListAgentsForProject(ctx, executionstore.ListAgentsForProjectInput{
-		ProjectID: testProjectID,
-		Limit:     50,
-		List:      defaultAgentListingForTest(),
-		Filters:   executionstore.AgentListFilters{IncludeSubagents: true},
+	withChildren, err := store.Execution().ListAgentsForProjects(ctx, executionstore.ListAgentsForProjectsInput{
+		ProjectIDs: []uuid.UUID{testProjectID},
+		Limit:      50,
+		List:       defaultAgentListingForTest(),
+		Filters:    executionstore.AgentListFilters{IncludeSubagents: true},
 	})
 	if err != nil {
 		t.Fatalf("list with subagents: %v", err)
@@ -200,11 +238,11 @@ func TestLaunchSubagentLinksParentAndEnforcesLimits(t *testing.T) {
 		t.Fatalf("include_subagents listing should contain the child")
 	}
 	parentID := parent.ID
-	byParent, err := store.Execution().ListAgentsForProject(ctx, executionstore.ListAgentsForProjectInput{
-		ProjectID: testProjectID,
-		Limit:     50,
-		List:      defaultAgentListingForTest(),
-		Filters:   executionstore.AgentListFilters{ParentAgentID: &parentID},
+	byParent, err := store.Execution().ListAgentsForProjects(ctx, executionstore.ListAgentsForProjectsInput{
+		ProjectIDs: []uuid.UUID{testProjectID},
+		Limit:      50,
+		List:       defaultAgentListingForTest(),
+		Filters:    executionstore.AgentListFilters{ParentAgentID: &parentID},
 	})
 	if err != nil {
 		t.Fatalf("list by parent: %v", err)
@@ -266,16 +304,11 @@ func TestLaunchSubagentWithDerivedConfigKeepsProfileAttribution(t *testing.T) {
 	compiled := storagefixture.SeedModelAndCompileAgentYAML(
 		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, derivedYAML,
 	)
-	modelID, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
-	if err != nil {
-		t.Fatalf("parse configured model id: %v", err)
-	}
 	derived := executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
 		Source:                  derivedYAML,
-		ConfiguredModelID:       modelID,
+		ConfiguredModelID:       compiled.Compiled.Model.ConfiguredModelID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 	child, err := spawnSubagentForTest(
@@ -301,14 +334,89 @@ func TestLaunchSubagentWithDerivedConfigKeepsProfileAttribution(t *testing.T) {
 	unrelated := mustCreateAgentConfigFromYAML(
 		t, ctx, store, strings.Replace(subagentParentYAML, "Coordinate helpers.", "Coordinate helpers alone.", 1),
 	)
-	_, err = spawnSubagentForTest(
+	outside, err := spawnSubagentForTest(
 		t, ctx, store, parent, unrelated.ID, "worker-2", "subagent-derived-child-2", nil,
 		func(input *executionstore.LaunchAgentInput) {
 			input.ProfileID = profile.ID
 		},
 	)
-	if !errors.Is(err, storeerr.ErrNotFound) {
-		t.Fatalf("existing config outside the profile history: err = %v, want not found", err)
+	if err != nil {
+		t.Fatalf("existing config outside the profile history: %v", err)
+	}
+	if outside.Agent.AgentProfileID != profile.ID || outside.Agent.CurrentConfigID != unrelated.ID {
+		t.Fatalf("config outside the profile history should keep profile attribution: %+v", outside.Agent)
+	}
+}
+
+func TestLaunchSubagentValidatesSelectedModel(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{"tool-free leaf", "tools unsupported", "grant revoked"} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newIntegrationStore(pool)
+			user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-model@example.com", "Subagent Model")
+			rootModel := ensureTestConfiguredModelForSource(t, ctx, store, subagentParentYAML)
+			modelInput := storagefixture.DefaultModelInput(testOrgID, rootModel.ModelProviderConfigID, "child-model")
+			modelInput.SupportsTools = new(false)
+			childModel := storagefixture.EnsureModelAccess(t, ctx, store.Models(), testProjectID, modelInput)
+			source := strings.Replace(subagentParentYAML, "    type: self", `    type: self
+    model: {provider_config: openai-prod, name: child-model}`, 1) + `
+tools:
+  read_agent: {enabled: false}
+  send_agent_message: {enabled: false}
+  stop_agent: {enabled: false}
+  list_agents: {enabled: false}
+  storage_list: {enabled: false}
+  storage_read: {enabled: false}
+  storage_search: {enabled: false}
+`
+			if scenario == "tools unsupported" {
+				source += "  run_command: {}\n"
+			}
+			body, err := agentconfigcompile.Compile(ctx, store.Store, testOrgID, testProjectID,
+				agentconfig.CompileOptions{}, agentconfig.SourceFormatYAML, source)
+			require.NoError(t, err)
+			base, err := store.Execution().CreateAgentConfig(ctx, body.CreateInput(testProjectID))
+			require.NoError(t, err)
+			parent, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+				ProjectID: testProjectID, AgentConfigID: base.ID,
+				LaunchedBy: userPrincipal(user.ID), IdempotencyKey: "model-parent",
+			})
+			require.NoError(t, err)
+			_, err = store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
+				OrgID: testOrgID, ModelProviderConfigID: childModel.ModelProviderConfigID,
+				ID: childModel.ID, Name: new("renamed-child"),
+			})
+			require.NoError(t, err)
+			if scenario == "grant revoked" {
+				grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
+					ctx, testOrgID, testProjectID, childModel.ID)
+				require.NoError(t, err)
+				_, err = store.Models().DeleteProjectModelGrant(ctx, testOrgID, testProjectID, grant.ID)
+				require.NoError(t, err)
+			}
+			var compiled agentconfig.Compiled
+			require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
+			derived, err := agentconfigcompile.DeriveSubagentConfig(
+				base, compiled.Subagents["fork"], agentconfig.SubagentDepth{Depth: 1},
+			)
+			require.NoError(t, err)
+			input := derived.CreateInput(testProjectID)
+			child, err := spawnSubagentForTest(t, ctx, store, parent.Agent, uuid.Nil, "child", "model-child", nil,
+				func(launch *executionstore.LaunchAgentInput) { launch.DerivedConfig = &input })
+			switch scenario {
+			case "tool-free leaf":
+				require.NoError(t, err)
+				require.Equal(t, childModel.ID, child.AgentConfig.ConfiguredModelID)
+			case "tools unsupported":
+				require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
+			case "grant revoked":
+				require.ErrorIs(t, err, storeerr.ErrNotFound)
+			}
+		})
 	}
 }
 
@@ -474,66 +582,6 @@ func TestLaunchSubagentRejectsForeignParentAndDepthLimit(t *testing.T) {
 	}
 }
 
-func TestSubagentArchiveNotifiesParent(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool)
-	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-notify@example.com", "Subagent Notify")
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t, ctx, store, "subagent-notify", "Subagent Notify", subagentParentYAML,
-	)
-	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
-		ProjectID:      testProjectID,
-		ProfileID:      profile.ID,
-		AgentConfigID:  profile.CurrentConfigID,
-		LaunchedBy:     userPrincipal(user.ID),
-		IdempotencyKey: "subagent-notify-parent",
-	})
-	if err != nil {
-		t.Fatalf("launch parent: %v", err)
-	}
-	parent := parentLaunch.Agent
-	child, err := spawnSubagentForTest(
-		t, ctx, store, parent, profile.CurrentConfigID, "notify", "subagent-notify-child", nil,
-	)
-	if err != nil {
-		t.Fatalf("spawn subagent: %v", err)
-	}
-	if _, _, err := store.Execution().ArchiveAgent(
-		ctx, testProjectID, child.Agent.ID, userPrincipal(user.ID),
-	); err != nil {
-		t.Fatalf("archive subagent: %v", err)
-	}
-	var metadata json.RawMessage
-	var deliveryMode string
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT metadata, delivery_mode FROM agent_inputs
-		 WHERE project_id = $1 AND agent_id = $2 AND idempotency_scope = 'subagent_message'`,
-		testProjectID,
-		parent.ID,
-	).Scan(&metadata, &deliveryMode); err != nil {
-		t.Fatalf("load parent notification input: %v", err)
-	}
-	if deliveryMode != string(executionstore.DeliveryModeSteering) {
-		t.Fatalf("parent notification delivery mode = %q, want steering", deliveryMode)
-	}
-	var decodedMetadata struct {
-		SubagentMessage struct {
-			Kind    string `json:"kind"`
-			AgentID string `json:"agent_id"`
-		} `json:"subagent_message"`
-	}
-	if err := json.Unmarshal(metadata, &decodedMetadata); err != nil {
-		t.Fatalf("decode parent notification metadata: %v", err)
-	}
-	if decodedMetadata.SubagentMessage.Kind != "archived" || decodedMetadata.SubagentMessage.AgentID == "" {
-		t.Fatalf("parent notification metadata = %s", metadata)
-	}
-}
-
 func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -587,7 +635,7 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	}
 	asOf := time.Now().Add(2 * time.Hour)
 
-	_, archived, err := store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
+	_, archived, _, err := store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents while leaf is running: %v", err)
 	}
@@ -598,12 +646,12 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	if err := store.Execution().ReleaseAgentRuntimeLock(ctx, testProjectID, leaf.Agent.ID, leafLock.ID); err != nil {
 		t.Fatalf("release leaf runtime lock: %v", err)
 	}
-	if err := store.Execution().MarkAgentWakeup(
-		ctx, testProjectID, leaf.Agent.ID, []byte(`{"reason":"test"}`),
+	if err := store.Execution().RepairExecutionForTest(
+		ctx, testProjectID, leaf.Agent.ID,
 	); err != nil {
 		t.Fatalf("mark leaf wakeup: %v", err)
 	}
-	_, archived, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
+	_, archived, _, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents while leaf has a wakeup: %v", err)
 	}
@@ -614,14 +662,14 @@ func TestArchiveIdleAgentsWaitsForBusyDescendants(t *testing.T) {
 	if err := store.Execution().DeleteAgentWakeup(ctx, testProjectID, leaf.Agent.ID); err != nil {
 		t.Fatalf("clear leaf wakeup: %v", err)
 	}
-	_, archived, err = store.Execution().ArchiveIdleAgents(ctx, 10)
+	_, archived, _, err = store.Execution().ArchiveIdleAgents(ctx, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents before the idle window: %v", err)
 	}
 	if archived != 0 {
 		t.Fatalf("archived %d subagents before the idle window elapsed, want 0", archived)
 	}
-	_, archived, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
+	_, archived, _, err = store.Execution().ArchiveIdleAgentsAsOf(ctx, asOf, 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents: %v", err)
 	}
@@ -717,7 +765,7 @@ func TestIdleArchiveAndStatusTreatPendingToolCallsAsRunning(t *testing.T) {
 	if len(subagents) != 1 || subagents[0].State != executionstore.SubagentStateRunning {
 		t.Fatalf("subagents with a pending tool call = %+v, want one running subagent", subagents)
 	}
-	_, archived, err := store.Execution().ArchiveIdleAgentsAsOf(ctx, time.Now().Add(2*time.Hour), 10)
+	_, archived, _, err := store.Execution().ArchiveIdleAgentsAsOf(ctx, time.Now().Add(2*time.Hour), 10)
 	if err != nil {
 		t.Fatalf("archive idle subagents with a pending tool call: %v", err)
 	}
@@ -901,6 +949,25 @@ func TestSubagentQuestionSurfacesOnParent(t *testing.T) {
 	if kind != "question" {
 		t.Fatalf("parent notification kind = %q", kind)
 	}
+
+	var pending executionstore.AgentInputRecord
+	for range 50 {
+		pending, _, _, err = store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{ProjectID: testProjectID, AgentID: child.Agent.ID, ContentBlocks: json.RawMessage(`[{"type":"text","text":"pending"}]`)})
+		require.NoError(t, err)
+	}
+	_, err = store.Execution().IntegrationExecuteToolCallOnce(ctx, executionstore.ExecuteToolCallInput{ProjectID: testProjectID, AgentID: parent.ID, ToolCallID: parentToolCallIDs["send"], RuntimeLockID: parentLock.ID}, executionstore.SendSubagentMessageForToolCall(executionstore.SendSubagentMessageInput{TargetAgentID: child.Agent.ID, Message: "rejected"}, executionstore.ToolCallCompletionInput{Outcome: executionstore.ToolResultOutcomeSucceeded, ResultContentParts: json.RawMessage(`[{"type":"text","text":"sent"}]`)}))
+	require.ErrorIs(t, err, storeerr.ErrAgentBacklogFull)
+	var openCount int
+	require.NoError(t,
+		pool.QueryRow(ctx,
+			`SELECT count(*) FROM agent_interactions WHERE agent_id=$1 AND state='open'`,
+			child.Agent.ID).Scan(&openCount))
+	require.Equal(t, 1, openCount)
+	require.NoError(t,
+		store.Execution().CancelQueuedBacklogInput(ctx,
+			executionstore.CancelQueuedBacklogInputInput{ProjectID: testProjectID,
+				AgentID: child.Agent.ID,
+				InputID: pending.ID}))
 
 	if _, err := store.Execution().ExecuteToolCall(
 		ctx,
@@ -1101,30 +1168,6 @@ func TestStopSubagentCancelsThenArchives(t *testing.T) {
 	if interactionState != string(executionstore.AgentInteractionStateCanceled) {
 		t.Fatalf("child question state after cancel = %q, want canceled", interactionState)
 	}
-	var kinds []string
-	rows, err := pool.Query(
-		ctx,
-		`SELECT metadata->'subagent_message'->>'kind' FROM agent_inputs
-		 WHERE project_id = $1 AND agent_id = $2 AND idempotency_scope = 'subagent_message' ORDER BY queued_at`,
-		testProjectID, parent.ID,
-	)
-	if err != nil {
-		t.Fatalf("load parent notifications: %v", err)
-	}
-	for rows.Next() {
-		var kind string
-		if err := rows.Scan(&kind); err != nil {
-			t.Fatalf("scan parent notification: %v", err)
-		}
-		kinds = append(kinds, kind)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate parent notifications: %v", err)
-	}
-	if !slices.Contains(kinds, executionstore.SubagentMessageKindCanceled) {
-		t.Fatalf("parent notifications after cancel = %v, want a canceled message", kinds)
-	}
 	subagents, err := store.Execution().ListSubagents(ctx, testProjectID, parent.ID)
 	if err != nil {
 		t.Fatalf("list subagents: %v", err)
@@ -1207,5 +1250,71 @@ func TestAgentRuntimeLockReaperSkipsSubagentWithContendedParent(t *testing.T) {
 	}
 	if reaped != 1 {
 		t.Fatalf("reaped %d runtime locks after parent contention cleared, want 1", reaped)
+	}
+}
+
+func TestParentActivityListsChildWhoseSubagentIsWorking(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-grandchild@example.com", "Subagent Grandchild")
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t, ctx, store, "subagent-grandchild", "Subagent Grandchild", subagentParentYAML,
+	)
+	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      testProjectID,
+		ProfileID:      profile.ID,
+		AgentConfigID:  profile.CurrentConfigID,
+		LaunchedBy:     userPrincipal(user.ID),
+		IdempotencyKey: "subagent-grandchild-parent",
+	})
+	if err != nil {
+		t.Fatalf("launch parent: %v", err)
+	}
+	parent := parentLaunch.Agent
+	child, err := spawnSubagentForTest(
+		t, ctx, store, parent, profile.CurrentConfigID, "child", "subagent-grandchild-child", nil,
+	)
+	if err != nil {
+		t.Fatalf("spawn child: %v", err)
+	}
+	grandchild, err := spawnSubagentForTest(
+		t, ctx, store, child.Agent, profile.CurrentConfigID, "grandchild", "subagent-grandchild-grandchild", nil,
+	)
+	if err != nil {
+		t.Fatalf("spawn grandchild: %v", err)
+	}
+	agentIDs := []uuid.UUID{parent.ID, child.Agent.ID, grandchild.Agent.ID}
+	if _, err := pool.Exec(ctx, `
+UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = false WHERE agent_id = ANY($1);
+`, agentIDs); err != nil {
+		t.Fatalf("settle agents: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM agent_wakeups WHERE agent_id = ANY($1)`, agentIDs); err != nil {
+		t.Fatalf("clear wakeups: %v", err)
+	}
+	activity, err := store.Execution().GetAgentActivity(ctx, testProjectID, parent.ID)
+	if err != nil {
+		t.Fatalf("get parent activity: %v", err)
+	}
+	if activity.State != executionstore.SubagentStateIdle ||
+		activity.WorkingSubagents.Count != 0 || activity.RunningProcesses.Count != 0 {
+		t.Fatalf("settled parent activity = %+v, want idle", activity)
+	}
+
+	if _, err := pool.Exec(ctx, `
+UPDATE agent_execution_state SET incomplete_tools = true WHERE agent_id = $1;
+`, grandchild.Agent.ID); err != nil {
+		t.Fatalf("give grandchild work: %v", err)
+	}
+	activity, err = store.Execution().GetAgentActivity(ctx, testProjectID, parent.ID)
+	if err != nil {
+		t.Fatalf("get parent activity: %v", err)
+	}
+	if activity.State != executionstore.SubagentStateIdle || activity.WorkingSubagents.Count != 1 ||
+		len(activity.WorkingSubagents.IDs) != 1 || activity.WorkingSubagents.IDs[0] != child.Agent.ID {
+		t.Fatalf("parent activity = %+v, want idle with working child %s", activity, child.Agent.ID)
 	}
 }

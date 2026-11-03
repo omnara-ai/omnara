@@ -42,9 +42,10 @@ const (
 type ReportKind string
 
 const (
-	ReportProcessStarted  ReportKind = "process_started"
-	ReportProcessTerminal ReportKind = "process_terminal"
-	ReportActionTerminal  ReportKind = "action_terminal"
+	ReportProcessStarted     ReportKind = "process_started"
+	ReportProcessTerminal    ReportKind = "process_terminal"
+	ReportActionTerminal     ReportKind = "action_terminal"
+	ReportProcessOutputMatch ReportKind = "process_output_match"
 )
 
 var (
@@ -70,6 +71,7 @@ type Process struct {
 	ActionAdmissionClosed bool
 	LocalClosed           bool
 	ServerReleased        bool
+	LastOutputMatchSeq    int64
 }
 
 type Action struct {
@@ -85,6 +87,7 @@ type Report struct {
 	ProcessID string
 	ActionID  string
 	Kind      ReportKind
+	Seq       int64
 	Body      []byte
 	State     ReportState
 	ErrorCode string

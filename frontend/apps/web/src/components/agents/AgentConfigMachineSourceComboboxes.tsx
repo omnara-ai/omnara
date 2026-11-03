@@ -1,15 +1,22 @@
-import { useMachinePool, useProjectMachinePoolGrants, useProjectMachines } from '@omnara/react'
+import {
+  exactNameGlob,
+  useMachinePool,
+  useProjectMachinePoolGrants,
+  useProjectMachines,
+} from '@omnara/react'
 import type { MachinePoolSummary, ProjectMachinePoolGrant } from '@omnara/sdk'
 import { type ReactNode, useEffect, useState } from 'react'
 
 import { PlusIcon } from '@/components/icons'
+import { machinePoolProviderLabel } from '@/components/org/MachinePoolDialogState'
 import { GrantMachinePoolDialog } from '@/components/projects/GrantMachinePoolDialog'
 import { GrantProjectMachineDialog } from '@/components/projects/GrantProjectMachineDialog'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
-import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
+import { useTypeaheadSearch } from '@/hooks/use-resource-list'
 import { formatMemoryGb } from '@/lib/machine-memory'
+import { canManageMachineGrants } from '@/lib/permissions'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
@@ -22,7 +29,7 @@ function GrantAction({ label, onOpen }: { label: string; onOpen: () => void }): 
   return (
     <button
       type="button"
-      className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm outline-none"
+      className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pr-8 pl-2 text-sm outline-none"
       onClick={onOpen}
     >
       <PlusIcon className="size-4" />
@@ -44,14 +51,14 @@ const PoolNameCombobox = createResourceCombobox<PoolOption>({
   itemKey: (item) => item.name,
   itemLabel: (item) => item.name,
   placeholder: 'Search machine pools…',
-  emptyMessage: 'No machine pools granted.',
+  emptyMessage: 'No shared machine pools.',
 })
 
 const MachineNameCombobox = createResourceCombobox<MachineOption>({
   itemKey: (machine) => machine.name,
   itemLabel: (machine) => machine.name,
   placeholder: 'Search machines…',
-  emptyMessage: 'No machines granted.',
+  emptyMessage: 'No shared machines.',
 })
 
 function useStaleName<TItem, TFetchResult>(
@@ -98,7 +105,7 @@ export function PoolSourceCombobox({
   onPoolResolved?: (pool: SelectedPool) => void
   onGrantResolved?: (grant: ResolvedPoolGrant | null) => void
 }) {
-  const { project } = useProjectPage()
+  const { activeOrg, project } = useProjectPage()
   const [grantOpen, setGrantOpen] = useState(false)
   const search = useTypeaheadSearch()
   const grantsQuery = useProjectMachinePoolGrants(orgId, projectId, {
@@ -148,9 +155,9 @@ export function PoolSourceCombobox({
         query={grantsQuery}
         placeholder={grantsQuery.isPending ? 'Loading pools…' : 'Search machine pools…'}
         action={
-          project?.access.can_manage_access && (
+          canManageMachineGrants(activeOrg.role, project?.access) && (
             <GrantAction
-              label="Grant machine pool"
+              label="Share machine pool"
               onOpen={() => {
                 setGrantOpen(true)
               }}
@@ -192,7 +199,7 @@ export function MachineSourceCombobox({
   onUnavailableChange?: (unavailable: boolean) => void
   onMachinesGranted?: (names: string[]) => void
 }) {
-  const { project } = useProjectPage()
+  const { activeOrg, project } = useProjectPage()
   const [grantOpen, setGrantOpen] = useState(false)
   const search = useTypeaheadSearch()
   const machinesQuery = useProjectMachines(orgId, projectId, {
@@ -230,9 +237,9 @@ export function MachineSourceCombobox({
         query={machinesQuery}
         placeholder={machinesQuery.isPending ? 'Loading machines…' : 'Search machines…'}
         action={
-          project?.access.can_manage_access && (
+          canManageMachineGrants(activeOrg.role, project?.access) && (
             <GrantAction
-              label="Grant machine"
+              label="Share machine"
               onOpen={() => {
                 setGrantOpen(true)
               }}
@@ -279,7 +286,7 @@ export function PoolGrantSummary({ machine_pool: pool, grant }: ResolvedPoolGran
       ),
       resolve('CPU', grant.default_machine_cpu, inherited?.default_machine_cpu),
       resolve('Max machines', grant.max_total_machines, inherited?.max_total_machines),
-      { label: 'Provider', value: pool.provider },
+      { label: 'Provider', value: machinePoolProviderLabel(pool.provider) },
       { label: 'Management', value: pool.management_kind },
       resolve('Min machine CPU', grant.min_machine_cpu, inherited?.min_machine_cpu),
       resolve(

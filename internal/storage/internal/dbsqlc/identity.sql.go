@@ -255,7 +255,7 @@ func (q *Queries) AuthenticateBrowserSession(ctx context.Context, arg Authentica
 
 const authenticateOAuthAccessToken = `-- name: AuthenticateOAuthAccessToken :one
 WITH authenticated AS MATERIALIZED (
-  SELECT t.user_id, t.id AS oauth_access_token_id, t.resource
+  SELECT t.user_id, t.id AS oauth_access_token_id, t.resource, t.scope
   FROM oauth_access_tokens t
   WHERE t.token_hash = $1
     AND t.revoked_at IS NULL
@@ -272,7 +272,7 @@ WITH authenticated AS MATERIALIZED (
     )
   RETURNING token.id
 )
-SELECT user_id, oauth_access_token_id, resource
+SELECT user_id, oauth_access_token_id, resource, scope
 FROM authenticated
 `
 
@@ -285,12 +285,18 @@ type AuthenticateOAuthAccessTokenRow struct {
 	UserID             uuid.UUID
 	OauthAccessTokenID uuid.UUID
 	Resource           string
+	Scope              string
 }
 
 func (q *Queries) AuthenticateOAuthAccessToken(ctx context.Context, arg AuthenticateOAuthAccessTokenParams) (AuthenticateOAuthAccessTokenRow, error) {
 	row := q.db.QueryRow(ctx, authenticateOAuthAccessToken, arg.TokenHash, arg.TouchIntervalSeconds)
 	var i AuthenticateOAuthAccessTokenRow
-	err := row.Scan(&i.UserID, &i.OauthAccessTokenID, &i.Resource)
+	err := row.Scan(
+		&i.UserID,
+		&i.OauthAccessTokenID,
+		&i.Resource,
+		&i.Scope,
+	)
 	return i, err
 }
 
@@ -361,7 +367,7 @@ SET consumed_at = transaction_timestamp()
 WHERE code_hash = $1
   AND consumed_at IS NULL
   AND expires_at > transaction_timestamp()
-RETURNING id, user_id, client_id, client_name, redirect_uri, code_challenge, resource
+RETURNING id, user_id, client_id, client_name, redirect_uri, code_challenge, resource, scope, nonce
 `
 
 type ConsumeOAuthAuthorizationCodeParams struct {
@@ -376,6 +382,8 @@ type ConsumeOAuthAuthorizationCodeRow struct {
 	RedirectUri   string
 	CodeChallenge string
 	Resource      string
+	Scope         string
+	Nonce         string
 }
 
 func (q *Queries) ConsumeOAuthAuthorizationCode(ctx context.Context, arg ConsumeOAuthAuthorizationCodeParams) (ConsumeOAuthAuthorizationCodeRow, error) {
@@ -389,6 +397,8 @@ func (q *Queries) ConsumeOAuthAuthorizationCode(ctx context.Context, arg Consume
 		&i.RedirectUri,
 		&i.CodeChallenge,
 		&i.Resource,
+		&i.Scope,
+		&i.Nonce,
 	)
 	return i, err
 }
@@ -697,17 +707,19 @@ func (q *Queries) CreateBrowserSession(ctx context.Context, arg CreateBrowserSes
 }
 
 const createOAuthAccessToken = `-- name: CreateOAuthAccessToken :one
-INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
+INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, granted_scope, scope, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
 VALUES (
   $1,
   $2,
   $3,
   $4,
   $5,
+  $5,
   $6,
+  $7,
   transaction_timestamp(),
-  transaction_timestamp() + ($7::bigint * interval '1 second'),
-  transaction_timestamp() + ($8::bigint * interval '1 second')
+  transaction_timestamp() + ($8::bigint * interval '1 second'),
+  transaction_timestamp() + ($9::bigint * interval '1 second')
 )
 RETURNING id
 `
@@ -717,6 +729,7 @@ type CreateOAuthAccessTokenParams struct {
 	ClientID          string
 	ClientName        string
 	Resource          string
+	Scope             string
 	TokenHash         string
 	RefreshTokenHash  string
 	AccessTtlSeconds  int64
@@ -729,6 +742,7 @@ func (q *Queries) CreateOAuthAccessToken(ctx context.Context, arg CreateOAuthAcc
 		arg.ClientID,
 		arg.ClientName,
 		arg.Resource,
+		arg.Scope,
 		arg.TokenHash,
 		arg.RefreshTokenHash,
 		arg.AccessTtlSeconds,
@@ -740,7 +754,7 @@ func (q *Queries) CreateOAuthAccessToken(ctx context.Context, arg CreateOAuthAcc
 }
 
 const createOAuthAuthorizationCode = `-- name: CreateOAuthAuthorizationCode :one
-INSERT INTO oauth_authorization_codes(code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, resource, created_at, expires_at)
+INSERT INTO oauth_authorization_codes(code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, resource, scope, nonce, created_at, expires_at)
 VALUES (
   $1,
   $2,
@@ -749,8 +763,10 @@ VALUES (
   $5,
   $6,
   $7,
+  $8,
+  $9,
   transaction_timestamp(),
-  transaction_timestamp() + ($8::bigint * interval '1 second')
+  transaction_timestamp() + ($10::bigint * interval '1 second')
 )
 RETURNING id
 `
@@ -763,6 +779,8 @@ type CreateOAuthAuthorizationCodeParams struct {
 	RedirectUri   string
 	CodeChallenge string
 	Resource      string
+	Scope         string
+	Nonce         string
 	TtlSeconds    int64
 }
 
@@ -775,11 +793,28 @@ func (q *Queries) CreateOAuthAuthorizationCode(ctx context.Context, arg CreateOA
 		arg.RedirectUri,
 		arg.CodeChallenge,
 		arg.Resource,
+		arg.Scope,
+		arg.Nonce,
 		arg.TtlSeconds,
 	)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const createOIDCSigningKey = `-- name: CreateOIDCSigningKey :exec
+INSERT INTO oidc_signing_keys(id, encrypted_private_key)
+VALUES ('default', $1)
+ON CONFLICT (id) DO NOTHING
+`
+
+type CreateOIDCSigningKeyParams struct {
+	EncryptedPrivateKey json.RawMessage
+}
+
+func (q *Queries) CreateOIDCSigningKey(ctx context.Context, arg CreateOIDCSigningKeyParams) error {
+	_, err := q.db.Exec(ctx, createOIDCSigningKey, arg.EncryptedPrivateKey)
+	return err
 }
 
 const createOrg = `-- name: CreateOrg :one
@@ -817,16 +852,20 @@ func (q *Queries) CreateOrg(ctx context.Context, arg CreateOrgParams) (CreateOrg
 }
 
 const createOrgInvitation = `-- name: CreateOrgInvitation :one
-INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_at)
-VALUES ($1, $2, $3, $4, statement_timestamp())
-RETURNING id, org_id, email, normalized_email, org_role, created_at
+INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_by_membership_id, created_at)
+VALUES (
+  $1, $2, $3, $4,
+  $5::uuid, statement_timestamp()
+)
+RETURNING id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 `
 
 type CreateOrgInvitationParams struct {
-	OrgID           uuid.UUID
-	Email           string
-	NormalizedEmail string
-	OrgRole         string
+	OrgID                 uuid.UUID
+	Email                 string
+	NormalizedEmail       string
+	OrgRole               string
+	CreatedByMembershipID uuid.UUID
 }
 
 func (q *Queries) CreateOrgInvitation(ctx context.Context, arg CreateOrgInvitationParams) (OrgInvitation, error) {
@@ -835,6 +874,7 @@ func (q *Queries) CreateOrgInvitation(ctx context.Context, arg CreateOrgInvitati
 		arg.Email,
 		arg.NormalizedEmail,
 		arg.OrgRole,
+		arg.CreatedByMembershipID,
 	)
 	var i OrgInvitation
 	err := row.Scan(
@@ -844,6 +884,7 @@ func (q *Queries) CreateOrgInvitation(ctx context.Context, arg CreateOrgInvitati
 		&i.NormalizedEmail,
 		&i.OrgRole,
 		&i.CreatedAt,
+		&i.CreatedByMembershipID,
 	)
 	return i, err
 }
@@ -1319,7 +1360,7 @@ const deleteOrgInvitation = `-- name: DeleteOrgInvitation :one
 DELETE FROM org_invitations
 WHERE id = $1
   AND org_id = $2
-RETURNING id, org_id, email, normalized_email, org_role, created_at
+RETURNING id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 `
 
 type DeleteOrgInvitationParams struct {
@@ -1337,6 +1378,7 @@ func (q *Queries) DeleteOrgInvitation(ctx context.Context, arg DeleteOrgInvitati
 		&i.NormalizedEmail,
 		&i.OrgRole,
 		&i.CreatedAt,
+		&i.CreatedByMembershipID,
 	)
 	return i, err
 }
@@ -1492,6 +1534,23 @@ func (q *Queries) DeleteOrganizationSkillGrants(ctx context.Context, arg DeleteO
 	return err
 }
 
+const deleteOwnerOrgInvitationsFromSender = `-- name: DeleteOwnerOrgInvitationsFromSender :exec
+DELETE FROM org_invitations
+WHERE org_id = $1
+  AND created_by_membership_id = $2::uuid
+  AND org_role = 'owner'
+`
+
+type DeleteOwnerOrgInvitationsFromSenderParams struct {
+	OrgID                 uuid.UUID
+	CreatedByMembershipID uuid.UUID
+}
+
+func (q *Queries) DeleteOwnerOrgInvitationsFromSender(ctx context.Context, arg DeleteOwnerOrgInvitationsFromSenderParams) error {
+	_, err := q.db.Exec(ctx, deleteOwnerOrgInvitationsFromSender, arg.OrgID, arg.CreatedByMembershipID)
+	return err
+}
+
 const deleteProject = `-- name: DeleteProject :execrows
 UPDATE projects SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
@@ -1549,23 +1608,6 @@ type DeleteProjectCronTriggersParams struct {
 
 func (q *Queries) DeleteProjectCronTriggers(ctx context.Context, arg DeleteProjectCronTriggersParams) error {
 	_, err := q.db.Exec(ctx, deleteProjectCronTriggers, arg.ProjectID)
-	return err
-}
-
-const deleteProjectIntegrationInstalls = `-- name: DeleteProjectIntegrationInstalls :exec
-UPDATE integration_installs
-SET credential_secret_id = NULL, deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
-WHERE org_id = $1 AND project_id = $2 AND deleted_at IS NULL
-`
-
-type DeleteProjectIntegrationInstallsParams struct {
-	OrgID     uuid.UUID
-	ProjectID uuid.UUID
-}
-
-// Clearing the credential releases the secret for the deletion below.
-func (q *Queries) DeleteProjectIntegrationInstalls(ctx context.Context, arg DeleteProjectIntegrationInstallsParams) error {
-	_, err := q.db.Exec(ctx, deleteProjectIntegrationInstalls, arg.OrgID, arg.ProjectID)
 	return err
 }
 
@@ -2023,8 +2065,8 @@ WHERE secret.org_id = version.org_id
     WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id
   )
   AND NOT EXISTS (
-    SELECT 1 FROM integration_installs install
-    WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id
+    SELECT 1 FROM integrations integration
+    WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id
   )
 `
 
@@ -2484,8 +2526,8 @@ func (q *Queries) GetInstallationID(ctx context.Context) (uuid.UUID, error) {
 	return id, err
 }
 
-const getOAuthAccessTokenUserByRefreshToken = `-- name: GetOAuthAccessTokenUserByRefreshToken :one
-SELECT token.user_id
+const getOAuthAccessTokenGrantByRefreshToken = `-- name: GetOAuthAccessTokenGrantByRefreshToken :one
+SELECT token.user_id, token.granted_scope
 FROM oauth_access_tokens token
 LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
 WHERE token.refresh_token_hash = $1::text
@@ -2493,15 +2535,31 @@ WHERE token.refresh_token_hash = $1::text
 LIMIT 1
 `
 
-type GetOAuthAccessTokenUserByRefreshTokenParams struct {
+type GetOAuthAccessTokenGrantByRefreshTokenParams struct {
 	PresentedRefreshTokenHash string
 }
 
-func (q *Queries) GetOAuthAccessTokenUserByRefreshToken(ctx context.Context, arg GetOAuthAccessTokenUserByRefreshTokenParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getOAuthAccessTokenUserByRefreshToken, arg.PresentedRefreshTokenHash)
-	var user_id uuid.UUID
-	err := row.Scan(&user_id)
-	return user_id, err
+type GetOAuthAccessTokenGrantByRefreshTokenRow struct {
+	UserID       uuid.UUID
+	GrantedScope string
+}
+
+func (q *Queries) GetOAuthAccessTokenGrantByRefreshToken(ctx context.Context, arg GetOAuthAccessTokenGrantByRefreshTokenParams) (GetOAuthAccessTokenGrantByRefreshTokenRow, error) {
+	row := q.db.QueryRow(ctx, getOAuthAccessTokenGrantByRefreshToken, arg.PresentedRefreshTokenHash)
+	var i GetOAuthAccessTokenGrantByRefreshTokenRow
+	err := row.Scan(&i.UserID, &i.GrantedScope)
+	return i, err
+}
+
+const getOIDCSigningKey = `-- name: GetOIDCSigningKey :one
+SELECT encrypted_private_key FROM oidc_signing_keys WHERE id = 'default'
+`
+
+func (q *Queries) GetOIDCSigningKey(ctx context.Context) (json.RawMessage, error) {
+	row := q.db.QueryRow(ctx, getOIDCSigningKey)
+	var encrypted_private_key json.RawMessage
+	err := row.Scan(&encrypted_private_key)
+	return encrypted_private_key, err
 }
 
 const getOrg = `-- name: GetOrg :one
@@ -2850,7 +2908,7 @@ func (q *Queries) GetPasswordLoginByVerifiedEmail(ctx context.Context, arg GetPa
 }
 
 const getPendingOrgInvitationByEmail = `-- name: GetPendingOrgInvitationByEmail :one
-SELECT id, org_id, email, normalized_email, org_role, created_at
+SELECT id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 FROM org_invitations
 WHERE org_id = $1
   AND normalized_email = $2
@@ -2871,6 +2929,7 @@ func (q *Queries) GetPendingOrgInvitationByEmail(ctx context.Context, arg GetPen
 		&i.NormalizedEmail,
 		&i.OrgRole,
 		&i.CreatedAt,
+		&i.CreatedByMembershipID,
 	)
 	return i, err
 }
@@ -3250,7 +3309,7 @@ func (q *Queries) ListEnabledAuthConnectorSummaries(ctx context.Context) ([]List
 }
 
 const listOrgInvitations = `-- name: ListOrgInvitations :many
-SELECT id, org_id, email, normalized_email, org_role, created_at
+SELECT id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 FROM org_invitations
 WHERE org_id = $1
   AND (
@@ -3289,6 +3348,7 @@ func (q *Queries) ListOrgInvitations(ctx context.Context, arg ListOrgInvitations
 			&i.NormalizedEmail,
 			&i.OrgRole,
 			&i.CreatedAt,
+			&i.CreatedByMembershipID,
 		); err != nil {
 			return nil, err
 		}
@@ -4078,6 +4138,35 @@ func (q *Queries) LockOrg(ctx context.Context, arg LockOrgParams) (uuid.UUID, er
 	return id, err
 }
 
+const lockOrgMembershipForPrincipal = `-- name: LockOrgMembershipForPrincipal :one
+SELECT id, role
+FROM org_memberships
+WHERE org_id = $1
+  AND (
+    ($2::uuid IS NOT NULL AND user_id = $2::uuid)
+    OR ($3::uuid IS NOT NULL AND org_api_key_id = $3::uuid)
+  )
+FOR KEY SHARE
+`
+
+type LockOrgMembershipForPrincipalParams struct {
+	OrgID       uuid.UUID
+	UserID      *uuid.UUID
+	OrgApiKeyID *uuid.UUID
+}
+
+type LockOrgMembershipForPrincipalRow struct {
+	ID   uuid.UUID
+	Role string
+}
+
+func (q *Queries) LockOrgMembershipForPrincipal(ctx context.Context, arg LockOrgMembershipForPrincipalParams) (LockOrgMembershipForPrincipalRow, error) {
+	row := q.db.QueryRow(ctx, lockOrgMembershipForPrincipal, arg.OrgID, arg.UserID, arg.OrgApiKeyID)
+	var i LockOrgMembershipForPrincipalRow
+	err := row.Scan(&i.ID, &i.Role)
+	return i, err
+}
+
 const lockOrganizationMembershipsForDeletion = `-- name: LockOrganizationMembershipsForDeletion :exec
 SELECT id
 FROM org_memberships
@@ -4270,7 +4359,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced
 `
@@ -4351,7 +4440,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced
 `
@@ -4613,13 +4702,14 @@ WITH presented AS (
     )
 ), rotated AS (
   UPDATE oauth_access_tokens token
-  SET token_hash = $4,
-      refresh_token_hash = $5,
-      expires_at = transaction_timestamp() + ($6::bigint * interval '1 second'),
-      refresh_expires_at = transaction_timestamp() + ($7::bigint * interval '1 second')
+  SET scope = CASE WHEN $4::text = '' THEN token.granted_scope ELSE $4::text END,
+      token_hash = $5,
+      refresh_token_hash = $6,
+      expires_at = transaction_timestamp() + ($7::bigint * interval '1 second'),
+      refresh_expires_at = transaction_timestamp() + ($8::bigint * interval '1 second')
   FROM presented
   WHERE token.id = presented.id
-  RETURNING token.id, token.user_id, token.resource
+  RETURNING token.id, token.user_id, token.resource, token.scope
 ), retired AS (
   INSERT INTO oauth_retired_refresh_tokens(refresh_token_hash, oauth_access_token_id, retired_at)
   SELECT old.refresh_token_hash, rotated.id, transaction_timestamp()
@@ -4627,7 +4717,7 @@ WITH presented AS (
   JOIN oauth_access_tokens old ON old.id = rotated.id
   ON CONFLICT (refresh_token_hash) DO NOTHING
 )
-SELECT id, user_id, resource
+SELECT id, user_id, resource, scope
 FROM rotated
 `
 
@@ -4635,6 +4725,7 @@ type RotateOAuthAccessTokenParams struct {
 	ClientID                  string
 	PresentedRefreshTokenHash string
 	ReuseGraceSeconds         int64
+	Scope                     string
 	TokenHash                 string
 	RefreshTokenHash          string
 	AccessTtlSeconds          int64
@@ -4645,6 +4736,7 @@ type RotateOAuthAccessTokenRow struct {
 	ID       uuid.UUID
 	UserID   uuid.UUID
 	Resource string
+	Scope    string
 }
 
 func (q *Queries) RotateOAuthAccessToken(ctx context.Context, arg RotateOAuthAccessTokenParams) (RotateOAuthAccessTokenRow, error) {
@@ -4652,13 +4744,19 @@ func (q *Queries) RotateOAuthAccessToken(ctx context.Context, arg RotateOAuthAcc
 		arg.ClientID,
 		arg.PresentedRefreshTokenHash,
 		arg.ReuseGraceSeconds,
+		arg.Scope,
 		arg.TokenHash,
 		arg.RefreshTokenHash,
 		arg.AccessTtlSeconds,
 		arg.RefreshTtlSeconds,
 	)
 	var i RotateOAuthAccessTokenRow
-	err := row.Scan(&i.ID, &i.UserID, &i.Resource)
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Resource,
+		&i.Scope,
+	)
 	return i, err
 }
 
@@ -4881,7 +4979,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced
 `

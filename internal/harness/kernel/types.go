@@ -23,6 +23,7 @@ type ModelWorkExecution struct {
 }
 
 type ToolWorkExecution struct {
+	Prepared           *executionstore.PreparedToolWork
 	ProjectID          uuid.UUID
 	AgentID            uuid.UUID
 	TurnID             uuid.UUID

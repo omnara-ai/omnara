@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 )
 
 const scopedAgentRuntimeLockCountSQL = `
@@ -45,7 +46,9 @@ type serviceProcess struct {
 
 type serviceProcessLifecycle struct {
 	stopOnce sync.Once
+	waitOnce sync.Once
 	done     chan struct{}
+	exitErr  error
 }
 
 func newServiceProcess(cmd *exec.Cmd, logs *safeLogBuffer) serviceProcess {
@@ -219,6 +222,9 @@ func (e *serviceE2EEnvironment) startAPIWithWebServing(
 		"OMNARA_REDIS_URL="+e.redisURL,
 		"OMNARA_PUBLIC_URL="+e.publicURL,
 		"OMNARA_WEB_SERVING="+webServing,
+		"OMNARA_API_RATE_LIMIT_READS_PER_HOUR=0",
+		"OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR=0",
+		"OMNARA_MEMORY_DIR="+filepath.Join(e.root, "memory"),
 		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\"}",
 		"OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID=e2e-local",
 		"OMNARA_LOG_LEVEL="+serviceE2EEnvDefault("OMNARA_E2E_API_LOG_LEVEL", "error"),
@@ -261,16 +267,25 @@ func (e *serviceE2EEnvironment) startWorker(
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build worker: %v\n%s", err, output)
 	}
+	build = exec.CommandContext(ctx, goBin(e.repoRoot), "build",
+		"-o", filepath.Join(e.root, "omnara-sandbox"), "./cmd/sandbox")
+	build.Dir = e.repoRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build sandbox launcher: %v\n%s", err, output)
+	}
 	cmd := exec.Command(workerPath)
 	cmd.Dir = e.repoRoot
 	workerEnv := []string{
+		"PATH=" + e.root + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1",
 		"OMNARA_WORKER_METRICS_ADDR=" + e.workerListenAddr,
 		"OMNARA_DATABASE_URL=" + e.databaseURL,
 		"OMNARA_REDIS_URL=" + e.redisURL,
 		"OMNARA_PUBLIC_URL=" + workerPublicURL,
+		"OMNARA_MEMORY_DIR=" + filepath.Join(e.root, "memory"),
 		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\"}",
 		"OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID=e2e-local",
+		"OMNARA_SAFETY_IDENTIFIER_KEY=" + modeltest.SafetyIdentifierKey,
 		"OMNARA_LOG_LEVEL=" + opts.LogLevel,
 	}
 	workerEnv = append(workerEnv, opts.ExtraEnv...)
@@ -327,6 +342,7 @@ func (e *serviceE2EEnvironment) startMaintenance(t *testing.T, ctx context.Conte
 		"OMNARA_MAINTENANCE_METRICS_ADDR="+e.maintenanceListenAddr,
 		"OMNARA_DATABASE_URL="+e.databaseURL,
 		"OMNARA_REDIS_URL="+e.redisURL,
+		"OMNARA_MEMORY_DIR="+filepath.Join(e.root, "memory"),
 		"OMNARA_MAINTENANCE_INTERVAL=10s",
 		"OMNARA_LOG_LEVEL=error",
 	)
@@ -708,14 +724,11 @@ func (p serviceProcess) stop() {
 	}
 	p.lifecycle.stopOnce.Do(func() {
 		if p.cmd == nil || p.cmd.Process == nil {
-			close(p.lifecycle.done)
+			p.lifecycle.waitOnce.Do(func() { close(p.lifecycle.done) })
 			return
 		}
 		_ = p.cmd.Process.Signal(os.Interrupt)
-		go func() {
-			_ = p.cmd.Wait()
-			close(p.lifecycle.done)
-		}()
+		p.exited()
 	})
 	select {
 	case <-p.lifecycle.done:
@@ -723,6 +736,16 @@ func (p serviceProcess) stop() {
 		_ = p.cmd.Process.Kill()
 		<-p.lifecycle.done
 	}
+}
+
+func (p serviceProcess) exited() <-chan struct{} {
+	p.lifecycle.waitOnce.Do(func() {
+		go func() {
+			p.lifecycle.exitErr = p.cmd.Wait()
+			close(p.lifecycle.done)
+		}()
+	})
+	return p.lifecycle.done
 }
 
 func freePort(t *testing.T) string {

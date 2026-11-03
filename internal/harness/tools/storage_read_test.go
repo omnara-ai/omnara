@@ -1,0 +1,325 @@
+package tools
+
+import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
+	"strings"
+	"testing"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
+)
+
+func TestStorageReadPagingPreservesContent(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		content string
+	}{
+		{name: "unicode lines", content: strings.Repeat("é😀\n", 2000)},
+		{name: "giant line", content: "é😀first\n" + strings.Repeat("é😀", 5000) + "\nlast"},
+		{name: "escaped text", content: strings.Repeat("\t", 9000)},
+		{name: "empty file"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			content := []byte(test.content)
+			page := readFileLines(content, "/artifacts/example", 1, toolcatalog.StorageReadDefaultLines)
+			var got string
+			for {
+				chunk, ok := page["content"].(string)
+				if !ok || !utf8.ValidString(chunk) || (chunk == "" && page["has_more"] == true) {
+					t.Fatal("invalid or stalled page")
+				}
+				if len(chunk) > toolcatalog.FilePageBytes || page["bytes_read"] != len(chunk) {
+					t.Fatalf("invalid byte count: %v", page)
+				}
+				got += chunk
+				if len(got) > len(content) {
+					t.Fatal("paging duplicated content")
+				}
+				assertRetrievalBudget(t, page)
+				if page["has_more"] == false {
+					if page["next_offset_char"] != nil || page["next_offset_line"] != nil {
+						t.Fatal("final page has continuation")
+					}
+					break
+				}
+				if offset, ok := page["next_offset_line"].(int); ok {
+					page = readFileLines(content, "/artifacts/example", offset, toolcatalog.StorageReadDefaultLines)
+				} else if offset, ok := page["next_offset_char"].(int); ok {
+					if offset != utf8.RuneCountInString(got) {
+						t.Fatalf("character continuation = %d, want %d", offset, utf8.RuneCountInString(got))
+					}
+					page = readFileChars(content, "/artifacts/example", offset, toolcatalog.StorageReadDefaultChars)
+				} else {
+					t.Fatal("missing continuation")
+				}
+			}
+			if got != test.content {
+				t.Fatal("paging lost content")
+			}
+		})
+	}
+	page := readFileLines([]byte("a\nb\nc"), "path", 2, 1)
+	if page["content"] != "b\n" || page["next_offset_line"] != 3 {
+		t.Fatalf("line page = %v", page)
+	}
+}
+
+func TestStorageReadChars(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		content       string
+		offset, limit int
+		want          string
+		wantOffset    int
+		nextOffset    any
+	}{
+		{name: "four-byte character", content: "abc😀z", offset: 3, limit: 1, want: "😀", wantOffset: 3, nextOffset: 4},
+		{name: "after multibyte characters", content: "é😀z", offset: 2, limit: 1, want: "z", wantOffset: 2},
+		{name: "code point", content: "e\u0301x", offset: 1, limit: 1, want: "\u0301", wantOffset: 1, nextOffset: 2},
+		{name: "at EOF", content: "é😀", offset: 2, limit: 1, wantOffset: 2},
+		{name: "past EOF", content: "é😀", offset: 100, limit: 1, wantOffset: 2},
+		{name: "empty file", offset: 100, limit: 1},
+		{
+			name: "byte cap", content: strings.Repeat("a", 4095) + "😀z",
+			limit: toolcatalog.StorageReadMaxChars, want: strings.Repeat("a", 4095), nextOffset: 4095,
+		},
+		{
+			name: "unicode byte cap", content: strings.Repeat("😀", 2000),
+			limit: toolcatalog.StorageReadMaxChars, want: strings.Repeat("😀", 1024), nextOffset: 1024,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			page := readFileChars([]byte(test.content), "path", test.offset, test.limit)
+			if page["content"] != test.want || page["offset_char"] != test.wantOffset ||
+				page["bytes_read"] != len(test.want) || page["next_offset_char"] != test.nextOffset ||
+				page["has_more"] != (test.nextOffset != nil) {
+				t.Fatalf("page = %v", page)
+			}
+			assertRetrievalBudget(t, page)
+		})
+	}
+}
+
+func TestStorageReadDefaults(t *testing.T) {
+	for _, input := range []string{
+		`{"path":"/memory/team/notes.md"}`,
+		`{"path":"/memory/team/notes.md","offset_char":0}`,
+		`{"path":"/memory/team/notes.md","limit_chars":512}`,
+	} {
+		request, err := resolveStorageReadRequest(json.RawMessage(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.OffsetChar != nil {
+			if *request.OffsetChar != 0 || *request.LimitChars != 512 {
+				t.Fatalf("incorrect character defaults: %+v", request)
+			}
+		} else if *request.OffsetLine != 1 || *request.LimitLines != 100 {
+			t.Fatalf("incorrect line defaults: %+v", request)
+		}
+	}
+}
+
+func TestFileRetrievalRejectsInvalidInputs(t *testing.T) {
+	id, err := publicid.Encode(publicid.KindArtifact, uuid.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/artifacts/" + id
+	for _, input := range []map[string]any{
+		{"path": "/artifacts"}, {"path": path + "/"}, {"path": "/skills/test"},
+		{"path": path, "offset_line": 1, "offset_char": 0}, {"path": path, "limit_chars": 0},
+		{"path": path, "offset_char": -1}, {"path": path, "limit_chars": 4097},
+		{"path": path, "offset_byte": 0}, {"path": path, "limit_bytes": 4},
+		{"path": "/memory/team"}, {"path": "/memory/team/../other/file"},
+		{"path": "/memory/team/file", "limit_lines": 1, "limit_chars": 4},
+		{"path": path, "limit_lines": 201}, {"path": path, "unexpected": true},
+	} {
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if validateStorageReadInput(raw) == nil {
+			t.Fatalf("accepted %s", raw)
+		}
+	}
+
+}
+
+func TestStorageReadRejectsExpectedDigest(t *testing.T) {
+	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameStorageRead)
+	if err != nil || !ok {
+		t.Fatalf("storage_read registration: %v", err)
+	}
+	input := `{"path":"/memory/team/file","expected_digest":"sha256:` + strings.Repeat("a", 64) + `"}`
+	if err := tool.validateInput(json.RawMessage(input)); err == nil {
+		t.Fatal("expected_digest accepted")
+	}
+}
+
+func TestArtifactFilenameGuidance(t *testing.T) {
+	for _, name := range []string{"storage_read", "storage_search", "storage_download"} {
+		t.Run(name, func(t *testing.T) {
+			tool, ok, err := toolImplementationFor(name)
+			if err != nil || !ok {
+				t.Fatalf("tool registration: %v", err)
+			}
+			input := map[string]any{"path": "/artifacts/report.pdf"}
+			switch name {
+			case "storage_search":
+				input["args"] = []string{"-e", "hello"}
+			case "storage_download":
+				input["destination"] = "report.pdf"
+			}
+			raw, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := tool.validateInput(raw); err == nil || !strings.Contains(err.Error(), "artifacts are read by ID") ||
+				!strings.Contains(err.Error(), "use storage_list") {
+				t.Fatalf("filename error = %v", err)
+			}
+		})
+	}
+	t.Run("integration attachment", func(t *testing.T) {
+		_, _, err := (Executor{}).loadMessageAttachment(t.Context(), Turn{}, "/artifacts/report.pdf")
+		if err == nil || !strings.Contains(err.Error(), "artifacts are read by ID") ||
+			!strings.Contains(err.Error(), "use storage_list") {
+			t.Fatalf("filename error = %v", err)
+		}
+	})
+}
+
+func TestIsViewableImageRequiresDecodableMatchingImage(t *testing.T) {
+	images := testImages(t)
+	for contentType, content := range images {
+		if !modelcontext.IsViewableImage(contentType, content) {
+			t.Fatalf("IsViewableImage(%q) = false for a valid image", contentType)
+		}
+	}
+	// Intact JPEGs can carry data after their end marker, such as an embedded video.
+	withTrailer := append(bytes.Clone(images["image/jpeg"]), []byte("embedded video")...)
+	if !modelcontext.IsViewableImage("image/jpeg", withTrailer) {
+		t.Fatal("IsViewableImage rejected a JPEG with trailing data")
+	}
+	pngContent := images["image/png"]
+	for _, test := range []struct {
+		contentType string
+		content     []byte
+	}{
+		{contentType: "image/png", content: pngContent[:16]},
+		{contentType: "image/png", content: []byte("plain text named .png")},
+		{contentType: "image/jpeg", content: pngContent},
+		{contentType: "application/octet-stream", content: pngContent},
+	} {
+		if modelcontext.IsViewableImage(test.contentType, test.content) {
+			t.Fatalf("IsViewableImage(%q, %q) = true, want false", test.contentType, test.content)
+		}
+	}
+	// Truncated mid-write: the header still decodes, but the pixel data is cut off.
+	for contentType, content := range noisyTestImages(t) {
+		if !modelcontext.IsViewableImage(contentType, content) {
+			t.Fatalf("IsViewableImage(%q) = false for a valid image", contentType)
+		}
+		if modelcontext.IsViewableImage(contentType, content[:len(content)/2]) {
+			t.Fatalf("IsViewableImage(%q) = true for a truncated image", contentType)
+		}
+	}
+}
+
+// noisyTestImages encodes images large enough that truncating them cuts into the pixel data.
+func noisyTestImages(t *testing.T) map[string][]byte {
+	t.Helper()
+	img := image.NewGray(image.Rect(0, 0, 64, 64))
+	for i := range img.Pix {
+		img.Pix[i] = byte(i * 7919)
+	}
+	var pngContent, jpegContent, gifContent bytes.Buffer
+	if err := png.Encode(&pngContent, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := jpeg.Encode(&jpegContent, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := gif.Encode(&gifContent, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	return map[string][]byte{
+		"image/png": pngContent.Bytes(), "image/jpeg": jpegContent.Bytes(), "image/gif": gifContent.Bytes(),
+	}
+}
+
+func testImages(t *testing.T) map[string][]byte {
+	t.Helper()
+	img := image.NewGray(image.Rect(0, 0, 1, 1))
+	var pngContent, jpegContent, gifContent bytes.Buffer
+	if err := png.Encode(&pngContent, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := jpeg.Encode(&jpegContent, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := gif.Encode(&gifContent, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	webpContent, err := base64.StdEncoding.DecodeString("UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string][]byte{
+		"image/png":  pngContent.Bytes(),
+		"image/jpeg": jpegContent.Bytes(),
+		"image/gif":  gifContent.Bytes(),
+		"image/webp": webpContent,
+	}
+}
+
+func TestCompleteImageReadReturnsMetadataAndMediaRef(t *testing.T) {
+	artifactID := uuid.New()
+	digest := "sha256:" + strings.Repeat("a", 64)
+	result, err := completeImageRead("/artifacts/example", "image/png", digest, 12, artifactID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parts []map[string]any
+	if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 3 || parts[0]["type"] != "structured_data" || parts[1]["type"] != "media_ref" ||
+		parts[1]["artifact_id"] != artifactID.String() || parts[1]["exclude_from_model_context"] != nil ||
+		parts[2]["type"] != "structured_data" || parts[2]["exclude_from_model_context"] != true {
+		t.Fatalf("image read parts = %v", parts)
+	}
+	metadata, _ := parts[0]["value"].(map[string]any)
+	if metadata["path"] != "/artifacts/example" || metadata["content_type"] != "image/png" ||
+		metadata["size_bytes"] != float64(12) || metadata["digest"] != nil {
+		t.Fatalf("image read metadata = %v", metadata)
+	}
+	if hidden, _ := parts[2]["value"].(map[string]any); hidden["digest"] != digest {
+		t.Fatalf("image read digest = %v", parts[2])
+	}
+}
+
+func assertRetrievalBudget(t *testing.T, result map[string]any) {
+	t.Helper()
+	content, err := structuredToolResultContent(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts, err := content.contentParts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) > 32768 {
+		t.Fatalf("retrieval response exceeds compaction budget: %d", len(parts))
+	}
+}

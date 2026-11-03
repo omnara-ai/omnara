@@ -15,7 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
-var errRateLimited = errors.New("auth rate limited")
+var ErrRateLimited = errors.New("rate limited")
 
 type RateLimiter interface {
 	Allow(ctx context.Context, key string, limit int, window time.Duration) error
@@ -29,7 +29,7 @@ func NewRedisRateLimiter(client *redistore.Client) *RedisRateLimiter {
 	return &RedisRateLimiter{client: client}
 }
 
-const authRateLimitScript = `
+const rateLimitScript = `
 local limit = tonumber(ARGV[1])
 local window = tonumber(ARGV[2])
 local interval = math.floor(window / limit)
@@ -55,17 +55,17 @@ return 1
 
 func (l *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) error {
 	if l == nil || l.client == nil {
-		return errors.New("auth limiter unavailable")
+		return errors.New("limiter unavailable")
 	}
 	if limit <= 0 || window <= 0 {
-		return errors.New("invalid auth rate limit")
+		return errors.New("invalid rate limit")
 	}
-	allowed, err := l.client.EvalInt(ctx, authRateLimitScript, []string{key}, limit, int(window/time.Millisecond))
+	allowed, err := l.client.EvalInt(ctx, rateLimitScript, []string{key}, limit, int(window/time.Millisecond))
 	if err != nil {
-		return fmt.Errorf("auth rate limit: %w", err)
+		return fmt.Errorf("rate limit: %w", err)
 	}
 	if allowed == 0 {
-		return errRateLimited
+		return ErrRateLimited
 	}
 	return nil
 }
@@ -101,10 +101,14 @@ func (h *Handler) requireAuthRateLimits(
 func (h *Handler) requireOAuthLoginRateLimits(w http.ResponseWriter, r *http.Request, connectorSlug string) bool {
 	client := h.clientBucket(r)
 	if err := h.checkAuthLimitBuckets(r, "oauth_login", []authLimit{
-		{scope: "pair", subject: connectorSlug + ":" + client, limit: oauthLoginRateLimit},
-		{scope: "client", subject: client, limit: oauthLoginClientRateLimit},
+		{scope: "pair", subject: connectorSlug + ":" + client, limit: h.clientRateLimits.OAuthLoginConnector},
+		{scope: "client", subject: client, limit: h.clientRateLimits.OAuthLogin},
 	}, authShortWindow); err != nil {
-		h.writeAuthRateLimitError(w, err)
+		if errors.Is(err, ErrRateLimited) {
+			h.writeAuthRateLimitError(w, err)
+		} else {
+			h.redirectAuthServerError(w, r, connectorSlug, r.URL.Query().Get("return_to"), err)
+		}
 		return false
 	}
 	return true
@@ -146,7 +150,7 @@ func (h *Handler) checkAuthLimitBuckets(
 }
 
 func (h *Handler) writeAuthRateLimitError(w http.ResponseWriter, err error) {
-	if errors.Is(err, errRateLimited) {
+	if errors.Is(err, ErrRateLimited) {
 		apierror.Write(w, openapi.ErrorCodeRateLimited)
 		return
 	}

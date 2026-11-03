@@ -187,20 +187,25 @@ func optionalBool(raw json.RawMessage) (bool, error) {
 func parseStructuredDataContentBlock(
 	fields map[string]json.RawMessage,
 ) (CreateContentBlockInput, error) {
-	if err := rejectContentBlockFields(fields, "value"); err != nil {
+	if err := rejectContentBlockFields(fields, "value", "exclude_from_model_context"); err != nil {
 		return CreateContentBlockInput{}, err
+	}
+	excludeFromModelContext, err := optionalBool(fields["exclude_from_model_context"])
+	if err != nil {
+		return CreateContentBlockInput{}, fmt.Errorf("exclude_from_model_context %w", err)
 	}
 	value, ok := fields["value"]
 	if !ok {
 		return CreateContentBlockInput{}, errors.New("value is required")
 	}
-	value, err := normalizeContentBlockJSONForStorage(value)
+	value, err = normalizeContentBlockJSONForStorage(value)
 	if err != nil {
 		return CreateContentBlockInput{}, fmt.Errorf("value %w", err)
 	}
 	return CreateContentBlockInput{
-		BlockKind:      ContentBlockKindStructuredData,
-		StructuredData: value,
+		BlockKind:               ContentBlockKindStructuredData,
+		StructuredData:          value,
+		ExcludeFromModelContext: excludeFromModelContext,
 	}, nil
 }
 
@@ -338,13 +343,15 @@ func marshalToolResultContentBlock(
 			return nil, errors.New("structured_data requires a value")
 		}
 		return marshalJSON(struct {
-			Type     string                `json:"type"`
-			Value    json.RawMessage       `json:"value"`
-			Metadata resourcemeta.Metadata `json:"metadata,omitempty"`
+			Type                    string                `json:"type"`
+			Value                   json.RawMessage       `json:"value"`
+			ExcludeFromModelContext bool                  `json:"exclude_from_model_context,omitempty"`
+			Metadata                resourcemeta.Metadata `json:"metadata,omitempty"`
 		}{
-			Type:     "structured_data",
-			Value:    block.StructuredData,
-			Metadata: metadata,
+			Type:                    "structured_data",
+			Value:                   block.StructuredData,
+			ExcludeFromModelContext: block.ExcludeFromModelContext,
+			Metadata:                metadata,
 		})
 	case ContentBlockKindArtifact:
 		if block.ArtifactID == uuid.Nil {

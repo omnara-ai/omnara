@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -40,6 +41,7 @@ const (
 const defaultDaemonSocketFallbackDrainInterval = 30 * time.Second
 const defaultDaemonSocketFallbackDrainJitter = 10 * time.Second
 const defaultMigrationTimeout = 30 * time.Minute
+const defaultWorkerDrainTimeout = 20 * time.Second
 
 const (
 	DaemonReleaseURLEnv     = "OMNARA_DAEMON_RELEASE_URL"
@@ -64,13 +66,20 @@ type Config struct {
 	MigrationsDir                     string
 	MigrationTimeout                  time.Duration
 	AllowInsecureDev                  bool
+	WorkerEventWebhookConcurrency     int
+	EventWebhookPerOrgConcurrency     int
 	WorkerCapacity                    int
+	WorkerClaimConcurrency            int
+	WorkerInboxCapacity               int
+	WorkerDiscordCapacity             int
 	WorkerAsyncToolCapacity           int
 	WorkerBackgroundToolCapacity      int
+	WorkerDrainTimeout                time.Duration
 	DaemonSocketFallbackDrainInterval time.Duration
 	DaemonSocketFallbackDrainJitter   time.Duration
 	MaintenanceInterval               time.Duration
 	ExaAPIKey                         string
+	AuthClientRateLimits              authn.ClientRateLimits
 	AuthSignupEnabled                 bool
 	AuthPasswordResetEnabled          bool
 	EmailDriver                       string
@@ -85,11 +94,16 @@ type Config struct {
 	PublicAPIURL                      string
 	BillingURL                        string
 	TrustedProxyCIDRs                 []string
+	APIRateLimitReadsPerHour          int
+	APIRateLimitWritesPerHour         int
+	APIRateLimitBurst                 int
 	DaemonReleaseURL                  string
 	WebServing                        WebServingMode
 	SecretEncryptionKeys              string
 	SecretEncryptionActiveKeyID       string
 	SkillDownloadSigningKey           string
+	SafetyIdentifierKey               string
+	MemoryDir                         string
 	BlobS3Bucket                      string
 	BlobS3Region                      string
 	BlobS3Endpoint                    string
@@ -185,6 +199,10 @@ func validateGitHubProviderCompleteness(slug string, connector AuthConnectorConf
 }
 
 func Load() (Config, error) {
+	authClientRateLimits, err := loadAuthClientRateLimits()
+	if err != nil {
+		return Config{}, err
+	}
 	authSignupEnabled, err := getenvBool("OMNARA_AUTH_SIGNUP_ENABLED", true)
 	if err != nil {
 		return Config{}, err
@@ -201,7 +219,27 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	workerEventWebhookConcurrency, err := getenvInt("OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY", 128)
+	if err != nil {
+		return Config{}, err
+	}
+	eventWebhookPerOrgConcurrency, err := getenvInt("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY", 128)
+	if err != nil {
+		return Config{}, err
+	}
 	workerCapacity, err := getenvInt("OMNARA_WORKER_CAPACITY", 4)
+	if err != nil {
+		return Config{}, err
+	}
+	workerClaimConcurrency, err := getenvInt("OMNARA_WORKER_CLAIM_CONCURRENCY", 16)
+	if err != nil {
+		return Config{}, err
+	}
+	workerInboxCapacity, err := getenvInt("OMNARA_WORKER_INBOX_CAPACITY", 4)
+	if err != nil {
+		return Config{}, err
+	}
+	workerDiscordCapacity, err := getenvInt("OMNARA_WORKER_DISCORD_CAPACITY", 1024)
 	if err != nil {
 		return Config{}, err
 	}
@@ -213,6 +251,18 @@ func Load() (Config, error) {
 		"OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY",
 		8,
 	)
+	if err != nil {
+		return Config{}, err
+	}
+	apiRateLimitReadsPerHour, err := getenvInt("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", 100000)
+	if err != nil {
+		return Config{}, err
+	}
+	apiRateLimitWritesPerHour, err := getenvInt("OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR", 50000)
+	if err != nil {
+		return Config{}, err
+	}
+	apiRateLimitBurst, err := getenvInt("OMNARA_API_RATE_LIMIT_BURST", 1000)
 	if err != nil {
 		return Config{}, err
 	}
@@ -243,13 +293,20 @@ func Load() (Config, error) {
 		DatabaseURL:                       getenv("OMNARA_DATABASE_URL", ""),
 		RedisURL:                          getenv("OMNARA_REDIS_URL", ""),
 		AllowInsecureDev:                  os.Getenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS") == "1",
+		WorkerEventWebhookConcurrency:     workerEventWebhookConcurrency,
+		EventWebhookPerOrgConcurrency:     eventWebhookPerOrgConcurrency,
 		WorkerCapacity:                    workerCapacity,
+		WorkerClaimConcurrency:            workerClaimConcurrency,
+		WorkerInboxCapacity:               workerInboxCapacity,
+		WorkerDiscordCapacity:             workerDiscordCapacity,
 		WorkerAsyncToolCapacity:           workerAsyncToolCapacity,
 		WorkerBackgroundToolCapacity:      workerBackgroundToolCapacity,
+		WorkerDrainTimeout:                defaultWorkerDrainTimeout,
 		DaemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		DaemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
 		MaintenanceInterval:               time.Second,
 		ExaAPIKey:                         getenv("EXA_API_KEY", ""),
+		AuthClientRateLimits:              authClientRateLimits,
 		AuthSignupEnabled:                 authSignupEnabled,
 		AuthPasswordResetEnabled:          authPasswordResetEnabled,
 		EmailDriver:                       getenv("OMNARA_EMAIL_DRIVER", "none"),
@@ -264,11 +321,16 @@ func Load() (Config, error) {
 		PublicAPIURL:                      publicAPIURL,
 		BillingURL:                        normalizePublicURL(getenv("OMNARA_BILLING_URL", "")),
 		TrustedProxyCIDRs:                 getenvCSV("OMNARA_TRUSTED_PROXY_CIDRS"),
+		APIRateLimitReadsPerHour:          apiRateLimitReadsPerHour,
+		APIRateLimitWritesPerHour:         apiRateLimitWritesPerHour,
+		APIRateLimitBurst:                 apiRateLimitBurst,
 		DaemonReleaseURL:                  getenv(DaemonReleaseURLEnv, DefaultDaemonReleaseURL),
 		WebServing:                        WebServingMode(getenv("OMNARA_WEB_SERVING", string(WebServingDisabled))),
 		SecretEncryptionKeys:              getenv("OMNARA_SECRET_ENCRYPTION_KEYS", ""),
 		SecretEncryptionActiveKeyID:       getenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", ""),
 		SkillDownloadSigningKey:           getenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", ""),
+		SafetyIdentifierKey:               getenv("OMNARA_SAFETY_IDENTIFIER_KEY", ""),
+		MemoryDir:                         getenv("OMNARA_MEMORY_DIR", ""),
 		BlobS3Bucket:                      getenv("OMNARA_BLOB_S3_BUCKET", ""),
 		BlobS3Region:                      getenv("OMNARA_BLOB_S3_REGION", ""),
 		BlobS3Endpoint:                    getenv("OMNARA_BLOB_S3_ENDPOINT", ""),
@@ -311,6 +373,12 @@ func Load() (Config, error) {
 	if cfg.AllowInsecureDev && cfg.EmailDriver == "none" {
 		cfg.EmailDriver = "console"
 	}
+	if cfg.AllowInsecureDev && cfg.MemoryDir == "" {
+		cfg.MemoryDir, err = filepath.Abs(".local/memory")
+		if err != nil {
+			return Config{}, fmt.Errorf("resolve memory directory: %w", err)
+		}
+	}
 	if cfg.AllowInsecureDev && cfg.BlobS3Bucket == "" {
 		cfg.BlobS3Bucket = "omnara"
 		cfg.BlobS3Region = "us-east-1"
@@ -328,6 +396,13 @@ func Load() (Config, error) {
 		cfg.SkillDownloadSigningKey = base64.StdEncoding.EncodeToString(
 			[]byte("omnara-insecure-dev-skill-key!!!"),
 		)
+	}
+	if raw := os.Getenv("OMNARA_WORKER_DRAIN_TIMEOUT"); raw != "" {
+		duration, err := time.ParseDuration(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse OMNARA_WORKER_DRAIN_TIMEOUT: %w", err)
+		}
+		cfg.WorkerDrainTimeout = duration
 	}
 	if raw := os.Getenv("OMNARA_DAEMON_SOCKET_FALLBACK_DRAIN_INTERVAL"); raw != "" {
 		duration, err := time.ParseDuration(raw)
@@ -427,6 +502,9 @@ func (cfg Config) ValidateAPI() error {
 	if err := validateSkillDownloadSigningKeyConfig(cfg); err != nil {
 		return err
 	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		return errors.New("OMNARA_MEMORY_DIR must be an absolute path")
+	}
 	if err := validateBlobStoreConfig(cfg); err != nil {
 		return err
 	}
@@ -467,6 +545,14 @@ func (cfg Config) ValidateAPI() error {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
 			return fmt.Errorf("parse OMNARA_TRUSTED_PROXY_CIDRS: %w", err)
 		}
+	}
+	if cfg.APIRateLimitReadsPerHour < 0 || cfg.APIRateLimitWritesPerHour < 0 {
+		return fmt.Errorf(
+			"OMNARA_API_RATE_LIMIT_READS_PER_HOUR and OMNARA_API_RATE_LIMIT_WRITES_PER_HOUR must not be negative",
+		)
+	}
+	if cfg.APIRateLimitBurst < 1 || cfg.APIRateLimitBurst > 1_000_000 {
+		return fmt.Errorf("OMNARA_API_RATE_LIMIT_BURST must be between 1 and 1000000")
 	}
 	if err := validateExternalHTTPSURL(DaemonReleaseURLEnv, cfg.DaemonReleaseURL); err != nil {
 		return err
@@ -534,6 +620,17 @@ func (cfg Config) SkillDownloadSigningKeyBytes() ([]byte, error) {
 	return raw, nil
 }
 
+func (cfg Config) SafetyIdentifierKeyBytes() ([]byte, error) {
+	if cfg.SafetyIdentifierKey == "" {
+		return nil, nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(cfg.SafetyIdentifierKey)
+	if err != nil || len(raw) != 32 {
+		return nil, errors.New("OMNARA_SAFETY_IDENTIFIER_KEY must be a base64-encoded 32-byte key")
+	}
+	return raw, nil
+}
+
 func (cfg Config) SecretEncryptionKeyMap() (map[string][]byte, error) {
 	var encoded map[string]string
 	if err := json.Unmarshal([]byte(cfg.SecretEncryptionKeys), &encoded); err != nil {
@@ -581,14 +678,32 @@ func (cfg Config) ValidateWorker() error {
 	if err := validatePortWithName("OMNARA_WORKER_METRICS_ADDR", cfg.WorkerMetricsAddr); err != nil {
 		return err
 	}
+	if cfg.WorkerEventWebhookConcurrency <= 0 {
+		return fmt.Errorf("OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY must be positive")
+	}
+	if cfg.EventWebhookPerOrgConcurrency <= 0 {
+		return fmt.Errorf("OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY must be positive")
+	}
 	if cfg.WorkerCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_CAPACITY must be positive")
+	}
+	if cfg.WorkerClaimConcurrency <= 0 {
+		return fmt.Errorf("OMNARA_WORKER_CLAIM_CONCURRENCY must be positive")
+	}
+	if cfg.WorkerInboxCapacity < 1 || cfg.WorkerInboxCapacity > 100 {
+		return fmt.Errorf("OMNARA_WORKER_INBOX_CAPACITY must be between 1 and 100")
+	}
+	if cfg.WorkerDiscordCapacity <= 0 {
+		return fmt.Errorf("OMNARA_WORKER_DISCORD_CAPACITY must be positive")
 	}
 	if cfg.WorkerAsyncToolCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_ASYNC_TOOL_CAPACITY must be positive")
 	}
 	if cfg.WorkerBackgroundToolCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY must be positive")
+	}
+	if cfg.WorkerDrainTimeout < 0 {
+		return fmt.Errorf("OMNARA_WORKER_DRAIN_TIMEOUT must be non-negative")
 	}
 	if !cfg.AllowInsecureDev && cfg.DatabaseURL == "" {
 		return fmt.Errorf(
@@ -602,6 +717,9 @@ func (cfg Config) ValidateWorker() error {
 	}
 	if err := cfg.validatePublicURL(true); err != nil {
 		return err
+	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		return errors.New("OMNARA_MEMORY_DIR must be an absolute path")
 	}
 	if err := validateBlobStoreConfig(cfg); err != nil {
 		return err
@@ -727,6 +845,9 @@ func (cfg Config) ValidateMaintenance() error {
 	}
 	if cfg.MaintenanceInterval <= 0 {
 		return fmt.Errorf("OMNARA_MAINTENANCE_INTERVAL must be positive")
+	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		return errors.New("OMNARA_MEMORY_DIR must be an absolute path")
 	}
 	if err := cfg.validateDefaultModelProviderTemplateWireSize(); err != nil {
 		return err

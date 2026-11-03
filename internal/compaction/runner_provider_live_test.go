@@ -97,10 +97,10 @@ func runLiveCompactionProvider(t *testing.T, client model.Client) {
 		stopReason model.StopReason
 	}{
 		{"completed_summary", 4096, model.StopReasonEndTurn},
-		{"partial_summary", 32, model.StopReasonMaxTokens},
+		{"truncated_summary", 32, model.StopReasonMaxTokens},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			observed := &liveCompactionClient{Client: client, allowance: tc.allowance, responses: new([]model.Response)}
+			observed := &liveCompactionClient{Client: client, t: t, allowance: tc.allowance, responses: new([]model.Response)}
 			runLiveCompactionSummary(t, observed, tc.stopReason)
 		})
 	}
@@ -123,20 +123,39 @@ func runLiveCompactionSummary(t *testing.T, client *liveCompactionClient, stopRe
 	}}
 	apiFormat, apiVariant, ok := model.APIIdentityForClient(client)
 	require.True(t, ok)
-	result, err := testRunner(store, client).Run(ctx, runInput(testPlan(1, 1, 2)))
+	compactionInput := runInput(testPlan(1, 1, 2))
+	compactionInput.SafetyIdentifier = modeltest.LiveSafetyIdentifier
+	result, err := testRunner(store, client).RunClaimed(ctx, compactionInput, store.addStartedClaim(compactionInput))
 	require.NoError(t, err)
 	require.Len(t, *client.responses, 1)
 	response := (*client.responses)[0]
 	require.Equal(t, stopReason, response.StopReason)
 	require.Empty(t, response.ToolCalls())
-	require.NotEmpty(t, strings.TrimSpace(response.Text()))
-	require.Empty(t, store.retryFailures)
 	require.Empty(t, store.terminalFailures)
 	require.Empty(t, store.replacements)
+	require.Len(t, store.claims, 1)
+	if stopReason == model.StopReasonMaxTokens {
+		require.Equal(t, RunRetryScheduled, result.State)
+		require.Nil(t, result.Checkpoint)
+		require.NotNil(t, result.RetryAt)
+		require.Empty(t, store.publishInputs)
+		require.Len(t, store.retryFailures, 1)
+		failure := store.retryFailures[0]
+		require.Equal(t, executionstore.ModelCallRecoveryRetry, failure.RecoveryKind)
+		require.Equal(t, modelprotocol.ErrorKindTransient, failure.ErrorKind)
+		require.Equal(t, compactionErrorCodeSummaryTruncated, failure.ErrorCode)
+		require.Equal(t, apiFormat, failure.APIFormat)
+		require.Equal(t, apiVariant, failure.APIVariant)
+		require.Equal(t, response.Usage, failure.Usage)
+		require.Positive(t, failure.Usage.InputTokens)
+		require.Positive(t, failure.Usage.OutputTokens)
+		return
+	}
+	require.NotEmpty(t, strings.TrimSpace(response.Text()))
+	require.Empty(t, store.retryFailures)
 	require.Equal(t, RunCompleted, result.State)
 	require.NotNil(t, result.Checkpoint)
 	require.Equal(t, strings.TrimSpace(response.Text()), result.Checkpoint.Summary)
-	require.Len(t, store.claims, 1)
 	require.Equal(t, testIDN(601), store.claims[0].Context.ConfiguredModelRevisionID)
 	require.Len(t, store.publishInputs, 1)
 	publication := store.publishInputs[0]
@@ -154,6 +173,7 @@ func runLiveCompactionSummary(t *testing.T, client *liveCompactionClient, stopRe
 
 type liveCompactionClient struct {
 	model.Client
+	t         *testing.T
 	allowance int
 	responses *[]model.Response
 }
@@ -182,6 +202,7 @@ func (c *liveCompactionClient) WithoutManualThinking() (model.Client, error) {
 }
 
 func (c *liveCompactionClient) Respond(ctx context.Context, input model.Request) (model.Response, error) {
+	modeltest.RequireSafetyIdentifier(c.t, input.ProviderRequest)
 	response, err := c.Client.Respond(ctx, input)
 	*c.responses = append(*c.responses, response)
 	return response, err

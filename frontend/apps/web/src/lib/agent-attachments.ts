@@ -1,5 +1,7 @@
 import type { AgentConfigModel, InlineMediaContentBlock } from '@omnara/sdk'
 
+import { decodeUTF8Text } from '@/lib/file-text'
+
 export const maxAttachmentBytes = 10 * 1024 * 1024
 export const maxAttachmentCount = 20
 export const maxTotalAttachmentBytes = 24 * 1024 * 1024
@@ -88,15 +90,6 @@ function supportsAttachment(
   return true
 }
 
-function isUTF8Text(bytes: Uint8Array): boolean {
-  try {
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-    return !text.includes('\0')
-  } catch {
-    return false
-  }
-}
-
 export async function selectAgentAttachment(
   file: File,
   model: AgentConfigModel,
@@ -119,11 +112,11 @@ export async function selectAgentAttachment(
     mediaByExtension.get(extension(file.name)) ??
     [...mediaByExtension.values()].find((candidate) => candidate === normalizedType)
   if (mediaType == null) {
-    if (!isUTF8Text(await readBytes())) {
+    if (decodeUTF8Text(await readBytes()) === null) {
       throw new Error(`${file.name} is not a supported image, document, or UTF-8 text file.`)
     }
     mediaType = 'text/plain'
-  } else if (mediaType.startsWith('text/') && !isUTF8Text(await readBytes())) {
+  } else if (mediaType.startsWith('text/') && decodeUTF8Text(await readBytes()) === null) {
     throw new Error(`${file.name} is not valid UTF-8 text.`)
   }
 

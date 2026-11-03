@@ -79,6 +79,38 @@
             ]
           },
           {
+            "group": "Examples",
+            "pages": [
+              "examples/overview",
+              {
+                "group": "GTM agents",
+                "pages": [
+                  "examples/x-signal-agent",
+                  "examples/reddit-signal-agent",
+                  "examples/linkedin-signal-agent",
+                  "examples/seo-audit-agent"
+                ]
+              },
+              "examples/posthog-analytics-agent",
+              {
+                "group": "Engineering",
+                "pages": [
+                  "examples/sre-agent",
+                  "examples/slack-coding-agent",
+                  "examples/pr-review-agent"
+                ]
+              },
+              {
+                "group": "Operations",
+                "pages": [
+                  "examples/browser-agent",
+                  "examples/email-agent"
+                ]
+              },
+              "examples/video-generation-agent"
+            ]
+          },
+          {
             "group": "Agents",
             "pages": [
               "agents/overview",
@@ -90,6 +122,7 @@
             "pages": [
               "events/sending-input",
               "events/streaming",
+              "events/webhooks",
               "events/interactions",
               "events/artifacts"
             ]
@@ -109,7 +142,26 @@
             "pages": [
               "machines/overview",
               "machines/connect",
-              "machines/pools"
+              "machines/pools",
+              {
+                "group": "Sandbox providers",
+                "icon": "cloud",
+                "pages": [
+                  "machines/providers/overview",
+                  "machines/providers/agent37",
+                  "machines/providers/arker",
+                  "machines/providers/blaxel",
+                  "machines/providers/boxd",
+                  "machines/providers/createos",
+                  "machines/providers/daytona",
+                  "machines/providers/e2b",
+                  "machines/providers/freestyle",
+                  "machines/providers/modal",
+                  "machines/providers/superserve",
+                  "machines/providers/tenki",
+                  "machines/providers/unikraft"
+                ]
+              }
             ]
           },
           {
@@ -123,14 +175,10 @@
           {
             "group": "Integrations",
             "pages": [
-              "integrations/slack"
-            ]
-          },
-          {
-            "group": "Examples",
-            "pages": [
-              "examples/overview",
-              "examples/mounted-storage"
+              "integrations/overview",
+              "integrations/slack",
+              "integrations/github",
+              "integrations/discord"
             ]
           }
         ]
@@ -142,7 +190,8 @@
             "group": "API reference",
             "pages": [
               "api/overview",
-              "api/authentication"
+              "api/authentication",
+              "integrations/custom-integrations"
             ]
           },
           {

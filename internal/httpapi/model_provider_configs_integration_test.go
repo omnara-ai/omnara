@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -80,6 +81,80 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		openRouterConfig["endpoint_path"] != "/chat/completions" ||
 		openRouterConfig["auth_kind"] != "bearer_token" {
 		t.Fatalf("preset did not materialize OpenRouter provider config: %+v", openRouterConfig)
+	}
+	gatewaySecretID := testutil.RequireType[string](t, requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"org"},"name":"gateway-key","material":{"kind":"generic","value":"gw-secret"}}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)["id"])
+	headersConfig := createdModelProviderConfig(t, requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+		`{"name":"openai-gateway","preset":"openai","credential_secret_id":"`+secretID+`","headers":{"X-Team":"core"},"secret_headers":{"X-Gateway-Key":"`+gatewaySecretID+`"}}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	))
+	if testutil.RequireType[map[string]any](t, headersConfig["headers"])["X-Team"] != "core" ||
+		testutil.RequireType[map[string]any](t, headersConfig["secret_headers"])["X-Gateway-Key"] != gatewaySecretID {
+		t.Fatalf("provider headers did not round-trip: %+v", headersConfig)
+	}
+	headersConfigPath := "/api/v1/orgs/" + project.OrgID + "/model-provider-configs/" +
+		testutil.RequireType[string](t, headersConfig["id"])
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodDelete,
+		"/api/v1/orgs/"+project.OrgID+"/secrets/"+gatewaySecretID,
+		"",
+		"",
+		http.StatusNoContent,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		headersConfigPath,
+		`{"headers":{"X-Team":"platform"}}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	deletedSecretHeader := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		headersConfigPath,
+		`{"secret_headers":{"X-Gateway-Key":"`+gatewaySecretID+`"}}`,
+		"",
+		http.StatusNotFound,
+		authHeaders(project.AdminToken),
+	)
+	deletedMessage, _ := deletedSecretHeader["error"].(string)
+	if !strings.Contains(deletedMessage, "the secret for header X-Gateway-Key no longer exists") {
+		t.Fatalf("deleted secret header error = %q", deletedMessage)
+	}
+	replacedHeadersConfig := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		headersConfigPath,
+		`{"secret_headers":{}}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if testutil.RequireType[map[string]any](t, replacedHeadersConfig["headers"])["X-Team"] != "platform" ||
+		len(testutil.RequireType[map[string]any](t, replacedHeadersConfig["secret_headers"])) != 0 {
+		t.Fatalf("provider headers were not replaced: %+v", replacedHeadersConfig)
 	}
 	requestJSONWithHeaders(
 		t,
@@ -501,6 +576,54 @@ model:
 		restoredGrant["supports_tools"] != true {
 		t.Fatalf("restored model grant mismatch: %+v", restoredGrant)
 	}
+	listedGrants := testutil.RequireType[[]any](t, requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/model-grants",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)["data"])
+	var effectiveReasoning map[string]any
+	for _, listed := range listedGrants {
+		item := testutil.RequireType[map[string]any](t, listed)
+		if testutil.RequireType[map[string]any](t, item["model"])["id"] == configuredModelID {
+			effectiveReasoning = testutil.RequireType[map[string]any](t, item["effective_reasoning"])
+		}
+	}
+	listedEfforts := testutil.RequireType[[]any](t, effectiveReasoning["supported_reasoning_efforts"])
+	if effectiveReasoning["supports_reasoning"] != true ||
+		effectiveReasoning["default_reasoning_effort"] != "medium" ||
+		len(listedEfforts) != 2 || listedEfforts[0] != "low" || listedEfforts[1] != "medium" {
+		t.Fatalf("listed effective reasoning = %+v, want grant reasoning", effectiveReasoning)
+	}
+
+	// Project developers and viewers can list the project's shared models (the
+	// agent builder reads them), but only access managers can change grants.
+	developerToken := createHTTPProjectMemberToken(t, ctx, pool, project, "model-grant-developer", "developer")
+	viewerToken := createHTTPProjectMemberToken(t, ctx, pool, project, "model-grant-viewer", "viewer")
+	for _, token := range []string{developerToken, viewerToken} {
+		readerGrants := testutil.RequireType[[]any](t, requestJSONWithHeaders(
+			t, handler, http.MethodGet, project.ProjectPath+"/model-grants", "", "", http.StatusOK,
+			authHeaders(token),
+		)["data"])
+		if len(readerGrants) != len(listedGrants) {
+			t.Fatalf("reader listed %d model grants, want %d", len(readerGrants), len(listedGrants))
+		}
+		requestJSONWithHeaders(
+			t, handler, http.MethodPost, project.ProjectPath+"/model-grants", grantBody, "", http.StatusForbidden,
+			authHeaders(token),
+		)
+		requestJSONWithHeaders(
+			t, handler, http.MethodPatch, grantPath, `{"max_output_tokens":1024}`, "", http.StatusForbidden,
+			authHeaders(token),
+		)
+		requestJSONWithHeaders(
+			t, handler, http.MethodDelete, grantPath, "", "", http.StatusForbidden, authHeaders(token),
+		)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -708,6 +831,78 @@ model:
 	}
 }
 
+func TestCreateProjectModelGrantWithOrgAPIKey(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "model-grant-api-key")
+	other := bootstrapPublicHTTPProject(t, handler, "model-grant-other-org")
+	provider, err := project.Store.Models().GetModelProviderConfigByName(ctx, project.OrgUUID, "openai-prod")
+	if err != nil {
+		t.Fatalf("load model provider: %v", err)
+	}
+	providerID, err := publicid.Encode(publicid.KindModelProviderConfig, provider.ID)
+	if err != nil {
+		t.Fatalf("encode model provider id: %v", err)
+	}
+
+	for _, test := range []struct {
+		name        string
+		orgRole     string
+		projectRole string
+		otherOrg    bool
+		wantStatus  int
+	}{
+		{name: "org-admin", orgRole: "admin", wantStatus: http.StatusCreated},
+		{name: "project-admin", orgRole: "member", projectRole: "admin", wantStatus: http.StatusCreated},
+		{name: "developer", orgRole: "member", projectRole: "developer", wantStatus: http.StatusForbidden},
+		{name: "viewer", orgRole: "member", projectRole: "viewer", wantStatus: http.StatusForbidden},
+		{name: "no-project-access", orgRole: "member", wantStatus: http.StatusNotFound},
+		{name: "other-org-admin", orgRole: "admin", otherOrg: true, wantStatus: http.StatusNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			keyOwner := project
+			if test.otherOrg {
+				keyOwner = other
+			}
+			keysPath := "/api/v1/orgs/" + keyOwner.OrgID + "/api-keys"
+			created := requestJSONWithHeaders(
+				t, handler, http.MethodPost, keysPath,
+				`{"name":"`+test.name+`","org_role":"`+test.orgRole+`"}`, "",
+				http.StatusCreated, keyOwner.adminBrowserAuthHeaders(),
+			)
+			token := testutil.RequireType[string](t, created["token"])
+			if test.projectRole != "" {
+				key := testutil.RequireType[map[string]any](t, created["api_key"])
+				keyID := testutil.RequireType[string](t, key["id"])
+				requestJSONWithHeaders(
+					t, handler, http.MethodPut, keysPath+"/"+keyID+"/projects/"+project.ProjectID,
+					`{"role":"`+test.projectRole+`"}`, "", http.StatusOK, project.adminBrowserAuthHeaders(),
+				)
+			}
+			model := requestJSONWithHeaders(
+				t, handler, http.MethodPost,
+				"/api/v1/orgs/"+project.OrgID+"/model-provider-configs/"+providerID+"/models",
+				`{"name":"`+test.name+`","provider_model_slug":"gpt-test","context_window_tokens":128000}`,
+				"", http.StatusCreated, authHeaders(project.AdminToken),
+			)
+			modelID := testutil.RequireType[string](t, model["id"])
+			response := requestJSONWithHeaders(
+				t, handler, http.MethodPost, project.ProjectPath+"/model-grants",
+				`{"configured_model_id":"`+modelID+`"}`, "", test.wantStatus, authHeaders(token),
+			)
+			if test.wantStatus == http.StatusCreated {
+				grant := testutil.RequireType[map[string]any](t, response["grant"])
+				if grant["configured_model_id"] != modelID || grant["project_id"] != project.ProjectID {
+					t.Fatalf("unexpected model grant: %+v", grant)
+				}
+			}
+		})
+	}
+}
+
 func TestModelProviderConfigRoutesRejectLocalEndpointsOutsideInsecureDev(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -775,6 +970,7 @@ func TestModelProviderConfigRoutesRejectLocalEndpointsOutsideInsecureDev(t *test
 			context.Context,
 			modelstore.ModelProviderConfigRecord,
 			string,
+			map[string]string,
 			bool,
 		) ([]modelprovider.DiscoveredModel, error) {
 			return nil, errors.New("model discovery is disabled in integration tests")
@@ -849,6 +1045,11 @@ func TestCreateModelProviderConfigRunsModelDiscovery(t *testing.T) {
 			_, _ = w.Write([]byte(`{"error":{"message":"invalid api key"}}`))
 			return
 		}
+		if r.Header.Get("X-Gateway-Key") != "gw-good" {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":{"message":"invalid gateway key"}}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"data":[
 			{"id":"gpt-a","context_length":65536,"max_output_tokens":2048},
 			{"id":"gpt-b"}
@@ -873,12 +1074,22 @@ func TestCreateModelProviderConfigRunsModelDiscovery(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
+	gatewaySecret := requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"org"},"name":"discovery-gateway-key","material":{"kind":"generic","value":"gw-good"}}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
 	created := requestJSONWithHeaders(
 		t,
 		devHandler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
-		`{"name":"discovery-ok","api_format":"openai-responses","base_url":"`+modelsServer.URL+`/v1","credential_secret_id":"`+testutil.RequireType[string](t, goodSecret["id"])+`"}`,
+		`{"name":"discovery-ok","api_format":"openai-responses","base_url":"`+modelsServer.URL+`/v1","credential_secret_id":"`+testutil.RequireType[string](t, goodSecret["id"])+`","secret_headers":{"X-Gateway-Key":"`+testutil.RequireType[string](t, gatewaySecret["id"])+`"}}`,
 		"",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
@@ -958,7 +1169,8 @@ func TestGetModelCatalog(t *testing.T) {
 			return
 		}
 		_, _ = w.Write([]byte(`{"data":[
-			{"id":"gpt-a","context_length":65536,"max_output_tokens":2048},
+			{"id":"gpt-a","context_length":65536,"max_output_tokens":2048,
+			 "supported_parameters":["reasoning"],"reasoning":{"supported_efforts":["high","low"]}},
 			{"id":"gpt-b"}
 		]}`))
 	}))
@@ -1019,6 +1231,13 @@ func TestGetModelCatalog(t *testing.T) {
 	if firstModel["context_window_tokens"] != float64(65536) ||
 		firstModel["max_output_tokens"] != float64(2048) {
 		t.Fatalf("model catalog token limits mismatch: %+v", firstModel)
+	}
+	if firstModel["supports_reasoning"] != true ||
+		!slices.Equal(testutil.RequireType[[]any](t, firstModel["supported_reasoning_efforts"]), []any{"high", "low"}) {
+		t.Fatalf("model catalog reasoning support mismatch: %+v", firstModel)
+	}
+	if _, reported := testutil.RequireType[map[string]any](t, models[1])["supports_reasoning"]; reported {
+		t.Fatalf("model catalog should omit unreported reasoning support: %+v", models[1])
 	}
 
 	badConfigID := createProvider("catalog-failed", "catalog-bad-key", "sk-bad")

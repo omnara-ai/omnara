@@ -237,6 +237,14 @@ func TestClassifyReplayRejection(t *testing.T) {
 			codes:   []string{"invalid_request_error"},
 		},
 		{
+			name: "Anthropic preserved thinking bound to a different conversation",
+			message: "messages.5.content.0: Invalid `signature` in `thinking` block. The block is bound to a " +
+				"different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` " +
+				"to \"drop_block\". That setting requires the `thinking-binding-controls-2026-08-01` value in the " +
+				"`anthropic-beta` header.",
+			codes: []string{"invalid_request_error"},
+		},
+		{
 			name:    "Anthropic-compatible invalid thinking signature",
 			message: "messages.1.content.0: Invalid signature in thinking",
 			codes:   []string{"invalid_request_error"},

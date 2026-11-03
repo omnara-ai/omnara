@@ -15,6 +15,15 @@
         "rules": ["react-doctor/no-event-handler"]
       },
       {
+        // Mirrors the oxlint override: the CLI command manifest is one declarative table.
+        "files": ["src/manifest.ts"],
+        "rules": ["eslint/max-lines"]
+      },
+      {
+        "files": ["src/domains/skills.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
         // Vitest loads happy-dom through @vitest-environment control comments.
         "files": ["package.json"],
         "rules": ["deslop/unused-dev-dependency"]

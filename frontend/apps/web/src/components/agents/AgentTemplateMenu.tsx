@@ -34,7 +34,7 @@ export function AgentTemplateMenu({
           >
             <span className="flex min-w-0 flex-col gap-1">
               <span className="text-sm font-medium">{template.name}</span>
-              <span className="text-muted-foreground whitespace-normal text-xs leading-snug">
+              <span className="text-muted-foreground text-xs leading-snug whitespace-normal">
                 {template.description}
               </span>
             </span>

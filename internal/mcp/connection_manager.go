@@ -13,7 +13,6 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/ssrf"
@@ -393,10 +392,7 @@ func (m Manager) connection(
 	if auth == nil {
 		return wireConn, identity, nil
 	}
-	secretID, err := publicid.Decode(publicid.KindSecret, auth.SecretID)
-	if err != nil {
-		return Conn{}, identity, fmt.Errorf("decode mcp auth secret id for %q: %w", serverKey, err)
-	}
+	secretID := auth.SecretID
 	kind, err := mcpAuthSecretKind(auth.Type)
 	if err != nil {
 		return Conn{}, identity, fmt.Errorf("resolve mcp auth secret kind for %q: %w", serverKey, err)
@@ -411,7 +407,7 @@ func (m Manager) connection(
 		},
 	)
 	if err != nil {
-		return Conn{}, identity, fmt.Errorf("read mcp auth secret for %q: %w", serverKey, err)
+		return Conn{}, identity, wrapStoreErr(fmt.Errorf("read mcp auth secret for %q: %w", serverKey, err))
 	}
 	payload := secretPayload.Payload
 	credential := &executionstore.MCPServerCatalogCredential{
@@ -440,11 +436,11 @@ func (m Manager) connection(
 			payload,
 		)
 		if err != nil {
-			return Conn{}, identity, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", serverKey, err)
+			return Conn{}, identity, fmt.Errorf("%w: prepare SigV4 MCP auth for %q: %w", ErrCredential, serverKey, err)
 		}
 		signer, err := sigv4.NewSigner(auth.Service, auth.Region, provider)
 		if err != nil {
-			return Conn{}, identity, fmt.Errorf("prepare SigV4 MCP auth for %q: %w", serverKey, err)
+			return Conn{}, identity, fmt.Errorf("%w: prepare SigV4 MCP auth for %q: %w", ErrCredential, serverKey, err)
 		}
 		wireConn.prepareRequest = signer.Sign
 		return wireConn, identity, nil
@@ -452,7 +448,11 @@ func (m Manager) connection(
 		return Conn{}, identity, fmt.Errorf("unsupported mcp auth type %q", auth.Type)
 	}
 	if wireConn.BearerToken == "" {
-		return Conn{}, identity, fmt.Errorf("mcp auth secret for %q is missing bearer token material", serverKey)
+		return Conn{}, identity, fmt.Errorf(
+			"%w: mcp auth secret for %q is missing bearer token material",
+			ErrCredential,
+			serverKey,
+		)
 	}
 	return wireConn, identity, nil
 }
@@ -508,7 +508,7 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 			},
 		)
 		if err != nil {
-			return "", uuid.Nil, fmt.Errorf("acquire mcp oauth refresh lease for %q: %w", serverKey, err)
+			return "", uuid.Nil, internalFailure(fmt.Errorf("acquire mcp oauth refresh lease for %q: %w", serverKey, err))
 		}
 		if acquired {
 			ownerTimeout := leaseTTL - time.Since(leaseAttemptStarted) - oauthRefreshOwnerHeadroom
@@ -521,14 +521,14 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 			)
 		}
 		if attempt >= maxWaits {
-			return "", uuid.Nil, fmt.Errorf("mcp oauth refresh lease for %q is busy", serverKey)
+			return "", uuid.Nil, fmt.Errorf("%w: mcp oauth refresh lease for %q is busy", ErrRefreshBusy, serverKey)
 		}
 		wait := min(defaultOAuthRefreshWait*time.Duration(attempt+1), maxDefaultOAuthRefreshWait)
 		if m.OAuthRefreshWait != nil {
 			wait = m.OAuthRefreshWait(attempt)
 		}
 		if err := sleepBackoff(ctx, wait); err != nil {
-			return "", uuid.Nil, err
+			return "", uuid.Nil, leaseWaitFailure(err, fmt.Sprintf("the mcp oauth refresh lease for %q", serverKey))
 		}
 		secretPayload, err := m.Secrets.ReadProjectAvailableSecretPayload(
 			ctx,
@@ -540,7 +540,7 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 			},
 		)
 		if err != nil {
-			return "", uuid.Nil, fmt.Errorf("read mcp auth secret for %q after refresh wait: %w", serverKey, err)
+			return "", uuid.Nil, wrapStoreErr(fmt.Errorf("read mcp auth secret for %q after refresh wait: %w", serverKey, err))
 		}
 		token, fresh, err := m.oauthAccessToken(serverKey, secretPayload)
 		if err != nil {
@@ -561,7 +561,11 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 ) (string, uuid.UUID, error) {
 	defer func() { _ = m.Secrets.ReleaseProjectOAuthRefreshLease(context.WithoutCancel(callerCtx), lease) }()
 	if timeout <= 0 {
-		return "", uuid.Nil, fmt.Errorf("mcp oauth refresh lease for %q has insufficient remaining time", serverKey)
+		return "", uuid.Nil, fmt.Errorf(
+			"%w: mcp oauth refresh lease for %q has insufficient remaining time",
+			ErrRefreshBusy,
+			serverKey,
+		)
 	}
 	if err := callerCtx.Err(); err != nil {
 		return "", uuid.Nil, err
@@ -578,7 +582,7 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		},
 	)
 	if err != nil {
-		return "", uuid.Nil, fmt.Errorf("read mcp auth secret for %q as refresh lease owner: %w", serverKey, err)
+		return "", uuid.Nil, wrapStoreErr(fmt.Errorf("read mcp auth secret for %q as refresh lease owner: %w", serverKey, err))
 	}
 	payload := secretPayload.Payload
 	token, fresh, err := m.oauthAccessToken(serverKey, secretPayload)
@@ -589,10 +593,18 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		return token, secretPayload.CurrentVersionID, nil
 	}
 	if secretPayload.CurrentVersionID != lease.ExpectedCurrentVersionID {
-		return "", uuid.Nil, fmt.Errorf("mcp oauth refresh lease for %q no longer owns the current secret version", serverKey)
+		return "", uuid.Nil, fmt.Errorf(
+			"%w: mcp oauth refresh lease for %q no longer owns the current secret version",
+			ErrRefreshBusy,
+			serverKey,
+		)
 	}
 	if payload[secrets.KeyRefreshToken] == "" {
-		return "", uuid.Nil, fmt.Errorf("mcp oauth secret for %q is expired and has no refresh token", serverKey)
+		return "", uuid.Nil, fmt.Errorf(
+			"%w: mcp oauth secret for %q is expired and has no refresh token",
+			ErrCredential,
+			serverKey,
+		)
 	}
 	refreshed, err := RefreshOAuthToken(leaseOwnerCtx, OAuthRefreshInput{
 		TokenEndpoint: payload[secrets.KeyTokenEndpoint],
@@ -603,7 +615,7 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		HTTPClient:    m.OAuthHTTPClient,
 	})
 	if err != nil {
-		return "", uuid.Nil, fmt.Errorf("refresh mcp oauth token for %q: %w", serverKey, err)
+		return "", uuid.Nil, fmt.Errorf("%w: refresh mcp oauth token for %q: %w", ErrCredential, serverKey, err)
 	}
 	refreshedPayload := maps.Clone(payload)
 	refreshedPayload[secrets.KeyAccessToken] = refreshed.AccessToken
@@ -622,7 +634,7 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		refreshed.AccessTokenLifetime(),
 	)
 	if err != nil {
-		return "", uuid.Nil, fmt.Errorf("normalize refreshed mcp oauth token for %q: %w", serverKey, err)
+		return "", uuid.Nil, fmt.Errorf("%w: normalize refreshed mcp oauth token for %q: %w", ErrCredential, serverKey, err)
 	}
 	rotated, err := m.Secrets.RotateProjectAvailableOAuthSecret(
 		leaseOwnerCtx,
@@ -633,24 +645,34 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		},
 	)
 	if err != nil {
-		if errors.Is(err, storeerr.ErrConflict) {
-			current, readErr := m.Secrets.ReadProjectAvailableSecretPayload(
-				leaseOwnerCtx,
-				secretstore.ReadProjectAvailableSecretPayloadInput{
-					OrgID:     lease.OrgID,
-					ProjectID: projectID,
-					SecretID:  lease.SecretID,
-					Kind:      secrets.KindOAuthTokenSet,
-				},
-			)
-			if readErr == nil {
-				currentToken, fresh, tokenErr := m.oauthAccessToken(serverKey, current)
-				if tokenErr == nil && fresh {
-					return currentToken, current.CurrentVersionID, nil
-				}
-			}
+		if !errors.Is(err, storeerr.ErrConflict) {
+			return "", uuid.Nil, internalFailure(fmt.Errorf("store refreshed mcp oauth token for %q: %w", serverKey, err))
 		}
-		return "", uuid.Nil, fmt.Errorf("store refreshed mcp oauth token for %q: %w", serverKey, err)
+		current, readErr := m.Secrets.ReadProjectAvailableSecretPayload(
+			leaseOwnerCtx,
+			secretstore.ReadProjectAvailableSecretPayloadInput{
+				OrgID:     lease.OrgID,
+				ProjectID: projectID,
+				SecretID:  lease.SecretID,
+				Kind:      secrets.KindOAuthTokenSet,
+			},
+		)
+		if readErr != nil {
+			return "", uuid.Nil, wrapStoreErr(fmt.Errorf(
+				"read mcp auth secret for %q after refresh conflict: %w",
+				serverKey,
+				readErr,
+			))
+		}
+		if currentToken, fresh, tokenErr := m.oauthAccessToken(serverKey, current); tokenErr == nil && fresh {
+			return currentToken, current.CurrentVersionID, nil
+		}
+		return "", uuid.Nil, fmt.Errorf(
+			"%w: mcp oauth refresh lease for %q no longer owns the current secret version: %w",
+			ErrRefreshBusy,
+			serverKey,
+			err,
+		)
 	}
 	return refreshed.AccessToken, rotated.CurrentVersionID, nil
 }
@@ -661,7 +683,7 @@ func (m Manager) oauthAccessToken(
 ) (string, bool, error) {
 	accessToken := secretPayload.Payload[secrets.KeyAccessToken]
 	if accessToken == "" {
-		return "", false, fmt.Errorf("mcp oauth secret for %q is missing access token", serverKey)
+		return "", false, fmt.Errorf("%w: mcp oauth secret for %q is missing access token", ErrCredential, serverKey)
 	}
 	if !secretPayload.OAuthAccessTokenExpires || secretPayload.OAuthAccessTokenRemaining > oauthRefreshSkew {
 		return accessToken, true, nil
@@ -694,4 +716,11 @@ func sleepBackoff(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func wrapStoreErr(err error) error {
+	if storeerr.IsNotFound(err) || errors.Is(err, storeerr.ErrInvalidSecretRequest) {
+		return err
+	}
+	return internalFailure(err)
 }
