@@ -273,7 +273,7 @@ function AgentInstanceCard({
           <AgentCardTime
             label="Last active"
             value={agent.activity?.last_activity_at ?? agent.updated_at}
-            status={agent.activity?.state === 'idle' ? undefined : agentStatusLabel(agent)}
+            status={agentStatusLabel(agent) === 'Idle' ? undefined : agentStatusLabel(agent)}
           />
           <AgentActionsMenu
             orgId={orgId}

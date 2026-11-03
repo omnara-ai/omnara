@@ -7,36 +7,25 @@ import (
 	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
-func MaintenanceLoop(
-	ctx context.Context,
-	interval time.Duration,
-	now time.Time,
-) (context.Context, *log.Event) {
-	event := log.NewEvent(ctx, "maintenance.loop", log.Fields{
-		"maintenance.loop.interval": interval,
-		"maintenance.loop.poll_at":  now,
+func MaintenanceJob(ctx context.Context, name string, interval time.Duration) (context.Context, *log.Event) {
+	return log.Start(ctx, "maintenance.job", log.Fields{
+		"maintenance.job.name":     name,
+		"maintenance.job.interval": interval,
 	})
-	return log.WithEvent(ctx, event), event
 }
 
-func MaintenanceLoopResult(
-	ctx context.Context,
-	reapedRuntimeLocks int64,
-	reapRuntimeLocksErr error,
-	worked bool,
-	err error,
-) {
-	fields := log.Fields{
-		"maintenance.reap_runtime_locks.count": reapedRuntimeLocks,
-		"maintenance.loop.worked":              worked,
-	}
-	if reapRuntimeLocksErr != nil {
-		fields["maintenance.reap_runtime_locks.error"] = reapRuntimeLocksErr.Error()
-	}
+func MaintenanceJobCount(ctx context.Context, count int64) {
+	log.Attach(ctx, log.Fields{"maintenance.job.count": count})
+}
+
+func MaintenanceJobResult(ctx context.Context, worked, more bool, err error) {
+	log.Attach(ctx, log.Fields{
+		"maintenance.job.worked": worked,
+		"maintenance.job.more":   more,
+	})
 	if err != nil {
 		log.Error(ctx, err)
 	} else if !worked {
 		log.Level(ctx, log.DebugLevel)
 	}
-	log.Attach(ctx, fields)
 }

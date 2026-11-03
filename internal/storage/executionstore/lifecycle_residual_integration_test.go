@@ -57,7 +57,8 @@ FROM original, definition RETURNING id`,
 		executionstore.AgentFixtureInput{ProjectID: project,
 			CurrentConfigID: config})
 	require.NoError(t, err)
-	_, err = f.store.Organizations().DeleteOrganization(ctx, testOrgID, userPrincipal(f.userID))
+	owner := createSecretTestUser(t, ctx, f.store, "Residual Organization Owner", "owner")
+	_, err = f.store.Organizations().DeleteOrganization(ctx, testOrgID, userPrincipal(owner.ID))
 	require.NoError(t, err)
 	for _, agent := range []uuid.UUID{f.agent.ID, remaining.ID} {
 		require.NoError(t, f.pool.QueryRow(ctx, `SELECT state FROM agents WHERE id=$1`, agent).Scan(&state))

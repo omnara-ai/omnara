@@ -13,17 +13,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 )
 
 const (
-	APIURL           = "https://api.github.com"
-	APIVersion       = "2026-03-10"
-	OperationTimeout = 15 * time.Second
-	ResponseMaxBytes = 2 * 1024 * 1024
-	ErrorMaxBytes    = 8 * 1024
-	jsonMediaType    = "application/vnd.github+json"
+	APIURL                      = "https://api.github.com"
+	APIVersion                  = "2026-03-10"
+	OperationTimeout            = 15 * time.Second
+	ResponseMaxBytes            = 2 * 1024 * 1024
+	accessTokenResponseMaxBytes = 8 * 1024 * 1024
+	ErrorMaxBytes               = 8 * 1024
+	jsonMediaType               = "application/vnd.github+json"
 )
 
 type Config struct {
@@ -43,8 +43,7 @@ type Client struct {
 	tokens         [2]cachedToken
 	sharedTokens   *installationTokenCache
 	tokenIdentity  installationTokenIdentity
-	gitTokenGate   chan struct{}
-	gitCredentials *simplelru.LRU[string, InstallationCredentials]
+	gitCredentials *gitCredentialCache
 }
 
 type appClient struct {
@@ -72,14 +71,7 @@ func NewClient(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	gitCredentials, err := simplelru.NewLRU[string, InstallationCredentials](gitCredentialCacheSize, nil)
-	if err != nil {
-		return nil, err
-	}
-	client := &Client{
-		appClient: app, installationID: config.InstallationID, tokenGate: make(chan struct{}, 1),
-		gitTokenGate: make(chan struct{}, 1), gitCredentials: gitCredentials,
-	}
+	client := &Client{appClient: app, installationID: config.InstallationID, tokenGate: make(chan struct{}, 1)}
 	if shareTokens {
 		client.sharedTokens, err = sharedInstallationTokens()
 		if err != nil {
@@ -89,6 +81,12 @@ func NewClient(config Config) (*Client, error) {
 			origin: app.base.String(), secretID: config.CredentialSecretID, versionID: config.CredentialVersionID,
 			appID: app.appID, installationID: config.InstallationID,
 		}
+		client.gitCredentials, err = sharedGitCredentials()
+	} else {
+		client.gitCredentials, err = newGitCredentialCache()
+	}
+	if err != nil {
+		return nil, err
 	}
 	return client, nil
 }
@@ -236,10 +234,14 @@ func (c *appClient) attempt(req *http.Request, mutation bool) ([]byte, http.Head
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, ErrorMaxBytes))
 		return nil, nil, responseError(resp.StatusCode, resp.Header, body, mutation, c.now())
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, ResponseMaxBytes+1))
-	if err != nil || len(body) > ResponseMaxBytes {
+	limit := ResponseMaxBytes
+	if strings.HasSuffix(req.URL.Path, "/access_tokens") {
+		limit = accessTokenResponseMaxBytes
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
+	if err != nil || len(body) > limit {
 		code := InvalidResponse
-		if len(body) > ResponseMaxBytes {
+		if len(body) > limit {
 			code = ResponseTooLarge
 		}
 		if mutation {

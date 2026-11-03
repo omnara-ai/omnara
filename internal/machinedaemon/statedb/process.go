@@ -551,6 +551,7 @@ func processFromSQLC(row dbsqlc.Process) Process {
 		ActionAdmissionClosed: row.ActionAdmissionClosed != 0,
 		LocalClosed:           row.LocalClosed != 0,
 		ServerReleased:        row.ServerReleased != 0,
+		LastOutputMatchSeq:    row.LastOutputMatchSeq,
 	}
 }
 

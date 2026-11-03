@@ -374,6 +374,7 @@ func TestMachineWakeWaitingBehindOrganizationDeletionRejectsDeletedScope(t *test
 	fixture := newProviderRuntimeStorageFixture(t, ctx, "wake-org-delete", true)
 	machine := fixture.insertInactiveMachine(t, ctx, "wake-org-delete")
 	attached := fixture.createProcessFixture(t, ctx, machine, "wake-org-delete")
+	owner := createSecretTestUser(t, ctx, fixture.store, "Wake Organization Owner", "owner")
 
 	// Hold deletion after its resource locks, before it archives the attached agent.
 	controlTx := integrationdb.BeginTx(t, ctx, fixture.pool)
@@ -384,12 +385,11 @@ func TestMachineWakeWaitingBehindOrganizationDeletionRejectsDeletedScope(t *test
 		t.Fatalf("lock attached agent before organization deletion: %v", err)
 	}
 
-	actor := mustOmnaraActorParams(t, fixture.adminID)
 	deleteDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := fixture.store.Organizations().DeleteOrganizationOnceForIntegration(
 			ctx,
 			testOrgID,
-			actor,
+			userPrincipal(owner.ID),
 		)
 		return deleteErr
 	})
@@ -1286,8 +1286,6 @@ WHERE org_id = $1 AND id = $2
 		executionstore.MachineDeletingInput{
 			OrgID:                    testOrgID,
 			MachineID:                machine.machineID,
-			LifecycleReasonCode:      "deleting_retry",
-			LifecycleReasonMessage:   "retrying machine deletion",
 			ExpectedLifecycleVersion: deleting.LifecycleVersion,
 		},
 	); err != nil || !retried {

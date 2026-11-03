@@ -852,16 +852,20 @@ func (q *Queries) CreateOrg(ctx context.Context, arg CreateOrgParams) (CreateOrg
 }
 
 const createOrgInvitation = `-- name: CreateOrgInvitation :one
-INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_at)
-VALUES ($1, $2, $3, $4, statement_timestamp())
-RETURNING id, org_id, email, normalized_email, org_role, created_at
+INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_by_membership_id, created_at)
+VALUES (
+  $1, $2, $3, $4,
+  $5::uuid, statement_timestamp()
+)
+RETURNING id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 `
 
 type CreateOrgInvitationParams struct {
-	OrgID           uuid.UUID
-	Email           string
-	NormalizedEmail string
-	OrgRole         string
+	OrgID                 uuid.UUID
+	Email                 string
+	NormalizedEmail       string
+	OrgRole               string
+	CreatedByMembershipID uuid.UUID
 }
 
 func (q *Queries) CreateOrgInvitation(ctx context.Context, arg CreateOrgInvitationParams) (OrgInvitation, error) {
@@ -870,6 +874,7 @@ func (q *Queries) CreateOrgInvitation(ctx context.Context, arg CreateOrgInvitati
 		arg.Email,
 		arg.NormalizedEmail,
 		arg.OrgRole,
+		arg.CreatedByMembershipID,
 	)
 	var i OrgInvitation
 	err := row.Scan(
@@ -879,6 +884,7 @@ func (q *Queries) CreateOrgInvitation(ctx context.Context, arg CreateOrgInvitati
 		&i.NormalizedEmail,
 		&i.OrgRole,
 		&i.CreatedAt,
+		&i.CreatedByMembershipID,
 	)
 	return i, err
 }
@@ -1354,7 +1360,7 @@ const deleteOrgInvitation = `-- name: DeleteOrgInvitation :one
 DELETE FROM org_invitations
 WHERE id = $1
   AND org_id = $2
-RETURNING id, org_id, email, normalized_email, org_role, created_at
+RETURNING id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 `
 
 type DeleteOrgInvitationParams struct {
@@ -1372,6 +1378,7 @@ func (q *Queries) DeleteOrgInvitation(ctx context.Context, arg DeleteOrgInvitati
 		&i.NormalizedEmail,
 		&i.OrgRole,
 		&i.CreatedAt,
+		&i.CreatedByMembershipID,
 	)
 	return i, err
 }
@@ -1524,6 +1531,23 @@ type DeleteOrganizationSkillGrantsParams struct {
 
 func (q *Queries) DeleteOrganizationSkillGrants(ctx context.Context, arg DeleteOrganizationSkillGrantsParams) error {
 	_, err := q.db.Exec(ctx, deleteOrganizationSkillGrants, arg.OrgID)
+	return err
+}
+
+const deleteOwnerOrgInvitationsFromSender = `-- name: DeleteOwnerOrgInvitationsFromSender :exec
+DELETE FROM org_invitations
+WHERE org_id = $1
+  AND created_by_membership_id = $2::uuid
+  AND org_role = 'owner'
+`
+
+type DeleteOwnerOrgInvitationsFromSenderParams struct {
+	OrgID                 uuid.UUID
+	CreatedByMembershipID uuid.UUID
+}
+
+func (q *Queries) DeleteOwnerOrgInvitationsFromSender(ctx context.Context, arg DeleteOwnerOrgInvitationsFromSenderParams) error {
+	_, err := q.db.Exec(ctx, deleteOwnerOrgInvitationsFromSender, arg.OrgID, arg.CreatedByMembershipID)
 	return err
 }
 
@@ -2884,7 +2908,7 @@ func (q *Queries) GetPasswordLoginByVerifiedEmail(ctx context.Context, arg GetPa
 }
 
 const getPendingOrgInvitationByEmail = `-- name: GetPendingOrgInvitationByEmail :one
-SELECT id, org_id, email, normalized_email, org_role, created_at
+SELECT id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 FROM org_invitations
 WHERE org_id = $1
   AND normalized_email = $2
@@ -2905,6 +2929,7 @@ func (q *Queries) GetPendingOrgInvitationByEmail(ctx context.Context, arg GetPen
 		&i.NormalizedEmail,
 		&i.OrgRole,
 		&i.CreatedAt,
+		&i.CreatedByMembershipID,
 	)
 	return i, err
 }
@@ -3284,7 +3309,7 @@ func (q *Queries) ListEnabledAuthConnectorSummaries(ctx context.Context) ([]List
 }
 
 const listOrgInvitations = `-- name: ListOrgInvitations :many
-SELECT id, org_id, email, normalized_email, org_role, created_at
+SELECT id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 FROM org_invitations
 WHERE org_id = $1
   AND (
@@ -3323,6 +3348,7 @@ func (q *Queries) ListOrgInvitations(ctx context.Context, arg ListOrgInvitations
 			&i.NormalizedEmail,
 			&i.OrgRole,
 			&i.CreatedAt,
+			&i.CreatedByMembershipID,
 		); err != nil {
 			return nil, err
 		}
@@ -4110,6 +4136,35 @@ func (q *Queries) LockOrg(ctx context.Context, arg LockOrgParams) (uuid.UUID, er
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const lockOrgMembershipForPrincipal = `-- name: LockOrgMembershipForPrincipal :one
+SELECT id, role
+FROM org_memberships
+WHERE org_id = $1
+  AND (
+    ($2::uuid IS NOT NULL AND user_id = $2::uuid)
+    OR ($3::uuid IS NOT NULL AND org_api_key_id = $3::uuid)
+  )
+FOR KEY SHARE
+`
+
+type LockOrgMembershipForPrincipalParams struct {
+	OrgID       uuid.UUID
+	UserID      *uuid.UUID
+	OrgApiKeyID *uuid.UUID
+}
+
+type LockOrgMembershipForPrincipalRow struct {
+	ID   uuid.UUID
+	Role string
+}
+
+func (q *Queries) LockOrgMembershipForPrincipal(ctx context.Context, arg LockOrgMembershipForPrincipalParams) (LockOrgMembershipForPrincipalRow, error) {
+	row := q.db.QueryRow(ctx, lockOrgMembershipForPrincipal, arg.OrgID, arg.UserID, arg.OrgApiKeyID)
+	var i LockOrgMembershipForPrincipalRow
+	err := row.Scan(&i.ID, &i.Role)
+	return i, err
 }
 
 const lockOrganizationMembershipsForDeletion = `-- name: LockOrganizationMembershipsForDeletion :exec

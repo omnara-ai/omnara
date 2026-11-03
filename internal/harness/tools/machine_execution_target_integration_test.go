@@ -1907,7 +1907,7 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 	readCall := model.ToolCall{
 		ID:    "call_replay_read",
 		Name:  "read_process",
-		Input: json.RawMessage(`{"process_id":"` + processHandle + `","offset_byte":0,"limit_bytes":4096}`),
+		Input: json.RawMessage(`{"process_id":"` + processHandle + `","offset_byte":0}`),
 	}
 	readProviderResponse, err := model.NewResponseEnvelopeForStorage(
 		"tools-test",

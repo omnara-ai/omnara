@@ -331,7 +331,7 @@ func TestPublicInvitationFlow(t *testing.T) {
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/invitations",
-		`{"email":"owner@example.com","role":"owner"}`,
+		`{"email":"invalid@example.com","role":"superuser"}`,
 		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
@@ -571,7 +571,7 @@ func TestPublicOrgMemberAndProjectAccessManagement(t *testing.T) {
 	requestJSONWithHeaders(
 		t, handler, http.MethodDelete,
 		"/api/v1/orgs/"+project.OrgID+"/members/"+project.AdminUserID,
-		"", "", http.StatusForbidden, authHeaders(project.AdminToken),
+		"", "", http.StatusConflict, authHeaders(project.AdminToken),
 	)
 
 	requestJSONWithHeaders(
@@ -1287,7 +1287,10 @@ func TestBearerAuthCancellationPreservesResponseContract(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 
-	handler := newIntegrationServer(pool)
+	server := &Server{store: storage.NewStore(pool)}
+	handler := server.auth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("canceled bearer auth reached the next handler")
+	}))
 	token, err := bearertoken.Generate(bearertoken.KindPersonalAccess)
 	if err != nil {
 		t.Fatalf("format valid personal access token: %v", err)
@@ -2774,7 +2777,7 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 	}
 	invalidCancelRec := performRequest(handler, invalidCancelReq)
 	if invalidCancelRec.Code != http.StatusFound ||
-		invalidCancelRec.Header().Get("Location") != "/login?auth_error=invalid_state" {
+		invalidCancelRec.Header().Get("Location") != "/login?auth_connector=github-test&auth_error=invalid_state" {
 		t.Fatalf(
 			"invalid cancel callback status=%d location=%q body=%s",
 			invalidCancelRec.Code,
@@ -2799,7 +2802,7 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 	cancelRec = performRequest(handler, cancelCallbackReq)
 	if cancelRec.Code != http.StatusFound ||
 		cancelRec.Header().Get("Location") !=
-			"/login?auth_error=access_denied&return_to=%2Fdevice%3Fuser_code%3DABCD" {
+			"/login?auth_connector=github-test&auth_error=access_denied&return_to=%2Fdevice%3Fuser_code%3DABCD" {
 		t.Fatalf(
 			"cancel callback status=%d location=%q body=%s",
 			cancelRec.Code,
@@ -2822,7 +2825,7 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 	}
 	cancelReplayRec := performRequest(handler, cancelReplayReq)
 	if cancelReplayRec.Code != http.StatusFound ||
-		cancelReplayRec.Header().Get("Location") != "/login?auth_error=invalid_state" {
+		cancelReplayRec.Header().Get("Location") != "/login?auth_connector=github-test&auth_error=invalid_state" {
 		t.Fatalf(
 			"cancel replay status=%d location=%q body=%s",
 			cancelReplayRec.Code,
@@ -2990,7 +2993,8 @@ func TestOAuthLoginGitHubRequiresPrimaryVerifiedEmail(t *testing.T) {
 	}
 	rec = performRequest(handler, callbackReq)
 	if rec.Code != http.StatusFound ||
-		rec.Header().Get("Location") != "/login?auth_error=identity_failed&return_to=%2Fafter" {
+		rec.Header().Get("Location") !=
+			"/login?auth_connector=github-primary-required&auth_error=email_not_verified&return_to=%2Fafter" {
 		t.Fatalf("callback status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	if sessionToken := cookieValue(rec.Result().Cookies(), httpauth.BrowserSessionCookieName); sessionToken != "" {
@@ -3480,7 +3484,7 @@ func TestSSOOIDCConnectorRejectsMismatchedAuthorizedParty(t *testing.T) {
 	}
 	rec = performRequest(handler, callbackReq)
 	if rec.Code != http.StatusFound ||
-		rec.Header().Get("Location") != "/login?auth_error=identity_failed&return_to=%2Fsso-done" {
+		rec.Header().Get("Location") != "/login?auth_connector=azp-sso&auth_error=identity_failed&return_to=%2Fsso-done" {
 		t.Fatalf("sso callback status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	if sessionToken := cookieValue(rec.Result().Cookies(), httpauth.BrowserSessionCookieName); sessionToken != "" {
@@ -3707,7 +3711,8 @@ func TestSSOOIDCConnectorRejectsSubjectOnlyFirstLogin(t *testing.T) {
 	}
 	rec = performRequest(handler, callbackReq)
 	if rec.Code != http.StatusFound ||
-		rec.Header().Get("Location") != "/login?auth_error=identity_failed&return_to=%2Fsso-done" {
+		rec.Header().Get("Location") !=
+			"/login?auth_connector=subject-only-sso&auth_error=email_not_verified&return_to=%2Fsso-done" {
 		t.Fatalf("sso callback status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	sessionToken := cookieValue(rec.Result().Cookies(), httpauth.BrowserSessionCookieName)
@@ -4245,7 +4250,7 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 						handlerCalls, rec.Code, rec.Body.String(),
 					)
 				}
-				if event["http.status_code"] != float64(499) || event["level"] != "info" {
+				if event["http.status_code"] != float64(http.StatusOK) || event["level"] != "info" {
 					t.Fatalf("canceled auth misclassified: %+v", event)
 				}
 				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), "timeout") {

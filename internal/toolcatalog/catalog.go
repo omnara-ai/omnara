@@ -22,22 +22,24 @@ const (
 )
 
 const (
-	FilePageBytes            = 4 * 1024
-	MaxReadableArtifactBytes = 48 * 1024 * 1024
-	StorageListDefaultLimit  = 50
-	StorageListMaxLimit      = 100
-	StorageListMaxOffset     = 1_000_000
-	ListMachinesDefaultLimit = 50
-	ListMachinesMaxLimit     = 100
-	StorageReadDefaultLines  = 100
-	StorageReadMaxLines      = 200
-	StorageReadDefaultChars  = 512
-	StorageReadMaxChars      = 4096
-	SearchDefaultMatches     = 20
-	SearchMaxMatches         = 100
-	SearchMaxContextLines    = 5
-	SearchMaxPatternBytes    = 1024
-	SearchMaxArgs            = 64
+	FilePageBytes                      = 4 * 1024
+	MaxReadableArtifactBytes           = 48 * 1024 * 1024
+	StorageListDefaultLimit            = 50
+	StorageListMaxLimit                = 100
+	StorageListMaxOffset               = 1_000_000
+	ListMachinesDefaultLimit           = 50
+	ListMachinesMaxLimit               = 100
+	ListGitHubRepositoriesDefaultLimit = 50
+	ListGitHubRepositoriesMaxLimit     = 100
+	StorageReadDefaultLines            = 100
+	StorageReadMaxLines                = 200
+	StorageReadDefaultChars            = 512
+	StorageReadMaxChars                = 4096
+	SearchDefaultMatches               = 20
+	SearchMaxMatches                   = 100
+	SearchMaxContextLines              = 5
+	SearchMaxPatternBytes              = 1024
+	SearchMaxArgs                      = 64
 )
 
 func IsPlatformManagedToolType(toolType string) bool {
@@ -45,18 +47,32 @@ func IsPlatformManagedToolType(toolType string) bool {
 }
 
 const (
-	runCommandToolDescription = "Run a daemon-backed shell command. Once the machine accepts the command, " +
-		"every result includes a process_id; quick commands also return terminal output. " +
-		"Use the process tools with that ID to inspect or control the process."
-	writeProcessToolDescription   = "Write exact stdin/PTY bytes to a running process, close pipe stdin, or do both."
-	stopProcessToolDescription    = "Interrupt or terminate a running process."
-	readProcessToolDescription    = "Read retained process output, optionally waiting briefly for output or completion."
-	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
-	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
-	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
-	listMachinesToolDescription   = "List this agent's machines and available pools for creating new machines."
-	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_id is only needed when multiple machines are available."
-	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
+	runCommandToolDescription = "Run a shell command on an attached machine. Waits up to wait_ms (default 5 seconds, " +
+		"at most 30 seconds) for it to exit and returns its output, keeping the start and end of long output. " +
+		"If it is still running, it keeps running and you get a message when it ends; use its process_id with " +
+		"the process tools to read output, send input, or stop it. For a command that may take longer, use " +
+		"wait_ms 0, then do other work or end your turn; that message wakes you to continue. To hear about " +
+		"specific output before then, such as a server's ready line, use watch_process."
+	writeProcessToolDescription = "Write exact bytes to a running process started with io_mode: pty."
+	stopProcessToolDescription  = "Interrupt or terminate a running process."
+	watchProcessToolDescription = "Watch a running process's output and get a message with the lines that match a " +
+		"regular expression, such as a server's ready line or errors, until the watch expires or the process ends. " +
+		"You also get a message when the watch expires. " +
+		"Matches are batched and rate limited, and matches you have not read yet are merged into one message. " +
+		"Watch for rare lines you want to be told about, then use read_process for the surrounding output; " +
+		"a pattern that matches frequent lines, such as progress or every log line, floods you with messages. " +
+		"If a watch reports too often, replace it with a narrower pattern or cancel it. " +
+		"A new watch replaces the process's current one; timeout_seconds 0 cancels it."
+	readProcessToolDescription = "Read a process's current output. Returns immediately unless wait_ms is set, " +
+		"which waits up to 30 seconds for the process to end. Long output keeps the start and end. " +
+		"You get a message when a process ends, so do not call this repeatedly to wait for it."
+	listProcessesToolDescription          = "List active processes in the current agent, including process_id values."
+	createMachineToolDescription          = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
+	deleteMachineToolDescription          = "Request deletion of a pool-backed machine."
+	listMachinesToolDescription           = "List this agent's machines and available pools for creating new machines."
+	inspectMachineToolDescription         = "Inspect a BYO or pool-backed machine. machine_id is only needed when multiple machines are available."
+	listGitHubRepositoriesToolDescription = "List GitHub repositories this agent has access to, and whether it can push to them."
+	askQuestionToolDescription            = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
 	webSearchToolDescription = "Search the public web for up-to-date information beyond your training data. " +
 		"Returns results with URLs, titles, and snippets; use web_fetch to read a result in full. " +
@@ -76,10 +92,13 @@ const (
 		"Narrow the query when truncated. Use storage_read to read more around a match."
 	storageListToolDescription = "List files and directories in Omnara matching a glob. " +
 		"Returns paths and metadata without file contents. When has_more is true, call again with next_offset to continue."
-	storageUploadToolDescription = "Copy a file from an attached machine into Omnara. " +
-		"Set view to load an uploaded image, such as a screenshot, into your context. " +
-		"Replacing a memory file fails unless you read, wrote, uploaded, or downloaded its current content. " +
-		"Returns path."
+	storageUploadToolDescription = "Copy a file from an attached machine into Omnara, as one of two kinds. " +
+		"Artifact: set path to exactly /artifacts, with no name after it. This creates a new artifact named " +
+		"after the source file and returns its path, /artifacts/<artifact_id>. " +
+		"Memory file: set path to /memory/<store>/<file>. This creates or replaces the file at exactly that " +
+		"path and returns it; replacing fails unless you read, wrote, uploaded, or downloaded its current content. " +
+		"Either way, use the returned path to refer to the file afterward. " +
+		"Set view to load an uploaded image, such as a screenshot, into your context (artifacts only)."
 	storageDownloadToolDescription = "Copy a file stored in Omnara to an attached machine."
 	toolSearchToolDescription      = "Search the tools that are declared but not loaded into this conversation, " +
 		"and load the matches so they can be called as soon as the search returns. " +
@@ -151,16 +170,21 @@ func buildDefaultCatalog() (Catalog, error) {
 			},
 			"wait_ms": map[string]any{
 				"type":    "integer",
-				"minimum": 1,
+				"minimum": 0,
 				"maximum": processaction.MaxWaitMilliseconds,
-				"description": "Maximum time to wait for initial output or command exit before yielding " +
-					"(up to 300000 ms). This is not a lifetime timeout.",
+				"description": "How long to wait for the command to exit before returning (default 5000, up to 30000 ms). " +
+					"Set it only to how long you expect the command to take, for a command that should finish within " +
+					"30 seconds. For a long-running command, or one whose duration you do not know, such as a build, " +
+					"test suite, install, or server, use 0 to return as soon as it starts: it keeps running and you get " +
+					"a message when it ends, so do other work or end your turn instead of waiting. " +
+					"This is not a lifetime timeout.",
 			},
 			"io_mode": map[string]any{
 				"type": "string",
 				"enum": []string{"pipe", "pty"},
-				"description": "Process I/O transport. Omit for pipe. " +
-					"Use pty for interactive terminal programs or persistent shells.",
+				"description": "Process I/O transport. Omit for pipe, which has no input: a prompt reads end of input " +
+					"and fails at once. Use pty for programs you send input to with write_process, such as REPLs, " +
+					"interactive terminal programs, or persistent shells.",
 			},
 		},
 	)
@@ -176,7 +200,7 @@ func buildDefaultCatalog() (Catalog, error) {
 		{
 			ToolNameWriteProcess,
 			writeProcessToolDescription,
-			[]string{"process_id"},
+			[]string{"process_id", "data"},
 			map[string]any{
 				"process_id": processID,
 				"data": map[string]any{
@@ -184,9 +208,35 @@ func buildDefaultCatalog() (Catalog, error) {
 					"description": "Exact stdin/PTY bytes to write. " +
 						"Include newlines explicitly when the running command expects Enter.",
 				},
-				"close_stdin": map[string]any{
-					"type":        "boolean",
-					"description": "Close pipe stdin after writing data. Not supported for PTY processes.",
+			},
+		},
+		{
+			ToolNameWatchProcess,
+			watchProcessToolDescription,
+			[]string{"process_id"},
+			map[string]any{
+				"process_id": processID,
+				"pattern": map[string]any{
+					"type":      "string",
+					"minLength": 1,
+					"maxLength": processaction.MaxWatchPatternBytes,
+					"description": "RE2 regular expression matched against each output line. " +
+						"Required unless timeout_seconds is 0.",
+				},
+				"timeout_seconds": map[string]any{
+					"type":    "integer",
+					"minimum": 0,
+					"maximum": processaction.MaxWatchSeconds,
+					"description": fmt.Sprintf("How long the watch lasts, in seconds (default %d). "+
+						"Call watch_process again to keep watching. Use 0 with no pattern or offset_byte "+
+						"to cancel the current watch.", processaction.DefaultWatchSeconds),
+				},
+				"offset_byte": map[string]any{
+					"type":    "integer",
+					"minimum": 0,
+					"description": "Byte position to watch from, such as next_offset_byte from run_command or " +
+						"read_process. Omit to watch from the end of the output returned by run_command or the last " +
+						"read_process call that omitted offset_byte, so output written since then is not missed.",
 				},
 			},
 		},
@@ -215,26 +265,19 @@ func buildDefaultCatalog() (Catalog, error) {
 		"offset_byte": map[string]any{
 			"type":    "integer",
 			"minimum": 0,
-			"description": "Starting byte position in the process output stream. " +
-				"To continue, use next_offset_byte from the previous run_command or read_process result. " +
-				"Omit to continue after the output returned by run_command or the last read_process call that omitted offset_byte.",
-		},
-		"limit_bytes": map[string]any{
-			"type":    "integer",
-			"minimum": 1,
-			"maximum": processaction.MaxObservationBytes,
-			"description": fmt.Sprintf(
-				"Maximum output bytes to return. Defaults to %d.",
-				processaction.DefaultObservationBytes,
-			),
+			"description": "Byte position to read from: next_offset_byte from an earlier result, or omitted_offset_byte " +
+				"to page through output a long result left out. Omit to continue after your last read.",
 		},
 		"wait_ms": map[string]any{
 			"type":    "integer",
 			"minimum": 1,
 			"maximum": processaction.MaxWaitMilliseconds,
-			"description": "When no output is immediately available, wait up to this long for output or process completion " +
-				"(up to 300000 ms; returns as soon as either arrives). When waiting on a long-running job, prefer one long wait " +
-				"over many short polls.",
+			"description": fmt.Sprintf("Wait up to this long for the process to end before returning (up to 30000 ms). "+
+				"A pty process also returns after %d ms with no new output, as a program waiting at a prompt does. "+
+				"With offset_byte, returns once output exists there. Omit to return immediately. "+
+				"Use it only when you expect the process to end or print what you need within that time. "+
+				"You get a message when a background process ends, so do not use this to wait for one that may take longer.",
+				processaction.InteractiveQuietMilliseconds),
 		},
 	}
 	if entries[ToolNameReadProcess], err = toolEntry(
@@ -330,6 +373,26 @@ func buildDefaultCatalog() (Catalog, error) {
 		inspectMachineToolDescription,
 		nil,
 		map[string]any{"machine_id": machineID},
+	); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameListGitHubRepositories], err = toolEntry(
+		ToolNameListGitHubRepositories,
+		listGitHubRepositoriesToolDescription,
+		nil,
+		map[string]any{
+			"offset": map[string]any{
+				"type":        "integer",
+				"minimum":     0,
+				"description": "Number of entries to skip; defaults to 0. To continue, use next_offset from the previous result.",
+			},
+			"limit": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     ListGitHubRepositoriesMaxLimit,
+				"description": fmt.Sprintf("Maximum entries to return. Defaults to %d.", ListGitHubRepositoriesDefaultLimit),
+			},
+		},
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -694,8 +757,9 @@ func storageUploadTool(machineID map[string]any) (Entry, error) {
 				"type":      "string",
 				"minLength": 1,
 				"pattern":   "^(/artifacts|/memory/[^/]+/.+)$",
-				"description": "Destination path in Omnara: /artifacts creates an artifact; " +
-					"/memory/<store>/<path> creates or replaces a memory file. " +
+				"description": "Exactly /artifacts to create a new artifact named after the source file, " +
+					"returned as /artifacts/<artifact_id> (do not add a name after /artifacts); " +
+					"or /memory/<store>/<file> to create or replace the memory file at exactly that path. " +
 					"Memory files may be empty; artifacts must be non-empty.",
 			},
 			"source": map[string]any{
@@ -709,7 +773,7 @@ func storageUploadTool(machineID map[string]any) (Entry, error) {
 			"view": map[string]any{
 				"type": "boolean",
 				"description": "Load the uploaded file into your context so you can see it, " +
-					"when it is a PNG, JPEG, GIF, or WebP image. Defaults to false. Artifacts only.",
+					"when it is a PNG, JPEG, GIF, or WebP image. Defaults to false. Artifacts only: path must be /artifacts.",
 			},
 		},
 	)

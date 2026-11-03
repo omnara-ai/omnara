@@ -673,6 +673,8 @@ func (t *daemonSocketTransport) offerProcess(
 		PreparationError: offer.PreparationError,
 		WaitMs:           offer.WaitMs,
 		TimeoutSeconds:   offer.TimeoutSeconds,
+		OutputBytes:      offer.OutputBytes,
+		OutputWait:       offer.OutputWait,
 	}
 
 	t.mu.Lock()
@@ -1158,11 +1160,13 @@ func (t *daemonSocketTransport) runAcceptedRead(
 		cursor = *payload.Cursor
 	}
 	deadline := time.Now().Add(time.Duration(payload.WaitMS) * time.Millisecond)
+	settle := newOutputSettle(payload.OutputWait)
 	for {
-		output, start, next, truncated, readErr := readProcessOutputSnapshot(
+		window, readErr := readProcessOutputSnapshotWindow(
 			root,
 			cursor,
 			payload.MaxBytes,
+			payload.HeadBytes,
 		)
 		if readErr != nil {
 			return t.reportDirectReadFailure(
@@ -1180,15 +1184,18 @@ func (t *daemonSocketTransport) runAcceptedRead(
 		if terminalErr != nil {
 			return terminalErr
 		}
-		if output != "" || terminal || payload.WaitMS == 0 ||
+		if settle.ready(window) || terminal || payload.WaitMS == 0 ||
 			!time.Now().Before(deadline) ||
 			t.newerProcessActionOffered(accepted.processID, accepted.action.Seq) {
 			result, err := marshalJSON(processaction.ReadObservation{
-				ProcessID:  accepted.processID,
-				Output:     output,
-				Cursor:     start,
-				NextCursor: next,
-				Truncated:  truncated,
+				ProcessID:     accepted.processID,
+				Output:        window.Output,
+				Cursor:        window.Start,
+				NextCursor:    window.Next,
+				Truncated:     window.Truncated,
+				OutputTail:    window.Tail,
+				OmittedCursor: window.HeadEnd,
+				TailCursor:    window.TailStart,
 			})
 			if err != nil {
 				return err

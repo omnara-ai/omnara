@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	Agent37    = "agent37"
 	Arker      = "arker"
 	Blaxel     = "blaxel"
 	Boxd       = "boxd"

@@ -76,6 +76,7 @@ func daemonReportErrorPermanent(err error) bool {
 	if errors.Is(err, errDaemonReportValidation) ||
 		errors.Is(err, dbsafe.ErrInvalidText) ||
 		errors.Is(err, storeerr.ErrProcessExecutionNotGranted) ||
+		errors.Is(err, storeerr.ErrInvalidProcessOutputMatch) ||
 		errors.Is(err, storeerr.ErrIdempotencyConflict) {
 		return true
 	}

@@ -1,10 +1,12 @@
 import type { CronTriggerTarget } from '@omnara/sdk'
 
+import { BrandMark } from '@/components/brand/OmnaraMark'
 import {
   integrationScheduleEditor,
   integrationScheduleFieldError,
   integrationScheduleJson,
 } from '@/components/integrations/integration-schedule-schema'
+import { IntegrationIcon } from '@/components/integrations/IntegrationIcon'
 import { IntegrationProfilePicker } from '@/components/integrations/IntegrationProfilePicker'
 import type { useIntegrationScheduleSettings } from '@/components/integrations/useIntegrationScheduleSettings'
 import { Button } from '@/components/ui/button'
@@ -44,12 +46,12 @@ export function IntegrationCronTriggerFields({
     )
   const capability = integration.data.capabilities.schedule
   if (!capability) return <p role="alert">This integration does not support schedules.</p>
-  const { fields, json, jsonValid } = integrationScheduleEditor(
+  const { form, json, jsonValid } = integrationScheduleEditor(
     capability.input_schema,
     value.settings,
     jsonDraft,
   )
-  if (!fields)
+  if (!form)
     return (
       <Field>
         <FieldLabel htmlFor="cron-trigger-settings">Settings (JSON)</FieldLabel>
@@ -83,7 +85,12 @@ export function IntegrationCronTriggerFields({
       </Field>
     )
 
-  return fields.map(({ key, property, required, value: current }) => {
+  const renderField = ({
+    key,
+    property,
+    required,
+    value: current,
+  }: (typeof form.fields)[number]) => {
     const label = property.title ?? key
     const description = property.description
     const error = integrationScheduleFieldError(current, property, required)
@@ -102,7 +109,7 @@ export function IntegrationCronTriggerFields({
           projectId={projectId}
           single
           label={label}
-          description={description ?? 'Choose a profile for future runs.'}
+          description={description}
           value={current ? [current] : []}
           onChange={(profileIds) => {
             change(profileIds[0] ?? '')
@@ -130,5 +137,35 @@ export function IntegrationCronTriggerFields({
         )}
       </Field>
     )
-  })
+  }
+
+  return (
+    <>
+      {form.fields.map(renderField)}
+      {form.sections.map((section) => (
+        <div
+          key={section.title}
+          role="group"
+          aria-label={section.title}
+          className="flex flex-col gap-5 rounded-lg border p-4"
+        >
+          <div className="flex flex-col gap-1.5 text-sm">
+            <h3 className="flex items-center gap-2 font-medium">
+              {section.icon === 'omnara' ? (
+                <BrandMark className="size-5" />
+              ) : (
+                <IntegrationIcon
+                  integrationKind={integration.data.integration_kind}
+                  className="size-5"
+                />
+              )}
+              {section.title}
+            </h3>
+            {section.description && <p className="text-muted-foreground">{section.description}</p>}
+          </div>
+          {section.fields.map(renderField)}
+        </div>
+      ))}
+    </>
+  )
 }

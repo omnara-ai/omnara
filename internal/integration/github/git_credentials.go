@@ -5,12 +5,16 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
+
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 )
 
 const (
-	gitCredentialExpiryMargin = 15 * time.Minute
-	gitCredentialCacheSize    = 1024
+	gitCredentialExpiryMargin        = 15 * time.Minute
+	gitCredentialCacheSize           = 1024
+	InstallationRepositoriesPageSize = 100
 )
 
 var ErrContentsPermissionRequired = errors.New(
@@ -23,6 +27,52 @@ type InstallationCredentials struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+var sharedGitCredentials = sync.OnceValues(newGitCredentialCache)
+
+type gitCredentialKey struct {
+	installationTokenIdentity
+	scope string
+}
+
+type gitCredentialEntry struct {
+	gate  chan struct{}
+	value InstallationCredentials
+}
+
+type gitCredentialCache struct {
+	mu      sync.Mutex
+	entries *simplelru.LRU[gitCredentialKey, *gitCredentialEntry]
+}
+
+func newGitCredentialCache() (*gitCredentialCache, error) {
+	entries, err := simplelru.NewLRU[gitCredentialKey, *gitCredentialEntry](gitCredentialCacheSize, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &gitCredentialCache{entries: entries}, nil
+}
+
+func (c *gitCredentialCache) entry(key gitCredentialKey) *gitCredentialEntry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, found := c.entries.Get(key)
+	if !found {
+		entry = &gitCredentialEntry{gate: make(chan struct{}, 1)}
+		c.entries.Add(key, entry)
+	}
+	return entry
+}
+
+func (c *gitCredentialCache) invalidate(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, key := range c.entries.Keys() {
+		if entry, _ := c.entries.Peek(key); entry.value.Token == token {
+			entry.value = InstallationCredentials{}
+		}
+	}
+}
+
 // InstallationGitCredentials requires caller-owned live authorization checks
 // before and after every call, including cache hits, when the caller hands out
 // the credentials.
@@ -31,24 +81,28 @@ func (c *Client) InstallationGitCredentials(
 ) (InstallationCredentials, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
+	permission := "read"
+	if write {
+		permission = "write"
+	}
+	scope := permission
+	for _, id := range repositoryIDs {
+		scope += "/" + strconv.FormatInt(id, 10)
+	}
+	entry := c.gitCredentials.entry(gitCredentialKey{installationTokenIdentity: c.tokenIdentity, scope: scope})
 	select {
-	case c.gitTokenGate <- struct{}{}:
-		defer func() { <-c.gitTokenGate }()
+	case entry.gate <- struct{}{}:
+		defer func() { <-entry.gate }()
 	case <-ctx.Done():
 		return InstallationCredentials{}, ctx.Err()
 	}
 	if err := ctx.Err(); err != nil {
 		return InstallationCredentials{}, err
 	}
-	permission := "read"
-	if write {
-		permission = "write"
-	}
-	key := permission
-	for _, id := range repositoryIDs {
-		key += "/" + strconv.FormatInt(id, 10)
-	}
-	if cached, ok := c.gitCredentials.Get(key); ok && cached.ExpiresAt.After(c.now().Add(gitCredentialExpiryMargin)) {
+	c.gitCredentials.mu.Lock()
+	cached := entry.value
+	c.gitCredentials.mu.Unlock()
+	if cached.ExpiresAt.After(c.now().Add(gitCredentialExpiryMargin)) {
 		return cached, nil
 	}
 	jwt, err := c.appJWT()
@@ -82,15 +136,19 @@ func (c *Client) InstallationGitCredentials(
 		_, _, _ = c.do(ctx, http.MethodDelete, "/installation/token", result.Token, jsonMediaType, nil, true)
 		return InstallationCredentials{}, ErrContentsPermissionRequired
 	}
-	c.gitCredentials.Add(key, result.InstallationCredentials)
+	c.gitCredentials.mu.Lock()
+	entry.value = result.InstallationCredentials
+	c.gitCredentials.mu.Unlock()
 	return result.InstallationCredentials, nil
 }
 
-func (c *Client) InstallationRepositories(ctx context.Context, page int) ([]Repository, int, error) {
+func (c *Client) InstallationRepositories(
+	ctx context.Context, write bool, repositoryIDs []int64, page int,
+) ([]Repository, int, error) {
 	if page < 1 {
 		return nil, 0, errors.New("github repository page must be positive")
 	}
-	credentials, err := c.InstallationGitCredentials(ctx, false, nil)
+	credentials, err := c.InstallationGitCredentials(ctx, write, repositoryIDs)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -99,12 +157,13 @@ func (c *Client) InstallationRepositories(ctx context.Context, page int) ([]Repo
 	var listing struct {
 		Repositories []Repository `json:"repositories"`
 	}
-	path := "/installation/repositories?per_page=100&page=" + strconv.Itoa(page)
-	header, err := c.doJSON(ctx, http.MethodGet, path, credentials.Token, nil, &listing, false)
+	path := "/installation/repositories?per_page=" + strconv.Itoa(InstallationRepositoriesPageSize) +
+		"&page=" + strconv.Itoa(page)
+	header, err := c.request(ctx, credentials.Token, http.MethodGet, path, nil, &listing)
 	if err != nil {
 		return nil, 0, err
 	}
-	if listing.Repositories == nil || len(listing.Repositories) > 100 {
+	if listing.Repositories == nil || len(listing.Repositories) > InstallationRepositoriesPageSize {
 		return nil, 0, &APIError{Code: InvalidResponse}
 	}
 	for _, repository := range listing.Repositories {
@@ -112,7 +171,8 @@ func (c *Client) InstallationRepositories(ctx context.Context, page int) ([]Repo
 			return nil, 0, &APIError{Code: InvalidResponse}
 		}
 	}
-	next, err := c.nextPage(header.Values("Link"), PageOptions{Page: page, PerPage: 100}, "/installation/repositories")
+	next, err := c.nextPage(header.Values("Link"), PageOptions{Page: page, PerPage: InstallationRepositoriesPageSize},
+		"/installation/repositories")
 	if err != nil {
 		return nil, 0, err
 	}

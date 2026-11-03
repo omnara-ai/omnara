@@ -331,7 +331,7 @@ export const deleteOrganizationMutation = (options?: Partial<Options<DeleteOrgan
 /**
  * Delete the authenticated user's account
  *
- * Deletes the account, revokes all personal access tokens and browser sessions, removes all organization and project memberships, and releases the account's sign-in identity (emails, linked auth identities, and password credentials) so the same email can register a new account. Personal secrets and skills owned by the user are deleted with the account. Deletion is blocked while the user is the last owner of any organization (add another owner or delete the organization first), while a personal skill is referenced by an active agent's configuration, or while a personal secret is referenced by a model provider config, machine pool, or integration. Organization and project resources are unaffected, and agents, machines, and other records the user created are kept with their attribution.
+ * Deletes the account, revokes all personal access tokens and browser sessions, removes all organization and project memberships, and releases the account's sign-in identity (emails, linked auth identities, and password credentials) so the same email can register a new account. Personal secrets and skills owned by the user are deleted with the account, and pending invitations they sent are canceled. Deletion is blocked while the user is the last owner of any organization (add another owner or delete the organization first), while a personal skill is referenced by an active agent's configuration, or while a personal secret is referenced by a model provider config, machine pool, or integration. Organization and project resources are unaffected, and agents, machines, and other records the user created are kept with their attribution.
  */
 export const deleteCurrentUserMutation = (options?: Partial<Options<DeleteCurrentUserData>>): UseMutationOptions<DeleteCurrentUserResponse, DeleteCurrentUserError, Options<DeleteCurrentUserData>> => {
     const mutationOptions: UseMutationOptions<DeleteCurrentUserResponse, DeleteCurrentUserError, Options<DeleteCurrentUserData>> = {
@@ -780,7 +780,7 @@ export const listOrgMembersInfiniteOptions = (options: Options<ListOrgMembersDat
 /**
  * Remove org member
  *
- * Removes the user's organization membership and all project memberships in the organization. The member's personal secrets and skills in the organization are deleted with the membership. Removal is blocked when the user is the organization's last owner, while a personal skill is referenced by an active agent's configuration, or while a personal secret is referenced by a model provider config, machine pool, or integration.
+ * Removes the user's organization membership and all project memberships in the organization. The member's personal secrets and skills in the organization are deleted with the membership, and pending invitations they sent are canceled. Only owners can remove an owner. Removal is blocked when the user is the organization's last owner, while a personal skill is referenced by an active agent's configuration, or while a personal secret is referenced by a model provider config, machine pool, or integration.
  */
 export const removeOrgMemberMutation = (options?: Partial<Options<RemoveOrgMemberData>>): UseMutationOptions<RemoveOrgMemberResponse, RemoveOrgMemberError, Options<RemoveOrgMemberData>> => {
     const mutationOptions: UseMutationOptions<RemoveOrgMemberResponse, RemoveOrgMemberError, Options<RemoveOrgMemberData>> = {
@@ -798,6 +798,8 @@ export const removeOrgMemberMutation = (options?: Partial<Options<RemoveOrgMembe
 
 /**
  * Update org member role
+ *
+ * Changes the member's org role. Only owners can grant the owner role or change an owner's role, and the last owner cannot be demoted. Demoting an owner cancels the pending owner invitations they sent.
  */
 export const updateOrgMemberMutation = (options?: Partial<Options<UpdateOrgMemberData>>): UseMutationOptions<UpdateOrgMemberResponse, UpdateOrgMemberError, Options<UpdateOrgMemberData>> => {
     const mutationOptions: UseMutationOptions<UpdateOrgMemberResponse, UpdateOrgMemberError, Options<UpdateOrgMemberData>> = {
@@ -982,7 +984,7 @@ export const updateOrgApiKeyMutation = (options?: Partial<Options<UpdateOrgApiKe
 /**
  * Revoke an org API key
  *
- * Terminally revokes the key and removes its org and project roles. Idempotent.
+ * Terminally revokes the key, removes its org and project roles, and cancels pending invitations it sent. Idempotent.
  */
 export const revokeOrgApiKeyMutation = (options?: Partial<Options<RevokeOrgApiKeyData>>): UseMutationOptions<RevokeOrgApiKeyResponse, RevokeOrgApiKeyError, Options<RevokeOrgApiKeyData>> => {
     const mutationOptions: UseMutationOptions<RevokeOrgApiKeyResponse, RevokeOrgApiKeyError, Options<RevokeOrgApiKeyData>> = {

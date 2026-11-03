@@ -220,6 +220,11 @@ type runnerServerState struct {
 	inflight         map[string]*runnerActionCall
 	startedDone      chan struct{}
 	startedOnce      sync.Once
+
+	runCtx      context.Context //nolint:containedctx // Supervisor-lifetime context.
+	watchMu     sync.Mutex
+	watch       *outputWatch
+	watchClosed bool
 }
 
 type runnerActionCall struct {
@@ -569,6 +574,7 @@ func (s *runnerServerState) startOnce(ctx context.Context) runnerResponse {
 	s.mu.Lock()
 	s.prepared = runner
 	s.startOutcome = processStarted
+	s.runCtx = ctx
 	s.mu.Unlock()
 	go s.freezeInitialObservation(ctx, runner)
 	go s.observeProcessExit(ctx, runner)
@@ -642,26 +648,24 @@ func initialProcessObservation(
 	ctx context.Context,
 	assignment ProcessAssignment,
 	runner *localProcessRunner,
-) (json.RawMessage, int64, time.Time, bool, error) {
+) (json.RawMessage, outputWindow, time.Time, bool, error) {
 	wait := time.Duration(assignment.WaitMs) * time.Millisecond
 	deadline := time.Now().Add(wait)
-	cursor := int64(0)
+	maxBytes, headBytes := assignment.outputBudget()
+	settle := newOutputSettle(assignment.OutputWait)
 	for {
 		if err := ctx.Err(); err != nil {
-			return nil, 0, time.Time{}, false, err
+			return nil, outputWindow{}, time.Time{}, false, err
 		}
-		output, start, next, truncated, observationErr := runner.Slice(
-			&cursor,
-			processaction.MaxObservationBytes,
-		)
+		window, observationErr := runner.Window(0, maxBytes, headBytes)
 		done := runner.hasTerminalResult()
-		if output != "" || done || observationErr != nil || wait <= 0 ||
+		if settle.ready(window) || done || observationErr != nil || wait <= 0 ||
 			!time.Now().Before(deadline) {
 			state := daemonprotocol.ProcessStateRunning
 			errorMessage := ""
 			var exitCode *int
 			if observationErr != nil {
-				truncated = true
+				window.Truncated = true
 				errorMessage = "process started, but its initial output could not be read: " +
 					observationErr.Error()
 			}
@@ -675,22 +679,55 @@ func initialProcessObservation(
 				errorMessage = processTerminalErrorMessage(exit)
 			}
 			result := map[string]any{
-				"output":      output,
-				"cursor":      start,
-				"next_cursor": next,
-				"truncated":   truncated,
+				"output":      window.Output,
+				"cursor":      window.Start,
+				"next_cursor": window.Next,
+				"truncated":   window.Truncated,
 				"done":        done,
 				"process_id":  assignment.ID,
 				"state":       state,
 				"exit_code":   exitCode,
 				"error":       errorMessage,
 			}
+			window.addTail(result)
 			body, err := marshalJSON(result)
-			return body, next, runner.sourceTimeNow(), done, err
+			return body, window, runner.sourceTimeNow(), done, err
 		}
 		if err := sleepContext(ctx, 25*time.Millisecond); err != nil {
-			return nil, 0, time.Time{}, false, err
+			return nil, outputWindow{}, time.Time{}, false, err
 		}
+	}
+}
+
+type outputSettle struct {
+	wait       processaction.OutputWait
+	now        func() time.Time
+	lastNext   int64
+	lastGrowth time.Time
+}
+
+func newOutputSettle(wait processaction.OutputWait) *outputSettle {
+	return &outputSettle{wait: wait, now: time.Now, lastNext: -1}
+}
+
+func (s *outputSettle) ready(window outputWindow) bool {
+	if !s.wait.WaitForExit {
+		return window.Output != ""
+	}
+	now := s.now()
+	if window.Next != s.lastNext {
+		s.lastNext = window.Next
+		s.lastGrowth = now
+	}
+	return s.wait.QuietMS > 0 && window.Next > window.Start &&
+		now.Sub(s.lastGrowth) >= time.Duration(s.wait.QuietMS)*time.Millisecond
+}
+
+func (w outputWindow) addTail(result map[string]any) {
+	if w.TailStart > 0 {
+		result["output_tail"] = w.Tail
+		result["omitted_cursor"] = w.HeadEnd
+		result["tail_cursor"] = w.TailStart
 	}
 }
 
@@ -739,7 +776,7 @@ func (s *runnerServerState) finishStartWithoutExactOutcome(
 		_ = s.autonomousStateWrite(ctx, func() error {
 			return s.processState.CloseActionAdmission(ctx)
 		})
-		result, exit := captureTerminalResult(nil, exit, nil)
+		result, exit := captureTerminalResult(nil, exit, nil, 0, 0)
 		report, err := s.processTerminalReport(exit, result, nil)
 		if err != nil {
 			return
@@ -816,7 +853,8 @@ func (s *runnerServerState) finishTerminalRunner(
 	} else if exit.EndedAt.IsZero() {
 		exit.EndedAt = runner.sourceTimeNow()
 	}
-	result, exit := captureTerminalResult(runner, exit, outputErr)
+	maxBytes, headBytes := s.assignment.outputBudget()
+	result, exit := captureTerminalResult(runner, exit, outputErr, maxBytes, headBytes)
 	runner.publishTerminalResult(exit)
 
 	if waitForStarted {
@@ -826,6 +864,7 @@ func (s *runnerServerState) finishTerminalRunner(
 			return
 		}
 	}
+	s.closeOutputWatch(ctx)
 	report, err := s.processTerminalReport(
 		exit,
 		result,
@@ -943,40 +982,35 @@ func captureTerminalResult(
 	runner *localProcessRunner,
 	exit processRunnerExit,
 	captureErr error,
+	maxBytes, headBytes int,
 ) (json.RawMessage, processRunnerExit) {
 	var (
 		fileTransfer *daemonprotocol.FileTransferResult
-		output       string
-		start        int64
-		next         int64
-		truncated    bool
+		window       outputWindow
 	)
 	if runner != nil {
 		fileTransfer = runner.captureFileTransferResult(&exit)
-		cursor := int64(0)
 		var readErr error
-		output, start, next, truncated, readErr = runner.Slice(
-			&cursor,
-			processaction.MaxObservationBytes,
-		)
+		window, readErr = runner.Window(0, maxBytes, headBytes)
 		if captureErr == nil {
 			captureErr = readErr
 		}
 	}
 	if captureErr != nil {
-		truncated = true
+		window.Truncated = true
 		recordOutputCaptureFailure(&exit, captureErr)
 	}
 	resultObject := map[string]any{
 		"state":       exit.State,
 		"exit_code":   exit.ExitCode,
-		"output":      output,
-		"cursor":      start,
-		"next_cursor": next,
-		"truncated":   truncated,
+		"output":      window.Output,
+		"cursor":      window.Start,
+		"next_cursor": window.Next,
+		"truncated":   window.Truncated,
 		"done":        true,
 		"error":       processTerminalErrorMessage(exit),
 	}
+	window.addTail(resultObject)
 	if fileTransfer != nil {
 		resultObject["file_transfer"] = fileTransfer
 	}
@@ -1092,10 +1126,7 @@ func (s *runnerServerState) runApplyOnce(
 	ctx context.Context,
 	action ProcessAction,
 ) error {
-	if preflight := preflightActionResult(
-		action,
-		s.assignment.Process.ExecutionSpec.IOMode(),
-	); preflight != nil {
+	if preflight := preflightActionResult(action); preflight != nil {
 		return s.recordActionWithoutEffect(ctx, action, *preflight)
 	}
 	localAction := s.localAction(action)
@@ -1246,21 +1277,14 @@ func (s *runnerServerState) applyLiveAction(
 		if err != nil {
 			return failedActionResult(daemonprotocol.ProcessActionReasonInvalidPayload, err)
 		}
-		if payload.Data != "" {
-			writeCtx, cancel := context.WithTimeout(
-				ctx,
-				processInputWriteTimeout,
-			)
-			err := runner.WriteInput(writeCtx, payload.Data)
-			cancel()
-			if err != nil {
-				return unknownActionResult(daemonprotocol.ProcessActionReasonStdinWriteUnknown, err)
-			}
-		}
-		if payload.CloseStdin {
-			if err := runner.CloseInput(); err != nil {
-				return unknownActionResult(daemonprotocol.ProcessActionReasonStdinCloseUnknown, err)
-			}
+		writeCtx, cancel := context.WithTimeout(
+			ctx,
+			processInputWriteTimeout,
+		)
+		err = runner.WriteInput(writeCtx, payload.Data)
+		cancel()
+		if err != nil {
+			return unknownActionResult(daemonprotocol.ProcessActionReasonStdinWriteUnknown, err)
 		}
 	case daemonprotocol.ProcessActionInterrupt:
 		if err := runner.Interrupt(); err != nil {
@@ -1272,6 +1296,18 @@ func (s *runnerServerState) applyLiveAction(
 	case daemonprotocol.ProcessActionTerminate:
 		if err := runner.terminateForAction(ctx); err != nil {
 			return unknownActionResult(daemonprotocol.ProcessActionReasonTerminateUnknown, err)
+		}
+	case daemonprotocol.ProcessActionWatch:
+		payload, err := processaction.DecodeWatchPayload(action.Payload)
+		if err != nil {
+			return failedActionResult(daemonprotocol.ProcessActionReasonInvalidPayload, err)
+		}
+		//nolint:contextcheck // The watch outlives the action that starts it.
+		if err := s.startOutputWatch(runner, action.ID, payload); err != nil {
+			if errors.Is(err, errOutputWatchClosed) {
+				return terminalProcessActionResult(action)
+			}
+			return failedActionResult(daemonprotocol.ProcessActionReasonRunnerUnavailable, err)
 		}
 	default:
 		return failedActionResult(
@@ -1311,26 +1347,19 @@ func failedActionResult(code string, err error) processActionResult {
 	}
 }
 
-func preflightActionResult(
-	action ProcessAction,
-	ioMode processcmd.IOMode,
-) *processActionResult {
+func preflightActionResult(action ProcessAction) *processActionResult {
 	invalid := func(err error) *processActionResult {
 		result := failedActionResult(daemonprotocol.ProcessActionReasonInvalidPayload, err)
 		return &result
 	}
 	switch action.ActionKind {
 	case daemonprotocol.ProcessActionWrite:
-		payload, err := processaction.DecodeWritePayload(action.Payload)
-		if err != nil {
+		if _, err := processaction.DecodeWritePayload(action.Payload); err != nil {
 			return invalid(err)
 		}
-		if payload.CloseStdin && ioMode == processcmd.IOModePTY {
-			result := failedActionResult(
-				daemonprotocol.ProcessActionReasonNotSupported,
-				errors.New("close_stdin is not supported for PTY-backed processes"),
-			)
-			return &result
+	case daemonprotocol.ProcessActionWatch:
+		if _, err := processaction.DecodeWatchPayload(action.Payload); err != nil {
+			return invalid(err)
 		}
 	case daemonprotocol.ProcessActionInterrupt,
 		daemonprotocol.ProcessActionTerminate:
@@ -1628,7 +1657,8 @@ func validRunnerActionKind(kind daemonprotocol.ProcessActionKind) bool {
 	switch kind {
 	case daemonprotocol.ProcessActionWrite,
 		daemonprotocol.ProcessActionInterrupt,
-		daemonprotocol.ProcessActionTerminate:
+		daemonprotocol.ProcessActionTerminate,
+		daemonprotocol.ProcessActionWatch:
 		return true
 	default:
 		return false
@@ -1689,6 +1719,8 @@ func prepareLocalRunner(
 	}
 	switch assignment.Process.ExecutionSpec.IOMode() {
 	case processcmd.IOModePipe:
+		runner.noStdin = assignment.Process.ExecutionSpec.Shell != nil &&
+			assignment.Process.ExecutionSpec.Shell.NoStdin
 	case processcmd.IOModePTY:
 		if runtime.GOOS == "windows" {
 			return preparedRunnerWithStartFailure(runner, errPTYUnsupported)
@@ -1751,19 +1783,28 @@ func startPreparedLocalRunner(
 	if err := setupProcessCommand(command); err != nil {
 		return nil, processNotStarted, err
 	}
-	stdin, err := command.StdinPipe()
-	if err != nil {
-		return nil, processNotStarted, err
+	if runner.noStdin {
+		devNull, err := os.Open(os.DevNull)
+		if err != nil {
+			return nil, processNotStarted, err
+		}
+		defer func() { _ = devNull.Close() }()
+		command.Stdin = devNull
+	} else {
+		stdin, err := command.StdinPipe()
+		if err != nil {
+			return nil, processNotStarted, err
+		}
+		stdinFile, ok := stdin.(*os.File)
+		if !ok {
+			_ = stdin.Close()
+			return nil, processNotStarted, errors.New(
+				"process stdin pipe does not support write deadlines",
+			)
+		}
+		runner.stdin = stdinFile
+		runner.stdinOK = true
 	}
-	stdinFile, ok := stdin.(*os.File)
-	if !ok {
-		_ = stdin.Close()
-		return nil, processNotStarted, errors.New(
-			"process stdin pipe does not support write deadlines",
-		)
-	}
-	runner.stdin = stdinFile
-	runner.stdinOK = true
 	command.Stdout = &runner.output
 	command.Stderr = &runner.output
 	if runner.fileTransfer != nil {

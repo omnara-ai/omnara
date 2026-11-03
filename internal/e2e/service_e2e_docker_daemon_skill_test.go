@@ -128,7 +128,6 @@ func TestServiceE2EDockerDaemonSkillBroadcastDeterministic(t *testing.T) {
 				"command": command,
 				"shell":   "sh",
 				"cwd":     "/work",
-				"wait_ms": 3000,
 			})
 		case 3:
 			processID, ok := fakeModelToolProcessID(w, body, failModelRequest, "call_verify")
@@ -168,7 +167,6 @@ func TestServiceE2EDockerDaemonSkillBroadcastDeterministic(t *testing.T) {
 				"command": command,
 				"shell":   "sh",
 				"cwd":     "/work",
-				"wait_ms": 3000,
 			})
 		case 6:
 			processID, ok := fakeModelToolProcessID(w, body, failModelRequest, "call_verify_v2")

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,6 +36,8 @@ func TestTerminalResultMakesOutputReadFailureExplicit(t *testing.T) {
 			ExitCode: &exitCode,
 		},
 		nil,
+		processaction.MaxObservationBytes,
+		0,
 	)
 	if exit.StateReasonCode != "output_capture_failed" ||
 		exit.StateReasonMessage == "" ||
@@ -66,6 +69,8 @@ func TestTerminalResultRetainsPrimaryReasonAndOutputFailure(t *testing.T) {
 			StateReasonMessage: "process timed out",
 		},
 		captureErr,
+		0,
+		0,
 	)
 	if exit.StateReasonCode != "timeout" ||
 		exit.StateReasonMessage !=
@@ -868,4 +873,51 @@ func decodeTestProcessOutputFile(body []byte) ([]byte, int64, error) {
 		return nil, 0, err
 	}
 	return data, baseOffset, nil
+}
+
+func TestReadProcessOutputWindowKeepsHeadAndTail(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "output.buf")
+	data := []byte("0123456789abcdefghij")
+	require.NoError(t, writeProcessOutputFile(path, data, 100))
+	file, base, end, err := openProcessOutputFile(path, os.O_RDONLY)
+	require.NoError(t, err)
+	defer func() { _ = file.Close() }()
+
+	window, err := readProcessOutputWindow(file, base, end, 0, 8, 3)
+	require.NoError(t, err)
+	require.Equal(t, outputWindow{
+		Output: "012", Tail: "fghij", Start: 100, HeadEnd: 103, TailStart: 115, Next: 120, Truncated: true,
+	}, window)
+
+	window, err = readProcessOutputWindow(file, base, end, 110, 10, 3)
+	require.NoError(t, err)
+	require.Equal(t, outputWindow{Output: "abcdefghij", Start: 110, Next: 120}, window)
+
+	window, err = readProcessOutputWindow(file, base, end, 110, 8, 0)
+	require.NoError(t, err)
+	require.Equal(t, outputWindow{Output: "abcdefgh", Start: 110, Next: 118, Truncated: true}, window)
+}
+
+func TestOutputSettle(t *testing.T) {
+	t.Parallel()
+
+	legacy := newOutputSettle(processaction.OutputWait{})
+	require.False(t, legacy.ready(outputWindow{}))
+	require.True(t, legacy.ready(outputWindow{Output: "x", Next: 1}))
+
+	exit := newOutputSettle(processaction.OutputWait{WaitForExit: true})
+	require.False(t, exit.ready(outputWindow{Output: "x", Next: 1}))
+
+	clock := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	quiet := newOutputSettle(processaction.OutputWait{WaitForExit: true, QuietMS: 1000})
+	quiet.now = func() time.Time { return clock }
+	require.False(t, quiet.ready(outputWindow{}))
+	require.False(t, quiet.ready(outputWindow{Output: "x", Next: 1}))
+	clock = clock.Add(999 * time.Millisecond)
+	require.False(t, quiet.ready(outputWindow{Output: "x", Next: 1}))
+	clock = clock.Add(time.Millisecond)
+	require.True(t, quiet.ready(outputWindow{Output: "x", Next: 1}))
+	require.False(t, quiet.ready(outputWindow{Output: "xy", Next: 2}))
 }

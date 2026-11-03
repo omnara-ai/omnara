@@ -41,6 +41,24 @@ async function ensureMe(
   }
 }
 
+export async function redirectSignedInStaleCallback({
+  context: { queryClient, omnaraClient },
+  location,
+}: {
+  context: RouterContext
+  location: { href: string }
+}) {
+  const authError = new URL(location.href, window.location.origin).searchParams.get('auth_error')
+  if (authError !== 'invalid_state') return
+  try {
+    await queryClient.ensureQueryData(getCurrentUserOptions({ client: omnaraClient }))
+  } catch {
+    return
+  }
+  // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
+  throw redirect({ href: '/' })
+}
+
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: () => (
     <Suspense fallback={<FullPageSpinner />}>
@@ -453,6 +471,7 @@ const invitationsRoute = createRoute({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
+  beforeLoad: redirectSignedInStaleCallback,
   component: lazyRouteComponent(() => import('@/routes/Login'), 'Login'),
 })
 

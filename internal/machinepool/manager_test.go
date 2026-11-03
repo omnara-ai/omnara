@@ -127,7 +127,7 @@ func TestDeleteBackoff(t *testing.T) {
 func TestRunBoundedReconcileContinuesAfterError(t *testing.T) {
 	expectedErr := errors.New("boom")
 	var ran atomic.Int32
-	count, err := runBoundedReconcile(context.Background(), 5, 2, func(_ context.Context, i int) error {
+	count, _, err := runBoundedReconcile(context.Background(), 5, 2, func(_ context.Context, i int) error {
 		ran.Add(1)
 		if i == 2 {
 			return expectedErr
@@ -147,7 +147,7 @@ func TestRunBoundedReconcileContinuesAfterError(t *testing.T) {
 
 func TestRunBoundedReconcileRetainsConcurrentFailures(t *testing.T) {
 	failures := []error{errors.New("provider failed"), errors.New("storage failed")}
-	count, err := runBoundedReconcile(context.Background(), len(failures), len(failures), func(
+	count, _, err := runBoundedReconcile(context.Background(), len(failures), len(failures), func(
 		_ context.Context,
 		i int,
 	) error {
@@ -174,7 +174,7 @@ func TestRunBoundedReconcileRetainsFailureDuringCancellation(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		count, err := runBoundedReconcile(ctx, 2, 2, func(ctx context.Context, i int) error {
+		count, _, err := runBoundedReconcile(ctx, 2, 2, func(ctx context.Context, i int) error {
 			started <- struct{}{}
 			if i == 0 {
 				<-ctx.Done()
@@ -210,7 +210,7 @@ func TestRunBoundedReconcileReturnsCancellationWithoutFailures(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		count, err := runBoundedReconcile(ctx, 2, 2, func(ctx context.Context, _ int) error {
+		count, _, err := runBoundedReconcile(ctx, 2, 2, func(ctx context.Context, _ int) error {
 			started <- struct{}{}
 			<-ctx.Done()
 			return ctx.Err()
@@ -235,7 +235,7 @@ func TestRunBoundedReconcileRetainsMixedCancellationError(t *testing.T) {
 	failure := errors.New("storage failed")
 	done := make(chan error, 1)
 	go func() {
-		_, err := runBoundedReconcile(ctx, 1, 1, func(ctx context.Context, _ int) error {
+		_, _, err := runBoundedReconcile(ctx, 1, 1, func(ctx context.Context, _ int) error {
 			close(started)
 			<-ctx.Done()
 			return errors.Join(ctx.Err(), failure)
@@ -255,7 +255,7 @@ func TestRunBoundedReconcileRetainsPanicDuringCancellation(t *testing.T) {
 	started := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		_, err := runBoundedReconcile(ctx, 1, 1, func(ctx context.Context, _ int) error {
+		_, _, err := runBoundedReconcile(ctx, 1, 1, func(ctx context.Context, _ int) error {
 			close(started)
 			<-ctx.Done()
 			panic("provider failure")
@@ -278,12 +278,15 @@ func TestRunBoundedReconcileBoundsReportedFailures(t *testing.T) {
 	for i := range failures {
 		failures[i] = fmt.Errorf("failure %d", i)
 	}
-	_, err := runBoundedReconcile(context.Background(), len(failures), 1, func(
+	_, failed, err := runBoundedReconcile(context.Background(), len(failures), 1, func(
 		_ context.Context,
 		i int,
 	) error {
 		return failures[i]
 	})
+	if failed != len(failures) {
+		t.Fatalf("failed = %d, want omitted failures counted in %d", failed, len(failures))
+	}
 	for _, failure := range failures[:maximumReportedReconcileErrors] {
 		if !errors.Is(err, failure) {
 			t.Fatalf("err = %v, want retained failure %v", err, failure)
@@ -298,17 +301,21 @@ func TestRunBoundedReconcileBoundsReportedFailures(t *testing.T) {
 }
 
 func TestRunBoundedReconcileReturnsTaskPanic(t *testing.T) {
-	count, err := runBoundedReconcile(context.Background(), 3, 2, func(_ context.Context, i int) error {
-		if i == 1 {
+	failure := errors.New("provider failed")
+	count, failed, err := runBoundedReconcile(context.Background(), 3, 2, func(_ context.Context, i int) error {
+		switch i {
+		case 0:
+			return failure
+		case 1:
 			panic("provider failure")
 		}
 		return nil
 	})
-	if count != 3 {
-		t.Fatalf("count = %d, want 3", count)
+	if count != 3 || failed != 2 {
+		t.Fatalf("count = %d, failed = %d, want 3 and 2", count, failed)
 	}
-	if err == nil || !strings.Contains(err.Error(), "machine reconciliation 1 panicked: provider failure") {
-		t.Fatalf("err = %v, want contained provider panic", err)
+	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "machine reconciliation 1 panicked: provider failure") {
+		t.Fatalf("err = %v, want the returned failure and the contained provider panic", err)
 	}
 }
 
@@ -323,7 +330,7 @@ func TestRunBoundedReconcileLimitsConcurrency(t *testing.T) {
 	}
 	results := make(chan result, 1)
 	go func() {
-		count, err := runBoundedReconcile(context.Background(), 20, 3, func(_ context.Context, _ int) error {
+		count, _, err := runBoundedReconcile(context.Background(), 20, 3, func(_ context.Context, _ int) error {
 			inFlight := current.Add(1)
 			for {
 				observedMax := maxSeen.Load()

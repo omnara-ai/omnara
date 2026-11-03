@@ -3,7 +3,12 @@
 package httpapi
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -126,6 +131,32 @@ func TestErrorResponseCodes(t *testing.T) {
 			authHeaders(project.AdminToken),
 		)
 		assertError(t, response, "request_too_large")
+	})
+
+	t.Run("oversized upload rejected before it finishes", func(t *testing.T) {
+		t.Parallel()
+		integration, ok := handler.(*integrationHTTPHandler)
+		require.True(t, ok)
+		server := httptest.NewServer(integration.handler)
+		t.Cleanup(server.Close)
+		conn, err := net.Dial("tcp", server.Listener.Addr().String())
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.Close() })
+		require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+		_, err = fmt.Fprintf(conn, "POST %s/agents HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\n"+
+			"Content-Type: application/json\r\nContent-Length: %d\r\n\r\n",
+			project.ProjectPath, server.Listener.Addr(), project.AdminToken, maxRequestBodyBytes+64*1024)
+		require.NoError(t, err)
+		_, err = conn.Write(bytes.Repeat([]byte(" "), int(maxRequestBodyBytes)+1))
+		require.NoError(t, err)
+		reader := bufio.NewReader(conn)
+		response, err := http.ReadResponse(reader, nil)
+		require.NoError(t, err, "the rejection must not wait for the rest of the upload")
+		_, _ = io.Copy(io.Discard, response.Body)
+		require.Equal(t, http.StatusRequestEntityTooLarge, response.StatusCode)
+		require.True(t, response.Close)
+		_, err = reader.ReadByte()
+		require.ErrorIs(t, err, io.EOF, "the server must close the connection without waiting for the rest of the upload")
 	})
 
 	t.Run("resource not found", func(t *testing.T) {

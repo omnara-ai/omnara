@@ -598,12 +598,13 @@ paths:
         Deletes the account, revokes all personal access tokens and browser sessions, removes all
         organization and project memberships, and releases the account's sign-in identity
         (emails, linked auth identities, and password credentials) so the same email can register a
-        new account. Personal secrets and skills owned by the user are deleted with the account.
-        Deletion is blocked while the user is the last owner of any organization (add another owner
-        or delete the organization first), while a personal skill is referenced by an active
-        agent's configuration, or while a personal secret is referenced by a model provider config,
-        machine pool, or integration. Organization and project resources are unaffected,
-        and agents, machines, and other records the user created are kept with their attribution.
+        new account. Personal secrets and skills owned by the user are deleted with the account, and
+        pending invitations they sent are canceled. Deletion is blocked while the user is the last
+        owner of any organization (add another owner or delete the organization first), while a
+        personal skill is referenced by an active agent's configuration, or while a personal secret
+        is referenced by a model provider config, machine pool, or integration. Organization and
+        project resources are unaffected, and agents, machines, and other records the user created
+        are kept with their attribution.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -1294,6 +1295,10 @@ paths:
       operationId: updateOrgMember
       tags: [Organizations and Projects]
       summary: Update org member role
+      description: >-
+        Changes the member's org role. Only owners can grant the owner role or change an owner's role,
+        and the last owner cannot be demoted. Demoting an owner cancels the pending owner invitations
+        they sent.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -1334,9 +1339,10 @@ paths:
       description: >-
         Removes the user's organization membership and all project memberships in the
         organization. The member's personal secrets and skills in the organization are deleted with
-        the membership. Removal is blocked when the user is the organization's last owner, while a
-        personal skill is referenced by an active agent's configuration, or while a personal secret
-        is referenced by a model provider config, machine pool, or integration.
+        the membership, and pending invitations they sent are canceled. Only owners can remove an
+        owner. Removal is blocked when the user is the organization's last owner, while a personal
+        skill is referenced by an active agent's configuration, or while a personal secret is
+        referenced by a model provider config, machine pool, or integration.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -1667,7 +1673,9 @@ paths:
       operationId: revokeOrgAPIKey
       tags: [Users and API Keys]
       summary: Revoke an org API key
-      description: Terminally revokes the key and removes its org and project roles. Idempotent.
+      description: >-
+        Terminally revokes the key, removes its org and project roles, and cancels pending
+        invitations it sent. Idempotent.
       security:
         - browserSessionCookie: []
           csrfHeader: []
@@ -12914,19 +12922,71 @@ components:
     AgentActivity:
       type: object
       additionalProperties: false
-      required: [state, last_activity_at]
+      required: [state, last_activity_at, open_interactions, running_processes, working_subagents]
       properties:
         state:
           description: >-
             running while the agent has work in progress, which includes a
             custom tool call awaiting its result; waiting_on_interaction while
             it has an open question or permission request; idle otherwise; and
-            archived once the agent is archived.
+            archived once the agent is archived. Running processes and working
+            subagents do not change it; see running_processes and
+            working_subagents.
           type: string
           enum: [running, idle, waiting_on_interaction, archived]
         last_activity_at:
           description: When the agent's latest event was recorded, or its creation time before any event.
           $ref: '#/components/schemas/Timestamp'
+        open_interactions:
+          $ref: '#/components/schemas/AgentOpenInteractions'
+        running_processes:
+          $ref: '#/components/schemas/AgentRunningProcesses'
+        working_subagents:
+          $ref: '#/components/schemas/AgentWorkingSubagents'
+    AgentOpenInteractions:
+      description: The agent's open questions and permission requests.
+      type: object
+      additionalProperties: false
+      required: [question_count, permission_request_count]
+      properties:
+        question_count:
+          type: integer
+          minimum: 0
+        permission_request_count:
+          type: integer
+          minimum: 0
+    AgentRunningProcesses:
+      description: >-
+        Commands the agent left running that will send it a message when they
+        end. process_ids lists the first 20, oldest first.
+      type: object
+      additionalProperties: false
+      required: [count, process_ids]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+        process_ids:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ProcessID'
+    AgentWorkingSubagents:
+      description: >-
+        Active subagents that are still working, including through their own
+        subagents or processes. agent_ids lists the first 20, oldest first.
+      type: object
+      additionalProperties: false
+      required: [count, agent_ids]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+        agent_ids:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/AgentID'
     AgentModel:
       type: object
       additionalProperties: false
@@ -15066,7 +15126,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [arker, freestyle, modal, tenki, unikraft]
+                  enum: [agent37, arker, freestyle, modal, tenki, unikraft]
                 default_machine_cpu:
                   type: integer
                   format: int32
@@ -16209,7 +16269,7 @@ components:
           minimum: 1
         action_kind:
           type: string
-          enum: [write, interrupt, terminate]
+          enum: [write, interrupt, terminate, watch]
         position:
           type: string
           enum: [effect_committed, terminal]
@@ -16261,7 +16321,7 @@ components:
           minimum: 1
         action_kind:
           type: string
-          enum: [write, read, interrupt, terminate]
+          enum: [write, read, interrupt, terminate, watch]
         disposition:
           type: string
           enum: [apply, retain, settle, release]
@@ -16817,7 +16877,7 @@ components:
       properties:
         role:
           type: string
-          description: The member's new org role (admin or member).
+          description: The member's new org role (owner, admin, or member).
     SetProjectMembershipRequest:
       type: object
       additionalProperties: false

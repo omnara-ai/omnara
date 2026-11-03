@@ -201,6 +201,10 @@ func TestWebE2E(t *testing.T) {
 				OrgID: invitationOrgID,
 				Email: inviteeEmail,
 				Role:  authz.OrgRoleMember,
+				ActorPrincipal: identitystore.PrincipalRecord{
+					Type: identitystore.PrincipalTypeUser,
+					ID:   adminUserID,
+				},
 			}); err != nil {
 			t.Fatalf("create web e2e pending organization invitation: %v", err)
 		}

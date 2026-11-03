@@ -97,6 +97,9 @@ func internalInputPreservesInteractionSelection(provider ActorProvider, userID s
 	if provider != ActorProviderOmnara {
 		return false
 	}
+	if userID == agentexecution.ProcessNotificationActorUserID {
+		return true
+	}
 	if _, err := publicid.Decode(publicid.KindAgent, userID); err == nil {
 		return true
 	}

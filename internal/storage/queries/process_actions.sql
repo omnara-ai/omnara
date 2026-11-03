@@ -461,7 +461,7 @@ SET state = 'failed',
     updated_at = statement_timestamp()
 WHERE action.org_id = sqlc.arg(org_id)
   AND action.process_id = sqlc.arg(process_id)
-  AND action.action_kind IN ('write', 'interrupt')
+  AND action.action_kind IN ('write', 'interrupt', 'watch')
   AND action.state = 'queued'
   AND EXISTS (
     SELECT 1

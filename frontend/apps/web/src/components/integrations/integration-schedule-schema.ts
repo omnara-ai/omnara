@@ -19,6 +19,13 @@ const stringField = z.strictObject({
   'x-omnara-control': z.enum(['agent_profile', 'textarea']).optional(),
 })
 
+const section = z.strictObject({
+  icon: z.enum(['omnara', 'integration']),
+  title: z.string(),
+  description: z.string().optional(),
+  fields: z.array(z.string()),
+})
+
 const simpleSchema = z.strictObject({
   $schema: z.string().optional(),
   type: z.literal('object'),
@@ -28,7 +35,7 @@ const simpleSchema = z.strictObject({
   required: z.array(z.string()).default([]),
   additionalProperties: z.literal(false),
   default: integrationScheduleSettings.optional(),
-  'x-omnara-field-order': z.array(z.string()).default([]),
+  'x-omnara-sections': z.array(section).default([]),
 })
 
 export function integrationScheduleDefaults(
@@ -55,21 +62,23 @@ export function integrationScheduleFields(
   if (!parsed.success) return null
   const strings = z.record(z.string(), z.string()).safeParse(settings)
   if (!strings.success) return null
-  const { properties, required, 'x-omnara-field-order': order } = parsed.data
+  const { properties, required, 'x-omnara-sections': sections } = parsed.data
   if ([...Object.keys(settings), ...required].some((key) => !Object.hasOwn(properties, key)))
     return null
   const requiredKeys = new Set(required)
-  return Object.entries(properties)
-    .map(([key, property]) => ({
-      key,
-      property,
-      required: requiredKeys.has(key),
-      value: strings.data[key],
-    }))
-    .sort((a, b) => {
-      const index = (key: string) => (order.includes(key) ? order.indexOf(key) : order.length)
-      return index(a.key) - index(b.key)
-    })
+  const fields = Object.entries(properties).map(([key, property]) => ({
+    key,
+    property,
+    required: requiredKeys.has(key),
+    value: strings.data[key],
+  }))
+  return {
+    fields: fields.filter(({ key }) => !sections.some((section) => section.fields.includes(key))),
+    sections: sections.map((section) => ({
+      ...section,
+      fields: section.fields.flatMap((key) => fields.filter((field) => field.key === key)),
+    })),
+  }
 }
 
 export function integrationScheduleEditor(
@@ -77,16 +86,16 @@ export function integrationScheduleEditor(
   settings: IntegrationCronTriggerTarget['settings'],
   jsonDraft: string | undefined,
 ) {
-  const fields = jsonDraft === undefined ? integrationScheduleFields(schema, settings) : null
+  const form = jsonDraft === undefined ? integrationScheduleFields(schema, settings) : null
   const json = jsonDraft ?? JSON.stringify(settings, null, 2)
   const jsonValid = integrationScheduleJson.safeParse(json).success
-  const valid = fields
-    ? fields.every(
+  const valid = form
+    ? [...form.fields, ...form.sections.flatMap((section) => section.fields)].every(
         ({ value, property, required }) =>
           !integrationScheduleFieldError(value, property, required),
       )
     : jsonValid
-  return { fields, json, jsonValid, valid }
+  return { form, json, jsonValid, valid }
 }
 
 export function integrationScheduleFieldError(

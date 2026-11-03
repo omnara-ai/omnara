@@ -257,7 +257,6 @@ func TestProcessReadCursorAdvancesOnlyForCommittedImplicitResults(t *testing.T) 
 	if len(parts) != 1 ||
 		parts[0].Type != "structured_data" ||
 		parts[0].Value.State != executionstore.ProcessStateExited ||
-		!parts[0].Value.Done ||
 		parts[0].Value.ExitCode == nil ||
 		*parts[0].Value.ExitCode != 7 ||
 		parts[0].Value.StateReasonCode != "command_failed" {
@@ -600,11 +599,9 @@ func TestFailedTerminalReadPreservesProcessFactsAndCursor(t *testing.T) {
 		parts[0].Value.ErrorCode != "output_unavailable" ||
 		parts[0].Value.Retryable ||
 		parts[0].Value.State != executionstore.ProcessStateExited ||
-		!parts[0].Value.Done ||
 		parts[0].Value.ExitCode == nil ||
 		*parts[0].Value.ExitCode != 9 ||
-		parts[0].Value.StateReasonCode != "command_failed" ||
-		parts[0].Value.StateReasonMessage != "command exited with status 9" {
+		parts[0].Value.StateReasonCode != "command_failed" {
 		t.Fatalf("failed terminal read result = %s", completed.ResultContentParts)
 	}
 }

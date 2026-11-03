@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -244,20 +243,9 @@ func verifySignature(key ed25519.PublicKey, header http.Header, body []byte, now
 	return ed25519.Verify(key, message, signature)
 }
 
-func (h *InteractionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
+func (h *InteractionHandler) Serve(w http.ResponseWriter, r *http.Request, body []byte) {
 	ctx, cancel := context.WithTimeout(r.Context(), InteractionTimeout)
 	defer cancel()
-	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(InteractionTimeout))
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, InteractionMaxBytes))
-	_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
-	if err != nil {
-		http.Error(w, "invalid interaction body", http.StatusBadRequest)
-		return
-	}
 	if !verifySignature(h.publicKey, r.Header, body, time.Now()) {
 		http.Error(w, "invalid interaction signature", http.StatusUnauthorized)
 		return
@@ -287,6 +275,7 @@ func (h *InteractionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		var err error
 		response, err = h.intake(ctx, interaction)
 		if err != nil || ctx.Err() != nil {
 			http.Error(w, "interaction intake failed", http.StatusServiceUnavailable)

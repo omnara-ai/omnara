@@ -162,6 +162,28 @@ func writeProcessPermissionChallenge(
 	return permissionChallenge(call, mode, authorizationInput)
 }
 
+func watchProcessPermissionChallenge(
+	_ context.Context,
+	_ Executor,
+	_ Turn,
+	call model.ToolCall,
+	mode permissionModeContext,
+) (toolpermission.Request, error) {
+	processID, payload, err := watchProcessPayload(call.Input)
+	if err != nil {
+		return toolpermission.Request{}, err
+	}
+	authorizationInput, err := processActionAuthorizationRequest(
+		processID,
+		executionstore.ProcessActionKindWatch,
+		payload,
+	)
+	if err != nil {
+		return toolpermission.Request{}, err
+	}
+	return permissionChallenge(call, mode, authorizationInput)
+}
+
 func stopProcessPermissionChallenge(
 	_ context.Context,
 	_ Executor,

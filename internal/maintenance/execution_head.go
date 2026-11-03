@@ -1,7 +1,8 @@
-package main
+package maintenance
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -16,34 +17,30 @@ const (
 	executionHeadJob        = "execution_head_drift"
 )
 
-func runExecutionHeadLoop(ctx context.Context, log *slog.Logger, recorder *metrics.JobRecorder,
-	sample func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error)) {
+func sampleExecutionHeads(log *slog.Logger, recorder *metrics.JobRecorder,
+	sample func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error),
+) func(context.Context) maintenanceResult {
 	recorder.InitializeItems(executionHeadJob, "checked", "mismatch", "error")
 	var cursor uuid.UUID
-	for {
-		cursor = runExecutionHeadTick(ctx, log, recorder, cursor, sample)
-		timer := time.NewTimer(jitteredMaintenanceDelay(executionHeadInterval))
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return
-		case <-timer.C:
-		}
+	return func(ctx context.Context) maintenanceResult {
+		var err error
+		cursor, err = runExecutionHeadTick(ctx, log, recorder, cursor, sample)
+		return maintenanceResult{err: err}
 	}
 }
 
 func runExecutionHeadTick(ctx context.Context, log *slog.Logger, recorder *metrics.JobRecorder, cursor uuid.UUID,
-	sample func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error)) uuid.UUID {
-	started := time.Now()
+	sample func(context.Context, uuid.UUID, int32) (executionstore.ExecutionHeadSampleReport, error),
+) (uuid.UUID, error) {
 	report, err := sample(ctx, cursor, executionHeadSampleSize)
-	result := metrics.JobResultSuccess
-	var checked, mismatch, failed int64
+	var checked, mismatch int64
+	var failures []error
 	for _, sample := range report.Samples {
 		if sample.Err != nil {
-			failed++
-			log.Error("sample execution head", "agent_id", sample.AgentID, "project_id", sample.ProjectID, "error", sample.Err)
+			failures = append(failures, sample.Err)
+			if ctx.Err() == nil {
+				log.Error("sample execution head", "agent_id", sample.AgentID, "project_id", sample.ProjectID, "error", sample.Err)
+			}
 			continue
 		}
 		checked++
@@ -57,18 +54,11 @@ func runExecutionHeadTick(ctx context.Context, log *slog.Logger, recorder *metri
 				"fields", fields, "differences", sample.Differences)
 		}
 	}
-	if err != nil || failed > 0 {
-		result = metrics.JobResultError
-	}
-	if ctx.Err() != nil {
-		result = metrics.JobResultCanceled
-	}
 	if err != nil && ctx.Err() == nil {
 		log.Error("sample execution heads", "error", err)
 	}
 	recorder.RecordItems(executionHeadJob, "checked", checked)
 	recorder.RecordItems(executionHeadJob, "mismatch", mismatch)
-	recorder.RecordItems(executionHeadJob, "error", failed)
-	recorder.RecordRun(executionHeadJob, result, time.Since(started))
-	return report.Cursor
+	recorder.RecordItems(executionHeadJob, "error", int64(len(failures)))
+	return report.Cursor, completedMaintenanceOutcome(ctx, errors.Join(append(failures, err)...)).err
 }

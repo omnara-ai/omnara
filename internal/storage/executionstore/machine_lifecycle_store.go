@@ -781,9 +781,6 @@ func (s *Store) ClaimPoolMachineDeletion(
 	if input.OrgID == uuid.Nil || input.MachineID == uuid.Nil {
 		return PoolMachineDeletionClaim{}, false, errors.New("org and machine are required")
 	}
-	if input.LifecycleReasonCode == "" || input.LifecycleReasonMessage == "" {
-		return PoolMachineDeletionClaim{}, false, errors.New("lifecycle reason code and message are required")
-	}
 	if input.ExpectedLifecycleVersion <= 0 {
 		return PoolMachineDeletionClaim{}, false, errors.New("expected lifecycle version is required")
 	}

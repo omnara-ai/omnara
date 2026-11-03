@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,4 +27,10 @@ func TestInteractionSelectionBackgroundActorIdentity(t *testing.T) {
 	}
 	require.False(t, internalInputPreservesInteractionSelection(ActorProviderOmnara, "agt_aaaaaaaaaaaaaaaaaaaaaaaaaa"))
 	require.False(t, internalInputPreservesInteractionSelection(ActorProviderOmnara, "cron_aaaaaaaaaaaaaaaaaaaaaaaaaa"))
+	require.True(t, internalInputPreservesInteractionSelection(
+		ActorProviderOmnara, agentexecution.ProcessNotificationActorUserID,
+	))
+	require.False(t, internalInputPreservesInteractionSelection(
+		ActorProviderExternal, agentexecution.ProcessNotificationActorUserID,
+	))
 }

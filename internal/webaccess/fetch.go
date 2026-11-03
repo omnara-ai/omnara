@@ -166,12 +166,8 @@ func (f *Fetcher) Fetch(ctx context.Context, req FetchRequest) (FetchResult, err
 	if err != nil {
 		return FetchResult{}, err
 	}
-	content := extracted.Content
-	truncated := false
-	if len(content) > fetchExtractedCapChars {
-		content = textutil.TruncateRunes(content, fetchExtractedCapChars)
-		truncated = true
-	}
+	content := textutil.TruncateRunes(extracted.Content, fetchExtractedCapChars)
+	truncated := len(content) < len(extracted.Content)
 	return FetchResult{
 		URL:         req.URL,
 		FinalURL:    finalURL,

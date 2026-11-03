@@ -2205,13 +2205,40 @@ export type Agent = {
 
 export type AgentActivity = {
     /**
-     * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived.
+     * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived. Running processes and working subagents do not change it; see running_processes and working_subagents.
      */
     state: 'running' | 'idle' | 'waiting_on_interaction' | 'archived';
     /**
      * When the agent's latest event was recorded, or its creation time before any event.
      */
     last_activity_at: Timestamp;
+    open_interactions: AgentOpenInteractions;
+    running_processes: AgentRunningProcesses;
+    working_subagents: AgentWorkingSubagents;
+};
+
+/**
+ * The agent's open questions and permission requests.
+ */
+export type AgentOpenInteractions = {
+    question_count: number;
+    permission_request_count: number;
+};
+
+/**
+ * Commands the agent left running that will send it a message when they end. process_ids lists the first 20, oldest first.
+ */
+export type AgentRunningProcesses = {
+    count: number;
+    process_ids: Array<ProcessId>;
+};
+
+/**
+ * Active subagents that are still working, including through their own subagents or processes. agent_ids lists the first 20, oldest first.
+ */
+export type AgentWorkingSubagents = {
+    count: number;
+    agent_ids: Array<AgentId>;
 };
 
 export type AgentModel = {
@@ -3437,7 +3464,7 @@ export type Artifact = {
  * Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
  */
 export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
-    provider: 'arker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
+    provider: 'agent37' | 'arker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
     default_machine_cpu: number;
     default_machine_memory_mb: number;
     max_total_cpu: number;
@@ -4105,7 +4132,7 @@ export type ListMachineDaemonTokensResponse = {
 export type ProcessActionReconciliationClaim = {
     process_action_id: ProcessActionId;
     seq: number;
-    action_kind: 'write' | 'interrupt' | 'terminate';
+    action_kind: 'write' | 'interrupt' | 'terminate' | 'watch';
     position: 'effect_committed' | 'terminal';
 };
 
@@ -4123,7 +4150,7 @@ export type ProcessReconciliationClaim = {
 export type ProcessActionReconciliationDirective = {
     process_action_id: ProcessActionId;
     seq: number;
-    action_kind: 'write' | 'read' | 'interrupt' | 'terminate';
+    action_kind: 'write' | 'read' | 'interrupt' | 'terminate' | 'watch';
     disposition: 'apply' | 'retain' | 'settle' | 'release';
     payload?: unknown;
 };
@@ -4443,7 +4470,7 @@ export type ListOrgMembersResponse = {
 
 export type UpdateOrgMemberRequest = {
     /**
-     * The member's new org role (admin or member).
+     * The member's new org role (owner, admin, or member).
      */
     role: string;
 };

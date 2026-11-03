@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -66,6 +67,15 @@ func isValidProjectRole(role string) bool {
 	}
 }
 
+func isValidOrgRole(role string) bool {
+	switch role {
+	case authz.OrgRoleOwner, authz.OrgRoleAdmin, authz.OrgRoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
 func guardLastOwnerChange(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
@@ -80,7 +90,35 @@ func guardLastOwnerChange(
 		return fmt.Errorf("count org owners: %w", err)
 	}
 	if ownerCount <= 1 {
-		return storeerr.ErrUnauthorized
+		return storeerr.Tag(storeerr.ErrConflict, errors.New("an organization must keep at least one owner"))
+	}
+	return nil
+}
+
+func checkOwnedOrgCapacity(ctx context.Context, qtx *dbsqlc.Queries, userID uuid.UUID) error {
+	ownedCount, err := qtx.CountOwnedOrgMembershipsForUser(
+		ctx,
+		dbsqlc.CountOwnedOrgMembershipsForUserParams{UserID: userID},
+	)
+	if err != nil {
+		return fmt.Errorf("count owned orgs: %w", err)
+	}
+	if ownedCount >= MaxOwnedOrgsPerUser {
+		return resourceguard.LimitExceeded("owned organizations", MaxOwnedOrgsPerUser)
+	}
+	return nil
+}
+
+func checkOrgMembershipCapacity(ctx context.Context, qtx *dbsqlc.Queries, userID uuid.UUID) error {
+	membershipCount, err := qtx.CountOrgMembershipsForUser(
+		ctx,
+		dbsqlc.CountOrgMembershipsForUserParams{UserID: userID},
+	)
+	if err != nil {
+		return fmt.Errorf("count user org memberships: %w", err)
+	}
+	if membershipCount >= MaxOrgMembershipsPerUser {
+		return resourceguard.LimitExceeded("organization memberships", MaxOrgMembershipsPerUser)
 	}
 	return nil
 }
@@ -456,27 +494,13 @@ func (s *Store) AddOrgMembership(
 	}
 	membershipExists := err == nil
 	if !membershipExists {
-		membershipCount, countErr := qtx.CountOrgMembershipsForUser(
-			ctx,
-			dbsqlc.CountOrgMembershipsForUserParams{UserID: input.UserID},
-		)
-		if countErr != nil {
-			return OrgMembershipRecord{}, fmt.Errorf("count user org memberships: %w", countErr)
-		}
-		if membershipCount >= MaxOrgMembershipsPerUser {
-			return OrgMembershipRecord{}, storeerr.ErrUnauthorized
+		if err := checkOrgMembershipCapacity(ctx, qtx, input.UserID); err != nil {
+			return OrgMembershipRecord{}, err
 		}
 	}
 	if input.Role == "owner" && (!membershipExists || existing.Role != "owner") {
-		ownedCount, countErr := qtx.CountOwnedOrgMembershipsForUser(
-			ctx,
-			dbsqlc.CountOwnedOrgMembershipsForUserParams{UserID: input.UserID},
-		)
-		if countErr != nil {
-			return OrgMembershipRecord{}, fmt.Errorf("count owned orgs: %w", countErr)
-		}
-		if ownedCount >= MaxOwnedOrgsPerUser {
-			return OrgMembershipRecord{}, storeerr.ErrUnauthorized
+		if err := checkOwnedOrgCapacity(ctx, qtx, input.UserID); err != nil {
+			return OrgMembershipRecord{}, err
 		}
 	}
 	if err == nil {
@@ -511,8 +535,8 @@ func (s *Store) UpdateOrgMemberRole(
 	if input.UserID == uuid.Nil {
 		return OrgMembershipRecord{}, errors.New("user id is required")
 	}
-	if input.Role != authz.OrgRoleAdmin && input.Role != authz.OrgRoleMember {
-		return OrgMembershipRecord{}, storeerr.InvalidRequest(errors.New("role must be admin or member"))
+	if !isValidOrgRole(input.Role) {
+		return OrgMembershipRecord{}, storeerr.InvalidRequest(errors.New("role must be owner, admin, or member"))
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -522,6 +546,12 @@ func (s *Store) UpdateOrgMemberRole(
 	qtx := s.q.WithTx(tx)
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 		return OrgMembershipRecord{}, err
+	}
+	if _, err := qtx.LockUserForUpdate(ctx, dbsqlc.LockUserForUpdateParams{ID: input.UserID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return OrgMembershipRecord{}, storeerr.ErrNotFound
+		}
+		return OrgMembershipRecord{}, fmt.Errorf("lock organization member: %w", err)
 	}
 	if _, err := qtx.LockOrg(ctx, dbsqlc.LockOrgParams{ID: input.OrgID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -539,6 +569,16 @@ func (s *Store) UpdateOrgMemberRole(
 	if err != nil {
 		return OrgMembershipRecord{}, fmt.Errorf("lock org membership: %w", err)
 	}
+	if existing.Role == authz.OrgRoleOwner || input.Role == authz.OrgRoleOwner {
+		if err := RequireOrgOwner(ctx, qtx, input.OrgID, input.ActorPrincipal); err != nil {
+			return OrgMembershipRecord{}, err
+		}
+	}
+	if input.Role == authz.OrgRoleOwner && existing.Role != authz.OrgRoleOwner {
+		if err := checkOwnedOrgCapacity(ctx, qtx, input.UserID); err != nil {
+			return OrgMembershipRecord{}, err
+		}
+	}
 	if err := guardLastOwnerChange(ctx, qtx, input.OrgID, existing.Role, input.Role); err != nil {
 		return OrgMembershipRecord{}, err
 	}
@@ -552,6 +592,14 @@ func (s *Store) UpdateOrgMemberRole(
 	)
 	if err != nil {
 		return OrgMembershipRecord{}, fmt.Errorf("update org membership role: %w", err)
+	}
+	if existing.Role == authz.OrgRoleOwner && input.Role != authz.OrgRoleOwner {
+		if err := qtx.DeleteOwnerOrgInvitationsFromSender(ctx, dbsqlc.DeleteOwnerOrgInvitationsFromSenderParams{
+			OrgID:                 input.OrgID,
+			CreatedByMembershipID: existing.ID,
+		}); err != nil {
+			return OrgMembershipRecord{}, fmt.Errorf("cancel demoted owner invitations: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return OrgMembershipRecord{}, fmt.Errorf("commit update org member role: %w", err)
@@ -596,6 +644,11 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 	}
 	if err != nil {
 		return fmt.Errorf("lock org membership: %w", err)
+	}
+	if existing.Role == authz.OrgRoleOwner {
+		if err := RequireOrgOwner(ctx, qtx, input.OrgID, input.ActorPrincipal); err != nil {
+			return err
+		}
 	}
 	if err := guardLastOwnerChange(ctx, qtx, input.OrgID, existing.Role, ""); err != nil {
 		return err
@@ -899,7 +952,7 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID uuid.UUID) error {
 		return fmt.Errorf("check user ownership: %w", err)
 	}
 	if isLastOwner {
-		return fmt.Errorf("account is the last owner of an organization: %w", storeerr.ErrConflict)
+		return storeerr.Tag(storeerr.ErrConflict, errors.New("account is the last owner of an organization"))
 	}
 	if err := q.LockUserOrgMembershipsForDeletion(ctx, dbsqlc.LockUserOrgMembershipsForDeletionParams{UserID: userID}); err != nil {
 		return fmt.Errorf("lock user memberships for deletion: %w", err)

@@ -365,6 +365,16 @@ type ProcessOffer struct {
 	Env              map[string]string        `json:"env,omitempty"`
 	WaitMs           int                      `json:"wait_ms,omitempty"`
 	TimeoutSeconds   int                      `json:"timeout_seconds"`
+	OutputBytes      int                      `json:"output_bytes,omitempty"`
+	processaction.OutputWait
+}
+
+type OutputMatchResult struct {
+	WatchID string   `json:"watch_id"`
+	Pattern string   `json:"pattern"`
+	Lines   []string `json:"lines"`
+	Dropped int      `json:"dropped,omitempty"`
+	Expired bool     `json:"expired,omitempty"`
 }
 
 type FileTransferResult struct {
@@ -469,6 +479,7 @@ type ReportedEvent struct {
 	StartedAt          time.Time         `json:"started_at,omitempty"`
 	EndedAt            time.Time         `json:"ended_at,omitempty"`
 	ObservedAt         time.Time         `json:"observed_at,omitempty"`
+	Sequence           int64             `json:"sequence,omitempty"`
 }
 
 type ProcessActionKind = processaction.Kind
@@ -478,6 +489,7 @@ const (
 	ProcessActionRead      = processaction.KindRead
 	ProcessActionInterrupt = processaction.KindInterrupt
 	ProcessActionTerminate = processaction.KindTerminate
+	ProcessActionWatch     = processaction.KindWatch
 )
 
 type ProcessState string
@@ -519,6 +531,7 @@ const (
 	EventProcessActionApplied ReportedEventType = "process_action_applied"
 	EventProcessActionFailed  ReportedEventType = "process_action_failed"
 	EventProcessActionUnknown ReportedEventType = "process_action_unknown"
+	EventProcessOutputMatched ReportedEventType = "process_output_matched"
 )
 
 const (
@@ -530,7 +543,6 @@ const (
 	ProcessActionReasonInvalidPayload         = "invalid_payload"
 	ProcessActionReasonOutputUnavailable      = "output_unavailable"
 	ProcessActionReasonStdinWriteUnknown      = "stdin_write_unknown"
-	ProcessActionReasonStdinCloseUnknown      = "stdin_close_unknown"
 	ProcessActionReasonNotSupported           = "not_supported"
 	ProcessActionReasonInterruptUnknown       = "interrupt_unknown"
 	ProcessActionReasonTerminateUnknown       = "terminate_unknown"

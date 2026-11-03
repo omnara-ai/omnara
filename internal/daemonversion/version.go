@@ -53,3 +53,18 @@ func Validate(raw string) error {
 	_, err := ParseRelease(raw)
 	return err
 }
+
+func AtLeast(version, minimum string) bool {
+	if version == Development {
+		return true
+	}
+	release, err := ParseRelease(version)
+	if err != nil {
+		return false
+	}
+	floor, err := ParseRelease(minimum)
+	if err != nil {
+		return false
+	}
+	return Compare(release, floor) >= 0
+}

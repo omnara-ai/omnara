@@ -61,26 +61,28 @@ func TestProviderRuntimeReconciliationDeletesConfirmedRunningMismatch(t *testing
 		t.Fatalf("deleted resources = %v, want [%s]", deleted, fixture.resourceID)
 	}
 
-	var lifecycleState, reasonCode string
+	var lifecycleState, reasonCode, deleteReasonCode string
 	var deletedAt, mismatchSince *time.Time
 	if err := fixture.pool.QueryRow(ctx, `
-SELECT lifecycle_state, lifecycle_reason_code, deleted_at, provider_runtime_mismatch_since
+SELECT lifecycle_state, lifecycle_reason_code, delete_reason_code, deleted_at, provider_runtime_mismatch_since
 FROM machines
 WHERE org_id = $1 AND id = $2
 `, fixture.orgID, fixture.machineID).Scan(
 		&lifecycleState,
 		&reasonCode,
+		&deleteReasonCode,
 		&deletedAt,
 		&mismatchSince,
 	); err != nil {
 		t.Fatalf("load reconciled machine: %v", err)
 	}
 	if lifecycleState != string(executionstore.MachineLifecycleStateDeleted) || deletedAt == nil ||
-		reasonCode != "provider_deleted" || mismatchSince == nil {
+		reasonCode != "provider_deleted" || deleteReasonCode != "provider_runtime_mismatch" || mismatchSince == nil {
 		t.Fatalf(
-			"reconciled machine = state %q reason %q deleted %v mismatch %v",
+			"reconciled machine = state %q reason %q delete reason %q deleted %v mismatch %v",
 			lifecycleState,
 			reasonCode,
+			deleteReasonCode,
 			deletedAt,
 			mismatchSince,
 		)
@@ -497,7 +499,7 @@ WHERE org_id = $1 AND id = $2
 		RuntimeReconciliationConfig{PageSize: 1},
 	)
 	if !errors.Is(err, providerErr) || stats.Confirmations != 1 || stats.ProviderErrors != 1 ||
-		stats.DeletionClaims != 0 {
+		!stats.OnlyCooldownFailures() || stats.DeletionClaims != 0 {
 		t.Fatalf("exact provider failure = stats %+v error %v", stats, err)
 	}
 	machine, err := fixture.store.Execution().GetMachine(ctx, fixture.orgID, fixture.machineID)
@@ -894,7 +896,8 @@ func TestProviderRuntimeReconciliationProviderErrorUsesScopeCooldown(t *testing.
 		Concurrency:       1,
 	}
 	stats, err := fixture.manager.ConfirmProviderRuntimeMismatches(ctx, config)
-	if !errors.Is(err, providerErr) || stats.ProviderErrors != 1 || stats.Confirmations != 1 {
+	if !errors.Is(err, providerErr) || stats.ProviderErrors != 1 || !stats.OnlyCooldownFailures() ||
+		stats.Confirmations != 1 {
 		t.Fatalf("provider failure = stats %+v error %v", stats, err)
 	}
 	stats, err = fixture.manager.ConfirmProviderRuntimeMismatches(ctx, config)
