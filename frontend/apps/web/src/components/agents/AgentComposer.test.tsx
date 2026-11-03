@@ -109,6 +109,15 @@ async function submit(form: HTMLFormElement) {
   })
 }
 
+async function pressEnter(textarea: HTMLTextAreaElement, keyCode: number) {
+  const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'keyCode', { value: keyCode })
+  await act(() => {
+    textarea.dispatchEvent(event)
+    return Promise.resolve()
+  })
+}
+
 it('shows the backlog error and restores the exact draft', async () => {
   const send = vi.fn<Send>().mockRejectedValueOnce(new ApiError(409, message, 'agent_backlog_full'))
   send.mockResolvedValueOnce(undefined)
@@ -157,5 +166,18 @@ it('keeps text typed while a send is in flight', async () => {
       await Promise.resolve()
     })
     expect(textarea.value).toBe('second\nthird')
+  })
+})
+
+it('sends on Enter, but not on the Enter that confirms an IME candidate', async () => {
+  const send = vi.fn<Send>().mockResolvedValue(undefined)
+  await withComposer(send, async (textarea) => {
+    type(textarea, '日本語')
+    await pressEnter(textarea, 229)
+    expect(send).not.toHaveBeenCalled()
+    expect(textarea.value).toBe('日本語')
+    await pressEnter(textarea, 13)
+    expect(send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: '日本語' }))
+    expect(textarea.value).toBe('')
   })
 })
