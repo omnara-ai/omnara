@@ -329,7 +329,8 @@ func terminalOutcome(process Process) string {
 }
 
 // StillRunningNote tells the model that a command still running when run_command returns sends a message when it
-// ends, so ending the turn does not end the task.
+// ends, so ending the turn does not end the task. Only commands without stdin get it: an interactive process can wait
+// on a prompt for input that ending the turn would never send.
 const StillRunningNote = "Still running. You get a message when it ends, so do other work or end your turn; " +
 	"that message wakes you to continue."
 
@@ -337,7 +338,9 @@ func Started(process Process, observed json.RawMessage) (json.RawMessage, error)
 	result := map[string]any{
 		"process_id": publicID(publicid.KindProcess, process.ID),
 		"state":      process.State,
-		"note":       StillRunningNote,
+	}
+	if shell := process.ExecutionSpec.Shell; shell != nil && shell.NoStdin && shell.IOMode == processcmd.IOModePipe {
+		result["note"] = StillRunningNote
 	}
 	if observed = NormalizeObservation(observed); len(observed) != 0 {
 		output, err := decodeObservation(observed)

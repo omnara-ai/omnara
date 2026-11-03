@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
@@ -283,12 +284,43 @@ func TestProcessResultsLeaveOutEmptyFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	note, err := json.Marshal(StillRunningNote)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := `{"next_offset_byte":0,"note":` + string(note) + `,"output":"","process_id":"` + id +
-		`","state":"running"}`; string(started) != want {
+	if want := `{"next_offset_byte":0,"output":"","process_id":"` + id + `","state":"running"}`; string(started) != want {
 		t.Fatalf("Started = %s, want %s", started, want)
+	}
+}
+
+func TestStartedNotesExitMessageOnlyWithoutStdin(t *testing.T) {
+	t.Parallel()
+
+	noStdin := processcmd.ForShell("make test", processcmd.ShellDefault, processcmd.IOModePipe)
+	noStdin.Shell.NoStdin = true
+	tests := []struct {
+		name string
+		spec processcmd.ExecutionSpec
+		note bool
+	}{
+		{name: "pipe without stdin", spec: noStdin, note: true},
+		{name: "pty", spec: processcmd.ForShell("python3", processcmd.ShellDefault, processcmd.IOModePTY)},
+		{name: "pipe with stdin", spec: processcmd.ForShell("cat", processcmd.ShellDefault, processcmd.IOModePipe)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			process := Process{ID: uuid.New(), State: "running", ExecutionSpec: test.spec}
+			started, err := Started(process, json.RawMessage(
+				`{"output":">>> ","cursor":0,"next_cursor":4,"truncated":false,"done":false}`,
+			))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(started, &body); err != nil {
+				t.Fatal(err)
+			}
+			if note, ok := body["note"]; ok != test.note || ok && note != StillRunningNote {
+				t.Fatalf("Started = %s, want note %t", started, test.note)
+			}
+		})
 	}
 }
