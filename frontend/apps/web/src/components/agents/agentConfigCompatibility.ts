@@ -2,11 +2,14 @@ import { zAgentConfigDefinitionTool } from '@omnara/sdk/zod'
 import { type Document, isAlias, isMap, isNode, isScalar, isSeq, parseDocument } from 'yaml'
 import { z } from 'zod'
 
+import { configYamlOptions, scalarPreservationReason } from '@/components/agents/agentConfigYaml'
+
 export interface ConfigDiagnostic {
   path: string[]
   kind: 'fatal' | 'advanced' | 'opaque'
   message: string
   error?: boolean
+  syntaxError?: boolean
 }
 
 export interface AdvancedConfigEntry {
@@ -41,31 +44,25 @@ const customTool = z
   })
 
 export function parseConfigDocument(source: string) {
-  const doc = parseDocument(source, { keepSourceTokens: true })
+  const doc = parseDocument(source, configYamlOptions)
   const diagnostics: ConfigDiagnostic[] = doc.errors.map((error) => ({
     path: [],
     kind: 'fatal',
     error: true,
+    syntaxError: error.code !== 'TAG_RESOLVE_FAILED',
     message: error.message,
   }))
+  if (doc.directives.yaml.version === '1.1')
+    diagnostics.push({
+      path: [],
+      kind: 'fatal',
+      message:
+        'This document declares YAML 1.1, which the Builder cannot safely edit. It remains available in YAML.',
+    })
   function inspect(node: Document['contents'], path: string[]) {
     if (node == null) return
-    if (
-      isScalar(node) &&
-      node.type === 'PLAIN' &&
-      node.tag !== 'tag:yaml.org,2002:str' &&
-      node.source &&
-      /^(?:[+-]?(?:0[0-9_]+|0[bB][01_]+|[0-9][0-9_.eE+-]*_[0-9_.eE+-]+)|[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[Tt ].*)?)$/.test(
-        node.source,
-      )
-    ) {
-      diagnostics.push({
-        path,
-        kind: 'opaque',
-        message:
-          'This plain YAML scalar has version-dependent meaning. It is preserved; use a quoted string or an explicit decimal value to edit it in Builder.',
-      })
-    }
+    const scalarReason = isScalar(node) ? scalarPreservationReason(node) : null
+    if (scalarReason) diagnostics.push({ path, kind: 'opaque', message: scalarReason })
     let blocker: string | undefined
     if (isAlias(node)) blocker = 'YAML aliases'
     else if (node.anchor) blocker = 'YAML anchors'

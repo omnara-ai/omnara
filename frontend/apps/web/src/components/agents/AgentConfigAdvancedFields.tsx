@@ -1,7 +1,8 @@
-import { configPath, validateAdvancedEntry } from '@/components/agents/agentConfigCompatibility'
+import { configPath } from '@/components/agents/agentConfigCompatibility'
 import { AgentConfigDiagnostics } from '@/components/agents/AgentConfigDiagnostics'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import type { AgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
+import { Button } from '@/components/ui/button'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -17,7 +18,12 @@ export function AgentConfigAdvancedFields({ form }: { form: AgentBuilderForm }) 
         </p>
         {custom.map((entry) => {
           const path = configPath(entry.path)
-          const issues = validateAdvancedEntry(entry)
+          const original = form.originalAdvancedEntries.find(
+            (saved) => configPath(saved.path) === path,
+          )
+          const issues = form.validationIssues.filter((issue) =>
+            entry.path.every((part, index) => issue.path[index] === part),
+          )
           return (
             <details key={path}>
               <summary className="cursor-pointer text-sm">
@@ -45,6 +51,20 @@ export function AgentConfigAdvancedFields({ form }: { form: AgentBuilderForm }) 
                   }}
                 />
                 <AgentConfigDiagnostics issues={issues} />
+                {original && original.source !== entry.source && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      form.setAdvancedEntries(
+                        form.advancedEntries.map((item) => (item === entry ? original : item)),
+                      )
+                    }}
+                  >
+                    Discard edits to {entry.path[1]}
+                  </Button>
+                )}
               </Field>
             </details>
           )
