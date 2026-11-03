@@ -17,6 +17,7 @@ The tools are grouped by what they do:
 | Commands | `run_command` |
 | Processes | `read_process`, `write_process`, `watch_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
+| Git | `list_github_repositories` |
 | Files | `storage_list`, `storage_upload`, `storage_download`, `storage_read`, `storage_search`, `storage_write` |
 | Integrations | Integration-specific tools; `list_interaction_handlers`, `set_interaction_handler` |
 | Skills | `skill` |
@@ -198,6 +199,14 @@ Deletes a pool-backed machine. Requires `machine_id`.
 `inspect_machine` shows whether a specific machine is ready to run commands; provide `machine_id` when the agent has more than one. Machine results include `cpu` and `memory_mb` when known, identify `source_kind` and `binding_kind`, and include `machine_pool_id` for pool-backed machines. Only pool bindings can be passed to `delete_machine`.
 
 `list_machines` accepts `offset` (default 0) and `limit` (1–100, default 50). When the result has `has_more: true`, pass `next_offset` as `offset` in the next call to continue listing. Pools are listed first, followed by machines. If `list_machines` is disabled, provide the agent with any needed pool IDs, supported resource overrides, and limits in its instructions.
+
+## Git
+
+### `list_github_repositories`
+
+Lists the GitHub repositories the agent has access to through its [Git credentials](/integrations/github#git-credentials). Each repository has a `full_name`, such as `acme/app`. `can_push` is `true` when the integration has **Let agents push code** enabled and the credentials aren't `read_only`. Omnara adds this tool when a config has `git_credentials`.
+
+`list_github_repositories` accepts `offset` (default 0) and `limit` (1–100, default 50). When the result has `has_more: true`, pass `next_offset` as `offset` in the next call to continue listing. A page can hold fewer than `limit` repositories even when more remain.
 
 ## Files
 

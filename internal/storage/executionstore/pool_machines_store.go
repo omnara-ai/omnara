@@ -17,10 +17,11 @@ import (
 )
 
 type PoolMachineRecord struct {
-	Binding         AgentMachineBindingRecord `json:"binding"`
-	Machine         MachineRecord             `json:"machine"`
-	MachinePoolName string                    `json:"machine_pool_name"`
-	FailureReport   json.RawMessage           `json:"failure_report,omitempty"`
+	Binding          AgentMachineBindingRecord `json:"binding"`
+	Machine          MachineRecord             `json:"machine"`
+	MachinePoolName  string                    `json:"machine_pool_name"`
+	FailureReport    json.RawMessage           `json:"failure_report,omitempty"`
+	DeleteReasonCode string                    `json:"delete_reason_code,omitempty"`
 }
 
 type MachinePoolSourceRecord struct {
@@ -869,9 +870,10 @@ func poolMachineRecordFromSQLC(row dbsqlc.SelectPoolMachinesRow) PoolMachineReco
 	)
 	machine.ConnectionStateReason = row.ConnectionStateReason
 	return PoolMachineRecord{
-		Binding:         binding,
-		Machine:         machine,
-		MachinePoolName: row.PoolName,
-		FailureReport:   rawMessageFromSQLCPtr(row.FailureReport),
+		Binding:          binding,
+		Machine:          machine,
+		MachinePoolName:  row.PoolName,
+		FailureReport:    rawMessageFromSQLCPtr(row.FailureReport),
+		DeleteReasonCode: row.DeleteReasonCode,
 	}
 }

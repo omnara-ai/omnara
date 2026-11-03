@@ -50,12 +50,8 @@ func poolMachineCleanupCandidateFromSQLC(row dbsqlc.ListPoolMachinesForCleanupRo
 
 func poolMachineCleanupReasonMessage(code string) string {
 	switch code {
-	case "delete_failed_retry":
-		return "retrying machine deletion after a delete failure"
 	case "provisioning_stale_cleanup":
 		return "cleaning up stale provisioning attempt"
-	case "deleting_retry":
-		return "retrying machine deletion"
 	case "startup_or_daemon_bootstrap_failed":
 		return "cleaning up machine because startup script or daemon bootstrap did not complete"
 	default:

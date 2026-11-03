@@ -35,7 +35,7 @@ func (s strictOpenAPIServer) ListIntegrationGitHubRepositories(
 	if err != nil {
 		return nil, githubRepositoriesError(ctx, err)
 	}
-	repositories, nextPage, err := client.InstallationRepositories(ctx, page)
+	repositories, nextPage, err := client.InstallationRepositories(ctx, false, nil, page)
 	if err != nil {
 		return nil, githubRepositoriesError(ctx, err)
 	}

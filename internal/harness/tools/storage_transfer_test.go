@@ -246,6 +246,11 @@ func TestUploadInputValidation(t *testing.T) {
 	); err == nil {
 		t.Fatal("memory upload accepted view")
 	}
+	if err := tool.validateInput(
+		json.RawMessage(`{"path":"/artifacts/shot.png","source":"shot.png"}`),
+	); err == nil || !strings.Contains(err.Error(), "with no file name after it") {
+		t.Fatalf("artifact upload to a file name error = %v", err)
+	}
 	if err := validateStorageList(json.RawMessage(`{"pattern":"/memory/*","cursor":"old"}`)); err == nil {
 		t.Fatal("storage_list accepted removed cursor field")
 	}
