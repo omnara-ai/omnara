@@ -328,9 +328,6 @@ func terminalOutcome(process Process) string {
 	return "failed"
 }
 
-// StillRunningNote tells the model that a command still running when run_command returns sends a message when it
-// ends, so ending the turn does not end the task. Only commands without stdin get it: an interactive process can wait
-// on a prompt for input that ending the turn would never send.
 const StillRunningNote = "Still running. You get a message when it ends, so do other work or end your turn; " +
 	"that message wakes you to continue."
 
