@@ -74,6 +74,7 @@ func Lookup(id Kind) (Definition, bool) {
 			Provider:        ProviderGitHub,
 			Tools: []string{
 				"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
+				"resolve_thread",
 			},
 			Subscription: &SubscriptionDefinition{
 				Provider: ProviderGitHub,

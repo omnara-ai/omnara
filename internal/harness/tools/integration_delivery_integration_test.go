@@ -1285,6 +1285,7 @@ tools:
 		}
 		for _, operation := range []string{
 			"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
+			"resolve_thread",
 		} {
 			sourceYAML += "  int__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n"
 		}

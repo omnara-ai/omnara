@@ -40,6 +40,8 @@ func TestConversationBoundIntegrationToolActionSchemas(t *testing.T) {
 					action = `{"review_id":42}`
 				case IntegrationOperationReply:
 					action = `{"body":"reply","comment_id":9007199254740995}`
+				case IntegrationOperationResolveThread:
+					action = `{"review_thread_id":"PRRT_1"}`
 				}
 				entry, err := tool.Prepare(IntegrationToolName("engineering-team", operation))
 				require.NoError(t, err)

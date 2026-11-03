@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -148,4 +151,99 @@ func (c *Client) ListReviewThreads(
 		result.Threads = append(result.Threads, value)
 	}
 	return result, nil
+}
+
+type ResolvedReviewThread struct {
+	ID         string `json:"id"`
+	IsResolved bool   `json:"is_resolved"`
+}
+
+const reviewThreadQuery = `query ReviewThread($id: ID!) {
+  node(id: $id) {
+    __typename
+    ... on PullRequestReviewThread { isResolved comments(first: 1) { nodes { fullDatabaseId } } }
+  }
+}`
+
+const resolveReviewThreadMutation = `mutation ResolveReviewThread($id: ID!) {
+  resolveReviewThread(input: {threadId: $id}) { thread { isResolved } }
+}`
+
+func (c *Client) ResolveReviewThread(
+	ctx context.Context, scope Scope, threadID string, botUserID int64,
+) (ResolvedReviewThread, error) {
+	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
+	defer cancel()
+	if strings.TrimSpace(threadID) == "" || botUserID <= 0 {
+		return ResolvedReviewThread{}, errors.New("github resolve requires review_thread_id and the verified bot user ID")
+	}
+	pull, err := c.preparePull(ctx, scope, false)
+	if err != nil {
+		return ResolvedReviewThread{}, err
+	}
+	variables := map[string]string{"id": threadID}
+	var thread struct {
+		Node *struct {
+			TypeName   string `json:"__typename"`
+			IsResolved *bool  `json:"isResolved"`
+			Comments   struct {
+				Nodes []struct {
+					FullDatabaseID json.Number `json:"fullDatabaseId"`
+				} `json:"nodes"`
+			} `json:"comments"`
+		} `json:"node"`
+	}
+	if err := c.graphQL(ctx, pull.token, reviewThreadQuery, variables, &thread, false); err != nil {
+		return ResolvedReviewThread{}, err
+	}
+	node := thread.Node
+	if node == nil || node.TypeName != "PullRequestReviewThread" {
+		return ResolvedReviewThread{}, errors.New("review_thread_id must be an id from read section=review_threads")
+	}
+	if node.IsResolved == nil || len(node.Comments.Nodes) != 1 {
+		return ResolvedReviewThread{}, &APIError{Code: InvalidResponse}
+	}
+	commentID, err := node.Comments.Nodes[0].FullDatabaseID.Int64()
+	if err != nil || commentID <= 0 {
+		return ResolvedReviewThread{}, &APIError{Code: InvalidResponse}
+	}
+	comment, err := c.getReviewComment(ctx, pull, commentID)
+	if err != nil {
+		return ResolvedReviewThread{}, err
+	}
+	if comment.User.ID != botUserID {
+		return ResolvedReviewThread{}, errors.New("only review threads started by this bot can be resolved")
+	}
+	if *node.IsResolved {
+		return ResolvedReviewThread{ID: threadID, IsResolved: true}, nil
+	}
+	token, err := c.mintRepositoryToken(ctx, scope.RepositoryID,
+		map[string]string{"pull_requests": "write", "contents": "write", "metadata": "read"})
+	if err != nil {
+		return ResolvedReviewThread{}, resolvePermissionError(err)
+	}
+	var resolved struct {
+		Resolve *struct {
+			Thread *struct {
+				IsResolved bool `json:"isResolved"`
+			} `json:"thread"`
+		} `json:"resolveReviewThread"`
+	}
+	if err := c.graphQL(ctx, token.token, resolveReviewThreadMutation, variables, &resolved, true); err != nil {
+		return ResolvedReviewThread{}, resolvePermissionError(err)
+	}
+	if resolved.Resolve == nil || resolved.Resolve.Thread == nil || !resolved.Resolve.Thread.IsResolved {
+		return ResolvedReviewThread{}, &APIError{Code: DeliveryUnknown}
+	}
+	return ResolvedReviewThread{ID: threadID, IsResolved: true}, nil
+}
+
+func resolvePermissionError(err error) error {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Code == PermanentFailure &&
+		(apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusUnprocessableEntity) {
+		return fmt.Errorf("GitHub rejected resolving the thread; resolving requires the GitHub App's "+
+			"Pull requests and Contents: Read & write permissions, approved for this installation: %w", err)
+	}
+	return err
 }
