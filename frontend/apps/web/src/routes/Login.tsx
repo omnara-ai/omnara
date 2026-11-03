@@ -25,20 +25,21 @@ function oauthErrorMessage(
 ): string | null {
   if (!value) return null
   if (value === 'access_denied') return 'Sign-in was cancelled or denied.'
+  if (value === 'unsupported_google_account') {
+    return 'We can only sign you in with a Gmail or Google Workspace account. Try another Google account or sign up with email.'
+  }
   if (value === 'email_not_verified') {
     if (connector?.kind === 'github') {
       return `Your ${connector.displayName} account doesn’t have a verified primary email. Verify it in your ${connector.displayName} email settings, then try again, or sign up with email.`
     }
-    if (connector?.slug === 'google') {
-      return 'We can only sign you in with a Gmail or Google Workspace account. Try another Google account or sign up with email.'
-    }
     return 'That account doesn’t have a verified email we can use. Try another account or sign up with email.'
   }
-  if (!connector) return 'Couldn’t sign in with that provider. Please try again.'
   if (value === 'invalid_state') {
-    return `Your ${connector.displayName} sign-in expired. Please try again.`
+    return connector
+      ? `Your ${connector.displayName} sign-in expired. Please try again.`
+      : 'Your sign-in expired. Please try again.'
   }
-  return `Couldn’t sign in with ${connector.displayName}. Please try again.`
+  return `Couldn’t sign in with ${connector?.displayName ?? 'that provider'}. Please try again.`
 }
 
 interface LoginState {
@@ -58,12 +59,13 @@ export function Login() {
   })
   const [oauthError, setOAuthError] = useState(() => params.get('auth_error'))
   const [lastUsedMethod] = useState(getLastUsedAuthMethod)
-  const connectorsQuery = useQuery({ queryKey: ['auth-connectors'], queryFn: listAuthConnectors })
-  const connector = connectorsQuery.data?.find((c) => c.slug === params.get('auth_connector'))
+  const connector = useQuery({
+    queryKey: ['auth-connectors'],
+    queryFn: listAuthConnectors,
+  }).data?.find((c) => c.slug === params.get('auth_connector'))
   const isSubmitting = state.status.phase === 'submitting'
   const formError = statusError(state.status)
-  const errorMessage =
-    formError ?? (connectorsQuery.isPending ? null : oauthErrorMessage(oauthError, connector))
+  const errorMessage = formError ?? oauthErrorMessage(oauthError, connector)
 
   async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()

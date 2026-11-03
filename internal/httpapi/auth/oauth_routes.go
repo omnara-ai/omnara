@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/emailaddr"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"golang.org/x/oauth2"
@@ -195,6 +196,9 @@ func (h *Handler) completeExternalLogin(w http.ResponseWriter, r *http.Request, 
 			authError := "identity_failed"
 			if !identity.EmailVerified {
 				authError = "email_not_verified"
+				if connector.Issuer == googleOIDCIssuer {
+					authError = "unsupported_google_account"
+				}
 			}
 			redirectAuthError(state.ReturnTo, authError)
 			return
@@ -477,9 +481,7 @@ func callbackPath(slug string) string {
 }
 
 func (h *Handler) redirectAuthServerError(w http.ResponseWriter, r *http.Request, slug, returnTo string, err error) {
-	if h.log != nil {
-		h.log.ErrorContext(r.Context(), "auth request failed", "error", err)
-	}
+	logent.ExternalLoginFailed(r.Context(), slug, err)
 	redirectAuthOutcome(w, r, returnTo, url.Values{"auth_error": {"server_error"}, "auth_connector": {slug}})
 }
 
