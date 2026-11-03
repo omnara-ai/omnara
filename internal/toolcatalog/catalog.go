@@ -92,11 +92,13 @@ const (
 		"Narrow the query when truncated. Use storage_read to read more around a match."
 	storageListToolDescription = "List files and directories in Omnara matching a glob. " +
 		"Returns paths and metadata without file contents. When has_more is true, call again with next_offset to continue."
-	storageUploadToolDescription = "Copy a file from an attached machine into Omnara. " +
-		"To create an artifact, set path to exactly /artifacts, with no file name after it. " +
-		"Set view to load an uploaded image, such as a screenshot, into your context. " +
-		"Replacing a memory file fails unless you read, wrote, uploaded, or downloaded its current content. " +
-		"Returns path."
+	storageUploadToolDescription = "Copy a file from an attached machine into Omnara, as one of two kinds. " +
+		"Artifact: set path to exactly /artifacts, with no name after it. This creates a new artifact named " +
+		"after the source file and returns its path, /artifacts/<artifact_id>. " +
+		"Memory file: set path to /memory/<store>/<file>. This creates or replaces the file at exactly that " +
+		"path and returns it; replacing fails unless you read, wrote, uploaded, or downloaded its current content. " +
+		"Either way, use the returned path to refer to the file afterward. " +
+		"Set view to load an uploaded image, such as a screenshot, into your context (artifacts only)."
 	storageDownloadToolDescription = "Copy a file stored in Omnara to an attached machine."
 	toolSearchToolDescription      = "Search the tools that are declared but not loaded into this conversation, " +
 		"and load the matches so they can be called as soon as the search returns. " +
@@ -755,9 +757,9 @@ func storageUploadTool(machineID map[string]any) (Entry, error) {
 				"type":      "string",
 				"minLength": 1,
 				"pattern":   "^(/artifacts|/memory/[^/]+/.+)$",
-				"description": "Destination path in Omnara: exactly /artifacts creates an artifact " +
-					"(not /artifacts/<name>; the file to copy goes in source); " +
-					"/memory/<store>/<path> creates or replaces a memory file. " +
+				"description": "Exactly /artifacts to create a new artifact named after the source file, " +
+					"returned as /artifacts/<artifact_id> (do not add a name after /artifacts); " +
+					"or /memory/<store>/<file> to create or replace the memory file at exactly that path. " +
 					"Memory files may be empty; artifacts must be non-empty.",
 			},
 			"source": map[string]any{
