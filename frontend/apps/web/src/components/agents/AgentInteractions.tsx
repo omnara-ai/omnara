@@ -95,7 +95,7 @@ function PermissionActions({
               setReason(event.target.value)
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing && !disabled) {
+              if (event.key === 'Enter' && !isImeComposing(event.nativeEvent) && !disabled) {
                 event.preventDefault()
                 answer(reasonIndex)
               }

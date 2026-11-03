@@ -8,7 +8,6 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { installFileDropGuard } from '@/lib/file-drop-guard'
-import { installImeCompositionTracker } from '@/lib/ime-composition'
 import { queryClient } from '@/lib/query'
 import { installTranslationGuard } from '@/lib/translation-guard'
 import { router } from '@/router'
@@ -16,7 +15,6 @@ import { omnaraClient } from '@/transport'
 
 installFileDropGuard(window)
 installTranslationGuard(window)
-installImeCompositionTracker(window)
 
 const rootElement = document.getElementById('root')
 if (!rootElement) {

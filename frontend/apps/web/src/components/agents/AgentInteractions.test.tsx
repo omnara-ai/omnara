@@ -10,7 +10,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { button, enter, waitForUI } from '@/test/secret-editor'
+import { button, enter, field, waitForUI } from '@/test/secret-editor'
 
 import { AgentInteractions } from './AgentInteractions'
 
@@ -91,6 +91,15 @@ async function render() {
   return api
 }
 
+async function pressEnter(label: string, keyCode: number) {
+  const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'keyCode', { value: keyCode })
+  await act(async () => {
+    field(label).dispatchEvent(event)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
 it('allows a permission request in one click', async () => {
   const api = await render()
   expect(container.textContent).not.toContain('Submit')
@@ -119,6 +128,24 @@ it('denies with an optional reason', async () => {
   await waitForUI(() => {
     expect(api.requestsTo('POST', resolvePath).map((request) => request.body)).toEqual([
       { answers: [{ option_indices: [1], text: 'touches prod' }] },
+    ])
+  })
+})
+
+it('denies on Enter, but not on the Enter that confirms an IME candidate', async () => {
+  const label = 'Reason for denying (optional)'
+  const api = await render()
+  await act(async () => {
+    button('Add a reason').click()
+    await Promise.resolve()
+  })
+  await enter(label, '本番に触る')
+  await pressEnter(label, 229)
+  expect(api.requestsTo('POST', resolvePath)).toEqual([])
+  await pressEnter(label, 13)
+  await waitForUI(() => {
+    expect(api.requestsTo('POST', resolvePath).map((request) => request.body)).toEqual([
+      { answers: [{ option_indices: [1], text: '本番に触る' }] },
     ])
   })
 })
