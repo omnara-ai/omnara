@@ -1,46 +1,45 @@
 import type { AgentConfigDefinition, AgentConfigDefinitionInteractionHandler } from '@omnara/sdk'
-import { useState } from 'react'
-import { Document, isNode, type Node } from 'yaml'
+import { useMemo, useState } from 'react'
+import { Document } from 'yaml'
 
 import {
   type BasicMemoryStore,
-  type MachineEntry,
-  normalizeMultiline,
   parseBasicConfigSource,
-  type PoolEntry,
-  type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
+import { applyToDocument } from '@/components/agents/agentConfigBasicWrite'
+import {
+  type AdvancedConfigEntry,
+  type ConfigDiagnostic,
+  validateAdvancedEntry,
+} from '@/components/agents/agentConfigCompatibility'
 import {
   type BasicMcpServer,
   type BasicMcpTool,
   type McpAuthType,
-  mcpWire,
-  permissionWire,
+  mcpServerNamesUnique,
+  mcpServerValid,
 } from '@/components/agents/agentConfigMcp'
 import type { ModelSelection } from '@/components/agents/AgentConfigModelField'
 import { basicConfigProblems } from '@/components/agents/agentConfigProblems'
 import {
   type BasicSubagent,
   maxDepthValid,
-  subagentWire,
+  subagentsValid,
 } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { useAgentBuilderTools } from '@/components/agents/useAgentBuilderTools'
 import {
-  overlayFromSecretRows,
-  overlayFromTextRows,
   type SecretRow,
   type TextRow,
 } from '@/components/key-value/keyValueRows'
 import {
   emptyProviderOptions,
   type ProviderOptionsDraft,
-  providerOptionsOverlay,
 } from '@/components/machines/machineOverrides'
-import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
-import { memoryGbToMb } from '@/lib/machine-memory'
-import { normalizeResourceName } from '@/lib/resource-name'
+import { memoryGbDraftValid } from '@/lib/machine-memory'
+import { resourceNameValid } from '@/lib/resource-name'
 
+export { toolWire } from '@/components/agents/agentConfigBasicWrite'
 export { type BasicMcpServer, type BasicMcpTool, type McpAuthType }
 export {
   mcpRuntimeToolName,
@@ -74,6 +73,8 @@ export interface BasicMachineSource {
 }
 
 export interface BasicConfig {
+  originalSource?: string
+  advancedEntries?: AdvancedConfigEntry[]
   instruction: string
   providerConfig: string
   modelName: string
@@ -126,20 +127,78 @@ export const emptyBasicConfig: BasicConfig = {
   maxDepth: '',
 }
 
+export interface ConfigEvaluation {
+  yaml: string
+  issues: ConfigDiagnostic[]
+}
+
 export interface BasicConfigSession {
   readonly initialDraft: BasicConfig | null
+  readonly diagnostics: ConfigDiagnostic[]
+  validate(config: BasicConfig): ConfigDiagnostic[]
+  evaluate(config: BasicConfig): ConfigEvaluation
   apply(config: BasicConfig): string
 }
 
 export function createBasicConfigSession(source: string): BasicConfigSession {
-  const { doc, initialDraft } = parseBasicConfigSource(source)
-  return {
-    initialDraft,
-    apply(config) {
-      if (doc != null && initialDraft == null) return source
-      return applyToDocument(doc?.clone() ?? new Document({}), source, initialDraft, config)
-    },
+  const { doc, initialDraft, diagnostics, advancedEntries } = parseBasicConfigSource(source)
+  const validate = (config: BasicConfig) => {
+    const issues = [
+      ...diagnostics.filter((issue) => issue.error && issue.kind === 'opaque'),
+      ...(config.advancedEntries ?? []).flatMap(validateAdvancedEntry),
+    ]
+    const named = [
+      ['tools', config.tools.map((tool) => tool.name)],
+      ['mcp', config.mcpServers.map((server) => server.name)],
+      ['subagents', config.subagents.map((agent) => agent.key)],
+    ] as const
+    for (const [key, names] of named) {
+      for (const name of names) {
+        if (advancedEntries.some((entry) => entry.path[0] === key && entry.path[1] === name)) {
+          issues.push({
+            path: [key, name],
+            kind: 'opaque',
+            error: true,
+            message: 'This name is already used by a preserved definition.',
+          })
+        }
+      }
+    }
+    return issues
   }
+  const evaluate = (config: BasicConfig): ConfigEvaluation => {
+    // OAuth can restore a draft into the create form's empty session. Retain its AST baseline.
+    if (source === '' && config.originalSource)
+      return createBasicConfigSession(config.originalSource).evaluate(config)
+    const issues = validate(config)
+    if ((source !== '' && initialDraft == null) || issues.length > 0)
+      return { yaml: source, issues }
+    try {
+      return {
+        yaml: applyToDocument(
+          source === '' ? new Document({}) : doc.clone(),
+          source,
+          initialDraft,
+          config,
+        ),
+        issues,
+      }
+    } catch (error) {
+      return {
+        yaml: source,
+        issues: [
+          {
+            path: [],
+            kind: 'fatal',
+            error: true,
+            message:
+              error instanceof Error ? error.message : 'The Builder cannot safely patch this edit.',
+          } satisfies ConfigDiagnostic,
+        ],
+      }
+    }
+  }
+  return { initialDraft, diagnostics, validate, evaluate, apply: (config) => evaluate(config).yaml }
 }
 
 export type AgentBuilderForm = ReturnType<typeof useAgentBuilderForm>
@@ -150,18 +209,26 @@ export function useAgentBuilderForm(
   scope: { orgId: string; projectId: string },
 ) {
   const [draft, setDraft] = useState<BasicConfig>(
-    seedConfig ?? session.initialDraft ?? emptyBasicConfig,
+    seedConfig
+      ? {
+          ...seedConfig,
+          advancedEntries: seedConfig.advancedEntries ?? session.initialDraft?.advancedEntries,
+        }
+      : (session.initialDraft ?? emptyBasicConfig),
   )
   const tools = useAgentBuilderTools(draft, scope)
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
   const [modelUnavailable, setModelUnavailable] = useState(false)
 
-  const problems = basicConfigProblems(draft, {
-    modelUnavailable,
-    unavailableSourceIds,
-    unavailableSkillIds,
-  })
+  const evaluated = useMemo(() => session.evaluate(draft), [session, draft])
+  const validationIssues = evaluated.issues
+  const blocked =
+    validationIssues.length > 0 ||
+    unavailableSkillIds.length > 0 ||
+    unavailableSourceIds.length > 0 ||
+    modelUnavailable ||
+    !basicConfigValid(draft)
 
   const patch = (fields: Partial<BasicConfig>) => {
     setDraft((prev) => ({ ...prev, ...fields }))
@@ -169,15 +236,37 @@ export function useAgentBuilderForm(
 
   return {
     draft,
-    yaml: session.apply(draft),
-    problems,
+    validationIssues,
+    advancedDirty: (draft.advancedEntries ?? []).some(
+      (entry) =>
+        session.initialDraft?.advancedEntries?.find(
+          (base) => base.path.join('\0') === entry.path.join('\0'),
+        )?.source !== entry.source,
+    ),
+    advancedEntries: draft.advancedEntries ?? [],
+    reservedToolNames: (draft.advancedEntries ?? [])
+      .filter((entry) => entry.path[0] === 'tools')
+      .map((entry) => entry.path[1] ?? ''),
+    isManaged: (key: string) =>
+      !(draft.advancedEntries ?? []).some(
+        (entry) => entry.path.length === 1 && entry.path[0] === key,
+      ),
+    setAdvancedEntries: (advancedEntries: AdvancedConfigEntry[]) => {
+      patch({ advancedEntries })
+    },
+    yaml: evaluated.yaml,
+    blocked,
     resolvedTools: tools.data?.tools,
     toolsPending: tools.isPending,
     toolsError: tools.isError,
     toolsErrorMessage: tools.errorMessage,
     retryTools: () => void tools.refetch(),
     reset: (config: BasicConfig | null) => {
-      setDraft(config ?? emptyBasicConfig)
+      setDraft((previous) => ({
+        ...(config ?? emptyBasicConfig),
+        advancedEntries: config?.advancedEntries ?? previous.advancedEntries,
+        originalSource: config?.originalSource ?? previous.originalSource,
+      }))
     },
     instruction: draft.instruction,
     model: {
@@ -225,7 +314,8 @@ export function useAgentBuilderForm(
     },
     setSubagents: (subagents: BasicSubagent[]) => {
       patch(
-        subagents.length === 0
+        subagents.length === 0 &&
+          !(draft.advancedEntries ?? []).some((entry) => entry.path[0] === 'subagents')
           ? {
               subagents,
               maxSubagents: '',
@@ -247,225 +337,39 @@ export function useAgentBuilderForm(
   }
 }
 
-type WireValue = string | number | boolean | null | undefined | WireValue[] | WireObject
-
-interface WireObject {
-  [key: string]: WireValue
-}
-
-type YamlInput = WireValue | Node | YamlInput[]
-
-type Setter = (path: string[], value: YamlInput) => void
-type Deleter = (path: (string | number)[]) => void
-
-function applyToDocument(
-  doc: Document,
-  baselineSource: string,
-  baseline: BasicConfig | null,
-  config: BasicConfig,
-): string {
-  const edits = { count: 0 }
-  const set: Setter = (path, value) => {
-    const node = doc.createNode(value)
-    const previous = doc.getIn(path, true)
-    if (isNode(previous) && isNode(node)) {
-      node.commentBefore = previous.commentBefore
-      node.comment = previous.comment
-    }
-    doc.setIn(path, node)
-    edits.count += 1
-  }
-  const del: Deleter = (path) => {
-    if (doc.deleteIn(path)) edits.count += 1
-  }
-
-  const applyList = (key: string, items: WireValue[], baseline: WireValue[] | null) => {
-    if (baseline != null && deepEqual(items, baseline)) return
-    if (items.length === 0) del([key])
-    else set([key], items)
-  }
-
-  const instruction = normalizeMultiline(config.instruction)
-  if (instruction !== (baseline?.instruction ?? '')) set(['instruction'], instruction)
-  const providerConfig = normalizeResourceName(config.providerConfig)
-  if (providerConfig !== normalizeResourceName(baseline?.providerConfig ?? '')) {
-    set(['model', 'provider_config'], providerConfig)
-  }
-  const modelName = normalizeResourceName(config.modelName)
-  if (modelName !== normalizeResourceName(baseline?.modelName ?? ''))
-    set(['model', 'name'], modelName)
-  const reasoningEffort = config.reasoningEffort.trim()
-  if (reasoningEffort !== (baseline?.reasoningEffort ?? '')) {
-    if (reasoningEffort === '') del(['model', 'reasoning'])
-    else set(['model', 'reasoning', 'effort'], reasoningEffort)
-  }
-
-  applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
-  applyNamedEntries(
-    'tools',
-    config.tools.map((tool) => [tool.name, toolWire(tool)]),
-    baseline == null ? null : baseline.tools.map((tool) => [tool.name, toolWire(tool)]),
-    set,
-    del,
+export function basicConfigValid(draft: BasicConfig) {
+  const preservedSubagents = (draft.advancedEntries ?? []).some(
+    (entry) => entry.path[0] === 'subagents',
   )
-  applyNamedEntries(
-    'interaction_handlers',
-    Object.entries(config.interactionHandlers),
-    baseline == null ? null : Object.entries(baseline.interactionHandlers),
-    set,
-    del,
+  return (
+    ((draft.advancedEntries ?? []).some((entry) => entry.path[0] === 'instruction') ||
+      draft.instruction.trim() !== '') &&
+    ((draft.advancedEntries ?? []).some((entry) => entry.path[0] === 'model') ||
+      (resourceNameValid(draft.providerConfig) && resourceNameValid(draft.modelName))) &&
+    draft.machineSources.every(machineSourceValid) &&
+    mcpServerNamesUnique(draft.mcpServers) &&
+    draft.mcpServers.every(mcpServerValid) &&
+    optionalPositiveInt32Valid(draft.maxSubagents) &&
+    subagentsValid(draft.subagents, preservedSubagents ? '' : draft.maxSubagents, draft.maxDepth)
   )
-  if (!deepEqual(config.gitCredentials, baseline?.gitCredentials)) {
-    if (config.gitCredentials == null) del(['git_credentials'])
-    else set(['git_credentials'], config.gitCredentials)
-  }
-  applyList('memory_stores', config.memoryStores, baseline?.memoryStores ?? null)
-  applyList('skills', config.skillIds, baseline?.skillIds ?? null)
-  applyNamedEntries(
-    'subagents',
-    config.subagents.map((subagent) => [subagent.key, subagentWire(subagent)]),
-    baseline == null
-      ? null
-      : baseline.subagents.map((subagent) => [subagent.key, subagentWire(subagent)]),
-    set,
-    del,
+}
+
+const nonNegativeIntegerPattern = /^(0|[1-9][0-9]*)$/
+
+function machineCountValid(value: string) {
+  return value === '' || nonNegativeIntegerPattern.test(value)
+}
+
+function machineSourceValid(source: BasicMachineSource) {
+  return (
+    resourceNameValid(source.name) &&
+    textRowsValid(source.envRows) &&
+    secretRowsValid(source.secretEnvRows) &&
+    (source.kind === 'machine' ||
+      (machineCountValid(source.initialNumMachines) &&
+        machineCountValid(source.maxMachines) &&
+        optionalIdleDeletionMinutesValid(source.deleteAfterIdleMinutes) &&
+        optionalPositiveInt32Valid(source.machineCpu) &&
+        memoryGbDraftValid(source.machineMemoryGb, { optional: true })))
   )
-  if (config.maxSubagents !== (baseline?.maxSubagents ?? '')) {
-    if (config.maxSubagents === '') del(['max_subagents'])
-    else set(['max_subagents'], Number(config.maxSubagents))
-  }
-  if (config.maxDepth !== (baseline?.maxDepth ?? '')) {
-    if (config.maxDepth === '') del(['max_depth'])
-    else set(['max_depth'], Number(config.maxDepth))
-  }
-  applyNamedEntries(
-    'mcp',
-    config.mcpServers.map((server) => [server.name, mcpWire(server)]),
-    baseline == null ? null : baseline.mcpServers.map((server) => [server.name, mcpWire(server)]),
-    set,
-    del,
-  )
-
-  return edits.count > 0 ? doc.toString() : baselineSource
-}
-
-function applyNamedEntries(
-  key: string,
-  desired: [string, WireValue][],
-  baseline: [string, WireValue][] | null,
-  set: Setter,
-  del: Deleter,
-) {
-  const baselineByName = new Map(baseline ?? [])
-  if (desired.length === 0) {
-    if (baseline == null || baselineByName.size > 0) del([key])
-    return
-  }
-  const desiredNames = new Set(desired.map(([name]) => name))
-  for (const name of baselineByName.keys()) {
-    if (!desiredNames.has(name)) del([key, name])
-  }
-  for (const [name, wire] of desired) {
-    const base = baselineByName.get(name)
-    if (base !== undefined && deepEqual(base, wire)) continue
-    set([key, name], wire)
-  }
-}
-
-function applyMachineSources(
-  doc: Document,
-  rows: BasicMachineSource[],
-  baselineRows: BasicMachineSource[] | null,
-  set: Setter,
-  del: Deleter,
-) {
-  const desired = rows.map(machineSourceComparable)
-  const baseline = baselineRows?.map(machineSourceComparable) ?? null
-  if (baseline != null && deepEqual(desired, baseline)) return
-  if (rows.length === 0) {
-    del(['machine_sources'])
-    return
-  }
-  const items = rows.map((row, index): YamlInput => {
-    if (baseline != null && index < baseline.length && deepEqual(desired[index], baseline[index])) {
-      const existing = doc.getIn(['machine_sources', index], true)
-      if (isNode(existing)) return existing
-    }
-    return machineSourceWire(row)
-  })
-  set(['machine_sources'], items)
-}
-
-function machineSourceComparable(source: BasicMachineSource) {
-  return {
-    kind: source.kind,
-    name: normalizeResourceName(source.name),
-    cwd: source.defaultCwd.trim(),
-    initialNumMachines: source.initialNumMachines,
-    maxMachines: source.maxMachines,
-    deleteAfterIdleMinutes: source.deleteAfterIdleMinutes,
-    machineCpu: source.machineCpu,
-    machineMemoryGb: source.machineMemoryGb,
-    providerOptions: { ...source.providerOptions },
-    env: overlayFromTextRows(source.envRows) ?? null,
-    secretEnv: overlayFromSecretRows(source.secretEnvRows) ?? null,
-  }
-}
-
-function isWireObject(value: WireValue): value is WireObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function deepEqual(a: WireValue, b: WireValue, depth = 0): boolean {
-  if (Object.is(a, b)) return true
-  if (depth > 64) return false
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
-    return a.every((item, index) => deepEqual(item, b[index], depth + 1))
-  }
-  if (!isWireObject(a) || !isWireObject(b)) return false
-  const keys = Object.keys(a)
-  if (keys.length !== Object.keys(b).length) return false
-  return keys.every((key) => key in b && deepEqual(a[key], b[key], depth + 1))
-}
-
-function machineSourceWire(source: BasicMachineSource): PoolEntry | MachineEntry {
-  const name = normalizeResourceName(source.name)
-  if (source.kind !== 'pool') {
-    const wire: MachineEntry = { machine_name: name }
-    applySourceOverlays(wire, source)
-    return wire
-  }
-  const wire: PoolEntry = { machine_pool_name: name }
-  if (source.initialNumMachines !== '') {
-    wire.initial_num_machines = Number(source.initialNumMachines)
-  }
-  if (source.maxMachines !== '') wire.max_machines = Number(source.maxMachines)
-  if (source.deleteAfterIdleMinutes !== '') {
-    wire.delete_after_idle_minutes = Number(source.deleteAfterIdleMinutes)
-  }
-  if (source.machineCpu !== '') wire.machine_cpu = Number(source.machineCpu)
-  if (source.machineMemoryGb !== '') wire.machine_memory_mb = memoryGbToMb(source.machineMemoryGb)
-  const optionsOverlay = isMachinePoolProvider(source.provider)
-    ? providerOptionsOverlay(source.provider, source.providerOptions)
-    : undefined
-  if (optionsOverlay) wire.machine_provider_options_overlay = optionsOverlay
-  applySourceOverlays(wire, source)
-  return wire
-}
-
-function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachineSource) {
-  if (source.defaultCwd.trim() !== '') wire.cwd = source.defaultCwd.trim()
-  const envOverlay = overlayFromTextRows(source.envRows)
-  if (envOverlay) wire.env_overlay = envOverlay
-  const secretEnvOverlay = overlayFromSecretRows(source.secretEnvRows)
-  if (secretEnvOverlay) wire.secret_env_overlay = secretEnvOverlay
-}
-
-export function toolWire(tool: BasicTool): ToolEntry {
-  const wire: ToolEntry = tool.name.startsWith('int__') ? {} : { type: 'built_in' }
-  if (tool.enabled === false) wire.enabled = false
-  if (tool.permission != null) wire.permission = permissionWire(tool.permission)
-  if (tool.deferred) wire.deferred = true
-  return wire
 }

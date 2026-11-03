@@ -2,6 +2,7 @@ import { type ConfiguredModelSummary, type MachinePoolSummary, type ToolCatalog 
 import type { SyntheticEvent } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import { configPath } from '@/components/agents/agentConfigCompatibility'
 import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { yamlDiverged } from '@/components/agents/agentConfigModeMachine'
@@ -57,6 +58,7 @@ export function CreateAgentFormView({
     switchMode,
     applyTemplate,
     suppressUnsavedChangesWarning,
+    compatibility,
   } = useAgentDraft(catalog, defaultPool, defaultModel, initialTemplate, {
     orgId: activeOrg.id,
     projectId,
@@ -65,13 +67,12 @@ export function CreateAgentFormView({
   const showBuilder = mode.mode === 'builder'
   const isSubmitting = status.phase === 'submitting'
   const yaml = mode.editorYaml ?? form.yaml
-  const nameError = resourceNameError(name)
-  const submitCheck = useSubmitCheck([
-    ...(nameError === undefined ? [] : [nameError]),
-    ...configProblems(yaml, showBuilder || !yamlDiverged(mode) ? form.problems : []),
-  ])
-
-  if (project == null) return null
+  const canSubmit =
+    !isSubmitting &&
+    !compatibility.some((issue) => issue.error) &&
+    resourceNameValid(name) &&
+    yaml.trim() !== '' &&
+    !(form.blocked && (showBuilder || !yamlDiverged(mode)))
 
   async function submit(action: SubmitAction) {
     if (isSubmitting) return
@@ -143,7 +144,7 @@ export function CreateAgentFormView({
                 />
                 <ResourceNameFieldError value={name} />
               </Field>
-              {showBuilder && (
+              {showBuilder && form.isManaged('model') && (
                 <AgentConfigModelField
                   orgId={activeOrg.id}
                   projectId={projectId}
@@ -174,6 +175,19 @@ export function CreateAgentFormView({
                 }}
               />
             )}
+            {compatibility
+              .filter((issue) => issue.kind !== 'advanced' || issue.error)
+              .map((issue, index) => (
+                <p
+                  key={index}
+                  className={
+                    issue.error ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'
+                  }
+                  role={issue.error ? 'alert' : undefined}
+                >
+                  {configPath(issue.path)}: {issue.message}
+                </p>
+              ))}
           </FieldGroup>
         </div>
       </div>

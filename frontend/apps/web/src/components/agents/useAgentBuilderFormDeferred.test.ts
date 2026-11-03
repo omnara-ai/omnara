@@ -58,8 +58,8 @@ mcp:
     })
     expect(parse(cleared)).toEqual({
       ...parse(minimalYaml),
-      tools: { web_search: {}, web_fetch: { type: 'built_in' } },
-      mcp: { search: { url: 'https://mcp.example.com', default_enabled: true } },
+      tools: { web_search: {}, web_fetch: {} },
+      mcp: { search: { url: 'https://mcp.example.com' } },
     })
   })
 })

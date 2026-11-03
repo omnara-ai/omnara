@@ -2,12 +2,13 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import fixture from './fixtures/inline-custom-tools.yaml?raw'
 import {
   hasPendingMcpBuilderOAuthOutcome,
   savePendingMcpBuilderOAuth,
   takeMcpBuilderOAuthRestore,
 } from './pendingMcpBuilderOAuth'
-import { type BasicConfig, emptyBasicConfig } from './useAgentBuilderForm'
+import { type BasicConfig, createBasicConfigSession, emptyBasicConfig } from './useAgentBuilderForm'
 
 const draft: BasicConfig = {
   ...emptyBasicConfig,
@@ -96,4 +97,23 @@ describe('takeMcpBuilderOAuthRestore', () => {
     expect(takeMcpBuilderOAuthRestore()).toBeNull()
     expect(window.sessionStorage.length).toBe(1)
   })
+})
+
+it('restores the YAML baseline and inline tools across an OAuth redirect', () => {
+  const baseline = createBasicConfigSession(fixture).initialDraft
+  if (!baseline) throw new Error('Expected compatible fixture')
+  savePendingMcpBuilderOAuth({
+    returnPath: '/projects/p1/agents/new',
+    serverId: 'server_1',
+    agentName: 'Example',
+    draft: { ...baseline, mcpServers: draft.mcpServers },
+  })
+  visit('/projects/p1/agents/new', '?mcp_oauth=success&secret_id=sec_custom_restore')
+  const restored = takeMcpBuilderOAuthRestore()
+  if (!restored) throw new Error('Expected restored draft')
+  const result = createBasicConfigSession('').evaluate(restored.draft)
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toContain(fixture.trimEnd())
+  expect(result.yaml).toContain('sec_custom_restore')
+  expect(createBasicConfigSession(result.yaml).initialDraft?.advancedEntries).toHaveLength(8)
 })
