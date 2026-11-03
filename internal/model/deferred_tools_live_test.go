@@ -127,8 +127,9 @@ func TestLiveDeferredToolsLoadAfterSearch(t *testing.T) {
 			client := r.client(apiKey)
 			specs := liveDeferredToolSpecs(t)
 			bundle := modelcontext.Bundle{
-				AgentID:      uuid.New(),
-				SystemPrompt: "You are a tool-calling assistant. Never answer in text when a tool call is requested.",
+				SafetyIdentifier: modeltest.LiveSafetyIdentifier,
+				AgentID:          uuid.New(),
+				SystemPrompt:     "You are a tool-calling assistant. Never answer in text when a tool call is requested.",
 				Messages: []modelcontext.Message{
 					liveTextMessage(
 						modelprotocol.RoleUser,
@@ -139,7 +140,7 @@ func TestLiveDeferredToolsLoadAfterSearch(t *testing.T) {
 				},
 				ToolSpecs: specs,
 			}
-			first, err := liveDeferredRespond(client, bundle)
+			first, err := liveDeferredRespond(t, client, bundle)
 			if r.unsupported {
 				assertLiveDeferredToolsUnsupported(t, err)
 				return
@@ -159,7 +160,7 @@ func TestLiveDeferredToolsLoadAfterSearch(t *testing.T) {
 				StopReason:           first.StopReason,
 			})
 			bundle.ToolResults = []modelcontext.ToolResultRef{result}
-			second, err := liveDeferredRespond(client, bundle)
+			second, err := liveDeferredRespond(t, client, bundle)
 			if err != nil {
 				t.Fatalf("second turn: %v", err)
 			}
@@ -199,7 +200,8 @@ func liveDeferredToolSpecs(t *testing.T) []modelcontext.ToolSpec {
 	}
 }
 
-func liveDeferredRespond(client model.Client, bundle modelcontext.Bundle) (model.Response, error) {
+func liveDeferredRespond(t *testing.T, client model.Client, bundle modelcontext.Bundle) (model.Response, error) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	supportsTools := true
@@ -210,6 +212,7 @@ func liveDeferredRespond(client model.Client, bundle modelcontext.Bundle) (model
 	if err != nil {
 		return model.Response{}, err
 	}
+	modeltest.RequireSafetyIdentifier(t, prepared.Body)
 	return client.Respond(ctx, model.Request{ProviderRequest: prepared.Body})
 }
 

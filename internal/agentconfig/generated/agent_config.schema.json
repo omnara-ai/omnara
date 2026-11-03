@@ -1,37 +1,5 @@
 {
   "$defs": {
-    "AgentConfigDefinitionEventWebhook": {
-      "additionalProperties": false,
-      "properties": {
-        "events": {
-          "items": {
-            "enum": [
-              "agent_input",
-              "model_output",
-              "tool_result",
-              "context_checkpoint",
-              "tool_call_update"
-            ]
-          },
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "signing_secret_id": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "url": {
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "url",
-        "events"
-      ],
-      "type": "object"
-    },
     "AgentConfigDefinitionGitCredentials": {
       "additionalProperties": false,
       "description": "Integration whose git credentials the agent's machines use.",
@@ -741,9 +709,6 @@
   "additionalProperties": false,
   "description": "An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.",
   "properties": {
-    "event_webhook": {
-      "$ref": "#/$defs/AgentConfigDefinitionEventWebhook"
-    },
     "git_credentials": {
       "$ref": "#/$defs/AgentConfigDefinitionGitCredentials"
     },

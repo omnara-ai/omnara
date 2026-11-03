@@ -529,7 +529,9 @@ func TestIntegrationCapabilitiesValidateCurrentConfigAfterIntegrationWait(t *tes
 				require.ErrorIs(t, outcome.Err, storeerr.ErrStateTransitionConflict)
 				var configs int
 				require.NoError(t, f.store.pool.QueryRow(f.ctx,
-					`SELECT count(*) FROM agent_configs WHERE project_id=$1 AND effective_definition_hash=$2`,
+					`SELECT count(*) FROM agent_configs config JOIN agent_config_definitions definition
+						ON definition.project_id=config.project_id AND definition.id=config.definition_id
+						WHERE config.project_id=$1 AND definition.effective_definition_hash=$2`,
 					testProjectID, input.EffectiveDefinitionHash).Scan(&configs))
 				require.Zero(t, configs, "stale editor must roll back its config")
 			} else {
@@ -754,7 +756,9 @@ func TestIntegrationSubscriptionLaunchBatchQuotaRollbackAndDeduplication(t *test
 	var agents, configs, subscriptions, inputs int
 	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT
 		(SELECT count(*) FROM agents WHERE project_id=$1 AND idempotency_key=$2),
-		(SELECT count(*) FROM agent_configs WHERE project_id=$1 AND effective_definition_hash=$3),
+		(SELECT count(*) FROM agent_configs config JOIN agent_config_definitions definition
+			ON definition.project_id=config.project_id AND definition.id=config.definition_id
+			WHERE config.project_id=$1 AND definition.effective_definition_hash=$3),
 		(SELECT count(*) FROM integration_subscriptions WHERE project_id=$1),
 		(SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content')`,
 		testProjectID, input.IdempotencyKey, definition.EffectiveDefinitionHash).Scan(

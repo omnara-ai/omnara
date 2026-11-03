@@ -46,12 +46,6 @@ func SourceFromCompiled(compiled Compiled, names SourceNames) (AgentConfigSource
 		MaxSubagents:        compiled.MaxSubagents,
 		MaxDepth:            compiled.MaxDepth,
 	}
-	if webhook := compiled.EventWebhook; webhook != nil {
-		source.EventWebhook = &EventWebhook{URL: webhook.URL, Events: webhook.Events}
-		if webhook.SigningSecretID != uuid.Nil {
-			source.EventWebhook.SigningSecretID = try(publicid.Encode(publicid.KindSecret, webhook.SigningSecretID))
-		}
-	}
 	for _, machine := range compiled.MachineSources {
 		entry := AgentConfigMachineSource{
 			DeleteAfterIdleMinutes:        machine.DeleteAfterIdleMinutes,

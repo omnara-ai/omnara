@@ -28,18 +28,24 @@ SELECT (
     )
 )::bigint AS retry_count
 FROM model_call_contexts context
-WHERE context.project_id = $1 AND context.agent_id = $2
-  AND context.id = $3
+WHERE context.agent_id = $1
+  AND context.id = $2
+  AND EXISTS (
+    SELECT 1
+    FROM agents scoped_agent
+    WHERE scoped_agent.project_id = $3
+      AND scoped_agent.id = $1
+  )
 `
 
 type CountModelCallRetriesParams struct {
-	ProjectID          uuid.UUID
 	AgentID            uuid.UUID
 	ModelCallContextID uuid.UUID
+	ProjectID          uuid.UUID
 }
 
 func (q *Queries) CountModelCallRetries(ctx context.Context, arg CountModelCallRetriesParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countModelCallRetries, arg.ProjectID, arg.AgentID, arg.ModelCallContextID)
+	row := q.db.QueryRow(ctx, countModelCallRetries, arg.AgentID, arg.ModelCallContextID, arg.ProjectID)
 	var retry_count int64
 	err := row.Scan(&retry_count)
 	return retry_count, err
@@ -70,15 +76,20 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd,
   context.provider_metadata
 FROM model_call_contexts context
-WHERE context.project_id = $1
-  AND context.agent_id = $2
-  AND context.id = $3
+WHERE context.agent_id = $1
+  AND context.id = $2
+  AND EXISTS (
+    SELECT 1
+    FROM agents scoped_agent
+    WHERE scoped_agent.project_id = $3
+      AND scoped_agent.id = $1
+  )
 `
 
 type GetModelCallContextParams struct {
-	ProjectID uuid.UUID
 	AgentID   uuid.UUID
 	ID        uuid.UUID
+	ProjectID uuid.UUID
 }
 
 type GetModelCallContextRow struct {
@@ -119,7 +130,7 @@ type GetModelCallContextRow struct {
 }
 
 func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallContextParams) (GetModelCallContextRow, error) {
-	row := q.db.QueryRow(ctx, getModelCallContext, arg.ProjectID, arg.AgentID, arg.ID)
+	row := q.db.QueryRow(ctx, getModelCallContext, arg.AgentID, arg.ID, arg.ProjectID)
 	var i GetModelCallContextRow
 	err := row.Scan(
 		&i.ID,
@@ -160,7 +171,7 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 	return i, err
 }
 
-const getProviderReplaySuppressionCutoff = `-- name: GetProviderReplaySuppressionCutoff :one
+const listProviderReplayRejectionCutoffs = `-- name: ListProviderReplayRejectionCutoffs :many
 WITH current_replay_identity AS MATERIALIZED (
   SELECT context.project_id, context.agent_id, context.input_event_sequence,
          revision.model_provider_config_id, revision.provider_model_slug,
@@ -170,12 +181,23 @@ WITH current_replay_identity AS MATERIALIZED (
     AND revision.id = context.configured_model_revision_id
   JOIN model_provider_configs provider ON provider.org_id = revision.org_id
     AND provider.id = revision.model_provider_config_id
-  WHERE context.project_id = $1
-    AND context.agent_id = $2
-    AND context.id = $3
+  WHERE context.agent_id = $1
+    AND context.id = $2
+    AND EXISTS (
+      SELECT 1
+      FROM agents scoped_agent
+      WHERE scoped_agent.project_id = $3
+        AND scoped_agent.id = $1
+    )
 )
-SELECT COALESCE((
-  SELECT MAX(failure.input_event_sequence)
+SELECT current.provider_model_slug AS current_provider_model_slug,
+       current.api_format AS current_api_format,
+       COALESCE(failure.provider_model_slug, '')::text AS rejected_provider_model_slug,
+       COALESCE(failure.cutoff_event_sequence, 0)::bigint AS cutoff_event_sequence
+FROM current_replay_identity current
+LEFT JOIN LATERAL (
+  SELECT failure_revision.provider_model_slug,
+         MAX(failure.input_event_sequence) AS cutoff_event_sequence
   FROM model_call_contexts failure
   JOIN configured_model_revisions failure_revision
     ON failure_revision.org_id = failure.org_id
@@ -187,24 +209,50 @@ SELECT COALESCE((
     AND failure.error_kind = 'replay_rejected'
     AND failure.input_event_sequence <= current.input_event_sequence
     AND failure_revision.model_provider_config_id = current.model_provider_config_id
-    AND failure_revision.provider_model_slug = current.provider_model_slug
     AND failure.api_format = current.api_format
     AND failure.api_variant = current.api_variant
-), 0)::bigint AS cutoff_event_sequence
-FROM current_replay_identity current
+  GROUP BY failure_revision.provider_model_slug
+) failure ON true
 `
 
-type GetProviderReplaySuppressionCutoffParams struct {
-	ProjectID          uuid.UUID
+type ListProviderReplayRejectionCutoffsParams struct {
 	AgentID            uuid.UUID
 	ModelCallContextID uuid.UUID
+	ProjectID          uuid.UUID
+}
+
+type ListProviderReplayRejectionCutoffsRow struct {
+	CurrentProviderModelSlug  string
+	CurrentApiFormat          string
+	RejectedProviderModelSlug string
+	CutoffEventSequence       int64
 }
 
 // @sqlc-vet-disable model-provider-configs-deleted-at
 // Replay safety remains part of immutable call lineage after provider soft deletion.
-func (q *Queries) GetProviderReplaySuppressionCutoff(ctx context.Context, arg GetProviderReplaySuppressionCutoffParams) (int64, error) {
-	row := q.db.QueryRow(ctx, getProviderReplaySuppressionCutoff, arg.ProjectID, arg.AgentID, arg.ModelCallContextID)
-	var cutoff_event_sequence int64
-	err := row.Scan(&cutoff_event_sequence)
-	return cutoff_event_sequence, err
+// One row per rejected model slug, or a single row with a zero cutoff when
+// there are none; callers decide which slugs share replay with the current one.
+func (q *Queries) ListProviderReplayRejectionCutoffs(ctx context.Context, arg ListProviderReplayRejectionCutoffsParams) ([]ListProviderReplayRejectionCutoffsRow, error) {
+	rows, err := q.db.Query(ctx, listProviderReplayRejectionCutoffs, arg.AgentID, arg.ModelCallContextID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProviderReplayRejectionCutoffsRow{}
+	for rows.Next() {
+		var i ListProviderReplayRejectionCutoffsRow
+		if err := rows.Scan(
+			&i.CurrentProviderModelSlug,
+			&i.CurrentApiFormat,
+			&i.RejectedProviderModelSlug,
+			&i.CutoffEventSequence,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

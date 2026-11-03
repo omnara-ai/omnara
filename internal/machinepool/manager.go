@@ -407,7 +407,7 @@ func (m Manager) ReconcileProvisioning(ctx context.Context, limit int32) (int, e
 	if err != nil {
 		return 0, err
 	}
-	return runBoundedReconcile(
+	started, _, err := runBoundedReconcile(
 		ctx,
 		len(machines),
 		poolMachineReconcileConcurrency,
@@ -416,6 +416,7 @@ func (m Manager) ReconcileProvisioning(ctx context.Context, limit int32) (int, e
 			return m.ProvisionMachine(ctx, machine.OrgID, machine.ID)
 		},
 	)
+	return started, err
 }
 
 func (m Manager) ReconcileCleanup(ctx context.Context, limit int32) (int, error) {
@@ -427,7 +428,7 @@ func (m Manager) ReconcileCleanup(ctx context.Context, limit int32) (int, error)
 	if err != nil {
 		return 0, err
 	}
-	return runBoundedReconcile(
+	started, _, err := runBoundedReconcile(
 		ctx,
 		len(candidates),
 		poolMachineReconcileConcurrency,
@@ -435,6 +436,7 @@ func (m Manager) ReconcileCleanup(ctx context.Context, limit int32) (int, error)
 			return m.DeleteMachine(ctx, candidates[i])
 		},
 	)
+	return started, err
 }
 
 func (m Manager) ReconcileIdleDeletion(ctx context.Context, limit int32) (int, error) {
@@ -442,7 +444,7 @@ func (m Manager) ReconcileIdleDeletion(ctx context.Context, limit int32) (int, e
 	if err != nil {
 		return 0, err
 	}
-	_, err = runBoundedReconcile(
+	_, _, err = runBoundedReconcile(
 		ctx,
 		len(candidates),
 		poolMachineReconcileConcurrency,
@@ -463,23 +465,46 @@ func (m Manager) ReconcileIdleDeletion(ctx context.Context, limit int32) (int, e
 	return len(candidates), err
 }
 
+func (m Manager) ReconcileManagedWorkDeniedDeletion(
+	ctx context.Context,
+	logger *slog.Logger,
+	limit int32,
+) (int, error) {
+	candidates, err := m.Execution.ListManagedWorkDeniedPoolMachines(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	_, _, err = runBoundedReconcile(
+		ctx,
+		len(candidates),
+		poolMachineReconcileConcurrency,
+		func(ctx context.Context, i int) error {
+			candidate := candidates[i]
+			marked, err := m.Execution.MarkManagedWorkDeniedPoolMachineDeleting(ctx, candidate)
+			if err != nil || !marked {
+				return err
+			}
+			logger.Info(
+				"marked managed work denied machine for deletion",
+				"org_id", candidate.OrgID,
+				"machine_id", candidate.MachineID,
+			)
+			return nil
+		},
+	)
+	return len(candidates), err
+}
+
 func (m Manager) DeleteMachines(ctx context.Context, machines []executionstore.MachineRecord) (int, error) {
-	return runBoundedReconcile(
+	started, _, err := runBoundedReconcile(
 		ctx,
 		len(machines),
 		poolMachineReconcileConcurrency,
 		func(ctx context.Context, i int) error {
-			machine := machines[i]
-			return m.DeleteMachine(
-				ctx,
-				executionstore.PoolMachineCleanupCandidate{
-					Machine:       machine,
-					ReasonCode:    machine.LifecycleReasonCode,
-					ReasonMessage: machine.LifecycleReasonMessage,
-				},
-			)
+			return m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{Machine: machines[i]})
 		},
 	)
+	return started, err
 }
 
 func (m Manager) DeleteMachine(ctx context.Context, candidate executionstore.PoolMachineCleanupCandidate) error {
@@ -875,11 +900,7 @@ func (m Manager) cleanupFailedProvision(
 	if !marked {
 		return cause
 	}
-	if err := m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{
-		Machine:       deleting,
-		ReasonCode:    deleting.LifecycleReasonCode,
-		ReasonMessage: deleting.LifecycleReasonMessage,
-	}); err != nil {
+	if err := m.DeleteMachine(ctx, executionstore.PoolMachineCleanupCandidate{Machine: deleting}); err != nil {
 		return err
 	}
 	return cause
@@ -927,9 +948,9 @@ func runBoundedReconcile(
 	ctx context.Context,
 	count, concurrency int,
 	run func(context.Context, int) error,
-) (int, error) {
+) (started, failed int, err error) {
 	if count == 0 {
-		return 0, nil
+		return 0, 0, nil
 	}
 	if concurrency <= 0 {
 		concurrency = 1
@@ -943,7 +964,6 @@ func runBoundedReconcile(
 	var mu sync.Mutex
 	var reconcileErrs []error
 	var suppressedErrors int
-	started := 0
 	recordErr := func(err error) {
 		if ctxErr := ctx.Err(); ctxErr != nil && errutil.OnlyMatches(err, ctxErr) {
 			return
@@ -961,7 +981,8 @@ func runBoundedReconcile(
 		select {
 		case <-ctx.Done():
 			wg.Wait()
-			return started, boundedReconcileError(reconcileErrs, suppressedErrors, ctx.Err())
+			failed = len(reconcileErrs) + suppressedErrors
+			return started, failed, boundedReconcileError(reconcileErrs, suppressedErrors, ctx.Err())
 		case sem <- struct{}{}:
 		}
 
@@ -986,7 +1007,8 @@ func runBoundedReconcile(
 	}
 
 	wg.Wait()
-	return started, boundedReconcileError(reconcileErrs, suppressedErrors, ctx.Err())
+	failed = len(reconcileErrs) + suppressedErrors
+	return started, failed, boundedReconcileError(reconcileErrs, suppressedErrors, ctx.Err())
 }
 
 func boundedReconcileError(reconcileErrs []error, suppressedErrors int, interruption error) error {

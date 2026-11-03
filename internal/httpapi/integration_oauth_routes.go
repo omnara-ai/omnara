@@ -115,7 +115,7 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if err != nil {
-		apierror.WriteError(w, apierror.ProjectScoped(err))
+		writeAPIError(w, r, apierror.ProjectScoped(err))
 		return
 	}
 	if integration.OrgID != state.OrgID || integration.Provider != state.Provider {

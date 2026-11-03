@@ -287,8 +287,8 @@ func TestMemoryScopeDeletionRemovesDeletedStoreFiles(t *testing.T) {
 			}
 			defer func() { _ = files.Close() }()
 			store := newIntegrationStore(pool, WithMemoryFilesystem(files))
-			admin := createSecretTestUser(t, ctx, store, "Memory Cleanup Admin", "admin")
-			scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
+			owner := createSecretTestUser(t, ctx, store, "Memory Cleanup Owner", "owner")
+			scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(owner.ID)}
 			resource, err := store.Memories().Create(
 				ctx, scope, "old-store", "", agentconfig.MemoryStoreAccessReadWrite,
 			)
@@ -587,8 +587,8 @@ func TestMemoryCleanupFilesRemovesLaterDeletedScope(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = files.Close() })
 	store := newIntegrationStore(pool, WithMemoryFilesystem(files))
-	admin := createSecretTestUser(t, ctx, store, "Memory Cleanup Admin", "admin")
-	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
+	owner := createSecretTestUser(t, ctx, store, "Memory Cleanup Owner", "owner")
+	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(owner.ID)}
 	record, err := store.Memories().Create(ctx, scope, "notes", "", agentconfig.MemoryStoreAccessReadWrite)
 	require.NoError(t, err)
 	_, err = store.Memories().Write(ctx, memorystore.WriteInput{

@@ -397,7 +397,7 @@ func TestWorkerCancelControlCancelsActiveTurnAndDeletesWakeup(t *testing.T) {
 	)
 	errs := make(chan error, 1)
 	go func() {
-		err := worker.Run(ctx)
+		err := worker.Run(ctx, nil)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			errs <- err
 			return
@@ -568,7 +568,7 @@ func TestWorkerConcurrentRuntimesShareRouteAndCancelIndependently(t *testing.T) 
 	})
 	runDone := make(chan error, 1)
 	go func() {
-		err := worker.Run(ctx)
+		err := worker.Run(ctx, nil)
 		if errors.Is(err, context.Canceled) {
 			err = nil
 		}
@@ -697,7 +697,7 @@ func TestWorkerRunContinuesAfterUnexpectedTurnCancellation(t *testing.T) {
 		},
 	)
 	runDone := make(chan error, 1)
-	go func() { runDone <- worker.Run(ctx) }()
+	go func() { runDone <- worker.Run(ctx, nil) }()
 
 	for attempt := 1; attempt <= 2; attempt++ {
 		select {
@@ -825,7 +825,7 @@ func TestWorkerNewInputAfterCancelStartsNewTurn(t *testing.T) {
 	)
 	errs := make(chan error, 1)
 	go func() {
-		err := runningWorker.Run(ctx)
+		err := runningWorker.Run(ctx, nil)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			errs <- err
 			return

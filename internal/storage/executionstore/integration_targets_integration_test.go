@@ -572,6 +572,7 @@ func TestIntegrationDeletionSerializesWithScopeDeletion(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build scope deletion actor: %v", err)
 			}
+			owner := createSecretTestUser(t, ctx, store, "Scope Deletion Owner", "owner")
 			controlTx := integrationdb.BeginTx(t, ctx, pool)
 			if err := dbsqlc.New(controlTx).LockIntegrationLifecycleExclusive(
 				ctx,
@@ -602,7 +603,7 @@ func TestIntegrationDeletionSerializesWithScopeDeletion(t *testing.T) {
 				_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
 					context.Background(),
 					testOrgID,
-					actor,
+					userPrincipal(owner.ID),
 				)
 				return deleteErr
 			})

@@ -5,7 +5,7 @@ icon: "cubes"
 description: Compare the sandbox providers you can use with Omnara
 ---
 
-Omnara supports eleven sandbox providers for [machine pools](/machines/pools), and agents get the same tools on all of them.
+Omnara supports twelve sandbox providers for [machine pools](/machines/pools), and agents get the same tools on all of them.
 
 On Omnara's hosted service, every organization starts with a default pool on Blaxel. Omnara manages it for you, so there's nothing to set up: agents can use it right away. To use another provider, or your own Blaxel account, create a [custom pool](/machines/pools#create-a-pool).
 
@@ -13,6 +13,7 @@ On Omnara's hosted service, every organization starts with a default pool on Bla
 
 | Provider | Machine type | Custom environment | Locations | Sizing | Can sleep when idle |
 | --- | --- | --- | --- | --- | --- |
+| [Agent37](/machines/providers/agent37) | Container (gVisor) | Template from a registry image or Dockerfile | US | CPU and memory | No |
 | [Arker](/machines/providers/arker) | Full VM | Fork of an Arker VM, memory included | US, EU | CPU and memory | Yes |
 | [Blaxel](/machines/providers/blaxel) | microVM | Dockerfile that includes Blaxel's `sandbox-api` | US, UK, Germany | Memory; CPU scales with it | Yes |
 | [boxd](/machines/providers/boxd) | microVM | Snapshot of a boxd machine | EU | Set by the snapshot or org default | Yes |
@@ -27,6 +28,7 @@ On Omnara's hosted service, every organization starts with a default pool on Bla
 
 ## Choosing a provider
 
+- **Agent37** gives each agent an always-on Linux computer that keeps its files, starts in seconds from any registry image or Dockerfile, and bills by the minute. Every port an agent serves gets its own URL, and you can SSH in to work alongside it.
 - **Arker** runs hyper-elastic, durable virtual machines for agents at extreme scale. Its custom hypervisor spins machines up, down, and resizes them in milliseconds, and every machine is a faithful fork of a source VM, memory and running processes included.
 - **Blaxel** runs each machine in its own microVM that boots in milliseconds and [resumes](#sleep-when-idle) in about 25 ms with its memory intact. It's also the quickest way to start, since the default pool already runs on it.
 - **boxd** gives devs and agents full, hardware-isolated Linux computers in under 10 ms, hosted in Europe. Machines are persistent by default, suspend when idle, and resume in under a millisecond.

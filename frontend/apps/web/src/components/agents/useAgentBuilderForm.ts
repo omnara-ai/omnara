@@ -10,7 +10,6 @@ import {
   type PoolEntry,
   type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
-import { eventWebhookUrlError, eventWebhookWire } from '@/components/agents/agentConfigEventWebhook'
 import {
   type BasicMcpServer,
   type BasicMcpTool,
@@ -90,9 +89,6 @@ export interface BasicConfig {
   interactionHandlers: Record<string, AgentConfigDefinitionInteractionHandler>
   gitCredentials: AgentConfigDefinition['git_credentials']
   mcpServers: BasicMcpServer[]
-  eventWebhookEvents: string[]
-  eventWebhookUrl: string
-  eventWebhookSigningSecretId: string
   skillIds: string[]
   memoryStores: BasicMemoryStore[]
   subagents: BasicSubagent[]
@@ -129,9 +125,6 @@ export const emptyBasicConfig: BasicConfig = {
   interactionHandlers: {},
   gitCredentials: undefined,
   mcpServers: [],
-  eventWebhookEvents: ['tool_call_update'],
-  eventWebhookUrl: '',
-  eventWebhookSigningSecretId: '',
   skillIds: [],
   memoryStores: [],
   subagents: [],
@@ -205,9 +198,6 @@ export function useAgentBuilderForm(
     skillIds: draft.skillIds,
     memoryStores: draft.memoryStores,
     mcpServers: draft.mcpServers,
-    eventWebhookEvents: draft.eventWebhookEvents,
-    eventWebhookUrl: draft.eventWebhookUrl,
-    eventWebhookSigningSecretId: draft.eventWebhookSigningSecretId,
     subagents: draft.subagents,
     maxSubagents: draft.maxSubagents,
     maxDepth: draft.maxDepth,
@@ -239,15 +229,6 @@ export function useAgentBuilderForm(
     setMcpServers: (mcpServers: BasicMcpServer[]) => {
       patch({ mcpServers })
     },
-    setEventWebhookEvents: (eventWebhookEvents: string[]) => {
-      patch({ eventWebhookEvents })
-    },
-    setEventWebhookUrl: (eventWebhookUrl: string) => {
-      patch({ eventWebhookUrl })
-    },
-    setEventWebhookSigningSecretId: (eventWebhookSigningSecretId: string) => {
-      patch({ eventWebhookSigningSecretId })
-    },
     setSubagents: (subagents: BasicSubagent[]) => {
       patch(
         subagents.length === 0
@@ -275,8 +256,6 @@ export function useAgentBuilderForm(
 export function basicConfigValid(draft: BasicConfig) {
   return (
     draft.instruction.trim() !== '' &&
-    eventWebhookUrlError(draft.eventWebhookUrl) === undefined &&
-    (draft.eventWebhookUrl.trim() === '' || draft.eventWebhookEvents.length > 0) &&
     resourceNameValid(draft.providerConfig) &&
     resourceNameValid(draft.modelName) &&
     draft.machineSources.every(machineSourceValid) &&
@@ -404,12 +383,6 @@ function applyToDocument(
     set,
     del,
   )
-
-  const eventWebhook = eventWebhookWire(config)
-  if (!deepEqual(eventWebhook, baseline ? eventWebhookWire(baseline) : null)) {
-    if (eventWebhook) set(['event_webhook'], eventWebhook)
-    else del(['event_webhook'])
-  }
 
   return edits.count > 0 ? doc.toString() : baselineSource
 }

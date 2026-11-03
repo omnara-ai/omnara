@@ -359,9 +359,12 @@ SELECT EXISTS (
   JOIN agent_configs config
     ON config.project_id = agent.project_id
    AND config.id = agent.current_config_id
+  JOIN agent_config_definitions definition
+    ON definition.project_id = config.project_id
+   AND definition.id = config.definition_id
   WHERE agent.org_id = sqlc.arg(org_id)
     AND agent.state = 'active'
-    AND config.compiled_definition->'skills' @> jsonb_build_array(jsonb_build_object('id', sqlc.arg(skill_id)::uuid))
+    AND definition.compiled_definition->'skills' @> jsonb_build_array(jsonb_build_object('id', sqlc.arg(skill_id)::uuid))
 ) AS has_active_agent_references;
 
 -- name: DeleteSkill :execrows

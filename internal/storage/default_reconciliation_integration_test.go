@@ -794,15 +794,11 @@ func TestReconcileDefaultsWaitingBehindOrganizationDeletionRejectsInactiveOrgani
 	); err != nil {
 		t.Fatalf("lock machine pool: %v", err)
 	}
-	actor, err := executionstore.OmnaraActorParams(created.Org.ID, userPrincipal(user.ID))
-	if err != nil {
-		t.Fatalf("build deletion actor: %v", err)
-	}
 	deleteDone := integrationdb.RunAsyncError(func() error {
 		_, deleteErr := store.Organizations().DeleteOrganizationOnceForIntegration(
 			ctx,
 			created.Org.ID,
-			actor,
+			userPrincipal(user.ID),
 		)
 		return deleteErr
 	})

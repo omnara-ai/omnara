@@ -10,9 +10,10 @@ import (
 )
 
 type HTTPRecorder struct {
-	requestsTotal   *prometheus.CounterVec
-	requestDuration *prometheus.HistogramVec
-	inFlight        prometheus.Gauge
+	requestsTotal    *prometheus.CounterVec
+	requestDuration  *prometheus.HistogramVec
+	requestsCanceled *prometheus.CounterVec
+	inFlight         prometheus.Gauge
 }
 
 func NewHTTPRecorder(set *Set, subsystem string) *HTTPRecorder {
@@ -30,6 +31,12 @@ func NewHTTPRecorder(set *Set, subsystem string) *HTTPRecorder {
 			Help:      "HTTP request duration in seconds.",
 			Buckets:   prometheus.DefBuckets,
 		}, []string{"method", "route", "code"}),
+		requestsCanceled: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: set.namespace,
+			Subsystem: subsystem,
+			Name:      "requests_canceled_total",
+			Help:      "Total number of HTTP requests whose context was canceled, by recorded status.",
+		}, []string{"method", "route", "code"}),
 		inFlight: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: set.namespace,
 			Subsystem: subsystem,
@@ -40,6 +47,7 @@ func NewHTTPRecorder(set *Set, subsystem string) *HTTPRecorder {
 	set.MustRegister(
 		m.requestsTotal,
 		m.requestDuration,
+		m.requestsCanceled,
 		m.inFlight,
 	)
 	return m
@@ -55,14 +63,25 @@ func (m *HTTPRecorder) Start() func(method, pattern string, status int) {
 	m.inFlight.Inc()
 	return func(method, pattern string, status int) {
 		m.inFlight.Dec()
-		route := "unmatched"
-		if pattern != "" {
-			route = routePathPattern(pattern)
-		}
-		labels := []string{httpMethodLabel(method), route, strconv.Itoa(status)}
+		labels := httpRequestLabels(method, pattern, status)
 		m.requestsTotal.WithLabelValues(labels...).Inc()
 		m.requestDuration.WithLabelValues(labels...).Observe(time.Since(started).Seconds())
 	}
+}
+
+func (m *HTTPRecorder) RecordCanceled(method, pattern string, status int) {
+	if m == nil {
+		return
+	}
+	m.requestsCanceled.WithLabelValues(httpRequestLabels(method, pattern, status)...).Inc()
+}
+
+func httpRequestLabels(method, pattern string, status int) []string {
+	route := "unmatched"
+	if pattern != "" {
+		route = routePathPattern(pattern)
+	}
+	return []string{httpMethodLabel(method), route, strconv.Itoa(status)}
 }
 
 // httpMethodLabel collapses nonstandard methods so clients cannot grow the

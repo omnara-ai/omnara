@@ -25,7 +25,7 @@ func (s *Server) strictOpenAPIHandler() openapi.ServerInterface {
 		[]openapi.StrictMiddlewareFunc{s.operationMiddleware},
 		openapi.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  openAPIRequestErrorHandler,
-			ResponseErrorHandlerFunc: openAPIResponseErrorHandler,
+			ResponseErrorHandlerFunc: writeAPIError,
 		},
 	)
 }
@@ -60,7 +60,11 @@ func writeOpenAPIRequestError(w http.ResponseWriter, r *http.Request, err error)
 	apierror.Write(w, openapi.ErrorCodeValidationFailed, err.Error())
 }
 
-func openAPIResponseErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+func writeAPIError(w http.ResponseWriter, r *http.Request, err error) {
+	var responseErr apierror.ResponseError
+	if errors.As(err, &responseErr) && responseErr.Status >= http.StatusInternalServerError {
+		logpkg.Error(r.Context(), errors.Unwrap(responseErr))
+	}
 	logpkg.Error(r.Context(), err)
 	apierror.WriteError(w, err)
 }

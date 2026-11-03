@@ -26,6 +26,7 @@ type AgentExecutor struct {
 	MCP                      mcp.Client
 	MCPAuthHTTPClient        *http.Client
 	SigV4CredentialCache     *sigv4.CredentialCache
+	SafetyIdentifierKey      []byte
 	ToolExecutor             tools.Executor
 	Now                      func() time.Time
 	StreamPublisher          notifications.AgentStreamDeltaPublisher

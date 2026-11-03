@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import {
   Combobox,
   ComboboxChip,
@@ -26,11 +28,14 @@ export function createResourceMultiCombobox<TItem>(config: ResourceComboboxConfi
     emptyMessage = config.emptyMessage ?? 'No matching results.',
     disabled,
     action,
+    closeOnSelect = false,
   }: ResourceComboboxBaseProps<TItem> & {
     value: TItem[]
     onValueChange: (items: TItem[]) => void
+    closeOnSelect?: boolean
   }) {
     const rootProps = useResourceComboboxRootProps(config, search, items, disabled)
+    const [open, setOpen] = useState(false)
 
     return (
       <Combobox
@@ -38,8 +43,13 @@ export function createResourceMultiCombobox<TItem>(config: ResourceComboboxConfi
         id={id}
         required={required}
         multiple
+        open={open}
+        onOpenChange={setOpen}
         value={value}
-        onValueChange={onValueChange}
+        onValueChange={(items, details) => {
+          onValueChange(items)
+          if (closeOnSelect && details.reason === 'item-press') setOpen(false)
+        }}
       >
         <ComboboxChips>
           <ComboboxValue>

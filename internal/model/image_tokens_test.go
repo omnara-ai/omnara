@@ -320,6 +320,32 @@ func TestProviderImageTokenEstimateFallbacksAreConservative(t *testing.T) {
 	}
 }
 
+func TestIsClaudeFamilyModelSlugRecognizesProviderSpellings(t *testing.T) {
+	for slug, want := range map[string]bool{
+		"claude-opus-5-5":                                 true,
+		"anthropic/claude-sonnet-4.5:beta":                true,
+		"anthropic.claude-opus-5-5":                       true,
+		"us.anthropic.claude-sonnet-4-5-20250929-v1:0":    true,
+		"global.anthropic.claude-haiku-4-5-20251001-v1:0": true,
+		"meta.claude-opus-5-5":                            false,
+		"anthropic.titan-claude-opus-5-5":                 false,
+		"my-claude-proxy":                                 false,
+		"gpt-5.5":                                         false,
+	} {
+		if got := IsClaudeFamilyModelSlug(slug); got != want {
+			t.Errorf("IsClaudeFamilyModelSlug(%q) = %t, want %t", slug, got, want)
+		}
+	}
+}
+
+func TestBedrockClaudeUsesItsResolutionTier(t *testing.T) {
+	media := modelcontext.ResolvedMedia{Data: []byte("not an image")}
+	got := AnthropicImageTokenEstimate("us.anthropic.claude-sonnet-4-6", media)
+	if got != anthropicStandardMaxImageTokens {
+		t.Fatalf("bedrock anthropic fallback = %d, want %d", got, anthropicStandardMaxImageTokens)
+	}
+}
+
 func pngImage(t *testing.T, width, height int) []byte {
 	t.Helper()
 	imageValue := image.NewRGBA(image.Rect(0, 0, width, height))

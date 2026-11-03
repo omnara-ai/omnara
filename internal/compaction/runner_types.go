@@ -67,6 +67,7 @@ type RunInput struct {
 	OpeningInputIDs      []uuid.UUID
 	OpeningEventSequence int64
 	RuntimeLockID        uuid.UUID
+	SafetyIdentifier     string
 }
 
 type RunState string

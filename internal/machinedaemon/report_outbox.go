@@ -120,6 +120,11 @@ func (c *Client) replayReportOutbox(
 	}
 }
 
+const (
+	outboxBatchReports  = 128
+	outboxCandidatePage = 256
+)
+
 func (c *Client) outboxReports(
 	ctx context.Context,
 	forced map[string]struct{},
@@ -128,45 +133,56 @@ func (c *Client) outboxReports(
 	if err != nil {
 		return nil, err
 	}
-	candidates, err := stateStore.DeliveryCandidates(ctx)
-	if err != nil {
-		return nil, err
-	}
-	reports := make([]statedb.Report, 0, min(len(candidates), 128))
+	reports := make([]statedb.Report, 0, outboxBatchReports)
+	seen := make(map[string]struct{})
 	blockedProcesses := make(map[string]struct{})
 	blockedActions := make(map[string]struct{})
-	for _, report := range candidates {
-		c.processMu.RLock()
-		runtime := c.processes[report.ProcessID]
-		cleanupOnly := runtime != nil && runtime.cleanupOnly
-		c.processMu.RUnlock()
-		if cleanupOnly {
-			continue
+	// Read the backlog a page at a time so catching up does not load all of it on
+	// every batch. Blocked reports are skipped, so a batch may need more than one page.
+	for offset := 0; ; offset += outboxCandidatePage {
+		candidates, err := stateStore.DeliveryCandidates(ctx, offset, outboxCandidatePage)
+		if err != nil {
+			return nil, err
 		}
-		if _, blocked := blockedProcesses[report.ProcessID]; blocked {
-			continue
-		}
-		if _, blocked := blockedActions[report.ProcessID]; blocked &&
-			report.Kind != statedb.ReportProcessTerminal {
-			continue
-		}
-		if report.State != statedb.ReportPending {
-			if _, wanted := forced[report.ID]; !wanted {
-				if report.Kind == statedb.ReportActionTerminal &&
-					report.State == statedb.ReportRejected {
-					blockedActions[report.ProcessID] = struct{}{}
-				} else {
-					blockedProcesses[report.ProcessID] = struct{}{}
-				}
+		for _, report := range candidates {
+			if _, duplicate := seen[report.ID]; duplicate {
 				continue
 			}
+			seen[report.ID] = struct{}{}
+			c.processMu.RLock()
+			runtime := c.processes[report.ProcessID]
+			cleanupOnly := runtime != nil && runtime.cleanupOnly
+			c.processMu.RUnlock()
+			if cleanupOnly {
+				continue
+			}
+			if _, blocked := blockedProcesses[report.ProcessID]; blocked {
+				continue
+			}
+			if _, blocked := blockedActions[report.ProcessID]; blocked &&
+				report.Kind != statedb.ReportProcessTerminal {
+				continue
+			}
+			if report.State != statedb.ReportPending {
+				if _, wanted := forced[report.ID]; !wanted {
+					if report.Kind == statedb.ReportActionTerminal &&
+						report.State == statedb.ReportRejected {
+						blockedActions[report.ProcessID] = struct{}{}
+					} else {
+						blockedProcesses[report.ProcessID] = struct{}{}
+					}
+					continue
+				}
+			}
+			reports = append(reports, report)
+			if len(reports) == outboxBatchReports {
+				return reports, nil
+			}
 		}
-		reports = append(reports, report)
-		if len(reports) == 128 {
-			break
+		if len(candidates) < outboxCandidatePage {
+			return reports, nil
 		}
 	}
-	return reports, nil
 }
 
 func (c *Client) sendFrozenReport(
@@ -351,6 +367,9 @@ func (c *Client) finalizeReleasedProcesses(ctx context.Context) error {
 		}
 		settled := true
 		for _, report := range reports {
+			if report.Kind == statedb.ReportProcessOutputMatch && report.State == statedb.ReportRejected {
+				continue
+			}
 			if report.State != statedb.ReportAcknowledged {
 				settled = false
 				break

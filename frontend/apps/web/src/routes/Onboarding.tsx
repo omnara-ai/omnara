@@ -76,14 +76,12 @@ export function Onboarding() {
 
         {error && <p className="text-destructive text-center text-sm">{error}</p>}
 
-        {pending.length > 0 && (
-          <PendingInvitationList
-            invitations={pending}
-            onAccepted={() => {
-              window.location.assign(returnTo)
-            }}
-          />
-        )}
+        <PendingInvitationList
+          invitations={pending}
+          onAccepted={() => {
+            window.location.assign(returnTo)
+          }}
+        />
 
         <Card>
           <CardHeader>

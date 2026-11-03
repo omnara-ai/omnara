@@ -105,10 +105,12 @@ func (s strictOpenAPIServer) UpdateOrgMember(
 	if err != nil {
 		return nil, err
 	}
+	principal, _ := principalFromContext(ctx)
 	membership, err := s.server.store.Identity().UpdateOrgMemberRole(ctx, identitystore.UpdateOrgMemberRoleInput{
-		OrgID:  org.ID,
-		UserID: userID,
-		Role:   request.Body.Role,
+		OrgID:          org.ID,
+		UserID:         userID,
+		Role:           request.Body.Role,
+		ActorPrincipal: principal,
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
@@ -128,9 +130,11 @@ func (s strictOpenAPIServer) RemoveOrgMember(
 	if err != nil {
 		return nil, err
 	}
+	principal, _ := principalFromContext(ctx)
 	if err := s.server.store.Identity().RemoveOrgMember(ctx, identitystore.RemoveOrgMemberInput{
-		OrgID:  org.ID,
-		UserID: userID,
+		OrgID:          org.ID,
+		UserID:         userID,
+		ActorPrincipal: principal,
 	}); err != nil {
 		return nil, apierror.OrgScoped(err)
 	}

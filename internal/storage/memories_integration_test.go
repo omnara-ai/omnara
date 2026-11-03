@@ -1087,8 +1087,8 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			}
 			defer func() { _ = files.Close() }()
 			store := newIntegrationStore(pool, WithMemoryFilesystem(files))
-			admin := createSecretTestUser(t, ctx, store, "Memory Race Admin", "admin")
-			scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
+			owner := createSecretTestUser(t, ctx, store, "Memory Race Owner", "owner")
+			scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(owner.ID)}
 			resource, err := store.Memories().Create(ctx, scope, "race", "", agentconfig.MemoryStoreAccessReadWrite)
 			if err != nil {
 				t.Fatal(err)

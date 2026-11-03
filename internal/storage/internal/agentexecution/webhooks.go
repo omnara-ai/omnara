@@ -3,12 +3,10 @@ package agentexecution
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
@@ -25,57 +23,35 @@ func (u *Unit) enqueueWebhooks(ctx context.Context) error {
 		return nil
 	}
 	q := dbsqlc.New(u.DB())
-	type webhookTarget struct {
-		orgID  uuid.UUID
-		events []string
-	}
-	webhookTargets := make(map[uuid.UUID]webhookTarget)
+	webhooksByAgent := make(map[uuid.UUID][]dbsqlc.ListMatchingEventWebhooksRow)
 	for agentID := range pending.AgentEvents() {
-		webhookTargets[agentID] = webhookTarget{}
+		webhooksByAgent[agentID] = nil
 	}
 	for _, update := range pending.ToolCallUpdates() {
-		webhookTargets[update.AgentID] = webhookTarget{}
+		webhooksByAgent[update.AgentID] = nil
 	}
-	for agentID := range webhookTargets {
-		target, err := q.GetAgentEventWebhookTarget(ctx, dbsqlc.GetAgentEventWebhookTargetParams{ID: agentID})
-		if errors.Is(err, pgx.ErrNoRows) {
-			delete(webhookTargets, agentID)
-			continue
-		}
+	for agentID := range webhooksByAgent {
+		webhooks, err := q.ListMatchingEventWebhooks(ctx, dbsqlc.ListMatchingEventWebhooksParams{AgentID: agentID})
 		if err != nil {
-			return fmt.Errorf("load event webhook target: %w", err)
+			return fmt.Errorf("load matching event webhooks: %w", err)
 		}
-		if target.Url == "" {
-			delete(webhookTargets, agentID)
-			continue
-		}
-		var events []string
-		if err := json.Unmarshal(target.Events, &events); err != nil {
-			return fmt.Errorf("decode event webhook events: %w", err)
-		}
-		webhookTargets[agentID] = webhookTarget{orgID: target.OrgID, events: events}
+		webhooksByAgent[agentID] = webhooks
 	}
 	for agentID, events := range pending.AgentEvents() {
-		target, enabled := webhookTargets[agentID]
-		if !enabled {
-			continue
-		}
-		for _, event := range events {
-			if !slices.Contains(target.events, event.Kind) {
-				continue
-			}
-			if err := q.EnqueueEventWebhookDelivery(ctx, dbsqlc.EnqueueEventWebhookDeliveryParams{
-				OrgID: target.orgID, AgentID: agentID, EventSequence: &event.Sequence,
-			}); err != nil {
-				return fmt.Errorf("enqueue event webhook: %w", err)
+		for _, webhook := range webhooksByAgent[agentID] {
+			for _, event := range events {
+				if !slices.Contains(webhook.EventTypes, event.Kind) {
+					continue
+				}
+				if err := q.EnqueueEventWebhookDelivery(ctx, dbsqlc.EnqueueEventWebhookDeliveryParams{
+					OrgID: webhook.OrgID, WebhookID: webhook.ID, AgentID: agentID, EventSequence: &event.Sequence,
+				}); err != nil {
+					return fmt.Errorf("enqueue event webhook delivery: %w", err)
+				}
 			}
 		}
 	}
 	for _, update := range pending.ToolCallUpdates() {
-		target, enabled := webhookTargets[update.AgentID]
-		if !enabled || !slices.Contains(target.events, "tool_call_update") {
-			continue
-		}
 		var interactionUpdate json.RawMessage
 		if update.InteractionUpdate != nil {
 			var err error
@@ -84,12 +60,17 @@ func (u *Unit) enqueueWebhooks(ctx context.Context) error {
 				return fmt.Errorf("encode webhook interaction update: %w", err)
 			}
 		}
-		if err := q.EnqueueEventWebhookDelivery(ctx, dbsqlc.EnqueueEventWebhookDeliveryParams{
-			OrgID: target.orgID, AgentID: update.AgentID,
-			ToolCallID: &update.ToolCallID, ToolState: &update.State,
-			InteractionUpdate: webhookJSON(interactionUpdate),
-		}); err != nil {
-			return fmt.Errorf("enqueue tool webhook: %w", err)
+		for _, webhook := range webhooksByAgent[update.AgentID] {
+			if !slices.Contains(webhook.EventTypes, "tool_call_update") {
+				continue
+			}
+			if err := q.EnqueueEventWebhookDelivery(ctx, dbsqlc.EnqueueEventWebhookDeliveryParams{
+				OrgID: webhook.OrgID, WebhookID: webhook.ID, AgentID: update.AgentID,
+				ToolCallID: &update.ToolCallID, ToolState: &update.State,
+				InteractionUpdate: webhookJSON(interactionUpdate),
+			}); err != nil {
+				return fmt.Errorf("enqueue tool-call webhook delivery: %w", err)
+			}
 		}
 	}
 	return nil

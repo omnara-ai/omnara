@@ -504,9 +504,11 @@ SELECT EXISTS (
          JOIN agents agent ON agent.project_id = project.id
          JOIN agent_configs config ON config.project_id = agent.project_id
            AND config.id = agent.current_config_id
+         JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+           AND definition.id = config.definition_id
          WHERE project.org_id = $1
            AND agent.state = 'active'
-           AND config.configured_model_id = $2
+           AND definition.configured_model_id = $2
        ) AS used_by_active_agent,
        EXISTS (
          SELECT 1
@@ -518,9 +520,11 @@ SELECT EXISTS (
            AND version.deleted_at IS NULL
          JOIN agent_configs config ON config.project_id = version.project_id
            AND config.id = version.agent_config_id
+         JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+           AND definition.id = config.definition_id
          WHERE project.org_id = $1
            AND profile.deleted_at IS NULL
-           AND config.configured_model_id = $2
+           AND definition.configured_model_id = $2
        ) AS used_by_agent_profile
 `
 

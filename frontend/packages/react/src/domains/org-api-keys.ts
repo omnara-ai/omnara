@@ -3,6 +3,7 @@ import {
   listOrgApiKeyProjectAccessOptions,
   listOrgApiKeyProjectAccessQueryKey,
   listOrgApiKeysInfiniteOptions,
+  listOrgInvitationsQueryKey,
 } from '@omnara/sdk/tanstack'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -65,7 +66,12 @@ export function useRevokeOrgApiKey(orgID: string) {
       return data
     },
     onSuccess: async () => {
-      await invalidateOrgApiKeys(queryClient)
+      await Promise.all([
+        invalidateOrgApiKeys(queryClient),
+        queryClient.invalidateQueries({
+          queryKey: listOrgInvitationsQueryKey({ path: { orgID }, client }),
+        }),
+      ])
     },
   })
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +39,18 @@ func TestIntegrationCredentialFailureDiagnosticsDoNotLogSecrets(t *testing.T) {
 			err:  fmt.Errorf(sensitive+": %w", &github.APIError{Code: github.TransientFailure, StatusCode: 500}),
 			want: "github transient_failure (HTTP 500)",
 		},
-		{"database save", &pgconn.PgError{Code: "23505", Message: sensitive, Detail: sensitive}, "SQLSTATE 23505"},
+		{
+			name: "database save",
+			err: fmt.Errorf(sensitive+": %w", storeerr.WrapQuery("InsertSecret",
+				&pgconn.PgError{Code: "23505", Message: sensitive, Detail: sensitive})),
+			want: "db query InsertSecret: SQLSTATE 23505",
+		},
+		{
+			name: "database timeout",
+			err: fmt.Errorf(sensitive+": %w", storeerr.WrapQuery("ListIntegrations",
+				fmt.Errorf(sensitive+": %w", context.DeadlineExceeded))),
+			want: "db query ListIntegrations: deadline exceeded",
+		},
 		{"unknown save", errors.New(sensitive), "*errors.errorString"},
 		{"conversion timeout", fmt.Errorf(sensitive+": %w", context.DeadlineExceeded), "context deadline exceeded"},
 	} {

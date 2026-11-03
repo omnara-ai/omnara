@@ -121,7 +121,9 @@ func TestLaunchInitialInputFailureRollsBackAgentConfigAndTarget(t *testing.T) {
 			require.Error(t, err)
 			for _, check := range []struct{ query, value string }{
 				{`SELECT count(*) FROM agents WHERE idempotency_key=$1`, input.IdempotencyKey},
-				{`SELECT count(*) FROM agent_configs WHERE effective_definition_hash=$1`, definition.EffectiveDefinitionHash},
+				{`SELECT count(*) FROM agent_configs config JOIN agent_config_definitions definition
+					ON definition.project_id=config.project_id AND definition.id=config.definition_id
+					WHERE definition.effective_definition_hash=$1`, definition.EffectiveDefinitionHash},
 				{`SELECT count(*) FROM integration_targets WHERE scope_ref=$1`, input.InitialInput.Origin.Address.Ref},
 				{`SELECT count(*) FROM integration_subscriptions WHERE integration_id=$1`, f.integration.ID.String()},
 			} {

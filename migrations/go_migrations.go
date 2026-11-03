@@ -10,5 +10,6 @@ func GoMigrations() []*goose.Migration {
 		newInternalConfigIDsMigration(),
 		newSlackIntegrationCutoverMigration(),
 		newStorageToolsMigration(),
+		newEventWebhookConfigMigration(),
 	}
 }

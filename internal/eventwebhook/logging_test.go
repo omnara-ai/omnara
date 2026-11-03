@@ -22,15 +22,15 @@ type failingUpdateStore struct {
 
 func (s failingUpdateStore) RetryEventWebhookDelivery(
 	context.Context, uuid.UUID, uuid.UUID, time.Duration,
-) (executionstore.EventWebhookRetryResult, error) {
-	return executionstore.EventWebhookRetryResult{}, s.err
+) (executionstore.EventWebhookDeliveryRetryResult, error) {
+	return executionstore.EventWebhookDeliveryRetryResult{}, s.err
 }
 
 func (s failingUpdateStore) CompleteEventWebhookDelivery(context.Context, uuid.UUID, uuid.UUID) error {
 	return s.err
 }
 
-func TestDeliveryLogsOutcomeWithoutURLSecrets(t *testing.T) {
+func TestDeliveryAttemptLogsOutcomeWithoutURLSecrets(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		status     int
@@ -40,19 +40,19 @@ func TestDeliveryLogsOutcomeWithoutURLSecrets(t *testing.T) {
 	}{
 		{"success", 204, false, "completed", "INFO"},
 		{"retry", 503, false, "retry_scheduled", "WARN"},
-		{"exhausted", 503, false, "gave_up", "ERROR"},
+		{"exhausted", 503, false, "gave_up", "WARN"},
 		{"retry store failure", 503, true, "retry_failed", "ERROR"},
 		{"complete store failure", 204, true, "complete_failed", "ERROR"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			sender, store, delivery := testSender()
-			store.retryResult = executionstore.EventWebhookRetryResult{
+			store.retryResult = executionstore.EventWebhookDeliveryRetryResult{
 				NextAttemptAt: time.Date(2026, time.September, 21, 12, 0, 0, 123000, time.UTC),
 				GaveUp:        test.outcome == "gave_up",
 			}
 			var output bytes.Buffer
 			sender.log = slog.New(slog.NewJSONHandler(&output, nil))
-			store.target.URL = "https://example.com/private-path?token=private-token"
+			store.endpoint.URL = "https://example.com/private-path?token=private-token"
 			if test.storeError {
 				sender.store = failingUpdateStore{testStore: store, err: errors.New("store unavailable")}
 			}
@@ -63,15 +63,16 @@ func TestDeliveryLogsOutcomeWithoutURLSecrets(t *testing.T) {
 			var record map[string]any
 			lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
 			require.NoError(t, json.Unmarshal(lines[len(lines)-1], &record))
-			require.Equal(t, "event_webhook.delivery", record["event.name"])
+			require.Equal(t, "event_webhook.delivery_attempt", record["event.name"])
 			require.Equal(t, test.outcome, record["event_webhook.outcome"])
 			require.Equal(t, test.level, record["level"])
 			require.Equal(t, delivery.ID.String(), record["event_webhook.delivery_id"])
 			require.Equal(t, delivery.OrgID.String(), record["org.id"])
-			require.Equal(t, store.target.ProjectID.String(), record["project.id"])
+			require.Equal(t, store.endpoint.ProjectID.String(), record["project.id"])
 			require.Equal(t, "tool_call_update", record["event_webhook.event_kind"])
 			require.Equal(t, float64(test.status), record["http.status_code"])
-			require.Equal(t, "example.com", record["event_webhook.target_host"])
+			require.Equal(t, "example.com", record["event_webhook.endpoint_host"])
+			require.Equal(t, true, record["event_webhook.endpoint_available"])
 			require.NotContains(t, output.String(), "private-path")
 			require.NotContains(t, output.String(), "private-token")
 			if test.status == 503 {
@@ -106,6 +107,36 @@ func TestDeliveryLogsOutcomeWithoutURLSecrets(t *testing.T) {
 			} else {
 				require.Len(t, lines, 1)
 			}
+		})
+	}
+}
+
+func TestDeliveryGiveUpLevelSeparatesRecipientFailures(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		internal bool
+		level    string
+	}{
+		{"recipient failure", false, "WARN"},
+		{"internal failure", true, "ERROR"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sender, store, delivery := testSender()
+			store.retryResult = executionstore.EventWebhookDeliveryRetryResult{GaveUp: true}
+			if test.internal {
+				store.endpoint.SigningSecretID = uuid.New()
+				store.secretErr = errors.New("decrypt failed")
+			}
+			var output bytes.Buffer
+			sender.log = slog.New(slog.NewJSONHandler(&output, nil))
+			sender.client = &http.Client{Transport: testTransport(func(*http.Request) (*http.Response, error) {
+				return nil, errors.New("connection refused")
+			})}
+			sender.deliver(t.Context(), delivery)
+			var record map[string]any
+			require.NoError(t, json.Unmarshal(bytes.TrimSpace(output.Bytes()), &record))
+			require.Equal(t, "gave_up", record["event_webhook.outcome"])
+			require.Equal(t, test.level, record["level"])
 		})
 	}
 }

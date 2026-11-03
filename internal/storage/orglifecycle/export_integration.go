@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 )
 
@@ -24,10 +25,10 @@ func (s *Service) DeleteProjectOnceForIntegration(
 func (s *Service) DeleteOrganizationOnceForIntegration(
 	ctx context.Context,
 	orgID uuid.UUID,
-	actor *executionstore.ActorParams,
+	deletedBy identitystore.PrincipalRecord,
 ) ([]executionstore.MachineRecord, error) {
 	return agentexecution.ReplanTest(ctx,
 		func(ctx context.Context) ([]executionstore.MachineRecord, error) {
-			return s.deleteOrganizationOnce(ctx, orgID, actor)
+			return s.deleteOrganizationOnce(ctx, orgID, deletedBy)
 		})
 }

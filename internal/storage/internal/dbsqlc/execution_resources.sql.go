@@ -169,8 +169,14 @@ UPDATE machines machine
 SET lifecycle_state = 'deleting',
     lifecycle_changed_at = statement_timestamp(),
     lifecycle_version = machine.lifecycle_version + 1,
-    lifecycle_reason_code = $1,
-    lifecycle_reason_message = $2,
+    lifecycle_reason_code = CASE
+      WHEN machine.lifecycle_state IN ('deleting', 'delete_failed') THEN machine.lifecycle_reason_code
+      ELSE $1::text
+    END,
+    lifecycle_reason_message = CASE
+      WHEN machine.lifecycle_state IN ('deleting', 'delete_failed') THEN machine.lifecycle_reason_message
+      ELSE $2::text
+    END,
     next_reconcile_after = statement_timestamp() + $3::bigint * interval '1 second',
     delete_attempts = machine.delete_attempts + 1,
     provider_runtime_mismatch_since = CASE
@@ -2067,6 +2073,54 @@ func (q *Queries) ListMachinePools(ctx context.Context, arg ListMachinePoolsPara
 	return items, nil
 }
 
+const listManagedWorkDeniedPoolMachines = `-- name: ListManagedWorkDeniedPoolMachines :many
+SELECT machine.org_id, machine.id AS machine_id, machine.lifecycle_version
+FROM machines machine
+JOIN machine_pools pool ON pool.org_id = machine.org_id
+  AND pool.id = machine.machine_pool_id
+JOIN org_managed_work_admission admission ON admission.org_id = machine.org_id
+WHERE machine.source_kind = 'pool'
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND pool.management_kind = 'cluster'
+  AND pool.deleted_at IS NULL
+  AND NOT admission.new_managed_work_allowed
+  AND admission.admission_changed_at <= statement_timestamp()
+    - make_interval(mins => admission.delete_machines_after_minutes)
+ORDER BY machine.org_id, machine.id
+LIMIT $1::integer
+`
+
+type ListManagedWorkDeniedPoolMachinesParams struct {
+	LimitCount int32
+}
+
+type ListManagedWorkDeniedPoolMachinesRow struct {
+	OrgID            uuid.UUID
+	MachineID        uuid.UUID
+	LifecycleVersion int64
+}
+
+func (q *Queries) ListManagedWorkDeniedPoolMachines(ctx context.Context, arg ListManagedWorkDeniedPoolMachinesParams) ([]ListManagedWorkDeniedPoolMachinesRow, error) {
+	rows, err := q.db.Query(ctx, listManagedWorkDeniedPoolMachines, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListManagedWorkDeniedPoolMachinesRow{}
+	for rows.Next() {
+		var i ListManagedWorkDeniedPoolMachinesRow
+		if err := rows.Scan(&i.OrgID, &i.MachineID, &i.LifecycleVersion); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOrganizationMachineIDsForLifecycle = `-- name: ListOrganizationMachineIDsForLifecycle :many
 SELECT id
 FROM machines
@@ -2105,23 +2159,19 @@ WITH cleanup_candidates AS (
          'offline'::text AS connection_state,
          machine.last_observed_at, machine.cpu, machine.memory_mb, machine.cwd, machine.env, machine.secret_env, machine.provider_options, coalesce(machine.idempotency_key, '') AS idempotency_key, coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code, machine.lifecycle_reason_message, machine.next_reconcile_after, machine.provision_attempts, machine.delete_attempts, machine.metadata, machine.deleted_at, machine.created_at, machine.updated_at, machine.lifecycle_changed_at, machine.lifecycle_version,
          CASE
-           WHEN machine.lifecycle_state = 'delete_failed'
+           WHEN machine.lifecycle_state IN ('deleting', 'delete_failed')
              AND machine.next_reconcile_after <= transaction_timestamp()
-             THEN 'delete_failed_retry'
+             THEN ''
            WHEN machine.lifecycle_state = 'provisioning'
              AND machine.provision_attempts >= $2::integer
              AND machine.next_reconcile_after <= transaction_timestamp()
              THEN 'provisioning_stale_cleanup'
-           WHEN machine.lifecycle_state = 'deleting'
-             AND machine.next_reconcile_after <= transaction_timestamp()
-             THEN 'deleting_retry'
            WHEN machine.lifecycle_state = 'active'
              AND machine.provider_resource_id IS NOT NULL
              AND machine.lifecycle_changed_at <= transaction_timestamp() - $3::bigint * interval '1 second'
              AND machine.current_daemon_runtime_id IS NULL
              THEN 'startup_or_daemon_bootstrap_failed'
-           ELSE ''
-         END AS cleanup_reason_code
+         END::text AS cleanup_reason_code
   FROM machines machine
   WHERE machine.source_kind = 'pool'
     AND machine.deleted_at IS NULL
@@ -2131,7 +2181,7 @@ SELECT id, org_id, machine_pool_id, source_kind, display_name, description, prov
        last_observed_at, cpu, memory_mb, cwd, env, secret_env, provider_options, idempotency_key, lifecycle_reason_code, lifecycle_reason_message, next_reconcile_after, provision_attempts, delete_attempts, metadata, deleted_at, created_at, updated_at, lifecycle_changed_at, lifecycle_version,
        cleanup_reason_code
 FROM cleanup_candidates
-WHERE cleanup_reason_code <> ''
+WHERE cleanup_reason_code IS NOT NULL
 ORDER BY created_at, id
 LIMIT $1::integer
 `
@@ -2731,6 +2781,43 @@ func (q *Queries) MarkMachinePoolMachinesDeleting(ctx context.Context, arg MarkM
 		return nil, err
 	}
 	return items, nil
+}
+
+const markManagedWorkDeniedPoolMachineDeleting = `-- name: MarkManagedWorkDeniedPoolMachineDeleting :execrows
+UPDATE machines machine
+SET lifecycle_state = 'deleting',
+    lifecycle_changed_at = statement_timestamp(),
+    lifecycle_version = machine.lifecycle_version + 1,
+    lifecycle_reason_code = 'managed_work_admission_denied',
+    lifecycle_reason_message = 'organization was denied managed work past its machine deletion delay',
+    next_reconcile_after = statement_timestamp(),
+    provider_runtime_mismatch_since = NULL,
+    wake_attempt_expires_at = NULL,
+    updated_at = statement_timestamp()
+FROM org_managed_work_admission admission
+WHERE machine.org_id = $1
+  AND machine.id = $2
+  AND machine.lifecycle_version = $3::bigint
+  AND machine.lifecycle_state = 'active'
+  AND machine.deleted_at IS NULL
+  AND admission.org_id = machine.org_id
+  AND NOT admission.new_managed_work_allowed
+  AND admission.admission_changed_at <= statement_timestamp()
+    - make_interval(mins => admission.delete_machines_after_minutes)
+`
+
+type MarkManagedWorkDeniedPoolMachineDeletingParams struct {
+	OrgID                    uuid.UUID
+	ID                       uuid.UUID
+	ExpectedLifecycleVersion int64
+}
+
+func (q *Queries) MarkManagedWorkDeniedPoolMachineDeleting(ctx context.Context, arg MarkManagedWorkDeniedPoolMachineDeletingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markManagedWorkDeniedPoolMachineDeleting, arg.OrgID, arg.ID, arg.ExpectedLifecycleVersion)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const markPoolMachineDeleting = `-- name: MarkPoolMachineDeleting :one

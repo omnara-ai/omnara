@@ -520,34 +520,19 @@ test('walks a new organization through onboarding to its first chat', async ({ p
   await expect(page.getByRole('heading', { name: 'Launch your first agent' })).toBeVisible()
   const step = (index: number) => page.locator(`[data-step="${index}"]`)
 
+  await expect(page.getByText('omnara.com/SKILL.md', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'or set up manually' }).click()
   await expect(step(1)).toHaveAttribute('data-status', 'active')
   await expect(step(1)).toContainText('npx omnara login')
-  await expect(step(2)).toHaveAttribute('data-status', 'upcoming')
+  // The browser can create the profile without the CLI login.
+  await expect(step(2)).toHaveAttribute('data-status', 'active')
   await expect(step(3)).toHaveAttribute('data-status', 'upcoming')
 
-  await page.getByRole('tab', { name: 'Browser' }).click()
-  await expect(step(1)).toHaveAttribute('data-status', 'active')
-  await expect(page.getByRole('radio', { name: /General agent/ })).toHaveAttribute(
-    'aria-checked',
-    'true',
-  )
-  await page.getByRole('radio', { name: /Deep researcher/ }).click()
-  await page.getByRole('button', { name: 'Customize first' }).click()
-  await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
-    'Deep researcher',
-  )
-  await page.getByRole('button', { name: 'OK' }).click()
-  await expect(page.getByText('Customized as Deep researcher')).toBeVisible()
-  await page.getByRole('button', { name: 'Create profile' }).click()
+  await step(2).getByRole('button', { name: 'Run' }).click()
 
-  await expect(step(1)).toHaveAttribute('data-status', 'done')
-  await expect(step(1).getByRole('link', { name: 'Deep researcher' })).toBeVisible()
-  await expect(step(2)).toHaveAttribute('data-status', 'active')
-  await expect(page.getByRole('button', { name: 'Create chat' })).toBeVisible()
-
-  await page.getByRole('tab', { name: 'CLI' }).click()
   await expect(step(1)).toHaveAttribute('data-status', 'done')
   await expect(step(2)).toHaveAttribute('data-status', 'done')
+  await expect(step(2).getByRole('link', { name: 'General agent' })).toBeVisible()
   await expect(step(3)).toHaveAttribute('data-status', 'active')
   await expect(step(3)).toContainText('npx omnara agents launch')
   await page.getByRole('tab', { name: 'TypeScript SDK' }).click()

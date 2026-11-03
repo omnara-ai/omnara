@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -182,7 +183,8 @@ func validateDaemonBinding(
 	config machinedaemon.Config,
 	log *slog.Logger,
 ) (machinedaemon.BootstrapIdentity, error) {
-	client := machinedaemon.New(config, nil, log)
+	httpClient := &http.Client{Timeout: 30 * time.Second, Transport: machinedaemon.NewRetryAfterTransport(nil)}
+	client := machinedaemon.New(config, httpClient, log)
 	identity, err := client.ValidateBootstrap(ctx)
 	if err != nil {
 		if machinedaemon.IsAuthenticationRejected(err) {

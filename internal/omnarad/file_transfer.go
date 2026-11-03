@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/machinedaemon"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/textutil"
 )
@@ -75,12 +76,12 @@ func uploadFile(ctx context.Context, processID, path string) (daemonprotocol.Fil
 	if info.Size() > daemonprotocol.MaxFileTransferBytes {
 		return daemonprotocol.FileTransferResult{}, errors.New("file exceeds the upload size limit")
 	}
-	var body io.Reader
+	var newBody func() io.Reader
 	if info.Size() > 0 {
-		body = io.NewSectionReader(file, 0, info.Size())
+		newBody = func() io.Reader { return io.NewSectionReader(file, 0, info.Size()) }
 	}
 	query := "?filename=" + url.QueryEscape(filepath.Base(path))
-	response, err := requestFileTransfer(ctx, processID, query, http.MethodPost, body, info.Size())
+	response, err := requestFileTransfer(ctx, processID, query, http.MethodPost, newBody, info.Size())
 	if err != nil {
 		return daemonprotocol.FileTransferResult{}, err
 	}
@@ -121,7 +122,7 @@ func downloadFile(ctx context.Context, processID, path string) (daemonprotocol.F
 }
 
 func requestFileTransfer(
-	ctx context.Context, processID, query, method string, body io.Reader, size int64,
+	ctx context.Context, processID, query, method string, newBody func() io.Reader, size int64,
 ) (*http.Response, error) {
 	config, _, _, err := loadRuntimeConfig(false)
 	if err != nil {
@@ -129,9 +130,13 @@ func requestFileTransfer(
 	}
 	endpoint := strings.TrimRight(config.APIURL, "/") + "/daemon/processes/" +
 		url.PathEscape(processID) + "/file" + query
-	request, err := http.NewRequestWithContext(ctx, method, endpoint, body)
+	request, err := http.NewRequestWithContext(ctx, method, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create file transfer request: %w", err)
+	}
+	if newBody != nil {
+		request.Body = io.NopCloser(newBody())
+		request.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(newBody()), nil }
 	}
 	request.ContentLength = size
 	request.Header.Set("Authorization", "Bearer "+config.MachineToken)
@@ -141,6 +146,7 @@ func requestFileTransfer(
 		request.Header.Set("Accept", "application/json")
 	}
 	client := &http.Client{
+		Transport:     machinedaemon.NewRetryAfterTransport(nil),
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	response, err := client.Do(request)

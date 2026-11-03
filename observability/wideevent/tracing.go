@@ -233,6 +233,10 @@ func DBQueryName(sql string) string {
 	firstLine = strings.TrimSpace(firstLine)
 	const prefix = "-- name:"
 	if !strings.HasPrefix(firstLine, prefix) {
+		switch keyword := strings.ToLower(strings.Fields(firstLine)[0]); keyword {
+		case "begin", "commit", "rollback", "savepoint", "release":
+			return keyword
+		}
 		return "unknown"
 	}
 	fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(firstLine, prefix)))

@@ -359,6 +359,7 @@ func TestIdentityResourceLimitsRollBackAndReleaseCapacity(t *testing.T) {
 		"max_active_org_api_keys_per_org":     orgAPIKeyLimit,
 	})
 	now := time.Date(2026, 7, 24, 13, 0, 0, 0, time.UTC)
+	inviter := createSecretTestUser(t, ctx, store, "Inviter", "admin")
 
 	if _, err := pool.Exec(ctx, `
 INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_at)
@@ -369,7 +370,7 @@ FROM generate_series(1, $3::integer) AS n
 		t.Fatalf("seed invitations to limit: %v", err)
 	}
 	if _, err := store.Identity().CreateOrgInvitation(ctx, identitystore.CreateOrgInvitationInput{
-		OrgID: testOrgID, Email: "limited-invite@example.com", Role: "member",
+		OrgID: testOrgID, Email: "limited-invite@example.com", Role: "member", ActorPrincipal: userPrincipal(inviter.ID),
 	}); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("invitation over limit error = %v, want ErrConflict", err)
 	}
@@ -625,13 +626,11 @@ INSERT INTO agent_execution_state(agent_id,incomplete_tools) SELECT id,false FRO
 	}
 	if _, err := pool.Exec(ctx, `
 INSERT INTO agent_configs(
-  org_id, project_id, configured_model_id, source, source_format,
-  source_hash, compiled_definition, effective_definition_hash,
-  created_at
+  org_id, project_id, definition_id, source, source_format,
+  source_hash, created_at
 )
-SELECT org_id, project_id, configured_model_id,
-       source || n, source_format, source_hash || n, compiled_definition,
-       effective_definition_hash || n, $2
+SELECT org_id, project_id, definition_id,
+       source || n, source_format, source_hash || n, $2
 FROM agent_configs
 CROSS JOIN generate_series(1, $3::bigint) AS n
 WHERE id = $1

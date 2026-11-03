@@ -463,7 +463,7 @@ func TestDaemonProcessFinishedPreservesAcceptedWriteEvidence(t *testing.T) {
 			builtInProcessToolCallBatchItem("process_finished_late_write_action", "write_process"),
 		},
 	)
-	processToolCallID, closeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
+	processToolCallID, writeInputToolCallID := toolCallIDs[0], toolCallIDs[1]
 
 	process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
@@ -504,15 +504,15 @@ func TestDaemonProcessFinishedPreservesAcceptedWriteEvidence(t *testing.T) {
 	action, err := createProcessActionForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
 		ProjectID:     testProjectID,
 		AgentID:       fixture.AgentID,
-		ToolCallID:    closeInputToolCallID,
+		ToolCallID:    writeInputToolCallID,
 		RuntimeLockID: fixture.Lock.ID,
 	}, executionstore.CreateProcessActionInput{
 		ProcessID:  process.ID,
 		ActionKind: executionstore.ProcessActionKindWrite,
-		Payload:    json.RawMessage(`{"close_stdin":true}`),
+		Payload:    json.RawMessage(`{"data":"x"}`),
 	})
 	if err != nil {
-		t.Fatalf("create close input action: %v", err)
+		t.Fatalf("create write input action: %v", err)
 	}
 	if _, found, err := acceptDaemonProcessActionForTest(
 		ctx,
@@ -522,9 +522,9 @@ func TestDaemonProcessFinishedPreservesAcceptedWriteEvidence(t *testing.T) {
 		fixture.RuntimeID,
 		process.ID,
 		action.ID); err != nil {
-		t.Fatalf("accept close input action: %v", err)
+		t.Fatalf("accept write input action: %v", err)
 	} else if !found {
-		t.Fatal("expected close input action accept")
+		t.Fatal("expected write input action accept")
 	}
 	exitCode := 0
 	endedAt := fixture.Now.Add(3 * time.Second)
@@ -547,10 +547,10 @@ func TestDaemonProcessFinishedPreservesAcceptedWriteEvidence(t *testing.T) {
 		ctx,
 		testProjectID,
 		fixture.AgentID,
-		closeInputToolCallID,
+		writeInputToolCallID,
 	)
 	if err != nil {
-		t.Fatalf("get resolved close input action: %v", err)
+		t.Fatalf("get resolved write input action: %v", err)
 	}
 	if !found || resolved.ID != action.ID ||
 		resolved.State != executionstore.ProcessActionStateAccepted ||
@@ -574,9 +574,9 @@ func TestDaemonProcessFinishedPreservesAcceptedWriteEvidence(t *testing.T) {
 			err,
 		)
 	}
-	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, closeInputToolCallID)
+	toolCall, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, writeInputToolCallID)
 	if err != nil {
-		t.Fatalf("get close input tool call: %v", err)
+		t.Fatalf("get write input tool call: %v", err)
 	}
 	assertCompletedProcessActionResult(
 		t,

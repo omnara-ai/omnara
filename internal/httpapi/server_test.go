@@ -415,7 +415,7 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	buf, log := newRequestEventCapture()
 	handlerErr := apierror.ProjectScoped(context.Canceled)
 	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		openAPIResponseErrorHandler(w, r, handlerErr)
+		writeAPIError(w, r, handlerErr)
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
@@ -428,7 +428,7 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	event := decodeRequestEvent(t, buf)
 	for key, want := range map[string]any{
 		"level":            "error",
-		"error.message":    handlerErr.Error(),
+		"error.message":    context.Canceled.Error() + "\n" + handlerErr.Error(),
 		"http.status_code": float64(http.StatusInternalServerError),
 	} {
 		if got := event[key]; got != want {
@@ -437,8 +437,22 @@ func TestRequestLogAttachesHandlerErrorOnErrorResponse(t *testing.T) {
 	}
 }
 
+func TestRequestLogKeepsClientErrorMessage(t *testing.T) {
+	buf, log := newRequestEventCapture()
+	handlerErr := apierror.FromCode(openapi.ErrorCodeNotFound, "agent not found").WithCause(errors.New("lookup detail"))
+	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeAPIError(w, r, handlerErr)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/test", nil))
+
+	event := decodeRequestEvent(t, buf)
+	if got := event["error.message"]; got != handlerErr.Error() {
+		t.Fatalf("error.message=%v want=%v in event %+v", got, handlerErr.Error(), event)
+	}
+}
+
 func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
-	const clientClosedTelemetryStatus = 499
 	buf, log := newRequestEventCapture()
 	set := metrics.New()
 	handlerErr := apierror.FromCode(
@@ -447,7 +461,7 @@ func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 	).WithCause(context.Canceled)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/test", func(w http.ResponseWriter, r *http.Request) {
-		openAPIResponseErrorHandler(w, r, handlerErr)
+		writeAPIError(w, r, handlerErr)
 	})
 	handler := requestEvents(log, metrics.NewHTTPRecorder(set, metrics.SubsystemAPI), mux)(mux)
 
@@ -470,7 +484,7 @@ func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 	event := decodeRequestEvent(t, buf)
 	for key, want := range map[string]any{
 		"level":                      "info",
-		"http.status_code":           float64(clientClosedTelemetryStatus),
+		"http.status_code":           float64(http.StatusServiceUnavailable),
 		"http.response_bytes":        float64(rec.Body.Len()),
 		"http.request.cancel_cause":  context.Canceled.Error(),
 		"http.request.cancel_source": "request_context",
@@ -486,15 +500,13 @@ func TestRequestLogClassifiesCanceledHandlerError(t *testing.T) {
 	set.Handler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
 	metricsBody := metricsRec.Body.String()
 	for _, want := range []string{
-		`omnara_api_requests_total{code="499",method="get",route="/api/v1/test"} 1`,
-		`omnara_api_request_duration_seconds_count{code="499",method="get",route="/api/v1/test"} 1`,
+		`omnara_api_requests_total{code="503",method="get",route="/api/v1/test"} 1`,
+		`omnara_api_request_duration_seconds_count{code="503",method="get",route="/api/v1/test"} 1`,
+		`omnara_api_requests_canceled_total{code="503",method="get",route="/api/v1/test"} 1`,
 	} {
 		if !strings.Contains(metricsBody, want) {
 			t.Fatalf("metrics output missing %q:\n%s", want, metricsBody)
 		}
-	}
-	if strings.Contains(metricsBody, `code="503",method="get",route="/api/v1/test"`) {
-		t.Fatalf("canceled request recorded as 503:\n%s", metricsBody)
 	}
 }
 
@@ -506,7 +518,7 @@ func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
 	).WithCause(errors.New("query agent row: connection refused"))
 	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logpkg.Error(r.Context(), context.Canceled)
-		openAPIResponseErrorHandler(w, r, handlerErr)
+		writeAPIError(w, r, handlerErr)
 	}))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -521,7 +533,7 @@ func TestRequestLogPreservesHandlerErrorWhenRequestIsCanceled(t *testing.T) {
 	event := decodeRequestEvent(t, buf)
 	for key, want := range map[string]any{
 		"level":                      "error",
-		"error.message":              errors.Join(context.Canceled, handlerErr).Error(),
+		"error.message":              errors.Join(context.Canceled, errors.Unwrap(handlerErr), handlerErr).Error(),
 		"http.status_code":           float64(http.StatusServiceUnavailable),
 		"http.request.cancel_cause":  context.Canceled.Error(),
 		"http.request.cancel_source": "request_context",
@@ -567,7 +579,6 @@ func TestRequestLogPreservesHandlerPanicWhenRequestIsCanceled(t *testing.T) {
 }
 
 func TestRequestLogClassifiesCanceledAuthenticationError(t *testing.T) {
-	const clientClosedTelemetryStatus = 499
 	buf, log := newRequestEventCapture()
 	handler := requestEvents(log, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logent.AuthFailedError(
@@ -593,7 +604,7 @@ func TestRequestLogClassifiesCanceledAuthenticationError(t *testing.T) {
 	for key, want := range map[string]any{
 		"level":                      "info",
 		"auth.result":                string(logent.AuthResultUnavailable),
-		"http.status_code":           float64(clientClosedTelemetryStatus),
+		"http.status_code":           float64(http.StatusServiceUnavailable),
 		"http.request.cancel_cause":  context.Canceled.Error(),
 		"http.request.cancel_source": "request_context",
 	} {
@@ -1399,7 +1410,7 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 	server := mustNewUnitServer(t)
 	mux := http.NewServeMux()
 	server.registerRoutes(mux)
-	handler := maxBody(requestBodyLimit)(mux)
+	handler := maxBody(requestBodyLimit, uploadBudget)(mux)
 	orgPath := testPublicID(t, publicid.KindOrganization, httpTestOrgID)
 	projectPath := testPublicID(t, publicid.KindProject, httpTestProjectID)
 	agentPath := testPublicID(t, publicid.KindAgent, httpTestAgentID)

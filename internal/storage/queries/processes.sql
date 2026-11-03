@@ -74,7 +74,7 @@ JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
   AND pmgrant.machine_id = binding.machine_id
 JOIN reachable_machine ON true
 ON CONFLICT (agent_id, tool_call_id) DO NOTHING
-RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec;
+RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec, exit_notice_decided, supervisor_daemon_version;
 
 -- name: CountNonTerminalProcessesForAgent :one
 SELECT count(*)::bigint
@@ -84,14 +84,14 @@ WHERE project_id = sqlc.arg(project_id)
   AND state IN ('queued', 'starting', 'running');
 
 -- name: GetProcess :one
-SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
+SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec, exit_notice_decided, supervisor_daemon_version
 FROM processes
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
   AND id = sqlc.arg(id);
 
 -- name: GetProcessForUpdate :one
-SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
+SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec, exit_notice_decided, supervisor_daemon_version
 FROM processes
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
@@ -99,7 +99,7 @@ WHERE project_id = sqlc.arg(project_id)
 FOR UPDATE;
 
 -- name: LockProcessForActionCreation :one
-SELECT id
+SELECT default_output_cursor
 FROM processes
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
@@ -117,14 +117,14 @@ WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id);
 
 -- name: GetProcessByMachine :one
-SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
+SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec, exit_notice_decided, supervisor_daemon_version
 FROM processes
 WHERE org_id = sqlc.arg(org_id)
   AND machine_id = sqlc.arg(machine_id)
   AND id = sqlc.arg(id);
 
 -- name: ListProcessesForMachineReconciliation :many
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec, process.exit_notice_decided, process.supervisor_daemon_version
 FROM processes process
 WHERE process.org_id = sqlc.arg(org_id)
   AND process.machine_id = sqlc.arg(machine_id)
@@ -141,7 +141,7 @@ WHERE process.org_id = sqlc.arg(org_id)
   );
 
 -- name: GetProcessByToolCall :one
-SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
+SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec, exit_notice_decided, supervisor_daemon_version
 FROM processes
 WHERE project_id = sqlc.arg(project_id)
   AND agent_id = sqlc.arg(agent_id)
@@ -199,7 +199,7 @@ WHERE process.project_id = sqlc.arg(project_id)
   AND process.id = sqlc.arg(id)
   AND process.machine_id = sqlc.arg(machine_id)
   AND process.state IN ('starting', 'running')
-RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec;
+RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec, process.exit_notice_decided, process.supervisor_daemon_version;
 
 -- name: CompleteProcess :one
 UPDATE processes
@@ -217,7 +217,7 @@ WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND runtime_lock_id = sqlc.arg(runtime_lock_id)
   AND state IN ('starting', 'running')
-RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec;
+RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec, exit_notice_decided, supervisor_daemon_version;
 
 -- name: CompleteDaemonObservedProcess :one
 UPDATE processes process
@@ -276,7 +276,7 @@ WHERE process.project_id = sqlc.arg(project_id)
     OR coalesce(process.source_started_at, sqlc.narg(source_started_at)::timestamptz) IS NULL
     OR sqlc.narg(source_ended_at)::timestamptz IS NOT NULL
   )
-RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec;
+RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec, process.exit_notice_decided, process.supervisor_daemon_version;
 
 -- name: FailProcessBeforeExecution :one
 UPDATE processes process
@@ -291,12 +291,12 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND process.id = sqlc.arg(id)
   AND process.state = 'starting'
   AND process.source_started_at IS NULL
-RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec;
+RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec, process.exit_notice_decided, process.supervisor_daemon_version;
 
 -- name: ListDaemonProcessOffers :many
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec,
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec, process.exit_notice_decided, process.supervisor_daemon_version,
        coalesce((CASE WHEN process.execution_spec->>'kind' = 'shell' THEN (
-         SELECT config.compiled_definition->'git_credentials'->>'integration_id'
+         SELECT definition.compiled_definition->'git_credentials'->>'integration_id'
          FROM tool_calls tool_call
          JOIN model_outputs output ON output.agent_id = tool_call.agent_id
            AND output.id = tool_call.model_output_id
@@ -304,6 +304,8 @@ SELECT process.id, process.org_id, process.project_id, process.agent_id, process
            AND context.id = output.model_call_context_id
          JOIN agent_configs config ON config.project_id = context.project_id
            AND config.id = context.agent_config_id
+         JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+           AND definition.id = config.definition_id
          WHERE tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
        ) END)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id
 FROM processes process
@@ -341,8 +343,10 @@ FOR UPDATE;
 
 -- name: AcceptDaemonProcess :one
 WITH runtime AS MATERIALIZED (
-  SELECT runtime.org_id, runtime.machine_id
+  SELECT runtime.org_id, runtime.machine_id, registered.daemon_version
   FROM online_daemon_runtimes runtime
+  JOIN daemon_runtimes registered ON registered.org_id = runtime.org_id
+    AND registered.id = runtime.id
   WHERE runtime.id = sqlc.arg(daemon_runtime_id)::uuid
     AND runtime.org_id = sqlc.arg(org_id)
     AND runtime.machine_id = sqlc.arg(machine_id)
@@ -350,6 +354,7 @@ WITH runtime AS MATERIALIZED (
 )
 UPDATE processes process
 SET execution_granted_at = statement_timestamp(),
+    supervisor_daemon_version = runtime.daemon_version,
     state = 'starting',
     state_changed_at = statement_timestamp(),
     last_activity_at = statement_timestamp(),
@@ -374,14 +379,14 @@ WHERE process.org_id = runtime.org_id
 RETURNING process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.execution_spec;
 
 -- name: GetDaemonProcessForProjectReport :one
-SELECT processes.id, processes.org_id, processes.project_id, processes.agent_id, processes.tool_call_id, processes.runtime_lock_id, processes.agent_machine_binding_id, processes.machine_id, processes.execution_granted_at, processes.cwd, processes.env, processes.secret_env, processes.timeout_seconds, processes.initial_wait_ms, processes.default_output_cursor, processes.state, processes.state_reason_code, processes.state_reason_message, processes.source_started_at, processes.source_ended_at, processes.state_changed_at, processes.exit_code, processes.exit_signal, processes.created_at, processes.updated_at, processes.last_activity_at, processes.execution_spec
+SELECT processes.id, processes.org_id, processes.project_id, processes.agent_id, processes.tool_call_id, processes.runtime_lock_id, processes.agent_machine_binding_id, processes.machine_id, processes.execution_granted_at, processes.cwd, processes.env, processes.secret_env, processes.timeout_seconds, processes.initial_wait_ms, processes.default_output_cursor, processes.state, processes.state_reason_code, processes.state_reason_message, processes.source_started_at, processes.source_ended_at, processes.state_changed_at, processes.exit_code, processes.exit_signal, processes.created_at, processes.updated_at, processes.last_activity_at, processes.execution_spec, processes.exit_notice_decided, processes.supervisor_daemon_version
 FROM processes
 WHERE processes.project_id = sqlc.arg(project_id)
   AND processes.machine_id = sqlc.arg(machine_id)
   AND processes.id = sqlc.arg(id);
 
 -- name: GetDaemonProcessForMachineReport :one
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec, process.exit_notice_decided, process.supervisor_daemon_version
 FROM processes process
 JOIN reportable_daemon_runtimes runtime ON runtime.org_id = process.org_id
   AND runtime.machine_id = process.machine_id
@@ -393,7 +398,7 @@ WHERE process.org_id = sqlc.arg(org_id)
 
 -- name: GetDaemonGitCredentialsScope :one
 SELECT process.project_id, process.agent_id,
-       (original_config.compiled_definition->'git_credentials')::jsonb AS git_credentials
+       (original_definition.compiled_definition->'git_credentials')::jsonb AS git_credentials
 FROM processes process
 JOIN orgs org ON org.id = process.org_id AND org.deleted_at IS NULL
 JOIN projects project ON project.org_id = process.org_id AND project.id = process.project_id
@@ -408,21 +413,32 @@ JOIN agent_machine_bindings binding ON binding.org_id = process.org_id
   AND binding.state = 'attached'
 JOIN project_machine_grants pmgrant ON pmgrant.org_id = process.org_id
   AND pmgrant.project_id = process.project_id AND pmgrant.machine_id = process.machine_id
-JOIN tool_call_read_projection tool_call ON tool_call.project_id = process.project_id
-  AND tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
-JOIN model_call_contexts context ON context.project_id = process.project_id
-  AND context.agent_id = process.agent_id AND context.id = tool_call.model_call_context_id
+JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
+JOIN model_outputs output ON output.agent_id = tool_call.agent_id AND output.id = tool_call.model_output_id
+JOIN model_call_contexts context ON context.agent_id = output.agent_id
+  AND context.id = output.model_call_context_id
 JOIN agent_configs original_config ON original_config.project_id = process.project_id
   AND original_config.id = context.agent_config_id
 JOIN agent_configs current_config ON current_config.project_id = process.project_id
   AND current_config.id = agent.current_config_id
+JOIN agent_config_definitions original_definition ON original_definition.project_id = original_config.project_id
+  AND original_definition.id = original_config.definition_id
+JOIN agent_config_definitions current_definition ON current_definition.project_id = current_config.project_id
+  AND current_definition.id = current_config.definition_id
 WHERE process.org_id = sqlc.arg(org_id)
   AND process.machine_id = sqlc.arg(machine_id)
   AND process.id = sqlc.arg(process_id)
   AND process.execution_spec->>'kind' = 'shell'
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
-  AND original_config.compiled_definition->'git_credentials' = current_config.compiled_definition->'git_credentials';
+  AND original_definition.compiled_definition->'git_credentials' = current_definition.compiled_definition->'git_credentials'
+  AND EXISTS (
+    SELECT 1
+    FROM agent_events source_event
+    WHERE source_event.agent_id = output.agent_id
+      AND source_event.model_output_id = output.id
+      AND source_event.event_kind = 'model_output'
+  );
 
 -- name: GetDaemonFileProcessScope :one
 SELECT process.project_id, process.agent_id, process.tool_call_id, process.execution_spec
@@ -445,10 +461,10 @@ WHERE org_id = sqlc.arg(org_id)
   AND machine_id = sqlc.arg(machine_id)
   AND id = sqlc.arg(id)
   AND state IN ('starting', 'running')
-RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec;
+RETURNING id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec, exit_notice_decided, supervisor_daemon_version;
 
 -- name: ListProcessesForExecutionRevoked :many
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at, process.execution_spec, process.exit_notice_decided, process.supervisor_daemon_version
 FROM processes process
 WHERE process.project_id = sqlc.arg(project_id)
   AND (
@@ -497,7 +513,7 @@ WHERE process.project_id = sqlc.arg(project_id)
 ORDER BY process.project_id, process.agent_id, process.created_at, process.id;
 
 -- name: ListProcessesForMachineLifecycleTermination :many
-SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec
+SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec, exit_notice_decided, supervisor_daemon_version
 FROM processes process
 WHERE process.org_id = sqlc.arg(org_id)
   AND process.machine_id = sqlc.arg(machine_id)
@@ -565,3 +581,20 @@ WHERE machine.id = sqlc.arg(machine_id)
   AND machine.deleted_at IS NULL
   AND connection.connection_state IN ('online', 'asleep')
 LIMIT 1;
+
+-- name: GetProcessExecutionSpecForAgent :one
+SELECT process.execution_spec,
+       (process.execution_granted_at IS NOT NULL)::boolean AS accepted,
+       (CASE WHEN process.execution_granted_at IS NULL
+             THEN coalesce(current_runtime.daemon_version, '')
+             ELSE coalesce(process.supervisor_daemon_version, '')
+        END)::text AS daemon_version
+FROM processes process
+LEFT JOIN machines machine ON machine.org_id = process.org_id
+  AND machine.id = process.machine_id
+  AND machine.deleted_at IS NULL
+LEFT JOIN daemon_runtimes current_runtime ON current_runtime.org_id = machine.org_id
+  AND current_runtime.id = machine.current_daemon_runtime_id
+WHERE process.project_id = sqlc.arg(project_id)
+  AND process.agent_id = sqlc.arg(agent_id)
+  AND process.id = sqlc.arg(id);

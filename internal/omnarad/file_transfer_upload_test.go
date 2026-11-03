@@ -101,6 +101,42 @@ func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
 	}
 }
 
+func TestFileTransferUploadResendsTheWholeFileAfterRateLimit(t *testing.T) {
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
+	artifactID := fileTransferTestPublicID(t, publicid.KindArtifact)
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("artifact bytes")))
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := attempts.Add(1)
+		body, err := io.ReadAll(r.Body)
+		if err != nil || string(body) != "artifact bytes" {
+			t.Errorf("upload attempt %d body = %q, error = %v", attempt, body, err)
+		}
+		if attempt == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"path":%q,"digest":%q}`, "/artifacts/"+artifactID, digest)
+	}))
+	defer server.Close()
+	setConfiguredDaemonEnvironment(t, t.TempDir(), server.URL, "")
+	path := filepath.Join(t.TempDir(), "shot.png")
+	if err := os.WriteFile(path, []byte("artifact bytes"), 0o600); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+
+	var result bytes.Buffer
+	if err := runFileTransfer(context.Background(), processcmd.FileTransferUpload, processID, path, &result); err != nil {
+		t.Fatalf("upload artifact: %v", err)
+	}
+	want := `{"path":"/artifacts/` + artifactID + `","digest":"` + digest + `"}` + "\n"
+	if result.String() != want || attempts.Load() != 2 {
+		t.Fatalf("result = %q after %d attempts, want %q after 2", result.String(), attempts.Load(), want)
+	}
+}
+
 func TestFileTransferUploadRejectsInvalidFiles(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Error("invalid upload reached the server")

@@ -1178,12 +1178,15 @@ USING candidates
 WHERE flow.id = candidates.id;
 
 -- name: CreateOrgInvitation :one
-INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_at)
-VALUES (sqlc.arg(org_id), sqlc.arg(email), sqlc.arg(normalized_email), sqlc.arg(org_role), statement_timestamp())
-RETURNING id, org_id, email, normalized_email, org_role, created_at;
+INSERT INTO org_invitations(org_id, email, normalized_email, org_role, created_by_membership_id, created_at)
+VALUES (
+  sqlc.arg(org_id), sqlc.arg(email), sqlc.arg(normalized_email), sqlc.arg(org_role),
+  sqlc.arg(created_by_membership_id)::uuid, statement_timestamp()
+)
+RETURNING id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id;
 
 -- name: GetPendingOrgInvitationByEmail :one
-SELECT id, org_id, email, normalized_email, org_role, created_at
+SELECT id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 FROM org_invitations
 WHERE org_id = sqlc.arg(org_id)
   AND normalized_email = sqlc.arg(normalized_email);
@@ -1212,7 +1215,7 @@ ORDER BY invitation.created_at ASC, invitation.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ListOrgInvitations :many
-SELECT id, org_id, email, normalized_email, org_role, created_at
+SELECT id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id
 FROM org_invitations
 WHERE org_id = sqlc.arg(org_id)
   AND (
@@ -1243,7 +1246,13 @@ JOIN orgs org ON org.id = consumed.org_id AND org.deleted_at IS NULL;
 DELETE FROM org_invitations
 WHERE id = sqlc.arg(id)
   AND org_id = sqlc.arg(org_id)
-RETURNING id, org_id, email, normalized_email, org_role, created_at;
+RETURNING id, org_id, email, normalized_email, org_role, created_at, created_by_membership_id;
+
+-- name: DeleteOwnerOrgInvitationsFromSender :exec
+DELETE FROM org_invitations
+WHERE org_id = sqlc.arg(org_id)
+  AND created_by_membership_id = sqlc.arg(created_by_membership_id)::uuid
+  AND org_role = 'owner';
 
 -- name: LockOrg :one
 SELECT id
@@ -1269,6 +1278,16 @@ WHERE org_id = sqlc.arg(org_id)
     (sqlc.narg(user_id)::uuid IS NOT NULL AND user_id = sqlc.narg(user_id)::uuid)
     OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND org_api_key_id = sqlc.narg(org_api_key_id)::uuid)
   );
+
+-- name: LockOrgMembershipForPrincipal :one
+SELECT id, role
+FROM org_memberships
+WHERE org_id = sqlc.arg(org_id)
+  AND (
+    (sqlc.narg(user_id)::uuid IS NOT NULL AND user_id = sqlc.narg(user_id)::uuid)
+    OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND org_api_key_id = sqlc.narg(org_api_key_id)::uuid)
+  )
+FOR KEY SHARE;
 
 -- name: ListAgentInputProducerAuthorizationRoles :many
 SELECT roles.role

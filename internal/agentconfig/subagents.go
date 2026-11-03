@@ -78,7 +78,7 @@ func SubagentCompiledFrom(
 	child.MCP = maps.Clone(base.MCP)
 	for name, tool := range child.Tools {
 		if tool.IntegrationID != uuid.Nil || toolcatalog.UsesIntegrationToolNamespace(name) ||
-			toolcatalog.IsInteractionHandlerTool(name) {
+			toolcatalog.IsInteractionHandlerTool(name) || name == toolcatalog.ToolNameListGitHubRepositories {
 			delete(child.Tools, name)
 		}
 	}

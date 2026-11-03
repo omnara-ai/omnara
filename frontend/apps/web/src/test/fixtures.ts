@@ -157,16 +157,22 @@ export function integrationDefinition(
           'opening_message_template',
           'message_template',
         ],
-        'x-omnara-field-order': [
-          'agent_profile_id',
-          'channel_id',
-          'opening_message_template',
-          'message_template',
+        'x-omnara-sections': [
+          {
+            icon: 'omnara',
+            title: 'In Omnara',
+            fields: ['agent_profile_id', 'message_template'],
+          },
+          {
+            icon: 'integration',
+            title: integrationKind === 'slack_thread' ? 'In Slack' : 'In Discord',
+            fields: ['channel_id', 'opening_message_template'],
+          },
         ],
         properties: {
           message_template: {
             type: 'string',
-            title: 'Task instructions',
+            title: 'Message',
             minLength: 1,
             description: 'The initial task for each new agent.',
             'x-omnara-control': 'textarea',

@@ -124,10 +124,6 @@ subagents:
   copy: {type: self, max_instances: 2}
 max_subagents: 4
 max_depth: 2
-event_webhook:
-  url: https://example.com/events
-  events: [tool_call_update]
-  signing_secret_id: `+secretID+`
 memory_stores:
   - {name: notes, access: read_write}
 `), opts)

@@ -251,9 +251,6 @@ func TestIntegrationCompositionPreservesCompiledReferencesAndWebhook(t *testing.
 			Type: SubagentTypeProfile, ProfileID: publicidTestID(144),
 			Model: &ModelCompiled{ConfiguredModelID: publicidTestID(145)},
 		}},
-		EventWebhook: &EventWebhookCompiled{
-			URL: "https://example.com/events", Events: []string{"model_output"}, SigningSecretID: secretID,
-		},
 	}
 	derived, err := DeriveWithIntegrationCapabilities(base, IntegrationCapabilitiesSource{
 		Tools: map[string]AgentConfigToolSource{
@@ -286,12 +283,9 @@ func TestIntegrationCompositionPreservesCompiledReferencesAndWebhook(t *testing.
 	childModel := *base.Subagents["worker"].Model
 	childModel.Reasoning = base.Model.Reasoning
 	require.Equal(t, childModel, child.Model)
-	require.Equal(t, base.EventWebhook, child.EventWebhook)
 	require.Equal(t, base.MachineSources, child.MachineSources)
 	require.Equal(t, base.MCP, child.MCP)
 	require.Equal(t, base.Skills, child.Skills)
-	derived.EventWebhook.Events[0] = "tool_call_update"
-	require.Equal(t, []string{"model_output"}, base.EventWebhook.Events)
 }
 
 func TestIntegrationCompositionAddsRetrievalDefaultsWithoutOverridingPolicy(t *testing.T) {

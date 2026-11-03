@@ -155,8 +155,9 @@ func TestLivePromptCacheSecondTurnReadsTheFirstTurnsPrefix(t *testing.T) {
 func liveConversationPair(t *testing.T, client model.Client) (model.Response, model.Response) {
 	t.Helper()
 	bundle := modelcontext.Bundle{
-		AgentID:      uuid.New(),
-		SystemPrompt: liveStableSystemPrompt(),
+		SafetyIdentifier: modeltest.LiveSafetyIdentifier,
+		AgentID:          uuid.New(),
+		SystemPrompt:     liveStableSystemPrompt(),
 		Messages: []modelcontext.Message{
 			liveTextMessage(modelprotocol.RoleUser, 10, "Reply with the single word ready."),
 		},
@@ -180,6 +181,7 @@ func liveRespond(t *testing.T, client model.Client, bundle modelcontext.Bundle) 
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
+	modeltest.RequireSafetyIdentifier(t, prepared.Body)
 	response, err := client.Respond(ctx, model.Request{ProviderRequest: prepared.Body})
 	if err != nil {
 		t.Fatalf("respond: %v", err)

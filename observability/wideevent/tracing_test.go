@@ -243,6 +243,36 @@ func TestDBQueryName(t *testing.T) {
 			want: "unknown",
 		},
 		{
+			name: "begin with options",
+			sql:  "begin isolation level serializable read write",
+			want: "begin",
+		},
+		{
+			name: "commit",
+			sql:  "COMMIT",
+			want: "commit",
+		},
+		{
+			name: "rollback to savepoint",
+			sql:  "rollback to savepoint sp_1",
+			want: "rollback",
+		},
+		{
+			name: "savepoint",
+			sql:  "savepoint sp_1",
+			want: "savepoint",
+		},
+		{
+			name: "release savepoint",
+			sql:  "release savepoint sp_1",
+			want: "release",
+		},
+		{
+			name: "set",
+			sql:  "SET LOCAL statement_timeout = '3s'",
+			want: "unknown",
+		},
+		{
 			name: "empty",
 			sql:  "",
 			want: "unknown",

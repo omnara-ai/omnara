@@ -60,16 +60,18 @@ config_change AS MATERIALIZED (
   ORDER BY event.sequence DESC
   LIMIT 1
 )
-SELECT config.id, config.org_id, config.project_id, config.configured_model_id,
+SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
        config.source, config.source_format, config.source_hash,
-       config.compiled_definition,
-       config.effective_definition_hash,
+       definition.compiled_definition,
+       definition.effective_definition_hash,
        config.created_at,
        $1::bigint AS input_event_sequence
 FROM existing_agent
 JOIN config_change ON true
 JOIN agent_configs config ON config.project_id = existing_agent.project_id
   AND config.id = config_change.agent_config_id
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id
 `
 
 type CaptureAgentConfigForEventWatermarkParams struct {
@@ -141,15 +143,17 @@ config_change AS MATERIALIZED (
   ORDER BY event.sequence DESC
   LIMIT 1
 )
-SELECT config.id, config.org_id, config.project_id, config.configured_model_id,
+SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
        config.source, config.source_format, config.source_hash,
-       config.compiled_definition,
-       config.effective_definition_hash,
+       definition.compiled_definition,
+       definition.effective_definition_hash,
        config.created_at,
        watermark.input_event_sequence
 FROM existing_agent
 JOIN agent_configs config ON config.project_id = existing_agent.project_id
   AND config.id = existing_agent.current_config_id
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id
 JOIN watermark ON true
 JOIN config_change ON config_change.agent_config_id = existing_agent.current_config_id
 `
@@ -273,12 +277,54 @@ func (q *Queries) DeleteAgentProfileVersions(ctx context.Context, arg DeleteAgen
 	return err
 }
 
-const getAgentConfig = `-- name: GetAgentConfig :one
-SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, effective_definition_hash,
-       created_at
+const findAgentConfigVersion = `-- name: FindAgentConfigVersion :one
+SELECT id, created_at
 FROM agent_configs
-WHERE project_id = $1 AND id = $2
+WHERE project_id = $1
+  AND definition_id = $2
+  -- source_hash is never '', so coalesce keeps the NULL-safe match indexable.
+  AND coalesce(source_hash, '') = coalesce($3::text, '')
+  AND source_format IS NOT DISTINCT FROM $4::text
+  AND source IS NOT DISTINCT FROM $5::text
+ORDER BY created_at, id
+LIMIT 1
+`
+
+type FindAgentConfigVersionParams struct {
+	ProjectID    uuid.UUID
+	DefinitionID uuid.UUID
+	SourceHash   *string
+	SourceFormat *string
+	Source       *string
+}
+
+type FindAgentConfigVersionRow struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+}
+
+func (q *Queries) FindAgentConfigVersion(ctx context.Context, arg FindAgentConfigVersionParams) (FindAgentConfigVersionRow, error) {
+	row := q.db.QueryRow(ctx, findAgentConfigVersion,
+		arg.ProjectID,
+		arg.DefinitionID,
+		arg.SourceHash,
+		arg.SourceFormat,
+		arg.Source,
+	)
+	var i FindAgentConfigVersionRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
+}
+
+const getAgentConfig = `-- name: GetAgentConfig :one
+SELECT config.id, config.org_id, config.project_id, definition.configured_model_id,
+       config.source, config.source_format, config.source_hash,
+       definition.compiled_definition, definition.effective_definition_hash,
+       config.created_at
+FROM agent_configs config
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id
+WHERE config.project_id = $1 AND config.id = $2
 `
 
 type GetAgentConfigParams struct {
@@ -286,9 +332,22 @@ type GetAgentConfigParams struct {
 	ID        uuid.UUID
 }
 
-func (q *Queries) GetAgentConfig(ctx context.Context, arg GetAgentConfigParams) (AgentConfig, error) {
+type GetAgentConfigRow struct {
+	ID                      uuid.UUID
+	OrgID                   uuid.UUID
+	ProjectID               uuid.UUID
+	ConfiguredModelID       uuid.UUID
+	Source                  *string
+	SourceFormat            *string
+	SourceHash              *string
+	CompiledDefinition      json.RawMessage
+	EffectiveDefinitionHash string
+	CreatedAt               time.Time
+}
+
+func (q *Queries) GetAgentConfig(ctx context.Context, arg GetAgentConfigParams) (GetAgentConfigRow, error) {
 	row := q.db.QueryRow(ctx, getAgentConfig, arg.ProjectID, arg.ID)
-	var i AgentConfig
+	var i GetAgentConfigRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -304,40 +363,27 @@ func (q *Queries) GetAgentConfig(ctx context.Context, arg GetAgentConfigParams) 
 	return i, err
 }
 
-const getAgentConfigByHash = `-- name: GetAgentConfigByHash :one
-SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, effective_definition_hash,
-       created_at
-FROM agent_configs
+const getAgentConfigDefinitionByHash = `-- name: GetAgentConfigDefinitionByHash :one
+SELECT id, org_id, project_id, configured_model_id, compiled_definition,
+       effective_definition_hash, created_at
+FROM agent_config_definitions
 WHERE project_id = $1
   AND effective_definition_hash = $2::text
-  AND source_format IS NOT DISTINCT FROM $3::text
-  AND source_hash IS NOT DISTINCT FROM $4::text
 `
 
-type GetAgentConfigByHashParams struct {
+type GetAgentConfigDefinitionByHashParams struct {
 	ProjectID               uuid.UUID
 	EffectiveDefinitionHash string
-	SourceFormat            *string
-	SourceHash              *string
 }
 
-func (q *Queries) GetAgentConfigByHash(ctx context.Context, arg GetAgentConfigByHashParams) (AgentConfig, error) {
-	row := q.db.QueryRow(ctx, getAgentConfigByHash,
-		arg.ProjectID,
-		arg.EffectiveDefinitionHash,
-		arg.SourceFormat,
-		arg.SourceHash,
-	)
-	var i AgentConfig
+func (q *Queries) GetAgentConfigDefinitionByHash(ctx context.Context, arg GetAgentConfigDefinitionByHashParams) (AgentConfigDefinition, error) {
+	row := q.db.QueryRow(ctx, getAgentConfigDefinitionByHash, arg.ProjectID, arg.EffectiveDefinitionHash)
+	var i AgentConfigDefinition
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
 		&i.ConfiguredModelID,
-		&i.Source,
-		&i.SourceFormat,
-		&i.SourceHash,
 		&i.CompiledDefinition,
 		&i.EffectiveDefinitionHash,
 		&i.CreatedAt,
@@ -649,6 +695,46 @@ func (q *Queries) GetProjectByID(ctx context.Context, arg GetProjectByIDParams) 
 	return i, err
 }
 
+const insertAgentConfigVersion = `-- name: InsertAgentConfigVersion :one
+INSERT INTO agent_configs(
+    org_id, project_id, definition_id, source, source_format, source_hash, created_at
+)
+VALUES (
+    $1, $2, $3,
+    $4, $5, $6,
+    transaction_timestamp()
+)
+RETURNING id, created_at
+`
+
+type InsertAgentConfigVersionParams struct {
+	OrgID        uuid.UUID
+	ProjectID    uuid.UUID
+	DefinitionID uuid.UUID
+	Source       *string
+	SourceFormat *string
+	SourceHash   *string
+}
+
+type InsertAgentConfigVersionRow struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+}
+
+func (q *Queries) InsertAgentConfigVersion(ctx context.Context, arg InsertAgentConfigVersionParams) (InsertAgentConfigVersionRow, error) {
+	row := q.db.QueryRow(ctx, insertAgentConfigVersion,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.DefinitionID,
+		arg.Source,
+		arg.SourceFormat,
+		arg.SourceHash,
+	)
+	var i InsertAgentConfigVersionRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
+}
+
 const insertAgentProfile = `-- name: InsertAgentProfile :one
 WITH seed AS (
     SELECT uuidv7() AS profile_id,
@@ -737,11 +823,11 @@ SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        profile.created_at, profile.updated_at,
        config.id AS config_id, config.org_id AS config_org_id,
        config.project_id AS config_project_id,
-       config.configured_model_id AS config_configured_model_id,
+       definition.configured_model_id AS config_configured_model_id,
        config.source AS config_source, config.source_format AS config_source_format,
        config.source_hash AS config_source_hash,
-       config.compiled_definition AS config_compiled_definition,
-       config.effective_definition_hash AS config_effective_definition_hash,
+       definition.compiled_definition AS config_compiled_definition,
+       definition.effective_definition_hash AS config_effective_definition_hash,
        config.created_at AS config_created_at,
        CASE $6::text
          WHEN 'name' THEN lower(profile.name)
@@ -762,8 +848,10 @@ JOIN agent_profile_versions version
  AND version.deleted_at IS NULL
 JOIN agent_configs config ON config.project_id = profile.project_id
   AND config.id = version.agent_config_id
-JOIN configured_models model ON model.org_id = config.org_id
-  AND model.id = config.configured_model_id
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id
+JOIN configured_models model ON model.org_id = definition.org_id
+  AND model.id = definition.configured_model_id
 JOIN model_provider_configs provider ON provider.org_id = model.org_id
   AND provider.id = model.model_provider_config_id
 WHERE profile.project_id = ANY($7::uuid[])
@@ -988,11 +1076,11 @@ SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        profile.created_at, profile.updated_at,
        config.id AS config_id, config.org_id AS config_org_id,
        config.project_id AS config_project_id,
-       config.configured_model_id AS config_configured_model_id,
+       definition.configured_model_id AS config_configured_model_id,
        config.source AS config_source, config.source_format AS config_source_format,
        config.source_hash AS config_source_hash,
-       config.compiled_definition AS config_compiled_definition,
-       config.effective_definition_hash AS config_effective_definition_hash,
+       definition.compiled_definition AS config_compiled_definition,
+       definition.effective_definition_hash AS config_effective_definition_hash,
        config.created_at AS config_created_at
 FROM agent_profiles profile
 JOIN projects project ON project.id = profile.project_id
@@ -1003,6 +1091,8 @@ JOIN agent_profile_versions version
  AND version.deleted_at IS NULL
 JOIN agent_configs config ON config.project_id = profile.project_id
   AND config.id = version.agent_config_id
+JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+  AND definition.id = config.definition_id
 WHERE profile.project_id = ANY($1::uuid[])
   AND profile.deleted_at IS NULL
 ORDER BY profile.updated_at DESC, profile.id DESC
@@ -1074,6 +1164,26 @@ func (q *Queries) ListRecentAgentProfilesForProjects(ctx context.Context, arg Li
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockAgentConfigVersionKey = `-- name: LockAgentConfigVersionKey :exec
+SELECT pg_advisory_xact_lock(hashtextextended(
+    'agent_config_version:' || $1::uuid::text
+        || ':' || $2::uuid::text
+        || ':' || coalesce($3::text, ''),
+    0
+))
+`
+
+type LockAgentConfigVersionKeyParams struct {
+	ProjectID    uuid.UUID
+	DefinitionID uuid.UUID
+	SourceHash   *string
+}
+
+func (q *Queries) LockAgentConfigVersionKey(ctx context.Context, arg LockAgentConfigVersionKeyParams) error {
+	_, err := q.db.Exec(ctx, lockAgentConfigVersionKey, arg.ProjectID, arg.DefinitionID, arg.SourceHash)
+	return err
 }
 
 const lockAgentProfile = `-- name: LockAgentProfile :one
@@ -1233,91 +1343,69 @@ func (q *Queries) RetargetAgentProfile(ctx context.Context, arg RetargetAgentPro
 	return i, err
 }
 
-const upsertAgentConfigByHash = `-- name: UpsertAgentConfigByHash :one
-WITH inserted_config AS (
-INSERT INTO agent_configs(
-    org_id, project_id, configured_model_id, source, source_format, source_hash,
-    compiled_definition, effective_definition_hash,
-    created_at
+const upsertAgentConfigDefinition = `-- name: UpsertAgentConfigDefinition :one
+WITH inserted_definition AS (
+INSERT INTO agent_config_definitions(
+    org_id, project_id, configured_model_id, compiled_definition,
+    effective_definition_hash, created_at
 )
 VALUES (
     $1, $2,
-    $3,
-    $4, $5,
-    $6, $7,
-    $8,
+    $3, $4,
+    $5,
     transaction_timestamp()
 )
-ON CONFLICT (project_id, effective_definition_hash, source_format, source_hash) DO NOTHING
-RETURNING id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, effective_definition_hash,
-          created_at, true AS inserted
+ON CONFLICT (project_id, effective_definition_hash) DO NOTHING
+RETURNING id, org_id, project_id, configured_model_id, compiled_definition,
+          effective_definition_hash, created_at
 )
-SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, effective_definition_hash,
-       created_at, inserted
-FROM inserted_config
+SELECT id, org_id, project_id, configured_model_id, compiled_definition,
+       effective_definition_hash, created_at
+FROM inserted_definition
 UNION ALL
-SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, effective_definition_hash,
-       created_at, false AS inserted
-FROM agent_configs
+SELECT id, org_id, project_id, configured_model_id, compiled_definition,
+       effective_definition_hash, created_at
+FROM agent_config_definitions
 WHERE project_id = $2
-  AND effective_definition_hash = $8::text
-  AND source_format IS NOT DISTINCT FROM $5::text
-  AND source_hash IS NOT DISTINCT FROM $6::text
+  AND effective_definition_hash = $5::text
 LIMIT 1
 `
 
-type UpsertAgentConfigByHashParams struct {
+type UpsertAgentConfigDefinitionParams struct {
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	ConfiguredModelID       uuid.UUID
-	Source                  *string
-	SourceFormat            *string
-	SourceHash              *string
 	CompiledDefinition      json.RawMessage
 	EffectiveDefinitionHash string
 }
 
-type UpsertAgentConfigByHashRow struct {
+type UpsertAgentConfigDefinitionRow struct {
 	ID                      uuid.UUID
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	ConfiguredModelID       uuid.UUID
-	Source                  *string
-	SourceFormat            *string
-	SourceHash              *string
 	CompiledDefinition      json.RawMessage
 	EffectiveDefinitionHash string
 	CreatedAt               time.Time
-	Inserted                bool
 }
 
-func (q *Queries) UpsertAgentConfigByHash(ctx context.Context, arg UpsertAgentConfigByHashParams) (UpsertAgentConfigByHashRow, error) {
-	row := q.db.QueryRow(ctx, upsertAgentConfigByHash,
+func (q *Queries) UpsertAgentConfigDefinition(ctx context.Context, arg UpsertAgentConfigDefinitionParams) (UpsertAgentConfigDefinitionRow, error) {
+	row := q.db.QueryRow(ctx, upsertAgentConfigDefinition,
 		arg.OrgID,
 		arg.ProjectID,
 		arg.ConfiguredModelID,
-		arg.Source,
-		arg.SourceFormat,
-		arg.SourceHash,
 		arg.CompiledDefinition,
 		arg.EffectiveDefinitionHash,
 	)
-	var i UpsertAgentConfigByHashRow
+	var i UpsertAgentConfigDefinitionRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
 		&i.ConfiguredModelID,
-		&i.Source,
-		&i.SourceFormat,
-		&i.SourceHash,
 		&i.CompiledDefinition,
 		&i.EffectiveDefinitionHash,
 		&i.CreatedAt,
-		&i.Inserted,
 	)
 	return i, err
 }

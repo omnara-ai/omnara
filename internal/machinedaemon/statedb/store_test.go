@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,7 +48,7 @@ func TestEmptyCollectionsAreNil(t *testing.T) {
 		t.Fatalf("actions = %#v, want nil", actions)
 	}
 
-	reports, err := store.DeliveryCandidates(ctx)
+	reports, err := store.DeliveryCandidates(ctx, 0, 1000)
 	require.NoError(t, err)
 	if reports != nil {
 		t.Fatalf("delivery candidates = %#v, want nil", reports)
@@ -1252,7 +1253,7 @@ func TestDeliveryCandidatesMergeRejectedAndPendingInLifecycleOrder(
 	)
 	require.NoError(t, err)
 
-	candidates, err := store.DeliveryCandidates(ctx)
+	candidates, err := store.DeliveryCandidates(ctx, 0, 1000)
 	require.NoError(t, err)
 	if len(candidates) != 2 ||
 		candidates[0].ID != started.ID ||
@@ -1463,7 +1464,7 @@ func TestOnlyMainDaemonRequiresCurrentStateMigration(t *testing.T) {
 	if _, err := store.db.ExecContext(
 		ctx,
 		`INSERT INTO goose_db_version(version_id, is_applied)
-		 VALUES(2, 1)`,
+		 VALUES(1000, 1)`,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -1496,16 +1497,20 @@ func TestSupervisorWritesAfterAdditiveStateMigration(t *testing.T) {
 
 	ctx := context.Background()
 	store, _, _, supervisor := acceptedTestProcess(t)
-	initial, err := stateMigrations.ReadFile("migrations/000001_initial.sql")
-	require.NoError(t, err)
 	migrations := fstest.MapFS{
-		"000001_initial.sql": {Data: initial},
-		"000002_additive.sql": {
+		"000999_additive.sql": {
 			Data: []byte(`-- +goose Up
 ALTER TABLE processes
 ADD COLUMN future_metadata TEXT NOT NULL DEFAULT '';
 `),
 		},
+	}
+	current, err := fs.ReadDir(stateMigrations, "migrations")
+	require.NoError(t, err)
+	for _, entry := range current {
+		data, err := stateMigrations.ReadFile("migrations/" + entry.Name())
+		require.NoError(t, err)
+		migrations[entry.Name()] = &fstest.MapFile{Data: data}
 	}
 	require.NoError(t, applyMigrations(ctx, store.db, migrations))
 
@@ -1750,6 +1755,8 @@ func reportForEvent(
 			0,
 			time.UTC,
 		)
+	case ReportProcessOutputMatch:
+		panic("use outputMatchReport for output-match reports")
 	case ReportActionTerminal:
 		event["process_action_id"] = actionID
 		if eventType != "process_action_applied" {
@@ -1766,4 +1773,192 @@ func reportForEvent(
 		Kind:      kind,
 		Body:      body,
 	}
+}
+
+func TestOutputMatchMigrationKeepsExistingReports(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.sqlite")
+	db, err := sql.Open("sqlite", stateDSN(path, false))
+	require.NoError(t, err)
+	initial, err := stateMigrations.ReadFile("migrations/000001_initial.sql")
+	require.NoError(t, err)
+	require.NoError(t, applyMigrations(ctx, db, fstest.MapFS{"000001_initial.sql": {Data: initial}}))
+	started := processReport("prc_migrated", ReportProcessStarted, "process_started", nil)
+	applied := actionReport(Action{ID: "act_migrated", ProcessID: "prc_migrated"}, nil)
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{
+			`INSERT INTO machine_identity(singleton, installation_id, machine_id) VALUES(1, ?, ?)`,
+			[]any{testInstallation, testMachine},
+		},
+		{
+			`INSERT INTO processes(process_id, supervisor_instance_id, supervisor_token, phase,
+			 exec_committed, containment_kind, containment_id)
+			 VALUES('prc_migrated', 'supervisor-migrated', 'token-migrated', 'accepted', 1, 'process_group', '1')`,
+			nil,
+		},
+		{
+			`INSERT INTO frozen_reports(report_id, process_id, report_kind, body)
+			 VALUES('rpt_migrated', 'prc_migrated', 'process_started', ?)`,
+			[]any{started.Body},
+		},
+		{
+			`INSERT INTO process_actions(action_id, process_id, action_kind, seq, effect_committed)
+			 VALUES('act_migrated', 'prc_migrated', 'write', 1, 1)`,
+			nil,
+		},
+		{
+			`INSERT INTO frozen_reports(report_id, process_id, action_id, report_kind, body)
+			 VALUES('rpt_action_migrated', 'prc_migrated', 'act_migrated', 'action_terminal', ?)`,
+			[]any{applied.Body},
+		},
+	} {
+		_, err := db.ExecContext(ctx, statement.query, statement.args...)
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.Close())
+	require.NoError(t, os.Chmod(path, 0o600))
+
+	store, err := Open(ctx, path, testInstallation, testMachine)
+	require.NoError(t, err)
+	defer store.Close()
+	report, found, err := store.ReportBySlot(ctx, ReportProcessStarted, "prc_migrated", "")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "rpt_migrated", report.ID)
+	require.Equal(t, int64(0), report.Seq)
+	actionReport, found, err := store.ReportBySlot(ctx, ReportActionTerminal, "prc_migrated", "act_migrated")
+	require.NoError(t, err)
+	require.True(t, found, "rebuilding process_actions must keep its action reports")
+	require.Equal(t, "rpt_action_migrated", actionReport.ID)
+	var parent string
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT "table" FROM pragma_foreign_key_list('frozen_reports') WHERE "from" = 'action_id'`,
+	).Scan(&parent))
+	require.Equal(t, "process_actions", parent)
+	_, err = store.db.ExecContext(ctx,
+		`INSERT INTO process_actions(action_id, process_id, action_kind, seq, effect_committed)
+		 VALUES('act_watch', 'prc_migrated', 'watch', 2, 0)`)
+	require.NoError(t, err, "the rebuilt table accepts watch actions")
+	_, err = store.db.ExecContext(ctx, `DELETE FROM process_actions WHERE action_id = 'act_watch'`)
+	require.NoError(t, err)
+	require.NoError(t, store.Audit(ctx))
+}
+
+func TestOutputMatchReportsAreNumberedAndPrecedeTerminal(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _, process, supervisor := runningTestProcess(t)
+	_, err := supervisor.FreezeStartedReport(
+		ctx, processReport(process.ProcessID, ReportProcessStarted, "process_started", nil),
+	)
+	require.NoError(t, err)
+
+	last, err := supervisor.LastOutputMatchSeq(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), last)
+	first, err := supervisor.FreezeOutputMatchReport(ctx, outputMatchReport(process.ProcessID, 1, "error: one"))
+	require.NoError(t, err)
+	replayed, err := supervisor.FreezeOutputMatchReport(ctx, outputMatchReport(process.ProcessID, 1, "error: one"))
+	require.NoError(t, err)
+	require.Equal(t, first.ID, replayed.ID)
+	if _, err := supervisor.FreezeOutputMatchReport(
+		ctx, outputMatchReport(process.ProcessID, 1, "error: changed"),
+	); !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("changed match report error = %v, want conflict", err)
+	}
+	second, err := supervisor.FreezeOutputMatchReport(ctx, outputMatchReport(process.ProcessID, 2, "error: two"))
+	require.NoError(t, err)
+	last, err = supervisor.LastOutputMatchSeq(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), last)
+	if _, err := supervisor.FreezeOutputMatchReport(
+		ctx, outputMatchReport(process.ProcessID, 0, "error: unnumbered"),
+	); err == nil {
+		t.Fatal("unnumbered match report was accepted")
+	}
+
+	terminal, err := supervisor.FreezeTerminalReport(
+		ctx, processReport(process.ProcessID, ReportProcessTerminal, "process_finished", nil),
+	)
+	require.NoError(t, err)
+	candidates, err := store.DeliveryCandidates(ctx, 0, 1000)
+	require.NoError(t, err)
+	var order []string
+	for _, report := range candidates {
+		order = append(order, fmt.Sprintf("%s/%d", report.Kind, report.Seq))
+	}
+	require.Equal(t, []string{"process_started/0", "process_output_match/1", "process_output_match/2"}, order)
+
+	require.NoError(t, store.AcknowledgeReport(ctx, first.ID))
+	require.NoError(t, store.RejectReport(ctx, second.ID, "test_reject", "rejected"))
+	candidates, err = store.DeliveryCandidates(ctx, 0, 1000)
+	require.NoError(t, err)
+	var ids []string
+	for _, report := range candidates {
+		ids = append(ids, report.ID)
+	}
+	require.Contains(t, ids, terminal.ID, "a rejected match must not hold back the terminal report")
+	require.NotContains(t, ids, second.ID, "a rejected match is never resent, so it is not loaded")
+	page, err := store.DeliveryCandidates(ctx, 1, 1)
+	require.NoError(t, err)
+	require.Equal(t, candidates[1:2], page)
+}
+
+func TestAcknowledgedOutputMatchReportsAreDeletedAndKeepTheirSequence(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _, process, supervisor := runningTestProcess(t)
+	first, err := supervisor.FreezeOutputMatchReport(ctx, outputMatchReport(process.ProcessID, 1, "error: one"))
+	require.NoError(t, err)
+	require.NoError(t, store.AcknowledgeReport(ctx, first.ID))
+
+	var remaining int
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM frozen_reports WHERE report_kind = 'process_output_match'`,
+	).Scan(&remaining))
+	require.Zero(t, remaining, "an acknowledged match report is deleted")
+	last, err := supervisor.LastOutputMatchSeq(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), last, "deleting a report keeps its sequence")
+
+	replayed, err := supervisor.FreezeOutputMatchReport(ctx, outputMatchReport(process.ProcessID, 1, "error: one"))
+	require.NoError(t, err)
+	require.Equal(t, ReportAcknowledged, replayed.State)
+	require.NoError(t, store.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM frozen_reports WHERE report_kind = 'process_output_match'`,
+	).Scan(&remaining))
+	require.Zero(t, remaining, "a replayed freeze of a deleted report does not send it again")
+
+	second, err := supervisor.FreezeOutputMatchReport(ctx, outputMatchReport(process.ProcessID, 2, "error: two"))
+	require.NoError(t, err)
+	require.Equal(t, ReportPending, second.State)
+	last, err = supervisor.LastOutputMatchSeq(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), last)
+	require.NoError(t, store.Audit(ctx))
+}
+
+func outputMatchReport(processID string, seq int64, line string) Report {
+	result, err := json.Marshal(daemonprotocol.OutputMatchResult{Lines: []string{line}})
+	if err != nil {
+		panic(err)
+	}
+	body, err := json.Marshal(daemonprotocol.ReportedEvent{
+		Type:       daemonprotocol.EventProcessOutputMatched,
+		ProcessID:  processID,
+		Sequence:   seq,
+		ObservedAt: time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
+		Result:     result,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return Report{ProcessID: processID, Kind: ReportProcessOutputMatch, Seq: seq, Body: body}
 }

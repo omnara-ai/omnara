@@ -495,3 +495,37 @@ func TestPrepareLetsAPIVariantOptionsOverridePromptCacheKey(t *testing.T) {
 		t.Fatalf("prompt_cache_key = %q, want the explicit provider option to win: %s", payload.PromptCacheKey, prepared.Body)
 	}
 }
+
+func TestPrepareSendsSafetyIdentifierOnlyToOpenAIAndOpenRouter(t *testing.T) {
+	for _, tc := range []struct {
+		baseURL string
+		want    string
+	}{
+		{baseURL: "", want: "sid"},
+		{baseURL: "https://openrouter.ai/api/v1", want: "sid"},
+		{baseURL: "https://proxy.example.test/v1"},
+	} {
+		client := Client{
+			EndpointPath: testEndpointPath, BaseURL: tc.baseURL, ProviderModelSlug: "gpt-test",
+			APIVariantOptions: json.RawMessage(`{"safety_identifier":null}`),
+		}
+		prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
+			SafetyIdentifier: "sid",
+			Messages: []modelcontext.Message{
+				{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
+			},
+		}})
+		if err != nil {
+			t.Fatalf("prepare: %v", err)
+		}
+		var payload struct {
+			SafetyIdentifier string `json:"safety_identifier"`
+		}
+		if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.SafetyIdentifier != tc.want {
+			t.Fatalf("base %q safety_identifier = %q, want %q", tc.baseURL, payload.SafetyIdentifier, tc.want)
+		}
+	}
+}

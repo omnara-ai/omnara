@@ -39,18 +39,11 @@ type Compiled struct {
 	Subagents           map[string]SubagentCompiled              `json:"subagents,omitempty"`
 	MaxSubagents        *int                                     `json:"max_subagents,omitempty"`
 	MaxDepth            *int                                     `json:"max_depth,omitempty"`
-	EventWebhook        *EventWebhookCompiled                    `json:"event_webhook,omitempty"`
 	MemoryStores        []MemoryStoreCompiled                    `json:"memory_stores,omitempty"`
 }
 
 type SkillCompiled struct {
 	ID uuid.UUID `json:"id"`
-}
-
-type EventWebhookCompiled struct {
-	Events          []string  `json:"events"`
-	SigningSecretID uuid.UUID `json:"signing_secret_id,omitzero"`
-	URL             string    `json:"url"`
 }
 
 // SkillResolution is what a ResolveSkillID callback returns at compile time.
@@ -235,27 +228,6 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		Instruction: strings.TrimSpace(source.Instruction),
 		Model:       compiledModel.model,
 	}
-	if source.EventWebhook != nil {
-		webhookURL, err := ValidateEventWebhookURL(source.EventWebhook.URL)
-		if err != nil {
-			return Compiled{}, issueAt("/event_webhook/url", err)
-		}
-		var secretID uuid.UUID
-		if raw := strings.TrimSpace(source.EventWebhook.SigningSecretID); raw != "" {
-			secretID, err = publicid.Decode(publicid.KindSecret, raw)
-			if err != nil {
-				return Compiled{}, issueAt("/event_webhook/signing_secret_id", err)
-			}
-			if opts.ValidateSecretID != nil {
-				if err := opts.ValidateSecretID(secretID, secrets.KindGeneric); err != nil {
-					return Compiled{}, issueOr("/event_webhook/signing_secret_id", err)
-				}
-			}
-		}
-		compiled.EventWebhook = &EventWebhookCompiled{
-			URL: webhookURL, SigningSecretID: secretID, Events: source.EventWebhook.Events,
-		}
-	}
 	machines, err := compileMachineSources(source.MachineSources, opts)
 	if err != nil {
 		return Compiled{}, err
@@ -379,6 +351,9 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 	}
 	if len(source.Skills) > 0 {
 		names = append(names, toolcatalog.ToolNameSkill)
+	}
+	if source.GitCredentials != nil {
+		names = append(names, toolcatalog.ToolNameListGitHubRepositories)
 	}
 	if len(source.Subagents) > 0 {
 		names = append(names, toolcatalog.SubagentToolNames()...)

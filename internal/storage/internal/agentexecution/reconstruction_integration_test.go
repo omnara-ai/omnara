@@ -67,7 +67,7 @@ func releasedExecutionFixture(t *testing.T) executionFixture {
 	db := stdlib.OpenDBFromPool(pool)
 	require.NoError(t, dbmigrate.ApplyPostgres(ctx, db, files, goMigrations...))
 	require.NoError(t, db.Close())
-	return seedExecutionFixture(t, pool)
+	return seedExecutionFixture(t, pool, seedSchema52AgentConfig(t, pool))
 }
 
 func (f executionFixture) agent(t *testing.T) uuid.UUID {

@@ -23,13 +23,13 @@ This example uses the SDK from this checkout.
 2. Fill in `.env` with your personal access token, organization and project
    IDs, and the signing key from step 1.
 3. Run `pnpm start`. Expose `http://127.0.0.1:3000` through an HTTPS tunnel.
-   Set `event_webhook.url` in `agent.yaml` to the public URL ending in
-   `/webhook` and `signing_secret_id` to the secret's `sec_…` ID. The config
-   uses `omnara-openrouter` / `openai/gpt-6.1-sol`; choose another model if
-   that one isn't available to your project.
-4. In the Omnara dashboard, select the same organization and project, create
-   an agent using `agent.yaml`, and send: **Count the characters in
-   "hello 🌍".** The tool returns 7 Unicode code points.
+   The config uses `omnara-openrouter` / `openai/gpt-6.1-sol`; choose another
+   model if that one isn't available to your project.
+4. In the Omnara dashboard, create a profile using `agent.yaml`. In its
+   **Webhooks** tab, add the public URL ending in
+   `/webhook`, select **Tool-call updates**, and choose the signing secret.
+5. Launch the profile and send: **Count the characters in "hello 🌍".**
+   The tool returns 7 Unicode code points.
 
 `OMNARA_API_URL` optionally overrides `https://api.omnara.com/v1`; `PORT`
 optionally overrides 3000.

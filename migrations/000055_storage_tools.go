@@ -121,7 +121,7 @@ func renameStorageTools(ctx context.Context, tx *sql.Tx) error {
 // migrateStorageToolConfig renames the tools in a config's compiled definition and, when present,
 // its source. Compiled configs can include default storage tools that their source omits.
 func migrateStorageToolConfig(config storageToolConfig) (storageToolConfig, bool, error) {
-	compiled, compiledChanged, err := renameStorageToolsJSON(config.compiled)
+	compiled, compiledChanged, err := renameStorageToolsJSON(config.compiled, true)
 	if err != nil {
 		return config, false, err
 	}
@@ -130,7 +130,8 @@ func migrateStorageToolConfig(config storageToolConfig) (storageToolConfig, bool
 	if config.source.Valid {
 		switch config.format.String {
 		case "json":
-			source, sourceChanged, err = renameStorageToolsJSON([]byte(config.source.String))
+			// Match the API's canonical JSON source encoding.
+			source, sourceChanged, err = renameStorageToolsJSON([]byte(config.source.String), false)
 		case "yaml":
 			source, sourceChanged, err = renameStorageToolsYAML([]byte(config.source.String))
 		default:
@@ -161,7 +162,7 @@ func migrateStorageToolConfig(config storageToolConfig) (storageToolConfig, bool
 	return config, true, nil
 }
 
-func renameStorageToolsJSON(raw []byte) ([]byte, bool, error) {
+func renameStorageToolsJSON(raw []byte, escapeHTML bool) ([]byte, bool, error) {
 	value, err := decodeAgentConfigNameMigrationJSON(raw)
 	if err != nil {
 		return nil, false, err
@@ -187,8 +188,13 @@ func renameStorageToolsJSON(raw []byte) ([]byte, bool, error) {
 	if !changed {
 		return raw, false, nil
 	}
-	encoded, err := json.Marshal(root)
-	return encoded, true, err
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(escapeHTML)
+	if err := encoder.Encode(root); err != nil {
+		return nil, false, err
+	}
+	return bytes.TrimSuffix(encoded.Bytes(), []byte("\n")), true, nil
 }
 
 // renameStorageToolsYAML rewrites only the tool keys in place, because re-encoding the document can

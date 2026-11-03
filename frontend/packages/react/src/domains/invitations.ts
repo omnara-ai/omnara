@@ -26,7 +26,7 @@ export function useAcceptInvitation() {
       const { data } = await sdk.acceptInvitation({ path: { invitationID }, client })
       return data
     },
-    onSuccess: async () => {
+    onSettled: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: listPendingInvitationsQueryKey({ client }) }),
         queryClient.invalidateQueries({ queryKey: getCurrentUserQueryKey({ client }) }),
@@ -43,7 +43,7 @@ export function useDeclineInvitation() {
       const { data } = await sdk.declineInvitation({ path: { invitationID }, client })
       return data
     },
-    onSuccess: async () => {
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: listPendingInvitationsQueryKey({ client }) })
     },
   })

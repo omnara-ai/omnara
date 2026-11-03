@@ -387,7 +387,7 @@ func TestPermissionApprovalReturnsToolCallToPending(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "permission_approval_pending")
-	enableEventWebhook(t, fixture, nil)
+	createAgentEventWebhook(t, fixture, nil)
 	publisher := &recordingPostCommitPublisher{}
 	fixture.Store = newIntegrationStore(
 		fixture.Store.pool,

@@ -302,7 +302,7 @@ func replayAgentConfigChangeTx(
 	for _, poolMachine := range poolMachines {
 		machine := poolMachine.Machine
 		if machine.LifecycleState == MachineLifecycleStateDeleting &&
-			machine.LifecycleReasonCode == "agent_config_machine_source_removed" {
+			poolMachine.DeleteReasonCode == "agent_config_machine_source_removed" {
 			deleteMachines = append(deleteMachines, machine)
 		}
 	}

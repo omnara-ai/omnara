@@ -9,6 +9,7 @@ import {
 } from '@/components/agents/AgentReferenceLinks'
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
+import { EventWebhooksSection } from '@/components/agents/EventWebhooksSection'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ChevronDown, InfoIcon, PlusIcon, UserGroupIcon, UserIcon } from '@/components/icons'
 import { registryServerLabel } from '@/components/mcp/mcpRegistry'
@@ -114,6 +115,18 @@ export function AgentSidebar({
           <AgentSubagentsGroup orgId={orgId} projectId={projectId} agentId={agent.id} />
           <AgentMcpGroup connections={mcpConnections} />
           <AgentUsageGroup orgId={orgId} projectId={projectId} agentId={agent.id} />
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <EventWebhooksSection
+                orgId={orgId}
+                projectId={projectId}
+                scope={{ type: 'agent', agent_id: agent.id }}
+                canManage={canManage}
+                profileId={agent.agent_profile_id}
+                sidebar
+              />
+            </SidebarGroupContent>
+          </SidebarGroup>
           <AgentCronGroup
             orgId={orgId}
             projectId={projectId}

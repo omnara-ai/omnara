@@ -35,31 +35,42 @@ var (
 func newThreadScheduleDefinition(provider Provider) *ScheduleDefinition {
 	channelPattern := "^[CG][A-Z0-9]+$"
 	channelDescription := "Use a Slack channel ID beginning with C or G. The bot must have access."
+	providerSection := "In Slack"
 	if provider == ProviderDiscord {
 		channelPattern = discordID.String()
 		channelDescription = "Use a Discord text or announcement channel ID, not a thread. The bot must have access."
+		providerSection = "In Discord"
 	}
 	schema := json.RawMessage(fmt.Sprintf(`{
   "type": "object", "additionalProperties": false,
   "required": ["agent_profile_id", "channel_id", "opening_message_template", "message_template"],
-  "x-omnara-field-order": ["agent_profile_id", "channel_id", "opening_message_template", "message_template"],
+  "x-omnara-sections": [
+    {
+      "icon": "omnara", "title": "In Omnara",
+      "description": "Launches a new agent from this profile with the message as its initial prompt.",
+      "fields": ["agent_profile_id", "message_template"]
+    },
+    {
+      "icon": "integration", "title": %q,
+      "description": "Starts a new thread in this channel on each run.",
+      "fields": ["channel_id", "opening_message_template"]
+    }
+  ],
   "properties": {
     "agent_profile_id": {
-      "type": "string", "minLength": 1, "title": "Agent profile",
-      "description": "Each run launches a fresh agent from this profile.", "x-omnara-control": "agent_profile"
+      "type": "string", "minLength": 1, "title": "Agent profile", "x-omnara-control": "agent_profile"
     },
     "channel_id": {"type": "string", "pattern": %q, "title": "Channel ID", "description": %q},
     "opening_message_template": {
       "type": "string", "minLength": 1, "maxLength": %d, "title": "Opening message", "x-omnara-control": "textarea",
-      "description": "Posted before the agent starts. {{.trigger.name}} is the schedule name; {{.trigger.local_date}} is the date in its timezone.",
+      "description": "Posted in the channel to start each run's thread. {{.trigger.name}} is the schedule name; {{.trigger.local_date}} is the run's date.",
       "default": "{{.trigger.name}} — {{.trigger.local_date}}"
     },
     "message_template": {
-      "type": "string", "minLength": 1, "maxLength": %d, "title": "Task instructions", "x-omnara-control": "textarea",
-      "description": "Instructions for the agent started in the new thread."
+      "type": "string", "minLength": 1, "maxLength": %d, "title": "Message", "x-omnara-control": "textarea"
     }
   }
-}`, channelPattern, channelDescription, maxThreadOpeningCodepoints,
+}`, providerSection, channelPattern, channelDescription, maxThreadOpeningCodepoints,
 		cronschedule.MaxMessageTemplateBytes))
 	return &ScheduleDefinition{
 		InputSchema: schema,

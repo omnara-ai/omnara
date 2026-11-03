@@ -32,6 +32,20 @@ func Connect(rawURL string) (*Client, error) {
 	return &Client{client: client}, nil
 }
 
+func NewWithTimeout(rawURL string, timeout time.Duration) (*Client, error) {
+	opts, err := redis.ParseURL(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse redis url: %w", err)
+	}
+	opts.DialTimeout = timeout
+	opts.DialerRetries = 1
+	opts.ReadTimeout = timeout
+	opts.WriteTimeout = timeout
+	opts.PoolTimeout = timeout
+	opts.MaxRetries = -1
+	return &Client{client: redis.NewClient(opts)}, nil
+}
+
 func (c *Client) Ping(ctx context.Context) error {
 	if c == nil || c.client == nil {
 		return fmt.Errorf("redis client is closed")

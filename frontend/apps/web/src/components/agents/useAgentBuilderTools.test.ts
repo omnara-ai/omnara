@@ -61,11 +61,6 @@ describe('agentBuilderToolsDefinition', () => {
       model: { provider_config: 'anthropic', name: 'reviewer', reasoning: { effort: 'high' } },
       tools: { int__chat__post_message: tool },
       interaction_handlers: { chat: handler },
-      event_webhook: {
-        url: 'https://example.com/events',
-        events: ['tool_call_update'],
-        signing_secret_id: 'sec_example',
-      },
     }
     const session = createBasicConfigSession(JSON.stringify(source))
     if (session.initialDraft === null)
@@ -83,26 +78,16 @@ describe('agentBuilderToolsDefinition', () => {
     const updated = createBasicConfigSession(session.apply(changed)).initialDraft
     expect(updated?.reasoningEffort).toBe('medium')
     expect(updated?.interactionHandlers).toEqual(source.interaction_handlers)
-    expect(updated?.eventWebhookUrl).toBe(source.event_webhook.url)
-    expect(updated?.eventWebhookEvents).toEqual(source.event_webhook.events)
-    expect(updated?.eventWebhookSigningSecretId).toBe(source.event_webhook.signing_secret_id)
     expect(updated?.tools[0]).toEqual({
       name: 'int__chat__post_message',
       permission: { mode: 'always_ask', parameters: {} },
       deferred: true,
     })
-    const webhookEdit = {
-      ...changed,
-      eventWebhookUrl: 'https://example.com/updated',
-      eventWebhookEvents: ['model_output', 'tool_call_update'],
-    }
     const restored = createBasicConfigSession(
-      createBasicConfigSession('').apply(webhookEdit),
+      createBasicConfigSession('').apply(changed),
     ).initialDraft
     expect(restored?.interactionHandlers).toEqual(changed.interactionHandlers)
     expect(restored?.reasoningEffort).toBe('medium')
     expect(restored?.tools).toEqual(changed.tools)
-    expect(restored?.eventWebhookUrl).toBe(webhookEdit.eventWebhookUrl)
-    expect(restored?.eventWebhookEvents).toEqual(webhookEdit.eventWebhookEvents)
   })
 })

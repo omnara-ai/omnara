@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/statedb"
+	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
@@ -129,6 +130,15 @@ type ProcessAssignment struct {
 	PreparationError    string               `json:"preparation_error,omitempty"`
 	WaitMs              int                  `json:"wait_ms,omitempty"`
 	TimeoutSeconds      int                  `json:"timeout_seconds"`
+	OutputBytes         int                  `json:"output_bytes,omitempty"`
+	processaction.OutputWait
+}
+
+func (a ProcessAssignment) outputBudget() (int, int) {
+	if a.OutputBytes <= 0 {
+		return processaction.MaxObservationBytes, 0
+	}
+	return min(a.OutputBytes, processaction.MaxObservationBytes), a.HeadBytes
 }
 
 type Process struct {
@@ -215,6 +225,7 @@ type localProcessRunner struct {
 	stdin               *os.File
 	stdinMu             sync.Mutex
 	stdinOK             bool
+	noStdin             bool
 	ptyMode             bool
 	output              processOutput
 	outputDone          chan struct{}
@@ -395,9 +406,7 @@ func (r *localProcessRunner) WriteInput(
 
 func (r *localProcessRunner) CloseInput() error {
 	if r.ptyMode {
-		return errors.New(
-			"close_stdin is not supported for pty-backed processes",
-		)
+		return errors.New("closing input is not supported for pty-backed processes")
 	}
 	r.stdinMu.Lock()
 	defer r.stdinMu.Unlock()
@@ -436,6 +445,10 @@ func (r *localProcessRunner) Slice(
 		useCursor = *cursor
 	}
 	return r.output.Slice(useCursor, maxBytes)
+}
+
+func (r *localProcessRunner) Window(cursor int64, maxBytes, headBytes int) (outputWindow, error) {
+	return r.output.Window(cursor, maxBytes, headBytes)
 }
 
 func (r *localProcessRunner) waitOutputDrain() error {

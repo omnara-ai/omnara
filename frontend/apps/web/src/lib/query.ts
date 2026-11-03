@@ -7,7 +7,12 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: 30_000,
       retry: (failureCount, error) => {
-        if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+        if (
+          error instanceof ApiError &&
+          error.status >= 400 &&
+          error.status < 500 &&
+          error.status !== 429
+        ) {
           return false
         }
         // A response that fails schema validation will keep failing; retrying
@@ -17,6 +22,11 @@ export const queryClient = new QueryClient({
         }
         return failureCount < 2
       },
+      retryDelay: (failureCount, error) =>
+        Math.max(
+          Math.min(1000 * 2 ** failureCount, 30_000),
+          error instanceof ApiError ? (error.retryAfterMs ?? 0) : 0,
+        ),
     },
   },
 })

@@ -29,7 +29,7 @@ func TestWorkerRecordsSlotAndExecutionMetrics(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	runDone := make(chan error, 1)
-	go func() { runDone <- worker.Run(ctx) }()
+	go func() { runDone <- worker.Run(ctx, nil) }()
 	for range capacity {
 		select {
 		case <-executor.started:

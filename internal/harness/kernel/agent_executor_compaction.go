@@ -33,6 +33,7 @@ func (e AgentExecutor) executeCompaction(
 		OpeningInputIDs:      input.InputIDs,
 		OpeningEventSequence: input.OpeningEventSequence,
 		RuntimeLockID:        input.RuntimeLockID,
+		SafetyIdentifier:     e.safetyIdentifier(input.OrgID),
 	}, claim)
 	if err != nil {
 		return err

@@ -23,10 +23,13 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 			sender, store, delivery := testSender()
 			if kind != "tool_call_update" {
 				store.record = executionstore.AgentEventReadRecord{
-					ID: uuid.New(), OrgID: uuid.New(), ProjectID: store.target.ProjectID, AgentID: delivery.AgentID,
-					TurnID: uuid.New(), TurnSequence: 1, Sequence: 17, EventKind: kind,
-					AgentInputID: uuid.New(), InputKind: "content", ModelCallContextID: uuid.New(), ModelStopReason: "end_turn",
-					ToolCallID: uuid.New(), ToolOutcome: "succeeded", ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`),
+					ID: uuid.New(), OrgID: uuid.New(), ProjectID: store.endpoint.ProjectID,
+					AgentID: delivery.AgentID,
+					TurnID:  uuid.New(), TurnSequence: 1, Sequence: 17, EventKind: kind,
+					AgentInputID: uuid.New(), InputKind: "content",
+					ModelCallContextID: uuid.New(), ModelStopReason: "end_turn",
+					ToolCallID: uuid.New(), ToolOutcome: "succeeded",
+					ContentBlocks:       json.RawMessage(`[{"type":"text","text":"hello"}]`),
 					ContextCheckpointID: uuid.New(), SummarizedThroughEventSequence: 16,
 					CheckpointSummary: "summary", CreatedAt: time.Now(),
 				}

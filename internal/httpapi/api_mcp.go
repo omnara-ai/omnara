@@ -39,6 +39,7 @@ func (s *Server) apiDispatchMiddlewares(mux *http.ServeMux) []middleware {
 	return []middleware{
 		requestEvents(s.log, s.recorder, mux),
 		attachMCPToolCall,
+		s.limitAPIRequests,
 		s.openAPIRequestValidator,
 	}
 }

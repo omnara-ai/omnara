@@ -16,12 +16,49 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const executionFixtureSource = "instruction: test\nmodel:\n  provider_config: openai-prod\n  name: test\n"
+
 func migratedExecutionFixture(t *testing.T) executionFixture {
 	t.Helper()
-	return seedExecutionFixture(t, integrationdb.OpenMigratedPool(t, t.Context(), "../../../../migrations"))
+	return seedExecutionFixture(
+		t,
+		integrationdb.OpenMigratedPool(t, t.Context(), "../../../../migrations"),
+		func(store *storage.Store, ids storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID) {
+			config := storagefixture.SeedAgentConfig(
+				t, t.Context(), store.Models(), store.Execution(), ids.OrgID, ids.ProjectID, executionFixtureSource,
+			)
+			return config.ID, config.ConfiguredModelID
+		},
+	)
 }
 
-func seedExecutionFixture(t *testing.T, pool *pgxpool.Pool) executionFixture {
+// seedSchema52AgentConfig writes the config in the shape released schema 52
+// stored it, before compiled content moved to agent_config_definitions.
+func seedSchema52AgentConfig(
+	t *testing.T,
+	pool *pgxpool.Pool,
+) func(*storage.Store, storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID) {
+	return func(store *storage.Store, ids storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID) {
+		ctx := t.Context()
+		compiled := storagefixture.SeedModelAndCompileAgentYAML(
+			t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID, executionFixtureSource,
+		)
+		modelID := compiled.Compiled.Model.ConfiguredModelID
+		var configID uuid.UUID
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO agent_configs(org_id,project_id,configured_model_id,
+ source,source_format,source_hash,compiled_definition,effective_definition_hash,created_at)
+ VALUES($1,$2,$3,$4,'yaml',encode(sha256(convert_to($4,'UTF8')),'hex'),$5,$6,now()) RETURNING id`,
+			ids.OrgID, ids.ProjectID, modelID, executionFixtureSource, compiled.CanonicalJSON, compiled.Hash,
+		).Scan(&configID))
+		return configID, modelID
+	}
+}
+
+func seedExecutionFixture(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	seedConfig func(*storage.Store, storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID),
+) executionFixture {
 	t.Helper()
 	ctx := t.Context()
 	ids := storagefixture.ProjectIDs{
@@ -34,29 +71,20 @@ func seedExecutionFixture(t *testing.T, pool *pgxpool.Pool) executionFixture {
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	storagefixture.SeedProject(t, ctx, pool, ids, now)
-	store := storage.NewStore(pool)
-	config := storagefixture.SeedAgentConfig(
-		t,
-		ctx,
-		store.Models(),
-		store.Execution(),
-		ids.OrgID,
-		ids.ProjectID,
-		"instruction: test\nmodel:\n  provider_config: openai-prod\n  name: test\n",
-	)
+	configID, configuredModelID := seedConfig(storage.NewStore(pool), ids)
 	var revision uuid.UUID
 	require.NoError(
 		t,
 		pool.QueryRow(ctx,
 			`SELECT current_revision_id FROM configured_models WHERE id=$1`,
-			config.ConfiguredModelID).
+			configuredModelID).
 			Scan(&revision),
 	)
 	return executionFixture{
 		pool:     pool,
 		org:      ids.OrgID,
 		project:  ids.ProjectID,
-		config:   config.ID,
+		config:   configID,
 		revision: revision,
 		now:      now,
 	}

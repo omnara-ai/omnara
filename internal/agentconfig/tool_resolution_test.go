@@ -17,8 +17,8 @@ func TestMissingDefaultToolNamesDoesNotModifySource(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := missingDefaultToolNames(source)
-	if len(names) != 13 {
-		t.Fatalf("expected 13 missing pool and retrieval tools, got %v", names)
+	if len(names) != 14 {
+		t.Fatalf("expected 14 missing pool and retrieval tools, got %v", names)
 	}
 	for _, name := range names {
 		if _, configured := source.Tools[name]; configured {
@@ -26,7 +26,7 @@ func TestMissingDefaultToolNamesDoesNotModifySource(t *testing.T) {
 		}
 	}
 	compiled, err := compileTools(source, CompileOptions{})
-	if err != nil || len(compiled) != 14 || compiled["run_command"].Enabled {
+	if err != nil || len(compiled) != 15 || compiled["run_command"].Enabled {
 		t.Fatalf("compile tools: %+v, %v", compiled, err)
 	}
 	if len(source.Tools) != 1 || *source.Tools["run_command"].Enabled {
@@ -49,6 +49,8 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 		"subagents: {worker: {type: self}}\nskills: [" + skillID + "]\ntools:\n  spawn_agent: {enabled: false}\n  read_agent: {permission: {mode: always_ask}}\n",
 		"machine_sources: [{machine_pool_name: build-pool}]\nskills: [" + skillID + "]\ntools:\n  run_command: {enabled: false}\n  delete_machine: {permission: {mode: always_ask}}\n  skill: {enabled: false}\n  web_search: {enabled: false}\n",
 		"tools:\n  web_search: {}\n  custom_tool: {type: custom, description: Test, input_schema: {type: object}, permission: {mode: always_ask}}\n",
+		"git_credentials: {integration: reviews}\n",
+		"git_credentials: {integration: reviews}\ntools: {list_github_repositories: {permission: {mode: always_ask}}}\n",
 	} {
 		t.Run(source, func(t *testing.T) {
 			opts := testMachineSourceCompileOptions(t)
@@ -58,6 +60,7 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 			opts.ResolveSkillID = func(id string) (SkillResolution, error) {
 				return SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "test-skill"}, nil
 			}
+			opts.ResolveIntegrationName = gitCredentialsTestOptions(t).ResolveIntegrationName
 			raw := []byte(validAgentSource(source))
 			result, err := Compile(SourceFormatYAML, raw, opts)
 			if err != nil {
@@ -115,8 +118,8 @@ func TestToolPreviewDrafts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 14 {
-		t.Fatalf("got %d entries, want 14", len(entries))
+	if len(entries) != 15 {
+		t.Fatalf("got %d entries, want 15", len(entries))
 	}
 	for _, entry := range entries {
 		if entry.Name == "run_command" && (entry.Enabled || entry.Permission.Mode != toolpermission.ModeAlwaysAsk) {

@@ -103,9 +103,10 @@ func (q *Queries) DeleteMemoryStoresForProjects(ctx context.Context, arg DeleteM
 }
 
 const getAgentMemoryConfig = `-- name: GetAgentMemoryConfig :one
-SELECT coalesce(c.compiled_definition->'memory_stores', '[]'::jsonb)::jsonb AS memory_stores
+SELECT coalesce(d.compiled_definition->'memory_stores', '[]'::jsonb)::jsonb AS memory_stores
 FROM agents a
 JOIN agent_configs c ON c.project_id = a.project_id AND c.id = a.current_config_id
+JOIN agent_config_definitions d ON d.project_id = c.project_id AND d.id = c.definition_id
 WHERE a.project_id = $1
   AND a.id = $2
   AND a.state = 'active'
@@ -494,11 +495,12 @@ SELECT s.id
 FROM memory_stores s
 JOIN agents a ON a.project_id = s.project_id AND a.id = $1
 JOIN agent_configs c ON c.project_id = a.project_id AND c.id = a.current_config_id
+JOIN agent_config_definitions d ON d.project_id = c.project_id AND d.id = c.definition_id
 WHERE s.project_id = $2
   AND s.name = $3
   AND s.deleted_at IS NULL
   AND a.state = 'active'
-  AND c.compiled_definition->'memory_stores' @> jsonb_build_array(jsonb_build_object('id', s.id))
+  AND d.compiled_definition->'memory_stores' @> jsonb_build_array(jsonb_build_object('id', s.id))
 `
 
 type ResolveAgentMemoryStoreParams struct {

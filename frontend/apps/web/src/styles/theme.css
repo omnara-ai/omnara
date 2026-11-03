@@ -42,10 +42,15 @@
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
+  /* Onboarding aurora ink ("r g b") and the opacity (0-255) of an "on" dither cell */
+  --aurora-ink: var(--palette-light-aurora);
+  --aurora-alpha: 41;
   color-scheme: light;
 }
 
 .dark {
+  --aurora-ink: var(--palette-dark-aurora);
+  --aurora-alpha: 44;
   --background: rgb(var(--palette-dark-bg));
   --foreground: rgb(var(--palette-dark-fg));
   --card: rgb(var(--palette-dark-surface));

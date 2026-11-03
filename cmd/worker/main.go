@@ -81,10 +81,16 @@ func main() {
 	defer db.Close()
 	metricSet.MustRegister(metrics.NewDBPoolCollector(db))
 
-	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	signalCtx, cancelOnSignal := context.WithCancel(context.Background())
+	defer cancelOnSignal()
 	ctx, cancel := context.WithCancel(signalCtx)
 	defer cancel()
+	executionCtx, abortExecutions := cancelAfterDone(ctx, cfg.WorkerDrainTimeout)
+	defer abortExecutions()
+	go cancelOnSignals(signals, cancelOnSignal, abortExecutions)
 
 	redisClient, err := redistore.Connect(cfg.RedisURL)
 	if err != nil {
@@ -174,7 +180,7 @@ func main() {
 	webFetcher := webaccess.NewFetcher(webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev})
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
 	backgroundRunner, err := tools.NewBackgroundExecutionRunner(
-		ctx,
+		executionCtx,
 		log,
 		cfg.WorkerBackgroundToolCapacity,
 		metricSet,
@@ -204,6 +210,14 @@ func main() {
 		log.Error("configure SigV4 credential cache", "error", err)
 		os.Exit(1)
 	}
+	safetyIdentifierKey, err := cfg.SafetyIdentifierKeyBytes()
+	if err != nil {
+		log.Error("decode safety identifier key", "error", err)
+		os.Exit(1)
+	}
+	if safetyIdentifierKey == nil {
+		log.Warn("OMNARA_SAFETY_IDENTIFIER_KEY is not set; model requests will not carry safety identifiers")
+	}
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
 		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
@@ -228,6 +242,7 @@ func main() {
 		MCP:                  mcp.New(mcp.Options{HTTPClient: mcpHTTPClient}),
 		MCPAuthHTTPClient:    mcpHTTPClient,
 		SigV4CredentialCache: sigV4CredentialCache,
+		SafetyIdentifierKey:  safetyIdentifierKey,
 		ToolExecutor: tools.Executor{
 			Store:                 store,
 			Skills:                store.Skills(),
@@ -253,7 +268,7 @@ func main() {
 	})
 	workerErr := make(chan error, 1)
 	go func() {
-		workerErr <- kernelWorker.Run(ctx)
+		workerErr <- kernelWorker.Run(executionCtx, ctx.Done())
 	}()
 	cronTriggerService := crontrigger.NewService(store.Execution(), machinePoolManager, log)
 	cronTriggerDone := make(chan struct{})
@@ -405,6 +420,22 @@ func main() {
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)
+	}
+}
+
+func cancelAfterDone(parent context.Context, delay time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
+	stopWaiting := context.AfterFunc(parent, func() { time.AfterFunc(delay, cancel) })
+	return ctx, func() {
+		stopWaiting()
+		cancel()
+	}
+}
+
+func cancelOnSignals(signals <-chan os.Signal, cancels ...context.CancelFunc) {
+	for _, cancel := range cancels {
+		<-signals
+		cancel()
 	}
 }
 

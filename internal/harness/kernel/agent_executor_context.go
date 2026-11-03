@@ -235,6 +235,7 @@ func (e AgentExecutor) executeModelStep(
 		)
 	}
 	bundle.ConfiguredModelRevisionID = claim.Context.ConfiguredModelRevisionID
+	bundle.SafetyIdentifier = e.safetyIdentifier(input.OrgID)
 	prepared, err := model.PrepareForSend(
 		ctx,
 		client,

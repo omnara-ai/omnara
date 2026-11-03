@@ -45,6 +45,7 @@ const (
 	ProcessActionKindWrite     = processaction.KindWrite
 	ProcessActionKindRead      = processaction.KindRead
 	ProcessActionKindInterrupt = processaction.KindInterrupt
+	ProcessActionKindWatch     = processaction.KindWatch
 	ProcessActionKindTerminate = processaction.KindTerminate
 )
 

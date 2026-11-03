@@ -207,6 +207,9 @@ func RequestInputFingerprint(body json.RawMessage, endpoint string) string {
 	delete(request, "max_tokens")
 	delete(request, "max_output_tokens")
 	delete(request, "max_completion_tokens")
+	delete(request, "user")
+	delete(request, "safety_identifier")
+	delete(request, "metadata")
 	encoded, err := json.Marshal(request)
 	if err != nil {
 		return ""

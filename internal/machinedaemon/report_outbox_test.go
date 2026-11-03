@@ -475,6 +475,89 @@ func TestRejectedActionReportDoesNotBlockProcessTerminalReport(t *testing.T) {
 	}
 }
 
+func TestOutboxBatchLooksPastAPageOfBlockedReports(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "state.sqlite")
+	store, err := statedb.Open(ctx, dbPath, "ins_outbox", "mch_outbox")
+	require.NoError(t, err)
+	defer store.Close()
+
+	blocked := spawnedOutboxProcess(t, ctx, store, dbPath, "prc_outbox_a")
+	rejected := freezeOutboxReport(t, blocked.FreezeStartedReport, ctx,
+		outboxStartedReport(t, "prc_outbox_a"))
+	require.NoError(t, store.RejectReport(ctx, rejected.ID, "test_reject", "rejected"))
+	for seq := int64(1); seq <= outboxCandidatePage+10; seq++ {
+		result := mustOutboxJSON(t, daemonprotocol.OutputMatchResult{Lines: []string{"ready"}})
+		freezeOutboxReport(t, blocked.FreezeOutputMatchReport, ctx, statedb.Report{
+			ProcessID: "prc_outbox_a",
+			Kind:      statedb.ReportProcessOutputMatch,
+			Seq:       seq,
+			Body: mustOutboxJSON(t, daemonprotocol.ReportedEvent{
+				Type:       daemonprotocol.EventProcessOutputMatched,
+				ProcessID:  "prc_outbox_a",
+				Sequence:   seq,
+				ObservedAt: time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC),
+				Result:     result,
+			}),
+		})
+	}
+	ready := spawnedOutboxProcess(t, ctx, store, dbPath, "prc_outbox_b")
+	started := freezeOutboxReport(t, ready.FreezeStartedReport, ctx,
+		outboxStartedReport(t, "prc_outbox_b"))
+
+	client := New(Config{}, nil, nil)
+	client.state = store
+	reports, err := client.outboxReports(ctx, nil)
+	require.NoError(t, err)
+	require.Len(t, reports, 1)
+	require.Equal(t, started.ID, reports[0].ID,
+		"reports behind a page of blocked ones are still delivered")
+}
+
+func spawnedOutboxProcess(
+	t *testing.T,
+	ctx context.Context,
+	store *statedb.Store,
+	dbPath, processID string,
+) *statedb.Supervisor {
+	t.Helper()
+	instanceID := "supervisor-instance-" + processID
+	token := "supervisor-token-" + processID
+	require.NoError(t, store.ReserveProcess(ctx, statedb.Process{
+		ProcessID:            processID,
+		SupervisorInstanceID: instanceID,
+		SupervisorToken:      token,
+	}))
+	require.NoError(t, store.MarkPrepared(ctx, processID, instanceID))
+	require.NoError(t, store.MarkAccepted(ctx, processID, instanceID))
+	supervisor, err := statedb.OpenSupervisor(ctx, dbPath, "ins_outbox", "mch_outbox", processID, instanceID, token)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = supervisor.Close() })
+	execute, err := supervisor.AuthorizeSpawnOnce(ctx)
+	require.NoError(t, err)
+	require.True(t, execute)
+	require.NoError(t, supervisor.RecordSpawned(ctx, "process_group", "123"))
+	return supervisor
+}
+
+func outboxStartedReport(t *testing.T, processID string) statedb.Report {
+	t.Helper()
+	return statedb.Report{
+		ProcessID: processID,
+		Kind:      statedb.ReportProcessStarted,
+		Body: mustOutboxJSON(t, map[string]any{
+			"type":        "process_started",
+			"process_id":  processID,
+			"started_at":  "2026-07-27T11:59:59Z",
+			"observed_at": "2026-07-27T12:00:00Z",
+			"result": map[string]any{
+				"output":      "",
+				"next_cursor": 0,
+			},
+		}),
+	}
+}
+
 func mustOutboxJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	body, err := json.Marshal(value)

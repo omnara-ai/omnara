@@ -83,7 +83,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 	}
 	integration, err := s.store.Integrations().GetIntegration(r.Context(), state.ProjectID, state.IntegrationID)
 	if err != nil {
-		apierror.WriteError(w, apierror.ProjectScoped(err))
+		writeAPIError(w, r, apierror.ProjectScoped(err))
 		return
 	}
 	if integration.OrgID != state.OrgID {

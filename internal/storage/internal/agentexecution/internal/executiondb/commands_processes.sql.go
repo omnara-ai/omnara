@@ -14,6 +14,38 @@ import (
 	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
+const cancelPendingExecutionInput = `-- name: CancelPendingExecutionInput :execrows
+UPDATE agent_inputs SET state='canceled',canceled_at=statement_timestamp()
+WHERE agent_id=$1 AND id=$2 AND state='received' AND input_kind='content'
+`
+
+type CancelPendingExecutionInputParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+func (q *Queries) CancelPendingExecutionInput(ctx context.Context, db DBTX, arg CancelPendingExecutionInputParams) (int64, error) {
+	result, err := db.Exec(ctx, cancelPendingExecutionInput, arg.AgentID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markProcessExitNoticeDecided = `-- name: MarkProcessExitNoticeDecided :exec
+UPDATE processes SET exit_notice_decided=true WHERE agent_id=$1 AND id=$2
+`
+
+type MarkProcessExitNoticeDecidedParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+func (q *Queries) MarkProcessExitNoticeDecided(ctx context.Context, db DBTX, arg MarkProcessExitNoticeDecidedParams) error {
+	_, err := db.Exec(ctx, markProcessExitNoticeDecided, arg.AgentID, arg.ID)
+	return err
+}
+
 const readExecutionActionOwner = `-- name: ReadExecutionActionOwner :one
 SELECT a.id,a.process_id,a.tool_call_id,a.action_kind,a.seq,a.payload,a.state,a.state_reason_code,a.state_reason_message,
  EXISTS(SELECT 1 FROM process_actions earlier WHERE earlier.agent_id=a.agent_id AND earlier.process_id=a.process_id
@@ -59,7 +91,11 @@ func (q *Queries) ReadExecutionActionOwner(ctx context.Context, db DBTX, arg Rea
 
 const readExecutionProcessOwner = `-- name: ReadExecutionProcessOwner :one
 SELECT p.id,p.org_id,p.machine_id,p.tool_call_id,p.state,p.state_reason_code,p.state_reason_message,p.exit_code,
- p.exit_signal,p.execution_spec,p.execution_granted_at,p.source_started_at,p.source_ended_at,p.default_output_cursor
+ p.exit_signal,p.execution_spec,p.execution_granted_at,p.source_started_at,p.source_ended_at,p.default_output_cursor,p.exit_notice_decided,
+ EXISTS(SELECT 1 FROM process_actions a WHERE a.agent_id=p.agent_id AND a.process_id=p.id
+ AND a.action_kind='terminate' AND a.state IN ('queued','accepted','applied')) AS stop_requested,
+ EXISTS(SELECT 1 FROM process_actions a JOIN tool_calls t ON t.agent_id=a.agent_id AND t.id=a.tool_call_id
+ WHERE a.agent_id=p.agent_id AND a.process_id=p.id AND a.action_kind='read' AND t.state<>'completed') AS read_pending
 FROM processes p WHERE p.agent_id=$1 AND p.id=$2 FOR UPDATE
 `
 
@@ -83,6 +119,9 @@ type ReadExecutionProcessOwnerRow struct {
 	SourceStartedAt     *time.Time
 	SourceEndedAt       *time.Time
 	DefaultOutputCursor int64
+	ExitNoticeDecided   bool
+	StopRequested       bool
+	ReadPending         bool
 }
 
 func (q *Queries) ReadExecutionProcessOwner(ctx context.Context, db DBTX, arg ReadExecutionProcessOwnerParams) (ReadExecutionProcessOwnerRow, error) {
@@ -103,6 +142,98 @@ func (q *Queries) ReadExecutionProcessOwner(ctx context.Context, db DBTX, arg Re
 		&i.SourceStartedAt,
 		&i.SourceEndedAt,
 		&i.DefaultOutputCursor,
+		&i.ExitNoticeDecided,
+		&i.StopRequested,
+		&i.ReadPending,
 	)
 	return i, err
+}
+
+const readPendingProcessWatchReport = `-- name: ReadPendingProcessWatchReport :one
+SELECT i.id AS agent_input_id,r.matched FROM process_watch_reports r
+JOIN agent_inputs i ON i.id=r.agent_input_id
+WHERE r.watch_action_id=$1 AND i.agent_id=$2
+ AND i.state='received' AND i.input_kind='content'
+ORDER BY r.report_seq DESC LIMIT 1
+`
+
+type ReadPendingProcessWatchReportParams struct {
+	WatchActionID uuid.UUID
+	AgentID       uuid.UUID
+}
+
+type ReadPendingProcessWatchReportRow struct {
+	AgentInputID uuid.UUID
+	Matched      json.RawMessage
+}
+
+func (q *Queries) ReadPendingProcessWatchReport(ctx context.Context, db DBTX, arg ReadPendingProcessWatchReportParams) (ReadPendingProcessWatchReportRow, error) {
+	row := db.QueryRow(ctx, readPendingProcessWatchReport, arg.WatchActionID, arg.AgentID)
+	var i ReadPendingProcessWatchReportRow
+	err := row.Scan(&i.AgentInputID, &i.Matched)
+	return i, err
+}
+
+const readProcessWatchAllowance = `-- name: ReadProcessWatchAllowance :one
+SELECT coalesce(a.action_kind='watch' AND a.state IN ('accepted','applied')
+ AND a.payload->>'pattern'=$1::text AND a.payload ? 'timeout_seconds',false)::boolean AS eligible,
+ coalesce((a.payload->>'timeout_seconds')::int,0)::integer AS timeout_seconds,
+ (SELECT count(*) FROM process_watch_reports r WHERE r.watch_action_id=a.id)::integer AS report_count,
+ EXISTS(SELECT 1 FROM process_watch_reports r WHERE r.watch_action_id=a.id AND r.report_seq=$2::bigint) AS replay
+FROM process_actions a WHERE a.agent_id=$3 AND a.process_id=$4 AND a.id=$5
+`
+
+type ReadProcessWatchAllowanceParams struct {
+	Pattern   string
+	Seq       int64
+	AgentID   uuid.UUID
+	ProcessID uuid.UUID
+	ID        uuid.UUID
+}
+
+type ReadProcessWatchAllowanceRow struct {
+	Eligible       bool
+	TimeoutSeconds int32
+	ReportCount    int32
+	Replay         bool
+}
+
+func (q *Queries) ReadProcessWatchAllowance(ctx context.Context, db DBTX, arg ReadProcessWatchAllowanceParams) (ReadProcessWatchAllowanceRow, error) {
+	row := db.QueryRow(ctx, readProcessWatchAllowance,
+		arg.Pattern,
+		arg.Seq,
+		arg.AgentID,
+		arg.ProcessID,
+		arg.ID,
+	)
+	var i ReadProcessWatchAllowanceRow
+	err := row.Scan(
+		&i.Eligible,
+		&i.TimeoutSeconds,
+		&i.ReportCount,
+		&i.Replay,
+	)
+	return i, err
+}
+
+const recordProcessWatchReport = `-- name: RecordProcessWatchReport :exec
+INSERT INTO process_watch_reports(watch_action_id,report_seq,agent_input_id,matched)
+VALUES ($1,$2,$3,$4::jsonb)
+`
+
+type RecordProcessWatchReportParams struct {
+	WatchActionID uuid.UUID
+	ReportSeq     int64
+	AgentInputID  *uuid.UUID
+	Matched       json.RawMessage
+}
+
+func (q *Queries) RecordProcessWatchReport(ctx context.Context, db DBTX, arg RecordProcessWatchReportParams) error {
+	_, err := db.Exec(ctx, recordProcessWatchReport,
+		arg.WatchActionID,
+		arg.ReportSeq,
+		arg.AgentInputID,
+		arg.Matched,
+	)
+	return err
 }

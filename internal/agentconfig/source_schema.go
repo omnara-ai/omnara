@@ -26,12 +26,6 @@ const (
 	SourceFormatYAML SourceFormat = "yaml"
 )
 
-type EventWebhook struct {
-	Events          []string `json:"events"`
-	SigningSecretID string   `json:"signing_secret_id,omitempty"`
-	URL             string   `json:"url"`
-}
-
 type AgentConfigSource struct {
 	Version             string                                            `json:"version,omitempty"`
 	Instruction         string                                            `json:"instruction"`
@@ -45,7 +39,6 @@ type AgentConfigSource struct {
 	Subagents           map[string]AgentConfigSubagentSource              `json:"subagents,omitempty"`
 	MaxSubagents        *int                                              `json:"max_subagents,omitempty"`
 	MaxDepth            *int                                              `json:"max_depth,omitempty"`
-	EventWebhook        *EventWebhook                                     `json:"event_webhook,omitempty"`
 	MemoryStores        []MemoryStoreSource                               `json:"memory_stores,omitempty"`
 }
 
@@ -127,25 +120,6 @@ type AgentConfigMCPToolSource struct {
 func ParseSource(format SourceFormat, raw []byte) (AgentConfigSource, error) {
 	parsed, _, err := parseSource(format, raw)
 	return parsed, err
-}
-
-func CanonicalDefinitionJSON(raw []byte) []byte {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return raw
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return raw
-	}
-	var canonical bytes.Buffer
-	encoder := json.NewEncoder(&canonical)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return raw
-	}
-	return bytes.TrimSuffix(canonical.Bytes(), []byte("\n"))
 }
 
 func parseSource(format SourceFormat, raw []byte) (AgentConfigSource, *yaml.Node, error) {

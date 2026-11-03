@@ -969,7 +969,7 @@ SET state = 'failed',
     updated_at = statement_timestamp()
 WHERE action.org_id = $1
   AND action.process_id = $2
-  AND action.action_kind IN ('write', 'interrupt')
+  AND action.action_kind IN ('write', 'interrupt', 'watch')
   AND action.state = 'queued'
   AND EXISTS (
     SELECT 1

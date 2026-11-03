@@ -27,7 +27,7 @@ func TestClaimDeferralDoesNotBackOff(t *testing.T) {
 		}
 		w := NewWorker(store, nil, Options{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 		start := time.Now()
-		w.claimLoop(ctx, make(chan struct{}, 1), &sync.WaitGroup{})
+		w.claimLoop(ctx, ctx, make(chan struct{}, 1), &sync.WaitGroup{})
 		if calls != 4 || time.Since(start) != 0 {
 			t.Fatalf("claims=%d elapsed=%s", calls, time.Since(start))
 		}

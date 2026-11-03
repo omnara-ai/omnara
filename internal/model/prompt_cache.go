@@ -82,18 +82,35 @@ func promptCacheCapabilityFor(route ProviderRoute) promptCacheCapability {
 }
 
 func openAIPromptCacheCapability(baseURL string) promptCacheCapability {
-	if !isOpenAIHost(baseURL) {
+	if hostname(baseURL) != "api.openai.com" {
 		return promptCacheCapability{}
 	}
 	return promptCacheCapability{conversationKey: true}
 }
 
-func isOpenAIHost(baseURL string) bool {
+func IsOpenAIHost(baseURL string) bool {
+	return hostIs(baseURL, "api.openai.com")
+}
+
+func IsAnthropicHost(baseURL string) bool {
+	return hostIs(baseURL, "api.anthropic.com")
+}
+
+func IsOpenRouterHost(baseURL string) bool {
+	return hostIs(baseURL, "openrouter.ai")
+}
+
+func hostIs(baseURL, host string) bool {
+	name := hostname(baseURL)
+	return name == host || strings.HasSuffix(name, "."+host)
+}
+
+func hostname(baseURL string) string {
 	parsed, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil {
-		return false
+		return ""
 	}
-	return strings.EqualFold(parsed.Hostname(), "api.openai.com")
+	return strings.ToLower(parsed.Hostname())
 }
 
 // Explicit-caching models per https://openrouter.ai/docs/guides/best-practices/prompt-caching.

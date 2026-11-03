@@ -2,18 +2,6 @@
 
 import * as z from 'zod';
 
-export const zAgentConfigDefinitionEventWebhook = z.object({
-    events: z.array(z.enum([
-        'agent_input',
-        'model_output',
-        'tool_result',
-        'context_checkpoint',
-        'tool_call_update'
-    ])).min(1),
-    signing_secret_id: z.string().min(1).optional(),
-    url: z.string().min(1)
-});
-
 /**
  * Integration whose git credentials the agent's machines use.
  */
@@ -195,7 +183,6 @@ export const zAgentConfigDefinitionMemoryStores = z.array(zAgentConfigDefinition
  * An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.
  */
 export const zAgentConfigDefinition = z.object({
-    event_webhook: zAgentConfigDefinitionEventWebhook.optional(),
     git_credentials: zAgentConfigDefinitionGitCredentials.optional(),
     instruction: z.string().min(1).regex(/\S/),
     interaction_handlers: zAgentConfigDefinitionInteractionHandlers.optional(),
@@ -336,6 +323,45 @@ export const zAgentId = z.string().regex(/^agt_[a-z2-7]{26}$/);
 export const zAgentConfigId = z.string().regex(/^acfg_[a-z2-7]{26}$/);
 
 export const zAgentProfileId = z.string().regex(/^aprf_[a-z2-7]{26}$/);
+
+export const zEventWebhookId = z.string().regex(/^whk_[a-z2-7]{26}$/);
+
+export const zEventWebhookScopeType = z.enum([
+    'project',
+    'profile',
+    'agent'
+]);
+
+export const zProjectEventWebhookScope = z.object({
+    type: z.enum(['project'])
+});
+
+export const zAgentProfileEventWebhookScope = z.object({
+    type: z.enum(['profile']),
+    agent_profile_id: zAgentProfileId
+});
+
+/**
+ * Watches only this agent, not its descendants.
+ */
+export const zAgentEventWebhookScope = z.object({
+    type: z.enum(['agent']),
+    agent_id: zAgentId
+});
+
+export const zEventWebhookScope = z.discriminatedUnion('type', [
+    zProjectEventWebhookScope.extend({ type: z.literal('project') }),
+    zAgentProfileEventWebhookScope.extend({ type: z.literal('profile') }),
+    zAgentEventWebhookScope.extend({ type: z.literal('agent') })
+]);
+
+export const zEventWebhookEventType = z.enum([
+    'agent_input',
+    'model_output',
+    'tool_result',
+    'context_checkpoint',
+    'tool_call_update'
+]);
 
 export const zCronTriggerId = z.string().regex(/^cron_[a-z2-7]{26}$/);
 
@@ -546,6 +572,35 @@ export const zMemoryStoreId = z.string().regex(/^mst_[a-z2-7]{26}$/);
  * Secret ID (sec_...).
  */
 export const zSecretId = z.string().regex(/^sec_[a-z2-7]{26}$/);
+
+export const zUpdateEventWebhookRequest = z.object({
+    url: z.string().min(1).max(2048).optional(),
+    event_types: z.array(zEventWebhookEventType).min(1).optional(),
+    signing_secret_id: zSecretId.nullish()
+});
+
+export const zCreateEventWebhookRequest = z.object({
+    url: z.string().min(1).max(2048),
+    event_types: z.array(zEventWebhookEventType).min(1),
+    signing_secret_id: zSecretId.optional(),
+    scope: zEventWebhookScope
+});
+
+export const zEventWebhook = z.object({
+    url: z.string().min(1).max(2048),
+    event_types: z.array(zEventWebhookEventType).min(1),
+    signing_secret_id: zSecretId.optional(),
+    scope: zEventWebhookScope,
+    id: zEventWebhookId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true })
+});
+
+export const zListEventWebhooksResponse = z.object({
+    data: z.array(zEventWebhook)
+});
 
 /**
  * Connect Omnara to a model API endpoint. Use a preset for built-in providers, or provide api_format and base_url for a custom endpoint. When omitted, endpoint_path and auth settings are filled from api_format.
@@ -994,7 +1049,7 @@ export const zAgentConfigSourceInput = z.union([
 ]);
 
 /**
- * An agent config to compile. YAML sources are stored verbatim, so comments and formatting survive; JSON sources, as text or as an object, are stored canonicalized, so the same JSON definition always maps to the same config.
+ * An agent config to compile. The source, YAML or JSON, as text or as a JSON object, is stored exactly as sent, so comments and formatting survive. Configs whose sources compile to the same definition share it, however their sources are formatted.
  */
 export const zCreateAgentConfigRequest = z.object({
     source: zAgentConfigSourceInput,
@@ -1187,18 +1242,6 @@ export const zAgentConfigModel = z.object({
     output_modalities: z.array(z.string())
 });
 
-export const zCompiledEventWebhook = z.object({
-    url: z.string(),
-    events: z.array(z.enum([
-        'agent_input',
-        'model_output',
-        'tool_result',
-        'context_checkpoint',
-        'tool_call_update'
-    ])).min(1),
-    signing_secret_id: zSecretId.optional()
-});
-
 export const zCompiledModelReasoning = z.object({
     effort: z.string()
 });
@@ -1389,6 +1432,30 @@ export const zCronTriggerLastRun = z.object({
     failure_message: z.string().nullable()
 });
 
+/**
+ * The agent's open questions and permission requests.
+ */
+export const zAgentOpenInteractions = z.object({
+    question_count: z.int().gte(0),
+    permission_request_count: z.int().gte(0)
+});
+
+/**
+ * Commands the agent left running that will send it a message when they end. process_ids lists the first 20, oldest first.
+ */
+export const zAgentRunningProcesses = z.object({
+    count: z.int().gte(0),
+    process_ids: z.array(zProcessId).max(20)
+});
+
+/**
+ * Active subagents that are still working, including through their own subagents or processes. agent_ids lists the first 20, oldest first.
+ */
+export const zAgentWorkingSubagents = z.object({
+    count: z.int().gte(0),
+    agent_ids: z.array(zAgentId).max(20)
+});
+
 export const zAgentActivity = z.object({
     state: z.enum([
         'running',
@@ -1396,7 +1463,10 @@ export const zAgentActivity = z.object({
         'waiting_on_interaction',
         'archived'
     ]),
-    last_activity_at: zTimestamp
+    last_activity_at: zTimestamp,
+    open_interactions: zAgentOpenInteractions,
+    running_processes: zAgentRunningProcesses,
+    working_subagents: zAgentWorkingSubagents
 });
 
 export const zAgentModel = z.object({
@@ -2046,7 +2116,7 @@ export const zEventWebhookToolCallUpdate = z.object({
 });
 
 /**
- * JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
+ * JSON body posted to an event webhook. Each event name determines its data schema.
  */
 export const zEventWebhookPayload = z.discriminatedUnion('event', [
     zEventWebhookAgentInputEvent.extend({ event: z.literal('agent_input') }),
@@ -2465,6 +2535,7 @@ export const zCreateMachinePoolRequestBase = z.object({
 export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.union([
     z.object({
         provider: z.enum([
+            'agent37',
             'arker',
             'freestyle',
             'modal',
@@ -2849,7 +2920,8 @@ export const zProcessActionReconciliationClaim = z.object({
     action_kind: z.enum([
         'write',
         'interrupt',
-        'terminate'
+        'terminate',
+        'watch'
     ]),
     position: z.enum(['effect_committed', 'terminal'])
 });
@@ -2877,7 +2949,8 @@ export const zProcessActionReconciliationDirective = z.object({
         'write',
         'read',
         'interrupt',
-        'terminate'
+        'terminate',
+        'watch'
     ]),
     disposition: z.enum([
         'apply',
@@ -3360,7 +3433,6 @@ export const zCompiledAgentConfig = z.object({
     machine_sources: z.array(zCompiledMachineSource).optional(),
     tools: z.record(z.string(), zCompiledTool).optional(),
     mcp: z.record(z.string(), zCompiledMcpServer).optional(),
-    event_webhook: zCompiledEventWebhook.optional(),
     interaction_handlers: z.record(z.string(), zCompiledIntegrationCapability).optional(),
     git_credentials: zCompiledGitCredentials.optional(),
     skills: z.array(zCompiledSkill).optional(),
@@ -3735,6 +3807,58 @@ export const zSecretMcpoAuthFlowIdFilter = zMcpoAuthFlowId;
  * Filter a project inventory by how the secret became available.
  */
 export const zSecretAvailabilitySourceFilter = z.enum(['direct', 'grant']);
+
+export const zListEventWebhooksPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+export const zListEventWebhooksQuery = z.object({
+    scope_type: zEventWebhookScopeType,
+    agent_profile_id: zAgentProfileId.optional(),
+    agent_id: zAgentId.optional()
+});
+
+/**
+ * Webhooks for the requested scope.
+ */
+export const zListEventWebhooksResponse2 = zListEventWebhooksResponse;
+
+export const zCreateEventWebhookBody = zCreateEventWebhookRequest;
+
+export const zCreateEventWebhookPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId
+});
+
+/**
+ * Webhook created.
+ */
+export const zCreateEventWebhookResponse = zEventWebhook;
+
+export const zDeleteEventWebhookPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    webhookID: zEventWebhookId
+});
+
+/**
+ * Webhook deleted.
+ */
+export const zDeleteEventWebhookResponse = z.void();
+
+export const zUpdateEventWebhookBody = zUpdateEventWebhookRequest;
+
+export const zUpdateEventWebhookPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    webhookID: zEventWebhookId
+});
+
+/**
+ * Webhook updated.
+ */
+export const zUpdateEventWebhookResponse = zEventWebhook;
 
 export const zListPersonalAccessTokensQuery = z.object({
     limit: z.int().gte(1).lte(100).optional().default(50),

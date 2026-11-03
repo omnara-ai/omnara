@@ -10,7 +10,7 @@ import AgentConfigProfileAdvance from '/snippets/agent-config-profile-advance.md
 
 An agent config is a YAML or JSON document that defines the agent's instruction, model, tools, permissions, and machines.
 
-Configs are immutable: changing the definition creates a new config ID (`acfg_…`). Submitting the same definition again returns the same ID.
+Configs are immutable: changing the source creates a new config ID (`acfg_…`). Submitting the same source again returns the same ID.
 
 YAML and JSON configs refer to model providers, configured models, BYO machines, and machine pools by their human-readable names. When a config is created, Omnara resolves those names and stores the resources' immutable IDs in the compiled config. Renaming a resource therefore does not change an existing config or an agent already using it. Recompiling saved source resolves its names again against the current resources, so an old name may stop resolving or may resolve to a different resource if that name has since been reused.
 
@@ -37,6 +37,7 @@ tools:
   write_process: {}
   read_process: {}
   stop_process: {}
+  watch_process: {}
   list_processes: {}
   list_machines: {}
   inspect_machine: {}
@@ -123,7 +124,7 @@ tools:
 
 Permission modes decide whether a tool runs immediately, asks a person first, or is denied. See [Tools & permissions](/tools/permissions) for defaults and supported modes.
 
-When `machine_sources` is nonempty, Omnara adds missing entries for `run_command`, `write_process`, `read_process`, `stop_process`, `list_processes`, `list_machines`, `inspect_machine`, `storage_upload`, and `storage_download` to the compiled config. If any source is a machine pool, it also adds `create_machine` and `delete_machine`, regardless of pool counts or machine availability. Attached skills similarly add `skill`. Compilation leaves your YAML or JSON source unchanged. Explicit disables and permissions take precedence.
+When `machine_sources` is nonempty, Omnara adds missing entries for `run_command`, `write_process`, `read_process`, `stop_process`, `watch_process`, `list_processes`, `list_machines`, `inspect_machine`, `storage_upload`, and `storage_download` to the compiled config. If any source is a machine pool, it also adds `create_machine` and `delete_machine`, regardless of pool counts or machine availability. Attached skills similarly add `skill`, and [`git_credentials`](/integrations/github#git-credentials) adds `list_github_repositories`. Compilation leaves your YAML or JSON source unchanged. Explicit disables and permissions take precedence.
 
 The builder displays these defaults under **Tools → Other tools** without writing them into your source. Changing a permission or selecting **Disabled** saves an explicit override. Defaults disappear when their relevant source is removed; explicitly configured tools remain.
 
@@ -192,23 +193,9 @@ The full example above defines `create_ticket` as a custom tool. When the agent 
 
 `mcp` connects the agent to [Model Context Protocol](https://modelcontextprotocol.io) servers. Each entry sets the server URL, authentication, and permissions. `auth.secret_id` points to the [secret](/organization/secrets) required by the selected authentication type. [MCP servers](/tools/mcp) explains the full setup.
 
-## Event webhook
+## Event webhooks
 
-`event_webhook` sends this agent's timeline events and tool-call updates to a public HTTPS endpoint:
-
-```yaml
-event_webhook:
-  url: https://example.com/events
-  events: [tool_call_update]
-```
-
-`event_webhook.events` is a required, nonempty event-type allowlist. Supported types are `agent_input`, `model_output`, `tool_result`, `context_checkpoint`, and `tool_call_update`. The builder defaults to tool-call updates; “All events” selects the currently supported types explicitly. Changes apply to newly queued events.
-
-Each POST contains `event` and `data` matching the [event stream](/events/streaming), excluding token previews, heartbeats, and stream errors. See [Webhook payloads](/events/webhooks) for examples and SDK validation. Each agent sends its own events. Self-subagents inherit the webhook configuration and send events with their own agent IDs; other subagents use their profile’s configuration.
-
-Deliveries are queued for up to ten minutes, with a five-second request timeout. Failed deliveries of every selected event type are retried with exponential backoff and jitter within that window. Return `2xx` to acknowledge receipt. Events may arrive more than once or out of order; deduplicate deliveries by `Webhook-Id` and custom tool execution by tool-call ID.
-
-Signing is optional. Set `event_webhook.signing_secret_id` to a project-available [generic secret](/organization/secrets), generated with `openssl rand -base64 32`. Configure the same value on your receiver and verify requests using [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md).
+[Event webhooks](/events/webhooks) are managed separately from agent configuration. Attach them to an agent, profile, or project to receive selected events at an HTTPS endpoint.
 
 ## Machines
 
@@ -305,7 +292,7 @@ The CLI's `omnara memory-stores` commands manage stores; `omnara memory-stores f
 <Tab title="API">
   The examples assume the client, `$ORG`/`orgID`, and `$PROJ`/`projectID` setup from the [quickstart](/quickstart).
 
-  Send the config in `source` with its `source_format`. YAML is stored verbatim with its comments and formatting. With `source_format: json`, `source` can be JSON text or the config as a JSON object; either way it is stored canonicalized (compact, keys sorted), so the same JSON definition maps to the same config however it is formatted. `POST /agent-configs` returns `201` for a new config or `200` with the existing config when the same definition was already created. Responses include the saved `source` text and its `source_format`. The CLI has no separate config step: pass the config to the command that uses it — `--file` takes a `.yaml`, `.yml`, or `.json` file, `--source` takes inline YAML or JSON, and `--config` references an existing `acfg_…` ID.
+  Send the config in `source` with its `source_format`. With `source_format: json`, `source` can be JSON text or the config as a JSON object. Either way, the source is stored exactly as sent. `POST /agent-configs` returns `201` for a new config or `200` with the existing config when the same source was already saved and still compiles to the same definition. Configs whose sources differ only in formatting get their own IDs but share one compiled definition and the same `effective_definition_hash`. Responses include the saved `source` text and its `source_format`. The CLI has no separate config step: pass the config to the command that uses it — `--file` takes a `.yaml`, `.yml`, or `.json` file, `--source` takes inline YAML or JSON, and `--config` references an existing `acfg_…` ID.
 
   <AgentConfigCreate />
 
