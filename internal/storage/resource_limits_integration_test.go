@@ -154,7 +154,7 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		MaxActiveIntegrationsPerProject:           1_000,
 		MaxActiveIntegrationSubscriptionsPerAgent: 1_024,
 		MaxActiveMemoryStoresPerProject:           10_000,
-		MaxMemoriesPerStore:                       10_000,
+		MaxMemoriesPerStore:                       100_000,
 	}
 	if limits != wantDefaults {
 		t.Fatalf("default resource limits = %+v, want %+v", limits, wantDefaults)
