@@ -1,5 +1,7 @@
 import { CST, Document, isMap, isNode, isScalar, type Node, parseDocument } from 'yaml'
 
+import { configYamlOptions } from '@/components/agents/agentConfigYaml'
+
 export type ConfigPath = (string | number)[]
 export type ConfigEdit =
   | { type: 'set'; path: ConfigPath; value: Node; raw?: string }
@@ -41,7 +43,17 @@ function applyEdit(
   if (path.length > 1) {
     if (!previous?.value || !CST.isCollection(previous.value))
       throw new Error(`Cannot edit missing collection ${String(key)}.`)
+    const wasBlock = previous.value.type !== 'flow-collection'
     previous.value = applyEdit(previous.value, path.slice(1), edit, json, newline)
+    if (
+      wasBlock &&
+      previous.key &&
+      previous.value.type === 'flow-collection' &&
+      previous.value.items.length === 0 &&
+      previous.sep?.every((token) => ['map-value-ind', 'space', 'newline'].includes(token.type))
+    ) {
+      previous.sep = [sourceToken('map-value-ind', ':'), sourceToken('space', ' ')]
+    }
   } else if (edit.type === 'reorder') {
     if (!previous?.value || !CST.isCollection(previous.value) || !isSequence(previous.value))
       throw new Error('Cannot reorder a missing sequence.')
@@ -58,6 +70,13 @@ function applyEdit(
         start.unshift(sourceToken('space', ' '.repeat(collection.indent)))
       return { ...item, start }
     })
+    if (collection.type === 'block-seq') {
+      reordered.forEach((item, index) => {
+        const previous = reordered[index - 1]
+        if (previous && !CST.stringify(previous).endsWith('\n'))
+          item.start.unshift(sourceToken('newline', newline))
+      })
+    }
     const items: CST.CollectionItem[] = collection.items
     items.splice(0, edit.order.length, ...reordered)
   } else if (edit.type === 'delete') {
@@ -122,7 +141,7 @@ function renderItem(
     rendered = '{' + JSON.stringify(key) + ': ' + raw + '\n}'
     rendered = rendered.replace(/^/gm, ' '.repeat(parent.indent))
   } else {
-    const doc = new Document(sequence ? [] : {})
+    const doc = new Document(sequence ? [] : {}, configYamlOptions)
     doc.set(sequence ? 0 : key, value.clone())
     rendered = json
       ? JSON.stringify(doc.toJS())
@@ -148,7 +167,8 @@ function renderItem(
 
 export function configNodeSource(source: string, doc: Document, path: string[]) {
   const node = doc.getIn(path, true)
-  if (!isNode(node) || !node.range) throw new Error('Missing definition source range.')
+  if (!isNode(node)) return ''
+  if (!node.range) throw new Error('Missing definition source range.')
   const parent = doc.getIn(path.slice(0, -1), true)
   const pair = isMap(parent)
     ? parent.items.find((pair) => isScalar(pair.key) && pair.key.value === path.at(-1))

@@ -18,6 +18,7 @@ import { z } from 'zod'
 import { AgentConfigAdvancedFields } from '@/components/agents/AgentConfigAdvancedFields'
 import { configPath } from '@/components/agents/agentConfigCompatibility'
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
+import { agentTemplates } from '@/components/agents/agentTemplates'
 import customFixture from '@/components/agents/fixtures/inline-custom-tools.yaml?raw'
 import { savePendingMcpBuilderOAuth } from '@/components/agents/pendingMcpBuilderOAuth'
 import {
@@ -441,6 +442,22 @@ function AdvancedEditorHarness({
         type="button"
         onClick={() => {
           editor.switchMode('yaml')
+        }}
+      >
+        Show YAML
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          editor.form.setInstruction('Pending instruction.')
+        }}
+      >
+        Change instruction
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          editor.switchMode('yaml')
           editor.dispatchMode({
             type: 'editor-yaml-changed',
             yaml: adoptedYaml,
@@ -640,3 +657,142 @@ it('blocks a stale OAuth restore instead of overwriting a newer configuration', 
     window.sessionStorage.clear()
   }
 })
+
+it('keeps the editor mounted when YAML contains a value-less tool entry', async () => {
+  advancedProviders()
+  const source = includedSource + 'tools: {web_search}\n'
+  await renderAndFlush(<AdvancedEditorHarness source={includedSource} adoptedYaml={source} />)
+  clickLabel('Edit YAML')
+  expect(container.querySelector('output')?.textContent).toBe(source)
+  expect(container.querySelector('[data-diagnostics]')?.textContent).toContain('/tools/web_search')
+})
+
+it('leaves schema validation of edited whole-document YAML to the API', async () => {
+  advancedProviders()
+  const source = includedSource + 'version: future-version\n'
+  await renderAndFlush(<AdvancedEditorHarness source={includedSource} adoptedYaml={source} />)
+  clickLabel('Edit YAML')
+  expect(container.querySelector('output')?.getAttribute('data-mode')).toBe('yaml')
+  expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('false')
+  expect(container.querySelector('[data-diagnostics]')?.textContent).toContain('/version')
+})
+
+it('retains unfinished raw edits until they are fixed or explicitly discarded', async () => {
+  advancedProviders()
+  await renderAndFlush(<AdvancedEditorHarness />)
+  clickLabel('Change instruction')
+  const textarea = container.querySelector<HTMLTextAreaElement>(
+    '[id="advanced-/tools/search_records"]',
+  )
+  if (!textarea) throw new Error('Missing custom editor')
+  const invalid = 'type: custom\ndescription: Pending\ninput_schema: ['
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(
+      textarea,
+      invalid,
+    )
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  clickLabel('Show YAML')
+  expect(container.querySelector('output')?.getAttribute('data-mode')).toBe('builder')
+  expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('true')
+  expect(container.querySelector('output')?.getAttribute('data-dirty')).toBe('true')
+  expect(textarea.value).toBe(invalid)
+  expect(container.querySelector('[data-diagnostics]')?.textContent).toContain('Fix or discard')
+  clickLabel('Discard edits to search_records')
+  clickLabel('Show YAML')
+  expect(container.querySelector('output')?.getAttribute('data-mode')).toBe('yaml')
+  expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('false')
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    'instruction',
+    'Pending instruction.',
+  )
+})
+
+function TemplateDraftHarness() {
+  const draft = useAgentDraft(undefined, undefined, undefined, undefined, {
+    orgId: 'org-test',
+    projectId: 'project-test',
+  })
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          draft.switchMode('yaml')
+          draft.dispatchMode({
+            type: 'editor-yaml-changed',
+            yaml: customFixture + 'extension: retained-until-template\n',
+            builderYaml: draft.builderYaml,
+          })
+        }}
+      >
+        Load custom draft
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          draft.switchMode('builder')
+        }}
+      >
+        Adopt custom draft
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          const template = agentTemplates[0]
+          if (!template) throw new Error('Missing template')
+          draft.applyTemplate(template)
+        }}
+      >
+        Apply template
+      </button>
+      <output data-mode={draft.mode.mode} data-custom-count={draft.form.advancedEntries.length}>
+        {draft.yaml}
+      </output>
+    </>
+  )
+}
+
+it.each(['yaml', 'oauth'])(
+  'replaces the source document when a template is applied after %s restoration',
+  async (mode) => {
+    advancedProviders()
+    const previousUrl = window.location.href
+    if (mode === 'oauth') {
+      const draft = createBasicConfigSession(
+        customFixture + 'extension: retained-until-template\n',
+      ).initialDraft
+      if (!draft) throw new Error('Missing fixture draft')
+      savePendingMcpBuilderOAuth({
+        returnPath: window.location.pathname,
+        serverId: 'example-server',
+        agentName: null,
+        draft,
+      })
+      window.history.replaceState(
+        null,
+        '',
+        '?mcp_oauth=success&secret_id=example-secret&case=template',
+      )
+    }
+    try {
+      await renderAndFlush(<TemplateDraftHarness />)
+      if (mode === 'yaml') {
+        clickLabel('Load custom draft')
+        clickLabel('Adopt custom draft')
+      }
+      expect(container.querySelector('output')?.textContent).toContain('search_records')
+      clickLabel('Apply template')
+      const yaml = container.querySelector('output')?.textContent ?? ''
+      expect(container.querySelector('output')?.getAttribute('data-mode')).toBe('builder')
+      expect(container.querySelector('output')?.getAttribute('data-custom-count')).toBe('0')
+      expect(yaml).not.toContain('search_records')
+      expect(yaml).not.toContain('retained-until-template')
+      expect(parse(yaml)).toHaveProperty('instruction', agentTemplates[0]?.instruction)
+    } finally {
+      window.history.replaceState(null, '', previousUrl)
+      window.sessionStorage.clear()
+    }
+  },
+)

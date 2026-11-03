@@ -61,7 +61,9 @@ export function useAgentDraft(
       next.providerConfig = form.model.providerConfig
       next.modelName = form.model.modelName
     }
-    form.reset(next)
+    setSession(createBasicConfigSession(''))
+    form.reset({ ...next, originalSource: '', advancedEntries: [] })
+    controller.dispatchMode({ type: 'adopt-yaml-edits' })
     setName((prev) => agentTemplateName(prev, template))
   }
 

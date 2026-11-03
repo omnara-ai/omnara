@@ -170,6 +170,7 @@ export function useAgentBuilderForm(
       (validationIssues.length > 0 &&
         draftFingerprint(draft) !== draftFingerprint(session.initialDraft ?? initialDraft)),
     validationIssues,
+    unappliedChanges: evaluated.unappliedChanges,
     advancedEntries: draft.advancedEntries ?? [],
     reservedToolNames: (draft.advancedEntries ?? [])
       .filter((entry) => entry.path[0] === 'tools')
@@ -181,6 +182,7 @@ export function useAgentBuilderForm(
     setAdvancedEntries: (advancedEntries: AdvancedConfigEntry[]) => {
       patch({ advancedEntries })
     },
+    originalAdvancedEntries: session.initialDraft?.advancedEntries ?? [],
     yaml: evaluated.yaml,
     blocked,
     resolvedTools: tools.data?.tools,
@@ -191,8 +193,6 @@ export function useAgentBuilderForm(
     reset: (config: BasicConfig | null) => {
       setDraft((previous) => ({
         ...(config ?? emptyBasicConfig),
-        advancedEntries: config?.advancedEntries ?? previous.advancedEntries,
-        originalSource: config?.originalSource ?? previous.originalSource,
         savedSource: previous.savedSource,
       }))
     },

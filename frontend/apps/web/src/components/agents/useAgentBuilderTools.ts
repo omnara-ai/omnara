@@ -1,9 +1,13 @@
 import { useAgentConfigTools } from '@omnara/react'
 import { type AgentConfigToolsDefinition, ApiError } from '@omnara/sdk'
+import { useMemo } from 'react'
+import { Document, isMap, isSeq, parseDocument } from 'yaml'
 
 import type { McpEntry } from '@/components/agents/agentConfigBasicExtract'
+import { parseConfigDocument } from '@/components/agents/agentConfigCompatibility'
 import { mcpWire } from '@/components/agents/agentConfigMcp'
 import { subagentValid, subagentWire } from '@/components/agents/agentConfigSubagents'
+import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 import {
   type BasicConfig,
   type BasicMcpServer,
@@ -11,7 +15,7 @@ import {
 } from '@/components/agents/useAgentBuilderForm'
 
 export function agentBuilderToolsDefinition(source: BasicConfig): AgentConfigToolsDefinition {
-  return {
+  const definition: AgentConfigToolsDefinition = {
     interaction_handlers: source.interactionHandlers,
     tools: Object.fromEntries(source.tools.map((tool) => [tool.name, toolWire(tool)])),
     mcp: Object.fromEntries(
@@ -33,6 +37,40 @@ export function agentBuilderToolsDefinition(source: BasicConfig): AgentConfigToo
       }),
     ),
   }
+  if (source.gitCredentials !== undefined) definition.git_credentials = source.gitCredentials
+  return definition
+}
+
+export function agentBuilderToolsRequest(source: BasicConfig) {
+  const definition = agentBuilderToolsDefinition(source)
+  const toolFields = new Set([...Object.keys(definition), 'git_credentials'])
+  const advanced = (source.advancedEntries ?? []).filter((entry) =>
+    toolFields.has(entry.path[0] ?? ''),
+  )
+  if (advanced.length === 0) return { source: definition, source_format: 'json' as const }
+  const preview = new Document(definition, configYamlOptions)
+  for (const entry of advanced) {
+    const parsed = parseConfigDocument(entry.source)
+    const value = !parsed.diagnostics.some((issue) => issue.kind === 'fatal')
+      ? parsed.doc.contents
+      : parseDocument(source.originalSource ?? '', configYamlOptions).getIn(entry.path, true)
+    if (entry.path[0] === 'machine_sources' && entry.path.length === 2) {
+      const sources = preview.get('machine_sources', true)
+      if (isSeq(sources)) sources.add(value)
+    } else {
+      preview.setIn(entry.path, value)
+    }
+  }
+  for (const key of ['mcp', 'subagents']) {
+    const entries = preview.get(key, true)
+    if (!isMap(entries)) continue
+    for (const entry of entries.items) {
+      if (!isMap(entry.value)) continue
+      for (const field of key === 'mcp' ? ['auth'] : ['instruction', 'description', 'model'])
+        entry.value.delete(field)
+    }
+  }
+  return { source: preview.toString(), source_format: 'yaml' as const }
 }
 
 function mcpPreviewWire(server: BasicMcpServer): McpEntry {
@@ -48,10 +86,8 @@ export function useAgentBuilderTools(
   source: BasicConfig,
   scope: { orgId: string; projectId: string },
 ) {
-  const query = useAgentConfigTools(scope.orgId, scope.projectId, {
-    source: agentBuilderToolsDefinition(source),
-    source_format: 'json',
-  })
+  const request = useMemo(() => agentBuilderToolsRequest(source), [source])
+  const query = useAgentConfigTools(scope.orgId, scope.projectId, request)
   const error = query.error
   const detail =
     error instanceof ApiError

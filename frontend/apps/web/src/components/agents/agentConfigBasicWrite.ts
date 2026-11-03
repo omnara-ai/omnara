@@ -39,7 +39,7 @@ export function applyToDocument(
     original,
     baseline?.advancedEntries?.map((entry) => entry.path) ?? [],
   )
-  const { document: doc, set, remove: del } = transaction
+  const { set, remove: del } = transaction
 
   const applyList = (key: string, items: WireValue[], base: WireValue[] | null) => {
     if (base == null) {
@@ -58,11 +58,11 @@ export function applyToDocument(
     for (const index of removed.reverse()) del([key, index])
     for (const value of items) {
       if (baselineIds.has(identity(value))) continue
-      const sequence = doc.getIn([key], true)
+      const sequence = transaction.document.getIn([key], true)
       if (isSeq(sequence)) set([key, String(sequence.items.length)], value)
       else set([key], [value])
     }
-    const sequence = doc.getIn([key], true)
+    const sequence = transaction.document.getIn([key], true)
     if (removed.length > 0 && isSeq(sequence) && sequence.items.length === 0) del([key])
     transaction.orderSequence(
       [key],
@@ -87,7 +87,7 @@ export function applyToDocument(
   if (reasoningEffort !== (baseline?.reasoningEffort ?? '')) {
     if (reasoningEffort === '') {
       del(['model', 'reasoning', 'effort'])
-      const reasoning = doc.getIn(['model', 'reasoning'], true)
+      const reasoning = transaction.document.getIn(['model', 'reasoning'], true)
       if (isMap(reasoning) && reasoning.items.length === 0) del(['model', 'reasoning'])
     } else set(['model', 'reasoning', 'effort'], reasoningEffort)
   }
@@ -181,8 +181,12 @@ function applyWireChanges(
     return
   }
   if (isWireObject(baseline) && isWireObject(desired)) {
-    for (const key of new Set([...Object.keys(baseline), ...Object.keys(desired)])) {
-      applyWireChanges([...path, key], baseline[key], desired[key], set, del)
+    for (const key of Object.keys(desired)) {
+      if (desired[key] !== undefined)
+        applyWireChanges([...path, key], baseline[key], desired[key], set, del)
+    }
+    for (const key of Object.keys(baseline)) {
+      if (desired[key] === undefined) del([...path, key])
     }
   } else set(path, desired)
 }
@@ -192,7 +196,7 @@ function applyMachineSources(
   rows: BasicMachineSource[],
   baselineRows: BasicMachineSource[] | null,
 ) {
-  const { document: doc, set, remove: del } = transaction
+  const { set, remove: del } = transaction
   if (baselineRows == null) {
     if (rows.length > 0) set(['machine_sources'], rows.map(machineSourceWire))
     return
@@ -220,12 +224,12 @@ function applyMachineSources(
   }
   for (const row of rows) {
     if (baselineById.has(row.id)) continue
-    const sequence = doc.getIn(['machine_sources'], true)
+    const sequence = transaction.document.getIn(['machine_sources'], true)
     if (isSeq(sequence))
       set(['machine_sources', String(sequence.items.length)], machineSourceWire(row))
     else set(['machine_sources'], [machineSourceWire(row)])
   }
-  const sequence = doc.getIn(['machine_sources'], true)
+  const sequence = transaction.document.getIn(['machine_sources'], true)
   if (removed.length > 0 && isSeq(sequence) && sequence.items.length === 0) del(['machine_sources'])
   transaction.orderSequence(
     ['machine_sources'],

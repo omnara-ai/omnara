@@ -26,7 +26,11 @@ export class ConfigEditError extends Error {
 }
 
 export function editConfigDocument(source: string, original: Document, preservedPaths: string[][]) {
-  const document = original.clone()
+  let document = original
+  function mutableDocument() {
+    if (document === original) document = original.clone()
+    return document
+  }
   const edits: ConfigEdit[] = []
   const protectedPaths: ConfigPath[] = preservedPaths.map((path) => [...path])
 
@@ -71,17 +75,28 @@ export function editConfigDocument(source: string, original: Document, preserved
     })
     if (new Set(order).size !== order.length)
       throw new ConfigEditError(path, 'Cannot identify the reordered entries.')
-    sequence.items = order.map((index) => sequence.items[index])
+    const target = mutableDocument().getIn(path, true)
+    if (!isSeq(target)) throw new ConfigEditError(path, 'Missing sequence.')
+    target.items = order.map((index) => target.items[index])
     edits.push({ type: 'reorder', path, order })
   }
 
   function write(path: ConfigPath, value: ConfigNodeInput, preserveComments: boolean) {
-    const node = document.createNode(value)
+    const node = mutableDocument().createNode(value)
     const previous = document.getIn(path, true)
     if (preserveComments && isNode(previous)) {
       node.commentBefore = previous.commentBefore
       node.comment = previous.comment
-      if (isScalar(node) && isScalar(previous)) node.type = previous.type
+      if (isScalar(node) && isScalar(previous)) {
+        const text = z.string().safeParse(node.value)
+        if (
+          previous.type === 'BLOCK_LITERAL' ||
+          previous.type === 'BLOCK_FOLDED' ||
+          !text.success ||
+          !text.data.includes('\n')
+        )
+          node.type = previous.type
+      }
     }
     const snapshot = node.clone()
     if (!isNode(snapshot)) throw new ConfigEditError(path, 'Cannot copy the edited field.')
@@ -101,7 +116,8 @@ export function editConfigDocument(source: string, original: Document, preserved
 
   function remove(path: ConfigPath) {
     requireManaged(path)
-    if (!document.deleteIn(path)) return
+    if (!document.hasIn(path)) return
+    mutableDocument().deleteIn(path)
     edits.push({ type: 'delete', path })
     const parentPath = path.slice(0, -1)
     const parent = document.getIn(parentPath, true)
@@ -132,7 +148,7 @@ export function editConfigDocument(source: string, original: Document, preserved
     if (needsConversion && diagnostics.some((issue) => issue.kind === 'opaque'))
       throw new ConfigEditError(
         path,
-        'Quote version-dependent YAML scalars or use explicit decimal values before editing this definition in a flow collection.',
+        'Use a flow YAML or JSON definition to preserve these scalar values exactly in this collection.',
       )
     if (parsed.errors.length > 0 || !parsed.contents)
       throw new ConfigEditError(path, 'Invalid advanced definition.')
@@ -166,7 +182,16 @@ export function editConfigDocument(source: string, original: Document, preserved
     return result
   }
 
-  return { document, set, remove, orderSequence, replaceDefinition, serialize }
+  return {
+    get document() {
+      return document
+    },
+    set,
+    remove,
+    orderSequence,
+    replaceDefinition,
+    serialize,
+  }
 }
 
 export function deepEqual(a: ConfigValue, b: ConfigValue): boolean {

@@ -1,17 +1,21 @@
-import { Document } from 'yaml'
+import { Document, parseDocument } from 'yaml'
 
 import { parseBasicConfigSource } from '@/components/agents/agentConfigBasicExtract'
 import { applyToDocument } from '@/components/agents/agentConfigBasicWrite'
 import {
+  type AdvancedConfigEntry,
   type ConfigDiagnostic,
+  configPath,
   validateAdvancedEntry,
 } from '@/components/agents/agentConfigCompatibility'
 import { ConfigEditError } from '@/components/agents/agentConfigDocument'
+import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 import type { BasicConfig } from '@/components/agents/useAgentBuilderForm'
 
 export interface ConfigEvaluation {
   yaml: string
   issues: ConfigDiagnostic[]
+  unappliedChanges: boolean
 }
 
 export interface BasicConfigSession {
@@ -23,11 +27,21 @@ export interface BasicConfigSession {
 }
 
 export function createBasicConfigSession(source: string): BasicConfigSession {
-  const { doc, initialDraft, diagnostics, advancedEntries } = parseBasicConfigSource(source)
+  const { doc, initialDraft, diagnostics, advancedEntries } = analyzeConfigSource(source)
+  const reserved = new Set(advancedEntries.map((entry) => configPath(entry.path)))
+  const validationCache = new Map<string, { source: string; issues: ConfigDiagnostic[] }>()
+  const validateEntry = (entry: AdvancedConfigEntry) => {
+    const key = configPath(entry.path)
+    const cached = validationCache.get(key)
+    if (cached?.source === entry.source) return cached.issues
+    const issues = validateAdvancedEntry(entry)
+    validationCache.set(key, { source: entry.source, issues })
+    return issues
+  }
   const validate = (config: BasicConfig) => {
     const issues = [
       ...diagnostics.filter((issue) => issue.error && issue.kind === 'opaque'),
-      ...(config.advancedEntries ?? []).flatMap(validateAdvancedEntry),
+      ...(config.advancedEntries ?? []).flatMap(validateEntry),
     ]
     const named = [
       ['tools', config.tools.map((tool) => tool.name)],
@@ -36,7 +50,7 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
     ] as const
     for (const [key, names] of named) {
       for (const name of names) {
-        if (advancedEntries.some((entry) => entry.path[0] === key && entry.path[1] === name)) {
+        if (reserved.has(configPath([key, name]))) {
           issues.push({
             path: [key, name],
             kind: 'opaque',
@@ -50,21 +64,48 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
   }
   const evaluate = (config: BasicConfig): ConfigEvaluation => {
     const issues = validate(config)
-    if (source !== '' && initialDraft == null) return { yaml: source, issues }
+    if (source !== '' && initialDraft == null)
+      return { yaml: source, issues, unappliedChanges: false }
+    const unappliedChanges =
+      (config.advancedEntries ?? []).some(
+        (entry) =>
+          validateEntry(entry).length > 0 &&
+          entry.source !==
+            advancedEntries.find((saved) => configPath(saved.path) === configPath(entry.path))
+              ?.source,
+      ) ||
+      config.tools.some((entry) => reserved.has(configPath(['tools', entry.name]))) ||
+      config.mcpServers.some((entry) => reserved.has(configPath(['mcp', entry.name]))) ||
+      config.subagents.some((entry) => reserved.has(configPath(['subagents', entry.key])))
     try {
       return {
-        yaml: applyToDocument(source === '' ? new Document({}) : doc, source, initialDraft, {
-          ...config,
-          advancedEntries: config.advancedEntries?.filter(
-            (entry) => validateAdvancedEntry(entry).length === 0,
-          ),
-        }),
+        yaml: applyToDocument(
+          source === '' ? new Document({}, configYamlOptions) : doc,
+          source,
+          initialDraft,
+          {
+            ...config,
+            tools: config.tools.filter((entry) => !reserved.has(configPath(['tools', entry.name]))),
+            mcpServers: config.mcpServers.filter(
+              (entry) => !reserved.has(configPath(['mcp', entry.name])),
+            ),
+            subagents: config.subagents.filter(
+              (entry) => !reserved.has(configPath(['subagents', entry.key])),
+            ),
+            advancedEntries: config.advancedEntries?.filter(
+              (entry) => validateEntry(entry).length === 0,
+            ),
+          },
+        ),
         issues,
+        unappliedChanges,
       }
     } catch (error) {
       return {
         yaml: source,
+        unappliedChanges: true,
         issues: [
+          ...issues,
           {
             path: error instanceof ConfigEditError ? error.path.map(String) : [],
             kind: 'fatal',
@@ -77,4 +118,24 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
     }
   }
   return { initialDraft, diagnostics, validate, evaluate, apply: (config) => evaluate(config).yaml }
+}
+
+function analyzeConfigSource(source: string): ReturnType<typeof parseBasicConfigSource> {
+  try {
+    return parseBasicConfigSource(source)
+  } catch {
+    return {
+      doc: parseDocument('{}', configYamlOptions),
+      initialDraft: null,
+      advancedEntries: [],
+      diagnostics: [
+        {
+          path: [],
+          kind: 'fatal',
+          message:
+            'The Builder could not safely analyze this document. Your source has been preserved in YAML.',
+        },
+      ],
+    }
+  }
 }
