@@ -1,6 +1,7 @@
 import type { Command } from 'commander'
 
-import type { CliConfig } from './config.ts'
+import { type CliConfig } from './config.ts'
+import { firstPresentSetting } from './config-file.ts'
 import { createLoginReporter, loginWithDevice } from './device-login.ts'
 import { runCliAction } from './output.ts'
 
@@ -32,7 +33,7 @@ export function registerLoginCommand(program: Command, cli: CliConfig): void {
           report.finish(
             `This account has no organization yet. Create one at ${new URL('/onboarding', cli.issuerUrl).toString()}, then run 'omnara config select'.`,
           )
-        } else if ((process.env.OMNARA_ORG_ID ?? orgId) === undefined) {
+        } else if (firstPresentSetting(process.env.OMNARA_ORG_ID, orgId) === undefined) {
           report.finish("Run 'omnara config select' to choose a default organization and project.")
         } else {
           report.finish()
