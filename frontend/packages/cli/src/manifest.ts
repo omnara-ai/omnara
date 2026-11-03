@@ -427,7 +427,7 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.connectByoMachine,
         format: formatMachineSetup,
         path: schemas.zConnectByoMachinePath,
-        body: schemas.zConnectByoMachineBody,
+        body: zMachineSetupBody,
       }),
       flowOp({
         verb: 'create-local',
