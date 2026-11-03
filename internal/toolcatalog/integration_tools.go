@@ -3,7 +3,6 @@ package toolcatalog
 import (
 	"encoding/json"
 	"fmt"
-	"slices"
 
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 )
@@ -17,6 +16,7 @@ const (
 	IntegrationOperationSubmitReview      = "submit_review"
 	IntegrationOperationDiscardReview     = "discard_review"
 	IntegrationOperationReply             = "reply"
+	IntegrationOperationResolveThread     = "resolve_thread"
 )
 
 type IntegrationToolScope string
@@ -41,16 +41,22 @@ func LookupIntegrationTool(
 	integrationKind integrationdefinition.Kind,
 	operation string,
 ) (IntegrationToolDefinition, bool) {
-	integration, ok := integrationdefinition.Lookup(integrationKind)
-	if !ok || !slices.Contains(integration.Tools, operation) {
-		return IntegrationToolDefinition{}, false
-	}
 	for _, tool := range integrationToolDefinitions {
 		if tool.IntegrationKind == integrationKind && tool.Operation == operation {
 			return tool, true
 		}
 	}
 	return IntegrationToolDefinition{}, false
+}
+
+func IntegrationTools(integrationKind integrationdefinition.Kind) []IntegrationToolDefinition {
+	var tools []IntegrationToolDefinition
+	for _, tool := range integrationToolDefinitions {
+		if tool.IntegrationKind == integrationKind {
+			tools = append(tools, tool)
+		}
+	}
+	return tools
 }
 
 func (d IntegrationToolDefinition) Prepare(name string) (Entry, error) {
@@ -118,8 +124,9 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 				"review requires review_id and returns that review's current state and summary. " +
 				"review_comments accepts review_id to read that review's comments, including drafts. " +
 				"Comments, reviews and files use page and limit; " +
-				"follow next_page even after an empty page. review_threads returns resolution/outdated state and " +
-				"a comment_id linking to review_comments/reply; use cursor and limit, following next_cursor. " +
+				"follow next_page even after an empty page. review_threads returns resolution/outdated state, " +
+				"an id for resolve_thread and a comment_id linking to review_comments/reply; " +
+				"use cursor and limit, following next_cursor. " +
 				"Diff reads over 2 MiB fail; use section=files and follow next_page instead. " +
 				"File patches can be incomplete for very large or binary changes.",
 			properties: map[string]any{
@@ -210,6 +217,16 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 				"or comment_id in read section=review_threads; discussion comment IDs and review IDs cannot be used.",
 			required:   []string{"comment_id", "body"},
 			properties: map[string]any{"comment_id": positive(), "body": text()},
+		},
+		{
+			Operation:       IntegrationOperationResolveThread,
+			IntegrationKind: integrationdefinition.GitHubPR,
+			Scope:           IntegrationToolScopeConversation,
+			Description: "Resolve a review thread on the selected GitHub pull request. " +
+				"Use the thread's id from read section=review_threads as review_thread_id. " +
+				"Requires the GitHub App's Pull requests and Contents: Read & write permissions.",
+			required:   []string{"review_thread_id"},
+			properties: map[string]any{"review_thread_id": text()},
 		},
 		{
 			Operation:       IntegrationOperationRead,
