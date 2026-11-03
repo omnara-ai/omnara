@@ -39,7 +39,9 @@ const (
 type Store interface {
 	GetEventWebhookEndpoint(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (executionstore.EventWebhookEndpoint, error)
 	GetAgentEventForWebhook(context.Context, uuid.UUID, uuid.UUID, int64) (executionstore.AgentEventReadRecord, error)
-	GetToolCall(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (executionstore.ToolCallRecord, error)
+	GetCustomToolCallInput(
+		context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
+	) (executionstore.CustomToolCallInput, bool, error)
 	ClaimEventWebhookDelivery(context.Context, int) (executionstore.EventWebhookDelivery, error)
 	CompleteEventWebhookDelivery(context.Context, uuid.UUID, uuid.UUID) error
 	RetryEventWebhookDelivery(
@@ -168,18 +170,22 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 		data, err = publicevents.EventFromReadRecord(record)
 	} else {
 		event = "tool_call_update"
-		var call *executionstore.ToolCallRecord
+		update := notifications.ToolCallUpdatedCommitted{
+			AgentID: delivery.AgentID, ToolCallID: *delivery.ToolCallID, State: *delivery.ToolState,
+			InteractionUpdate: delivery.InteractionUpdate,
+		}
 		if *delivery.ToolState == string(executionstore.ToolCallStateReady) {
-			record, readErr := s.store.GetToolCall(ctx, endpoint.ProjectID, delivery.AgentID, *delivery.ToolCallID)
+			call, found, readErr := s.store.GetCustomToolCallInput(
+				ctx, endpoint.ProjectID, delivery.AgentID, *delivery.ToolCallID,
+			)
 			if readErr != nil {
 				return readErr
 			}
-			call = &record
+			if found {
+				update.Name, update.Input = call.Name, call.Input
+			}
 		}
-		data, err = publicevents.ToolCallUpdate(notifications.ToolCallUpdatedCommitted{
-			AgentID: delivery.AgentID, ToolCallID: *delivery.ToolCallID, State: *delivery.ToolState,
-			InteractionUpdate: delivery.InteractionUpdate,
-		}, call)
+		data, err = publicevents.ToolCallUpdate(update)
 	}
 	if err != nil {
 		return err

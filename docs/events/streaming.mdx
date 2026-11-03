@@ -84,7 +84,7 @@ data: {"id":"evt_5n6a2bfgik7mv4qtrwz3jehcyd","sequence":3,"event_kind":"model_ou
 : heartbeat
 ```
 
-`tool_call_update` frames are included for every tool type and contain `tool_call_id`, `agent_id`, and `state`. When a custom call becomes `ready`, they also include `name` and `input` if the JSON-encoded input is at most 64 KiB. When a transition opens, resolves, or cancels an interaction, they also include `interaction_update` with its `id`, `interaction_kind`, and `state`. They may arrive out of order and are not replayed. After the stream connects, including after a reconnect, query `GET /tool-calls` for current state.
+`tool_call_update` frames are included for every tool type and contain `tool_call_id`, `agent_id`, and `state`. When a custom call becomes `ready`, they also include `name` and `input` if the JSON-encoded input is at most 64 KiB; for larger inputs, fetch the call. When a transition opens, resolves, or cancels an interaction, they also include `interaction_update` with its `id`, `interaction_kind`, and `state`. They may arrive out of order and are not replayed. After the stream connects, including after a reconnect, query `GET /tool-calls` for current state.
 
 A parent's stream does not carry its subagents' timelines, but it does carry their `tool_call_update` frames from every depth, with `agent_id` naming the subagent. Because every question and permission request is attached to a tool call, a frame arrives whenever a subagent asks a question, waits on permission, calls a custom tool, or has one of those resolved or canceled. Treat it as a signal to query `GET /interactions?include_subagents=true` and `GET /tool-calls?include_subagents=true` for current state.
 

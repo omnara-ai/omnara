@@ -537,9 +537,8 @@ WITH page AS (
     AND ($2::text = '' OR interaction.interaction_kind = $2)
     AND (
       SELECT agent.state = 'active'
-        AND ($3::uuid IS NULL OR root.agent_profile_id = $3::uuid)
+        AND ($3::uuid IS NULL OR agent.agent_profile_id = $3::uuid)
       FROM agents agent
-      JOIN agents root ON root.id = agent.root_agent_id
       WHERE agent.id = interaction.agent_id
     )
     AND (

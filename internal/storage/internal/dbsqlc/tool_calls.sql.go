@@ -13,6 +13,33 @@ import (
 	"github.com/google/uuid"
 )
 
+const getCustomToolCallInput = `-- name: GetCustomToolCallInput :one
+SELECT tool_call.name, tool_call.input
+FROM tool_calls tool_call
+WHERE tool_call.project_id = $1
+  AND tool_call.agent_id = $2
+  AND tool_call.id = $3
+  AND tool_call.type = 'custom'
+`
+
+type GetCustomToolCallInputParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+type GetCustomToolCallInputRow struct {
+	Name  string
+	Input json.RawMessage
+}
+
+func (q *Queries) GetCustomToolCallInput(ctx context.Context, arg GetCustomToolCallInputParams) (GetCustomToolCallInputRow, error) {
+	row := q.db.QueryRow(ctx, getCustomToolCallInput, arg.ProjectID, arg.AgentID, arg.ID)
+	var i GetCustomToolCallInputRow
+	err := row.Scan(&i.Name, &i.Input)
+	return i, err
+}
+
 const getToolCall = `-- name: GetToolCall :one
 WITH selected_call AS MATERIALIZED (
   SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id, tc.source_event_id, tc.source_event_sequence,
@@ -445,9 +472,8 @@ WITH page AS (
     AND ($4::text[] IS NULL OR tool_call.name = ANY($4::text[]))
     AND (
       SELECT agent.state = 'active'
-        AND ($5::uuid IS NULL OR root.agent_profile_id = $5::uuid)
+        AND ($5::uuid IS NULL OR agent.agent_profile_id = $5::uuid)
       FROM agents agent
-      JOIN agents root ON root.id = agent.root_agent_id
       WHERE agent.id = tool_call.agent_id
     )
     AND (

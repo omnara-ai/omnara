@@ -130,9 +130,8 @@ WITH page AS (
     AND (sqlc.arg(interaction_kind)::text = '' OR interaction.interaction_kind = sqlc.arg(interaction_kind))
     AND (
       SELECT agent.state = 'active'
-        AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR root.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
+        AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
       FROM agents agent
-      JOIN agents root ON root.id = agent.root_agent_id
       WHERE agent.id = interaction.agent_id
     )
     AND (

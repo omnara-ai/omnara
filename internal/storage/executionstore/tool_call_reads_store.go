@@ -51,6 +51,23 @@ func (s *Store) GetToolCall(
 	return toolCallRecordFromGetSQLC(row), nil
 }
 
+func (s *Store) GetCustomToolCallInput(
+	ctx context.Context,
+	projectID, agentID, id uuid.UUID,
+) (CustomToolCallInput, bool, error) {
+	row, err := s.q.GetCustomToolCallInput(
+		ctx,
+		dbsqlc.GetCustomToolCallInputParams{ProjectID: projectID, AgentID: agentID, ID: id},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CustomToolCallInput{}, false, nil
+	}
+	if err != nil {
+		return CustomToolCallInput{}, false, fmt.Errorf("get custom tool call input: %w", err)
+	}
+	return CustomToolCallInput(row), true, nil
+}
+
 func (s *Store) ListToolCalls(
 	ctx context.Context,
 	input ListToolCallsInput,

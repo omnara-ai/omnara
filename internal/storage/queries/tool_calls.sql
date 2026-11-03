@@ -38,6 +38,14 @@ LEFT JOIN LATERAL (
     AND block.owner_tool_call_result_id = result.id
 ) result_blocks ON true;
 
+-- name: GetCustomToolCallInput :one
+SELECT tool_call.name, tool_call.input
+FROM tool_calls tool_call
+WHERE tool_call.project_id = sqlc.arg(project_id)
+  AND tool_call.agent_id = sqlc.arg(agent_id)
+  AND tool_call.id = sqlc.arg(id)
+  AND tool_call.type = 'custom';
+
 -- name: GetToolCallByProviderCall :one
 WITH selected_call AS MATERIALIZED (
   SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id, tc.source_event_id, tc.source_event_sequence,
@@ -116,9 +124,8 @@ WITH page AS (
     AND (sqlc.narg(names)::text[] IS NULL OR tool_call.name = ANY(sqlc.narg(names)::text[]))
     AND (
       SELECT agent.state = 'active'
-        AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR root.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
+        AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
       FROM agents agent
-      JOIN agents root ON root.id = agent.root_agent_id
       WHERE agent.id = tool_call.agent_id
     )
     AND (

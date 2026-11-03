@@ -907,7 +907,7 @@ func (s *Server) streamAgentEvents(
 						s.log.Warn("subagent stream refresh failed", "agent_id", agent.ID, "error", err)
 					}
 				}
-				if !writeToolCallUpdateFrame(w, update, s.readyToolCall(streamCtx, project.ID, update)) {
+				if !writeToolCallUpdateFrame(w, update) {
 					flusher.Flush()
 					return
 				}
@@ -927,35 +927,12 @@ func (s *Server) streamAgentEvents(
 	}
 }
 
-func (s *Server) readyToolCall(
-	ctx context.Context,
-	projectID uuid.UUID,
-	update notifications.ToolCallUpdatedCommitted,
-) *executionstore.ToolCallRecord {
-	if update.State != string(executionstore.ToolCallStateReady) {
-		return nil
-	}
-	call, err := s.store.Execution().GetToolCall(ctx, projectID, update.AgentID, update.ToolCallID)
-	if err != nil {
-		s.log.Warn(
-			"tool call update lookup failed",
-			"agent_id", update.AgentID, "tool_call_id", update.ToolCallID, "error", err,
-		)
-		return nil
-	}
-	return &call
-}
-
-func writeToolCallUpdateFrame(
-	w http.ResponseWriter,
-	update notifications.ToolCallUpdatedCommitted,
-	call *executionstore.ToolCallRecord,
-) bool {
+func writeToolCallUpdateFrame(w http.ResponseWriter, update notifications.ToolCallUpdatedCommitted) bool {
 	state := openapi.ToolCallState(update.State)
 	if !state.Valid() {
 		return true
 	}
-	response, err := publicevents.ToolCallUpdate(update, call)
+	response, err := publicevents.ToolCallUpdate(update)
 	if err != nil {
 		_ = writeSSEJSONFrame(w, "error", "", apierror.Body(openapi.ErrorCodeInternalError))
 		return false

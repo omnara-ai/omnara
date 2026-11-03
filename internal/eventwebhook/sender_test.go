@@ -35,7 +35,8 @@ type testStore struct {
 	retryResult executionstore.EventWebhookDeliveryRetryResult
 	endpoint    executionstore.EventWebhookEndpoint
 	record      executionstore.AgentEventReadRecord
-	toolCall    executionstore.ToolCallRecord
+	toolCall    *executionstore.CustomToolCallInput
+	toolCallErr error
 	secret      string
 	secretErr   error
 	pending     chan executionstore.EventWebhookDelivery
@@ -60,10 +61,16 @@ func (s *testStore) GetAgentEventForWebhook(
 	return s.record, nil
 }
 
-func (s *testStore) GetToolCall(
+func (s *testStore) GetCustomToolCallInput(
 	context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
-) (executionstore.ToolCallRecord, error) {
-	return s.toolCall, nil
+) (executionstore.CustomToolCallInput, bool, error) {
+	if s.toolCallErr != nil {
+		return executionstore.CustomToolCallInput{}, false, s.toolCallErr
+	}
+	if s.toolCall == nil {
+		return executionstore.CustomToolCallInput{}, false, nil
+	}
+	return *s.toolCall, true, nil
 }
 
 func (s *testStore) ReadEventWebhookSigningSecret(
@@ -165,13 +172,25 @@ func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 	}, payload.Data.InteractionUpdate)
 }
 
+func TestSenderRetriesToolCallUpdateWhenInputLookupFails(t *testing.T) {
+	sender, store, delivery := testSender()
+	store.toolCallErr = errors.New("tool call lookup failed")
+	requests := 0
+	sender.client = &http.Client{Transport: testTransport(func(*http.Request) (*http.Response, error) {
+		requests++
+		return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
+	})}
+	sender.deliver(t.Context(), delivery)
+	require.Zero(t, requests)
+	require.Zero(t, store.completed.Load())
+	require.EqualValues(t, 1, store.retried.Load())
+}
+
 func TestSenderKeepsLargestToolCallUpdateUnderReceiverLimit(t *testing.T) {
 	const expressDefaultBodyLimit = 100 * 1024
 	sender, store, delivery := testSender()
-	input := `{"blob":"` + strings.Repeat("x", publicevents.MaxToolCallUpdateInputBytes-len(`{"blob":""}`)) + `"}`
-	store.toolCall = executionstore.ToolCallRecord{
-		Name: strings.Repeat("t", 64), Input: json.RawMessage(input), Type: "custom",
-	}
+	input := `{"blob":"` + strings.Repeat("x", notifications.MaxToolCallUpdateInputBytes-len(`{"blob":""}`)) + `"}`
+	store.toolCall = &executionstore.CustomToolCallInput{Name: strings.Repeat("t", 64), Input: json.RawMessage(input)}
 	delivery.InteractionUpdate = &notifications.AgentInteractionUpdate{
 		ID: uuid.New(), InteractionKind: "permission", State: "resolved",
 	}

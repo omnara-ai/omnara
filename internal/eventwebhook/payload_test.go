@@ -36,8 +36,8 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 				delivery.EventSequence = &store.record.Sequence
 				delivery.ToolCallID, delivery.ToolState = nil, nil
 			} else {
-				store.toolCall = executionstore.ToolCallRecord{
-					Name: "lookup_customer", Input: json.RawMessage(`{"email":"ada@example.com"}`), Type: "custom",
+				store.toolCall = &executionstore.CustomToolCallInput{
+					Name: "lookup_customer", Input: json.RawMessage(`{"email":"ada@example.com"}`),
 				}
 			}
 			requests := 0

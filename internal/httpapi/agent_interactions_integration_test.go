@@ -391,7 +391,27 @@ func TestListProjectInteractionsAndToolCalls(t *testing.T) {
 	questionID := createHTTPInteractionForAgent(
 		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, parent, "question", "", question,
 	)
-	child := spawnHTTPSubagentForTest(t, ctx, store, parent, parentLaunch.AgentConfig.ID, "pending-child", "worker")
+	caller := launch("pending-caller").Agent
+	actor, err := executionstore.SubagentActorParams(parent.OrgID, parent)
+	if err != nil {
+		t.Fatalf("subagent actor params: %v", err)
+	}
+	childName := "pending-child"
+	childLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID:      project.ProjectUUID,
+		ProfileID:      caller.AgentProfileID,
+		LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: parent.ID},
+		Name:           &childName,
+		MessageActor:   actor,
+		IdempotencyKey: "spawn-pending-child",
+		Subagent: &executionstore.SubagentLaunch{
+			ParentAgentID: parent.ID, Key: "worker", MaxDepth: agentconfig.MaxSubagentDepth,
+		},
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent from caller profile: %v", err)
+	}
+	child := childLaunch.Agent
 	permissionID := createHTTPInteractionForAgent(
 		t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, child, "permission", "", command,
 	)
@@ -405,7 +425,6 @@ func TestListProjectInteractionsAndToolCalls(t *testing.T) {
 			"/interactions/"+testPublicID(t, publicid.KindAgentInteraction, resolvedID)+"/resolve",
 		httpQuestionResolutionRequest(0), "", http.StatusOK, authHeaders(project.AdminToken),
 	)
-	caller := launch("pending-caller").Agent
 	readyCallID := createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, caller)
 	done := launch("pending-done").Agent
 	doneCallID := createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, done)
@@ -481,8 +500,8 @@ func TestListProjectInteractionsAndToolCalls(t *testing.T) {
 	callerProfile := "agent_profile_id=" + testPublicID(t, publicid.KindAgentProfile, caller.AgentProfileID)
 	for query, wantIDs := range map[string][]string{
 		"interaction_kind=permission": {want[1].id},
-		parentProfile:                 {want[0].id, want[1].id},
-		callerProfile:                 {},
+		parentProfile:                 {want[0].id},
+		callerProfile:                 {want[1].id},
 	} {
 		if got := listedIDs(project.ProjectPath + "/interactions?" + query); !slices.Equal(got, wantIDs) {
 			t.Fatalf("project interactions ?%s = %v, want %v", query, got, wantIDs)
@@ -506,8 +525,8 @@ func TestListProjectInteractionsAndToolCalls(t *testing.T) {
 		"type=custom":                          {readyCallPublicID},
 		"state=ready&type=custom":              {readyCallPublicID},
 		"names=ask_question&names=run_command": wantCalls[:2],
-		parentProfile:                          wantCalls[:2],
-		callerProfile:                          {readyCallPublicID},
+		parentProfile:                          wantCalls[:1],
+		callerProfile:                          wantCalls[1:],
 	} {
 		if got := listedIDs(project.ProjectPath + "/tool-calls?" + query); !slices.Equal(got, wantIDs) {
 			t.Fatalf("project tool calls ?%s = %v, want %v", query, got, wantIDs)

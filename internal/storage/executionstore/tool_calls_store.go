@@ -82,6 +82,11 @@ type ListUnfinishedProjectToolCallsInput struct {
 	After          listing.KeysetCursor
 }
 
+type CustomToolCallInput struct {
+	Name  string
+	Input json.RawMessage
+}
+
 type ListToolCallsResult struct {
 	ToolCalls []ToolCallRecord
 	HasMore   bool

@@ -217,6 +217,6 @@ Timeline events include event, agent, project, organization, and turn identifier
 </Accordion>
 </AccordionGroup>
 
-`tool_call_update` is a notification to fetch the tool call or interaction for its current details. It carries a state snapshot, not a timeline sequence. When a custom call becomes `ready`, it also includes the tool's `name` and `input` if the JSON-encoded input is at most 64 KiB; otherwise fetch the call. For custom execution, handle `ready` updates and deduplicate by tool-call ID. Subagents follow the same scope rules and send their own agent IDs.
+`tool_call_update` is a notification to fetch the tool call or interaction for its current details. It carries a state snapshot, not a timeline sequence. When a custom call becomes `ready`, it also includes the tool's `name` and `input` if the JSON-encoded input is at most 64 KiB; for larger inputs, fetch the call. For custom execution, handle `ready` updates and deduplicate by tool-call ID. Subagents follow the same scope rules and send their own agent IDs.
 
 When a permission or question opens or closes, `interaction_update` includes its ID, kind, and state (`open`, `resolved`, or `canceled`). Omission means no interaction change. Track interactions by ID; a terminal update takes precedence over a late `open` update. Fetch interactions when you need the full form.

@@ -284,7 +284,7 @@ func (h *Handle) applyInteraction(
 				if err = h.transitionTool(ctx, m, call, "ready", uuid.Nil, uuid.Nil); err != nil {
 					return err
 				}
-				h.interactionNotification(i, "ready")
+				h.readyToolUpdate(call, &notifications.AgentInteractionUpdate{ID: i.ID, InteractionKind: i.Kind, State: i.State})
 				return nil
 			}
 			reason = decision.Reason
