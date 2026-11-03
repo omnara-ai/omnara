@@ -533,21 +533,21 @@ interaction_handlers:
     machine_provider_options_overlay: {"instance_type":"m5.large"}
 `
     expect(deserialize(unknownKey)).toMatchObject({
-      advancedEntries: [expect.objectContaining({ path: ['machine_sources'] })],
+      advancedEntries: [expect.objectContaining({ path: ['machine_sources', '0'] })],
     })
     const mixedProviders = `${minimalYaml}machine_sources:
   - machine_pool_name: "default-pool"
     machine_provider_options_overlay: {"metro":"sfo","target":"us"}
 `
     expect(deserialize(mixedProviders)).toMatchObject({
-      advancedEntries: [expect.objectContaining({ path: ['machine_sources'] })],
+      advancedEntries: [expect.objectContaining({ path: ['machine_sources', '0'] })],
     })
     const empty = `${minimalYaml}machine_sources:
   - machine_pool_name: "default-pool"
     machine_provider_options_overlay: {}
 `
     expect(deserialize(empty)).toMatchObject({
-      advancedEntries: [expect.objectContaining({ path: ['machine_sources'] })],
+      advancedEntries: [expect.objectContaining({ path: ['machine_sources', '0'] })],
     })
   })
 
@@ -684,7 +684,7 @@ model:
   it('updates the instruction without disturbing the rest of the document', () => {
     const config = mustDeserialize(commentedYaml)
     const updated = applyToSource(commentedYaml, { ...config, instruction: 'New plan.' })
-    expect(updated).toContain('instruction: New plan.')
+    expect(updated).toContain('instruction: |-\n  New plan.')
     expect(updated).toContain('# top comment')
     expect(updated).toContain('# our search proxy')
     expect(mustDeserialize(updated).instruction).toBe('New plan.')

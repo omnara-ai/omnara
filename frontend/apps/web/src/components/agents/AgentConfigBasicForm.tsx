@@ -113,8 +113,10 @@ export function AgentConfigBasicForm({
               maxSubagents={form.maxSubagents}
               maxDepth={form.maxDepth}
               onSubagentsChange={form.setSubagents}
-              onMaxSubagentsChange={form.setMaxSubagents}
-              onMaxDepthChange={form.setMaxDepth}
+              onMaxSubagentsChange={
+                form.isManaged('max_subagents') ? form.setMaxSubagents : undefined
+              }
+              onMaxDepthChange={form.isManaged('max_depth') ? form.setMaxDepth : undefined}
             />
           )}
           {form.isManaged('mcp') && (

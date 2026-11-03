@@ -19,6 +19,7 @@ import { AgentConfigAdvancedFields } from '@/components/agents/AgentConfigAdvanc
 import { configPath } from '@/components/agents/agentConfigCompatibility'
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
 import customFixture from '@/components/agents/fixtures/inline-custom-tools.yaml?raw'
+import { savePendingMcpBuilderOAuth } from '@/components/agents/pendingMcpBuilderOAuth'
 import {
   createBasicConfigSession,
   useAgentBuilderForm,
@@ -460,6 +461,7 @@ function AdvancedEditorHarness({
       <output
         data-mode={editor.mode.mode}
         data-blocked={editor.saveBlocked}
+        data-dirty={editor.dirty}
         data-confirm-discard={editor.mode.confirmDiscard}
       >
         {editor.yaml}
@@ -526,6 +528,7 @@ it('validates the embedded raw editor, blocks invalid saves, and saves intention
   }
   change('type: custom\ndescription: Example\ninput_schema: {type: array}')
   expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('true')
+  expect(container.querySelector('output')?.getAttribute('data-dirty')).toBe('true')
   expect(container.querySelector('[role="alert"]')?.textContent).toContain(
     '/tools/search_records/input_schema/type',
   )
@@ -562,8 +565,12 @@ it.each([
     )
     clickLabel('Edit YAML')
     clickLabel('Adopt Builder')
-    expect(container.querySelector('output')?.getAttribute('data-mode')).toBe('yaml')
-    expect(container.querySelector('output')?.getAttribute('data-confirm-discard')).toBe('false')
+    expect(container.querySelector('output')?.getAttribute('data-mode')).toBe(
+      reason === 'YAML' ? 'yaml' : 'builder',
+    )
+    expect(container.querySelector('output')?.getAttribute('data-confirm-discard')).toBe(
+      reason === 'YAML' ? 'true' : 'false',
+    )
     expect(container.querySelector('output')?.textContent).toBe(adoptedYaml)
     expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('true')
     if (reason === 'YAML')
@@ -605,4 +612,31 @@ it('retains subagent limits and tools when an opaque subagent remains', async ()
   expect(parse(yaml)).toHaveProperty(['tools', 'spawn_agent', 'permission', 'mode'], 'always_ask')
   expect(parse(yaml)).toHaveProperty(['subagents', 'preserved', 'extra'], true)
   expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('false')
+})
+
+it('blocks a stale OAuth restore instead of overwriting a newer configuration', async () => {
+  advancedProviders()
+  const baseline = createBasicConfigSession(customFixture).initialDraft
+  if (!baseline) throw new Error('Missing fixture draft')
+  const previousUrl = window.location.href
+  savePendingMcpBuilderOAuth({
+    returnPath: window.location.pathname,
+    serverId: 'example-server',
+    agentName: null,
+    draft: { ...baseline, savedSource: customFixture, instruction: 'Pending edit.' },
+  })
+  window.history.replaceState(null, '', '?mcp_oauth=success&secret_id=example-secret&case=conflict')
+  try {
+    await renderAndFlush(
+      <AdvancedEditorHarness source={customFixture + 'extension: newer-value\n'} />,
+    )
+    expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('true')
+    expect(container.querySelector('[data-diagnostics]')?.textContent).toContain(
+      'changed during OAuth authorization',
+    )
+    expect(container.querySelector('output')?.textContent).toContain('Pending edit.')
+  } finally {
+    window.history.replaceState(null, '', previousUrl)
+    window.sessionStorage.clear()
+  }
 })

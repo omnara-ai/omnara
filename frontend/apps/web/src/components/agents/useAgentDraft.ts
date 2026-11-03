@@ -1,11 +1,6 @@
 import type { ConfiguredModelSummary, MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
-import { useMemo, useReducer, useState } from 'react'
+import { useState } from 'react'
 
-import {
-  type AgentConfigMode,
-  agentConfigModeReducer,
-  initialAgentConfigModeState,
-} from '@/components/agents/agentConfigModeMachine'
 import {
   type AgentTemplate,
   agentTemplateBasicConfig,
@@ -19,6 +14,7 @@ import {
   emptyBasicConfig,
   useAgentBuilderForm,
 } from '@/components/agents/useAgentBuilderForm'
+import { useAgentConfigMode } from '@/components/agents/useAgentConfigMode'
 import { useAgentUnsavedChangesWarning } from '@/components/agents/useAgentUnsavedChangesWarning'
 
 export function useAgentDraft(
@@ -28,10 +24,6 @@ export function useAgentDraft(
   initialTemplate: AgentTemplate | undefined,
   scope: { orgId: string; projectId: string },
 ) {
-  const [mode, dispatchMode] = useReducer(
-    agentConfigModeReducer,
-    initialAgentConfigModeState('builder'),
-  )
   const [restored] = useState(takeMcpBuilderOAuthRestore)
   const [session, setSession] = useState(() =>
     createBasicConfigSession(restored?.draft.originalSource ?? ''),
@@ -44,37 +36,24 @@ export function useAgentDraft(
           tools: defaultAgentTools(catalog),
           machineSources: defaultAgentMachineSources(defaultPool),
         }
-    return { name: initialTemplate?.name ?? '', draft, yaml: session.apply(draft) }
+    return {
+      name: initialTemplate?.name ?? '',
+      draft,
+      yaml: createBasicConfigSession('').apply(draft),
+    }
   })
   const [name, setName] = useState(restored?.agentName ?? initial.name)
   const form = useAgentBuilderForm(session, restored?.draft ?? initial.draft, scope)
-  const dirty =
-    name !== initial.name || (mode.editorYaml ?? form.yaml) !== initial.yaml || form.advancedDirty
-  const yamlSession = useMemo(
-    () => (mode.editorYaml === null ? null : createBasicConfigSession(mode.editorYaml)),
-    [mode.editorYaml],
-  )
-  const compatibility =
-    mode.mode === 'yaml'
-      ? (yamlSession?.diagnostics ?? [])
-      : [
-          ...session.diagnostics.filter((issue) => issue.kind !== 'fatal' && !issue.error),
-          ...form.validationIssues,
-        ]
+  const controller = useAgentConfigMode({
+    session,
+    setSession,
+    form,
+    source: '',
+    builderAvailable: true,
+    initialMode: 'builder',
+  })
+  const dirty = name !== initial.name || controller.yaml !== initial.yaml || form.dirty
   const suppressUnsavedChangesWarning = useAgentUnsavedChangesWarning(dirty)
-  const switchMode = (nextMode: AgentConfigMode) => {
-    if (nextMode === 'builder' && mode.editorYaml !== null) {
-      const adopted = yamlSession
-      if (adopted?.initialDraft != null && !adopted.diagnostics.some((issue) => issue.error)) {
-        setSession(adopted)
-        form.reset(adopted.initialDraft)
-        dispatchMode({ type: 'adopt-yaml-edits' })
-        return
-      }
-      return
-    }
-    dispatchMode({ type: 'switch-mode', mode: nextMode })
-  }
 
   function applyTemplate(template: AgentTemplate) {
     const next = agentTemplateBasicConfig(template, catalog, defaultPool, defaultModel)
@@ -88,12 +67,9 @@ export function useAgentDraft(
 
   return {
     name,
-    compatibility,
+    ...controller,
     setName,
-    mode,
-    dispatchMode,
     form,
-    switchMode,
     applyTemplate,
     suppressUnsavedChangesWarning,
   }

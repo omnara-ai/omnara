@@ -2,7 +2,7 @@ import type { AgentConfigErrorIssue } from '@omnara/sdk'
 import type { ReactNode } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
-import { configPath } from '@/components/agents/agentConfigCompatibility'
+import { AgentConfigDiagnostics } from '@/components/agents/AgentConfigDiagnostics'
 import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
@@ -85,18 +85,7 @@ export function AgentConfigEditorFields({
           issues={issues}
         />
       )}
-      {canManage &&
-        editor.compatibility
-          .filter((issue) => issue.kind !== 'advanced' || issue.error)
-          .map((issue, index) => (
-            <p
-              key={index}
-              className={issue.error ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'}
-              role={issue.error ? 'alert' : undefined}
-            >
-              {configPath(issue.path)}: {issue.message}
-            </p>
-          ))}
+      {canManage && <AgentConfigDiagnostics issues={editor.compatibility} />}
       <ConfirmDiscardYamlDialog
         open={mode.confirmDiscard}
         onOpenChange={(open) => {
