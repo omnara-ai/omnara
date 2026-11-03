@@ -18,7 +18,7 @@ subagents:
     model: ${model}
 `
   const session = createBasicConfigSession(source)
-  expect(session.initialDraft !== null).toBe(valid)
+  expect(session.diagnostics.every((issue) => !issue.error)).toBe(valid)
   if (session.initialDraft !== null) {
     expect(session.apply(session.initialDraft)).toBe(source)
   }

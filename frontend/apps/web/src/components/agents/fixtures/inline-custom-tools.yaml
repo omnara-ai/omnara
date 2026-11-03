@@ -1,0 +1,73 @@
+# Synthetic configuration for lossless Builder regression tests.
+version: v1
+instruction: |
+  Help maintain the public example project.
+  Summarize findings and ask before making changes.
+model:
+  provider_config: openai
+  name: primary
+  reasoning: { effort: high }
+tools:
+  run_command:
+    type: built_in
+    permission: { mode: always_ask }
+  web_search: { type: built_in, permission: { mode: always_allow } }
+  web_fetch: { type: built_in, deferred: true }
+  # This schema and its formatting must survive unrelated edits.
+  search_records:
+    type: custom
+    description: 'Find example records by their public identifiers.'
+    input_schema:
+      type: object
+      required: [query, filters]
+      properties:
+        query: { type: string, description: 'Search text', pattern: '^[A-Za-z0-9 _-]+$' }
+        filters:
+          type: object
+          required: [status]
+          properties:
+            status: { type: string, enum: [open, closed], description: Record status }
+            tags:
+              type: array
+              items: { type: string, pattern: '^tag-[a-z]+$' }
+          additionalProperties: false
+      additionalProperties: false
+  publish_report:
+    type: custom
+    description: >-
+      Publish a report for the example project.
+      Include the selected records.
+    permission: { mode: always_ask }
+    input_schema:
+      type: object
+      required: [records]
+      properties:
+        records:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [id, format]
+            properties:
+              id: { type: string, pattern: '^REC-[0-9]{4}$' }
+              format: { type: string, enum: [text, markdown], description: Output format }
+              details: { oneOf: [{ type: string }, { type: object, additionalProperties: true }] }
+        options: { $ref: '#/$defs/options' }
+      $defs:
+        options:
+          type: object
+          properties:
+            labels: { type: array, items: { type: string } }
+  get_record: { type: custom, description: Read an example record., input_schema: { type: object } }
+  list_records: { type: custom, description: List example records., input_schema: { type: object } }
+  archive_record:
+    { type: custom, description: Archive an example record., input_schema: { type: object } }
+  list_reports: { type: custom, description: List example reports., input_schema: { type: object } }
+  get_report: { type: custom, description: Read an example report., input_schema: { type: object } }
+  archive_report:
+    { type: custom, description: Archive an example report., input_schema: { type: object } }
+machine_sources:
+  - machine_pool_name: example-pool
+    initial_num_machines: 1
+    max_machines: 2
+    cwd: /workspace

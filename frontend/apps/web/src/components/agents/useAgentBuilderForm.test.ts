@@ -289,7 +289,9 @@ model: {provider_config: openai, name: primary}
 
   it('accepts a v1 version marker', () => {
     expect(mustDeserialize(`${minimalYaml}version: v1\n`).instruction).toBe('Do the thing.')
-    expect(deserialize(`${minimalYaml}version: v2\n`)).toBeNull()
+    expect(createBasicConfigSession(`${minimalYaml}version: v2\n`).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: ['version'], error: true })]),
+    )
   })
 
   it('accepts unknown fields outside builder-owned entries', () => {
@@ -384,7 +386,6 @@ mcp:
       mcp: {
         search: {
           url: 'https://mcp.example.com',
-          default_enabled: true,
           tools: { fetch: { enabled: true } },
         },
       },
@@ -402,13 +403,18 @@ mcp:
     expect(applyToSource(source, config)).toBe(source)
   })
 
-  it('rejects negative machine counts', () => {
+  it('preserves invalid machine sources with a scoped error', () => {
     expect(
-      deserialize(`${minimalYaml}machine_sources:
+      createBasicConfigSession(`${minimalYaml}machine_sources:
   - machine_pool_name: default-pool
     max_machines: -1
 `),
-    ).toBeNull()
+    ).toHaveProperty(
+      'diagnostics',
+      expect.arrayContaining([
+        expect.objectContaining({ path: ['machine_sources', '0', 'max_machines'], error: true }),
+      ]),
+    )
   })
 
   it('accepts null overlay values and round-trips them', () => {
@@ -441,7 +447,7 @@ interaction_handlers:
     expect(config.interactionHandlers).toEqual({})
   })
 
-  it('rejects unknown fields inside builder-owned entries', () => {
+  it('preserves entries with unsupported fields outside the managed projection', () => {
     expect(
       deserialize(`${minimalYaml}tools:
   shell:
@@ -449,7 +455,7 @@ interaction_handlers:
     permission:
       mode: always_ask
 `),
-    ).toBeNull()
+    ).toMatchObject({ advancedEntries: [expect.objectContaining({ kind: 'opaque' })] })
     expect(
       deserialize(`${minimalYaml}tools:
   shell:
@@ -457,7 +463,7 @@ interaction_handlers:
       mode: always_ask
       extra: true
 `),
-    ).toBeNull()
+    ).toMatchObject({ advancedEntries: [expect.objectContaining({ kind: 'opaque' })] })
     expect(
       deserialize(`${minimalYaml}mcp:
   search:
@@ -466,25 +472,25 @@ interaction_handlers:
     permission:
       mode: always_ask
 `),
-    ).toBeNull()
+    ).toMatchObject({ advancedEntries: [expect.objectContaining({ kind: 'opaque' })] })
     expect(
       deserialize(`${minimalYaml}machine_sources:
   - machine_name: build-box
     zone: us-east-1
 `),
-    ).toBeNull()
+    ).toMatchObject({ advancedEntries: [expect.objectContaining({ kind: 'opaque' })] })
     expect(
       deserialize(`${minimalYaml}machine_sources:
   - machine_name: build-box
     machine_pool_name: default-pool
 `),
-    ).toBeNull()
+    ).toMatchObject({ advancedEntries: [expect.objectContaining({ kind: 'opaque' })] })
     expect(
       deserialize(`${minimalYaml}machine_sources:
   - machine_name: build-box
     initial_num_machines: 2
 `),
-    ).toBeNull()
+    ).toMatchObject({ advancedEntries: [expect.objectContaining({ kind: 'opaque' })] })
   })
 
   it('round-trips a pool provider options overlay and infers its provider', () => {
@@ -521,32 +527,44 @@ interaction_handlers:
     expect(applyToSource(source, config)).toBe(source)
   })
 
-  it('rejects provider options overlays no provider accounts for', () => {
+  it('preserves provider options overlays no provider accounts for', () => {
     const unknownKey = `${minimalYaml}machine_sources:
   - machine_pool_name: "default-pool"
     machine_provider_options_overlay: {"instance_type":"m5.large"}
 `
-    expect(deserialize(unknownKey)).toBeNull()
+    expect(deserialize(unknownKey)).toMatchObject({
+      advancedEntries: [expect.objectContaining({ path: ['machine_sources'] })],
+    })
     const mixedProviders = `${minimalYaml}machine_sources:
   - machine_pool_name: "default-pool"
     machine_provider_options_overlay: {"metro":"sfo","target":"us"}
 `
-    expect(deserialize(mixedProviders)).toBeNull()
+    expect(deserialize(mixedProviders)).toMatchObject({
+      advancedEntries: [expect.objectContaining({ path: ['machine_sources'] })],
+    })
     const empty = `${minimalYaml}machine_sources:
   - machine_pool_name: "default-pool"
     machine_provider_options_overlay: {}
 `
-    expect(deserialize(empty)).toBeNull()
+    expect(deserialize(empty)).toMatchObject({
+      advancedEntries: [expect.objectContaining({ path: ['machine_sources'] })],
+    })
   })
 
-  it('rejects non-built-in tools', () => {
+  it('reports invalid custom definitions without treating them as managed tools', () => {
     const source = `${minimalYaml}tools:
   shell:
     type: custom
     permission:
       mode: always_ask
 `
-    expect(deserialize(source)).toBeNull()
+    const session = createBasicConfigSession(source)
+    expect(session.initialDraft?.tools).toEqual([])
+    expect(session.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: ['tools', 'shell', 'description'], error: true }),
+      ]),
+    )
   })
 
   it('rejects invalid and empty YAML', () => {
@@ -633,7 +651,7 @@ model:
       version: 'v1',
       tools: {
         shell: { permission: { mode: 'always_ask' } },
-        browser: { type: 'built_in', permission: { mode: 'always_allow' } },
+        browser: { permission: { mode: 'always_allow' } },
       },
     })
   })

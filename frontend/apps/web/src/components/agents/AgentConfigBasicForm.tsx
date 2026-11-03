@@ -1,5 +1,6 @@
 import { useToolCatalog } from '@omnara/react'
 
+import { AgentConfigAdvancedFields } from '@/components/agents/AgentConfigAdvancedFields'
 import { AgentConfigGitCredentialsField } from '@/components/agents/AgentConfigGitCredentialsField'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
@@ -32,40 +33,48 @@ export function AgentConfigBasicForm({
 
   return (
     <FieldGroup className="gap-5">
-      <Field>
-        <RequiredFieldLabel htmlFor="agent-config-basic-instruction">
-          Instructions
-        </RequiredFieldLabel>
-        <Textarea
-          id="agent-config-basic-instruction"
-          required
-          value={form.instruction}
-          placeholder="You are a research assistant. When given a topic, gather sources and produce a short summary with citations."
-          className="max-h-96 min-h-20 resize-y"
-          onChange={(event) => {
-            form.setInstruction(event.target.value)
-          }}
-        />
-      </Field>
+      {form.isManaged('instruction') && (
+        <Field>
+          <RequiredFieldLabel htmlFor="agent-config-basic-instruction">
+            Instructions
+          </RequiredFieldLabel>
+          <Textarea
+            id="agent-config-basic-instruction"
+            required
+            value={form.instruction}
+            placeholder="You are a research assistant. When given a topic, gather sources and produce a short summary with citations."
+            className="max-h-96 min-h-20 resize-y"
+            onChange={(event) => {
+              form.setInstruction(event.target.value)
+            }}
+          />
+        </Field>
+      )}
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-3 pt-2">
           <Separator className="flex-1" />
           <span className="text-muted-foreground shrink-0 text-xs">Optional</span>
         </div>
         <div className="flex flex-col gap-3">
-          <AgentConfigMachineSourcesField
-            orgId={orgId}
-            projectId={projectId}
-            sources={form.machineSources}
-            onSourcesChange={form.setMachineSources}
-            onUnavailableIdsChange={form.reportUnavailableSourceIds}
-          />
-          <AgentConfigToolsField
-            catalog={toolCatalog.data}
-            tools={form.tools}
-            resolvedTools={form.resolvedTools}
-            onToolsChange={form.setTools}
-          />
+          {form.isManaged('machine_sources') && (
+            <AgentConfigMachineSourcesField
+              orgId={orgId}
+              projectId={projectId}
+              sources={form.machineSources}
+              onSourcesChange={form.setMachineSources}
+              onUnavailableIdsChange={form.reportUnavailableSourceIds}
+            />
+          )}
+          {form.isManaged('tools') && (
+            <AgentConfigToolsField
+              catalog={toolCatalog.data}
+              tools={form.tools}
+              reservedNames={form.reservedToolNames}
+              resolvedTools={form.resolvedTools}
+              onToolsChange={form.setTools}
+            />
+          )}
+          <AgentConfigAdvancedFields form={form} />
           {Object.keys(form.interactionHandlers).length > 0 && (
             <AgentConfigSectionCard title="Integration capabilities" action={null}>
               <div className="space-y-2 px-4 pb-4 text-sm sm:px-5">
@@ -87,40 +96,48 @@ export function AgentConfigBasicForm({
               </button>
             </p>
           )}
-          <AgentConfigSkillsField
-            orgId={orgId}
-            projectId={projectId}
-            selectedIds={form.skillIds}
-            onSelectedIdsChange={form.setSkillIds}
-            onUnavailableIdsChange={form.reportUnavailableSkillIds}
-          />
-          <AgentConfigSubagentsField
-            orgId={orgId}
-            projectId={projectId}
-            subagents={form.subagents}
-            parentReasoningEffort={form.model.reasoningEffort}
-            maxSubagents={form.maxSubagents}
-            maxDepth={form.maxDepth}
-            onSubagentsChange={form.setSubagents}
-            onMaxSubagentsChange={form.setMaxSubagents}
-            onMaxDepthChange={form.setMaxDepth}
-          />
-          <AgentConfigMcpServersField
-            orgId={orgId}
-            projectId={projectId}
-            permissionProfile={toolCatalog.data?.mcp_tool_permissions}
-            servers={form.mcpServers}
-            onServersChange={form.setMcpServers}
-            builderDraft={form.draft}
-            agentName={agentName}
-            onBeforeOAuthRedirect={onBeforeOAuthRedirect}
-          />
-          <AgentConfigMemoryField
-            orgId={orgId}
-            projectId={projectId}
-            stores={form.memoryStores}
-            onChange={form.setMemoryStores}
-          />
+          {form.isManaged('skills') && (
+            <AgentConfigSkillsField
+              orgId={orgId}
+              projectId={projectId}
+              selectedIds={form.skillIds}
+              onSelectedIdsChange={form.setSkillIds}
+              onUnavailableIdsChange={form.reportUnavailableSkillIds}
+            />
+          )}
+          {form.isManaged('subagents') && (
+            <AgentConfigSubagentsField
+              orgId={orgId}
+              projectId={projectId}
+              subagents={form.subagents}
+              parentReasoningEffort={form.model.reasoningEffort}
+              maxSubagents={form.maxSubagents}
+              maxDepth={form.maxDepth}
+              onSubagentsChange={form.setSubagents}
+              onMaxSubagentsChange={form.setMaxSubagents}
+              onMaxDepthChange={form.setMaxDepth}
+            />
+          )}
+          {form.isManaged('mcp') && (
+            <AgentConfigMcpServersField
+              orgId={orgId}
+              projectId={projectId}
+              permissionProfile={toolCatalog.data?.mcp_tool_permissions}
+              servers={form.mcpServers}
+              onServersChange={form.setMcpServers}
+              builderDraft={form.draft}
+              agentName={agentName}
+              onBeforeOAuthRedirect={onBeforeOAuthRedirect}
+            />
+          )}
+          {form.isManaged('memory_stores') && (
+            <AgentConfigMemoryField
+              orgId={orgId}
+              projectId={projectId}
+              stores={form.memoryStores}
+              onChange={form.setMemoryStores}
+            />
+          )}
           <Collapsible className="pt-2">
             <CollapsibleTrigger className="text-muted-foreground hover:text-foreground focus-visible:ring-ring group flex items-center gap-1.5 rounded-sm py-1 text-left text-sm focus-visible:ring-2 focus-visible:ring-offset-2">
               <ChevronRightIcon className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
@@ -130,12 +147,14 @@ export function AgentConfigBasicForm({
               forceMount
               className="flex flex-col gap-3 pt-4 data-[state=closed]:hidden"
             >
-              <AgentConfigGitCredentialsField
-                orgId={orgId}
-                projectId={projectId}
-                value={form.gitCredentials}
-                onChange={form.setGitCredentials}
-              />
+              {form.isManaged('git_credentials') && (
+                <AgentConfigGitCredentialsField
+                  orgId={orgId}
+                  projectId={projectId}
+                  value={form.gitCredentials}
+                  onChange={form.setGitCredentials}
+                />
+              )}
             </CollapsibleContent>
           </Collapsible>
         </div>

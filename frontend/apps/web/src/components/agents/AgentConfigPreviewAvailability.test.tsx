@@ -7,21 +7,27 @@ import {
   createMemoryHistory,
   createRootRoute,
   createRouter,
-  RouterContextProvider,
+  RouterProvider,
 } from '@tanstack/react-router'
-import { act, type ReactNode, StrictMode } from 'react'
+import { act, createContext, type ReactNode, StrictMode, useContext } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
 import { z } from 'zod'
 
+import { AgentConfigAdvancedFields } from '@/components/agents/AgentConfigAdvancedFields'
+import { configPath } from '@/components/agents/agentConfigCompatibility'
+import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
+import customFixture from '@/components/agents/fixtures/inline-custom-tools.yaml?raw'
 import {
   createBasicConfigSession,
   useAgentBuilderForm,
 } from '@/components/agents/useAgentBuilderForm'
 import { useAgentConfigEditor } from '@/components/agents/useAgentConfigEditor'
 import { useAgentDraft } from '@/components/agents/useAgentDraft'
+import { ActiveOrgContext } from '@/lib/active-org-context'
 import { fakeApi, type FakeRoute, jsonResponse } from '@/test/fake-api'
+import { currentUserOrg } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 
 const includedSource = 'instruction: Help.\nmodel: {provider_config: openai, name: primary}\n'
@@ -48,20 +54,42 @@ afterEach(() => {
   container.remove()
 })
 
+const TestContentContext = createContext<ReactNode>(null)
+function TestContent() {
+  return useContext(TestContentContext)
+}
+
 function testProviders(routes: FakeRoute[]) {
-  const api = fakeApi(routes)
+  const api = fakeApi([
+    ...routes,
+    {
+      method: 'GET',
+      path: '/api/v1/orgs/org-test/projects',
+      respond: () => jsonResponse({ data: [], next_cursor: null }),
+    },
+  ])
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
   client.setConfig({ fetch: api.fetch })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createRouter({
-    routeTree: createRootRoute(),
+    routeTree: createRootRoute({ component: TestContent }),
     history: createMemoryHistory(),
   })
   return function Providers({ children }: { children: ReactNode }) {
     return (
       <OmnaraClientProvider client={client}>
         <QueryClientProvider client={queryClient}>
-          <RouterContextProvider router={router}>{children}</RouterContextProvider>
+          <ActiveOrgContext
+            value={{
+              activeOrg: currentUserOrg({ id: 'org-test', name: 'Example' }),
+              orgs: [],
+              setActiveOrgId: () => undefined,
+            }}
+          >
+            <TestContentContext value={children}>
+              <RouterProvider router={router} />
+            </TestContentContext>
+          </ActiveOrgContext>
         </QueryClientProvider>
       </OmnaraClientProvider>
     )
@@ -375,4 +403,206 @@ it('replaces obsolete fallback entries while retaining fetched previews and the 
     expect(container.querySelector('output')?.getAttribute('data-fetching')).toBe('false')
     expect(container.textContent).toBe('')
   })
+})
+
+function AdvancedEditorHarness({
+  source = customFixture,
+  adoptedYaml = customFixture,
+  fullEditor = false,
+}: {
+  source?: string
+  adoptedYaml?: string
+  fullEditor?: boolean
+}) {
+  const editor = useAgentConfigEditor({
+    orgId: 'org-test',
+    projectId: 'project-test',
+    source,
+    canManage: true,
+    preferredMode: 'builder',
+    onModeChange: () => undefined,
+    onDirtyChange: () => undefined,
+  })
+  return (
+    <>
+      {fullEditor ? (
+        <AgentConfigEditorFields
+          editor={editor}
+          orgId="org-test"
+          projectId="project-test"
+          yamlFieldId="test-yaml"
+          yamlFieldClassName=""
+        />
+      ) : (
+        <AgentConfigAdvancedFields form={editor.form} />
+      )}
+      <button
+        type="button"
+        onClick={() => {
+          editor.switchMode('yaml')
+          editor.dispatchMode({
+            type: 'editor-yaml-changed',
+            yaml: adoptedYaml,
+            builderYaml: editor.builderYaml,
+          })
+        }}
+      >
+        Edit YAML
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          editor.switchMode('builder')
+        }}
+      >
+        Adopt Builder
+      </button>
+      <output
+        data-mode={editor.mode.mode}
+        data-blocked={editor.saveBlocked}
+        data-confirm-discard={editor.mode.confirmDiscard}
+      >
+        {editor.yaml}
+      </output>
+      <p data-diagnostics>
+        {editor.compatibility
+          .map((issue) => `${configPath(issue.path)}: ${issue.message}`)
+          .join('; ')}
+      </p>
+    </>
+  )
+}
+
+function advancedProviders() {
+  Providers = testProviders([
+    {
+      method: 'POST',
+      path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
+      respond: () => jsonResponse({ tools: [] }),
+    },
+  ])
+}
+
+it('shows normal Builder controls and every custom tool without a whole-document warning', async () => {
+  advancedProviders()
+  await renderAndFlush(<AdvancedEditorHarness fullEditor />)
+  expect(container.querySelector('output')?.getAttribute('data-mode')).toBe('builder')
+  expect(container.querySelector('#agent-config-basic-instruction')).not.toBeNull()
+  expect(container.textContent).toContain('8 custom tool definitions are preserved')
+  expect(container.textContent).not.toContain('editable as YAML only')
+  for (const name of [
+    'search_records',
+    'publish_report',
+    'get_record',
+    'list_records',
+    'archive_record',
+    'list_reports',
+    'get_report',
+    'archive_report',
+  ]) {
+    expect(
+      [...container.querySelectorAll('summary')].some((summary) =>
+        summary.textContent.includes(name),
+      ),
+    ).toBe(true)
+  }
+})
+
+it('validates the embedded raw editor, blocks invalid saves, and saves intentional schema edits', async () => {
+  advancedProviders()
+  await renderAndFlush(<AdvancedEditorHarness />)
+  const textarea = container.querySelector<HTMLTextAreaElement>(
+    '[id="advanced-/tools/search_records"]',
+  )
+  if (!textarea) throw new Error('Missing advanced editor')
+  const change = (value: string) => {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(
+        textarea,
+        value,
+      )
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  change('type: custom\ndescription: Example\ninput_schema: {type: array}')
+  expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('true')
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+    '/tools/search_records/input_schema/type',
+  )
+  expect(container.querySelector('output')?.textContent).toBe(customFixture)
+  const raw =
+    'type: custom\ndescription: Updated description.\ninput_schema: {type: object, properties: {nested: {type: array, items: {anyOf: [{type: string}, {type: object}]}}}}'
+  change(raw)
+  expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('false')
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    ['tools', 'search_records'],
+    parse(raw),
+  )
+})
+
+it('adopts YAML after adding valid inline custom tools', async () => {
+  advancedProviders()
+  await renderAndFlush(<AdvancedEditorHarness source={includedSource} />)
+  clickLabel('Edit YAML')
+  clickLabel('Adopt Builder')
+  expect(container.querySelector('output')?.getAttribute('data-mode')).toBe('builder')
+  expect(container.querySelector('output')?.textContent).toBe(customFixture)
+  expect(container.textContent).toContain('8 custom tool definitions are preserved')
+})
+
+it.each([
+  ['instruction: [', 'YAML'],
+  [customFixture.replace('type: object', 'type: array'), '/tools/search_records/input_schema/type'],
+])(
+  'retains invalid YAML on failed Builder adoption with a useful reason',
+  async (adoptedYaml, reason) => {
+    advancedProviders()
+    await renderAndFlush(
+      <AdvancedEditorHarness source={includedSource} adoptedYaml={adoptedYaml} />,
+    )
+    clickLabel('Edit YAML')
+    clickLabel('Adopt Builder')
+    expect(container.querySelector('output')?.getAttribute('data-mode')).toBe('yaml')
+    expect(container.querySelector('output')?.getAttribute('data-confirm-discard')).toBe('false')
+    expect(container.querySelector('output')?.textContent).toBe(adoptedYaml)
+    expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('true')
+    if (reason === 'YAML')
+      expect(container.querySelector('[data-diagnostics]')?.textContent).toContain('line 1')
+    else expect(container.querySelector('[data-diagnostics]')?.textContent).toContain(reason)
+  },
+)
+
+it('recovers from initially fatal YAML after correcting it', async () => {
+  advancedProviders()
+  await renderAndFlush(<AdvancedEditorHarness source="instruction: [" />)
+  expect(container.querySelector('output')?.getAttribute('data-mode')).toBe('yaml')
+  clickLabel('Edit YAML')
+  clickLabel('Adopt Builder')
+  expect(container.querySelector('output')?.getAttribute('data-mode')).toBe('builder')
+  expect(container.querySelector('output')?.textContent).toBe(customFixture)
+})
+
+it('keeps valid anchors editable in YAML and explains why Builder is unavailable', async () => {
+  advancedProviders()
+  const source = `${includedSource}tools: {web_search: &shared {}, web_fetch: *shared}\n`
+  await renderAndFlush(<AdvancedEditorHarness source={source} />)
+  expect(container.querySelector('output')?.getAttribute('data-mode')).toBe('yaml')
+  expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('false')
+  expect(container.querySelector('[data-diagnostics]')?.textContent).toContain(
+    '/tools/web_search: This configuration uses YAML anchors',
+  )
+  clickLabel('Adopt Builder')
+  expect(container.querySelector('output')?.textContent).toBe(source)
+})
+
+it('retains subagent limits and tools when an opaque subagent remains', async () => {
+  advancedProviders()
+  const source = `${includedSource}subagents: {visible: {type: self}, preserved: {type: self, extra: true}}\nmax_subagents: 4\ntools: {spawn_agent: {permission: {mode: always_ask}}}\n`
+  await renderAndFlush(<SubagentPreviewHarness source={source} />)
+  clickLabel('Remove subagents')
+  const yaml = container.querySelector('output')?.textContent ?? ''
+  expect(parse(yaml)).toHaveProperty('max_subagents', 4)
+  expect(parse(yaml)).toHaveProperty(['tools', 'spawn_agent', 'permission', 'mode'], 'always_ask')
+  expect(parse(yaml)).toHaveProperty(['subagents', 'preserved', 'extra'], true)
+  expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('false')
 })
