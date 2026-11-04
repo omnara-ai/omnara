@@ -459,6 +459,7 @@ func TestListAgentsByActivityState(t *testing.T) {
 	// two sorts run different list queries, so cover the filter on both.
 	for _, order := range []string{"-created_at", "-updated_at"} {
 		t.Run(order, func(t *testing.T) {
+			t.Parallel()
 			cases := []struct {
 				state string
 				want  []string
