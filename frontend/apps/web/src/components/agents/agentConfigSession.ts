@@ -32,6 +32,7 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
   const reserved = new Set(advancedEntries.map((entry) => configPath(entry.path)))
   const validationCache = new Map<string, { source: string; issues: ConfigDiagnostic[] }>()
   const validateEntry = (entry: AdvancedConfigEntry) => {
+    if (entry.removed) return []
     const key = configPath(entry.path)
     const cached = validationCache.get(key)
     if (cached?.source === entry.source) return cached.issues

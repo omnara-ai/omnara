@@ -6,7 +6,11 @@ import {
   type PoolEntry,
   type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
-import { deepEqual, editConfigDocument } from '@/components/agents/agentConfigDocument'
+import {
+  ConfigEditError,
+  deepEqual,
+  editConfigDocument,
+} from '@/components/agents/agentConfigDocument'
 import { mcpWire, permissionWire } from '@/components/agents/agentConfigMcp'
 import { subagentWire } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
@@ -142,6 +146,12 @@ export function applyToDocument(
     const previous = baseline?.advancedEntries?.find(
       (item) => item.path.join('\0') === entry.path.join('\0'),
     )
+    if (entry.removed) {
+      if (previous?.kind !== 'custom' || entry.path.length !== 2 || entry.path[0] !== 'tools')
+        throw new ConfigEditError(entry.path, 'Only an existing custom tool can be removed here.')
+      transaction.removeRawDefinition(entry.path)
+      continue
+    }
     if (
       (previous && previous.source !== entry.source) ||
       (!previous && entry.kind === 'custom' && entry.path.length === 2 && entry.path[0] === 'tools')

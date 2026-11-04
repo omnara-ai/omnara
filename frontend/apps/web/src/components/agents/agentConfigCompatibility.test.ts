@@ -207,6 +207,67 @@ input_schema:
     ).toMatchObject([{ path: ['tools', 'future_tool'] }])
   })
 
+  it.each(['', '            # required: [q]\n', '            # required: [q]\n    # next tool\n'])(
+    'keeps raw definition indentation and comments stable across saves: %s',
+    (comments) => {
+      let source = `instruction: Help.
+model: {provider_config: openai, name: primary}
+tools:
+    example:
+        type: custom
+        description: Example
+        input_schema:
+            type: object
+            description: |+
+                Preserve this trailing blank line.
+
+${comments}    web_search: {}
+`
+      for (const description of ['Updated', 'Changed again']) {
+        const { session, draft } = sessionFor(source)
+        const result = session.evaluate({
+          ...draft,
+          advancedEntries: draft.advancedEntries?.map((entry) => ({
+            ...entry,
+            source: entry.source.replace(
+              /description: (Example|Updated)/,
+              `description: ${description}`,
+            ),
+          })),
+        })
+        const expected = source.replace(
+          /description: (Example|Updated)/,
+          `description: ${description}`,
+        )
+        expect(result.issues).toEqual([])
+        expect(result.yaml).toBe(expected)
+        source = result.yaml
+      }
+      const { session, draft } = sessionFor(source)
+      const removed = session.evaluate({
+        ...draft,
+        advancedEntries: draft.advancedEntries?.map((entry) => ({ ...entry, removed: true })),
+      })
+      expect(removed.issues).toEqual([])
+      expect(parse(removed.yaml)).toHaveProperty('tools', { web_search: {} })
+      if (comments.includes('# next tool')) expect(removed.yaml).toContain('    # next tool\n')
+    },
+  )
+
+  it('requires explicit removal intent and refuses to delete opaque definitions', () => {
+    const source = fixture + 'extension: {future: true}\n'
+    const { session, draft } = sessionFor(source)
+    expect(session.apply({ ...draft, advancedEntries: [] })).toBe(source)
+    const opaque = draft.advancedEntries?.find((entry) => entry.kind === 'opaque')
+    if (!opaque) throw new Error('Missing opaque entry')
+    const result = session.evaluate({
+      ...draft,
+      advancedEntries: [{ ...opaque, kind: 'custom', removed: true }],
+    })
+    expect(result.yaml).toBe(source)
+    expect(result.issues).toMatchObject([{ path: ['extension'], error: true }])
+  })
+
   it.each([
     ['tools: &shared {}\n', 'anchors', ['tools']],
     ['tools: *shared\n', 'aliases', ['tools']],

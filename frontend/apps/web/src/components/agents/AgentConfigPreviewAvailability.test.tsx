@@ -21,7 +21,7 @@ import {
 } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
-import { parse } from 'yaml'
+import { isNode, parse, parseDocument } from 'yaml'
 import { z } from 'zod'
 
 import { configPath } from '@/components/agents/agentConfigCompatibility'
@@ -458,7 +458,12 @@ function AdvancedEditorHarness({
 
 const customPermissions = {
   default_permission: { mode: 'always_allow', parameters: {} },
-  permission_modes: [],
+  permission_modes: ['always_allow', 'always_ask'].map((name) => ({
+    name,
+    label: name,
+    description: '',
+    parameters_schema: {},
+  })),
 }
 const customCatalog: ToolCatalog = {
   built_in_tools: [{ name: 'web_search', description: 'Search.', ...customPermissions }],
@@ -514,14 +519,14 @@ it('shows normal Builder controls and every custom tool without a whole-document
   )
     .filter(([, tool]) => tool.type === 'custom')
     .map(([name]) => name)
-  expect(
-    [...container.querySelectorAll('summary')].map(
-      (summary) => summary.querySelector('span')?.textContent,
-    ),
-  ).toEqual(customNames)
-  for (const summary of container.querySelectorAll('summary')) {
-    expect(summary.querySelector('[data-slot="badge"]')?.textContent).toBe('Custom')
-    expect(summary.closest('section')?.querySelector('h3')?.textContent).toBe('Tools')
+  for (const name of customNames) {
+    expect(button(`Edit ${name}`).closest('section')?.querySelector('h3')?.textContent).toBe(
+      'Tools',
+    )
+    expect(button(`Remove ${name}`)).toBeDefined()
+    expect(
+      container.querySelector(`[role="radiogroup"][aria-label="${name} permission"]`),
+    ).not.toBeNull()
   }
 })
 
@@ -529,6 +534,9 @@ it('validates raw edits, retains unfinished changes across a mode switch, and su
   const editor = await renderAdvancedEditor()
   act(() => {
     editor().form.setInstruction('Pending instruction.')
+  })
+  act(() => {
+    button('Edit search_records').click()
   })
   const label = '/tools/search_records definition (YAML or JSON)'
   const raw =
@@ -563,6 +571,55 @@ it('validates raw edits, retains unfinished changes across a mode switch, and su
   )
 })
 
+it.each(['yaml', 'json'])(
+  'edits custom permissions and deletes only the chosen tool in %s',
+  async (format) => {
+    const source = format === 'json' ? JSON.stringify(parse(customFixture), null, 2) : customFixture
+    const editor = await renderAdvancedEditor(source)
+    const original = editor().form.advancedEntries.find(
+      (entry) => entry.path[1] === 'search_records',
+    )
+    const permission = container.querySelector<HTMLButtonElement>(
+      '[aria-label="search_records permission"] [aria-label="always_ask"]',
+    )
+    expect(permission?.disabled).toBe(false)
+    act(() => permission?.click())
+    expect(editor().saveBlocked).toBe(false)
+    expect(parse(editor().yaml)).toHaveProperty(
+      ['tools', 'search_records', 'permission', 'mode'],
+      'always_ask',
+    )
+    const changed = editor().form.advancedEntries.find(
+      (entry) => entry.path[1] === 'search_records',
+    )
+    for (const key of ['description', 'input_schema']) {
+      const before = parseDocument(original?.source ?? '').getIn([key], true)
+      const after = parseDocument(changed?.source ?? '').getIn([key], true)
+      if (!isNode(before) || !isNode(after) || !before.range || !after.range)
+        throw new Error('Missing definition')
+      expect(changed?.source.slice(after.range[0], after.range[2])).toBe(
+        original?.source.slice(before.range[0], before.range[2]),
+      )
+    }
+    act(() => {
+      button('Edit search_records').click()
+    })
+    await enter('/tools/search_records definition (YAML or JSON)', 'type: custom\ninput_schema: [')
+    expect(editor().saveBlocked).toBe(true)
+    expect(
+      container.querySelector<HTMLButtonElement>('[aria-label="search_records permission"] button')
+        ?.disabled,
+    ).toBe(true)
+    act(() => {
+      button('Remove search_records').click()
+    })
+    expect(editor().saveBlocked).toBe(false)
+    const expected = schemas.zAgentConfigDefinition.parse(parse(source))
+    delete expected.tools?.search_records
+    expect(parse(editor().yaml)).toEqual(expected)
+  },
+)
+
 it.each([includedSource, 'instruction: ['])(
   'adopts valid custom-tool YAML from an existing source: %s',
   async (source) => {
@@ -573,7 +630,7 @@ it.each([includedSource, 'instruction: ['])(
     })
     expect(editor().showBuilder).toBe(true)
     expect(editor().yaml).toBe(customFixture)
-    expect(container.querySelectorAll('summary')).toHaveLength(8)
+    expect(container.querySelectorAll('button[aria-label^="Edit " ]')).toHaveLength(8)
   },
 )
 
@@ -757,11 +814,10 @@ it('adds a validated custom tool from Tools plus and leaves cancelled drafts unt
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   expect(editor().saveBlocked).toBe(false)
   expect(parse(editor().yaml)).toHaveProperty(['tools', 'new_tool'], parse(definition))
-  const row = [...container.querySelectorAll('summary')].find((item) =>
-    item.textContent.includes('new_tool'),
-  )
-  expect(row?.querySelector('[data-slot="badge"]')?.textContent).toBe('Custom')
-  expect(row?.closest('section')?.querySelector('h3')?.textContent).toBe('Tools')
+  expect(button('Edit new_tool').closest('section')?.querySelector('h3')?.textContent).toBe('Tools')
+  act(() => {
+    button('Edit new_tool').click()
+  })
   await enter('/tools/new_tool definition (YAML or JSON)', 'type: custom\ninput_schema: [')
   expect(editor().saveBlocked).toBe(true)
   act(() => {
