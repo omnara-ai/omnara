@@ -1,5 +1,5 @@
 import { type AgentActivity, createOmnaraClient, type JsonBody } from '@omnara/sdk'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   agentMatchesWaitStates,
@@ -148,56 +148,67 @@ describe('waitForAgent', () => {
   })
 
   it('aborts an in-flight request when the timeout elapses', async () => {
-    let signal: AbortSignal | undefined
-    const client = createOmnaraClient({
-      baseUrl: 'https://omnara.test/api/v1',
-      fetch: (request) => {
-        if (request instanceof Request) signal = request.signal
-        return new Promise<Response>((_, reject) => {
-          signal?.addEventListener(
-            'abort',
-            () => {
-              reject(new Error('aborted'))
-            },
-            { once: true },
-          )
-        })
-      },
-    })
-    const started = Date.now()
-    await expect(
-      waitForAgent({
-        client,
-        ...path,
-        states: ['idle'],
-        timeoutSeconds: 1,
-        nowMs: Date.now() - 900,
-      }),
-    ).rejects.toThrow(/did not reach activity state idle within 1s/)
-    expect(signal?.aborted).toBe(true)
-    expect(Date.now() - started).toBeLessThan(1_000)
+    vi.useFakeTimers()
+    try {
+      let signal: AbortSignal | undefined
+      const client = createOmnaraClient({
+        baseUrl: 'https://omnara.test/api/v1',
+        fetch: (request) => {
+          if (request instanceof Request) signal = request.signal
+          return new Promise<Response>((_, reject) => {
+            signal?.addEventListener(
+              'abort',
+              () => {
+                reject(new Error('aborted'))
+              },
+              { once: true },
+            )
+          })
+        },
+      })
+      const result = expect(
+        waitForAgent({ client, ...path, states: ['idle'], timeoutSeconds: 1 }),
+      ).rejects.toThrow(/did not reach activity state idle within 1s/)
+      await vi.advanceTimersByTimeAsync(999)
+      expect(signal?.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(signal?.aborted).toBe(true)
+      await result
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('does not succeed on a matching response that arrives after the timeout', async () => {
-    const client = createOmnaraClient({
-      baseUrl: 'https://omnara.test/api/v1',
-      fetch: () =>
-        new Promise<Response>((resolve) => {
-          setTimeout(() => {
-            resolve(json(agentPayload('idle')))
-          }, 300)
+    vi.useFakeTimers()
+    try {
+      let signal: AbortSignal | undefined
+      let release: (() => void) | undefined
+      const client = createOmnaraClient({
+        baseUrl: 'https://omnara.test/api/v1',
+        fetch: (request) => {
+          if (request instanceof Request) signal = request.signal
+          return new Promise<Response>((resolve) => {
+            release = () => {
+              resolve(json(agentPayload('idle')))
+            }
+          })
+        },
+      })
+      let settled = false
+      const run = waitForAgent({ client, ...path, states: ['idle'], timeoutSeconds: 1 })
+      const result = expect(
+        run.finally(() => {
+          settled = true
         }),
-    })
-    const started = Date.now()
-    await expect(
-      waitForAgent({
-        client,
-        ...path,
-        states: ['idle'],
-        timeoutSeconds: 1,
-        nowMs: Date.now() - 900,
-      }),
-    ).rejects.toThrow(/did not reach activity state idle within 1s/)
-    expect(Date.now() - started).toBeLessThan(250)
+      ).rejects.toThrow(/did not reach activity state idle within 1s/)
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(settled).toBe(true)
+      expect(signal?.aborted).toBe(true)
+      release?.()
+      await result
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
