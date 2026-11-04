@@ -102,3 +102,76 @@ it('shows no results, not the empty copy, when a status filter matches nothing',
   expect(container.textContent).not.toContain('No agents yet.')
   expect(container.textContent).not.toContain('Launch an agent')
 })
+
+it('keeps polling an empty list while a live status filter is set', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+  try {
+    const api = fakeApi([
+      {
+        method: 'GET',
+        path: `/api/v1/orgs/${orgId}/projects/${projectId}/agents`,
+        respond: () => jsonResponse({ data: [], next_cursor: null }),
+      },
+    ])
+    const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
+    client.setConfig({ fetch: api.fetch })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const listRequests = (activityState: string) =>
+      api.requests.filter(
+        (request) => request.url.searchParams.get('activity_state') === activityState,
+      ).length
+
+    act(() => {
+      root.render(
+        <OmnaraClientProvider client={client}>
+          <QueryClientProvider client={queryClient}>
+            <AgentsSection
+              orgId={orgId}
+              projectId={projectId}
+              canManage
+              emptyMessage="No agents yet."
+            />
+          </QueryClientProvider>
+        </OmnaraClientProvider>,
+      )
+    })
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain('No agents yet.')
+    })
+
+    const selectStatus = (name: string) => {
+      const filters = Array.from(container.querySelectorAll('button')).find((button) =>
+        button.textContent.includes('Filters'),
+      )
+      if (!filters) throw new Error('No filters button')
+      act(() => {
+        filters.focus()
+        filters.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      })
+      act(() => {
+        menuItem('menuitem', 'Status').click()
+      })
+      act(() => {
+        menuItem('menuitemradio', name).click()
+      })
+    }
+
+    selectStatus('Waiting')
+    await vi.waitFor(() => {
+      expect(listRequests('waiting_on_interaction')).toBe(1)
+    })
+    await act(() => vi.advanceTimersByTimeAsync(5_000))
+    await vi.waitFor(() => {
+      expect(listRequests('waiting_on_interaction')).toBe(2)
+    })
+
+    selectStatus('Archived')
+    await vi.waitFor(() => {
+      expect(listRequests('archived')).toBe(1)
+    })
+    await act(() => vi.advanceTimersByTimeAsync(5_000))
+    expect(listRequests('archived')).toBe(1)
+  } finally {
+    vi.useRealTimers()
+  }
+})
