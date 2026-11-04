@@ -10646,7 +10646,7 @@ components:
         base_url:
           type: string
           minLength: 1
-          description: Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode, and HTTP endpoints inside OMNARA_ALLOWED_PRIVATE_CIDRS ranges are accepted when configured.
+          description: Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted when the API is running in insecure dev mode.
         endpoint_path:
           type: string
           minLength: 1
@@ -10702,7 +10702,7 @@ components:
         base_url:
           type: string
           minLength: 1
-          description: Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode, and HTTP endpoints inside OMNARA_ALLOWED_PRIVATE_CIDRS ranges are accepted when configured.
+          description: Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted when the API is running in insecure dev mode.
         endpoint_path:
           type: string
           minLength: 1
@@ -10769,7 +10769,7 @@ components:
           $ref: '#/components/schemas/ModelProviderAPIVariantResponse'
         base_url:
           type: string
-          description: Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs, and HTTP endpoints inside OMNARA_ALLOWED_PRIVATE_CIDRS ranges are accepted when configured.
+          description: Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are for insecure dev-mode configs.
         endpoint_path:
           type: string
         request_timeout_ms:
@@ -12293,7 +12293,7 @@ components:
           format: uri
           minLength: 1
           maxLength: 2048
-          description: Streamable HTTP MCP endpoint. Must use HTTPS, except that HTTP is allowed for loopback hosts during local development and for hosts inside OMNARA_ALLOWED_PRIVATE_CIDRS ranges.
+          description: Streamable HTTP MCP endpoint. Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
         auth:
           $ref: '#/components/schemas/MCPServerAuth'
     MCPServerAuth:
@@ -15189,7 +15189,7 @@ components:
           type: string
           format: uri
           minLength: 1
-          description: Must use HTTPS, except that HTTP is allowed for loopback hosts during local development and for hosts inside OMNARA_ALLOWED_PRIVATE_CIDRS ranges.
+          description: Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
         client_id:
           type: string
           minLength: 1

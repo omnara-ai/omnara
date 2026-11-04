@@ -41,22 +41,17 @@ func Validate(settings Settings) (Settings, error) {
 
 func ValidateURL(raw string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Hostname() == "" || parsed.Opaque != "" {
-		return "", errors.New("event webhook URL must be an absolute HTTP(S) URL")
-	}
-	if parsed.Scheme != "https" &&
-		!(parsed.Scheme == "http" && ssrf.HostPermitsPlainHTTP(parsed.Hostname())) {
-		return "", errors.New("event webhook URL must use HTTPS unless it targets an allowlisted private network")
+	if err != nil || parsed.Hostname() == "" || parsed.Opaque != "" || (parsed.Scheme != "https" &&
+		(parsed.Scheme != "http" || !ssrf.Endpoints.PermitsPlainHTTP(parsed.Hostname()))) {
+		return "", errors.New("event webhook URL must be an absolute HTTPS URL")
 	}
 	if parsed.User != nil || parsed.Fragment != "" {
 		return "", errors.New("event webhook URL must not contain credentials or a fragment")
 	}
 	host := ssrf.ClassifyURLHost(parsed.Hostname())
-	if host.IP != nil && !ssrf.IsAllowedIP(host.IP, false) {
-		return "", errors.New("event webhook URL must target a permitted host")
-	}
-	if host.IP == nil && host.LocalDev && !ssrf.HostPermitsPlainHTTP(parsed.Hostname()) {
-		return "", errors.New("event webhook URL must target a permitted host")
+	if (host.IP == nil && host.LocalDev && !ssrf.Endpoints.PermitsPlainHTTP(parsed.Hostname())) ||
+		(host.IP != nil && !ssrf.Endpoints.PermitsIP(host.IP, false)) {
+		return "", errors.New("event webhook URL must target a public host")
 	}
 	normalized := parsed.String()
 	if len(normalized) > 2048 {

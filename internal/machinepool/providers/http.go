@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
@@ -28,7 +29,7 @@ const (
 var ErrResponseTooLarge = errors.New("provider response exceeds the byte limit")
 
 var providerHTTPClient = outboundhttp.NewPublicClient(
-	outboundhttp.PublicClientOptions{Timeout: HTTPClientTimeout},
+	outboundhttp.PublicClientOptions{Timeout: HTTPClientTimeout, Allowlist: ssrf.Endpoints},
 )
 
 func NewHTTPClient(recorder *metrics.HTTPClientRecorder, provider string) *http.Client {

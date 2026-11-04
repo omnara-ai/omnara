@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
@@ -71,6 +72,36 @@ models:
 			cfg.HostedAPIURL,
 			cfg.HostedAPIToken,
 		)
+	}
+}
+
+func TestLoadDefaultModelProviderTemplateWithPrivateEndpoint(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_PRIVATE_ENDPOINT_CIDRS", "10.0.5.0/24")
+	t.Cleanup(func() { _ = ssrf.Configure(nil, nil) })
+	path := filepath.Join(t.TempDir(), "default-model-provider.yaml")
+	if err := os.WriteFile(path, []byte(`
+provisioner: openrouter
+name: private-vllm
+credential_secret_name: private-vllm-key
+api_format: openai-chat-completions
+base_url: http://10.0.5.21:8000/v1
+models:
+  - name: local-model
+    provider_model_slug: local-model
+    context_window_tokens: 32000
+    max_output_tokens: 4096
+`), 0o600); err != nil {
+		t.Fatalf("write default model provider template: %v", err)
+	}
+	t.Setenv("OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE", path)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.DefaultModelProvider == nil || cfg.DefaultModelProvider.BaseURL != "http://10.0.5.21:8000/v1" {
+		t.Fatalf("default model provider = %+v, want the private base URL", cfg.DefaultModelProvider)
 	}
 }
 

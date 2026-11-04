@@ -62,18 +62,6 @@ func main() {
 		log.Error("validate worker config", "error", err)
 		os.Exit(1)
 	}
-	allowedPrefixes, allowlistWarnings, err := cfg.AllowedPrivatePrefixes()
-	if err != nil {
-		log.Error("parse private egress allowlist", "error", err)
-		os.Exit(1)
-	}
-	ssrf.SetAllowedPrefixes(allowedPrefixes)
-	for _, warning := range allowlistWarnings {
-		log.Warn(warning)
-	}
-	if len(allowlistWarnings) > 0 {
-		log.Warn("private network egress is enabled; do not use OMNARA_ALLOWED_PRIVATE_CIDRS on multi-tenant deployments")
-	}
 	if err := tools.ValidateToolImplementationRegistry(); err != nil {
 		log.Error("validate tool implementation registry", "error", err)
 		os.Exit(1)
@@ -182,7 +170,7 @@ func main() {
 		httpRecorder,
 	)
 	mcpHTTPClient := outboundhttp.NewPublicClient(
-		outboundhttp.PublicClientOptions{AllowLoopback: cfg.AllowInsecureDev},
+		outboundhttp.PublicClientOptions{AllowLoopback: cfg.AllowInsecureDev, Allowlist: ssrf.Endpoints},
 	)
 	searchHTTPClient := metrics.NewObservedHTTPClient(
 		outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{}),

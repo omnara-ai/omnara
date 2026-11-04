@@ -40,9 +40,11 @@ type OpenRouterAttribution struct {
 }
 
 var (
-	defaultHTTPTransport  = ssrf.NewTransport(ssrf.TransportOptions{DisableResponseHeaderTimeout: true})
+	defaultHTTPTransport = ssrf.NewTransport(
+		ssrf.TransportOptions{Allowlist: ssrf.Endpoints, DisableResponseHeaderTimeout: true},
+	)
 	loopbackHTTPTransport = ssrf.NewTransport(
-		ssrf.TransportOptions{AllowLoopback: true, DisableResponseHeaderTimeout: true},
+		ssrf.TransportOptions{AllowLoopback: true, Allowlist: ssrf.Endpoints, DisableResponseHeaderTimeout: true},
 	)
 )
 

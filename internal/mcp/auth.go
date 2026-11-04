@@ -108,7 +108,7 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 	if endpoint == "" {
 		return AuthRequirement{}, errors.New("mcp auth: endpoint URL is required")
 	}
-	if err := urlpolicy.RequireHTTPSOrLoopback(endpoint); err != nil {
+	if err := urlpolicy.RequireHTTPSOrPrivateEndpoint(endpoint); err != nil {
 		return AuthRequirement{}, fmt.Errorf("mcp auth: endpoint URL: %w", err)
 	}
 	client := clientWithoutRedirects(opts.HTTPClient)

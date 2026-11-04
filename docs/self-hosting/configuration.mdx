@@ -174,24 +174,14 @@ timeout. Explicit values in `OMNARA_DATABASE_URL` take precedence.
 
 ## Private network egress
 
-Omnara blocks outbound requests to private and special-use IP ranges (SSRF
-protection) by default. `OMNARA_ALLOWED_PRIVATE_CIDRS` lets a self-hosted single
-operator allow specific ranges so it can reach model endpoints (and other egress
-targets) on a private local cloud, including plain HTTP endpoints.
+Omnara refuses outbound requests to private, loopback, and other non-public addresses by default. To reach services on your own network, such as a model server, list their addresses.
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
-| `OMNARA_ALLOWED_PRIVATE_CIDRS` | Comma-separated CIDRs that outbound requests (model provider endpoints, model discovery, web fetch, MCP servers, event webhooks) may reach even when private/special-use. `http://` is accepted for hosts inside these ranges. Unset blocks all private ranges; `0.0.0.0/0` disables SSRF protection entirely and logs a loud startup warning. | — | No |
+| `OMNARA_PRIVATE_ENDPOINT_CIDRS` | Private addresses that model providers, MCP servers, event webhooks, and machine pool APIs may reach. Plain `http://` URLs are accepted for model providers, MCP servers, and event webhooks, and only connect to listed addresses. MCP sign-in (OAuth) still requires HTTPS. Set it on the API, worker, and maintenance services. | — | No |
+| `OMNARA_WEB_FETCH_PRIVATE_CIDRS` | Private addresses the `web_fetch` tool may reach. Plain `http://` works for listed IP addresses; other `http://` links are upgraded to HTTPS. Set it on the worker. | — | No |
 
-:::warning
-This is for single-operator self-hosted installs only. Do not set it on
-multi-tenant deployments: agent-controlled web fetches can pivot into any
-allowlisted range (prompt injection against a wide `/16` reaches routers, NAS,
-panels). Allowlist the narrowest ranges you need; allowlisting a range that
-includes `169.254.169.254` exposes cloud metadata credentials. Set the same value
-on the API and worker. Every connection is re-resolved and re-checked at dial time,
-so DNS rebinding stays blocked.
-:::
+Both take a comma-separated list of IP addresses or CIDR ranges, each with an optional port, such as `10.0.5.0/24,192.168.1.20:11434,[fd00::5]:8080`. A URL can use a hostname that resolves to a listed address. To reach a service in Docker, list its Docker network's range, which `docker network inspect <network>` shows. Cloud metadata addresses (`169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`) stay blocked even inside a listed range.
 
 ## API rate limits
 

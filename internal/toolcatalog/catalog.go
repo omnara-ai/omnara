@@ -11,6 +11,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/processaction"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -90,6 +91,10 @@ const (
 		"Prefer a few focused queries with varied phrasing over one broad query, and keep it to at most ~5 searches per task."
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
+		"(e.g. curl) on the machine where the service runs instead."
+	webFetchPrivateToolDescription = "Fetch a public http(s) URL or an allowed private address " +
+		"and return its readable content as markdown (read-only). " +
+		"Other localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
 	storageWriteToolDescription = "Create or edit a memory text file. " +
 		"Changing an existing file fails unless you read, wrote, uploaded, or downloaded its current content. " +
@@ -616,14 +621,19 @@ func skillTool() (Entry, error) {
 }
 
 func webFetchTool() (Entry, error) {
+	description, urlDescription := webFetchToolDescription, "Absolute http(s) URL of a public web page."
+	if ssrf.WebFetch.Configured() {
+		description = webFetchPrivateToolDescription
+		urlDescription = "Absolute http(s) URL of a public web page or an allowed private address."
+	}
 	entry, err := toolEntry(
 		ToolNameWebFetch,
-		webFetchToolDescription,
+		description,
 		[]string{"url"},
 		map[string]any{
 			"url": map[string]any{
 				"type":        "string",
-				"description": "Absolute http(s) URL of a public web page.",
+				"description": urlDescription,
 			},
 			"format": map[string]any{
 				"type":        "string",
