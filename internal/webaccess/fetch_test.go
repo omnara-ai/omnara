@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/netip"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -22,15 +21,17 @@ func prodFetcher() *Fetcher {
 	return NewFetcher(FetcherOptions{})
 }
 
-func TestFetchAllowsPlainHTTPIntoAllowlistedRanges(t *testing.T) {
+func TestFetchAllowsPlainHTTPIntoWebFetchPrivateRanges(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.WriteString(w, "lan model endpoint")
 	}))
 	defer server.Close()
 
-	ssrf.SetAllowedPrefixes([]netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")})
-	t.Cleanup(func() { ssrf.SetAllowedPrefixes(nil) })
+	if err := ssrf.Configure(nil, []string{"127.0.0.0/8"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ssrf.Configure(nil, nil) })
 
 	result, err := prodFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL})
 	if err != nil {
@@ -41,13 +42,37 @@ func TestFetchAllowsPlainHTTPIntoAllowlistedRanges(t *testing.T) {
 	}
 }
 
-func TestFetchBlocksWithoutAllowlist(t *testing.T) {
+func TestBlockedFetchGuidanceFollowsWebFetchList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	t.Cleanup(func() { _ = ssrf.Configure(nil, nil) })
+	for _, test := range []struct {
+		list []string
+		want string
+	}{
+		{want: BlockedAddressGuidance},
+		{list: []string{"10.0.3.0/24"}, want: privateNetworkBlockedAddressGuidance},
+	} {
+		if err := ssrf.Configure(nil, test.list); err != nil {
+			t.Fatal(err)
+		}
+		_, err := prodFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL})
+		if providerErr, ok := AsProviderError(err); !ok || providerErr.Message != test.want {
+			t.Fatalf("list %v: blocked fetch error = %v, want %q", test.list, err, test.want)
+		}
+	}
+}
+
+func TestFetchIgnoresPrivateEndpointRanges(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	defer server.Close()
 
-	ssrf.SetAllowedPrefixes(nil)
+	if err := ssrf.Configure([]string{"127.0.0.0/8"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ssrf.Configure(nil, nil) })
 	if _, err := prodFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL}); err == nil {
-		t.Fatal("expected loopback fetch to stay blocked without allowlist")
+		t.Fatal("web_fetch reached a range listed only for endpoints")
 	}
 }
 

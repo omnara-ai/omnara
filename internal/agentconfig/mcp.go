@@ -203,25 +203,24 @@ func ValidateMCPURL(raw string, allowInsecureLocalHTTP bool) (string, error) {
 	switch parsed.Scheme {
 	case "https":
 	case "http":
-		if allowInsecureLocalHTTP && host.LocalDev {
+		if ssrf.Endpoints.PermitsPlainHTTP(parsed.Hostname()) {
 			break
 		}
-		if !ssrf.HostPermitsPlainHTTP(parsed.Hostname()) {
-			if host.LocalDev {
-				return "", fmt.Errorf(
-					"url %q targets loopback; enable AllowInsecureLocalMCPHTTP "+
-						"(set OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1 on the API for local development) "+
-						"or add the range to OMNARA_ALLOWED_PRIVATE_CIDRS "+
-						"to compile loopback MCP endpoints",
-					raw,
-				)
-			}
-			return "", errors.New("url scheme must be https unless it targets an allowlisted private network")
+		if !host.LocalDev {
+			return "", errors.New("url scheme must be https")
+		}
+		if !allowInsecureLocalHTTP {
+			return "", fmt.Errorf(
+				"url %q targets loopback; enable AllowInsecureLocalMCPHTTP "+
+					"(set OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1 on the API for local development) "+
+					"to compile loopback MCP endpoints",
+				raw,
+			)
 		}
 	default:
 		return "", errors.New("url scheme must be https")
 	}
-	if host.IP != nil && !ssrf.IsAllowedIP(host.IP, allowInsecureLocalHTTP && parsed.Scheme == "http") {
+	if host.IP != nil && !ssrf.Endpoints.PermitsIP(host.IP, allowInsecureLocalHTTP && parsed.Scheme == "http") {
 		return "", fmt.Errorf("url host IP is not permitted: %s", host.IP.String())
 	}
 	return parsed.String(), nil

@@ -245,9 +245,9 @@ func normalizeModelProviderBaseURL(baseURL string) (string, error) {
 		return "", fmt.Errorf("base_url cannot include user information: %w", storeerr.ErrInvalidModelProviderConfig)
 	}
 	if parsed.Scheme == "http" && !isLocalModelProviderHTTPHost(parsed.Hostname()) &&
-		!ssrf.HostPermitsPlainHTTP(parsed.Hostname()) {
+		!ssrf.Endpoints.PermitsPlainHTTP(parsed.Hostname()) {
 		return "", fmt.Errorf(
-			"base_url must use https unless it targets localhost, a loopback IP, or an allowlisted private network: %w",
+			"base_url must use https unless it targets localhost or a loopback IP: %w",
 			storeerr.ErrInvalidModelProviderConfig,
 		)
 	}

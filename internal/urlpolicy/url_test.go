@@ -1,7 +1,6 @@
 package urlpolicy
 
 import (
-	"net/netip"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/ssrf"
@@ -40,12 +39,11 @@ func TestRequireHTTPSOrLoopback(t *testing.T) {
 	}
 }
 
-func TestRequireHTTPSOrLoopbackWithAllowedPrefixes(t *testing.T) {
-	ssrf.SetAllowedPrefixes([]netip.Prefix{
-		netip.MustParsePrefix("10.0.0.0/8"),
-		netip.MustParsePrefix("fd00::/8"),
-	})
-	t.Cleanup(func() { ssrf.SetAllowedPrefixes(nil) })
+func TestRequireHTTPSOrPrivateEndpoint(t *testing.T) {
+	if err := ssrf.Configure([]string{"10.0.0.0/8", "fd00::/8"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ssrf.Configure(nil, nil) })
 
 	tests := []struct {
 		name    string
@@ -61,10 +59,13 @@ func TestRequireHTTPSOrLoopbackWithAllowedPrefixes(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := RequireHTTPSOrLoopback(test.rawURL)
+			err := RequireHTTPSOrPrivateEndpoint(test.rawURL)
 			if (err != nil) != test.wantErr {
-				t.Fatalf("RequireHTTPSOrLoopback(%q) error = %v, wantErr %v", test.rawURL, err, test.wantErr)
+				t.Fatalf("RequireHTTPSOrPrivateEndpoint(%q) error = %v, wantErr %v", test.rawURL, err, test.wantErr)
 			}
 		})
+	}
+	if err := RequireHTTPSOrLoopback("http://10.0.5.21:8000/v1"); err == nil {
+		t.Fatal("RequireHTTPSOrLoopback accepted plain HTTP to an allowed private address")
 	}
 }

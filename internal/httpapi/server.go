@@ -28,6 +28,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/sigv4"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -492,6 +493,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	}
 	server.mcpOAuthHTTPClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
 		AllowLoopback: server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
+		Allowlist:     ssrf.Endpoints,
 	})
 	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpOAuthHTTPClient})
 	server.sigV4CredentialCache, err = sigv4.NewCredentialCache()
