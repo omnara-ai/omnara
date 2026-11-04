@@ -11,7 +11,13 @@ import {
   disabledPermissionOption,
   permissionModeOptions,
 } from '@/components/agents/permissionModeOptions'
-import { ChevronDownIcon, PlusIcon, Trash2Icon } from '@/components/icons'
+import {
+  ChevronDownIcon,
+  CodeBracketIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+} from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
@@ -138,44 +144,30 @@ export function AgentConfigToolsField({
           {visibleTools.map((tool) => {
             const entry = catalogByName.get(tool.name)
             return (
-              <div
+              <AgentConfigToolRow
                 key={tool.name}
-                className="flex flex-wrap items-center gap-2 px-4 py-2.5 sm:flex-nowrap sm:gap-3 sm:px-5"
-              >
-                <ToolName name={tool.name} entry={entry} />
-                <PermissionModeSelect
-                  tool={tool}
-                  entry={entry}
-                  allowDisable={tool.enabled === false}
-                  onChange={(mode) => {
-                    onToolsChange(
-                      tools.map((currentTool) =>
-                        currentTool.name === tool.name
-                          ? {
-                              ...currentTool,
-                              enabled: mode === 'disabled' ? false : undefined,
-                              permission:
-                                mode === 'disabled'
-                                  ? currentTool.permission
-                                  : { mode, parameters: {} },
-                            }
-                          : currentTool,
-                      ),
-                    )
-                  }}
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label={`Remove ${tool.name}`}
-                  onClick={() => {
-                    onToolsChange(tools.filter((currentTool) => currentTool.name !== tool.name))
-                  }}
-                >
-                  <Trash2Icon />
-                </Button>
-              </div>
+                tool={tool}
+                entry={entry}
+                onPermissionChange={(mode) => {
+                  onToolsChange(
+                    tools.map((currentTool) =>
+                      currentTool.name === tool.name
+                        ? {
+                            ...currentTool,
+                            enabled: mode === 'disabled' ? false : undefined,
+                            permission:
+                              mode === 'disabled'
+                                ? currentTool.permission
+                                : { mode, parameters: {} },
+                          }
+                        : currentTool,
+                    ),
+                  )
+                }}
+                onRemove={() => {
+                  onToolsChange(tools.filter((currentTool) => currentTool.name !== tool.name))
+                }}
+              />
             )
           })}
         </div>
@@ -193,6 +185,63 @@ export function AgentConfigToolsField({
         }}
       />
     </AgentConfigSectionCard>
+  )
+}
+
+export function AgentConfigToolRow({
+  tool,
+  entry,
+  onPermissionChange,
+  onRemove,
+  onEdit,
+  editing,
+  permissionDisabled,
+  allowDisable = tool.enabled === false,
+}: {
+  tool: BasicTool
+  entry?: ToolCatalogEntry
+  onPermissionChange: (mode: string) => void
+  onRemove?: () => void
+  onEdit?: () => void
+  editing?: boolean
+  permissionDisabled?: boolean
+  allowDisable?: boolean
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-2.5 sm:flex-nowrap sm:gap-3 sm:px-5">
+      <ToolName name={tool.name} entry={entry} custom={onEdit != null} />
+      {onEdit && (
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label={`Edit ${tool.name}`}
+          aria-expanded={editing}
+          aria-controls={`tool-definition-${tool.name}`}
+          onClick={onEdit}
+        >
+          <PencilIcon />
+        </Button>
+      )}
+      <PermissionModeSelect
+        tool={tool}
+        entry={entry}
+        allowDisable={allowDisable}
+        disabled={permissionDisabled}
+        onChange={onPermissionChange}
+      />
+      {onRemove && (
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label={`Remove ${tool.name}`}
+          onClick={onRemove}
+        >
+          <Trash2Icon />
+        </Button>
+      )}
+    </div>
   )
 }
 
@@ -229,21 +278,19 @@ function AgentConfigIncludedTools({
           const { name } = tool
           const entry = catalogByName.get(name)
           return (
-            <div key={name} className="flex flex-wrap items-center gap-2 px-4 py-2 sm:px-5">
-              <ToolName name={name} entry={entry} />
-              <PermissionModeSelect
-                tool={tool}
-                entry={entry}
-                allowDisable
-                onChange={(mode) => {
-                  onToolChange({
-                    ...tool,
-                    enabled: mode === 'disabled' ? false : undefined,
-                    permission: mode === 'disabled' ? tool.permission : { mode, parameters: {} },
-                  })
-                }}
-              />
-            </div>
+            <AgentConfigToolRow
+              key={name}
+              tool={tool}
+              entry={entry}
+              allowDisable
+              onPermissionChange={(mode) => {
+                onToolChange({
+                  ...tool,
+                  enabled: mode === 'disabled' ? false : undefined,
+                  permission: mode === 'disabled' ? tool.permission : { mode, parameters: {} },
+                })
+              }}
+            />
           )
         })}
       </CollapsibleContent>
@@ -255,11 +302,13 @@ function PermissionModeSelect({
   tool,
   entry,
   allowDisable = false,
+  disabled = false,
   onChange,
 }: {
   tool: BasicTool
   entry?: ToolCatalogEntry
   allowDisable?: boolean
+  disabled?: boolean
   onChange: (mode: string) => void
 }) {
   const permissionMode = tool.permission?.mode ?? entry?.default_permission.mode ?? ''
@@ -269,15 +318,25 @@ function PermissionModeSelect({
       label={`${tool.name} permission`}
       options={allowDisable ? [...options, disabledPermissionOption] : options}
       value={tool.enabled === false ? 'disabled' : permissionMode}
-      disabled={entry == null || (!allowDisable && options.length === 1)}
+      disabled={disabled || entry == null || (!allowDisable && options.length === 1)}
       onChange={onChange}
     />
   )
 }
 
-function ToolName({ name, entry }: { name: string; entry?: ToolCatalogEntry }) {
+function ToolName({
+  name,
+  entry,
+  custom,
+}: {
+  name: string
+  entry?: ToolCatalogEntry
+  custom?: boolean
+}) {
   const [open, setOpen] = useState(false)
-  const description = toolDescriptions.get(name) ?? entry?.description
+  const description = custom
+    ? `Custom tool. ${entry?.description.length ? entry.description : 'Edit its definition using YAML or JSON.'}`
+    : (toolDescriptions.get(name) ?? entry?.description)
   return (
     <div
       className="-my-2.5 flex min-w-0 flex-1 basis-full items-center self-stretch py-2.5 sm:basis-auto"
@@ -293,7 +352,7 @@ function ToolName({ name, entry }: { name: string; entry?: ToolCatalogEntry }) {
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="bg-muted block max-w-full cursor-default truncate rounded-md px-2 py-1 text-left font-mono text-xs outline-none focus-visible:ring-2"
+              className="bg-muted inline-flex max-w-full cursor-default items-center gap-1.5 rounded-md px-2 py-1 text-left font-mono text-xs outline-none focus-visible:ring-2"
               aria-label={`About ${name}`}
               onFocus={() => {
                 setOpen(true)
@@ -302,7 +361,13 @@ function ToolName({ name, entry }: { name: string; entry?: ToolCatalogEntry }) {
                 setOpen(false)
               }}
             >
-              {name}
+              {custom && (
+                <CodeBracketIcon
+                  className="text-muted-foreground size-3.5 shrink-0"
+                  aria-hidden="true"
+                />
+              )}
+              <span className="truncate">{name}</span>
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" className="max-w-sm px-4 py-2 text-sm leading-relaxed">

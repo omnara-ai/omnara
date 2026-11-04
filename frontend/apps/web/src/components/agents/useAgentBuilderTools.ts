@@ -45,8 +45,8 @@ export function agentBuilderToolsDefinition(source: BasicConfig): AgentConfigToo
 export function agentBuilderToolsRequest(source: BasicConfig) {
   const definition = agentBuilderToolsDefinition(source)
   const toolFields = new Set([...Object.keys(definition), 'git_credentials'])
-  const advanced = (source.advancedEntries ?? []).filter((entry) =>
-    toolFields.has(entry.path[0] ?? ''),
+  const advanced = (source.advancedEntries ?? []).filter(
+    (entry) => !entry.removed && toolFields.has(entry.path[0] ?? ''),
   )
   if (advanced.length === 0) return { source: definition, source_format: 'json' as const }
   const preview = new Document(definition, configYamlOptions)

@@ -16,6 +16,7 @@ export interface AdvancedConfigEntry {
   path: string[]
   kind: 'custom' | 'opaque'
   source: string
+  removed?: boolean
 }
 
 export function customToolNameError(name: string, reservedNames: readonly string[] = []) {
