@@ -46,6 +46,8 @@ type Turn struct {
 	RuntimeLockID      uuid.UUID
 	ModelCallContextID uuid.UUID
 	Tools              map[string]ToolSpec
+	// authority is nil for model calls, which act under RuntimeLockID.
+	authority toolAuthority
 }
 
 type ToolSpec struct {

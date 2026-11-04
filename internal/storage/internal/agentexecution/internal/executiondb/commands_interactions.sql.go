@@ -70,7 +70,7 @@ const listExecutionInteractions = `-- name: ListExecutionInteractions :many
 SELECT i.id FROM agent_interactions i JOIN tool_calls c ON c.agent_id=i.agent_id AND c.id=i.tool_call_id
 JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
 JOIN model_call_contexts m ON m.agent_id=o.agent_id AND m.id=o.model_call_context_id
-WHERE i.agent_id=$1 AND i.state='open' AND m.turn_id=$2
+WHERE i.agent_id=$1 AND i.state='open' AND m.turn_id=$2 AND c.caller='model'
 ORDER BY i.id
 `
 
@@ -101,8 +101,9 @@ func (q *Queries) ListExecutionInteractions(ctx context.Context, db DBTX, arg Li
 
 const readExecutionInteraction = `-- name: ReadExecutionInteraction :one
 SELECT i.id,i.tool_call_id,i.interaction_kind,i.state,i.request,i.resolution,i.resolved_by_input_id,
- i.destination,i.presentation_receipt
-FROM agent_interactions i WHERE i.agent_id=$1 AND
+ i.destination,i.presentation_receipt,c.caller,i.resolved_by_actor_id
+FROM agent_interactions i JOIN tool_calls c ON c.agent_id=i.agent_id AND c.id=i.tool_call_id
+WHERE i.agent_id=$1 AND
  (i.id=$2 OR (i.tool_call_id=$3 AND i.interaction_kind=$4))
 `
 
@@ -123,6 +124,8 @@ type ReadExecutionInteractionRow struct {
 	ResolvedByInputID   *uuid.UUID
 	Destination         *json.RawMessage
 	PresentationReceipt *json.RawMessage
+	Caller              string
+	ResolvedByActorID   *uuid.UUID
 }
 
 func (q *Queries) ReadExecutionInteraction(ctx context.Context, db DBTX, arg ReadExecutionInteractionParams) (ReadExecutionInteractionRow, error) {
@@ -143,20 +146,23 @@ func (q *Queries) ReadExecutionInteraction(ctx context.Context, db DBTX, arg Rea
 		&i.ResolvedByInputID,
 		&i.Destination,
 		&i.PresentationReceipt,
+		&i.Caller,
+		&i.ResolvedByActorID,
 	)
 	return i, err
 }
 
 const resolveExecutionInteraction = `-- name: ResolveExecutionInteraction :execrows
 UPDATE agent_interactions SET state=$1,resolution=$2::jsonb,
- resolved_by_input_id=$3,resolved_at=statement_timestamp()
-WHERE agent_id=$4 AND id=$5 AND state='open'
+ resolved_by_input_id=$3,resolved_by_actor_id=$4,resolved_at=statement_timestamp()
+WHERE agent_id=$5 AND id=$6 AND state='open'
 `
 
 type ResolveExecutionInteractionParams struct {
 	State      string
 	Resolution json.RawMessage
 	InputID    *uuid.UUID
+	ActorID    *uuid.UUID
 	AgentID    uuid.UUID
 	ID         uuid.UUID
 }
@@ -166,6 +172,7 @@ func (q *Queries) ResolveExecutionInteraction(ctx context.Context, db DBTX, arg 
 		arg.State,
 		arg.Resolution,
 		arg.InputID,
+		arg.ActorID,
 		arg.AgentID,
 		arg.ID,
 	)

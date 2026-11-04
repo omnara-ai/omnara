@@ -100,6 +100,11 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 			RepositoryIds: credentials.RepositoryIDs, ReadOnly: credentials.ReadOnly,
 		}
 	}
+	if calls := compiled.ProgrammaticToolCalls; calls != nil {
+		response.ProgrammaticToolCalls = &openapi.CompiledProgrammaticToolCalls{
+			Enabled: calls.Enabled, Exclude: calls.Exclude,
+		}
+	}
 	response.Mcp = make(map[string]openapi.CompiledMCPServer, len(compiled.MCP))
 	for name, server := range compiled.MCP {
 		mcp := openapi.CompiledMCPServer{

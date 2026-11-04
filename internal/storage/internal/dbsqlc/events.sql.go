@@ -106,6 +106,7 @@ WITH atomic_groups AS (
    AND result_event.tool_call_result_id = result.id
   WHERE tool_call.project_id = $2
     AND tool_call.agent_id = $3
+    AND tool_call.caller = 'model'
     AND tool_call.source_event_sequence <= $1
     AND (result_event.sequence IS NULL OR result_event.sequence > $4)
   GROUP BY tool_call.source_event_sequence

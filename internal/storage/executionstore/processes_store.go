@@ -19,11 +19,13 @@ import (
 )
 
 type DaemonProcessOffer struct {
-	Process          ProcessRecord     `json:"process"`
-	Env              map[string]string `json:"env"`
-	GitCredentials   bool              `json:"git_credentials"`
-	PreparationError string            `json:"preparation_error"`
-	RetryError       error             `json:"-"`
+	Process        ProcessRecord     `json:"process"`
+	Env            map[string]string `json:"env"`
+	GitCredentials bool              `json:"git_credentials"`
+	// ProgrammaticToolCalls lets the shell process call agent tools.
+	ProgrammaticToolCalls bool   `json:"programmatic_tool_calls"`
+	PreparationError      string `json:"preparation_error"`
+	RetryError            error  `json:"-"`
 }
 
 type DaemonGitCredentialsScope struct {
@@ -97,6 +99,9 @@ func (t *toolCallTransaction) startProcess(
 	ctx context.Context,
 	input CreateProcessInput,
 ) (ProcessRecord, error) {
+	if err := t.requireRuntime(); err != nil {
+		return ProcessRecord{}, err
+	}
 	if input.AgentMachineBindingID == uuid.Nil {
 		return ProcessRecord{}, errors.New("agent machine binding is required")
 	}

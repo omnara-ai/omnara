@@ -233,10 +233,5 @@ func (e Executor) integrationRuntimeContract(
 }
 
 func (e Executor) ensureIntegrationPostOwnership(ctx context.Context, turn Turn) error {
-	return e.Store.Execution().EnsureRuntimeLockActive(
-		ctx,
-		turn.ProjectID,
-		turn.AgentID,
-		turn.RuntimeLockID,
-	)
+	return turn.toolAuthority().ensureActive(ctx, e, turn)
 }

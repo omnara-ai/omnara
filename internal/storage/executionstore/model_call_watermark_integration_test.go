@@ -452,7 +452,7 @@ func expectedLongTranscriptToolCall(t *testing.T, lt longTranscript, turn int) e
 		CreatedAt: lt.createdAt, State: executionstore.ToolCallStateCompleted, CompletedAt: &lt.createdAt,
 		Outcome: executionstore.ToolResultOutcomeSucceeded, ToolCallResultID: id("result_a"),
 		ToolResultEventID: id("result_a_event"), SourceEventSequence: sourceSequence,
-		ToolResultEventSequence: sourceSequence + 1,
+		ToolResultEventSequence: sourceSequence + 1, Caller: "model",
 		ResultContentParts: canonicalJSON(t, []any{
 			map[string]any{"type": "text", "text": fmt.Sprintf("result %d", turn)},
 			map[string]any{"type": "structured_data", "value": map[string]any{"k": turn}},
