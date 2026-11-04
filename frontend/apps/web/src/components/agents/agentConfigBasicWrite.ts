@@ -149,6 +149,10 @@ export function applyToDocument(
     if (config.gitCredentials == null) del(['git_credentials'])
     else set(['git_credentials'], config.gitCredentials)
   }
+  if (!deepEqual(config.programmaticToolCalls, baseline?.programmaticToolCalls)) {
+    if (config.programmaticToolCalls == null) del(['programmatic_tool_calls'])
+    else set(['programmatic_tool_calls'], config.programmaticToolCalls)
+  }
   applyList('memory_stores', config.memoryStores, baseline?.memoryStores ?? null)
   applyList('skills', config.skillIds, baseline?.skillIds ?? null)
   applyNamedEntries(

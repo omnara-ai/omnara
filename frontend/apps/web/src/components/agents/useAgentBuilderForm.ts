@@ -66,6 +66,7 @@ export interface BasicConfig {
   tools: BasicTool[]
   interactionHandlers: Record<string, AgentConfigDefinitionInteractionHandler>
   gitCredentials: AgentConfigDefinition['git_credentials']
+  programmaticToolCalls: AgentConfigDefinition['programmatic_tool_calls']
   mcpServers: BasicMcpServer[]
   skillIds: string[]
   memoryStores: BasicMemoryStore[]
@@ -102,6 +103,7 @@ export const emptyBasicConfig: BasicConfig = {
   tools: [],
   interactionHandlers: {},
   gitCredentials: undefined,
+  programmaticToolCalls: undefined,
   mcpServers: [],
   skillIds: [],
   memoryStores: [],
@@ -199,6 +201,7 @@ export function useAgentBuilderForm(
     tools: draft.tools,
     interactionHandlers: draft.interactionHandlers,
     gitCredentials: draft.gitCredentials,
+    programmaticToolCalls: draft.programmaticToolCalls,
     skillIds: draft.skillIds,
     memoryStores: draft.memoryStores,
     mcpServers: draft.mcpServers,
@@ -223,6 +226,9 @@ export function useAgentBuilderForm(
     },
     setGitCredentials: (gitCredentials: BasicConfig['gitCredentials']) => {
       patch({ gitCredentials })
+    },
+    setProgrammaticToolCalls: (programmaticToolCalls: BasicConfig['programmaticToolCalls']) => {
+      patch({ programmaticToolCalls })
     },
     setSkillIds: (skillIds: string[]) => {
       patch({ skillIds })

@@ -31,6 +31,7 @@ export function machinePool(overrides: Partial<MachinePool> = {}): MachinePool {
     default_cwd: '',
     provider_config: {},
     runtime_protection_enabled: false,
+    default_programmatic_tool_calls: false,
     max_total_machines: 1,
     max_total_cpu: null,
     max_total_memory_mb: null,

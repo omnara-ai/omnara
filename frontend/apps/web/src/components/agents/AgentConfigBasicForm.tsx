@@ -4,6 +4,7 @@ import { AgentConfigGitCredentialsField } from '@/components/agents/AgentConfigG
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import { AgentConfigMemoryField } from '@/components/agents/AgentConfigMemoryField'
+import { AgentConfigProgrammaticToolCallsField } from '@/components/agents/AgentConfigProgrammaticToolCallsField'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigSubagentsField } from '@/components/agents/AgentConfigSubagentsField'
@@ -147,6 +148,12 @@ export function AgentConfigBasicForm({
                   projectId={projectId}
                   value={form.gitCredentials}
                   onChange={form.setGitCredentials}
+                />
+              )}
+              {form.isManaged('programmatic_tool_calls') && (
+                <AgentConfigProgrammaticToolCallsField
+                  value={form.programmaticToolCalls}
+                  onChange={form.setProgrammaticToolCalls}
                 />
               )}
             </CollapsibleContent>

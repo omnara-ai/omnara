@@ -13,6 +13,7 @@ import {
   zAgentConfigDefinitionMcpTool,
   zAgentConfigDefinitionMemoryStore,
   zAgentConfigDefinitionModel,
+  zAgentConfigDefinitionProgrammaticToolCalls,
   zAgentConfigDefinitionSubagent,
   zAgentConfigDefinitionSubagentInstruction,
   zAgentConfigDefinitionSubagentModel,
@@ -175,6 +176,9 @@ const basicDocument = z.looseObject({
   tools: configRecord(toolEntry).nullish(),
   interaction_handlers: configRecord(interactionHandler).nullish(),
   git_credentials: z.strictObject(zAgentConfigDefinitionGitCredentials.shape).nullish(),
+  programmatic_tool_calls: z
+    .strictObject(zAgentConfigDefinitionProgrammaticToolCalls.shape)
+    .nullish(),
   skills: definitionFields.skills,
   memory_stores: z.array(memoryStoreEntry).nullish(),
   mcp: configRecord(mcpEntry).nullish(),
@@ -348,6 +352,7 @@ function extractBasicConfig(
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
     interactionHandlers: doc.interaction_handlers ?? {},
     gitCredentials: doc.git_credentials ?? undefined,
+    programmaticToolCalls: doc.programmatic_tool_calls ?? undefined,
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     skillIds: doc.skills ?? [],
     memoryStores: doc.memory_stores ?? [],

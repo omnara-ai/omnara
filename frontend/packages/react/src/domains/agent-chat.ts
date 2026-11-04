@@ -48,6 +48,7 @@ import {
   useAgentInputBacklog,
 } from './agent-input-backlog'
 import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
+import { invalidateToolCallQueries } from './program-tool-calls'
 import { agentUsageQueryPredicate } from './usage'
 
 export type { OmnaraUIMessage } from './agent-chat-messages'
@@ -378,7 +379,7 @@ export class AgentChatSession {
       this.notify()
       return
     }
-    if (state.reconnected) this.invalidateInteractions()
+    if (state.reconnected) void invalidateToolCallQueries(this.queryClient, this.client, this.scope)
   }
 
   disconnect = (): void => {
@@ -421,7 +422,7 @@ export class AgentChatSession {
         const parsed = parseStreamData(data)
         if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
         else if (parsed.kind === 'event') this.handleEvent(parsed.event)
-        else this.invalidateInteractions()
+        else void invalidateToolCallQueries(this.queryClient, this.client, this.scope)
       }
     } catch (error) {
       if (signal.aborted) return

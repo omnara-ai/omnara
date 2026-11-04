@@ -3,9 +3,11 @@ import {
   type ListVisibleProjectMachinesData,
   type Machine,
   sdk,
+  type UpdateMachineRequest,
 } from '@omnara/sdk'
 import {
   getMachineOptions,
+  getMachineQueryKey,
   listProjectMachineGrantsQueryKey,
   listVisibleMachinesInfiniteOptions,
   listVisibleMachinesQueryKey,
@@ -122,6 +124,26 @@ export function useDeleteMachine(orgID: string) {
       return data
     },
     onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: listVisibleMachinesQueryKey({ path: { orgID }, client }),
+      })
+    },
+  })
+}
+
+export function useUpdateMachine(orgID: string) {
+  const client = useOmnaraClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ machineID, body }: { machineID: string; body: UpdateMachineRequest }) => {
+      const { data } = await sdk.updateMachine({ path: { orgID, machineID }, body, client })
+      return data
+    },
+    onSuccess: async (machine) => {
+      queryClient.setQueryData(
+        getMachineQueryKey({ path: { orgID, machineID: machine.id }, client }),
+        machine,
+      )
       await queryClient.invalidateQueries({
         queryKey: listVisibleMachinesQueryKey({ path: { orgID }, client }),
       })

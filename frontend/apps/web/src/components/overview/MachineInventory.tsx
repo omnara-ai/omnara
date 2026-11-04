@@ -53,6 +53,7 @@ export function MachineInventory({
         description={description}
         guide={guides.machines}
         headerAction={connectButton}
+        settings
         actions={{
           onGrant: setGrantTarget,
           onDelete: (machine) => {
