@@ -384,6 +384,29 @@
       ],
       "type": "object"
     },
+    "AgentConfigDefinitionProgrammaticToolCalls": {
+      "additionalProperties": false,
+      "description": "Lets commands started by run_command call the agent's other tools with `omnarad call \u003ctool\u003e '\u003cjson input\u003e'`. Subagents do not inherit this setting.",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "exclude": {
+          "description": "Tool names commands cannot call, such as web_search or mcp__github__create_issue. Names are not checked against the agent's tools, since MCP tools are only known at runtime.",
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "type": "array"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
+    },
     "AgentConfigDefinitionSkills": {
       "anyOf": [
         {
@@ -741,6 +764,9 @@
     },
     "model": {
       "$ref": "#/$defs/AgentConfigDefinitionModel"
+    },
+    "programmatic_tool_calls": {
+      "$ref": "#/$defs/AgentConfigDefinitionProgrammaticToolCalls"
     },
     "skills": {
       "$ref": "#/$defs/AgentConfigDefinitionSkills"

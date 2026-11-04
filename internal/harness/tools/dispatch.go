@@ -47,14 +47,11 @@ func (e Executor) dispatchToolHandler(
 		}
 	}()
 	var phaseResult transactionalPhaseResult
-	execution, err := e.Store.Execution().ExecuteToolCall(
+	execution, err := turn.toolAuthority().execute(
 		ctx,
-		executionstore.ExecuteToolCallInput{
-			ProjectID:     turn.ProjectID,
-			AgentID:       turn.AgentID,
-			ToolCallID:    toolCallID,
-			RuntimeLockID: turn.RuntimeLockID,
-		},
+		e,
+		turn,
+		toolCallID,
 		func(reader *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
 			phaseResult = nil
 			if handler.Transactional != nil {
@@ -339,15 +336,7 @@ func (e Executor) requeueAsyncTool(
 	)
 	defer cancelCompletion()
 	return retryAsyncToolPersistence(completionCtx, func(ctx context.Context) error {
-		return e.Store.Execution().RequeueRuntimeToolCall(
-			ctx,
-			executionstore.RequeueRuntimeToolCallInput{
-				ProjectID:     call.Turn.ProjectID,
-				AgentID:       call.Turn.AgentID,
-				ToolCallID:    call.ToolCallID,
-				RuntimeLockID: call.Turn.RuntimeLockID,
-			},
-		)
+		return call.Turn.toolAuthority().requeue(ctx, e, call.Turn, call.ToolCallID)
 	})
 }
 
@@ -448,12 +437,7 @@ func (e Executor) executeAsyncTool(
 ) error {
 	executionCtx, cancelExecution := context.WithTimeout(ctx, asyncToolCallTimeout)
 	defer cancelExecution()
-	if err := e.Store.Execution().EnsureRuntimeLockActive(
-		executionCtx,
-		call.Turn.ProjectID,
-		call.Turn.AgentID,
-		call.Turn.RuntimeLockID,
-	); err != nil {
+	if err := call.Turn.toolAuthority().ensureActive(executionCtx, e, call.Turn); err != nil {
 		if !errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 			return errors.Join(err, e.requeueAsyncTool(ctx, call))
 		}

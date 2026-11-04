@@ -27,19 +27,20 @@ type MemoryStoreCompiled struct {
 }
 
 type Compiled struct {
-	Version             string                                   `json:"version,omitempty"`
-	Instruction         string                                   `json:"instruction"`
-	Model               ModelCompiled                            `json:"model,omitempty"`
-	MachineSources      []MachineSourceCompiled                  `json:"machine_sources,omitempty"`
-	Tools               map[string]ToolCompiled                  `json:"tools,omitempty"`
-	MCP                 map[string]MCPServerCompiled             `json:"mcp,omitempty"`
-	InteractionHandlers map[string]IntegrationCapabilityCompiled `json:"interaction_handlers,omitempty"`
-	GitCredentials      *GitCredentialsCompiled                  `json:"git_credentials,omitempty"`
-	Skills              []SkillCompiled                          `json:"skills,omitempty"`
-	Subagents           map[string]SubagentCompiled              `json:"subagents,omitempty"`
-	MaxSubagents        *int                                     `json:"max_subagents,omitempty"`
-	MaxDepth            *int                                     `json:"max_depth,omitempty"`
-	MemoryStores        []MemoryStoreCompiled                    `json:"memory_stores,omitempty"`
+	Version               string                                   `json:"version,omitempty"`
+	Instruction           string                                   `json:"instruction"`
+	Model                 ModelCompiled                            `json:"model,omitempty"`
+	MachineSources        []MachineSourceCompiled                  `json:"machine_sources,omitempty"`
+	Tools                 map[string]ToolCompiled                  `json:"tools,omitempty"`
+	MCP                   map[string]MCPServerCompiled             `json:"mcp,omitempty"`
+	InteractionHandlers   map[string]IntegrationCapabilityCompiled `json:"interaction_handlers,omitempty"`
+	GitCredentials        *GitCredentialsCompiled                  `json:"git_credentials,omitempty"`
+	Skills                []SkillCompiled                          `json:"skills,omitempty"`
+	Subagents             map[string]SubagentCompiled              `json:"subagents,omitempty"`
+	MaxSubagents          *int                                     `json:"max_subagents,omitempty"`
+	MaxDepth              *int                                     `json:"max_depth,omitempty"`
+	MemoryStores          []MemoryStoreCompiled                    `json:"memory_stores,omitempty"`
+	ProgrammaticToolCalls *ProgrammaticToolCallsCompiled           `json:"programmatic_tool_calls,omitempty"`
 }
 
 type SkillCompiled struct {
@@ -287,6 +288,15 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		compiled.MaxSubagents = source.MaxSubagents
 	}
 	compiled.MaxDepth = source.MaxDepth
+	if source.ProgrammaticToolCalls != nil {
+		calls, err := compileProgrammaticToolCalls(*source.ProgrammaticToolCalls)
+		if err != nil {
+			return Compiled{}, err
+		}
+		if calls.Enabled {
+			compiled.ProgrammaticToolCalls = &calls
+		}
+	}
 	if compiledModel.supportsTools != nil && !*compiledModel.supportsTools && requiresModelToolSupport(compiled) {
 		return Compiled{}, issuef(
 			jsonPointer("model", "name"),

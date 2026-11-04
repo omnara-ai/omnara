@@ -146,17 +146,7 @@ func (e Executor) DispatchRecordedToolCall(
 	if err != nil {
 		return Result{}, fmt.Errorf("marshal tool result content parts: %w", err)
 	}
-	completed, err := e.Store.Execution().CompleteToolCall(
-		ctx,
-		executionstore.CompleteToolCallInput{
-			ProjectID:          turn.ProjectID,
-			AgentID:            turn.AgentID,
-			ID:                 proposal.ID,
-			Outcome:            outcome,
-			RuntimeLockID:      turn.RuntimeLockID,
-			ResultContentParts: contentParts,
-		},
-	)
+	completed, err := turn.toolAuthority().complete(ctx, e, turn, proposal.ID, outcome, contentParts)
 	if err != nil {
 		return Result{}, fmt.Errorf("complete tool call: %w", err)
 	}
@@ -198,16 +188,8 @@ func (e Executor) FailRunnableToolCall(
 	if err != nil {
 		return err
 	}
-	_, err = e.Store.Execution().CompleteToolCall(
-		ctx,
-		executionstore.CompleteToolCallInput{
-			ProjectID:          turn.ProjectID,
-			AgentID:            turn.AgentID,
-			ID:                 record.ID,
-			Outcome:            executionstore.ToolResultOutcomeFailed,
-			RuntimeLockID:      turn.RuntimeLockID,
-			ResultContentParts: contentParts,
-		},
+	_, err = turn.toolAuthority().complete(
+		ctx, e, turn, record.ID, executionstore.ToolResultOutcomeFailed, contentParts,
 	)
 	return err
 }

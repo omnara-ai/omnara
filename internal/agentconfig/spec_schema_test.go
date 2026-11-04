@@ -40,6 +40,12 @@ func TestSpecSchemaMatchesGoConstants(t *testing.T) {
 		"/$defs/AgentConfigDefinitionMachineSource/properties/cwd/maxLength": float64(MaxMachineCwdLength),
 		"/$defs/ResourceNameReference/maxLength":                             float64(resourcename.MaxCodePoints),
 		"/properties/max_depth/maximum":                                      float64(MaxSubagentDepth),
+		"/$defs/AgentConfigDefinitionProgrammaticToolCalls/properties/exclude/maxItems": float64(
+			MaxProgrammaticToolCallExcludes,
+		),
+		"/$defs/AgentConfigDefinitionProgrammaticToolCalls/properties/exclude/items/maxLength": float64(
+			toolcatalog.MaxMCPRuntimeToolNameLength,
+		),
 	} {
 		got, ok := jsonPointerValue(schema, pointer)
 		if !ok {
