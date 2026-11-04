@@ -11,6 +11,10 @@ export function sleepSeconds(seconds: number): Promise<void> {
 
 class DeadlineExceeded extends Error {}
 
+// Thrown from fetchOnce when the target can never match, so polling stops
+// at once instead of retrying until the deadline.
+export class PollTerminalError extends CliInputError {}
+
 // Runs one fetch, aborting it and rejecting with DeadlineExceeded once the
 // deadline passes, even if the fetch ignores its abort signal.
 async function fetchBeforeDeadline<T>(
@@ -52,6 +56,7 @@ export async function pollUntilDeadline<T>(options: {
       consecutiveFailures = 0
       if (found !== undefined) return found
     } catch (error) {
+      if (error instanceof PollTerminalError) throw error
       if (error instanceof DeadlineExceeded || Date.now() >= deadline) break
       consecutiveFailures += 1
       if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) throw error

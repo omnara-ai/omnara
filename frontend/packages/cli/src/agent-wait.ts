@@ -6,7 +6,7 @@ import * as z from 'zod'
 import { customOp, parseNumberFlag, parseWithSchema } from './factory.ts'
 import { formatRecord } from './format.ts'
 import { CliInputError, renderResult, zOptionalRenderValue } from './output.ts'
-import { pollUntilDeadline } from './poll.ts'
+import { PollTerminalError, pollUntilDeadline } from './poll.ts'
 
 export const DEFAULT_AGENT_WAIT_TIMEOUT_SECONDS = 300
 export const DEFAULT_AGENT_WAIT_STATE = 'idle' satisfies AgentActivity['state']
@@ -74,6 +74,10 @@ export function agentWaitExpiredMessage(
   return `agent did not reach activity state ${wanted} within ${timeoutSeconds}s`
 }
 
+export function agentArchivedMessage(states: readonly AgentActivity['state'][]): string {
+  return `agent was archived before reaching activity state ${states.join(', ')}`
+}
+
 export async function waitForAgent(input: {
   client: OmnaraClient
   orgID: string
@@ -93,6 +97,9 @@ export async function waitForAgent(input: {
         signal,
       })
       if (agentMatchesWaitStates(data.agent, input.states)) return data
+      // Archiving is terminal, so an archived agent can never reach another state.
+      const archived = data.agent.state === 'archived' || data.agent.activity?.state === 'archived'
+      if (archived) throw new PollTerminalError(agentArchivedMessage(input.states))
       return undefined
     },
   })

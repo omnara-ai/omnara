@@ -126,6 +126,35 @@ describe('waitForAgent', () => {
     expect(result.agent.id).toBe(path.agentID)
   })
 
+  it('fails at once when the agent is archived and archived was not requested', async () => {
+    let fetches = 0
+    const client = createOmnaraClient({
+      baseUrl: 'https://omnara.test/api/v1',
+      fetch: () => {
+        fetches += 1
+        return Promise.resolve(json(agentPayload('archived')))
+      },
+    })
+    await expect(
+      waitForAgent({ client, ...path, states: ['idle'], timeoutSeconds: 0 }),
+    ).rejects.toThrow(/agent was archived before reaching activity state idle/)
+    expect(fetches).toBe(1)
+  })
+
+  it('returns an archived agent when archived was requested', async () => {
+    const client = createOmnaraClient({
+      baseUrl: 'https://omnara.test/api/v1',
+      fetch: () => Promise.resolve(json(agentPayload('archived'))),
+    })
+    const result = await waitForAgent({
+      client,
+      ...path,
+      states: ['idle', 'archived'],
+      timeoutSeconds: 30,
+    })
+    expect(result.agent.activity?.state).toBe('archived')
+  })
+
   it('fails when the timeout elapses before the activity matches', async () => {
     let fetches = 0
     const client = createOmnaraClient({
