@@ -13,6 +13,7 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -57,6 +58,8 @@ type RuntimeTool struct {
 	Deferred    bool
 	Description string
 	InputSchema json.RawMessage
+	// IntegrationKind is set on integration tools.
+	IntegrationKind integrationdefinition.Kind
 }
 
 type RuntimeMachine struct {

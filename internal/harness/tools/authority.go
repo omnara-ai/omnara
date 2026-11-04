@@ -38,6 +38,13 @@ type toolAuthority interface {
 	requeue(context.Context, Executor, Turn, uuid.UUID) error
 }
 
+// programCall reports whether the turn runs a program tool call, whose result
+// goes only to the calling command.
+func (t Turn) programCall() bool {
+	_, ok := t.authority.(programClaimAuthority)
+	return ok
+}
+
 func (t Turn) toolAuthority() toolAuthority {
 	if t.authority == nil {
 		return runtimeLockAuthority{}
