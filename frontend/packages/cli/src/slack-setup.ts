@@ -131,8 +131,8 @@ export async function runSlackIntegration(
     integration = await pollUntilDeadline({
       expiresAt: start.expires_at,
       expiredMessage: 'Slack authorization expired before the integration connected',
-      async fetchOnce() {
-        const { data } = await sdk.getIntegration({ client, path: setupPath })
+      async fetchOnce(signal) {
+        const { data } = await sdk.getIntegration({ client, path: setupPath, signal })
         return data.state === 'active' && data.last_oauth_flow_id === start.flow_id
           ? data
           : undefined

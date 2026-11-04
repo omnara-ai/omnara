@@ -22,11 +22,12 @@ export async function authorizeMcpOAuthSecret(options: {
   return pollUntilDeadline({
     expiresAt: start.expires_at,
     expiredMessage: 'MCP OAuth authorization expired before the secret was created',
-    async fetchOnce() {
+    async fetchOnce(signal) {
       const { data } = await sdk.listSecrets({
         client: options.client,
         path: { orgID: options.orgId },
         query: { mcp_oauth_flow_id: start.flow_id, limit: 1 },
+        signal,
       })
       return data.data[0]
     },
