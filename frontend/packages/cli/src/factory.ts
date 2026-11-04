@@ -342,7 +342,9 @@ export function parseWithSchema<S extends z.ZodType>(
   value: FlagValue | PathValues | undefined,
   label: string,
 ): z.output<S> {
-  const result = schema.safeParse(value)
+  const result = schema.safeParse(value, {
+    error: (issue) => (issue.input === '' ? 'value is empty' : undefined),
+  })
   if (!result.success) {
     throw new CliInputError(`invalid ${label}:\n${z.prettifyError(result.error)}`)
   }
