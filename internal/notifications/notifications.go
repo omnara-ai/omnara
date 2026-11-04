@@ -348,16 +348,14 @@ func (n *TxNotifications) AddReadyCustomToolCallUpdate(
 	input json.RawMessage,
 	interactionUpdate *AgentInteractionUpdate,
 ) {
-	update := ToolCallUpdatedCommitted{
+	n.addToolCallUpdate(ToolCallUpdatedCommitted{
 		AgentID:           agentID,
 		ToolCallID:        toolCallID,
 		State:             "ready",
+		Name:              name,
+		Input:             ToolCallUpdateInput(input),
 		InteractionUpdate: interactionUpdate,
-	}
-	if encoded := ToolCallUpdateInput(input); encoded != nil {
-		update.Name, update.Input = name, encoded
-	}
-	n.addToolCallUpdate(update)
+	})
 }
 
 func (n *TxNotifications) addToolCallUpdate(update ToolCallUpdatedCommitted) {

@@ -9,13 +9,48 @@ import { createWebhookApp } from './server.ts'
 const secret = Buffer.alloc(32, 7).toString('base64')
 const agentID = 'agt_5n6a2bfgik7mv4qtrwz3jehcyd'
 const toolCallID = 'tcl_5n6a2bfgik7mv4qtrwz3jehcyd'
+const input = { text: 'hello 🌍' }
 const payload = {
   event: 'tool_call_update',
-  data: { agent_id: agentID, tool_call_id: toolCallID, state: 'ready' },
+  data: { agent_id: agentID, tool_call_id: toolCallID, state: 'ready', name: 'text_length', input },
+}
+const result = {
+  outcome: 'succeeded',
+  content_blocks: [{ type: 'structured_data', value: { length: 7 } }],
 }
 
-function receiver(apiFetch: typeof fetch) {
-  const app = createWebhookApp({
+function readyCall() {
+  return {
+    id: toolCallID,
+    agent_id: agentID,
+    turn_id: 'trn_5n6a2bfgik7mv4qtrwz3jehcyd',
+    provider_call_id: 'call_1',
+    name: 'text_length',
+    input,
+    type: 'custom',
+    state: 'ready',
+    created_at: new Date().toISOString(),
+  }
+}
+
+function accepted() {
+  return Response.json(
+    {
+      tool_call: { ...readyCall(), state: 'completed', outcome: 'succeeded' },
+      tool_result: {
+        ...result,
+        event_id: 'evt_5n6a2bfgik7mv4qtrwz3jehcyd',
+        agent_id: agentID,
+        tool_call_id: toolCallID,
+        created_at: new Date().toISOString(),
+      },
+    },
+    { status: 201 },
+  )
+}
+
+function receiver(apiFetch: typeof fetch, signal?: AbortSignal) {
+  const { app, worker } = createWebhookApp({
     client: createOmnaraClient({
       baseUrl: 'https://api.example.com/v1',
       fetch: apiFetch,
@@ -23,8 +58,9 @@ function receiver(apiFetch: typeof fetch) {
     orgID: 'org_5n6a2bfgik7mv4qtrwz3jehcyd',
     projectID: 'proj_5n6a2bfgik7mv4qtrwz3jehcyd',
     signingSecret: secret,
+    signal,
   })
-  return async (body: unknown = payload, valid = true, age = 0) => {
+  const post = async (body: unknown = payload, valid = true, age = 0) => {
     const raw = JSON.stringify(body)
     const timestamp = String(Math.floor(Date.now() / 1000) - age)
     const signature = createHmac('sha256', Buffer.from(secret, 'base64'))
@@ -40,24 +76,11 @@ function receiver(apiFetch: typeof fetch) {
       },
     })
   }
-}
-
-function readyCall() {
-  return {
-    id: toolCallID,
-    agent_id: agentID,
-    turn_id: 'trn_5n6a2bfgik7mv4qtrwz3jehcyd',
-    provider_call_id: 'call_1',
-    name: 'text_length',
-    input: { text: 'hello 🌍' },
-    type: 'custom',
-    state: 'ready',
-    created_at: new Date().toISOString(),
-  }
+  return { post, worker }
 }
 
 test('rejects bad signatures and invalid payloads before calling the API', async () => {
-  const post = receiver(async () => {
+  const { post } = receiver(async () => {
     throw new Error('API must not be called')
   })
   assert.equal((await post(payload, false)).status, 400)
@@ -65,62 +88,32 @@ test('rejects bad signatures and invalid payloads before calling the API', async
   assert.equal((await post({ event: 'unknown', data: {} })).status, 400)
 })
 
-test('executes the tool and submits its result', async () => {
-  let submitted = false
-  const post = receiver(async (input, init) => {
-    const request = new Request(input, init)
+test('acknowledges a ready update, then runs the tool and submits its result', async () => {
+  let submit: (body: unknown) => void = () => {}
+  const submitted = new Promise((resolve) => {
+    submit = resolve
+  })
+  const { post } = receiver(async (url, init) => {
+    const request = new Request(url, init)
+    assert.equal(request.method, 'POST')
+    submit(await request.json())
+    return accepted()
+  })
+  assert.equal((await post()).status, 204)
+  assert.deepEqual(await submitted, result)
+})
+
+test('picks up ready calls that no webhook reported', async () => {
+  const controller = new AbortController()
+  const { worker } = receiver(async (url, init) => {
+    const request = new Request(url, init)
     if (request.method === 'GET') {
       return Response.json({ data: [readyCall()], next_cursor: null })
-    }
-    submitted = true
-    const result = {
-      outcome: 'succeeded',
-      content_blocks: [{ type: 'structured_data', value: { length: 7 } }],
     }
     assert.deepEqual(await request.json(), result)
-    return Response.json(
-      {
-        tool_call: { ...readyCall(), state: 'completed', outcome: 'succeeded' },
-        tool_result: {
-          ...result,
-          event_id: 'evt_5n6a2bfgik7mv4qtrwz3jehcyd',
-          agent_id: agentID,
-          tool_call_id: toolCallID,
-          created_at: new Date().toISOString(),
-        },
-      },
-      { status: 201 },
-    )
-  })
-  assert.equal((await post()).status, 204)
-  assert.equal(submitted, true)
-})
-
-test('paginates ready calls and returns a retryable failure if submission fails', async (t) => {
-  t.mock.method(console, 'error', () => {})
-  let pages = 0
-  const post = receiver(async (input, init) => {
-    const request = new Request(input, init)
-    if (request.method === 'GET') {
-      pages++
-      return Response.json(
-        new URL(request.url).searchParams.has('cursor')
-          ? { data: [readyCall()], next_cursor: null }
-          : { data: [], next_cursor: 'next-page' },
-      )
-    }
-    return Response.json({ error: 'unavailable', code: 'internal' }, { status: 503 })
-  })
-  assert.equal((await post()).status, 500)
-  assert.equal(pages, 2)
-})
-
-test('acknowledges a result won by another receiver', async () => {
-  const post = receiver(async (input, init) => {
-    if (new Request(input, init).method === 'GET') {
-      return Response.json({ data: [readyCall()], next_cursor: null })
-    }
-    return Response.json({ error: 'already completed', code: 'conflict' }, { status: 409 })
-  })
-  assert.equal((await post()).status, 204)
+    controller.abort()
+    return accepted()
+  }, controller.signal)
+  await worker.run()
+  assert.equal(controller.signal.aborted, true)
 })

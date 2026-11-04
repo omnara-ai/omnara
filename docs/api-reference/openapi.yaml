@@ -5191,6 +5191,61 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: agentID
+        in: path
+        description: Agent ID (agt_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^agt_[a-z2-7]{26}$'
+      - name: toolCallID
+        in: path
+        description: Tool call ID (tcl_...).
+        required: true
+        schema:
+          $ref: '#/components/schemas/ToolCallID'
+    get:
+      operationId: getToolCall
+      tags: [Agents]
+      summary: Get a tool call
+      description: Returns one tool call, including its name and input.
+      responses:
+        '200':
+          description: Tool call.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolCall'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result:
     parameters:
       - name: orgID
@@ -5226,8 +5281,9 @@ paths:
       summary: Submit a result for a ready custom tool call
       description: >-
         Only ready custom tool calls accept externally supplied results.
-        The first accepted result completes the call. Any later submission,
-        or a result for a non-custom tool call, returns 409.
+        The first accepted result completes the call. A later submission returns 409 with code
+        tool_call_already_completed; a result for a call that isn't ready, or for a non-custom
+        tool call, returns 409.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -10183,6 +10239,7 @@ components:
             - idempotency_key_conflict
             - agent_backlog_full
             - state_transition_conflict
+            - tool_call_already_completed
             - managed_work_admission_denied
             - pending_work
             - not_wake_capable
@@ -10214,6 +10271,7 @@ components:
         - idempotency_key_conflict
         - agent_backlog_full
         - state_transition_conflict
+        - tool_call_already_completed
         - managed_work_admission_denied
         - pending_work
         - not_wake_capable
@@ -10239,6 +10297,7 @@ components:
         - idempotency_key_conflict
         - agent_backlog_full
         - state_transition_conflict
+        - tool_call_already_completed
         - pending_work
         - not_wake_capable
         - gone
@@ -14009,9 +14068,9 @@ components:
           $ref: '#/components/schemas/ToolCallState'
         name:
           type: string
-          description: The tool name. Present with input when a custom tool call becomes ready and its JSON-encoded input is at most 64 KiB; for larger inputs, fetch the tool call.
+          description: The tool name. Present when a custom tool call becomes ready.
         input:
-          description: The tool arguments. Present with name under the same conditions.
+          description: The tool arguments. Present with name when the JSON-encoded input is at most 64 KiB; for larger inputs, fetch the tool call.
           $ref: '#/components/schemas/ToolInput'
         interaction_update:
           description: Only present when this transition opens, resolves, or cancels an interaction.

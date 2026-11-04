@@ -12,6 +12,13 @@ export { cliLoginTokenHost, cliLoginTokenName, isCliLoginToken } from './cli-log
 export type { OmnaraClient, OmnaraClientOptions } from './client'
 export { createOmnaraClient } from './client'
 export {
+  createCustomToolWorker,
+  type CreateCustomToolWorkerOptions,
+  type CustomToolCall,
+  type CustomToolHandler,
+  type CustomToolWorker,
+} from './custom-tool-worker'
+export {
   DeviceAuthError,
   type DeviceAuthFailureCode,
   type DeviceAuthStart,

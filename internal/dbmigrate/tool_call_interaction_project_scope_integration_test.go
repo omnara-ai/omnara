@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const toolCallInteractionProjectScopeMigration = 66
+const toolCallInteractionProjectScopeMigration = 69
 
 func TestToolCallInteractionProjectScopeMigration(t *testing.T) {
 	t.Parallel()

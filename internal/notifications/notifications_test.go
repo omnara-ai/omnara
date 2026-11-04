@@ -609,9 +609,8 @@ func TestAddReadyCustomToolCallUpdateCarriesEncodedInputWithinLimit(t *testing.T
 	} {
 		tx := NewTxNotifications()
 		tx.AddReadyCustomToolCallUpdate(agentID, toolCallID, "lookup_customer", tc.input, nil)
-		want := ToolCallUpdatedCommitted{AgentID: agentID, ToolCallID: toolCallID, State: "ready"}
-		if tc.want != nil {
-			want.Name, want.Input = "lookup_customer", tc.want
+		want := ToolCallUpdatedCommitted{
+			AgentID: agentID, ToolCallID: toolCallID, State: "ready", Name: "lookup_customer", Input: tc.want,
 		}
 		if got := tx.ToolCallUpdates(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 			t.Fatalf("%s update = %+v, want %+v", tc.name, got, want)

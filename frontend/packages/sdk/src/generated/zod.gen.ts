@@ -272,6 +272,7 @@ export const zErrorCode = z.enum([
     'idempotency_key_conflict',
     'agent_backlog_full',
     'state_transition_conflict',
+    'tool_call_already_completed',
     'managed_work_admission_denied',
     'pending_work',
     'not_wake_capable',
@@ -5250,6 +5251,18 @@ export const zListToolCallsQuery = z.object({
  * Current tool calls.
  */
 export const zListToolCallsResponse2 = zListToolCallsResponse;
+
+export const zGetToolCallPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    agentID: z.string().regex(/^agt_[a-z2-7]{26}$/),
+    toolCallID: zToolCallId
+});
+
+/**
+ * Tool call.
+ */
+export const zGetToolCallResponse = zToolCall;
 
 export const zSubmitToolCallResultBody = zSubmitToolCallResultRequest;
 

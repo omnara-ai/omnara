@@ -221,6 +221,9 @@ func (h *Handle) CompleteCustomTool(
 		if err != nil {
 			return CompletedTool{}, err
 		}
+		if row.Type == "custom" && row.State == "completed" {
+			return CompletedTool{}, storeerr.ErrToolCallCompleted
+		}
 		if row.Type != "custom" || row.State != "ready" || (outcome != "succeeded" && outcome != "failed") {
 			return CompletedTool{}, storeerr.ErrStateTransitionConflict
 		}

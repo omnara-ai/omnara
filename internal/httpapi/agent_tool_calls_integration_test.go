@@ -623,7 +623,7 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 			toolResult,
 		)
 	}
-	requestJSONWithHeaders(
+	duplicate := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
@@ -633,6 +633,9 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		http.StatusConflict,
 		authHeaders(project.AdminToken),
 	)
+	if duplicate["code"] != "tool_call_already_completed" {
+		t.Fatalf("duplicate result = %+v, want tool_call_already_completed", duplicate)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -641,6 +644,38 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		`{"outcome":"failed","content_blocks":[{"type":"text","text":"Customer not found."}]}`,
 		"",
 		http.StatusConflict,
+		authHeaders(project.AdminToken),
+	)
+	if _, err := store.Execution().CompleteCustomToolCall(ctx, executionstore.CompleteCustomToolCallInput{
+		ProjectID:     project.ProjectUUID,
+		AgentID:       agent.ID,
+		ID:            calls[0].ID,
+		Outcome:       executionstore.ToolResultOutcomeSucceeded,
+		ContentBlocks: json.RawMessage(`[{"type":"text","text":"Customer found again."}]`),
+	}); !errors.Is(err, storeerr.ErrToolCallCompleted) {
+		t.Fatalf("complete finished custom tool call error = %v, want ErrToolCallCompleted", err)
+	}
+	fetched := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		toolCallsPath+"/"+toolCallID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if fetched["id"] != toolCallID || fetched["name"] != "lookup_customer" || fetched["state"] != "completed" {
+		t.Fatalf("fetched tool call = %+v", fetched)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		toolCallsPath+"/"+testPublicID(t, publicid.KindToolCall, uuid.New()),
+		"",
+		"",
+		http.StatusNotFound,
 		authHeaders(project.AdminToken),
 	)
 

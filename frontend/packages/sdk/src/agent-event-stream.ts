@@ -9,6 +9,7 @@ import type {
 } from './generated/types.gen'
 import { zAgentSequence, zStreamEventsResponse } from './generated/zod.gen'
 import { zJsonText } from './json-body'
+import { abortableDelay, retryAfterMaximumDelayMs, retryDelay } from './retry'
 import { createServerSentEventParser } from './server-sent-events'
 import { relaxedSchema } from './validate-response'
 
@@ -65,9 +66,6 @@ export interface OpenAgentEventStreamOptions {
 
 const streamUrl: StreamEventsData['url'] =
   '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/events/stream'
-const retryBaseDelayMs = 1_000
-const retryMaximumDelayMs = 30_000
-const retryAfterMaximumDelayMs = 60_000
 const stableConnectionResetMs = 10_000
 // Must stay above the server heartbeat interval (agentEventStreamHeartbeatInterval in
 // internal/httpapi/agent_runtime_routes.go); a quieter server would look stalled.
@@ -96,29 +94,6 @@ function retryable(error: AgentEventStreamError): boolean {
     error.kind === 'http' &&
     (error.status === 408 || error.status === 429 || (error.status != null && error.status >= 500))
   )
-}
-
-function reconnectDelay(attempt: number): number {
-  const maximum = Math.min(retryBaseDelayMs * 2 ** Math.max(attempt - 1, 0), retryMaximumDelayMs)
-  return Math.floor(Math.random() * maximum)
-}
-
-function abortableDelay(ms: number, signal?: AbortSignal): Promise<boolean> {
-  if (signal?.aborted === true) return Promise.resolve(false)
-  return new Promise((resolve) => {
-    const timeout = globalThis.setTimeout(() => {
-      finish(true)
-    }, ms)
-    const onAbort = () => {
-      finish(false)
-    }
-    function finish(completed: boolean) {
-      globalThis.clearTimeout(timeout)
-      signal?.removeEventListener('abort', onAbort)
-      resolve(completed)
-    }
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
 }
 
 type ConnectionEvent = { kind: 'connected' } | { kind: 'message'; data: string }
@@ -291,7 +266,7 @@ export async function* openAgentEventStream({
         consecutiveFailures = 0
       }
       consecutiveFailures += 1
-      const delayMs = Math.max(reconnectDelay(consecutiveFailures), error.retryAfterMs ?? 0)
+      const delayMs = Math.max(retryDelay(consecutiveFailures), error.retryAfterMs ?? 0)
       onConnectionStateChange?.({
         state: 'reconnecting',
         attempt: consecutiveFailures,

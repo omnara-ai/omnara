@@ -82,6 +82,7 @@ const (
 	operationCreateBYOMachineDaemonToken   operationID = "CreateBYOMachineDaemonToken"
 	operationCreateConfiguredModel         operationID = "CreateConfiguredModel"
 	operationListToolCalls                 operationID = "ListToolCalls"
+	operationGetToolCall                   operationID = "GetToolCall"
 	operationListProjectToolCalls          operationID = "ListProjectToolCalls"
 	operationSubmitToolCallResult          operationID = "SubmitToolCallResult"
 	operationCreateMachine                 operationID = "CreateMachine"
@@ -484,6 +485,7 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationDemoteSteeringInputToQueued:   accountPolicy(agentScope(identitystore.AgentActionOperate)),
 	operationCreateAgentInput:              accountPolicy(agentScope(identitystore.AgentActionOperate)),
 	operationListToolCalls:                 accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationGetToolCall:                   accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationSubmitToolCallResult:          accountPolicy(agentScope(identitystore.AgentActionOperate)),
 	operationResolveAgentInteraction:       accountPolicy(agentScope(identitystore.AgentActionOperate)),
 	operationUpdateAgentConfig:             accountPolicy(agentScope(identitystore.ProjectActionManage)),

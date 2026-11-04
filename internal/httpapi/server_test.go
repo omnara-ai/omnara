@@ -2181,9 +2181,13 @@ func TestWriteToolCallUpdateFrameIncludesReadyCustomCall(t *testing.T) {
 		if err := json.Unmarshal([]byte(body), &payload); err != nil {
 			t.Fatal(err)
 		}
-		gotInput := payload.Name != nil && *payload.Name == "lookup_customer" && string(payload.Input) == string(tc.input)
-		if gotInput != tc.wantInput || (!tc.wantInput && (payload.Name != nil || payload.Input != nil)) {
-			t.Fatalf("%s update = %+v, want name and input %v", tc.state, payload, tc.wantInput)
+		var wantInput json.RawMessage
+		if tc.wantInput {
+			wantInput = tc.input
+		}
+		gotName := payload.Name != nil && *payload.Name == "lookup_customer"
+		if gotName != (tc.state == "ready") || string(payload.Input) != string(wantInput) {
+			t.Fatalf("%s update = %+v, want input %v", tc.state, payload, tc.wantInput)
 		}
 	}
 }

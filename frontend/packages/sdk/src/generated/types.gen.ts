@@ -289,7 +289,7 @@ export type Error = {
 /**
  * Known error codes.
  */
-export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
+export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'tool_call_already_completed' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -2586,11 +2586,11 @@ export type ToolCallUpdate = {
     agent_id?: AgentId;
     state: ToolCallState;
     /**
-     * The tool name. Present with input when a custom tool call becomes ready and its JSON-encoded input is at most 64 KiB; for larger inputs, fetch the tool call.
+     * The tool name. Present when a custom tool call becomes ready.
      */
     name?: string;
     /**
-     * The tool arguments. Present with name under the same conditions.
+     * The tool arguments. Present with name when the JSON-encoded input is at most 64 KiB; for larger inputs, fetch the tool call.
      */
     input?: ToolInput;
     /**
@@ -13370,6 +13370,84 @@ export type ListToolCallsResponses = {
 };
 
 export type ListToolCallsResponse2 = ListToolCallsResponses[keyof ListToolCallsResponses];
+
+export type GetToolCallData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
+        agentID: string;
+        /**
+         * Tool call ID (tcl_...).
+         */
+        toolCallID: ToolCallId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}';
+};
+
+export type GetToolCallErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetToolCallError = GetToolCallErrors[keyof GetToolCallErrors];
+
+export type GetToolCallResponses = {
+    /**
+     * Tool call.
+     */
+    200: ToolCall;
+};
+
+export type GetToolCallResponse = GetToolCallResponses[keyof GetToolCallResponses];
 
 export type SubmitToolCallResultData = {
     body: SubmitToolCallResultRequest;

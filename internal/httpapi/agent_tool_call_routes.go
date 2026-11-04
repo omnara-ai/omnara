@@ -141,6 +141,29 @@ func toolCallsListResponse(page executionstore.ListToolCallsResult) (openapi.Lis
 	}, nil
 }
 
+func (s strictOpenAPIServer) GetToolCall(
+	ctx context.Context,
+	request openapi.GetToolCallRequestObject,
+) (openapi.GetToolCallResponseObject, error) {
+	scope, err := agentScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	toolCallID, ok := parseOpenAPIPublicID(publicid.KindToolCall, request.ToolCallID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	record, err := s.server.store.Execution().GetToolCall(ctx, scope.project.ID, scope.agent.ID, toolCallID)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	toolCall, err := publicToolCallFromRecord(record)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.GetToolCall200JSONResponse(toolCall), nil
+}
+
 func (s strictOpenAPIServer) SubmitToolCallResult(
 	ctx context.Context,
 	request openapi.SubmitToolCallResultRequestObject,
@@ -164,6 +187,9 @@ func (s strictOpenAPIServer) SubmitToolCallResult(
 	)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
+	}
+	if existing.Type == toolcatalog.ToolTypeCustom && existing.State == executionstore.ToolCallStateCompleted {
+		return nil, apierror.FromCode(openapi.ErrorCodeToolCallAlreadyCompleted, "custom tool call is already completed")
 	}
 	if existing.Type != toolcatalog.ToolTypeCustom ||
 		existing.State != executionstore.ToolCallStateReady {

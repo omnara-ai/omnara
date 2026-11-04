@@ -1,8 +1,10 @@
 # Custom tools over signed webhooks
 
-A small TypeScript receiver runs a `text_length` custom tool and posts the
-result back to Omnara. It verifies Standard Webhooks signatures before parsing
-the payload and subscribes only to `tool_call_update`.
+A small TypeScript receiver runs a `text_length` custom tool with the SDK's
+`createCustomToolWorker` and posts the result back to Omnara. Webhooks deliver
+ready calls right away, and the worker also checks for missed ones every
+minute. It verifies Standard Webhooks signatures before parsing the payload and
+subscribes only to `tool_call_update`.
 
 ## Run
 
@@ -31,26 +33,29 @@ This example uses the SDK from this checkout.
 5. Launch the profile and send: **Count the characters in "hello 🌍".**
    The tool returns 7 Unicode code points.
 
-`OMNARA_API_URL` optionally overrides `https://api.omnara.com/v1`; `PORT`
-optionally overrides 3000.
+`OMNARA_AGENT_PROFILE_ID` optionally limits the worker to agents launched from
+that profile. `OMNARA_API_URL` optionally overrides `https://api.omnara.com/v1`;
+`PORT` optionally overrides 3000.
 
 ## Delivery handling
 
 The receiver verifies the original request bytes, signature, and timestamp,
-then validates with `zEventWebhookPayload`. It queries the notified agent's
-ready custom calls, following pagination to find the tool-call ID. Completed
-or canceled calls are skipped. Other lifecycle states are acknowledged
-without executing anything.
+then validates with `zEventWebhookPayload`, passes `tool_call_update` payloads
+to `worker.handle`, and acknowledges right away. The worker runs `ready` calls
+to the tools it registers and ignores everything else. When a payload leaves
+out an input over 64 KiB, the worker fetches the call first.
 
-The receiver acknowledges only after result submission; API failures return
-`500` so Omnara can retry. If another receiver already submitted a result or
-the call stopped being ready, the API returns `409`, which is acknowledged.
+The worker submits the tool's result, retrying network errors and `408`,
+`429`, and `5xx` responses. If the tool throws, it submits a `failed` result with the
+error message. A `409` with code `tool_call_already_completed` means another
+worker already submitted a result, so it counts as done. Other errors go to
+`onError`.
 
-Duplicate deliveries can repeat the calculation, which is safe because this
-tool has no external side effects. For a tool that changes external state,
-use its tool-call ID as an idempotency key in that system. Keep synchronous
-work within Omnara's five-second delivery timeout; longer work needs a
-durable job queue before acknowledging.
+`worker.run()` lists ready calls at startup and every minute, so a call still
+runs if its webhook was missed or the receiver was down. That can repeat a
+calculation, which is safe because this tool has no external side effects. For
+a tool that changes external state, use its tool-call ID as an idempotency key
+in that system.
 
 ## Check
 

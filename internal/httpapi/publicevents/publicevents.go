@@ -803,11 +803,9 @@ func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted) (openapi.Tool
 		return openapi.ToolCallUpdate{}, err
 	}
 	response := openapi.ToolCallUpdate{ToolCallId: toolCallID, AgentId: &agentID, State: state}
-	if state == openapi.ToolCallStateReady {
-		if input := notifications.ToolCallUpdateInput(update.Input); input != nil {
-			response.Name = &update.Name
-			response.Input = input
-		}
+	if state == openapi.ToolCallStateReady && update.Name != "" {
+		response.Name = &update.Name
+		response.Input = notifications.ToolCallUpdateInput(update.Input)
 	}
 	if interaction := update.InteractionUpdate; interaction != nil {
 		kind := openapi.AgentInteractionKind(interaction.InteractionKind)
