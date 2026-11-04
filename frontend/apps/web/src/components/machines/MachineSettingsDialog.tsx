@@ -68,9 +68,9 @@ function MachineSettingsForm({
   onSaved: () => void
 }) {
   const updateMachine = useUpdateMachine(orgId)
-  const [programmaticToolCalls, setProgrammaticToolCalls] = useState(
-    machine.programmatic_tool_calls,
-  )
+  // Unchanged until toggled, so the form shows the machine's saved value.
+  const [toggled, setProgrammaticToolCalls] = useState<boolean>()
+  const programmaticToolCalls = toggled ?? machine.programmatic_tool_calls
 
   function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
