@@ -67,6 +67,8 @@ LEFT JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = $1 AND agent.id = $2;
 
 -- name: ListAgentsForProjects :many
+-- Read the page's activity in the same statement that filtered it, so the
+-- returned activity matches the activity_state filter.
 WITH listed AS (
 SELECT agent.id,
        agent.org_id,
@@ -95,7 +97,8 @@ SELECT agent.id,
          WHEN 'created_at' THEN to_char(agent.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'updated_at' THEN to_char(agent.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'state' THEN agent.state
-       END::text AS sort_key
+       END::text AS sort_key,
+       activity.state::text AS activity_state
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
@@ -118,13 +121,16 @@ JOIN configured_models configured_model
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
+CROSS JOIN LATERAL agent_activity_state(agent.id, agent.state) activity
 WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
   AND (sqlc.narg(parent_agent_id)::uuid IS NULL OR agent.parent_agent_id = sqlc.narg(parent_agent_id)::uuid)
   AND (sqlc.arg(include_subagents)::boolean OR sqlc.narg(parent_agent_id)::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
-)
+  AND (sqlc.arg(activity_state)::text = '' OR activity.state = sqlc.arg(activity_state)::text)
+),
+page AS (
 SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        interaction_target_id, idempotency_key,
        next_event_sequence, created_at, updated_at,
@@ -132,7 +138,7 @@ SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        integration_target_provider_tenant_id, integration_target_scope_ref,
        integration_target_scope_kind,
        integration_target_display_name, model_name,
-       model_provider_config_name, sort_key
+       model_provider_config_name, sort_key, activity_state
 FROM listed
 WHERE sqlc.arg(cursor_set)::boolean = false
    OR (sqlc.arg(sort_desc)::boolean = false AND (sort_key, id) > (sqlc.arg(cursor_key)::text, sqlc.arg(cursor_id)::uuid))
@@ -141,9 +147,48 @@ ORDER BY CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN sort_key END ASC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN sort_key END DESC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN id END ASC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN id END DESC
-LIMIT sqlc.arg(row_limit)::bigint;
+LIMIT sqlc.arg(row_limit)::bigint
+)
+SELECT page.id,
+       page.org_id,
+       page.project_id,
+       page.state,
+       page.name,
+       page.agent_profile_id,
+       page.current_config_id,
+       page.interaction_target_id,
+       page.idempotency_key,
+       page.next_event_sequence,
+       page.created_at,
+       page.updated_at,
+       page.archived_at,
+       page.parent_agent_id,
+       page.subagent_key,
+       page.integration_target_integration_kind,
+       page.integration_target_provider_tenant_id,
+       page.integration_target_scope_ref,
+       page.integration_target_scope_kind,
+       page.integration_target_display_name,
+       page.model_name,
+       page.model_provider_config_name,
+       page.sort_key,
+       page.activity_state,
+       details.last_activity_at::timestamptz AS last_activity_at,
+       details.open_question_count::integer AS open_question_count,
+       details.open_permission_count::integer AS open_permission_count,
+       details.background_process_ids::uuid[] AS background_process_ids,
+       details.working_subagent_ids::uuid[] AS working_subagent_ids
+FROM page
+CROSS JOIN LATERAL agent_activity_details(page.project_id, page.id, page.created_at) details
+ORDER BY CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN page.sort_key END ASC,
+         CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN page.sort_key END DESC,
+         CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN page.id END ASC,
+         CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN page.id END DESC;
 
 -- name: ListAgentsForProjectsByCreatedAtDesc :many
+-- Read the page's activity in the same statement that filtered it, so the
+-- returned activity matches the activity_state filter.
+WITH page AS (
 SELECT agent.id,
        agent.org_id,
        agent.project_id,
@@ -165,7 +210,8 @@ SELECT agent.id,
        coalesce(target.scope_kind, '') AS integration_target_scope_kind,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
-       model_provider_config.name AS model_provider_config_name
+       model_provider_config.name AS model_provider_config_name,
+       activity.state::text AS activity_state
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
@@ -188,18 +234,52 @@ JOIN configured_models configured_model
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
+CROSS JOIN LATERAL agent_activity_state(agent.id, agent.state) activity
 WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
   AND (sqlc.narg(parent_agent_id)::uuid IS NULL OR agent.parent_agent_id = sqlc.narg(parent_agent_id)::uuid)
   AND (sqlc.arg(include_subagents)::boolean OR sqlc.narg(parent_agent_id)::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND (sqlc.arg(activity_state)::text = '' OR activity.state = sqlc.arg(activity_state)::text)
   AND (
     sqlc.arg(cursor_set)::boolean = false
     OR (agent.created_at, agent.id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid)
   )
 ORDER BY agent.created_at DESC, agent.id DESC
-LIMIT sqlc.arg(row_limit)::bigint;
+LIMIT sqlc.arg(row_limit)::bigint
+)
+SELECT page.id,
+       page.org_id,
+       page.project_id,
+       page.state,
+       page.name,
+       page.agent_profile_id,
+       page.current_config_id,
+       page.interaction_target_id,
+       page.idempotency_key,
+       page.next_event_sequence,
+       page.created_at,
+       page.updated_at,
+       page.archived_at,
+       page.parent_agent_id,
+       page.subagent_key,
+       page.integration_target_integration_kind,
+       page.integration_target_provider_tenant_id,
+       page.integration_target_scope_ref,
+       page.integration_target_scope_kind,
+       page.integration_target_display_name,
+       page.model_name,
+       page.model_provider_config_name,
+       page.activity_state,
+       details.last_activity_at::timestamptz AS last_activity_at,
+       details.open_question_count::integer AS open_question_count,
+       details.open_permission_count::integer AS open_permission_count,
+       details.background_process_ids::uuid[] AS background_process_ids,
+       details.working_subagent_ids::uuid[] AS working_subagent_ids
+FROM page
+CROSS JOIN LATERAL agent_activity_details(page.project_id, page.id, page.created_at) details
+ORDER BY page.created_at DESC, page.id DESC;
 
 -- name: ListRecentAgentsForProjects :many
 SELECT agent.id,

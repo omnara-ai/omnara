@@ -28,7 +28,7 @@ import {
 } from '@tanstack/react-query'
 
 import { useOmnaraClient } from '../omnara-client'
-import { activeAgentsRefetchInterval } from './agent-activity'
+import { activeAgentPollIntervalMs, activeAgentsRefetchInterval } from './agent-activity'
 import {
   type ListFilters,
   type ListSort,
@@ -42,11 +42,18 @@ export type AgentListFilters = ListFilters<ListAgentsData>
 export type AgentListSort = ListSort<ListAgentsData>
 export type AgentListOptions = PaginatedListOptions<ListAgentsData>
 
-/** Polls a list while any agent loaded so far is active. */
-const agentListRefetchInterval = activeAgentsRefetchInterval(
-  (data: { pages: { data: Agent[] }[] } | undefined) =>
-    data?.pages.flatMap((page) => page.data) ?? [],
-)
+/**
+ * Polls a list while any agent loaded so far is active. A list filtered on a live status
+ * always polls, since agents can enter that status while none of its rows are active.
+ */
+function agentListRefetchInterval(activityState: AgentListFilters['activity_state']) {
+  const filtersOnLiveStatus = activityState !== undefined && activityState !== 'archived'
+  return activeAgentsRefetchInterval(
+    (data: { pages: { data: Agent[] }[] } | undefined) =>
+      data?.pages.flatMap((page) => page.data) ?? [],
+    filtersOnLiveStatus ? () => activeAgentPollIntervalMs : undefined,
+  )
+}
 
 /** Polls one agent while it is active. */
 function agentRefetchInterval(
@@ -71,7 +78,7 @@ export function useAgents(orgID: string, projectID: string, options?: AgentListO
     ),
     enabled: list.enabled,
     placeholderData: keepPreviousData,
-    refetchInterval: agentListRefetchInterval,
+    refetchInterval: agentListRefetchInterval(options?.filters?.activity_state),
   })
 }
 
@@ -90,7 +97,7 @@ export function useOrgAgents(orgID: string, options?: OrgAgentListOptions) {
     ),
     enabled: list.enabled,
     placeholderData: keepPreviousData,
-    refetchInterval: agentListRefetchInterval,
+    refetchInterval: agentListRefetchInterval(options?.filters?.activity_state),
   })
 }
 

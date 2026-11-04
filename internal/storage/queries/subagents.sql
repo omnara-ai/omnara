@@ -3,56 +3,15 @@ SELECT agent.id,
        agent.name,
        agent.state,
        agent.subagent_key,
-       coalesce((
-         SELECT event.created_at
-         FROM agent_events event
-         WHERE event.agent_id = agent.id
-         ORDER BY event.sequence DESC
-         LIMIT 1
-       ), agent.created_at) AS last_activity_at,
-       (
-         SELECT count(*)
-         FROM agent_interactions interaction
-         WHERE interaction.agent_id = agent.id
-           AND interaction.interaction_kind = 'question'
-           AND interaction.state = 'open'
-       )::integer AS open_question_count,
-       (
-         SELECT count(*)
-         FROM agent_interactions interaction
-         WHERE interaction.agent_id = agent.id
-           AND interaction.interaction_kind = 'permission'
-           AND interaction.state = 'open'
-       )::integer AS open_permission_count,
-       (
-         EXISTS (
-           SELECT 1
-           FROM agent_runtime_locks runtime_lock
-           WHERE runtime_lock.agent_id = agent.id
-         )
-         OR EXISTS (
-           SELECT 1
-           FROM agent_wakeups wake
-           WHERE wake.agent_id = agent.id
-         )
-         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.logical_ready_at IS NOT NULL)
-         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.incomplete_tools)
-       )::boolean AS is_running,
-       ARRAY(
-         SELECT process.id
-         FROM agent_background_processes(agent.project_id, agent.id) process
-         ORDER BY process.created_at, process.id
-       )::uuid[] AS background_process_ids,
-       ARRAY(
-         SELECT child.id
-         FROM agents child
-         WHERE child.project_id = agent.project_id
-           AND child.parent_agent_id = agent.id
-           AND child.state = 'active'
-           AND agent_subtree_has_work(child.project_id, child.id)
-         ORDER BY child.created_at, child.id
-       )::uuid[] AS working_subagent_ids
+       details.last_activity_at::timestamptz AS last_activity_at,
+       details.open_question_count::integer AS open_question_count,
+       details.open_permission_count::integer AS open_permission_count,
+       activity.state::text AS activity_state,
+       details.background_process_ids::uuid[] AS background_process_ids,
+       details.working_subagent_ids::uuid[] AS working_subagent_ids
 FROM agents agent
+CROSS JOIN LATERAL agent_activity_state(agent.id, agent.state) activity
+CROSS JOIN LATERAL agent_activity_details(agent.project_id, agent.id, agent.created_at) details
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.parent_agent_id = sqlc.arg(parent_agent_id)
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
@@ -61,56 +20,15 @@ ORDER BY agent.created_at, agent.id;
 -- name: ListAgentActivityForAgents :many
 SELECT agent.id,
        agent.state,
-       coalesce((
-         SELECT event.created_at
-         FROM agent_events event
-         WHERE event.agent_id = agent.id
-         ORDER BY event.sequence DESC
-         LIMIT 1
-       ), agent.created_at) AS last_activity_at,
-       (
-         SELECT count(*)
-         FROM agent_interactions interaction
-         WHERE interaction.agent_id = agent.id
-           AND interaction.interaction_kind = 'question'
-           AND interaction.state = 'open'
-       )::integer AS open_question_count,
-       (
-         SELECT count(*)
-         FROM agent_interactions interaction
-         WHERE interaction.agent_id = agent.id
-           AND interaction.interaction_kind = 'permission'
-           AND interaction.state = 'open'
-       )::integer AS open_permission_count,
-       (
-         EXISTS (
-           SELECT 1
-           FROM agent_runtime_locks runtime_lock
-           WHERE runtime_lock.agent_id = agent.id
-         )
-         OR EXISTS (
-           SELECT 1
-           FROM agent_wakeups wake
-           WHERE wake.agent_id = agent.id
-         )
-         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.logical_ready_at IS NOT NULL)
-         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.incomplete_tools)
-       )::boolean AS is_running,
-       ARRAY(
-         SELECT process.id
-         FROM agent_background_processes(agent.project_id, agent.id) process
-         ORDER BY process.created_at, process.id
-       )::uuid[] AS background_process_ids,
-       ARRAY(
-         SELECT child.id
-         FROM agents child
-         WHERE child.project_id = agent.project_id
-           AND child.parent_agent_id = agent.id
-           AND child.state = 'active'
-           AND agent_subtree_has_work(child.project_id, child.id)
-         ORDER BY child.created_at, child.id
-       )::uuid[] AS working_subagent_ids
+       details.last_activity_at::timestamptz AS last_activity_at,
+       details.open_question_count::integer AS open_question_count,
+       details.open_permission_count::integer AS open_permission_count,
+       activity.state::text AS activity_state,
+       details.background_process_ids::uuid[] AS background_process_ids,
+       details.working_subagent_ids::uuid[] AS working_subagent_ids
 FROM agents agent
+CROSS JOIN LATERAL agent_activity_state(agent.id, agent.state) activity
+CROSS JOIN LATERAL agent_activity_details(agent.project_id, agent.id, agent.created_at) details
 WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND agent.id = ANY(sqlc.arg(agent_ids)::uuid[]);
 

@@ -33,9 +33,18 @@ export const commandGroups: CommandGroup[] = [
         summary: 'List agents in a project',
         fn: sdk.listAgents,
         format: (response) =>
-          formatTable(['id', 'name', 'state', 'model', 'parent_agent_id', 'created_at'])({
+          formatTable([
+            'id',
+            'name',
+            'state',
+            'activity',
+            'model',
+            'parent_agent_id',
+            'created_at',
+          ])({
             data: response.data.map((agent) => ({
               ...agent,
+              activity: agent.activity?.state,
               model: agent.model?.name,
               parent_agent_id: agent.parent_agent_id ?? '',
             })),
