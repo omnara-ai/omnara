@@ -15,14 +15,14 @@ class DeadlineExceeded extends Error {}
 // at once instead of retrying until the deadline.
 export class PollTerminalError extends CliInputError {}
 
-// Runs one fetch, aborting it and rejecting with DeadlineExceeded once the
-// deadline passes, even if the fetch ignores its abort signal.
+// Runs one fetch, aborting it and rejecting with DeadlineExceeded once abortAt
+// passes, even if the fetch ignores its abort signal.
 async function fetchBeforeDeadline<T>(
-  deadline: number,
+  abortAt: number,
   fetchOnce: (signal: AbortSignal) => Promise<T | undefined>,
 ): Promise<T | undefined> {
   const controller = new AbortController()
-  const remainingMs = deadline - Date.now()
+  const remainingMs = abortAt - Date.now()
   let timer: ReturnType<typeof setTimeout> | undefined
   const expired = new Promise<never>((_, reject) => {
     if (remainingMs > MAX_TIMER_MS) return
@@ -47,12 +47,13 @@ export async function pollUntilDeadline<T>(options: {
   fetchOnce: (signal: AbortSignal) => Promise<T | undefined>
 }): Promise<T> {
   const deadline = Date.parse(options.expiresAt)
+  // The last poll starts at the deadline, so give every request one poll
+  // interval past the deadline to land and still count as a match.
+  const abortAt = deadline + POLL_INTERVAL_SECONDS * 1000
   let consecutiveFailures = 0
   while (true) {
     try {
-      const found = await fetchBeforeDeadline(deadline, options.fetchOnce)
-      // A response that lands after the deadline does not count as a match.
-      if (Date.now() >= deadline) break
+      const found = await fetchBeforeDeadline(abortAt, options.fetchOnce)
       consecutiveFailures = 0
       if (found !== undefined) return found
     } catch (error) {

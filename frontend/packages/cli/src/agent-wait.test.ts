@@ -179,7 +179,7 @@ describe('agents wait', () => {
     )
   })
 
-  it('aborts an in-flight request when the timeout elapses', async () => {
+  it('aborts an in-flight request one poll interval after the timeout', async () => {
     const command = cli(
       (request) =>
         new Promise<Response>((_, reject) => {
@@ -194,7 +194,7 @@ describe('agents wait', () => {
     )
     vi.useFakeTimers()
     const run = command.run('--timeout', '1')
-    await vi.advanceTimersByTimeAsync(999)
+    await vi.advanceTimersByTimeAsync(2_999)
     expect(command.requests[0]?.signal.aborted).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
     await run
@@ -205,7 +205,30 @@ describe('agents wait', () => {
     )
   })
 
-  it('does not succeed on a matching response that arrives after the timeout', async () => {
+  it('counts a match from the last poll that lands just after the timeout', async () => {
+    let release: (() => void) | undefined
+    const command = cli((request) => {
+      if (command.requests.length === 1) return Response.json(agentPayload('running'))
+      expect(request.signal.aborted).toBe(false)
+      return new Promise<Response>((resolve) => {
+        release = () => {
+          resolve(Response.json(agentPayload('idle')))
+        }
+      })
+    })
+    vi.useFakeTimers()
+    const run = command.run('--timeout', '1', '--json')
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(command.requests).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(1_500)
+    release?.()
+    await run
+    expect(command.requests[1]?.signal.aborted).toBe(false)
+    expect(console.log).toHaveBeenCalledWith(printed('idle'))
+    expect(console.error).not.toHaveBeenCalled()
+  })
+
+  it('does not succeed on a matching response that arrives after the grace window', async () => {
     let release: (() => void) | undefined
     const command = cli(
       () =>
@@ -217,7 +240,7 @@ describe('agents wait', () => {
     )
     vi.useFakeTimers()
     const run = command.run('--timeout', '1', '--json')
-    await vi.advanceTimersByTimeAsync(1_000)
+    await vi.advanceTimersByTimeAsync(3_000)
     await run
     release?.()
     expect(command.requests[0]?.signal.aborted).toBe(true)
