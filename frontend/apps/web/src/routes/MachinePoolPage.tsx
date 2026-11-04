@@ -118,6 +118,7 @@ function PoolView({ pool }: { pool: MachinePool }) {
         orgId={activeOrg.id}
         filters={{ machine_pool_id: pool.id }}
         description="Machines this pool has provisioned for agents"
+        settings
         emptyMessage="No machines yet. The pool provisions machines as agents need them."
       />
       {canManage && (

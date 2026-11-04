@@ -225,6 +225,14 @@ func TestProgramToolCallsStore(t *testing.T) {
 	}
 	require.Equal(t, "program", callers[third.ID])
 	require.Equal(t, "model", callers[parent])
+	programs, err := execution.ListToolCalls(ctx, executionstore.ListToolCallsInput{ProjectID: testProjectID,
+		AgentIDs: []uuid.UUID{fixture.AgentID}, ParentToolCallID: parent, Limit: 50})
+	require.NoError(t, err)
+	require.NotEmpty(t, programs.ToolCalls)
+	for _, call := range programs.ToolCalls {
+		require.Equal(t, "program", call.Caller)
+		require.Equal(t, parent, call.ParentToolCallID)
+	}
 
 	_, err = store.pool.Exec(ctx, `UPDATE processes SET state='exited',source_ended_at=statement_timestamp(),
  exit_code=0 WHERE id=$1`, process.ID)

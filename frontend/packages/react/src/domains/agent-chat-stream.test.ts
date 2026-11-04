@@ -545,6 +545,33 @@ describe('AgentChatSession streaming', () => {
     session.disconnect()
   })
 
+  it('refreshes interactions and command tool calls on tool call update frames', async () => {
+    const queryClient = new QueryClient()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+    const session = startSession([], client(), queryClient)
+    const stream = await connection(0)
+
+    stream.push({
+      event: 'tool_call_update',
+      data: { tool_call_id: 'program-call', state: 'awaiting_permission' },
+    })
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(2)
+    })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: [expect.objectContaining({ _id: 'listAgentInteractions' })],
+    })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: [
+        expect.objectContaining({
+          _id: 'listToolCalls',
+          path: { orgID: 'org', projectID: 'project', agentID: 'agent' },
+        }),
+      ],
+    })
+    session.disconnect()
+  })
+
   it('invalidates the agent list once a spawn completes or a subagent sends input', async () => {
     const queryClient = new QueryClient()
     const sessionClient = client()
@@ -648,7 +675,10 @@ describe('AgentChatSession streaming', () => {
     const invalidationsBeforeReconnect = invalidate.mock.calls.length
     stream.connectionState({ state: 'connected', reconnected: true })
     await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(invalidationsBeforeReconnect + 1)
+      expect(invalidate).toHaveBeenCalledTimes(invalidationsBeforeReconnect + 2)
+    })
+    expect(invalidate).toHaveBeenLastCalledWith({
+      queryKey: [expect.objectContaining({ _id: 'listToolCalls', _infinite: true })],
     })
 
     stream.push({
