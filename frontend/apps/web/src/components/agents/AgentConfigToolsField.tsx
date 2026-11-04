@@ -332,7 +332,7 @@ function ToolName({
 }) {
   const [open, setOpen] = useState(false)
   const description = custom
-    ? `Custom tool. ${entry?.description.length ? entry.description : 'Edit its definition using YAML or JSON.'}`
+    ? `Custom tool. ${entry?.description.length ? entry.description : 'Edit its definition using the edit button.'}`
     : (toolDescriptions.get(name) ?? entry?.description)
   return (
     <div

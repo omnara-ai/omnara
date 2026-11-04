@@ -10,6 +10,10 @@ import {
   validateAdvancedEntry,
 } from '@/components/agents/agentConfigCompatibility'
 import { ConfigEditError } from '@/components/agents/agentConfigDocument'
+import {
+  type ConfigSourceFormat,
+  configSourceFormat,
+} from '@/components/agents/agentConfigSourceFormat'
 import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 import type { BasicConfig } from '@/components/agents/useAgentBuilderForm'
 
@@ -20,6 +24,7 @@ export interface ConfigEvaluation {
 }
 
 export interface BasicConfigSession {
+  readonly sourceFormat: ConfigSourceFormat
   readonly initialDraft: BasicConfig | null
   readonly diagnostics: ConfigDiagnostic[]
   validate(config: BasicConfig): ConfigDiagnostic[]
@@ -27,8 +32,15 @@ export interface BasicConfigSession {
   apply(config: BasicConfig): string
 }
 
-export function createBasicConfigSession(source: string): BasicConfigSession {
-  const { doc, initialDraft, diagnostics, advancedEntries } = analyzeConfigSource(source)
+export function createBasicConfigSession(
+  source: string,
+  storedFormat?: ConfigSourceFormat,
+): BasicConfigSession {
+  const sourceFormat = configSourceFormat(source, storedFormat)
+  const { doc, initialDraft, diagnostics, advancedEntries } = analyzeConfigSource(
+    source,
+    sourceFormat,
+  )
   const reserved = new Set(advancedEntries.map((entry) => configPath(entry.path)))
   const validationCache = new Map<string, { source: string; issues: ConfigDiagnostic[] }>()
   const validateEntry = (entry: AdvancedConfigEntry) => {
@@ -36,7 +48,7 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
     const key = configPath(entry.path)
     const cached = validationCache.get(key)
     if (cached?.source === entry.source) return cached.issues
-    const issues = validateAdvancedEntry(entry)
+    const issues = validateAdvancedEntry(entry, sourceFormat)
     validationCache.set(key, { source: entry.source, issues })
     return issues
   }
@@ -119,6 +131,7 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
               (entry) => validateEntry(entry).length === 0,
             ),
           },
+          sourceFormat,
         ),
         issues,
         unappliedChanges,
@@ -140,12 +153,22 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
       }
     }
   }
-  return { initialDraft, diagnostics, validate, evaluate, apply: (config) => evaluate(config).yaml }
+  return {
+    sourceFormat,
+    initialDraft,
+    diagnostics,
+    validate,
+    evaluate,
+    apply: (config) => evaluate(config).yaml,
+  }
 }
 
-function analyzeConfigSource(source: string): ReturnType<typeof parseBasicConfigSource> {
+function analyzeConfigSource(
+  source: string,
+  format: ConfigSourceFormat,
+): ReturnType<typeof parseBasicConfigSource> {
   try {
-    return parseBasicConfigSource(source)
+    return parseBasicConfigSource(source, format)
   } catch {
     return {
       doc: parseDocument('{}', configYamlOptions),
@@ -156,7 +179,7 @@ function analyzeConfigSource(source: string): ReturnType<typeof parseBasicConfig
           path: [],
           kind: 'fatal',
           message:
-            'The Builder could not safely analyze this document. Your source has been preserved in YAML.',
+            'The Builder could not safely analyze this document. Your source has been preserved in the source editor.',
         },
       ],
     }

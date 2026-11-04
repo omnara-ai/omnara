@@ -56,6 +56,7 @@ export function AgentConfigToolsSection({
         <CustomToolDialog
           entry={editing === 'new' ? undefined : editing}
           configurationDirty={form.dirty}
+          format={form.sourceFormat}
           reservedNames={[
             ...(catalog?.built_in_tools.map((tool) => tool.name) ?? []),
             ...form.tools.map((tool) => tool.name),
@@ -142,7 +143,12 @@ function CustomToolRow({
         permissionDisabled={issues.length > 0 || !definition}
         onPermissionChange={(mode) => {
           try {
-            const transaction = editConfigDocument(entry.source, doc, [['input_schema']])
+            const transaction = editConfigDocument(
+              entry.source,
+              doc,
+              [['input_schema']],
+              form.sourceFormat,
+            )
             if (mode === 'disabled') transaction.set(['enabled'], false)
             else {
               if (definition?.enabled === false) transaction.remove(['enabled'])
