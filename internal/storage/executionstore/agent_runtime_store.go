@@ -251,20 +251,31 @@ func (s *Store) ListAgentTreeStates(
 	}
 	states := make(map[uuid.UUID]string, len(rows))
 	for _, row := range rows {
-		states[row.ID] = agentActivityState(row.Archived, row.Waiting, false, row.Working)
+		states[row.ID] = agentTreeState(row.Archived, row.Waiting, row.Working)
 	}
 	return states, nil
+}
+
+// agentTreeState folds a subtree's flags into one state. A tree counts as running
+// while any descendant or background process works, so it cannot reuse the
+// per-agent agent_activity_state SQL function.
+func agentTreeState(archived, waiting, working bool) string {
+	switch {
+	case archived:
+		return SubagentStateArchived
+	case waiting:
+		return SubagentStateWaitingOnInteraction
+	case working:
+		return SubagentStateRunning
+	default:
+		return SubagentStateIdle
+	}
 }
 
 func agentActivityFromRow(row dbsqlc.ListAgentActivityForAgentsRow) AgentActivity {
 	archived := row.State == string(AgentStateArchived)
 	return AgentActivity{
-		State: agentActivityState(
-			archived,
-			row.OpenQuestionCount > 0,
-			row.OpenPermissionCount > 0,
-			row.IsRunning,
-		),
+		State:          row.ActivityState,
 		LastActivityAt: row.LastActivityAt,
 		AgentActivityWork: agentActivityWork(
 			archived,

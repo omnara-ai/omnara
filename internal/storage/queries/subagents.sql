@@ -24,20 +24,7 @@ SELECT agent.id,
            AND interaction.interaction_kind = 'permission'
            AND interaction.state = 'open'
        )::integer AS open_permission_count,
-       (
-         EXISTS (
-           SELECT 1
-           FROM agent_runtime_locks runtime_lock
-           WHERE runtime_lock.agent_id = agent.id
-         )
-         OR EXISTS (
-           SELECT 1
-           FROM agent_wakeups wake
-           WHERE wake.agent_id = agent.id
-         )
-         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.logical_ready_at IS NOT NULL)
-         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.incomplete_tools)
-       )::boolean AS is_running,
+       activity.state::text AS activity_state,
        ARRAY(
          SELECT process.id
          FROM agent_background_processes(agent.project_id, agent.id) process
@@ -53,6 +40,7 @@ SELECT agent.id,
          ORDER BY child.created_at, child.id
        )::uuid[] AS working_subagent_ids
 FROM agents agent
+CROSS JOIN LATERAL agent_activity_state(agent.id, agent.state) activity
 WHERE agent.project_id = sqlc.arg(project_id)
   AND agent.parent_agent_id = sqlc.arg(parent_agent_id)
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
@@ -82,20 +70,7 @@ SELECT agent.id,
            AND interaction.interaction_kind = 'permission'
            AND interaction.state = 'open'
        )::integer AS open_permission_count,
-       (
-         EXISTS (
-           SELECT 1
-           FROM agent_runtime_locks runtime_lock
-           WHERE runtime_lock.agent_id = agent.id
-         )
-         OR EXISTS (
-           SELECT 1
-           FROM agent_wakeups wake
-           WHERE wake.agent_id = agent.id
-         )
-         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.logical_ready_at IS NOT NULL)
-         OR EXISTS (SELECT 1 FROM agent_execution_state h WHERE h.agent_id=agent.id AND h.incomplete_tools)
-       )::boolean AS is_running,
+       activity.state::text AS activity_state,
        ARRAY(
          SELECT process.id
          FROM agent_background_processes(agent.project_id, agent.id) process
@@ -111,6 +86,7 @@ SELECT agent.id,
          ORDER BY child.created_at, child.id
        )::uuid[] AS working_subagent_ids
 FROM agents agent
+CROSS JOIN LATERAL agent_activity_state(agent.id, agent.state) activity
 WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND agent.id = ANY(sqlc.arg(agent_ids)::uuid[]);
 
