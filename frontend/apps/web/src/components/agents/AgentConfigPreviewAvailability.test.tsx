@@ -520,57 +520,38 @@ it('shows normal Builder controls and every custom tool without a whole-document
   }
 })
 
-function selectToolTab(name: string) {
-  act(() => {
-    button(name).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-  })
-}
-
-it('stages description and schema edits, validates both modes, and cancels without losing configuration edits', async () => {
-  const editor = await renderAdvancedEditor()
-  act(() => {
-    editor().form.setInstruction('Pending instruction.')
-    button('Edit search_records').click()
-  })
-  const before = editor().yaml
-  const schema =
-    'type: object\nproperties: {nested: {anyOf: [{type: string}, {type: object}], const: 9007199254740993}}\n'
-  await enter('Description', 'Updated example.')
-  await enter('Input schema (YAML or JSON)', 'type: [')
-  expect(button('Save tool').disabled).toBe(true)
-  expect(button('Full definition').disabled).toBe(true)
-  expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
-    '/tools/search_records/input_schema',
-  )
-  expect(editor().yaml).toBe(before)
-  await enter('Input schema (YAML or JSON)', schema)
-  selectToolTab('Full definition')
-  expect(field('Definition (YAML or JSON)').value).toContain('Updated example.')
-  expect(field('Definition (YAML or JSON)').value).toContain('9007199254740993')
-  await enter('Definition (YAML or JSON)', 'type: custom\ninput_schema: [')
-  expect(button('Save tool').disabled).toBe(true)
-  expect(button('Fields').disabled).toBe(true)
-  clickLabel('Cancel')
-  expect(editor().yaml).toBe(before)
-  clickLabel('Edit search_records')
-  await enter('Description', 'Updated example.')
-  await enter('Input schema (YAML or JSON)', schema)
-  selectToolTab('Full definition')
-  selectToolTab('Fields')
-  expect(field('Description').value).toBe('Updated example.')
-  expect(field('Input schema (YAML or JSON)').value).toContain('9007199254740993')
-  clickLabel('Save tool')
-  expect(document.querySelector('[role="dialog"]')).toBeNull()
-  expect(editor().saveBlocked).toBe(false)
-  expect(parse(editor().yaml)).toHaveProperty(
-    ['tools', 'search_records'],
-    expect.objectContaining({
-      description: 'Updated example.',
-      input_schema: z.json().parse(parse(schema)),
-    }),
-  )
-  expect(editor().yaml).toContain('9007199254740993')
-})
+it.each(['yaml', 'json'])(
+  'stages full definitions in %s, validates, and cancels without losing configuration edits',
+  async (format) => {
+    const source = format === 'json' ? JSON.stringify(parse(customFixture), null, 2) : customFixture
+    const editor = await renderAdvancedEditor(source)
+    act(() => {
+      editor().form.setInstruction('Pending instruction.')
+      button('Edit search_records').click()
+    })
+    const before = editor().yaml
+    const definition =
+      '{"type":"custom","description":"Updated example.","input_schema":{"type":"object","properties":{"nested":{"anyOf":[{"type":"string"},{"type":"object"}],"const":9007199254740993}}}}'
+    await enter(
+      'Definition',
+      '{"type":"custom","description":"Example.","input_schema":{"type":"array"}}',
+    )
+    expect(button('Save tool').disabled).toBe(true)
+    expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
+      '/tools/search_records/input_schema/type',
+    )
+    expect(editor().yaml).toBe(before)
+    clickLabel('Cancel')
+    expect(editor().yaml).toBe(before)
+    clickLabel('Edit search_records')
+    await enter('Definition', definition)
+    clickLabel('Save tool')
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(editor().saveBlocked).toBe(false)
+    expect(parse(editor().yaml)).toHaveProperty(['tools', 'search_records'], parse(definition))
+    expect(editor().yaml).toContain('9007199254740993')
+  },
+)
 
 it.each(['yaml', 'json'])(
   'edits custom permissions and deletes only the chosen tool in %s',
@@ -578,8 +559,6 @@ it.each(['yaml', 'json'])(
     const source = format === 'json' ? JSON.stringify(parse(customFixture), null, 2) : customFixture
     const editor = await renderAdvancedEditor(source)
     clickLabel('Edit search_records')
-    selectToolTab('Full definition')
-    selectToolTab('Fields')
     clickLabel('Save tool')
     expect(editor().yaml).toBe(source)
     const original = editor().form.advancedEntries.find(
@@ -629,16 +608,20 @@ it.each(['yaml', 'json'])(
   },
 )
 
-it.each([includedSource, 'instruction: ['])(
-  'adopts valid custom-tool YAML from an existing source: %s',
+it.each([includedSource, 'instruction: [', JSON.stringify(parse(includedSource))])(
+  'adopts custom definitions without changing the Source editor language while typing (%#)',
   async (source) => {
-    const editor = await renderAdvancedEditor(source)
-    editYaml(editor, customFixture)
+    const editor = await renderAdvancedEditor(source.startsWith('{') ? includedSource : source)
+    const updated = source.startsWith('{') ? JSON.stringify(parse(customFixture)) : customFixture
+    editYaml(editor, updated)
+    expect(editor().editorFormat).toBe('yaml')
     act(() => {
       editor().switchMode('builder')
     })
     expect(editor().showBuilder).toBe(true)
-    expect(editor().yaml).toBe(customFixture)
+    expect(editor().sourceFormat).toBe(source.startsWith('{') ? 'json' : 'yaml')
+    expect(editor().editorFormat).toBe(editor().sourceFormat)
+    expect(editor().yaml).toBe(updated)
     expect(container.querySelectorAll('button[aria-label^="Edit " ]')).toHaveLength(8)
   },
 )
@@ -786,40 +769,55 @@ async function openCustomToolDialog() {
   })
 }
 
-it('adds a validated custom tool from Tools plus and leaves cancelled drafts untouched', async () => {
-  const editor = await renderAdvancedEditor()
-  await openCustomToolDialog()
-  selectToolTab('Full definition')
-  selectToolTab('Fields')
-  await enter('Tool name', 'cancelled_tool')
-  clickLabel('Cancel')
-  expect(editor().yaml).toBe(customFixture)
-  expect(editor().dirty).toBe(false)
-  await openCustomToolDialog()
-  for (const name of [
-    'search_records',
-    'web_search',
-    'mcp__reserved',
-    'bad-name',
-    'call_deferred_tool',
-  ]) {
-    await enter('Tool name', name)
-    expect(button('Add custom tool').disabled).toBe(true)
-  }
-  await enter('Tool name', 'new_tool')
-  await enter('Description', 'New example.')
-  await enter('Input schema (YAML or JSON)', '{"type":"object"}')
-  clickLabel('Add custom tool')
-  expect(parse(editor().yaml)).toHaveProperty(['tools', 'new_tool'], {
-    type: 'custom',
-    description: 'New example.',
-    input_schema: { type: 'object' },
-  })
-  expect(button('Edit new_tool').closest('section')?.querySelector('h3')?.textContent).toBe('Tools')
-  clickLabel('Remove new_tool')
-  expect(editor().yaml).toBe(customFixture)
-  expect(editor().dirty).toBe(false)
-})
+it.each(['yaml', 'json'])(
+  'adds a custom tool in %s from Tools plus and leaves cancelled drafts untouched',
+  async (format) => {
+    const source = format === 'json' ? JSON.stringify(parse(customFixture), null, 2) : customFixture
+    const editor = await renderAdvancedEditor(source)
+    await openCustomToolDialog()
+    const template = field('Definition').value
+    expect(parse(template)).toEqual({
+      type: 'custom',
+      description: '',
+      input_schema: { type: 'object', properties: {} },
+    })
+    expect(template.startsWith('{')).toBe(format === 'json')
+    await enter('Tool name', 'cancelled_tool')
+    clickLabel('Cancel')
+    expect(editor().yaml).toBe(source)
+    expect(editor().dirty).toBe(false)
+    await openCustomToolDialog()
+    const definition = 'type: custom\ndescription: New example.\ninput_schema: {type: object}\n'
+    await enter('Tool name', 'new_tool')
+    await enter('Definition', definition)
+    expect(button('Add custom tool').disabled).toBe(format === 'json')
+    if (format === 'json') {
+      expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
+        'Enter valid JSON',
+      )
+      await enter('Definition', JSON.stringify(parse(definition)))
+    }
+    for (const name of [
+      'search_records',
+      'web_search',
+      'mcp__reserved',
+      'bad-name',
+      'call_deferred_tool',
+    ]) {
+      await enter('Tool name', name)
+      expect(button('Add custom tool').disabled).toBe(true)
+    }
+    await enter('Tool name', 'new_tool')
+    clickLabel('Add custom tool')
+    expect(parse(editor().yaml)).toHaveProperty(['tools', 'new_tool'], parse(definition))
+    expect(button('Edit new_tool').closest('section')?.querySelector('h3')?.textContent).toBe(
+      'Tools',
+    )
+    clickLabel('Remove new_tool')
+    expect(editor().yaml).toBe(source)
+    expect(editor().dirty).toBe(false)
+  },
+)
 
 it('renames the only custom tool, rejects occupied names, and can restore its name', async () => {
   const source = `${includedSource}tools: {search_records: {type: custom, description: Search., input_schema: {type: object}}}\n`

@@ -60,6 +60,8 @@ export function CreateAgentFormView({
     saveBlocked,
     showBuilder,
     yaml,
+    sourceFormat,
+    editorFormat,
   } = useAgentDraft(catalog, defaultPool, defaultModel, initialTemplate, {
     orgId: activeOrg.id,
     projectId,
@@ -71,12 +73,8 @@ export function CreateAgentFormView({
   const canSubmit = !isSubmitting && resourceNameValid(name) && !saveBlocked
 
   async function submit(action: SubmitAction) {
-    if (isSubmitting) return
-    if (!submitCheck.check()) {
-      clearErrors()
-      return
-    }
-    await submitAgent(name, yaml, action)
+    if (!canSubmit) return
+    await submitAgent(name, yaml, action, sourceFormat)
   }
 
   return (
@@ -117,7 +115,7 @@ export function CreateAgentFormView({
                 onValueChange={switchMode}
                 tabs={[
                   { value: 'builder', label: 'Builder' },
-                  { value: 'yaml', label: 'YAML' },
+                  { value: 'yaml', label: 'Source' },
                 ]}
               />
             </div>
@@ -163,6 +161,7 @@ export function CreateAgentFormView({
               <AgentConfigYamlField
                 id="agent-yaml"
                 value={yaml}
+                format={editorFormat}
                 className="h-auto min-h-[24rem] flex-1"
                 issues={issues}
                 onChange={(value) => {

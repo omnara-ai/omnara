@@ -1,5 +1,10 @@
 import { CST, Document, isMap, isNode, isScalar, type Node, parseDocument } from 'yaml'
 
+import {
+  type ConfigSourceFormat,
+  configSourceFormat,
+  isJsonSource,
+} from '@/components/agents/agentConfigSourceFormat'
 import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 
 export type ConfigPath = (string | number)[]
@@ -10,12 +15,17 @@ export type ConfigEdit =
 
 type Collection = CST.BlockMap | CST.BlockSequence | CST.FlowCollection
 
-export function patchConfigSource(source: string, original: Document, edits: ConfigEdit[]) {
+export function patchConfigSource(
+  source: string,
+  original: Document,
+  edits: ConfigEdit[],
+  format: ConfigSourceFormat = configSourceFormat(source),
+) {
   if (edits.length === 0) return source
   const root = original.contents
   if (!isMap(root) || !root.srcToken || !root.range)
     throw new Error('Missing document source tokens.')
-  const json = isJsonSource(source)
+  const json = format === 'json'
   const newline = source.includes('\r\n') ? '\r\n' : '\n'
   let token = structuredClone(root.srcToken)
   if (!CST.isCollection(token)) throw new Error('The configuration must be a mapping.')
@@ -143,12 +153,9 @@ function renderItem(
       (definition.endsWith('\n') ? '' : '\n') +
       ' '.repeat(parent.indent) +
       '__end__: null\n'
-  } else if (
-    raw !== undefined &&
-    flow &&
-    !sequence &&
-    (json ? isJsonSource(raw) : rawStartsWithFlowMap(raw))
-  ) {
+  } else if (raw !== undefined) {
+    if (!flow || sequence || !(json ? isJsonSource(raw) : rawStartsWithFlowMap(raw)))
+      throw new Error('Cannot insert this definition without changing its syntax.')
     rendered = '{' + JSON.stringify(key) + ': ' + raw + (raw.endsWith('\n') ? '' : '\n') + '}'
     rendered = rendered.replace(/^/gm, ' '.repeat(parent.indent))
   } else {
@@ -214,15 +221,6 @@ function followingSiblingTrivia(token: CST.Token | undefined) {
 function rawStartsWithFlowMap(source: string) {
   const node = parseDocument(source).contents
   return isMap(node) && node.flow === true
-}
-
-export function isJsonSource(source: string) {
-  try {
-    JSON.parse(source)
-    return true
-  } catch {
-    return false
-  }
 }
 
 function sourceToken(type: CST.SourceToken['type'], source: string): CST.SourceToken {

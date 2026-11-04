@@ -350,7 +350,7 @@ it('preserves large schema integers and blocks conversions that would round them
       ['tools', 'new_tool'],
       'type: custom\ndescription: Example\ninput_schema: {type: object, properties: {value: {const: 9007199254740993}}}',
     )
-  }).toThrow('Use a flow YAML or JSON definition')
+  }).toThrow('This inline collection requires a flow definition')
   expect(transaction.serialize()).toBe(empty)
 })
 
@@ -363,3 +363,23 @@ it('explains explicit YAML 1.1 documents without rewriting them', () => {
     'declares YAML 1.1',
   )
 })
+
+it.each([false, true])(
+  'adds custom tools beside a new built-in without creating an inline map (reopen: %s)',
+  (reopen) => {
+    let { session, draft } = draftFor(header)
+    draft = { ...draft, tools: [{ name: 'web_search', permission: null }] }
+    if (reopen) ({ session, draft } = draftFor(session.apply(draft)))
+    const raw =
+      'type: custom\ndescription: Example.\ninput_schema: # retain schema comment\n  type: object\n'
+    const result = session.evaluate({
+      ...draft,
+      advancedEntries: [{ path: ['tools', 'example'], kind: 'custom', source: raw }],
+    })
+    expect(result.issues).toEqual([])
+    expect(result.yaml).toContain('\ntools:\n')
+    expect(result.yaml).toContain('input_schema: # retain schema comment\n')
+    expect(parse(result.yaml)).toHaveProperty(['tools', 'web_search'])
+    expect(parse(result.yaml)).toHaveProperty(['tools', 'example'], parse(raw))
+  },
+)
