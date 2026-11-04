@@ -124,6 +124,13 @@ func runWebFetch(
 			err,
 		)
 	}
+	if call.Turn.programCall() {
+		content, err := structuredToolResultContent(webFetchProgramResult{FetchResult: result, Content: result.Content})
+		if err != nil {
+			return nil, err
+		}
+		return completeAsynchronously(content), nil
+	}
 	content, err := webFetchToolResultContent(result)
 	if err != nil {
 		return nil, err

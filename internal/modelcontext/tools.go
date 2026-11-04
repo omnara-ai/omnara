@@ -17,10 +17,11 @@ import (
 const programmaticToolCallsRunCommandDescription = " Commands can call this agent's other tools with " +
 	"`\"$OMNARA_BIN\" call <tool> '<json input>'` (pass `-` to read the input from stdin). It prints the tool's " +
 	"structured JSON result to stdout (`--json` prints the full result envelope), exits 1 if the tool fails " +
-	"or is denied, and exits 2 if the tool cannot be called from commands. Find tools and their input schemas, " +
-	"including ones not loaded here, with `\"$OMNARA_BIN\" call tool_search '{\"pattern\":\"<regex>\"}'`. Results go " +
-	"only to the command, not to you, so chain calls with pipes, jq, loops or scripts and print only what you " +
-	"need. This works only on machines where programmatic tool calls are enabled."
+	"or is denied, and exits 2 if the tool cannot be called from commands. Find tools, their input schemas " +
+	"and the output schemas of the JSON they print, including ones not loaded here, with " +
+	"`\"$OMNARA_BIN\" call tool_search '{\"pattern\":\"<regex>\"}'`. Results go only to the command, not to " +
+	"you, so chain calls with pipes, jq, loops or scripts and print only what you need. This works only on " +
+	"machines where programmatic tool calls are enabled."
 
 func RuntimeContractToolSpecs(
 	ctx context.Context,
@@ -87,12 +88,13 @@ func RuntimeContractToolSpecs(
 			}
 		}
 		spec := ToolSpec{
-			Name:        tool.Name,
-			Description: description,
-			InputSchema: inputSchema,
-			Deferred:    tool.Deferred,
-			Type:        tool.Type,
-			Permission:  tool.Permission,
+			Name:            tool.Name,
+			Description:     description,
+			InputSchema:     inputSchema,
+			Deferred:        tool.Deferred,
+			Type:            tool.Type,
+			Permission:      tool.Permission,
+			IntegrationKind: tool.IntegrationKind,
 		}
 		out = append(out, spec)
 	}
@@ -117,9 +119,10 @@ func RuntimeContractToolSpecs(
 }
 
 type mcpToolSnapshot struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	InputSchema  json.RawMessage `json:"inputSchema"`
+	OutputSchema json.RawMessage `json:"outputSchema"`
 }
 
 func runtimeMCPToolSpecs(
@@ -166,6 +169,10 @@ func runtimeMCPToolSpecs(
 			if !toolcatalog.IsMCPRuntimeToolName(name) {
 				continue
 			}
+			outputSchema := tool.OutputSchema
+			if string(outputSchema) == "null" {
+				outputSchema = nil
+			}
 			description := fmt.Sprintf("MCP tool %q from server %q.", tool.Name, server.ServerKey)
 			if tool.Description != "" {
 				description = fmt.Sprintf("%s %s", description, tool.Description)
@@ -173,12 +180,13 @@ func runtimeMCPToolSpecs(
 			out = append(
 				out,
 				ToolSpec{
-					Name:        name,
-					Description: description,
-					InputSchema: schema,
-					Deferred:    resolution.Deferred,
-					Type:        toolcatalog.ToolTypeMCP,
-					Permission:  resolution.Permission,
+					Name:         name,
+					Description:  description,
+					InputSchema:  schema,
+					OutputSchema: outputSchema,
+					Deferred:     resolution.Deferred,
+					Type:         toolcatalog.ToolTypeMCP,
+					Permission:   resolution.Permission,
 				},
 			)
 		}

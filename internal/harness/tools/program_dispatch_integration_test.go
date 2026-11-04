@@ -147,6 +147,11 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 3, search.Total)
 	require.Len(t, search.Tools, 3)
+	outputSchemas := map[string]json.RawMessage{}
+	for _, tool := range search.Tools {
+		require.NotEmpty(t, tool.OutputSchema, tool.Name)
+		outputSchemas[tool.Name] = tool.OutputSchema
+	}
 	search, err = ProgramToolSearch(specs, json.RawMessage(`{"pattern":"storage_l","max_results":1}`))
 	require.NoError(t, err)
 	require.Equal(t, toolcatalog.ToolNameStorageList, search.Tools[0].Name)
@@ -162,6 +167,8 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	require.Equal(t, executionstore.ToolCallStateCompleted, listed.State)
 	require.Equal(t, executionstore.ToolResultOutcomeSucceeded, listed.Outcome)
 	require.Contains(t, string(listed.ResultContentParts), `"/memory"`)
+	requireMatchesOutputSchema(t, outputSchemas[toolcatalog.ToolNameStorageList],
+		firstStructuredValue(t, listed.ResultContentParts))
 
 	// always_ask opens the model path's permission interaction; approving runs it.
 	scope := memorystore.Scope{OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID,
@@ -185,6 +192,8 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	require.Equal(t, executionstore.ToolResultOutcomeSucceeded, readResult.Outcome)
 	require.Contains(t, string(readResult.ResultContentParts), "program note")
 	require.NotContains(t, string(readResult.ResultContentParts), `"digest"`, "hidden parts must be dropped")
+	requireMatchesOutputSchema(t, outputSchemas[toolcatalog.ToolNameStorageRead],
+		firstStructuredValue(t, readResult.ResultContentParts))
 
 	// always_deny completes denied without running.
 	searchCall := fixture.create(t, ctx, "search", toolcatalog.ToolNameStorageSearch,

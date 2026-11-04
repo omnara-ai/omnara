@@ -131,3 +131,28 @@ func TestDeferredToolSearchDefinitionsUsesCurrentSpecs(t *testing.T) {
 	require.Equal(t, "Get the current weather for a city.", definitions[0].Description)
 	require.JSONEq(t, `{"type":"object","properties":{"city":{"type":"string"}}}`, string(definitions[0].InputSchema))
 }
+
+func TestSearchToolsReturnsOutputSchemas(t *testing.T) {
+	specs := deferredTestSpecs()
+	specs[2].OutputSchema = json.RawMessage(`{"type":"object","properties":{"celsius":{"type":"number"}}}`)
+
+	search, err := SearchTools(specs, "get_", 0)
+	require.NoError(t, err)
+	require.Equal(t, 3, search.Total)
+	schemas := map[string]string{}
+	for _, tool := range search.Tools {
+		schemas[tool.Name] = string(tool.OutputSchema)
+	}
+	require.Equal(t, map[string]string{
+		"get_stock_price": "",
+		"get_time":        "",
+		"get_weather":     `{"type":"object","properties":{"celsius":{"type":"number"}}}`,
+	}, schemas)
+	encoded, err := json.Marshal(search.Tools[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "output_schema", "tools without one omit it")
+
+	deferred, err := SearchDeferredTools(specs, "weather", 0)
+	require.NoError(t, err)
+	require.Empty(t, deferred.Tools[0].OutputSchema, "model-facing tool_search does not load output schemas")
+}
