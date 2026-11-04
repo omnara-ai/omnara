@@ -184,10 +184,7 @@ function AgentList({
             activity: {
               value: controls.activity,
               options: activityFilterOptions,
-              onChange: (value) => {
-                const option = activityFilterOptions.find((candidate) => candidate.value === value)
-                if (option) controls.setActivity(option.value)
-              },
+              onChange: controls.setActivity,
             },
             subagents: {
               checked: controls.includeSubagents,
