@@ -72,7 +72,7 @@ func AgentConfigToolSpecs(
 }
 
 // ProgramToolSpecs returns the tools commands may call under the agent config
-// a process's model call ran with.
+// a process's model call ran with, with the output schemas of their results.
 func ProgramToolSpecs(
 	ctx context.Context, store *storage.Store, projectID, agentID, agentConfigID uuid.UUID,
 ) ([]modelcontext.ToolSpec, error) {
@@ -82,9 +82,13 @@ func ProgramToolSpecs(
 	}
 	callable := specs[:0]
 	for _, spec := range specs {
-		if ProgramToolCallable(contract, spec) {
-			callable = append(callable, spec)
+		if !ProgramToolCallable(contract, spec) {
+			continue
 		}
+		if spec.OutputSchema, err = programOutputSchema(spec); err != nil {
+			return nil, err
+		}
+		callable = append(callable, spec)
 	}
 	return callable, nil
 }
