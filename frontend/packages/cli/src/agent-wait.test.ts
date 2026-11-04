@@ -104,7 +104,13 @@ describe('agents wait', () => {
     const states: AgentActivity['state'][] = ['running', 'waiting_on_interaction']
     const command = cli(() => Response.json(agentPayload(states.shift() ?? 'idle')))
     vi.useFakeTimers()
-    const run = command.run('--state', 'waiting_on_interaction', '--state', 'idle', '--json')
+    const run = command.run(
+      '--activity-state',
+      'waiting_on_interaction',
+      '--activity-state',
+      'idle',
+      '--json',
+    )
     await vi.advanceTimersByTimeAsync(2_000)
     await run
     expect(command.requests).toHaveLength(2)
@@ -128,10 +134,12 @@ describe('agents wait', () => {
 
   it('rejects an unknown state before calling the API', async () => {
     const command = cli(() => Response.json(agentPayload('idle')))
-    await command.run('--state', 'nope')
+    await command.run('--activity-state', 'nope')
     expect(command.requests).toHaveLength(0)
     expect(process.exitCode).toBe(1)
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('invalid --state nope'))
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining('invalid --activity-state nope'),
+    )
   })
 
   it('rejects a negative timeout before calling the API', async () => {
@@ -154,7 +162,7 @@ describe('agents wait', () => {
 
   it('returns an archived agent when archived was requested', async () => {
     const command = cli(() => Response.json(agentPayload('archived')))
-    await command.run('--state', 'idle', '--state', 'archived', '--json')
+    await command.run('--activity-state', 'idle', '--activity-state', 'archived', '--json')
     expect(console.log).toHaveBeenCalledWith(printed('archived'))
     expect(console.error).not.toHaveBeenCalled()
   })

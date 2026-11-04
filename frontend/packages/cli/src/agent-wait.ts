@@ -36,7 +36,7 @@ function parseAgentWaitStates(values: readonly string[]): AgentActivity['state']
     const parsed = zWaitState.safeParse(value)
     if (!parsed.success) {
       throw new CliInputError(
-        `invalid --state ${value}: expected running, idle, waiting_on_interaction, or archived`,
+        `invalid --activity-state ${value}: expected running, idle, waiting_on_interaction, or archived`,
       )
     }
     if (!states.includes(parsed.data)) states.push(parsed.data)
@@ -107,7 +107,7 @@ export const agentWaitOp = customOp({
     command
       .argument('<agent-id>')
       .option(
-        '--state <state>',
+        '--activity-state <state>',
         'activity state to wait for; repeatable (default: idle)',
         collectRepeatableFlag,
       )
@@ -121,7 +121,7 @@ export const agentWaitOp = customOp({
   run: async ({ client, path, args, options }) => {
     const agentID = parseWithSchema(schemas.zAgentId, args[0], 'agent id')
     const states = parseAgentWaitStates(
-      parseWithSchema(zAgentWaitStateFlags, options.state, '--state'),
+      parseWithSchema(zAgentWaitStateFlags, options.activityState, '--activity-state'),
     )
     const timeoutSeconds = parseWithSchema(zAgentWaitTimeoutSeconds, options.timeout, '--timeout')
     const response = await waitForAgent({
