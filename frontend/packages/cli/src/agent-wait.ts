@@ -86,10 +86,11 @@ export async function waitForAgent(input: {
   return pollUntilDeadline({
     expiresAt: agentWaitDeadline(input.nowMs ?? Date.now(), input.timeoutSeconds),
     expiredMessage: agentWaitExpiredMessage(input.states, input.timeoutSeconds),
-    async fetchOnce() {
+    async fetchOnce(signal) {
       const { data } = await sdk.getAgent({
         client: input.client,
         path: { orgID: input.orgID, projectID: input.projectID, agentID: input.agentID },
+        signal,
       })
       if (agentMatchesWaitStates(data.agent, input.states)) return data
       return undefined

@@ -146,4 +146,58 @@ describe('waitForAgent', () => {
     ).rejects.toThrow(/did not reach activity state idle within 1s/)
     expect(fetches).toBe(1)
   })
+
+  it('aborts an in-flight request when the timeout elapses', async () => {
+    let signal: AbortSignal | undefined
+    const client = createOmnaraClient({
+      baseUrl: 'https://omnara.test/api/v1',
+      fetch: (request) => {
+        if (request instanceof Request) signal = request.signal
+        return new Promise<Response>((_, reject) => {
+          signal?.addEventListener(
+            'abort',
+            () => {
+              reject(new Error('aborted'))
+            },
+            { once: true },
+          )
+        })
+      },
+    })
+    const started = Date.now()
+    await expect(
+      waitForAgent({
+        client,
+        ...path,
+        states: ['idle'],
+        timeoutSeconds: 1,
+        nowMs: Date.now() - 900,
+      }),
+    ).rejects.toThrow(/did not reach activity state idle within 1s/)
+    expect(signal?.aborted).toBe(true)
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
+  it('does not succeed on a matching response that arrives after the timeout', async () => {
+    const client = createOmnaraClient({
+      baseUrl: 'https://omnara.test/api/v1',
+      fetch: () =>
+        new Promise<Response>((resolve) => {
+          setTimeout(() => {
+            resolve(json(agentPayload('idle')))
+          }, 300)
+        }),
+    })
+    const started = Date.now()
+    await expect(
+      waitForAgent({
+        client,
+        ...path,
+        states: ['idle'],
+        timeoutSeconds: 1,
+        nowMs: Date.now() - 900,
+      }),
+    ).rejects.toThrow(/did not reach activity state idle within 1s/)
+    expect(Date.now() - started).toBeLessThan(250)
+  })
 })

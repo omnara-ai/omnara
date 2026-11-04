@@ -2,24 +2,57 @@ import { CliInputError } from './output.ts'
 
 const POLL_INTERVAL_SECONDS = 2
 const MAX_CONSECUTIVE_POLL_FAILURES = 3
+// setTimeout overflows past this many milliseconds and fires immediately.
+const MAX_TIMER_MS = 2 ** 31 - 1
 
 export function sleepSeconds(seconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, seconds * 1000))
 }
 
+class DeadlineExceeded extends Error {}
+
+// Runs one fetch, aborting it and rejecting with DeadlineExceeded once the
+// deadline passes, even if the fetch ignores its abort signal.
+async function fetchBeforeDeadline<T>(
+  deadline: number,
+  fetchOnce: (signal: AbortSignal) => Promise<T | undefined>,
+): Promise<T | undefined> {
+  const controller = new AbortController()
+  const remainingMs = deadline - Date.now()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<never>((_, reject) => {
+    if (remainingMs > MAX_TIMER_MS) return
+    timer = setTimeout(
+      () => {
+        controller.abort()
+        reject(new DeadlineExceeded())
+      },
+      Math.max(0, remainingMs),
+    )
+  })
+  try {
+    return await Promise.race([fetchOnce(controller.signal), expired])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function pollUntilDeadline<T>(options: {
   expiresAt: string
   expiredMessage: string
-  fetchOnce: () => Promise<T | undefined>
+  fetchOnce: (signal: AbortSignal) => Promise<T | undefined>
 }): Promise<T> {
   const deadline = Date.parse(options.expiresAt)
   let consecutiveFailures = 0
   while (true) {
     try {
-      const found = await options.fetchOnce()
+      const found = await fetchBeforeDeadline(deadline, options.fetchOnce)
+      // A response that lands after the deadline does not count as a match.
+      if (Date.now() >= deadline) break
       consecutiveFailures = 0
       if (found !== undefined) return found
     } catch (error) {
+      if (error instanceof DeadlineExceeded || Date.now() >= deadline) break
       consecutiveFailures += 1
       if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) throw error
     }
