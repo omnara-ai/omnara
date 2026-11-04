@@ -407,6 +407,9 @@ func TestListAgentsByActivityState(t *testing.T) {
 	archived := createHTTPRuntimeAgent(
 		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-activity-archived",
 	)
+	waiting := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-activity-waiting",
+	)
 	idleIDs := []uuid.UUID{idleA.Agent.ID, idleB.Agent.ID, archived.Agent.ID}
 	if _, err := pool.Exec(ctx, `DELETE FROM agent_wakeups WHERE agent_id = ANY($1)`, idleIDs); err != nil {
 		t.Fatalf("clear idle wakeups: %v", err)
@@ -421,6 +424,12 @@ func TestListAgentsByActivityState(t *testing.T) {
 	); err != nil {
 		t.Fatalf("clear idle execution state: %v", err)
 	}
+	// Open the question first: recording the waiting agent's tool call claims
+	// queued agent work, which would consume the running agent's wakeup.
+	createHTTPInteractionForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, waiting.Agent, "question", "",
+		json.RawMessage(`{"questions":[{"prompt":"Ship?","options":[{"label":"Yes"},{"label":"No"}]}]}`),
+	)
 	if _, err := pool.Exec(
 		ctx,
 		`INSERT INTO agent_wakeups(agent_id, ready_at, updated_at)
@@ -442,42 +451,69 @@ func TestListAgentsByActivityState(t *testing.T) {
 	idleBID := testPublicID(t, publicid.KindAgent, idleB.Agent.ID)
 	runningID := testPublicID(t, publicid.KindAgent, running.Agent.ID)
 	archivedID := testPublicID(t, publicid.KindAgent, archived.Agent.ID)
+	waitingID := testPublicID(t, publicid.KindAgent, waiting.Agent.ID)
 	agentsPath := project.ProjectPath + "/agents"
+	listPath := func(query string) string { return agentsPath + "?" + query }
 
-	idleListed := requestJSONWithHeaders(
-		t, handler, http.MethodGet, agentsPath+"?activity_state=idle", "", "", http.StatusOK,
-		authHeaders(project.AdminToken),
-	)
-	require.ElementsMatch(t, []string{idleAID, idleBID}, listedAgentIDs(t, idleListed))
-	require.Equal(t, "idle", listedAgentActivity(t, idleListed, idleAID))
+	// The console sorts by -updated_at and the API defaults to -created_at; the
+	// two sorts run different list queries, so cover the filter on both.
+	for _, order := range []string{"-created_at", "-updated_at"} {
+		t.Run(order, func(t *testing.T) {
+			cases := []struct {
+				state string
+				want  []string
+			}{
+				{"idle", []string{idleAID, idleBID}},
+				{"running", []string{runningID}},
+				{"waiting_on_interaction", []string{waitingID}},
+				{"archived", []string{archivedID}},
+			}
+			for _, tc := range cases {
+				listed := requestJSONWithHeaders(
+					t, handler, http.MethodGet, listPath("activity_state="+tc.state+"&sort="+order), "", "",
+					http.StatusOK, authHeaders(project.AdminToken),
+				)
+				require.ElementsMatch(t, tc.want, listedAgentIDs(t, listed), "activity_state=%s", tc.state)
+				for _, id := range tc.want {
+					require.Equal(t, tc.state, listedAgentActivity(t, listed, id))
+				}
+			}
 
-	runningListed := requestJSONWithHeaders(
-		t, handler, http.MethodGet, agentsPath+"?activity_state=running", "", "", http.StatusOK,
-		authHeaders(project.AdminToken),
-	)
-	require.Equal(t, []string{runningID}, listedAgentIDs(t, runningListed))
-	require.Equal(t, "running", listedAgentActivity(t, runningListed, runningID))
-
-	archivedListed := requestJSONWithHeaders(
-		t, handler, http.MethodGet, agentsPath+"?activity_state=archived", "", "", http.StatusOK,
-		authHeaders(project.AdminToken),
-	)
-	require.Equal(t, []string{archivedID}, listedAgentIDs(t, archivedListed))
-	require.Equal(t, "archived", listedAgentActivity(t, archivedListed, archivedID))
+			// Page through the idle filter one row at a time: each match comes
+			// back exactly once and the last page carries no cursor.
+			var paged []string
+			cursor := ""
+			for page := 0; ; page++ {
+				require.Less(t, page, 3, "idle pagination did not end")
+				query := "activity_state=idle&limit=1&sort=" + order
+				if cursor != "" {
+					query += "&cursor=" + cursor
+				}
+				listed := requestJSONWithHeaders(
+					t, handler, http.MethodGet, listPath(query), "", "", http.StatusOK,
+					authHeaders(project.AdminToken),
+				)
+				paged = append(paged, listedAgentIDs(t, listed)...)
+				next, _ := listed["next_cursor"].(string)
+				if next == "" {
+					break
+				}
+				if page == 0 {
+					requestJSONWithHeaders(
+						t, handler, http.MethodGet,
+						listPath("activity_state=running&limit=1&sort="+order+"&cursor="+next), "", "",
+						http.StatusBadRequest, authHeaders(project.AdminToken),
+					)
+				}
+				cursor = next
+			}
+			require.ElementsMatch(t, []string{idleAID, idleBID}, paged)
+		})
+	}
 
 	requestJSONWithHeaders(
-		t, handler, http.MethodGet, agentsPath+"?activity_state=nope", "", "", http.StatusBadRequest,
+		t, handler, http.MethodGet, listPath("activity_state=nope"), "", "", http.StatusBadRequest,
 		authHeaders(project.AdminToken),
-	)
-
-	firstIdlePage := requestJSONWithHeaders(
-		t, handler, http.MethodGet, agentsPath+"?activity_state=idle&limit=1", "", "", http.StatusOK,
-		authHeaders(project.AdminToken),
-	)
-	cursor := testutil.RequireType[string](t, firstIdlePage["next_cursor"])
-	requestJSONWithHeaders(
-		t, handler, http.MethodGet, agentsPath+"?activity_state=running&cursor="+cursor, "", "",
-		http.StatusBadRequest, authHeaders(project.AdminToken),
 	)
 }
 
