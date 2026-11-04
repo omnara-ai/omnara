@@ -35,6 +35,14 @@ func (s strictOpenAPIServer) ListToolCalls(
 	if request.Params.Type != nil {
 		toolType = string(*request.Params.Type)
 	}
+	var parentToolCallID uuid.UUID
+	if request.Params.ParentToolCallId != nil {
+		id, ok := parseOpenAPIPublicID(publicid.KindToolCall, *request.Params.ParentToolCallId)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid parent_tool_call_id")
+		}
+		parentToolCallID = id
+	}
 	agentIDs := []uuid.UUID{scope.agent.ID}
 	if request.Params.IncludeSubagents != nil && *request.Params.IncludeSubagents {
 		descendants, err := s.server.store.Execution().ListAgentDescendantIDs(ctx, scope.project.ID, scope.agent.ID)
@@ -44,12 +52,13 @@ func (s strictOpenAPIServer) ListToolCalls(
 		agentIDs = append(agentIDs, descendants...)
 	}
 	page, err := s.server.store.Execution().ListToolCalls(ctx, executionstore.ListToolCallsInput{
-		ProjectID: scope.project.ID,
-		AgentIDs:  agentIDs,
-		State:     state,
-		Type:      toolType,
-		Limit:     limit,
-		After:     after,
+		ProjectID:        scope.project.ID,
+		AgentIDs:         agentIDs,
+		State:            state,
+		Type:             toolType,
+		ParentToolCallID: parentToolCallID,
+		Limit:            limit,
+		After:            after,
 	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)

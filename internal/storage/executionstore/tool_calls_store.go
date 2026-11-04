@@ -68,8 +68,11 @@ type ListToolCallsInput struct {
 	AgentIDs  []uuid.UUID
 	State     ToolCallState
 	Type      string
-	Limit     int
-	After     listing.KeysetCursor
+	// ParentToolCallID, when set, keeps only the calls that run_command
+	// call's process made.
+	ParentToolCallID uuid.UUID
+	Limit            int
+	After            listing.KeysetCursor
 }
 
 type ListToolCallsResult struct {

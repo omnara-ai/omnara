@@ -90,6 +90,10 @@ func (s *Store) ListToolCalls(
 		Type:      input.Type,
 		RowLimit:  int64(input.Limit) + 1,
 	}
+	if input.ParentToolCallID != uuid.Nil {
+		parentID := input.ParentToolCallID
+		params.ParentToolCallID = &parentID
+	}
 	if input.After.Set {
 		createdAt := input.After.CreatedAt
 		id := input.After.ID

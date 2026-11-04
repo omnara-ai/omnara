@@ -5082,6 +5082,14 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/ToolCallType'
+        - name: parent_tool_call_id
+          in: query
+          required: false
+          description: >-
+            Return only the calls a run_command call's process made with
+            `omnarad call`, by that run_command call's ID.
+          schema:
+            $ref: '#/components/schemas/ToolCallID'
         - name: include_subagents
           in: query
           required: false

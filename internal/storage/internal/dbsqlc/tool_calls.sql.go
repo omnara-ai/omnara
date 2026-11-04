@@ -359,24 +359,29 @@ WHERE call.project_id = $1
   AND ($3::text = '' OR call.state = $3)
   AND ($4::text = '' OR call.type = $4)
   AND (
-    $5::timestamptz IS NULL
+    $5::uuid IS NULL
+    OR call.parent_tool_call_id = $5
+  )
+  AND (
+    $6::timestamptz IS NULL
     OR (call.created_at, call.id) > (
-      $5::timestamptz,
-      $6::uuid
+      $6::timestamptz,
+      $7::uuid
     )
   )
 ORDER BY call.created_at ASC, call.id ASC
-LIMIT $7::bigint
+LIMIT $8::bigint
 `
 
 type ListToolCallsForAgentParams struct {
-	ProjectID       uuid.UUID
-	AgentIds        []uuid.UUID
-	State           string
-	Type            string
-	CursorCreatedAt *time.Time
-	CursorID        *uuid.UUID
-	RowLimit        int64
+	ProjectID        uuid.UUID
+	AgentIds         []uuid.UUID
+	State            string
+	Type             string
+	ParentToolCallID *uuid.UUID
+	CursorCreatedAt  *time.Time
+	CursorID         *uuid.UUID
+	RowLimit         int64
 }
 
 type ListToolCallsForAgentRow struct {
@@ -406,6 +411,7 @@ func (q *Queries) ListToolCallsForAgent(ctx context.Context, arg ListToolCallsFo
 		arg.AgentIds,
 		arg.State,
 		arg.Type,
+		arg.ParentToolCallID,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.RowLimit,

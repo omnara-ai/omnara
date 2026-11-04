@@ -100,6 +100,10 @@ WHERE call.project_id = sqlc.arg(project_id)
   AND (sqlc.arg(state)::text = '' OR call.state = sqlc.arg(state))
   AND (sqlc.arg(type)::text = '' OR call.type = sqlc.arg(type))
   AND (
+    sqlc.narg(parent_tool_call_id)::uuid IS NULL
+    OR call.parent_tool_call_id = sqlc.narg(parent_tool_call_id)
+  )
+  AND (
     sqlc.narg(cursor_created_at)::timestamptz IS NULL
     OR (call.created_at, call.id) > (
       sqlc.narg(cursor_created_at)::timestamptz,
