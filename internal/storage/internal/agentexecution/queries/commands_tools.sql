@@ -7,11 +7,11 @@ JOIN model_call_contexts m ON m.agent_id=o.agent_id AND m.id=o.model_call_contex
 JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
 LEFT JOIN agent_events re ON re.agent_id=r.agent_id AND re.tool_call_result_id=r.id
-WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='model';
 
 -- name: TransitionExecutionTool :execrows
 UPDATE tool_calls c SET state=sqlc.arg(next_state),runtime_lock_id=sqlc.narg(next_runtime_id)
-WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.state=sqlc.arg(previous_state)
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='model' AND c.state=sqlc.arg(previous_state)
  AND c.runtime_lock_id IS NOT DISTINCT FROM sqlc.narg(previous_runtime_id)::uuid
  AND (sqlc.narg(fence_id)::uuid IS NULL OR EXISTS(SELECT 1 FROM agent_runtime_locks r
  WHERE r.agent_id=c.agent_id AND r.id=sqlc.narg(fence_id) AND r.cancel_requested_at IS NULL
@@ -37,4 +37,4 @@ SELECT EXISTS(SELECT 1 FROM agent_interactions i WHERE i.agent_id=sqlc.arg(agent
  AND p.id=sqlc.narg(action_id) AND p.state IN ('queued','accepted')) AS action;
 
 -- name: ReadExecutionToolDispatch :one
-SELECT state FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(id);
+SELECT state FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(id) AND caller='model';

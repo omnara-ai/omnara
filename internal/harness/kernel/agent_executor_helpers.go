@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -116,4 +117,12 @@ func marshalJSON(value any) (json.RawMessage, error) {
 		return nil, fmt.Errorf("marshal agent kernel json: %w", err)
 	}
 	return body, nil
+}
+
+// RunProgramToolCall runs a claimed program tool call phase with the kernel's
+// tool executor; see tools.Executor.RunProgramToolCall.
+func (e AgentExecutor) RunProgramToolCall(
+	ctx context.Context, claim executionstore.ProgramToolCallClaim, lease time.Duration,
+) error {
+	return e.configuredToolExecutor().RunProgramToolCall(ctx, claim, lease)
 }

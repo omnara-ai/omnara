@@ -116,6 +116,7 @@ UPDATE machines
 SET cwd = sqlc.arg(cwd),
     env = sqlc.arg(env),
     secret_env = sqlc.arg(secret_env),
+    programmatic_tool_calls = coalesce(sqlc.narg(programmatic_tool_calls)::boolean, programmatic_tool_calls),
     updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)

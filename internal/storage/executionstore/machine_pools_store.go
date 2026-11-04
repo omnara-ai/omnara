@@ -86,7 +86,9 @@ type MachineRecord struct {
 	UpdatedAt                    time.Time              `json:"updated_at"`
 	LifecycleChangedAt           time.Time              `json:"-"`
 	LifecycleVersion             int64                  `json:"-"`
-	Created                      bool                   `json:"-"`
+	// ProgrammaticToolCalls is loaded by machine create, get, and update reads only.
+	ProgrammaticToolCalls bool `json:"-"`
+	Created               bool `json:"-"`
 }
 
 type MachineSummaryRecord struct {
@@ -121,6 +123,7 @@ type MachinePoolRecord struct {
 	ProviderAuthSecretID          uuid.UUID       `json:"provider_auth_secret_id,omitempty"`
 	ProviderAuthEnvVar            string          `json:"-"`
 	RuntimeProtectionEnabled      bool            `json:"runtime_protection_enabled"`
+	DefaultProgrammaticToolCalls  bool            `json:"default_programmatic_tool_calls"`
 	MaxTotalMachines              int32           `json:"max_total_machines"`
 	MaxTotalCPU                   *int            `json:"max_total_cpu"`
 	MaxTotalMemoryMB              *int            `json:"max_total_memory_mb"`
@@ -176,6 +179,7 @@ type CreateMachinePoolInput struct {
 	ProviderAuthSecretID          uuid.UUID
 	ProviderAuthEnvVar            string
 	RuntimeProtectionEnabled      bool
+	DefaultProgrammaticToolCalls  bool
 	MaxTotalMachines              int32
 	MaxTotalCPU                   *int
 	MaxTotalMemoryMB              *int
@@ -201,6 +205,7 @@ type UpdateMachinePoolInput struct {
 	ProviderConfig                json.RawMessage
 	ProviderAuthSecretID          *uuid.UUID
 	RuntimeProtectionEnabled      *bool
+	DefaultProgrammaticToolCalls  *bool
 	MaxTotalMachines              *int32
 	MaxTotalCPU                   patch.NullableInt
 	MaxTotalMemoryMB              patch.NullableInt
@@ -403,6 +408,7 @@ func sameMachinePoolIntent(record MachinePoolRecord, input CreateMachinePoolInpu
 		record.ProviderAuthSecretID == input.ProviderAuthSecretID &&
 		record.ProviderAuthEnvVar == input.ProviderAuthEnvVar &&
 		record.RuntimeProtectionEnabled == input.RuntimeProtectionEnabled &&
+		record.DefaultProgrammaticToolCalls == input.DefaultProgrammaticToolCalls &&
 		record.MaxTotalMachines == input.MaxTotalMachines &&
 		storeutil.SameIntPtr(record.MaxTotalCPU, input.MaxTotalCPU) &&
 		storeutil.SameIntPtr(record.MaxTotalMemoryMB, input.MaxTotalMemoryMB) &&
@@ -623,6 +629,7 @@ func insertMachinePool(
 		ProviderAuthSecretID:          storeutil.IDFromNil(input.ProviderAuthSecretID),
 		ProviderAuthEnvVar:            input.ProviderAuthEnvVar,
 		RuntimeProtectionEnabled:      input.RuntimeProtectionEnabled,
+		DefaultProgrammaticToolCalls:  input.DefaultProgrammaticToolCalls,
 		MaxTotalMachines:              input.MaxTotalMachines,
 		MaxTotalCpu:                   storeutil.Int32Ptr(input.MaxTotalCPU),
 		MaxTotalMemoryMb:              storeutil.Int32Ptr(input.MaxTotalMemoryMB),
@@ -699,6 +706,7 @@ func (s *Store) UpdateMachinePool(
 		ProviderAuthSecretID:          storeutil.IDFromPtr(locked.ProviderAuthSecretID),
 		ProviderAuthEnvVar:            locked.ProviderAuthEnvVar,
 		RuntimeProtectionEnabled:      locked.RuntimeProtectionEnabled,
+		DefaultProgrammaticToolCalls:  locked.DefaultProgrammaticToolCalls,
 		MaxTotalMachines:              locked.MaxTotalMachines,
 		MaxTotalCPU:                   storeutil.IntPtr(locked.MaxTotalCpu),
 		MaxTotalMemoryMB:              storeutil.IntPtr(locked.MaxTotalMemoryMb),
@@ -741,6 +749,9 @@ func (s *Store) UpdateMachinePool(
 	}
 	if input.RuntimeProtectionEnabled != nil {
 		merged.RuntimeProtectionEnabled = *input.RuntimeProtectionEnabled
+	}
+	if input.DefaultProgrammaticToolCalls != nil {
+		merged.DefaultProgrammaticToolCalls = *input.DefaultProgrammaticToolCalls
 	}
 	if input.MaxTotalMachines != nil {
 		merged.MaxTotalMachines = *input.MaxTotalMachines
@@ -879,6 +890,7 @@ func updateMachinePoolRow(
 		ProviderConfig:                input.ProviderConfig,
 		ProviderAuthSecretID:          storeutil.IDFromNil(input.ProviderAuthSecretID),
 		RuntimeProtectionEnabled:      input.RuntimeProtectionEnabled,
+		DefaultProgrammaticToolCalls:  input.DefaultProgrammaticToolCalls,
 		MaxTotalMachines:              input.MaxTotalMachines,
 		MaxTotalCpu:                   storeutil.Int32Ptr(input.MaxTotalCPU),
 		MaxTotalMemoryMb:              storeutil.Int32Ptr(input.MaxTotalMemoryMB),

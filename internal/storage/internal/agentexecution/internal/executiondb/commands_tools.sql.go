@@ -115,7 +115,7 @@ JOIN model_call_contexts m ON m.agent_id=o.agent_id AND m.id=o.model_call_contex
 JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
 LEFT JOIN agent_events re ON re.agent_id=r.agent_id AND re.tool_call_result_id=r.id
-WHERE c.agent_id=$1 AND c.id=$2
+WHERE c.agent_id=$1 AND c.id=$2 AND c.caller='model'
 `
 
 type ReadExecutionToolParams struct {
@@ -171,7 +171,7 @@ func (q *Queries) ReadExecutionTool(ctx context.Context, db DBTX, arg ReadExecut
 }
 
 const readExecutionToolDispatch = `-- name: ReadExecutionToolDispatch :one
-SELECT state FROM tool_calls WHERE agent_id=$1 AND id=$2
+SELECT state FROM tool_calls WHERE agent_id=$1 AND id=$2 AND caller='model'
 `
 
 type ReadExecutionToolDispatchParams struct {
@@ -188,7 +188,7 @@ func (q *Queries) ReadExecutionToolDispatch(ctx context.Context, db DBTX, arg Re
 
 const transitionExecutionTool = `-- name: TransitionExecutionTool :execrows
 UPDATE tool_calls c SET state=$1,runtime_lock_id=$2
-WHERE c.agent_id=$3 AND c.id=$4 AND c.state=$5
+WHERE c.agent_id=$3 AND c.id=$4 AND c.caller='model' AND c.state=$5
  AND c.runtime_lock_id IS NOT DISTINCT FROM $6::uuid
  AND ($7::uuid IS NULL OR EXISTS(SELECT 1 FROM agent_runtime_locks r
  WHERE r.agent_id=c.agent_id AND r.id=$7 AND r.cancel_requested_at IS NULL

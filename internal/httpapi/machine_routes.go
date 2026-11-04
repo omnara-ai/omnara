@@ -181,11 +181,12 @@ func (s strictOpenAPIServer) UpdateMachine(
 		secretEnvUpdate = &secretEnv
 	}
 	record, err := s.server.store.Execution().UpdateMachine(ctx, executionstore.UpdateMachineInput{
-		OrgID:     machine.OrgID,
-		MachineID: machine.ID,
-		Cwd:       request.Body.Cwd,
-		Env:       envUpdate,
-		SecretEnv: secretEnvUpdate,
+		OrgID:                 machine.OrgID,
+		MachineID:             machine.ID,
+		Cwd:                   request.Body.Cwd,
+		Env:                   envUpdate,
+		SecretEnv:             secretEnvUpdate,
+		ProgrammaticToolCalls: request.Body.ProgrammaticToolCalls,
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
@@ -374,6 +375,7 @@ func machineResponse(record executionstore.MachineRecord) (openapi.Machine, erro
 		Cwd:                    record.Cwd,
 		Env:                    env,
 		SecretEnv:              secretEnv,
+		ProgrammaticToolCalls:  record.ProgrammaticToolCalls,
 		LifecycleReasonCode:    record.LifecycleReasonCode,
 		LifecycleReasonMessage: record.LifecycleReasonMessage,
 		FailureReport:          failureReport,

@@ -75,6 +75,7 @@ func (subprocessRunnerLauncher) Prepare(
 		return nil, err
 	}
 	c.prepareGitCredentials(&assignment, supervisorToken)
+	c.prepareProgramToolCalls(&assignment, supervisorToken)
 	if assignment.Process.ExecutionSpec.Kind == processcmd.KindFileTransfer {
 		connection, err := c.fileTransferConnection()
 		if err != nil {

@@ -733,6 +733,93 @@ func (q *Queries) GetDaemonProcessForProjectReport(ctx context.Context, arg GetD
 	return i, err
 }
 
+const getDaemonProgramToolScope = `-- name: GetDaemonProgramToolScope :one
+SELECT process.project_id, process.agent_id, process.id AS process_id,
+       tool_call.id AS parent_tool_call_id, output.id AS model_output_id,
+       context.id AS model_call_context_id, source_event.turn_id, source_event.id AS source_event_id,
+       original_config.id AS agent_config_id,
+       (original_definition.compiled_definition->'programmatic_tool_calls')::jsonb AS programmatic_tool_calls,
+       machine.programmatic_tool_calls AS machine_programmatic_tool_calls
+FROM processes process
+JOIN orgs org ON org.id = process.org_id AND org.deleted_at IS NULL
+JOIN projects project ON project.org_id = process.org_id AND project.id = process.project_id
+  AND project.deleted_at IS NULL
+JOIN machines machine ON machine.org_id = process.org_id AND machine.id = process.machine_id
+  AND machine.deleted_at IS NULL AND machine.lifecycle_state = 'active'
+JOIN agents agent ON agent.org_id = process.org_id AND agent.project_id = process.project_id
+  AND agent.id = process.agent_id AND agent.state = 'active'
+JOIN agent_machine_bindings binding ON binding.org_id = process.org_id
+  AND binding.project_id = process.project_id AND binding.agent_id = process.agent_id
+  AND binding.id = process.agent_machine_binding_id AND binding.machine_id = process.machine_id
+  AND binding.state = 'attached'
+JOIN project_machine_grants pmgrant ON pmgrant.org_id = process.org_id
+  AND pmgrant.project_id = process.project_id AND pmgrant.machine_id = process.machine_id
+JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
+  AND tool_call.caller = 'model'
+JOIN model_outputs output ON output.agent_id = tool_call.agent_id AND output.id = tool_call.model_output_id
+JOIN model_call_contexts context ON context.agent_id = output.agent_id
+  AND context.id = output.model_call_context_id
+JOIN agent_events source_event ON source_event.agent_id = output.agent_id
+  AND source_event.model_output_id = output.id AND source_event.event_kind = 'model_output'
+JOIN agent_configs original_config ON original_config.project_id = process.project_id
+  AND original_config.id = context.agent_config_id
+JOIN agent_configs current_config ON current_config.project_id = process.project_id
+  AND current_config.id = agent.current_config_id
+JOIN agent_config_definitions original_definition ON original_definition.project_id = original_config.project_id
+  AND original_definition.id = original_config.definition_id
+JOIN agent_config_definitions current_definition ON current_definition.project_id = current_config.project_id
+  AND current_definition.id = current_config.definition_id
+WHERE process.org_id = $1
+  AND process.machine_id = $2
+  AND process.id = $3
+  AND process.execution_spec->>'kind' = 'shell'
+  AND process.execution_granted_at IS NOT NULL
+  AND process.state IN ('starting', 'running')
+  AND machine.programmatic_tool_calls
+  AND original_definition.compiled_definition->'programmatic_tool_calls' IS NOT NULL
+  AND original_definition.compiled_definition->'programmatic_tool_calls'
+    IS NOT DISTINCT FROM current_definition.compiled_definition->'programmatic_tool_calls'
+`
+
+type GetDaemonProgramToolScopeParams struct {
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
+	ProcessID uuid.UUID
+}
+
+type GetDaemonProgramToolScopeRow struct {
+	ProjectID                    uuid.UUID
+	AgentID                      uuid.UUID
+	ProcessID                    uuid.UUID
+	ParentToolCallID             uuid.UUID
+	ModelOutputID                uuid.UUID
+	ModelCallContextID           uuid.UUID
+	TurnID                       uuid.UUID
+	SourceEventID                uuid.UUID
+	AgentConfigID                uuid.UUID
+	ProgrammaticToolCalls        json.RawMessage
+	MachineProgrammaticToolCalls bool
+}
+
+func (q *Queries) GetDaemonProgramToolScope(ctx context.Context, arg GetDaemonProgramToolScopeParams) (GetDaemonProgramToolScopeRow, error) {
+	row := q.db.QueryRow(ctx, getDaemonProgramToolScope, arg.OrgID, arg.MachineID, arg.ProcessID)
+	var i GetDaemonProgramToolScopeRow
+	err := row.Scan(
+		&i.ProjectID,
+		&i.AgentID,
+		&i.ProcessID,
+		&i.ParentToolCallID,
+		&i.ModelOutputID,
+		&i.ModelCallContextID,
+		&i.TurnID,
+		&i.SourceEventID,
+		&i.AgentConfigID,
+		&i.ProgrammaticToolCalls,
+		&i.MachineProgrammaticToolCalls,
+	)
+	return i, err
+}
+
 const getProcess = `-- name: GetProcess :one
 SELECT id, org_id, project_id, agent_id, tool_call_id, runtime_lock_id, agent_machine_binding_id, machine_id, execution_granted_at, cwd, env, secret_env, timeout_seconds, initial_wait_ms, default_output_cursor, state, state_reason_code, state_reason_message, source_started_at, source_ended_at, state_changed_at, exit_code, exit_signal, created_at, updated_at, last_activity_at, execution_spec, exit_notice_decided, supervisor_daemon_version
 FROM processes
@@ -1083,6 +1170,7 @@ JOIN live_runtime runtime_lock ON runtime_lock.project_id = agent.project_id
   AND runtime_lock.agent_id = agent.id
 JOIN tool_calls tool_call ON tool_call.agent_id = agent.id
   AND tool_call.id = $7
+  AND tool_call.caller = 'model'
 JOIN agent_machine_bindings binding ON binding.project_id = agent.project_id
   AND binding.agent_id = agent.id
   AND binding.id = $8
@@ -1228,7 +1316,23 @@ SELECT process.id, process.org_id, process.project_id, process.agent_id, process
          JOIN agent_config_definitions definition ON definition.project_id = config.project_id
            AND definition.id = config.definition_id
          WHERE tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
-       ) END)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id
+       ) END)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id,
+       coalesce(process.execution_spec->>'kind' = 'shell' AND (
+         SELECT machine.programmatic_tool_calls
+           AND definition.compiled_definition->'programmatic_tool_calls' IS NOT NULL
+         FROM tool_calls tool_call
+         JOIN model_outputs output ON output.agent_id = tool_call.agent_id
+           AND output.id = tool_call.model_output_id
+         JOIN model_call_contexts context ON context.agent_id = output.agent_id
+           AND context.id = output.model_call_context_id
+         JOIN agent_configs config ON config.project_id = context.project_id
+           AND config.id = context.agent_config_id
+         JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+           AND definition.id = config.definition_id
+         JOIN machines machine ON machine.org_id = process.org_id AND machine.id = process.machine_id
+           AND machine.deleted_at IS NULL
+         WHERE tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
+       ), false)::boolean AS programmatic_tool_calls
 FROM processes process
 WHERE process.org_id = $1
   AND process.machine_id = $2
@@ -1295,6 +1399,7 @@ type ListDaemonProcessOffersRow struct {
 	ExitNoticeDecided           bool
 	SupervisorDaemonVersion     *string
 	GitCredentialsIntegrationID uuid.UUID
+	ProgrammaticToolCalls       bool
 }
 
 func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonProcessOffersParams) ([]ListDaemonProcessOffersRow, error) {
@@ -1344,6 +1449,7 @@ func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonPro
 			&i.ExitNoticeDecided,
 			&i.SupervisorDaemonVersion,
 			&i.GitCredentialsIntegrationID,
+			&i.ProgrammaticToolCalls,
 		); err != nil {
 			return nil, err
 		}
