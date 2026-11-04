@@ -15,6 +15,9 @@ type ToolSearchDefinition struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema"`
+	// OutputSchema is set only in program tool_search results, for tools that
+	// declare one.
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 }
 
 type ToolSearchResult struct {
@@ -103,7 +106,8 @@ func SearchDeferredTools(specs []ToolSpec, pattern string, maxResults int) (Tool
 }
 
 // ProgramToolSearchResult is tool_search's answer to `omnarad call`: every
-// matching tool, deferred or not. Total counts matches before MaxResults.
+// matching tool, deferred or not, with its output schema when it has one.
+// Total counts matches before MaxResults.
 type ProgramToolSearchResult struct {
 	Pattern string                 `json:"pattern"`
 	Tools   []ToolSearchDefinition `json:"tools"`
@@ -122,7 +126,9 @@ func SearchTools(specs []ToolSpec, pattern string, maxResults int) (ProgramToolS
 		matches = matches[:maxResults]
 	}
 	for _, spec := range matches {
-		result.Tools = append(result.Tools, toolSearchDefinition(spec))
+		definition := toolSearchDefinition(spec)
+		definition.OutputSchema = spec.OutputSchema
+		result.Tools = append(result.Tools, definition)
 	}
 	return result, nil
 }

@@ -137,15 +137,7 @@ func runStorageReadAsync(
 			"file must contain UTF-8 text without NUL bytes, or be a PNG, JPEG, GIF, or WebP image",
 		)
 	}
-	var result map[string]any
-	if input.OffsetChar != nil {
-		result = readFileChars(content, input.Path, *input.OffsetChar, *input.LimitChars)
-	} else {
-		result = readFileLines(content, input.Path, *input.OffsetLine, *input.LimitLines)
-	}
-	result["content_type"] = contentType
-	result["size_bytes"] = len(content)
-	part, err := structuredToolResultPart(result)
+	part, err := structuredToolResultPart(storageTextPage(content, input, contentType))
 	if err != nil {
 		return nil, err
 	}
@@ -154,6 +146,19 @@ func runStorageReadAsync(
 		return nil, err
 	}
 	return completeFileRead(note, part, digestPart), nil
+}
+
+// storageTextPage is the page of a text file a resolved request reads.
+func storageTextPage(content []byte, input storageReadRequest, contentType string) map[string]any {
+	var result map[string]any
+	if input.OffsetChar != nil {
+		result = readFileChars(content, input.Path, *input.OffsetChar, *input.LimitChars)
+	} else {
+		result = readFileLines(content, input.Path, *input.OffsetLine, *input.LimitLines)
+	}
+	result["content_type"] = contentType
+	result["size_bytes"] = len(content)
+	return result
 }
 
 func (e Executor) readMemoryFile(ctx context.Context, turn Turn, filePath string) (memorystore.File, error) {
