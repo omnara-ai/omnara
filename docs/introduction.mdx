@@ -13,7 +13,7 @@ Teams use it for agents in their product, internal bots in Slack or GitHub, code
 
 You describe an agent in a config: its instructions, model, tools, and machines. Omnara runs the agent loop on its own workers and saves every step to Postgres as it happens.
 
-- **Agents survive failures.** After a worker crash, a restart, or a machine disconnect, an agent picks up from its last saved step, and recovery doesn't rerun tools. [Failure handling](/agents/failure-handling) covers each case.
+- **Agents are durable.** After a worker crash, a restart, or a machine disconnect, an agent picks up from its last saved step, and recovery doesn't rerun tools. [Failure handling](/agents/failure-handling) covers each case.
 - **Scaling is adding workers.** Workers are stateless, and an agent only uses one while it's taking a turn.
 - **Agents are API objects.** Launch one per customer, ticket, or thread. [Post a new config](/events/sending-input#change-the-config-mid-conversation) to change a running agent's model, tools, permissions, or instructions at its next model call, or send a [steering message](/events/sending-input#queued-vs-steering), without restarting the conversation or redeploying.
 - **Your logic stays in your code.** [Custom tools](/tools/custom) run in your own backend, in any language, and Omnara holds each call until you answer. [MCP servers](/tools/mcp) work too.
