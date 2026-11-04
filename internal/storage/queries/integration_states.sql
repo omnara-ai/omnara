@@ -74,7 +74,8 @@ WHERE sqlc.arg(force)::boolean OR NOT integration_states.data @> excluded.data;
 
 -- name: ListActiveGitHubCheckRunStates :many
 SELECT state.id, state.project_id, state.integration_id, state.kind, state.key, state.scope_kind, state.scope_ref,
-       state.data, state.revision, state.expires_at, state.created_at, state.updated_at
+       state.data, state.revision, state.expires_at, state.created_at, state.updated_at,
+       integration.provider_account_ref
 FROM integration_states state
 JOIN integrations integration ON integration.project_id = state.project_id AND integration.id = state.integration_id
 WHERE state.kind = 'github_check_run' AND state.id > sqlc.arg(after_id)

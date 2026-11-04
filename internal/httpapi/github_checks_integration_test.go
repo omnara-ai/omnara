@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integration/github"
-	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -56,7 +55,7 @@ type githubCheckRunRequest struct {
 }
 
 func newGitHubChecksAPI(
-	t *testing.T, head func() string, denyChecks *atomic.Bool,
+	t *testing.T, head func() string, denyChecks bool,
 	checkRun func(*http.Request, githubCheckRunRequest) any,
 ) github.Config {
 	t.Helper()
@@ -69,10 +68,11 @@ func newGitHubChecksAPI(
 				Permissions map[string]string `json:"permissions"`
 			}
 			assert.NoError(t, json.NewDecoder(r.Body).Decode(&grant))
-			if grant.Permissions["checks"] != "" && denyChecks != nil && denyChecks.Load() {
-				w.WriteHeader(http.StatusUnprocessableEntity)
-			}
 			result = map[string]any{"token": "token", "expires_at": "2099-01-01T00:00:00Z"}
+			if grant.Permissions["checks"] != "" && denyChecks {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				result = map[string]any{"message": "The permissions requested are not granted to this installation."}
+			}
 		case r.URL.Path == "/installation/repositories":
 			result = map[string]any{"total_count": 1, "repositories": []github.Repository{repository}}
 		case r.URL.Path == "/repos/owner/repository/pulls/42":
@@ -106,12 +106,11 @@ func TestGitHubCheckReconcilerTracksAgentActivity(t *testing.T) {
 		defer mu.Unlock()
 		head = commit
 	}
-	var denyChecks atomic.Bool
 	api := newGitHubChecksAPI(t, func() string {
 		mu.Lock()
 		defer mu.Unlock()
 		return head
-	}, &denyChecks, func(r *http.Request, body githubCheckRunRequest) any {
+	}, false, func(r *http.Request, body githubCheckRunRequest) any {
 		mu.Lock()
 		defer mu.Unlock()
 		calls = append(calls, strings.TrimSpace(fmt.Sprint(r.Method, " ", r.URL.Path, " ",
@@ -229,19 +228,19 @@ func TestGitHubCheckReconcilerTracksAgentActivity(t *testing.T) {
 		"Working", "Superseded", "Working", "Finished", "Working", "Superseded",
 		"Finished", "Working", "Superseded", "Working", "Finished", "Working",
 	}, titles)
-	require.Equal(t, f.integration.ProviderAgentDisplayName, checkName)
+	require.Equal(t, f.integration.ProviderAgentDisplayName+" ("+f.integration.Name+")", checkName)
 	require.Contains(t, firstSummary, "Open in Omnara: "+details)
 	require.Contains(t, firstSummary, testPublicID(t, publicid.KindAgent, agentID))
 	require.Contains(t, firstSummary, "- **Profile:** `"+testutil.RequireType[string](t, profile["id"])+"`")
 	require.Contains(t, firstSummary, "`"+f.integration.Name+"`")
 
-	denyChecks.Store(true)
 	makeIdle(agentID)
 	reconcile()
+	reconcile()
+	require.Equal(t, []string{closed(12)}, calls[12:])
 	runs, err := integrations.ListGitHubCheckRuns(t.Context(), uuid.Nil, uuid.Nil, 10)
 	require.NoError(t, err)
-	require.Empty(t, runs)
-	require.Len(t, calls, 12)
+	require.Empty(t, runs, "a finished check stops being tracked")
 
 	for range 2 {
 		require.NoError(t, integrations.MarkGitHubCheckRun(
@@ -264,7 +263,7 @@ func TestGitHubCheckReconcilersShareOneCheck(t *testing.T) {
 	f, _ := newGitHubChecksJourney(t, "github-check-claims")
 	entered, release := make(chan struct{}), make(chan struct{})
 	var creates, closes atomic.Int32
-	api := newGitHubChecksAPI(t, func() string { return strings.Repeat("b", 40) }, nil,
+	api := newGitHubChecksAPI(t, func() string { return strings.Repeat("b", 40) }, false,
 		func(r *http.Request, _ githubCheckRunRequest) any {
 			switch {
 			case r.Method == http.MethodPost:
@@ -333,7 +332,7 @@ func TestGitHubCheckReconcilerUpdatesTheWaitingCheck(t *testing.T) {
 		agentID, integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}, false))
 	var mu sync.Mutex
 	var calls []string
-	api := newGitHubChecksAPI(t, func() string { return strings.Repeat("b", 40) }, nil,
+	api := newGitHubChecksAPI(t, func() string { return strings.Repeat("b", 40) }, false,
 		func(r *http.Request, body githubCheckRunRequest) any {
 			mu.Lock()
 			defer mu.Unlock()
@@ -350,36 +349,6 @@ func TestGitHubCheckReconcilerUpdatesTheWaitingCheck(t *testing.T) {
 		"POST /repos/owner/repository/check-runs completedaction_required",
 		"PATCH /repos/owner/repository/check-runs/1 neutral",
 	}, calls, "finishing after a question updates the waiting check instead of adding another")
-}
-
-func TestGitHubCheckNamesLaterIntegrationsSharingTheApp(t *testing.T) {
-	t.Parallel()
-	f := newGitHubHTTPJourney(t, "github-check-shared-app")
-	ctx := t.Context()
-	later := createSetupHTTPIntegration(t, f.handler, f.project, "reviews", integrationdefinition.GitHubPR)
-	body := integrationSetupHTTPBody("123", "456")
-	body["credential_secret_id"], body["expected_setup_revision"] = f.secretID, later.SetupRevision
-	requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, later),
-		integrationHTTPJSON(t, body), "", http.StatusOK, authHeaders(f.project.AdminToken))
-	address := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}
-	for _, integrationID := range []uuid.UUID{f.integration.ID, later.ID} {
-		require.NoError(t, f.project.Store.Integrations().MarkGitHubCheckRun(
-			ctx, f.project.ProjectUUID, integrationID, uuid.New(), address, false))
-	}
-	var mu sync.Mutex
-	var names []string
-	api := newGitHubChecksAPI(t, func() string { return strings.Repeat("b", 40) }, nil,
-		func(_ *http.Request, body githubCheckRunRequest) any {
-			mu.Lock()
-			defer mu.Unlock()
-			names = append(names, body.Name)
-			return map[string]any{"id": len(names)}
-		})
-	reconciler := &integrationruntime.GitHubCheckReconciler{Store: f.project.Store, GitHub: api}
-	requireReconciled(t, reconciler)
-	app := f.integration.ProviderAgentDisplayName
-	require.ElementsMatch(t, []string{app, app + " (reviews)"}, names,
-		"the first integration on an App keeps its name; later ones add theirs")
 }
 
 func requireReconciled(t *testing.T, reconciler *integrationruntime.GitHubCheckReconciler) {
@@ -413,4 +382,23 @@ func TestGitHubCheckTrackingSurvivesReceiptReplay(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, runs, 1, "a replayed receipt still tracks its admitted agent")
 	require.Equal(t, results[0].Launch.Agent.ID, runs[0].AgentID)
+}
+
+func TestGitHubCheckStopsTrackingWithoutChecksPermission(t *testing.T) {
+	t.Parallel()
+	f, _ := newGitHubChecksJourney(t, "github-check-denied")
+	var creates atomic.Int32
+	api := newGitHubChecksAPI(t, func() string { return strings.Repeat("b", 40) }, true,
+		func(*http.Request, githubCheckRunRequest) any {
+			creates.Add(1)
+			return map[string]any{"id": 1}
+		})
+	raw := githubHTTPPullRequest(t, 42, "opened")
+	githubHTTPWebhook(t, f.handler, "pull_request", "opened", githubJourneyWebhookSecret, raw, http.StatusNoContent)
+	require.Len(t, f.consume(t, raw), 1)
+	requireReconciled(t, &integrationruntime.GitHubCheckReconciler{Store: f.project.Store, GitHub: api})
+	runs, err := f.project.Store.Integrations().ListGitHubCheckRuns(t.Context(), uuid.Nil, uuid.Nil, 10)
+	require.NoError(t, err)
+	require.Empty(t, runs, "an App without the Checks permission stops tracking without retrying")
+	require.Zero(t, creates.Load())
 }

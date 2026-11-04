@@ -19,6 +19,7 @@ type GitHubCheckRun struct {
 	ID            uuid.UUID
 	ProjectID     uuid.UUID
 	IntegrationID uuid.UUID
+	Installation  string
 	AgentID       uuid.UUID
 	Address       ConversationAddress
 	Run           int64
@@ -94,7 +95,8 @@ func (s *Store) ListGitHubCheckRuns(
 			return nil, err
 		}
 		runs = append(runs, GitHubCheckRun{
-			ID: state.ID, ProjectID: state.ProjectID, IntegrationID: state.IntegrationID, AgentID: data.AgentID,
+			ID: state.ID, ProjectID: state.ProjectID, IntegrationID: state.IntegrationID,
+			Installation: storeutil.TextOrEmpty(state.ProviderAccountRef), AgentID: data.AgentID,
 			Address: ConversationAddress{
 				Kind: storeutil.TextOrEmpty(state.ScopeKind), Ref: storeutil.TextOrEmpty(state.ScopeRef),
 			},

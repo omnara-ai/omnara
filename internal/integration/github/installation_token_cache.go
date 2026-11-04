@@ -24,7 +24,7 @@ type installationTokenIdentity struct {
 type installationTokenKey struct {
 	installationTokenIdentity
 	repositoryID int64
-	write        bool
+	kind         tokenKind
 }
 
 type installationTokenEntry struct {
@@ -46,9 +46,9 @@ func newInstallationTokenCache(capacity int) (*installationTokenCache, error) {
 }
 
 func (c *installationTokenCache) token(
-	ctx context.Context, client *Client, repositoryID int64, write bool,
+	ctx context.Context, client *Client, repositoryID int64, kind tokenKind,
 ) (string, error) {
-	key := installationTokenKey{installationTokenIdentity: client.tokenIdentity, repositoryID: repositoryID, write: write}
+	key := installationTokenKey{installationTokenIdentity: client.tokenIdentity, repositoryID: repositoryID, kind: kind}
 	c.mu.Lock()
 	entry, found := c.entries.Get(key)
 	if !found {
@@ -71,7 +71,7 @@ func (c *installationTokenCache) token(
 	if cached.expiresAt.After(client.now().Add(time.Minute)) {
 		return cached.token, nil
 	}
-	fresh, err := client.mintInstallationToken(ctx, repositoryID, pullRequestPermissions(write))
+	fresh, err := client.mintInstallationToken(ctx, repositoryID, kind.permissions())
 	if err != nil {
 		return "", err
 	}

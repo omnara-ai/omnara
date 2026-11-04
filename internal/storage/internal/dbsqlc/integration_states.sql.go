@@ -8,6 +8,7 @@ package dbsqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -286,7 +287,8 @@ func (q *Queries) InsertIntegrationState(ctx context.Context, arg InsertIntegrat
 
 const listActiveGitHubCheckRunStates = `-- name: ListActiveGitHubCheckRunStates :many
 SELECT state.id, state.project_id, state.integration_id, state.kind, state.key, state.scope_kind, state.scope_ref,
-       state.data, state.revision, state.expires_at, state.created_at, state.updated_at
+       state.data, state.revision, state.expires_at, state.created_at, state.updated_at,
+       integration.provider_account_ref
 FROM integration_states state
 JOIN integrations integration ON integration.project_id = state.project_id AND integration.id = state.integration_id
 WHERE state.kind = 'github_check_run' AND state.id > $1
@@ -303,15 +305,31 @@ type ListActiveGitHubCheckRunStatesParams struct {
 	RowLimit int32
 }
 
-func (q *Queries) ListActiveGitHubCheckRunStates(ctx context.Context, arg ListActiveGitHubCheckRunStatesParams) ([]IntegrationState, error) {
+type ListActiveGitHubCheckRunStatesRow struct {
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	IntegrationID      uuid.UUID
+	Kind               string
+	Key                string
+	ScopeKind          *string
+	ScopeRef           *string
+	Data               json.RawMessage
+	Revision           int64
+	ExpiresAt          *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	ProviderAccountRef *string
+}
+
+func (q *Queries) ListActiveGitHubCheckRunStates(ctx context.Context, arg ListActiveGitHubCheckRunStatesParams) ([]ListActiveGitHubCheckRunStatesRow, error) {
 	rows, err := q.db.Query(ctx, listActiveGitHubCheckRunStates, arg.AfterID, arg.Claim, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []IntegrationState{}
+	items := []ListActiveGitHubCheckRunStatesRow{}
 	for rows.Next() {
-		var i IntegrationState
+		var i ListActiveGitHubCheckRunStatesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProjectID,
@@ -325,6 +343,7 @@ func (q *Queries) ListActiveGitHubCheckRunStates(ctx context.Context, arg ListAc
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ProviderAccountRef,
 		); err != nil {
 			return nil, err
 		}

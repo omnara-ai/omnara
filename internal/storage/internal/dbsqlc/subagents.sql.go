@@ -103,53 +103,6 @@ func (q *Queries) CountAgentAncestors(ctx context.Context, arg CountAgentAncesto
 	return column_1, err
 }
 
-const listActiveAgentTreeMembers = `-- name: ListActiveAgentTreeMembers :many
-WITH RECURSIVE subtree AS (
-  SELECT agent.project_id, agent.id AS tracked_agent_id, agent.id, 0 AS depth
-  FROM agents agent
-  WHERE agent.project_id = ANY($1::uuid[])
-    AND agent.id = ANY($2::uuid[])
-  UNION ALL
-  SELECT child.project_id, subtree.tracked_agent_id, child.id, subtree.depth + 1
-  FROM agents child
-  JOIN subtree ON child.project_id = subtree.project_id AND child.parent_agent_id = subtree.id
-  WHERE child.state = 'active' AND subtree.depth < 64
-)
-SELECT subtree.tracked_agent_id, subtree.id
-FROM subtree
-WHERE subtree.depth > 0
-`
-
-type ListActiveAgentTreeMembersParams struct {
-	ProjectIds []uuid.UUID
-	AgentIds   []uuid.UUID
-}
-
-type ListActiveAgentTreeMembersRow struct {
-	TrackedAgentID uuid.UUID
-	ID             uuid.UUID
-}
-
-func (q *Queries) ListActiveAgentTreeMembers(ctx context.Context, arg ListActiveAgentTreeMembersParams) ([]ListActiveAgentTreeMembersRow, error) {
-	rows, err := q.db.Query(ctx, listActiveAgentTreeMembers, arg.ProjectIds, arg.AgentIds)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListActiveAgentTreeMembersRow{}
-	for rows.Next() {
-		var i ListActiveAgentTreeMembersRow
-		if err := rows.Scan(&i.TrackedAgentID, &i.ID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listActiveChildAgentIDs = `-- name: ListActiveChildAgentIDs :many
 SELECT agent.id
 FROM agents agent
@@ -415,6 +368,74 @@ func (q *Queries) ListAgentInteractionsForAgents(ctx context.Context, arg ListAg
 			&i.PresentationReceipt,
 			&i.AgentName,
 			&i.SubagentKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgentTreeStates = `-- name: ListAgentTreeStates :many
+WITH RECURSIVE subtree AS (
+  SELECT agent.project_id, agent.id AS tracked_agent_id, agent.id, agent.state, 0 AS depth
+  FROM agents agent
+  WHERE agent.project_id = ANY($1::uuid[])
+    AND agent.id = ANY($2::uuid[])
+  UNION ALL
+  SELECT child.project_id, subtree.tracked_agent_id, child.id, child.state, subtree.depth + 1
+  FROM agents child
+  JOIN subtree ON child.project_id = subtree.project_id AND child.parent_agent_id = subtree.id
+  WHERE child.state = 'active' AND subtree.depth < 64
+)
+SELECT subtree.tracked_agent_id AS id,
+       bool_or(subtree.depth = 0 AND subtree.state = 'archived')::boolean AS archived,
+       bool_or(EXISTS (
+         SELECT 1 FROM agent_interactions interaction
+         WHERE interaction.agent_id = subtree.id AND interaction.state = 'open'
+       ))::boolean AS waiting,
+       bool_or(
+         EXISTS (SELECT 1 FROM agent_runtime_locks runtime_lock WHERE runtime_lock.agent_id = subtree.id)
+         OR EXISTS (SELECT 1 FROM agent_wakeups wake WHERE wake.agent_id = subtree.id)
+         OR EXISTS (
+           SELECT 1 FROM agent_execution_state h
+           WHERE h.agent_id = subtree.id AND (h.logical_ready_at IS NOT NULL OR h.incomplete_tools)
+         )
+         OR EXISTS (SELECT 1 FROM agent_background_processes(subtree.project_id, subtree.id) process)
+       )::boolean AS working
+FROM subtree
+GROUP BY subtree.tracked_agent_id
+`
+
+type ListAgentTreeStatesParams struct {
+	ProjectIds []uuid.UUID
+	AgentIds   []uuid.UUID
+}
+
+type ListAgentTreeStatesRow struct {
+	ID       uuid.UUID
+	Archived bool
+	Waiting  bool
+	Working  bool
+}
+
+func (q *Queries) ListAgentTreeStates(ctx context.Context, arg ListAgentTreeStatesParams) ([]ListAgentTreeStatesRow, error) {
+	rows, err := q.db.Query(ctx, listAgentTreeStates, arg.ProjectIds, arg.AgentIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentTreeStatesRow{}
+	for rows.Next() {
+		var i ListAgentTreeStatesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Archived,
+			&i.Waiting,
+			&i.Working,
 		); err != nil {
 			return nil, err
 		}

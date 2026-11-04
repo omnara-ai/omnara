@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/defaultprovider"
 	"github.com/omnara-ai/omnara/internal/errutil"
 	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -38,6 +40,7 @@ type Options struct {
 	Metrics              *metrics.Set
 	Interval             time.Duration
 	PublicURL            string
+	GitHubHTTPClient     *http.Client
 	DefaultModelProvider *defaultprovider.Runner
 }
 
@@ -92,8 +95,8 @@ func Run(ctx context.Context, options Options) {
 			log, execution.SampleReadyAgentBacklog, metrics.NewAgentBacklogRecorder(options.Metrics),
 		)},
 		{"reconcile_github_checks", interval, reconcileGitHubChecks(log, (&integrationruntime.GitHubCheckReconciler{
-			Store: options.Store, PublicURL: options.PublicURL,
-		}).Reconcile)},
+			Store: options.Store, GitHub: github.Config{HTTPClient: options.GitHubHTTPClient}, PublicURL: options.PublicURL,
+		}).Reconcile, metrics.NewGitHubCheckRecorder(options.Metrics))},
 	}
 	if options.DefaultModelProvider != nil {
 		jobs = append(jobs, maintenanceJob{

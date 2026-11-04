@@ -729,11 +729,11 @@ func TestAgentTreeActivityIncludesActiveDescendants(t *testing.T) {
 	}
 	treeState := func(agentID uuid.UUID) string {
 		t.Helper()
-		activity, err := store.Execution().ListAgentTreeActivity(ctx, []uuid.UUID{testProjectID}, []uuid.UUID{agentID})
+		states, err := store.Execution().ListAgentTreeStates(ctx, []uuid.UUID{testProjectID}, []uuid.UUID{agentID})
 		if err != nil {
-			t.Fatalf("list tree activity: %v", err)
+			t.Fatalf("list tree states: %v", err)
 		}
-		return activity[agentID].State
+		return states[agentID]
 	}
 	if got := treeState(top.ID); got != executionstore.SubagentStateIdle {
 		t.Fatalf("idle tree state = %q", got)

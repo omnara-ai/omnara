@@ -77,7 +77,7 @@ func (c *appClient) appJWT() (string, error) {
 
 func (c *Client) installationToken(ctx context.Context, repositoryID int64, write bool) (string, error) {
 	if c.sharedTokens != nil {
-		return c.sharedTokens.token(ctx, c, repositoryID, write)
+		return c.sharedTokens.token(ctx, c, repositoryID, pullRequestToken(write))
 	}
 	select {
 	case c.tokenGate <- struct{}{}:
@@ -93,7 +93,7 @@ func (c *Client) installationToken(ctx context.Context, repositoryID int64, writ
 	if cached.repositoryID == repositoryID && cached.expiresAt.After(c.now().Add(time.Minute)) {
 		return cached.token, nil
 	}
-	fresh, err := c.mintInstallationToken(ctx, repositoryID, pullRequestPermissions(write))
+	fresh, err := c.mintInstallationToken(ctx, repositoryID, pullRequestToken(write).permissions())
 	if err != nil {
 		return "", err
 	}
@@ -101,11 +101,38 @@ func (c *Client) installationToken(ctx context.Context, repositoryID int64, writ
 	return fresh.token, nil
 }
 
-func pullRequestPermissions(write bool) map[string]string {
+type tokenKind int
+
+const (
+	pullRequestReadToken tokenKind = iota
+	pullRequestWriteToken
+	checksWriteToken
+)
+
+func pullRequestToken(write bool) tokenKind {
 	if write {
-		return map[string]string{"pull_requests": "write", "metadata": "read"}
+		return pullRequestWriteToken
 	}
-	return map[string]string{"pull_requests": "read", "metadata": "read"}
+	return pullRequestReadToken
+}
+
+func (k tokenKind) permissions() map[string]string {
+	switch k {
+	case pullRequestWriteToken:
+		return map[string]string{"pull_requests": "write", "metadata": "read"}
+	case checksWriteToken:
+		return map[string]string{"checks": "write", "metadata": "read"}
+	default:
+		return map[string]string{"pull_requests": "read", "metadata": "read"}
+	}
+}
+
+func (c *Client) checksToken(ctx context.Context, repositoryID int64) (string, error) {
+	if c.sharedTokens != nil {
+		return c.sharedTokens.token(ctx, c, repositoryID, checksWriteToken)
+	}
+	fresh, err := c.mintInstallationToken(ctx, repositoryID, checksWriteToken.permissions())
+	return fresh.token, err
 }
 
 func (c *Client) mintInstallationToken(

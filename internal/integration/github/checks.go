@@ -75,15 +75,12 @@ func (c *Client) prepareChecks(ctx context.Context, scope Scope) (preparedPull, 
 	if err != nil {
 		return preparedPull{}, "", err
 	}
-	token, err := c.mintInstallationToken(ctx, scope.RepositoryID, map[string]string{
-		"checks": "write", "metadata": "read",
-	})
-	var apiErr *APIError
-	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnprocessableEntity {
+	token, err := c.checksToken(ctx, scope.RepositoryID)
+	if errors.Is(err, errPermissionsNotGranted) {
 		return preparedPull{}, "", ErrChecksPermissionRequired
 	}
 	if err != nil {
 		return preparedPull{}, "", err
 	}
-	return pull, token.token, nil
+	return pull, token, nil
 }

@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
@@ -242,61 +240,18 @@ func (s *Store) GetAgentActivity(ctx context.Context, projectID, agentID uuid.UU
 	return agentActivityFromRow(rows[0]), nil
 }
 
-func (s *Store) ListAgentTreeActivity(
+func (s *Store) ListAgentTreeStates(
 	ctx context.Context, projectIDs, agentIDs []uuid.UUID,
-) (map[uuid.UUID]AgentActivity, error) {
-	type treeSnapshot struct {
-		members []dbsqlc.ListActiveAgentTreeMembersRow
-		rows    []dbsqlc.ListAgentActivityForAgentsRow
-	}
-	snapshot, err := readExecutionSnapshot(ctx, s.pool, "read agent tree activity",
-		func(tx pgx.Tx) (treeSnapshot, error) {
-			q := dbsqlc.New(tx)
-			members, err := q.ListActiveAgentTreeMembers(ctx, dbsqlc.ListActiveAgentTreeMembersParams{
-				ProjectIds: projectIDs, AgentIds: agentIDs,
-			})
-			if err != nil {
-				return treeSnapshot{}, err
-			}
-			ids := slices.Clone(agentIDs)
-			for _, member := range members {
-				ids = append(ids, member.ID)
-			}
-			rows, err := q.ListAgentActivityForAgents(ctx, dbsqlc.ListAgentActivityForAgentsParams{
-				ProjectIds: projectIDs, AgentIds: ids,
-			})
-			return treeSnapshot{members: members, rows: rows}, err
-		})
+) (map[uuid.UUID]string, error) {
+	rows, err := s.q.ListAgentTreeStates(ctx, dbsqlc.ListAgentTreeStatesParams{ProjectIds: projectIDs, AgentIds: agentIDs})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list agent tree states: %w", err)
 	}
-	activity := make(map[uuid.UUID]AgentActivity, len(snapshot.rows))
-	for _, row := range snapshot.rows {
-		activity[row.ID] = agentActivityFromRow(row)
+	states := make(map[uuid.UUID]string, len(rows))
+	for _, row := range rows {
+		states[row.ID] = agentActivityState(row.Archived, row.Waiting, false, row.Working)
 	}
-	trees := make(map[uuid.UUID]AgentActivity, len(agentIDs))
-	for _, id := range agentIDs {
-		if value, ok := activity[id]; ok {
-			trees[id] = value
-		}
-	}
-	for _, member := range snapshot.members {
-		if tracked, ok := trees[member.TrackedAgentID]; ok {
-			trees[member.TrackedAgentID] = mergeTreeActivity(tracked, activity[member.ID])
-		}
-	}
-	return trees, nil
-}
-
-func mergeTreeActivity(root, member AgentActivity) AgentActivity {
-	switch {
-	case root.State == SubagentStateArchived:
-	case member.State == SubagentStateWaitingOnInteraction:
-		root.State = SubagentStateWaitingOnInteraction
-	case member.State == SubagentStateRunning && root.State == SubagentStateIdle:
-		root.State = SubagentStateRunning
-	}
-	return root
+	return states, nil
 }
 
 func agentActivityFromRow(row dbsqlc.ListAgentActivityForAgentsRow) AgentActivity {

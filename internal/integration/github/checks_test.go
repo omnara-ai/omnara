@@ -87,3 +87,30 @@ func TestCheckRunsRequireChecksPermission(t *testing.T) {
 	_, err := client.CreateCheckRun(t.Context(), testScope(), CheckRun{Name: "my-app"})
 	require.ErrorIs(t, err, ErrChecksPermissionRequired)
 }
+
+func TestCheckRunsKeepOtherTokenErrors(t *testing.T) {
+	client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app/installations/456/access_tokens" {
+			var grant struct {
+				Permissions map[string]string `json:"permissions"`
+			}
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&grant))
+			if grant.Permissions["checks"] != "" {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				fmt.Fprint(w, `{"message":"There is at least one repository that does not exist or is not accessible."}`)
+				return
+			}
+			tokenResponse(w)
+			return
+		}
+		if !servePreparedPull(w, r) {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	})
+	_, err := client.CreateCheckRun(t.Context(), testScope(), CheckRun{Name: "my-app"})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrChecksPermissionRequired)
+	var apiErr *APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusUnprocessableEntity, apiErr.StatusCode)
+}
