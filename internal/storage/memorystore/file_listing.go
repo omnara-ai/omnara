@@ -18,7 +18,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-const memoryListingTraversalLimit = 10000
+const (
+	memoryListingTraversalLimit = 10000
+	memoryListingDirectoryLimit = 100000
+)
 
 var errFileListFull = errors.New("file listing is full")
 

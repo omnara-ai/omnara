@@ -171,9 +171,10 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 		return WriteResult{}, err
 	}
 	q := s.q.WithTx(tx)
-	if _, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
+	fileCount, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
 		ProjectID: input.Scope.ProjectID, ID: input.StoreID,
-	}); err != nil {
+	})
+	if err != nil {
 		return WriteResult{}, fmt.Errorf("memory store is unavailable: %w", mapped(err))
 	}
 	if _, err := s.authorizeFile(ctx, q, input.Scope, input.StoreID, true); err != nil {
@@ -193,6 +194,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 		}
 		exists = err == nil
 	}
+	var count int64
 	if exists {
 		if currentDigest == result.Digest {
 			return result, s.files.Sync(ref, root, input.Path)
@@ -213,7 +215,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 		if input.ExpectedDigest != nil {
 			return WriteResult{}, storeerr.Tag(&storeerr.FileContentConflictError{}, errors.New("memory file does not exist"))
 		}
-		if err := checkFileCapacity(ctx, q, input.Scope.OrgID, root); err != nil {
+		if count, err = checkFileCapacity(ctx, q, input.Scope.OrgID, root, fileCount); err != nil {
 			return WriteResult{}, err
 		}
 	}
@@ -230,22 +232,45 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 	if err := s.files.Publish(ctx, ref, root, input.Path, staged); err != nil {
 		return WriteResult{}, err
 	}
+	if !exists {
+		_ = tx.Rollback(ctx)
+		countCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = s.q.SetMemoryStoreFileCount(countCtx, dbsqlc.SetMemoryStoreFileCountParams{
+			FileCount: count + 1, ProjectID: input.Scope.ProjectID, ID: input.StoreID,
+		})
+	}
 	return result, nil
 }
 
-func checkFileCapacity(ctx context.Context, q *dbsqlc.Queries, orgID uuid.UUID, root *os.Root) error {
+func checkFileCapacity(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	orgID uuid.UUID,
+	root *os.Root,
+	fileCount *int64,
+) (int64, error) {
 	limits, err := resourceguard.ResolveLimits(ctx, q, orgID)
 	if err != nil {
-		return err
-	}
-	if limits.MaxMemoriesPerStore <= 0 {
-		return fmt.Errorf("memory file limit reached: %w", storeerr.ErrConflict)
-	}
-	if root == nil {
-		return nil
+		return 0, err
 	}
 	var count int64
-	return fs.WalkDir(root.FS(), ".", func(_ string, entry fs.DirEntry, err error) error {
+	if fileCount != nil {
+		count = *fileCount
+	} else if root != nil {
+		if count, err = countFiles(ctx, root); err != nil {
+			return 0, err
+		}
+	}
+	if count >= limits.MaxMemoriesPerStore {
+		return 0, fmt.Errorf("memory file limit reached: %w", storeerr.ErrConflict)
+	}
+	return count, nil
+}
+
+func countFiles(ctx context.Context, root *os.Root) (int64, error) {
+	var count int64
+	err := fs.WalkDir(root.FS(), ".", func(_ string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -255,11 +280,9 @@ func checkFileCapacity(ctx context.Context, q *dbsqlc.Queries, orgID uuid.UUID, 
 		if entry.Type().IsRegular() {
 			count++
 		}
-		if count >= limits.MaxMemoriesPerStore {
-			return fmt.Errorf("memory file limit reached: %w", storeerr.ErrConflict)
-		}
 		return nil
 	})
+	return count, err
 }
 
 func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, path, expectedDigest string) error {
@@ -287,9 +310,10 @@ func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, 
 		return err
 	}
 	q := s.q.WithTx(tx)
-	if _, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
+	fileCount, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
 		ProjectID: scope.ProjectID, ID: storeID,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("memory store is unavailable: %w", mapped(err))
 	}
 	if _, err := s.authorizeFile(ctx, q, scope, storeID, true); err != nil {
@@ -316,5 +340,16 @@ func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, 
 			errors.New("memory changed; retrieve the latest contents and retry"),
 		)
 	}
-	return s.files.RemoveFile(ref, root, path)
+	if err := s.files.RemoveFile(ref, root, path); err != nil {
+		return err
+	}
+	if fileCount != nil {
+		_ = tx.Rollback(ctx)
+		countCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = s.q.SetMemoryStoreFileCount(countCtx, dbsqlc.SetMemoryStoreFileCountParams{
+			FileCount: max(*fileCount-1, 0), ProjectID: scope.ProjectID, ID: storeID,
+		})
+	}
+	return nil
 }

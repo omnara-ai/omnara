@@ -411,6 +411,7 @@ type MemoryStore struct {
 	UpdatedAt      time.Time
 	DeletedAt      *time.Time
 	FilesRemovedAt *time.Time
+	FileCount      *int64
 }
 
 type ModelProviderConfig struct {
