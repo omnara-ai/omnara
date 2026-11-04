@@ -4,32 +4,31 @@ import * as schemas from '@omnara/sdk/zod'
 import * as z from 'zod'
 
 import { customOp, parseNumberFlag, parseWithSchema } from './factory.ts'
-import { formatRecord } from './format.ts'
 import { CliInputError, renderResult, zOptionalRenderValue } from './output.ts'
 import { PollTerminalError, pollUntilDeadline } from './poll.ts'
 
-export const DEFAULT_AGENT_WAIT_TIMEOUT_SECONDS = 300
-export const DEFAULT_AGENT_WAIT_STATE = 'idle' satisfies AgentActivity['state']
+const DEFAULT_AGENT_WAIT_TIMEOUT_SECONDS = 300
+const DEFAULT_AGENT_WAIT_STATE = 'idle' satisfies AgentActivity['state']
 
 const zWaitState = schemas.zAgentActivity.shape.state
 
-export const zAgentWaitStateFlags = z
-  .union([z.string().transform((value) => [value]), z.array(z.string())])
+const zAgentWaitStateFlags = z
+  .array(z.string())
   .optional()
   .transform((value) => value ?? [])
 
-export const zAgentWaitTimeoutSeconds = z
+const zAgentWaitTimeoutSeconds = z
   .number()
   .int()
   .gte(0)
   .optional()
   .transform((value) => value ?? DEFAULT_AGENT_WAIT_TIMEOUT_SECONDS)
 
-export function collectRepeatableFlag(value: string, previous: string[] | undefined): string[] {
+function collectRepeatableFlag(value: string, previous: string[] | undefined): string[] {
   return [...(previous ?? []), value]
 }
 
-export function parseAgentWaitStates(values: readonly string[]): AgentActivity['state'][] {
+function parseAgentWaitStates(values: readonly string[]): AgentActivity['state'][] {
   const selected = values.length === 0 ? [DEFAULT_AGENT_WAIT_STATE] : values
   const states: AgentActivity['state'][] = []
   for (const value of selected) {
@@ -44,18 +43,14 @@ export function parseAgentWaitStates(values: readonly string[]): AgentActivity['
   return states
 }
 
-export function parseAgentWaitTimeoutSeconds(raw: number | undefined): number {
-  return parseWithSchema(zAgentWaitTimeoutSeconds, raw, '--timeout')
-}
-
-export function agentWaitDeadline(nowMs: number, timeoutSeconds: number): string {
+function agentWaitDeadline(nowMs: number, timeoutSeconds: number): string {
   if (timeoutSeconds === 0) {
     return new Date(nowMs + 100 * 365 * 24 * 60 * 60 * 1000).toISOString()
   }
   return new Date(nowMs + timeoutSeconds * 1000).toISOString()
 }
 
-export function agentMatchesWaitStates(
+function agentMatchesWaitStates(
   agent: Pick<Agent, 'activity'>,
   states: readonly AgentActivity['state'][],
 ): boolean {
@@ -63,7 +58,7 @@ export function agentMatchesWaitStates(
   return current !== undefined && states.includes(current)
 }
 
-export function agentWaitExpiredMessage(
+function agentWaitExpiredMessage(
   states: readonly AgentActivity['state'][],
   timeoutSeconds: number,
 ): string {
@@ -74,21 +69,20 @@ export function agentWaitExpiredMessage(
   return `agent did not reach activity state ${wanted} within ${timeoutSeconds}s`
 }
 
-export function agentArchivedMessage(states: readonly AgentActivity['state'][]): string {
+function agentArchivedMessage(states: readonly AgentActivity['state'][]): string {
   return `agent was archived before reaching activity state ${states.join(', ')}`
 }
 
-export async function waitForAgent(input: {
+async function waitForAgent(input: {
   client: OmnaraClient
   orgID: string
   projectID: string
   agentID: string
   states: readonly AgentActivity['state'][]
   timeoutSeconds: number
-  nowMs?: number
 }): Promise<GetAgentResponse> {
   return pollUntilDeadline({
-    expiresAt: agentWaitDeadline(input.nowMs ?? Date.now(), input.timeoutSeconds),
+    expiresAt: agentWaitDeadline(Date.now(), input.timeoutSeconds),
     expiredMessage: agentWaitExpiredMessage(input.states, input.timeoutSeconds),
     async fetchOnce(signal) {
       const { data } = await sdk.getAgent({
@@ -138,7 +132,6 @@ export const agentWaitOp = customOp({
       states,
       timeoutSeconds,
     })
-    const formatted = formatRecord()(response)
-    renderResult(zOptionalRenderValue.parse(formatted.value), options.json === true)
+    renderResult(zOptionalRenderValue.parse(response), options.json === true)
   },
 })

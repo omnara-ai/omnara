@@ -1,28 +1,29 @@
-import { type AgentActivity, createOmnaraClient, type JsonBody } from '@omnara/sdk'
-import { describe, expect, it, vi } from 'vitest'
+import { type AgentActivity, createOmnaraClient } from '@omnara/sdk'
+import { Command } from 'commander'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  agentMatchesWaitStates,
-  agentWaitDeadline,
-  agentWaitExpiredMessage,
-  collectRepeatableFlag,
-  DEFAULT_AGENT_WAIT_TIMEOUT_SECONDS,
-  parseAgentWaitStates,
-  parseAgentWaitTimeoutSeconds,
-  waitForAgent,
-} from './agent-wait.ts'
-import { CliInputError } from './output.ts'
+import { registerGroup } from './factory.ts'
+import { commandGroups } from './manifest.ts'
 
 const id = (prefix: string) => `${prefix}_${'a'.repeat(26)}`
 const now = '2026-10-14T00:00:00Z'
-const path = { orgID: id('org'), projectID: id('proj'), agentID: id('agt') }
+const orgID = id('org')
+const projectID = id('proj')
+const agentID = id('agt')
+const apiUrl = 'https://omnara.example/api/v1'
+const agentUrl = `${apiUrl}/orgs/${orgID}/projects/${projectID}/agents/${agentID}`
+const originalExitCode = process.exitCode
 
-function json(value: JsonBody, status = 200): Response {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
+beforeEach(() => {
+  vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  vi.spyOn(console, 'error').mockImplementation(() => undefined)
+})
+
+afterEach(() => {
+  process.exitCode = originalExitCode
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 function activity(state: AgentActivity['state']): AgentActivity {
   return {
@@ -37,9 +38,9 @@ function activity(state: AgentActivity['state']): AgentActivity {
 function agentPayload(state: AgentActivity['state']) {
   return {
     agent: {
-      id: path.agentID,
-      org_id: path.orgID,
-      project_id: path.projectID,
+      id: agentID,
+      org_id: orgID,
+      project_id: projectID,
       state: state === 'archived' ? 'archived' : 'active',
       name: 'wait-demo',
       created_at: now,
@@ -51,193 +52,157 @@ function agentPayload(state: AgentActivity['state']) {
   }
 }
 
-describe('parseAgentWaitStates', () => {
-  it('defaults to idle when no --state flags are given', () => {
-    expect(parseAgentWaitStates([])).toEqual(['idle'])
+function cli(reply: (request: Request) => Response | Promise<Response>) {
+  const requests: Request[] = []
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init)
+    requests.push(request)
+    return reply(request)
+  }
+  const client = createOmnaraClient({ baseUrl: apiUrl, fetch })
+  return {
+    requests,
+    run: async (...args: string[]) => {
+      const group = commandGroups.find((group) => group.name === 'agents')
+      if (!group) throw new Error('agents command is missing')
+      const program = new Command().exitOverride()
+      registerGroup(
+        program,
+        {
+          client,
+          apiUrl,
+          issuerUrl: 'https://omnara.example',
+          defaultOrgId: orgID,
+          defaultProjectId: projectID,
+          store: { path: '', read: () => ({}), update: () => ({}) },
+          fetch,
+          sleep: () => Promise.resolve(),
+          ensureLoggedIn: () => Promise.resolve(),
+        },
+        group,
+      )
+      await program.parseAsync(['agents', 'wait', agentID, ...args], { from: 'user' })
+    },
+  }
+}
+
+function printed(state: AgentActivity['state']): string {
+  return JSON.stringify(agentPayload(state), null, 2)
+}
+
+describe('agents wait', () => {
+  it('waits for idle by default and prints the agent', async () => {
+    const command = cli(() => Response.json(agentPayload('idle')))
+    await command.run('--json')
+    expect(command.requests).toHaveLength(1)
+    expect(command.requests[0]?.url).toBe(agentUrl)
+    expect(console.log).toHaveBeenCalledWith(printed('idle'))
+    expect(console.error).not.toHaveBeenCalled()
   })
 
-  it('accepts a single state or a repeatable list without duplicates', () => {
-    expect(parseAgentWaitStates(['running'])).toEqual(['running'])
-    expect(parseAgentWaitStates(['idle', 'archived', 'idle'])).toEqual(['idle', 'archived'])
+  it('keeps polling until a requested state matches', async () => {
+    const states: AgentActivity['state'][] = ['running', 'waiting_on_interaction']
+    const command = cli(() => Response.json(agentPayload(states.shift() ?? 'idle')))
+    vi.useFakeTimers()
+    const run = command.run('--state', 'waiting_on_interaction', '--state', 'idle', '--json')
+    await vi.advanceTimersByTimeAsync(2_000)
+    await run
+    expect(command.requests).toHaveLength(2)
+    expect(console.log).toHaveBeenCalledWith(printed('waiting_on_interaction'))
+    expect(console.error).not.toHaveBeenCalled()
   })
 
-  it('rejects an unknown activity state', () => {
-    expect(() => parseAgentWaitStates(['nope'])).toThrow(CliInputError)
-    expect(() => parseAgentWaitStates(['nope'])).toThrow(/invalid --state nope/)
-  })
-})
-
-describe('parseAgentWaitTimeoutSeconds', () => {
-  it('defaults to 300 seconds and accepts zero', () => {
-    expect(parseAgentWaitTimeoutSeconds(undefined)).toBe(DEFAULT_AGENT_WAIT_TIMEOUT_SECONDS)
-    expect(parseAgentWaitTimeoutSeconds(0)).toBe(0)
+  it('rejects an unknown state before calling the API', async () => {
+    const command = cli(() => Response.json(agentPayload('idle')))
+    await command.run('--state', 'nope')
+    expect(command.requests).toHaveLength(0)
+    expect(process.exitCode).toBe(1)
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('invalid --state nope'))
   })
 
-  it('rejects a negative timeout', () => {
-    expect(() => parseAgentWaitTimeoutSeconds(-1)).toThrow(CliInputError)
-  })
-})
-
-describe('agent wait helpers', () => {
-  it('collects repeatable flag values', () => {
-    expect(collectRepeatableFlag('idle', undefined)).toEqual(['idle'])
-    expect(collectRepeatableFlag('archived', ['idle'])).toEqual(['idle', 'archived'])
-  })
-
-  it('matches only listed activity states', () => {
-    expect(agentMatchesWaitStates({ activity: activity('idle') }, ['idle'])).toBe(true)
-    expect(agentMatchesWaitStates({ activity: activity('running') }, ['idle', 'archived'])).toBe(
-      false,
-    )
-    expect(agentMatchesWaitStates({}, ['idle'])).toBe(false)
-  })
-
-  it('describes the wait deadline', () => {
-    expect(agentWaitDeadline(Date.parse('2026-01-01T00:00:00Z'), 5)).toBe(
-      '2026-01-01T00:00:05.000Z',
-    )
-    expect(agentWaitExpiredMessage(['idle'], 30)).toBe(
-      'agent did not reach activity state idle within 30s',
-    )
-    expect(agentWaitExpiredMessage(['idle', 'archived'], 0)).toBe(
-      'agent did not reach activity state idle, archived',
-    )
-  })
-})
-
-describe('waitForAgent', () => {
-  it('returns immediately when the agent is already in the requested state', async () => {
-    let fetches = 0
-    const client = createOmnaraClient({
-      baseUrl: 'https://omnara.test/api/v1',
-      fetch: () => {
-        fetches += 1
-        return Promise.resolve(json(agentPayload('idle')))
-      },
-    })
-    const result = await waitForAgent({
-      client,
-      ...path,
-      states: ['idle'],
-      timeoutSeconds: 30,
-    })
-    expect(fetches).toBe(1)
-    expect(result.agent.activity?.state).toBe('idle')
-    expect(result.agent.id).toBe(path.agentID)
+  it('rejects a negative timeout before calling the API', async () => {
+    const command = cli(() => Response.json(agentPayload('idle')))
+    await command.run('--timeout', '-1')
+    expect(command.requests).toHaveLength(0)
+    expect(process.exitCode).toBe(1)
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('--timeout'))
   })
 
   it('fails at once when the agent is archived and archived was not requested', async () => {
-    let fetches = 0
-    const client = createOmnaraClient({
-      baseUrl: 'https://omnara.test/api/v1',
-      fetch: () => {
-        fetches += 1
-        return Promise.resolve(json(agentPayload('archived')))
-      },
-    })
-    await expect(
-      waitForAgent({ client, ...path, states: ['idle'], timeoutSeconds: 0 }),
-    ).rejects.toThrow(/agent was archived before reaching activity state idle/)
-    expect(fetches).toBe(1)
+    const command = cli(() => Response.json(agentPayload('archived')))
+    await command.run('--timeout', '0')
+    expect(command.requests).toHaveLength(1)
+    expect(process.exitCode).toBe(1)
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining('agent was archived before reaching activity state idle'),
+    )
   })
 
   it('returns an archived agent when archived was requested', async () => {
-    const client = createOmnaraClient({
-      baseUrl: 'https://omnara.test/api/v1',
-      fetch: () => Promise.resolve(json(agentPayload('archived'))),
-    })
-    const result = await waitForAgent({
-      client,
-      ...path,
-      states: ['idle', 'archived'],
-      timeoutSeconds: 30,
-    })
-    expect(result.agent.activity?.state).toBe('archived')
+    const command = cli(() => Response.json(agentPayload('archived')))
+    await command.run('--state', 'idle', '--state', 'archived', '--json')
+    expect(console.log).toHaveBeenCalledWith(printed('archived'))
+    expect(console.error).not.toHaveBeenCalled()
   })
 
   it('fails when the timeout elapses before the activity matches', async () => {
-    let fetches = 0
-    const client = createOmnaraClient({
-      baseUrl: 'https://omnara.test/api/v1',
-      fetch: () => {
-        fetches += 1
-        return Promise.resolve(json(agentPayload('running')))
-      },
-    })
-    await expect(
-      waitForAgent({
-        client,
-        ...path,
-        states: ['idle'],
-        timeoutSeconds: 1,
-        nowMs: Date.now() - 5_000,
-      }),
-    ).rejects.toThrow(/did not reach activity state idle within 1s/)
-    expect(fetches).toBe(1)
+    const command = cli(() => Response.json(agentPayload('running')))
+    vi.useFakeTimers()
+    const run = command.run('--timeout', '1')
+    await vi.advanceTimersByTimeAsync(1_000)
+    await run
+    expect(process.exitCode).toBe(1)
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining('agent did not reach activity state idle within 1s'),
+    )
   })
 
   it('aborts an in-flight request when the timeout elapses', async () => {
+    const command = cli(
+      (request) =>
+        new Promise<Response>((_, reject) => {
+          request.signal.addEventListener(
+            'abort',
+            () => {
+              reject(new Error('aborted'))
+            },
+            { once: true },
+          )
+        }),
+    )
     vi.useFakeTimers()
-    try {
-      let signal: AbortSignal | undefined
-      const client = createOmnaraClient({
-        baseUrl: 'https://omnara.test/api/v1',
-        fetch: (request) => {
-          if (request instanceof Request) signal = request.signal
-          return new Promise<Response>((_, reject) => {
-            signal?.addEventListener(
-              'abort',
-              () => {
-                reject(new Error('aborted'))
-              },
-              { once: true },
-            )
-          })
-        },
-      })
-      const result = expect(
-        waitForAgent({ client, ...path, states: ['idle'], timeoutSeconds: 1 }),
-      ).rejects.toThrow(/did not reach activity state idle within 1s/)
-      await vi.advanceTimersByTimeAsync(999)
-      expect(signal?.aborted).toBe(false)
-      await vi.advanceTimersByTimeAsync(1)
-      expect(signal?.aborted).toBe(true)
-      await result
-    } finally {
-      vi.useRealTimers()
-    }
+    const run = command.run('--timeout', '1')
+    await vi.advanceTimersByTimeAsync(999)
+    expect(command.requests[0]?.signal.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await run
+    expect(command.requests[0]?.signal.aborted).toBe(true)
+    expect(process.exitCode).toBe(1)
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining('agent did not reach activity state idle within 1s'),
+    )
   })
 
   it('does not succeed on a matching response that arrives after the timeout', async () => {
-    vi.useFakeTimers()
-    try {
-      let signal: AbortSignal | undefined
-      let release: (() => void) | undefined
-      const client = createOmnaraClient({
-        baseUrl: 'https://omnara.test/api/v1',
-        fetch: (request) => {
-          if (request instanceof Request) signal = request.signal
-          return new Promise<Response>((resolve) => {
-            release = () => {
-              resolve(json(agentPayload('idle')))
-            }
-          })
-        },
-      })
-      let settled = false
-      const run = waitForAgent({ client, ...path, states: ['idle'], timeoutSeconds: 1 })
-      const result = expect(
-        run.finally(() => {
-          settled = true
+    let release: (() => void) | undefined
+    const command = cli(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = () => {
+            resolve(Response.json(agentPayload('idle')))
+          }
         }),
-      ).rejects.toThrow(/did not reach activity state idle within 1s/)
-      await vi.advanceTimersByTimeAsync(1_000)
-      expect(settled).toBe(true)
-      expect(signal?.aborted).toBe(true)
-      release?.()
-      await result
-    } finally {
-      vi.useRealTimers()
-    }
+    )
+    vi.useFakeTimers()
+    const run = command.run('--timeout', '1', '--json')
+    await vi.advanceTimersByTimeAsync(1_000)
+    await run
+    release?.()
+    expect(command.requests[0]?.signal.aborted).toBe(true)
+    expect(process.exitCode).toBe(1)
+    expect(console.log).not.toHaveBeenCalled()
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining('agent did not reach activity state idle within 1s'),
+    )
   })
 })
