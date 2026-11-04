@@ -2,6 +2,7 @@ import { zAgentConfigDefinitionTool } from '@omnara/sdk/zod'
 import { type Document, isAlias, isMap, isNode, isScalar, isSeq, parseDocument } from 'yaml'
 import { z } from 'zod'
 
+import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
 import { configYamlOptions, scalarPreservationReason } from '@/components/agents/agentConfigYaml'
 
 export interface ConfigDiagnostic {
@@ -53,7 +54,7 @@ const customTool = z
     }
   })
 
-export function parseConfigDocument(source: string) {
+export function parseConfigDocument(source: string, format: ConfigSourceFormat = 'yaml') {
   const doc = parseDocument(source, configYamlOptions)
   const diagnostics: ConfigDiagnostic[] = doc.errors.map((error) => ({
     path: [],
@@ -62,6 +63,19 @@ export function parseConfigDocument(source: string) {
     syntaxError: error.code !== 'TAG_RESOLVE_FAILED',
     message: error.message,
   }))
+  if (format === 'json' && source.trim() !== '') {
+    try {
+      JSON.parse(source)
+    } catch (error) {
+      diagnostics.unshift({
+        path: [],
+        kind: 'fatal',
+        error: true,
+        syntaxError: true,
+        message: `This configuration uses JSON. Enter valid JSON: ${error instanceof Error ? error.message : 'Invalid syntax.'}`,
+      })
+    }
+  }
   if (doc.directives.yaml.version === '1.1')
     diagnostics.push({
       path: [],
@@ -123,8 +137,11 @@ export function parseConfigDocument(source: string) {
   return { doc, diagnostics }
 }
 
-export function validateAdvancedEntry(entry: AdvancedConfigEntry): ConfigDiagnostic[] {
-  const { doc, diagnostics } = parseConfigDocument(entry.source)
+export function validateAdvancedEntry(
+  entry: AdvancedConfigEntry,
+  format: ConfigSourceFormat = 'yaml',
+): ConfigDiagnostic[] {
+  const { doc, diagnostics } = parseConfigDocument(entry.source, format)
   const blockers = diagnostics.filter((issue) => issue.kind === 'fatal')
   if (blockers.length > 0)
     return blockers.map((issue) => ({

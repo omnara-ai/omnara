@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
+import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
 import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import {
   createBasicConfigSession,
@@ -16,6 +17,7 @@ export function useAgentConfigEditor({
   orgId,
   projectId,
   source,
+  sourceFormat,
   canManage,
   preferredMode,
   onModeChange,
@@ -24,6 +26,7 @@ export function useAgentConfigEditor({
   orgId: string
   projectId: string
   source: string
+  sourceFormat?: ConfigSourceFormat
   canManage: boolean
   preferredMode: AgentConfigMode
   onModeChange: (mode: AgentConfigMode) => void
@@ -31,7 +34,7 @@ export function useAgentConfigEditor({
 }) {
   const [restored] = useState(takeMcpBuilderOAuthRestore)
   const [session, setSession] = useState(() =>
-    createBasicConfigSession(restored?.draft.originalSource ?? source),
+    createBasicConfigSession(restored?.draft.originalSource ?? source, sourceFormat),
   )
   const builderSession = canManage && session.initialDraft != null ? session : null
   const restoredSource = restored?.draft.savedSource ?? restored?.draft.originalSource

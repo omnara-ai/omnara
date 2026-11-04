@@ -33,8 +33,11 @@ export function useAgentConfigMode({
   )
   const builderYaml = builderAvailable ? form.yaml : source
   const yamlSession = useMemo(
-    () => (mode.editorYaml === null ? null : createBasicConfigSession(mode.editorYaml)),
-    [mode.editorYaml],
+    () =>
+      mode.editorYaml === null
+        ? null
+        : createBasicConfigSession(mode.editorYaml, session.sourceFormat),
+    [mode.editorYaml, session.sourceFormat],
   )
   const showBuilder = mode.mode === 'builder' && builderAvailable
   const editorYaml = mode.editorYaml ?? builderYaml
@@ -50,7 +53,7 @@ export function useAgentConfigMode({
       kind: 'advanced',
       error: true,
       message:
-        'Some Builder edits cannot be applied yet. Fix or discard those edits before switching to YAML.',
+        'Some Builder edits cannot be applied yet. Fix or discard those edits before switching to the source editor.',
     })
   const saveBlocked =
     editorYaml.trim() === '' ||
@@ -79,6 +82,8 @@ export function useAgentConfigMode({
   }
 
   return {
+    editorFormat: session.sourceFormat,
+    sourceFormat: yamlSession?.sourceFormat ?? session.sourceFormat,
     mode,
     dispatchMode,
     switchMode,

@@ -3,9 +3,13 @@ import { z } from 'zod'
 
 import { configPath, parseConfigDocument } from '@/components/agents/agentConfigCompatibility'
 import {
+  type ConfigSourceFormat,
+  configSourceFormat,
+  isJsonSource,
+} from '@/components/agents/agentConfigSourceFormat'
+import {
   type ConfigEdit,
   type ConfigPath,
-  isJsonSource,
   patchConfigSource,
 } from '@/components/agents/agentConfigSourcePatch'
 import { configYamlOptions } from '@/components/agents/agentConfigYaml'
@@ -26,7 +30,12 @@ export class ConfigEditError extends Error {
   }
 }
 
-export function editConfigDocument(source: string, original: Document, preservedPaths: string[][]) {
+export function editConfigDocument(
+  source: string,
+  original: Document,
+  preservedPaths: string[][],
+  format: ConfigSourceFormat = configSourceFormat(source),
+) {
   let document = original
   function mutableDocument() {
     if (document === original) document = original.clone()
@@ -48,7 +57,7 @@ export function editConfigDocument(source: string, original: Document, preserved
     if (protectedPath)
       throw new ConfigEditError(
         path,
-        `${configPath(protectedPath.map(String))} is preserved. Edit that definition explicitly in YAML.`,
+        `${configPath(protectedPath.map(String))} is preserved. Edit that definition explicitly in the source editor.`,
       )
   }
 
@@ -110,7 +119,13 @@ export function editConfigDocument(source: string, original: Document, preserved
     for (let length = 1; length < path.length; length += 1) {
       const parentPath = path.slice(0, length)
       const parent = document.getIn(parentPath, true)
-      if (parent == null || (isScalar(parent) && parent.value === null)) write(parentPath, {}, true)
+      if (parent == null || (isScalar(parent) && parent.value === null)) {
+        let nested = value
+        for (const key of path.slice(length).reverse())
+          nested = mutableDocument().createNode({ [key]: nested })
+        write(parentPath, nested, true)
+        return
+      }
     }
     write(path, value, true)
   }
@@ -155,17 +170,18 @@ export function editConfigDocument(source: string, original: Document, preserved
     if (!preserved && document.hasIn(path))
       throw new ConfigEditError(path, 'This definition is not owned by the advanced editor.')
     if (!preserved) requireManaged(path)
-    const { doc: parsed, diagnostics } = parseConfigDocument(raw)
+    const { doc: parsed, diagnostics } = parseConfigDocument(raw, format)
     const parentPath = path.slice(0, -1)
     const parent = document.getIn(parentPath, true)
+    const blocker = diagnostics.find((issue) => issue.kind === 'fatal')
+    if (blocker) throw new ConfigEditError(path, blocker.message)
     const needsConversion =
-      (isJsonSource(source) && !isJsonSource(raw)) ||
-      ([document.contents, parent].some((node) => isMap(node) && node.flow) &&
-        !(isMap(parsed.contents) && parsed.contents.flow))
-    if (needsConversion && diagnostics.some((issue) => issue.kind === 'opaque'))
+      [document.contents, parent].some((node) => isMap(node) && node.flow) &&
+      !(isMap(parsed.contents) && parsed.contents.flow)
+    if (needsConversion)
       throw new ConfigEditError(
         path,
-        'Use a flow YAML or JSON definition to preserve these scalar values exactly in this collection.',
+        'This inline collection requires a flow definition using { ... }. Edit the collection in the source editor to use block YAML.',
       )
     if (parsed.errors.length > 0 || !parsed.contents)
       throw new ConfigEditError(path, 'Invalid advanced definition.')
@@ -185,13 +201,16 @@ export function editConfigDocument(source: string, original: Document, preserved
     if (edits.length === 0) return source
     let result: string
     try {
-      const initial = source || document.toString()
+      const initial =
+        source ||
+        (format === 'json' ? JSON.stringify(document.toJS(), null, 2) : document.toString())
       result = patchConfigSource(
         initial,
         source === '' ? parseDocument(initial, configYamlOptions) : original,
         source === ''
           ? edits.filter((edit) => edit.type === 'set' && edit.raw !== undefined)
           : edits,
+        format,
       )
     } catch (error) {
       if (error instanceof ConfigEditError) throw error
@@ -202,12 +221,13 @@ export function editConfigDocument(source: string, original: Document, preserved
     }
     const parsed = parseDocument(result)
     if (
+      (format === 'json' && !isJsonSource(result)) ||
       parsed.errors.length > 0 ||
       !deepEqual(z.json().parse(parsed.toJS()), z.json().parse(document.toJS()))
     )
       throw new ConfigEditError(
         edits.at(-1)?.path ?? [],
-        'The Builder cannot safely patch this edit. Use YAML to edit this definition.',
+        'The Builder cannot safely patch this edit. Use the source editor to edit this definition.',
       )
     return result
   }

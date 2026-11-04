@@ -165,6 +165,7 @@ export function useAgentBuilderForm(
 
   return {
     draft,
+    sourceFormat: session.sourceFormat,
     dirty:
       evaluated.yaml !== initialYaml ||
       (validationIssues.length > 0 &&

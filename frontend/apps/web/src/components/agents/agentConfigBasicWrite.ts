@@ -12,6 +12,10 @@ import {
   editConfigDocument,
 } from '@/components/agents/agentConfigDocument'
 import { mcpWire, permissionWire } from '@/components/agents/agentConfigMcp'
+import {
+  type ConfigSourceFormat,
+  configSourceFormat,
+} from '@/components/agents/agentConfigSourceFormat'
 import { subagentWire } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import type { BasicConfig, BasicMachineSource } from '@/components/agents/useAgentBuilderForm'
@@ -37,11 +41,13 @@ export function applyToDocument(
   baselineSource: string,
   baseline: BasicConfig | null,
   config: BasicConfig,
+  format: ConfigSourceFormat = configSourceFormat(baselineSource),
 ): string {
   const transaction = editConfigDocument(
     baselineSource,
     original,
     baseline?.advancedEntries?.map((entry) => entry.path) ?? [],
+    format,
   )
   const { set, remove: del } = transaction
 

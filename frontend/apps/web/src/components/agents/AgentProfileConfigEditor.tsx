@@ -38,6 +38,7 @@ export function AgentProfileConfigEditor({
     orgId,
     projectId,
     source,
+    sourceFormat: profile.current_config.source_format,
     canManage,
     preferredMode,
     onModeChange,
@@ -53,7 +54,7 @@ export function AgentProfileConfigEditor({
     try {
       const config = await createConfig.mutateAsync({
         source: editor.yaml,
-        source_format: 'yaml',
+        source_format: editor.sourceFormat,
       })
       await updateProfile.mutateAsync({
         agentProfileID: profile.id,
@@ -87,7 +88,7 @@ export function AgentProfileConfigEditor({
         )}
         {profile.current_config.source === undefined && editor.yaml.trim() === '' && (
           <p className="text-muted-foreground text-sm">
-            The current source is unavailable. Paste the replacement YAML configuration.
+            The current source is unavailable. Paste the replacement configuration.
           </p>
         )}
         {error.message && (

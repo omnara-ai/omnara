@@ -1,4 +1,5 @@
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import { z } from 'zod'
 
 import YamlWorker from './yaml.worker.js?worker'
@@ -30,6 +31,8 @@ function createReadyYamlWorker() {
 const monacoEnvironment = {
   getWorker(_workerId: string, label: string) {
     switch (label) {
+      case 'json':
+        return new JsonWorker()
       case 'yaml':
         return createReadyYamlWorker()
       case 'editorWorkerService':

@@ -23,6 +23,7 @@ import {
   parseConfigDocument,
   validateAdvancedEntry,
 } from '@/components/agents/agentConfigCompatibility'
+import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
 import { configNodeSource } from '@/components/agents/agentConfigSourcePatch'
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
@@ -178,8 +179,8 @@ const basicDocument = z.looseObject({
   max_depth: positiveCount,
 })
 
-export function parseBasicConfigSource(source: string) {
-  const { doc, diagnostics } = parseConfigDocument(source)
+export function parseBasicConfigSource(source: string, format: ConfigSourceFormat = 'yaml') {
+  const { doc, diagnostics } = parseConfigDocument(source, format)
   if (!isMap(doc.contents) && !diagnostics.some((issue) => issue.kind === 'fatal')) {
     diagnostics.push({
       path: [],
@@ -217,10 +218,10 @@ export function parseBasicConfigSource(source: string) {
       kind: kind === 'custom' ? 'advanced' : 'opaque',
       message:
         kind === 'custom'
-          ? 'Custom tool definition preserved. Edit its description and schema in Advanced YAML.'
-          : 'Preserved without changes. Edit this definition in YAML.',
+          ? 'Custom tool definition preserved. Edit it using the tool’s edit button.'
+          : 'Preserved without changes. Edit this definition in the source editor.',
     })
-    if (kind === 'custom') diagnostics.push(...validateAdvancedEntry(entry))
+    if (kind === 'custom') diagnostics.push(...validateAdvancedEntry(entry, format))
   }
   const invalid = (path: string[], result: z.ZodSafeParseResult<unknown>) => {
     if (result.success) return

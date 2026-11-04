@@ -21,9 +21,10 @@ export function ConfirmDiscardYamlDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Discard YAML edits?</DialogTitle>
+          <DialogTitle>Discard source edits?</DialogTitle>
           <DialogDescription>
-            This returns to the previous Builder configuration and discards the current YAML edits.
+            This returns to the previous Builder configuration and discards the current source
+            edits.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -33,7 +34,7 @@ export function ConfirmDiscardYamlDialog({
               onOpenChange(false)
             }}
           >
-            Keep editing YAML
+            Keep editing source
           </Button>
           <Button variant="destructive" onClick={onConfirm}>
             Discard edits
