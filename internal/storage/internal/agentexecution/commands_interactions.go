@@ -29,6 +29,7 @@ type Interaction struct {
 	Request    json.RawMessage
 	Resolution json.RawMessage
 	InputID    uuid.UUID
+	ActorID    uuid.UUID
 	Created    bool
 }
 type ResolveInteractionInput struct {
@@ -39,7 +40,22 @@ type ResolveInteractionInput struct {
 
 func interactionRecord(row executiondb.ReadExecutionInteractionRow) Interaction {
 	return Interaction{ID: row.ID, ToolID: row.ToolCallID, Kind: row.InteractionKind, State: row.State,
-		Request: row.Request, Resolution: row.Resolution, InputID: storeutil.ValueOrZero(row.ResolvedByInputID)}
+		Request: row.Request, Resolution: row.Resolution, InputID: storeutil.ValueOrZero(row.ResolvedByInputID),
+		ActorID: storeutil.ValueOrZero(row.ResolvedByActorID)}
+}
+
+func normalizedResolution(
+	row executiondb.ReadExecutionInteractionRow, input interactionform.Resolution,
+) (json.RawMessage, error) {
+	form, err := interactionForm(row.InteractionKind, row.Request)
+	if err != nil {
+		return nil, err
+	}
+	normalized, err := interactionform.NormalizeResolution(form, input)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(normalized)
 }
 
 func interactionForm(kind string, request json.RawMessage) (interactionform.Form, error) {
@@ -154,6 +170,15 @@ func (h *Handle) interactionNotification(i Interaction, state string) {
 }
 
 func (h *Handle) ResolveInteraction(ctx context.Context, input ResolveInteractionInput) (Interaction, error) {
+	if _, err := h.Route(); err != nil {
+		return Interaction{}, err
+	}
+	// Program-call interactions resolve without touching the agent's execution.
+	if row, err := executiondb.New().ReadExecutionInteraction(ctx, h.unit.DB(),
+		executiondb.ReadExecutionInteractionParams{AgentID: h.route.AgentID, ID: input.ID},
+	); err == nil && row.Caller == "program" {
+		return h.resolveProgramInteraction(ctx, row, input)
+	}
 	return executeCommand(ctx, h, func(m *executionMutation) (Interaction, error) {
 		q := executiondb.New()
 		row, err := q.ReadExecutionInteraction(
@@ -164,15 +189,7 @@ func (h *Handle) ResolveInteraction(ctx context.Context, input ResolveInteractio
 		if err != nil {
 			return Interaction{}, err
 		}
-		form, err := interactionForm(row.InteractionKind, row.Request)
-		if err != nil {
-			return Interaction{}, err
-		}
-		normalized, err := interactionform.NormalizeResolution(form, input.Resolution)
-		if err != nil {
-			return Interaction{}, err
-		}
-		resolution, err := json.Marshal(normalized)
+		resolution, err := normalizedResolution(row, input.Resolution)
 		if err != nil {
 			return Interaction{}, err
 		}

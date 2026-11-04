@@ -450,6 +450,9 @@ func SendSubagentMessageForToolCall(
 }
 
 func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input SendSubagentMessageInput) error {
+	if err := t.requireRuntime(); err != nil {
+		return err
+	}
 	if err := t.unit.LockAgentRefs(ctx, []lifecyclelock.AgentRef{
 		{ProjectID: t.input.ProjectID, AgentID: t.input.AgentID},
 		{ProjectID: t.input.ProjectID, AgentID: input.TargetAgentID},
@@ -587,6 +590,9 @@ func StopSubagentForToolCall(
 }
 
 func (t *toolCallTransaction) cancelSubagent(ctx context.Context, child AgentRecord) error {
+	if err := t.requireRuntime(); err != nil {
+		return err
+	}
 	if child.State != AgentStateActive {
 		return storeerr.InvalidRequest(errors.New("subagent is archived"))
 	}

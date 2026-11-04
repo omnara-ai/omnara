@@ -357,15 +357,16 @@ type GitCredentials struct {
 }
 
 type ProcessOffer struct {
-	GitCredentials   bool                     `json:"git_credentials,omitempty"`
-	ExecutionSpec    processcmd.ExecutionSpec `json:"execution_spec,omitzero"`
-	ProcessID        string                   `json:"process_id"`
-	PreparationError string                   `json:"preparation_error,omitempty"`
-	Cwd              string                   `json:"cwd"`
-	Env              map[string]string        `json:"env,omitempty"`
-	WaitMs           int                      `json:"wait_ms,omitempty"`
-	TimeoutSeconds   int                      `json:"timeout_seconds"`
-	OutputBytes      int                      `json:"output_bytes,omitempty"`
+	GitCredentials        bool                     `json:"git_credentials,omitempty"`
+	ProgrammaticToolCalls bool                     `json:"programmatic_tool_calls,omitempty"`
+	ExecutionSpec         processcmd.ExecutionSpec `json:"execution_spec,omitzero"`
+	ProcessID             string                   `json:"process_id"`
+	PreparationError      string                   `json:"preparation_error,omitempty"`
+	Cwd                   string                   `json:"cwd"`
+	Env                   map[string]string        `json:"env,omitempty"`
+	WaitMs                int                      `json:"wait_ms,omitempty"`
+	TimeoutSeconds        int                      `json:"timeout_seconds"`
+	OutputBytes           int                      `json:"output_bytes,omitempty"`
 	processaction.OutputWait
 }
 

@@ -8164,6 +8164,107 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /daemon/processes/{processID}/tool-calls:
+    parameters:
+      - name: processID
+        in: path
+        description: Process ID (prc_...).
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProcessID'
+    post:
+      operationId: createDaemonProgramToolCall
+      x-hidden: true
+      tags: [Machine Daemon]
+      summary: Call an agent tool from a daemon process
+      description: >-
+        Requires machine daemon authentication and a live shell process started by
+        run_command on that machine, with programmatic tool calls enabled on the machine
+        and in the process's agent config. The call runs with the permissions of the
+        config the process's model call used and is idempotent on key. tool_search is
+        answered inline; other calls return pending or awaiting_approval until they complete.
+      security:
+        - machineDaemonAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DaemonProgramToolCallRequest'
+      responses:
+        '200':
+          description: The call's current state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DaemonProgramToolCall'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /daemon/processes/{processID}/tool-calls/{toolCallID}:
+    parameters:
+      - name: processID
+        in: path
+        description: Process ID (prc_...).
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProcessID'
+      - name: toolCallID
+        in: path
+        description: Tool call ID returned when the call was created.
+        required: true
+        schema:
+          $ref: '#/components/schemas/ToolCallID'
+    get:
+      operationId: getDaemonProgramToolCall
+      x-hidden: true
+      tags: [Machine Daemon]
+      summary: Wait for a tool call made by a daemon process
+      description: >-
+        Requires machine daemon authentication and the process that made the call. Holds the
+        request until the call's state changes or wait_ms elapses, then returns its current state.
+      security:
+        - machineDaemonAuth: []
+      parameters:
+        - name: wait_ms
+          in: query
+          description: Longest time to wait for a state change, in milliseconds.
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 25000
+            default: 0
+      responses:
+        '200':
+          description: The call's current state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DaemonProgramToolCall'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /daemon/skills/{skillID}/archive:
     parameters:
       - name: skillID
@@ -9238,6 +9339,8 @@ components:
           $ref: '#/components/schemas/AgentConfigDefinitionMemoryStores'
         model:
           $ref: '#/components/schemas/AgentConfigDefinitionModel'
+        programmatic_tool_calls:
+          $ref: '#/components/schemas/AgentConfigDefinitionProgrammaticToolCalls'
         skills:
           $ref: '#/components/schemas/AgentConfigDefinitionSkills'
         subagents:
@@ -9292,6 +9395,29 @@ components:
         read_only:
           description: Prevents pushing, even if the integration allows it.
           type: boolean
+      x-go-type: json.RawMessage
+    AgentConfigDefinitionProgrammaticToolCalls:
+      description: >-
+        Lets commands started by run_command call the agent's other tools with
+        `omnarad call <tool> '<json input>'`. Subagents do not inherit this
+        setting.
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+        exclude:
+          description: >-
+            Tool names commands cannot call, such as web_search or
+            mcp__github__create_issue. Names are not checked against the
+            agent's tools, since MCP tools are only known at runtime.
+          type: array
+          maxItems: 256
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
       x-go-type: json.RawMessage
     AgentConfigDefinitionInteractionHandler:
       description: Enables an integration's interaction handler. Takes no settings.
@@ -12062,6 +12188,8 @@ components:
             $ref: '#/components/schemas/CompiledIntegrationCapability'
         git_credentials:
           $ref: '#/components/schemas/CompiledGitCredentials'
+        programmatic_tool_calls:
+          $ref: '#/components/schemas/CompiledProgrammaticToolCalls'
         skills:
           type: array
           x-go-type-skip-optional-pointer: true
@@ -12229,6 +12357,19 @@ components:
         read_only:
           type: boolean
           x-go-type-skip-optional-pointer: true
+    CompiledProgrammaticToolCalls:
+      type: object
+      additionalProperties: false
+      description: Lets commands started by run_command call the agent's other tools, except the sorted excluded tool names.
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+        exclude:
+          type: array
+          x-go-type-skip-optional-pointer: true
+          items:
+            type: string
     CompiledMCPServer:
       type: object
       additionalProperties: false
@@ -13566,7 +13707,11 @@ components:
         - ToolCallOutcomeDenied
         - ToolCallOutcomeCanceled
     ToolCall:
-      description: A model-emitted tool call together with its current lifecycle state.
+      description: >-
+        A tool call together with its current lifecycle state. Calls the model emits have
+        caller model; calls a run_command process makes with `omnarad call` have caller
+        program, a parent_tool_call_id naming that run_command call, and never enter the
+        model's context.
       type: object
       additionalProperties: false
       required: [id, agent_id, turn_id, provider_call_id, name, input, type, state, created_at]
@@ -13579,6 +13724,11 @@ components:
           $ref: '#/components/schemas/AgentTurnID'
         provider_call_id:
           type: string
+        caller:
+          $ref: '#/components/schemas/ToolCallCaller'
+        parent_tool_call_id:
+          description: The run_command call whose process made this call. Present only when caller is program.
+          $ref: '#/components/schemas/ToolCallID'
         name:
           type: string
         input:
@@ -13614,6 +13764,72 @@ components:
         interaction_update:
           description: Only present when this transition opens, resolves, or cancels an interaction.
           $ref: '#/components/schemas/AgentInteractionUpdate'
+    ToolCallCaller:
+      description: Who made the call. model is the agent's model; program is a run_command process using `omnarad call`.
+      type: string
+      enum: [model, program]
+      x-enum-varnames:
+        - ToolCallCallerModel
+        - ToolCallCallerProgram
+    DaemonProgramToolCallRequest:
+      type: object
+      additionalProperties: false
+      required: [key, name, input]
+      properties:
+        key:
+          description: Idempotency key, stable across retries of one call.
+          type: string
+          minLength: 1
+          maxLength: 200
+        name:
+          description: Tool name, or tool_search to find callable tools.
+          type: string
+          minLength: 1
+          maxLength: 128
+        input:
+          $ref: '#/components/schemas/ToolInput'
+    DaemonProgramToolCall:
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties:
+        tool_call_id:
+          description: Absent for calls answered inline, such as tool_search.
+          $ref: '#/components/schemas/ToolCallID'
+        state:
+          type: string
+          enum: [pending, awaiting_approval, completed]
+          x-enum-varnames:
+            - DaemonProgramToolCallStatePending
+            - DaemonProgramToolCallStateAwaitingApproval
+            - DaemonProgramToolCallStateCompleted
+        outcome:
+          $ref: '#/components/schemas/ToolCallOutcome'
+        structured:
+          description: The result's first structured value, when it has one.
+          x-go-type: json.RawMessage
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/DaemonProgramToolCallContent'
+    DaemonProgramToolCallContent:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [text, structured_data, media_ref]
+          x-enum-varnames:
+            - DaemonProgramToolCallContentTypeText
+            - DaemonProgramToolCallContentTypeStructuredData
+            - DaemonProgramToolCallContentTypeMediaRef
+        text:
+          type: string
+        value:
+          x-go-type: json.RawMessage
+        artifact_id:
+          $ref: '#/components/schemas/ArtifactID'
     AgentInteractionUpdate:
       type: object
       additionalProperties: false
@@ -15275,6 +15491,14 @@ components:
           description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to false when omitted.
           type: boolean
           default: false
+        default_programmatic_tool_calls:
+          description: >-
+            Whether machines created from the pool let commands call their agent's tools with
+            `omnarad call`. Enabling it lets every agent bound to such a machine whose config enables
+            programmatic tool calls call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access. Defaults to false
+            when omitted.
+          type: boolean
+          default: false
         max_total_machines:
           type: integer
           format: int32
@@ -15365,6 +15589,12 @@ components:
         runtime_protection_enabled:
           description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
           type: boolean
+        default_programmatic_tool_calls:
+          description: >-
+            Whether machines created from the pool after this change let commands call their agent's
+            tools with `omnarad call`. Enabling it lets every agent bound to such a machine whose config
+            enables programmatic tool calls call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
+          type: boolean
         max_total_machines:
           description: Maximum number of live machines in the pool.
           type: integer
@@ -15418,7 +15648,7 @@ components:
     MachinePool:
       type: object
       additionalProperties: false
-      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at]
+      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, default_programmatic_tool_calls, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/MachinePoolID'
@@ -15464,6 +15694,12 @@ components:
           additionalProperties: true
         runtime_protection_enabled:
           description: Whether Omnara deletes this pool's machines when the provider remains running after the daemon becomes inactive.
+          type: boolean
+        default_programmatic_tool_calls:
+          description: >-
+            Whether machines created from the pool let commands call their agent's tools with
+            `omnarad call`. When true, every agent bound to such a machine whose config enables
+            programmatic tool calls can call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
           type: boolean
         max_total_machines:
           type: integer
@@ -15581,7 +15817,7 @@ components:
     Machine:
       type: object
       additionalProperties: false
-      required: [id, org_id, source_kind, display_name, description, provider, lifecycle_state, connection_state, last_observed_at, cwd, env, secret_env, lifecycle_reason_code, lifecycle_reason_message, next_reconcile_after, provision_attempts, delete_attempts, metadata, deleted_at, created_at, updated_at]
+      required: [id, org_id, source_kind, display_name, description, provider, lifecycle_state, connection_state, last_observed_at, cwd, env, secret_env, programmatic_tool_calls, lifecycle_reason_code, lifecycle_reason_message, next_reconcile_after, provision_attempts, delete_attempts, metadata, deleted_at, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/MachineID'
@@ -15619,6 +15855,12 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
+        programmatic_tool_calls:
+          description: >-
+            Whether commands on this machine can call their agent's tools with `omnarad call`.
+            When true, every agent bound to the machine whose config enables programmatic tool
+            calls can call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
+          type: boolean
         lifecycle_reason_code:
           type: string
         lifecycle_reason_message:
@@ -15736,6 +15978,13 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
+        programmatic_tool_calls:
+          description: >-
+            Lets commands on this machine call their agent's tools with `omnarad call`. Enabling it
+            lets every agent bound to the machine whose config enables programmatic tool calls call
+            its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access. Only enable it on machines whose agents
+            trust each other.
+          type: boolean
     MachineSummaryFields:
       type: object
       description: Shared machine fields composed into machine response schemas. Composing schemas close their final shape with unevaluatedProperties.
