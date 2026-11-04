@@ -44,22 +44,29 @@ func TestSharedInstallationTokensIsolateIdentityRepositoryAndPermission(t *testi
 	otherOrigin := httptest.NewServer(handler)
 	defer otherOrigin.Close()
 	config := sharedTokenConfig(t, server)
-	get := func(config Config, repo int64, write bool) string {
+	get := func(config Config, repo int64, kind tokenKind) string {
 		t.Helper()
 		client, err := NewClient(config)
 		require.NoError(t, err)
-		token, err := client.installationToken(t.Context(), repo, write)
+		var token string
+		if kind == checksWriteToken {
+			token, err = client.checksToken(t.Context(), repo)
+		} else {
+			token, err = client.installationToken(t.Context(), repo, kind == pullRequestWriteToken)
+		}
 		require.NoError(t, err)
 		return token
 	}
-	first := get(config, 789, false)
+	first := get(config, 789, pullRequestReadToken)
 	for range 10 {
-		require.Equal(t, first, get(config, 789, false))
+		require.Equal(t, first, get(config, 789, pullRequestReadToken))
 	}
 	require.EqualValues(t, 1, mints.Load(), "fresh clients reuse the same grant")
-	for _, dimension := range []string{"secret", "version", "app", "installation", "origin", "repository", "permission"} {
+	for _, dimension := range []string{
+		"secret", "version", "app", "installation", "origin", "repository", "permission", "checks",
+	} {
 		t.Run(dimension, func(t *testing.T) {
-			changed, repo, write := config, int64(789), false
+			changed, repo, kind := config, int64(789), pullRequestReadToken
 			switch dimension {
 			case "secret":
 				changed.CredentialSecretID = uuid.New()
@@ -74,12 +81,14 @@ func TestSharedInstallationTokensIsolateIdentityRepositoryAndPermission(t *testi
 			case "repository":
 				repo++
 			case "permission":
-				write = true
+				kind = pullRequestWriteToken
+			case "checks":
+				kind = checksWriteToken
 			}
 			before := mints.Load()
-			token := get(changed, repo, write)
+			token := get(changed, repo, kind)
 			require.NotEqual(t, first, token)
-			require.Equal(t, token, get(changed, repo, write))
+			require.Equal(t, token, get(changed, repo, kind))
 			require.Equal(t, before+1, mints.Load())
 		})
 	}

@@ -1,7 +1,12 @@
 import { bearerToken, createOmnaraClient, type OmnaraClient } from '@omnara/sdk'
 import type { Command } from 'commander'
 
-import { type ConfigFile, type ConfigStore, fileConfigStore } from './config-file.ts'
+import {
+  type ConfigFile,
+  type ConfigStore,
+  fileConfigStore,
+  firstPresentSetting,
+} from './config-file.ts'
 import { createLoginReporter, loginWithDevice } from './device-login.ts'
 import {
   canPromptInteractively,
@@ -38,9 +43,16 @@ export interface ResolvedUrls {
 
 export function resolveUrls(file: ConfigFile, env: NodeJS.ProcessEnv): ResolvedUrls {
   return {
-    apiUrl: env.OMNARA_API_URL ?? file.api_url ?? DEFAULT_API_URL,
-    issuerUrl: env.OMNARA_ISSUER_URL ?? file.issuer_url ?? DEFAULT_ISSUER_URL,
+    apiUrl: firstPresentSetting(env.OMNARA_API_URL, file.api_url) ?? DEFAULT_API_URL,
+    issuerUrl: firstPresentSetting(env.OMNARA_ISSUER_URL, file.issuer_url) ?? DEFAULT_ISSUER_URL,
   }
+}
+
+export function resolveSavedToken(
+  env: NodeJS.ProcessEnv,
+  fileToken: string | undefined,
+): string | undefined {
+  return firstPresentSetting(env.OMNARA_API_KEY, fileToken)
 }
 
 export function migrateLegacyBaseUrl(file: ConfigFile): ConfigFile | undefined {
@@ -81,7 +93,7 @@ export function loadConfig(): CliConfig {
   const { apiUrl, issuerUrl } = resolveUrls(file, process.env)
   let saved: SavedDefaults = { orgId: file.org_id, projectId: file.project_id }
   const resolveToken = createTokenResolver({
-    savedToken: process.env.OMNARA_API_KEY ?? file.token,
+    savedToken: resolveSavedToken(process.env, file.token),
     canPrompt: canPromptInteractively,
     login: async () => {
       const report = createLoginReporter(`Not logged in yet. Log in to ${issuerUrl}`)
@@ -112,10 +124,10 @@ export function loadConfig(): CliConfig {
     fetch: globalThis.fetch,
     sleep: sleepSeconds,
     get defaultOrgId() {
-      return process.env.OMNARA_ORG_ID ?? saved.orgId
+      return firstPresentSetting(process.env.OMNARA_ORG_ID, saved.orgId)
     },
     get defaultProjectId() {
-      return process.env.OMNARA_PROJECT_ID ?? saved.projectId
+      return firstPresentSetting(process.env.OMNARA_PROJECT_ID, saved.projectId)
     },
     ensureLoggedIn: async () => {
       await resolveToken()
@@ -135,7 +147,7 @@ function describeValue(
   fileValue: string | undefined,
   defaultValue?: string,
 ): string {
-  const envValue = process.env[envName]
+  const envValue = firstPresentSetting(process.env[envName])
   if (envValue !== undefined) {
     const shadowed = fileValue !== undefined ? ` (config has ${fileValue})` : ''
     return `${envValue}  [from ${envName}${shadowed}]`
