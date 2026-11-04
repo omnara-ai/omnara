@@ -228,6 +228,29 @@ describe('agents wait', () => {
     expect(console.error).not.toHaveBeenCalled()
   })
 
+  it('does not succeed on a response that lands after the grace window before its timer fires', async () => {
+    let release: (() => void) | undefined
+    const command = cli(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = () => {
+            resolve(Response.json(agentPayload('idle')))
+          }
+        }),
+    )
+    vi.useFakeTimers()
+    const run = command.run('--timeout', '1', '--json')
+    await vi.advanceTimersByTimeAsync(0)
+    vi.setSystemTime(Date.now() + 3_000)
+    release?.()
+    await run
+    expect(console.log).not.toHaveBeenCalled()
+    expect(process.exitCode).toBe(1)
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining('agent did not reach activity state idle within 1s'),
+    )
+  })
+
   it('does not succeed on a matching response that arrives after the grace window', async () => {
     let release: (() => void) | undefined
     const command = cli(

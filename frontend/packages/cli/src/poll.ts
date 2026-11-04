@@ -54,6 +54,8 @@ export async function pollUntilDeadline<T>(options: {
   while (true) {
     try {
       const found = await fetchBeforeDeadline(abortAt, options.fetchOnce)
+      // Timers can fire late, so a response can win the race after abortAt.
+      if (Date.now() >= abortAt) break
       consecutiveFailures = 0
       if (found !== undefined) return found
     } catch (error) {
