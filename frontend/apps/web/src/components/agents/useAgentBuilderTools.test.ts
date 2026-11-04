@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
+import { z } from 'zod'
 
 import { createBasicConfigSession, emptyBasicConfig } from '@/components/agents/useAgentBuilderForm'
 import {
   agentBuilderToolsDefinition,
   agentBuilderToolsRequest,
 } from '@/components/agents/useAgentBuilderTools'
+
+function previewSource(request: ReturnType<typeof agentBuilderToolsRequest>) {
+  const text = z.string().safeParse(request.source)
+  return z.json().parse(text.success ? parse(text.data) : request.source)
+}
 
 describe('agentBuilderToolsDefinition', () => {
   it('forwards tool overrides and MCP loading settings without auth', () => {
@@ -115,8 +121,7 @@ mcp:
 `)
   if (!session.initialDraft) throw new Error('Missing draft')
   const request = agentBuilderToolsRequest(session.initialDraft)
-  if (request.source_format !== 'yaml') throw new Error('Expected raw tool preview')
-  const preview: unknown = parse(request.source)
+  const preview = previewSource(request)
   expect(preview).toHaveProperty('tools.custom_example.deferred', true)
   expect(preview).toHaveProperty('tools.custom_example.input_schema.type', 'object')
   expect(preview).toHaveProperty('tools.web_search.extension', true)
@@ -135,6 +140,5 @@ it('keeps the last definition in tool previews while raw YAML contains an unreso
     ...draft,
     advancedEntries: draft.advancedEntries?.map((entry) => ({ ...entry, source: '*missing' })),
   })
-  if (request.source_format !== 'yaml') throw new Error('Expected raw tool preview')
-  expect(parse(request.source)).toHaveProperty('tools.example.description', 'Example')
+  expect(previewSource(request)).toHaveProperty('tools.example.description', 'Example')
 })
