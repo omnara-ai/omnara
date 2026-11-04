@@ -42,8 +42,8 @@ that profile. `OMNARA_API_URL` optionally overrides `https://api.omnara.com/v1`;
 The receiver verifies the original request bytes, signature, and timestamp,
 then validates with `zEventWebhookPayload`, passes `tool_call_update` payloads
 to `worker.handle`, and acknowledges right away. The worker runs `ready` calls
-to the tools it registers and ignores everything else. When a payload leaves
-out an input over 64 KiB, the worker fetches the call first.
+to the tools it registers and ignores everything else. It fetches each call
+first and skips any that are no longer ready.
 
 The worker submits the tool's result, retrying network errors and `408`,
 `429`, and `5xx` responses. If the tool throws, it submits a `failed` result with the

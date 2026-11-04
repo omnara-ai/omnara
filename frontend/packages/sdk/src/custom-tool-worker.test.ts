@@ -10,7 +10,9 @@ const agentID = `agt_${idSuffix}`
 const toolCallID = `tcl_${idSuffix}`
 const path = { orgID: `org_${idSuffix}`, projectID: `proj_${idSuffix}` }
 const projectPath = `/v1/orgs/${path.orgID}/projects/${path.projectID}`
-const callPath = `${projectPath}/agents/${agentID}/tool-calls/${toolCallID}`
+const agentPath = `${projectPath}/agents/${agentID}`
+const callPath = `${agentPath}/tool-calls/${toolCallID}`
+const profileID = `aprf_${idSuffix}`
 const input = { email: 'ada@example.com' }
 const ready: ToolCallUpdate = {
   tool_call_id: toolCallID,
@@ -28,24 +30,41 @@ function failed(error: string): SubmitToolCallResultRequest {
   return { outcome: 'failed', content_blocks: [{ type: 'structured_data', value: { error } }] }
 }
 
-function toolCall(state: 'ready' | 'completed' = 'ready') {
+function toolCall(id = toolCallID) {
   return {
-    id: toolCallID,
+    id,
     agent_id: agentID,
     turn_id: `trn_${idSuffix}`,
     provider_call_id: 'call_1',
     name: 'lookup_customer',
     input,
     type: 'custom',
-    state,
+    state: 'ready',
     created_at: '2026-11-04T00:00:00Z',
   }
+}
+
+function agentRecord(): Response {
+  return Response.json({
+    agent: {
+      id: agentID,
+      org_id: path.orgID,
+      project_id: path.projectID,
+      agent_profile_id: profileID,
+      state: 'active',
+      name: 'support',
+      created_at: '2026-11-04T00:00:00Z',
+      updated_at: '2026-11-04T00:00:00Z',
+    },
+    machine_ids: [],
+    mcp_connections: [],
+  })
 }
 
 function accepted(body: SubmitToolCallResultRequest): Response {
   return Response.json(
     {
-      tool_call: { ...toolCall('completed'), outcome: body.outcome },
+      tool_call: { ...toolCall(), state: 'completed', outcome: body.outcome },
       tool_result: {
         ...body,
         event_id: `evt_${idSuffix}`,
@@ -58,13 +77,18 @@ function accepted(body: SubmitToolCallResultRequest): Response {
   )
 }
 
-function api(route: (request: Request, body?: SubmitToolCallResultRequest) => Response) {
+function api(
+  route: (request: Request, body?: SubmitToolCallResultRequest) => Response,
+  call = () => Response.json(toolCall()),
+) {
   const requests: string[] = []
   const submitted: SubmitToolCallResultRequest[] = []
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const request = new Request(input, init)
     const url = new URL(request.url)
     requests.push(`${request.method} ${url.pathname}${url.search}`)
+    if (url.pathname === agentPath) return agentRecord()
+    if (/\/tool-calls\/tcl_[a-z2-7]{26}$/.test(url.pathname)) return call()
     if (request.method !== 'POST') return route(request)
     const body = zSubmitToolCallResultRequest.parse(await request.json())
     submitted.push(body)
@@ -79,6 +103,7 @@ function api(route: (request: Request, body?: SubmitToolCallResultRequest) => Re
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('createCustomToolWorker', () => {
@@ -102,35 +127,69 @@ describe('createCustomToolWorker', () => {
     await vi.waitFor(() => {
       expect(submitted).toEqual([found])
     })
-    expect(lookup).toHaveBeenCalledExactlyOnceWith({
-      agentID,
-      toolCallID,
-      name: 'lookup_customer',
-      input,
-    })
-    expect(requests).toEqual([`POST ${callPath}/result`])
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ agentID, toolCallID, name: 'lookup_customer', input }),
+    )
+    expect(requests).toEqual([`GET ${callPath}`, `POST ${callPath}/result`])
     expect(onError).not.toHaveBeenCalled()
   })
 
-  it('fetches the input when the update omits it', async () => {
-    const { client, requests, submitted } = api((_, body) =>
-      body === undefined ? Response.json(toolCall()) : accepted(body),
+  it('skips webhook calls from agents outside the project or profile', async () => {
+    const lookup = vi.fn<CustomToolHandler>(() => Promise.resolve(found))
+    const onError = vi.fn()
+    const otherProfile = api(() => new Response(null, { status: 500 }))
+    const otherProject = api(
+      () => new Response(null, { status: 500 }),
+      () => Response.json({ error: 'not found', code: 'not_found' }, { status: 404 }),
+    )
+    createCustomToolWorker({
+      client: otherProfile.client,
+      path,
+      agentProfileID: `aprf_${'b'.repeat(26)}`,
+      tools: { lookup_customer: lookup },
+      onError,
+    }).handle(ready)
+    createCustomToolWorker({
+      client: otherProject.client,
+      path,
+      tools: { lookup_customer: lookup },
+      onError,
+    }).handle(ready)
+
+    await vi.waitFor(() => {
+      expect([...otherProfile.requests, ...otherProject.requests]).toEqual([
+        `GET ${callPath}`,
+        `GET ${agentPath}`,
+        `GET ${callPath}`,
+      ])
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(lookup).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('skips a late ready update for a call that was canceled', async () => {
+    const { client, requests } = api(
+      () => new Response(null, { status: 500 }),
+      () => Response.json({ ...toolCall(), state: 'completed', outcome: 'canceled' }),
     )
     const lookup = vi.fn<CustomToolHandler>(() => Promise.resolve(found))
+    const onError = vi.fn()
     const worker = createCustomToolWorker({
       client,
       path,
       tools: { lookup_customer: lookup },
-      onError: vi.fn(),
+      onError,
     })
 
-    worker.handle({ ...ready, input: undefined })
+    worker.handle(ready)
 
     await vi.waitFor(() => {
-      expect(submitted).toEqual([found])
+      expect(requests).toEqual([`GET ${callPath}`])
     })
-    expect(lookup).toHaveBeenCalledWith({ agentID, toolCallID, name: 'lookup_customer', input })
-    expect(requests).toEqual([`GET ${callPath}`, `POST ${callPath}/result`])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(lookup).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
   })
 
   it('submits handler errors and rejected results as failures', async () => {
@@ -199,7 +258,7 @@ describe('createCustomToolWorker', () => {
     worker.handle(ready)
 
     await vi.waitFor(() => {
-      expect(requests).toHaveLength(3)
+      expect(requests).toHaveLength(4)
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(onError).not.toHaveBeenCalled()
@@ -243,8 +302,201 @@ describe('createCustomToolWorker', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(lookup).not.toHaveBeenCalled()
-    expect(requests).toEqual([])
+    expect(requests).not.toContain(`POST ${callPath}/result`)
     expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('does not report or submit a tool that stops on shutdown', async () => {
+    const controller = new AbortController()
+    const { client, requests } = api(() => new Response(null, { status: 500 }))
+    const onError = vi.fn()
+    let started = false
+    const worker = createCustomToolWorker({
+      client,
+      path,
+      tools: {
+        lookup_customer: ({ signal }) =>
+          new Promise((_, reject) => {
+            started = true
+            signal.addEventListener('abort', () => {
+              reject(new Error('stopped'))
+            })
+          }),
+      },
+      signal: controller.signal,
+      onError,
+    })
+
+    worker.handle(ready)
+    await vi.waitFor(() => {
+      expect(started).toBe(true)
+    })
+    controller.abort()
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(onError).not.toHaveBeenCalled()
+    expect(requests).toEqual([`GET ${callPath}`])
+  })
+
+  it('limits running tools, runs skipped calls as slots free, and waits for them on shutdown', async () => {
+    const controller = new AbortController()
+    const rankID = `tcl_${'b'.repeat(26)}`
+    const finished = new Set<string>()
+    const { client } = api((request, body) => {
+      if (body !== undefined) {
+        finished.add(/tool-calls\/([^/]+)\/result/.exec(request.url)?.[1] ?? '')
+        return accepted(body)
+      }
+      const calls = [toolCall(), toolCall(rankID)].filter((call) => !finished.has(call.id))
+      return Response.json({ data: calls, next_cursor: null })
+    })
+    const release = new Map<string, (result: SubmitToolCallResultRequest) => void>()
+    const lookup = vi.fn<CustomToolHandler>(
+      (call) =>
+        new Promise((resolve) => {
+          release.set(call.toolCallID, resolve)
+        }),
+    )
+    const worker = createCustomToolWorker({
+      client,
+      path,
+      tools: { lookup_customer: lookup },
+      concurrency: 1,
+      signal: controller.signal,
+      onError: vi.fn(),
+    })
+
+    const stopped = worker.run()
+    await vi.waitFor(() => {
+      expect(release.has(toolCallID)).toBe(true)
+    })
+    expect(lookup).toHaveBeenCalledTimes(1)
+    const toolSignal = lookup.mock.calls[0]?.[0].signal
+
+    release.get(toolCallID)?.(found)
+    await vi.waitFor(() => {
+      expect(release.has(rankID)).toBe(true)
+    })
+
+    let done = false
+    void stopped.then(() => {
+      done = true
+    })
+    controller.abort()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(done).toBe(false)
+    expect(toolSignal?.aborted).toBe(true)
+    release.get(rankID)?.(found)
+    await stopped
+    expect(lookup).toHaveBeenCalledTimes(2)
+  })
+
+  it('waits for running tools and stops taking work when polling fails', async () => {
+    const { client } = api(() =>
+      Response.json({ error: 'forbidden', code: 'forbidden' }, { status: 403 }),
+    )
+    const release: ((result: SubmitToolCallResultRequest) => void)[] = []
+    const lookup = vi.fn<CustomToolHandler>(
+      () =>
+        new Promise((resolve) => {
+          release.push(resolve)
+        }),
+    )
+    const worker = createCustomToolWorker({
+      client,
+      path,
+      tools: { lookup_customer: lookup },
+      onError: vi.fn(),
+    })
+
+    worker.handle(ready)
+    await vi.waitFor(() => {
+      expect(release).toHaveLength(1)
+    })
+    let outcome: unknown
+    const stopped = worker.run().catch((cause: unknown) => {
+      outcome = cause
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(outcome).toBeUndefined()
+    worker.handle({ ...ready, tool_call_id: `tcl_${'b'.repeat(26)}` })
+    release[0]?.(found)
+    await stopped
+    expect(outcome).toMatchObject({ status: 403 })
+    expect(lookup).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a failed call at the next regular check, even while busy', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const controller = new AbortController()
+    const others = Array.from(
+      { length: 10 },
+      (_, index) => `tcl_${String.fromCharCode(98 + index).repeat(26)}`,
+    )
+    const finished = new Set<string>()
+    let rejections = 1
+    const { client } = api((request, body) => {
+      if (body === undefined) {
+        const ids = [toolCallID, ...others].filter((id) => !finished.has(id))
+        return Response.json({ data: ids.map((id) => toolCall(id)), next_cursor: null })
+      }
+      const id = /tool-calls\/([^/]+)\/result/.exec(request.url)?.[1] ?? ''
+      if (id === toolCallID && rejections-- > 0) {
+        return Response.json({ error: 'forbidden', code: 'forbidden' }, { status: 403 })
+      }
+      finished.add(id)
+      return accepted(body)
+    })
+    const lookup = vi.fn<CustomToolHandler>((call) =>
+      call.toolCallID === toolCallID
+        ? Promise.resolve(found)
+        : new Promise((resolve) => {
+            setTimeout(() => {
+              resolve(found)
+            }, 10_000)
+          }),
+    )
+    const onError = vi.fn()
+    const worker = createCustomToolWorker({
+      client,
+      path,
+      tools: { lookup_customer: lookup },
+      concurrency: 1,
+      signal: controller.signal,
+      onError,
+    })
+    const attempts = () =>
+      lookup.mock.calls.filter(([call]) => call.toolCallID === toolCallID).length
+
+    const stopped = worker.run()
+    await vi.advanceTimersByTimeAsync(50_000)
+    expect(attempts()).toBe(1)
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(attempts()).toBe(2)
+    expect(finished.size).toBeLessThan(others.length)
+
+    controller.abort()
+    await vi.advanceTimersByTimeAsync(10_000)
+    await stopped
+    expect(onError).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 403 }), {
+      agentID,
+      toolCallID,
+      name: 'lookup_customer',
+    })
+  })
+
+  it('rejects a concurrency that is not a positive integer', () => {
+    for (const concurrency of [0, -1, 1.5, Number.NaN]) {
+      expect(() =>
+        createCustomToolWorker({
+          client: createOmnaraClient(),
+          path,
+          tools: {},
+          concurrency,
+          onError: vi.fn(),
+        }),
+      ).toThrow(RangeError)
+    }
   })
 
   it('sweeps ready calls for its tools until aborted', async () => {
@@ -263,7 +515,7 @@ describe('createCustomToolWorker', () => {
     const worker = createCustomToolWorker({
       client,
       path,
-      agentProfileID: `aprf_${idSuffix}`,
+      agentProfileID: profileID,
       tools: { lookup_customer: () => Promise.resolve(found) },
       signal: controller.signal,
       onError: vi.fn(),
@@ -271,7 +523,7 @@ describe('createCustomToolWorker', () => {
 
     await worker.run()
 
-    const list = `GET ${projectPath}/tool-calls?state=ready&type=custom&names=lookup_customer&agent_profile_id=aprf_${idSuffix}`
+    const list = `GET ${projectPath}/tool-calls?state=ready&type=custom&names=lookup_customer&agent_profile_id=${profileID}`
     expect(requests).toEqual([list, `${list}&cursor=next`, `POST ${callPath}/result`])
     expect(submitted).toEqual([found])
   })

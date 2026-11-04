@@ -95,7 +95,7 @@ test('acknowledges a ready update, then runs the tool and submits its result', a
   })
   const { post } = receiver(async (url, init) => {
     const request = new Request(url, init)
-    assert.equal(request.method, 'POST')
+    if (request.method === 'GET') return Response.json(readyCall())
     submit(await request.json())
     return accepted()
   })
