@@ -132,6 +132,22 @@ describe('agents wait', () => {
     expect(console.error).not.toHaveBeenCalled()
   })
 
+  it('says idle also waits for background work when the timeout elapses', async () => {
+    const busy = agentPayload('idle')
+    busy.agent.activity.running_processes = { count: 1, process_ids: [id('prc')] }
+    const command = cli(() => Response.json(busy))
+    vi.useFakeTimers()
+    const run = command.run('--timeout', '1')
+    await vi.advanceTimersByTimeAsync(1_000)
+    await run
+    expect(process.exitCode).toBe(1)
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'agent did not reach activity state idle within 1s (idle also waits for subagents and background work to finish)',
+      ),
+    )
+  })
+
   it('rejects an unknown state before calling the API', async () => {
     const command = cli(() => Response.json(agentPayload('idle')))
     await command.run('--activity-state', 'nope')

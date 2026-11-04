@@ -63,10 +63,14 @@ function agentWaitExpiredMessage(
   timeoutSeconds: number,
 ): string {
   const wanted = states.join(', ')
+  // An idle agent still counts as busy while subagents or background work run, so say so.
+  const note = states.includes('idle')
+    ? ' (idle also waits for subagents and background work to finish)'
+    : ''
   if (timeoutSeconds === 0) {
-    return `agent did not reach activity state ${wanted}`
+    return `agent did not reach activity state ${wanted}${note}`
   }
-  return `agent did not reach activity state ${wanted} within ${timeoutSeconds}s`
+  return `agent did not reach activity state ${wanted} within ${timeoutSeconds}s${note}`
 }
 
 function agentArchivedMessage(states: readonly AgentActivity['state'][]): string {
@@ -108,7 +112,7 @@ export const agentWaitOp = customOp({
       .argument('<agent-id>')
       .option(
         '--activity-state <state>',
-        'activity state to wait for; repeatable (default: idle)',
+        'activity state to wait for; repeatable (default: idle, which also waits for subagents and background work)',
         collectRepeatableFlag,
       )
       .option(
