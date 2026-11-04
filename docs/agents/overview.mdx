@@ -99,7 +99,7 @@ For full schemas and playground see: [List agents](/api-reference/endpoints/agen
 
 ## Wait for an agent
 
-`omnara agents wait {agent-id}` polls until the agent's `activity.state` is `idle`, then prints the same record as `omnara agents get`. Pass `--activity-state` (repeatable) to wait for `running`, `waiting_on_interaction`, `idle`, or `archived`. `--timeout` is in seconds (default 300; `0` waits until interrupted).
+`omnara agents wait {agent-id}` polls until the agent's `activity.state` is `idle` and it has no working subagents or running processes, then prints the same record as `omnara agents get`. Pass `--activity-state` (repeatable) to wait for `running`, `waiting_on_interaction`, `idle`, or `archived`; `idle` always also waits for that background work, so a command the agent left running, such as a dev server, keeps the wait going until it ends or `--timeout` expires. `--timeout` is in seconds (default 300; `0` waits until interrupted).
 
 <AgentsWait />
 
