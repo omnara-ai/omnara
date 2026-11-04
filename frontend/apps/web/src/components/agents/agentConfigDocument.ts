@@ -8,6 +8,7 @@ import {
   isJsonSource,
   patchConfigSource,
 } from '@/components/agents/agentConfigSourcePatch'
+import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 
 export type ConfigValue =
   string | number | boolean | null | undefined | ConfigValue[] | ConfigObject
@@ -137,14 +138,20 @@ export function editConfigDocument(source: string, original: Document, preserved
     }
   }
 
-  function replaceDefinition(path: string[], raw: string) {
-    if (!protectedPaths.some((entry) => configPath(entry.map(String)) === configPath(path)))
+  function setRawDefinition(path: string[], raw: string) {
+    const preserved = protectedPaths.some(
+      (entry) => configPath(entry.map(String)) === configPath(path),
+    )
+    if (!preserved && document.hasIn(path))
       throw new ConfigEditError(path, 'This definition is not owned by the advanced editor.')
+    if (!preserved) requireManaged(path)
     const { doc: parsed, diagnostics } = parseConfigDocument(raw)
-    const parent = document.getIn(path.slice(0, -1), true)
+    const parentPath = path.slice(0, -1)
+    const parent = document.getIn(parentPath, true)
     const needsConversion =
       (isJsonSource(source) && !isJsonSource(raw)) ||
-      (isMap(parent) && parent.flow && !(isMap(parsed.contents) && parsed.contents.flow))
+      ([document.contents, parent].some((node) => isMap(node) && node.flow) &&
+        !(isMap(parsed.contents) && parsed.contents.flow))
     if (needsConversion && diagnostics.some((issue) => issue.kind === 'opaque'))
       throw new ConfigEditError(
         path,
@@ -152,6 +159,13 @@ export function editConfigDocument(source: string, original: Document, preserved
       )
     if (parsed.errors.length > 0 || !parsed.contents)
       throw new ConfigEditError(path, 'Invalid advanced definition.')
+    const name = path.at(-1)
+    if (
+      name !== undefined &&
+      path.length > 1 &&
+      (parent == null || (isScalar(parent) && parent.value === null))
+    )
+      set(parentPath, { [name]: null })
     write(path, parsed.contents, false)
     const edit = edits.at(-1)
     if (edit?.type === 'set') edit.raw = raw
@@ -159,10 +173,16 @@ export function editConfigDocument(source: string, original: Document, preserved
 
   function serialize() {
     if (edits.length === 0) return source
-    if (source === '') return document.toString()
     let result: string
     try {
-      result = patchConfigSource(source, original, edits)
+      const initial = source || document.toString()
+      result = patchConfigSource(
+        initial,
+        source === '' ? parseDocument(initial, configYamlOptions) : original,
+        source === ''
+          ? edits.filter((edit) => edit.type === 'set' && edit.raw !== undefined)
+          : edits,
+      )
     } catch (error) {
       if (error instanceof ConfigEditError) throw error
       throw new ConfigEditError(
@@ -189,7 +209,7 @@ export function editConfigDocument(source: string, original: Document, preserved
     set,
     remove,
     orderSequence,
-    replaceDefinition,
+    setRawDefinition,
     serialize,
   }
 }

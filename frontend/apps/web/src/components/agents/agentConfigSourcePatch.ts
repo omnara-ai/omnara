@@ -159,6 +159,8 @@ function renderItem(
     if (item.value.type === 'flow-collection') item.value.end.push(...tail)
     else {
       const items: CST.CollectionItem[] = item.value.items
+      const last = items.at(-1)
+      if (!last?.key && !last?.value && last?.start.at(-1)?.type === 'space') last.start.pop()
       items.push({ start: tail })
     }
   }

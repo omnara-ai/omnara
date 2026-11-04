@@ -55,6 +55,7 @@ export function agentBuilderToolsRequest(source: BasicConfig) {
     const value = !parsed.diagnostics.some((issue) => issue.kind === 'fatal')
       ? parsed.doc.contents
       : parseDocument(source.originalSource ?? '', configYamlOptions).getIn(entry.path, true)
+    if (value == null) continue
     if (entry.path[0] === 'machine_sources' && entry.path.length === 2) {
       const sources = preview.get('machine_sources', true)
       if (isSeq(sources)) sources.add(value)

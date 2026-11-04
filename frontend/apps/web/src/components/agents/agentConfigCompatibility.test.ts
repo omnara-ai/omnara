@@ -4,7 +4,7 @@ import { isNode, parse, parseDocument } from 'yaml'
 
 import { configPath } from './agentConfigCompatibility'
 import fixture from './fixtures/inline-custom-tools.yaml?raw'
-import { type BasicConfig, createBasicConfigSession } from './useAgentBuilderForm'
+import { type BasicConfig, createBasicConfigSession, emptyBasicConfig } from './useAgentBuilderForm'
 
 function sessionFor(source = fixture) {
   const session = createBasicConfigSession(source)
@@ -155,6 +155,10 @@ input_schema:
       'type: custom\ndescription: Example\ninput_schema: {type: object, properties: {a: string}}',
       '/tools/search_records/input_schema/properties/a',
     ],
+    [
+      'type: custom\nname: misplaced\ndescription: Example\ninput_schema: {type: object}',
+      '/tools/search_records',
+    ],
   ])('blocks invalid custom definitions with an exact path: %s', (raw, path) => {
     const { session, draft } = sessionFor()
     const invalid = {
@@ -255,3 +259,75 @@ it.each(['tools: null', 'tools:', 'tools: {}'])(
     expect(parse(result.yaml)).toHaveProperty(['tools', 'web_search'])
   },
 )
+
+it.each([
+  fixture,
+  JSON.stringify(parse(fixture)),
+  'tools: null # keep parent\n',
+  'instruction: Help.\n',
+  '',
+])('inserts a custom definition without rewriting existing content (%#)', (source) => {
+  const session = createBasicConfigSession(source)
+  const draft = session.initialDraft ?? emptyBasicConfig
+  const entry = {
+    path: ['tools', 'new_tool'],
+    kind: 'custom' as const,
+    source:
+      'type: custom\ndescription: New tool.\ninput_schema: {type: object, properties: {items: {type: array, items: {type: string}}}}\n',
+  }
+  const isJson = source.startsWith('{')
+  if (isJson)
+    entry.source = JSON.stringify(parse(entry.source)).replace(
+      '"type":"string"',
+      '"type":"integer","const":9007199254740993',
+    )
+  else
+    entry.source =
+      entry.source.replace('type: string', 'type: integer, const: 9007199254740993') +
+      '# keep schema comment\n'
+  const result = session.evaluate({
+    ...draft,
+    advancedEntries: [...(draft.advancedEntries ?? []), entry],
+  })
+  expect(result.issues).toEqual([])
+  expect(parse(result.yaml)).toHaveProperty(['tools', 'new_tool'], parse(entry.source))
+  expect(result.yaml).toContain('9007199254740993')
+  if (!isJson) {
+    expect(result.yaml).toContain('# keep schema comment')
+  }
+  if (source.includes('search_records')) expectCustomUnchanged(result.yaml, source)
+  if (source.includes('# keep parent')) expect(result.yaml).toContain('# keep parent')
+  const reopened = sessionFor(result.yaml)
+  expect(reopened.draft.advancedEntries?.map((item) => item.path[1])).toContain('new_tool')
+  expect(reopened.session.apply(reopened.draft)).toBe(result.yaml)
+  expect(session.apply(draft)).toBe(source)
+})
+
+it('rejects custom insertions that collide with managed or advanced names', () => {
+  const { session, draft } = sessionFor()
+  const entry = {
+    path: ['tools', 'new_tool'],
+    kind: 'custom' as const,
+    source: 'type: custom\ndescription: New.\ninput_schema: {type: object}',
+  }
+  for (const name of ['run_command', 'search_records']) {
+    const result = session.evaluate({
+      ...draft,
+      advancedEntries: [...(draft.advancedEntries ?? []), { ...entry, path: ['tools', name] }],
+    })
+    expect(result.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: ['tools', name], error: true })]),
+    )
+    expect(result.yaml).toBe(fixture)
+    expect(result.unappliedChanges).toBe(true)
+  }
+  const result = session.evaluate({
+    ...draft,
+    tools: [...draft.tools, { name: 'new_tool', permission: null }],
+    advancedEntries: [...(draft.advancedEntries ?? []), entry],
+  })
+  expect(result.issues).toEqual(
+    expect.arrayContaining([expect.objectContaining({ path: entry.path, error: true })]),
+  )
+  expect(result.yaml).toBe(fixture)
+})
