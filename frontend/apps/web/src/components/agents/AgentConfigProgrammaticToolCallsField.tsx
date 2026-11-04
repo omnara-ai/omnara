@@ -21,7 +21,7 @@ export function AgentConfigProgrammaticToolCallsField({
   const exclude = value?.exclude ?? []
   // The draft keeps what was typed, such as a trailing comma, and resyncs when the list
   // changes from outside, such as a YAML edit.
-  const [excludeDraft, setExcludeDraft] = useState(exclude.join(', '))
+  const [excludeDraft, setExcludeDraft] = useState(() => exclude.join(', '))
   if (!sameNames(namesFromDraft(excludeDraft), exclude)) setExcludeDraft(exclude.join(', '))
 
   return (
