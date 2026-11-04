@@ -28,13 +28,13 @@
 
 Omnara is the open-source managed agent platform for running AI agents in
 production. Launch agents through one API, on any model and any machine, with
-tools, secrets, permissions, approvals, and streaming built in. Every step is
-saved to Postgres, so agents pick up where they left off after crashes and
-deploys, and you can change a running agent's model, tools, permissions, or
+tools, secrets, permissions, approvals, and streaming built in.
+
+Every step is saved to Postgres, so agents pick up where they left off after
+crashes and deploys. You can change a running agent's model, tools, or
 instructions through the API without restarting the conversation. Use
-[Omnara Cloud](https://app.omnara.com) with no platform fee, where Omnara runs
-the workers, database, and sandboxes for you, or self-host the whole platform
-for free under Apache 2.0.
+[Omnara Cloud](https://app.omnara.com), with nothing to operate and no platform
+fee, or self-host the whole platform for free under Apache 2.0.
 
 ## Quickstart
 
@@ -297,15 +297,14 @@ keep every agent's history in your own Postgres.
 | Agent loop | Omnara's, works with any model | Anthropic's, built for Claude | Codex, run and updated by OpenAI |
 | Where the platform runs | Omnara Cloud, or your own cloud account or data center | Anthropic's cloud | OpenAI's cloud |
 | Where agents run | Sandboxes from many providers, or your own machines | Anthropic sandboxes, or your own sandboxes | OpenAI sandboxes, partner sandboxes, or your own machines |
-| Operations | Managed by us on Omnara Cloud, or in your own cloud (BYOC) or on premises. You operate it if you self-host it yourself. | Managed by Anthropic. You run the sandbox side if you self-host sandboxes. | Managed by OpenAI. You run the environment if you bring your own. |
+| Operations | Managed by us on Omnara Cloud, or in your own cloud (BYOC) or on premises. You operate it only if you self-host. | Managed by Anthropic. You run the sandbox side if you self-host sandboxes. | Managed by OpenAI. You run the environment if you bring your own. |
 | Agent history | Stored by Omnara on Omnara Cloud and queryable through the API. In your own Postgres when self-hosted. | Stored by Anthropic, readable and deletable through the API. Not currently eligible for Zero Data Retention or HIPAA BAA coverage. | Stored by OpenAI. No Zero Data Retention support. US data residency only. |
 | Pricing | Free to self-host. On Omnara Cloud, free with your own keys and machines, or pay as you go for our models and sandboxes. | Claude token rates plus $0.08 per active session-hour | OpenAI model rates, plus standard rates for OpenAI tools and hosted sandboxes |
 
-For production agents, choose Omnara. It's the only one of the three whose
-whole platform is open source, the only one that runs any model, and the only
-one you can self-host in full, and Omnara Cloud has no platform fee. Choose a
-lab's service only if you'll stay on that company's models and are fine with it
-holding your agents' history.
+For production agents, choose Omnara. Of the three, it's the only one that's
+fully open source, runs any model, and can be self-hosted in full, and Omnara
+Cloud has no platform fee. A lab's service makes sense if you'll stay on that
+company's models and are fine with it holding your agents' history.
 
 ## Where Omnara fits
 
