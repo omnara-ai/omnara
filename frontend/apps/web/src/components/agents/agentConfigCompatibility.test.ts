@@ -1,3 +1,4 @@
+import { zAgentConfigDefinition } from '@omnara/sdk/zod'
 import { describe, expect, it } from 'vitest'
 import { isNode, parse, parseDocument } from 'yaml'
 
@@ -18,10 +19,14 @@ function nodeSource(source: string, path: string[]) {
   return source.slice(node.range[0], node.range[2])
 }
 
-function expectCustomUnchanged(source: string) {
-  const { draft } = sessionFor()
-  for (const entry of draft.advancedEntries ?? []) {
-    expect(nodeSource(source, entry.path)).toBe(nodeSource(fixture, entry.path))
+const original = zAgentConfigDefinition.parse(parse(fixture))
+const customTools = Object.fromEntries(
+  Object.entries(original.tools ?? {}).filter(([, tool]) => tool.type === 'custom'),
+)
+
+function expectCustomUnchanged(source: string, baseline = fixture) {
+  for (const name of Object.keys(customTools)) {
+    expect(nodeSource(source, ['tools', name])).toBe(nodeSource(baseline, ['tools', name]))
   }
 }
 
@@ -36,46 +41,57 @@ describe('mixed managed and advanced configurations', () => {
     expect(session.apply(draft)).toBe(fixture)
   })
 
-  it.each<[string, (draft: BasicConfig) => BasicConfig]>([
-    ['instruction', (draft) => ({ ...draft, instruction: 'Updated instructions.\nSecond line.' })],
-    ['model', (draft) => ({ ...draft, modelName: 'another-model' })],
-    ['reasoning', (draft) => ({ ...draft, reasoningEffort: 'low' })],
+  it.each<[string, (draft: BasicConfig) => Partial<BasicConfig>, string, unknown]>([
+    [
+      'instruction',
+      () => ({ instruction: 'Updated instructions.\nSecond line.' }),
+      'instruction',
+      'Updated instructions.\nSecond line.',
+    ],
+    ['model', () => ({ modelName: 'another-model' }), 'model.name', 'another-model'],
+    ['reasoning', () => ({ reasoningEffort: 'low' }), 'model.reasoning.effort', 'low'],
     [
       'permission',
       (draft) => ({
-        ...draft,
         tools: draft.tools.map((tool) => ({
           ...tool,
           permission: { mode: 'always_allow', parameters: {} },
         })),
       }),
+      'tools.run_command.permission',
+      { mode: 'always_allow' },
     ],
     [
       'machine source',
       (draft) => ({
-        ...draft,
         machineSources: draft.machineSources.map((row) => ({ ...row, name: 'another-pool' })),
       }),
+      'machine_sources.0.machine_pool_name',
+      'another-pool',
     ],
     [
       'adding tools',
-      (draft) => ({
-        ...draft,
-        tools: [...draft.tools, { name: 'ask_question', permission: null }],
-      }),
+      (draft) => ({ tools: [...draft.tools, { name: 'ask_question', permission: null }] }),
+      'tools',
+      { ...original.tools, ask_question: { type: 'built_in' } },
     ],
-    ['removing every managed tool', (draft) => ({ ...draft, tools: [] })],
+    ['removing every managed tool', () => ({ tools: [] }), 'tools', customTools],
     [
-      'renaming a managed tool',
-      (draft) => ({ ...draft, tools: [{ name: 'ask_question', permission: null }] }),
+      'replacing managed tools',
+      () => ({ tools: [{ name: 'ask_question', permission: null }] }),
+      'tools',
+      { ...customTools, ask_question: { type: 'built_in' } },
     ],
-  ])('preserves custom definitions byte-for-byte when editing %s', (_label, edit) => {
-    const { session, draft } = sessionFor()
-    const updated = session.apply(edit(draft))
-    expect(updated).not.toBe(fixture)
-    expect(parseDocument(updated).errors).toEqual([])
-    expectCustomUnchanged(updated)
-  })
+  ])(
+    'saves %s edits while preserving custom definitions byte-for-byte',
+    (_label, edit, path, expected) => {
+      const { session, draft } = sessionFor()
+      const result = session.evaluate({ ...draft, ...edit(draft) })
+      expect(result.issues).toEqual([])
+      expect(parse(result.yaml)).toHaveProperty(path, expected)
+      expectCustomUnchanged(result.yaml)
+    },
+  )
 
   it('rejects managed names owned by custom or opaque entries without corrupting source', () => {
     const { session, draft } = sessionFor(fixture + 'future: {a: b}\n')
@@ -91,10 +107,18 @@ describe('mixed managed and advanced configurations', () => {
 
   it('saves intentional description and arbitrary nested schema edits', () => {
     const { session, draft } = sessionFor()
-    const raw = `type: custom
-description: Updated public example description.
+    expect(
+      draft.advancedEntries?.find((entry) => entry.path[1] === 'publish_report')?.source,
+    ).toContain(
+      'description: >-\n  Publish a report for the example project.\n  Include the selected records.',
+    )
+    const raw = `# Added explanation
+type: custom
+description: >-
+  Updated public example
+  description.
 input_schema:
-  type: object
+  type: object # schema comment
   properties:
     payload:
       anyOf:
@@ -109,6 +133,8 @@ input_schema:
       ),
     })
     expect(parse(updated)).toHaveProperty(['tools', 'search_records'], parse(raw))
+    expect(updated).toContain('# Added explanation')
+    expect(updated).toContain('type: object # schema comment')
     expect(nodeSource(updated, ['tools', 'publish_report'])).toBe(
       nodeSource(fixture, ['tools', 'publish_report']),
     )
@@ -150,10 +176,12 @@ input_schema:
       instruction: 'Changed.',
       tools: [{ name: 'ask_question', permission: null }],
     })
-    expect(parse(updated)).toHaveProperty('instruction', 'Changed.')
-    expect(nodeSource(updated, ['tools', 'search_records'])).toBe(
-      nodeSource(source, ['tools', 'search_records']),
-    )
+    expect(JSON.parse(updated)).toHaveProperty('instruction', 'Changed.')
+    expect(JSON.parse(updated)).toHaveProperty('tools', {
+      ...customTools,
+      ask_question: { type: 'built_in' },
+    })
+    expectCustomUnchanged(updated, source)
   })
 
   it('cannot delete opaque tool siblings when applyNamedEntries removes all managed entries', () => {
@@ -227,26 +255,3 @@ it.each(['tools: null', 'tools:', 'tools: {}'])(
     expect(parse(result.yaml)).toHaveProperty(['tools', 'web_search'])
   },
 )
-
-it('saves comments intentionally added in the raw definition editor', () => {
-  const { session, draft } = sessionFor()
-  const result = session.evaluate({
-    ...draft,
-    advancedEntries: draft.advancedEntries?.map((entry) =>
-      entry.path[1] === 'search_records'
-        ? {
-            ...entry,
-            source:
-              '# Added explanation\n' +
-              entry.source.replace('type: object', 'type: object # schema comment'),
-          }
-        : entry,
-    ),
-  })
-  expect(result.issues).toEqual([])
-  expect(result.yaml).toContain('# Added explanation')
-  expect(result.yaml).toContain('type: object # schema comment')
-  expect(nodeSource(result.yaml, ['tools', 'publish_report'])).toBe(
-    nodeSource(fixture, ['tools', 'publish_report']),
-  )
-})
