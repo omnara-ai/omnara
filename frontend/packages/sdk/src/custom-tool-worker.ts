@@ -150,6 +150,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     if (handler === undefined || running.has(call.toolCallID) || failed.has(call.toolCallID)) {
       return true
     }
+    if (signal.aborted) return false
     if (running.size >= concurrency) {
       skipped = true
       return false

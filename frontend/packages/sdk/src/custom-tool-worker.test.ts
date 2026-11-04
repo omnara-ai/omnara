@@ -302,7 +302,7 @@ describe('createCustomToolWorker', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(lookup).not.toHaveBeenCalled()
-    expect(requests).not.toContain(`POST ${callPath}/result`)
+    expect(requests).toEqual([])
     expect(onError).not.toHaveBeenCalled()
   })
 
@@ -395,6 +395,11 @@ describe('createCustomToolWorker', () => {
     const { client } = api(() =>
       Response.json({ error: 'forbidden', code: 'forbidden' }, { status: 403 }),
     )
+    const authenticated: string[] = []
+    client.interceptors.request.use((request) => {
+      authenticated.push(request.url)
+      return request
+    })
     const release: ((result: SubmitToolCallResultRequest) => void)[] = []
     const lookup = vi.fn<CustomToolHandler>(
       () =>
@@ -424,6 +429,7 @@ describe('createCustomToolWorker', () => {
     await stopped
     expect(outcome).toMatchObject({ status: 403 })
     expect(lookup).toHaveBeenCalledTimes(1)
+    expect(authenticated.filter((url) => url.includes('tcl_bbbb'))).toEqual([])
   })
 
   it('retries a failed call at the next regular check, even while busy', async () => {
