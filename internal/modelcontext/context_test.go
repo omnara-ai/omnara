@@ -775,6 +775,12 @@ func TestBuildIncludesReadyMCPToolSpecs(t *testing.T) {
 							"name": map[string]any{"type": "string"},
 						},
 					},
+					"outputSchema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"greeting": map[string]any{"type": "string"},
+						},
+					},
 				}, {
 					"name":        "disabled",
 					"description": "not exposed",
@@ -814,7 +820,8 @@ func TestBuildIncludesReadyMCPToolSpecs(t *testing.T) {
 	if spec.Name != "mcp__docs__greet" ||
 		spec.Type != toolcatalog.ToolTypeMCP ||
 		spec.Permission.Mode != toolpermission.ModeAlwaysAllow ||
-		!strings.Contains(spec.Description, "say hello") {
+		!strings.Contains(spec.Description, "say hello") ||
+		string(spec.OutputSchema) != `{"properties":{"greeting":{"type":"string"}},"type":"object"}` {
 		t.Fatalf("unexpected mcp tool spec: %+v", spec)
 	}
 }
