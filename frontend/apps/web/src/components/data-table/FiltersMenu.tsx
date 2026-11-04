@@ -12,7 +12,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { SortOption } from '@/hooks/use-resource-list'
 
 interface ToggleFilter {
   checked: boolean
@@ -29,6 +28,40 @@ function keepMenuOpen(event: Event) {
   event.preventDefault()
 }
 
+function ChoiceSubmenu<TValue extends string>({
+  label,
+  filter,
+}: {
+  label: string
+  filter: ChoiceFilter<TValue>
+}) {
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <span className="flex-1">{label}</span>
+        <span className="text-muted-foreground truncate text-xs">
+          {filter.options.find((option) => option.value === filter.value)?.label}
+        </span>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-48">
+        <DropdownMenuRadioGroup
+          value={filter.value}
+          onValueChange={(value) => {
+            const option = filter.options.find((candidate) => candidate.value === value)
+            if (option) filter.onChange(option.value)
+          }}
+        >
+          {filter.options.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value}>
+              {option.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  )
+}
+
 const trailingCheckboxItemClass =
   'pl-2 pr-8 [&>span:first-child]:left-auto [&>span:first-child]:right-2'
 
@@ -40,7 +73,7 @@ export function FiltersMenu<TSort extends string, TActivity extends string = str
   archived,
 }: {
   label?: string
-  sort?: { value: TSort; options: readonly SortOption<TSort>[]; onChange: (sort: TSort) => void }
+  sort?: ChoiceFilter<TSort>
   activity?: ChoiceFilter<TActivity>
   subagents?: ToggleFilter
   archived?: ToggleFilter
@@ -57,56 +90,8 @@ export function FiltersMenu<TSort extends string, TActivity extends string = str
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        {sort && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <span className="flex-1">Sort by</span>
-              <span className="text-muted-foreground truncate text-xs">
-                {sort.options.find((option) => option.value === sort.value)?.label}
-              </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-48">
-              <DropdownMenuRadioGroup
-                value={sort.value}
-                onValueChange={(value) => {
-                  const option = sort.options.find((candidate) => candidate.value === value)
-                  if (option) sort.onChange(option.value)
-                }}
-              >
-                {sort.options.map((option) => (
-                  <DropdownMenuRadioItem key={option.value} value={option.value}>
-                    {option.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
-        {activity && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <span className="flex-1">Status</span>
-              <span className="text-muted-foreground truncate text-xs">
-                {activity.options.find((option) => option.value === activity.value)?.label}
-              </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-48">
-              <DropdownMenuRadioGroup
-                value={activity.value}
-                onValueChange={(value) => {
-                  const option = activity.options.find((candidate) => candidate.value === value)
-                  if (option) activity.onChange(option.value)
-                }}
-              >
-                {activity.options.map((option) => (
-                  <DropdownMenuRadioItem key={option.value} value={option.value}>
-                    {option.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
+        {sort && <ChoiceSubmenu label="Sort by" filter={sort} />}
+        {activity && <ChoiceSubmenu label="Status" filter={activity} />}
         {hasSubmenus && hasToggles && <DropdownMenuSeparator />}
         {subagents && (
           <DropdownMenuCheckboxItem
