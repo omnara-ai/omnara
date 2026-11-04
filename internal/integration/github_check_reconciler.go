@@ -138,16 +138,16 @@ func (r *GitHubCheckReconciler) Reconcile(ctx context.Context) (GitHubCheckPass,
 			}
 			mu.Lock()
 			defer mu.Unlock()
+			var apiErr *github.APIError
+			if errors.As(err, &apiErr) && apiErr.Code == github.RateLimited &&
+				failedAt.Add(apiErr.RetryAfter).After(r.paused[item.run.Installation]) {
+				r.paused[item.run.Installation] = failedAt.Add(apiErr.RetryAfter)
+			}
 			if giveUp {
 				delete(r.retries, item.run.ID)
 			} else {
 				retry.at = failedAt.Add(integrationInboxRetryDelay(retry.attempts, err))
 				r.retries[item.run.ID] = retry
-				var apiErr *github.APIError
-				if errors.As(err, &apiErr) && apiErr.Code == github.RateLimited &&
-					retry.at.After(r.paused[item.run.Installation]) {
-					r.paused[item.run.Installation] = retry.at
-				}
 			}
 			if !errors.Is(err, github.ErrChecksPermissionRequired) {
 				failures = append(failures, fmt.Errorf("github check for agent %s: %w", item.run.AgentID, err))
