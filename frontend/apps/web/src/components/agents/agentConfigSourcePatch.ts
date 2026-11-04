@@ -82,7 +82,16 @@ function applyEdit(
   } else if (edit.type === 'delete') {
     if (index >= 0 && previous) removeItem(parent, index)
   } else {
-    const replacement = renderItem(parent, key, edit.value, edit.raw, json, newline)
+    const replacement = renderItem(
+      parent,
+      key,
+      edit.value,
+      edit.raw,
+      json,
+      newline,
+      previous?.value?.type === 'block-map' ? previous.value.indent : undefined,
+      followingSiblingTrivia(previous?.value),
+    )
     if (previous && (previous.key || previous.value)) {
       replacement.start = previous.start
       if (previous.key) replacement.key = previous.key
@@ -113,12 +122,14 @@ function renderItem(
   raw: string | undefined,
   json: boolean,
   newline: string,
+  valueIndent = parent.indent + 2,
+  preservedSuffix?: { tokens: CST.SourceToken[]; index: number },
 ): CST.CollectionItem {
   const sequence = isSequence(parent)
   const flow = parent.type === 'flow-collection'
   let rendered: string
   if (raw !== undefined && !flow && !sequence) {
-    const indent = ' '.repeat(parent.indent + 2)
+    const indent = ' '.repeat(valueIndent)
     const definition = raw
       .replace(/\r?\n/g, '\n')
       .split('\n')
@@ -129,7 +140,7 @@ function renderItem(
       JSON.stringify(key) +
       ':\n' +
       definition +
-      '\n' +
+      (definition.endsWith('\n') ? '' : '\n') +
       ' '.repeat(parent.indent) +
       '__end__: null\n'
   } else if (
@@ -138,7 +149,7 @@ function renderItem(
     !sequence &&
     (json ? isJsonSource(raw) : rawStartsWithFlowMap(raw))
   ) {
-    rendered = '{' + JSON.stringify(key) + ': ' + raw + '\n}'
+    rendered = '{' + JSON.stringify(key) + ': ' + raw + (raw.endsWith('\n') ? '' : '\n') + '}'
     rendered = rendered.replace(/^/gm, ' '.repeat(parent.indent))
   } else {
     const doc = new Document(sequence ? [] : {}, configYamlOptions)
@@ -156,13 +167,11 @@ function renderItem(
   if (raw !== undefined && !flow && !sequence && item.value && CST.isCollection(item.value)) {
     const tail = token.items[1]?.start ?? []
     if (tail.at(-1)?.type === 'space') tail.pop()
+    const suffix = followingSiblingTrivia(item.value)
+    if (suffix) suffix.tokens.splice(suffix.index)
+    if (preservedSuffix) tail.push(...preservedSuffix.tokens.slice(preservedSuffix.index))
     if (item.value.type === 'flow-collection') item.value.end.push(...tail)
-    else {
-      const items: CST.CollectionItem[] = item.value.items
-      const last = items.at(-1)
-      if (!last?.key && !last?.value && last?.start.at(-1)?.type === 'space') last.start.pop()
-      items.push({ start: tail })
-    }
+    else item.value.items.push({ start: tail })
   }
   return item
 }
@@ -178,7 +187,28 @@ export function configNodeSource(source: string, doc: Document, path: string[]) 
   const start =
     pair?.srcToken?.sep?.find((token) => token.type === 'comment')?.offset ?? node.range[0]
   const indent = node.srcToken && 'indent' in node.srcToken ? node.srcToken.indent : 0
-  return source.slice(start, node.range[2]).replace(new RegExp(`(^|\\n) {${indent}}`, 'g'), '$1')
+  const suffix = followingSiblingTrivia(node.srcToken)
+  const end = suffix?.tokens[suffix.index]?.offset ?? node.range[2]
+  return source.slice(start, end).replace(new RegExp(`(^|\\n) {${indent}}`, 'g'), '$1')
+}
+
+function followingSiblingTrivia(token: CST.Token | undefined) {
+  if (token?.type !== 'block-map') return undefined
+  const indent = token.indent
+  let current: CST.Token | undefined = token
+  while (current && CST.isCollection(current) && current.type !== 'flow-collection') {
+    const last: CST.CollectionItem | undefined = current.items.at(-1)
+    if (!last) break
+    if (!last.key && !last.value) {
+      const tokens = last.start
+      let index = tokens.findIndex((part) => part.type === 'comment' && part.indent < indent)
+      if (index > 0 && tokens[index - 1]?.type === 'space') index -= 1
+      if (index < 0 && tokens.at(-1)?.type === 'space') index = tokens.length - 1
+      return index >= 0 ? { tokens, index } : undefined
+    }
+    current = last.value
+  }
+  return undefined
 }
 
 function rawStartsWithFlowMap(source: string) {
@@ -230,6 +260,12 @@ function removeItem(parent: Collection, index: number) {
     if (parent.items[0])
       parent.items[0].start = parent.items[0].start.filter((token) => token.type !== 'comma')
     return
+  }
+  const suffix = followingSiblingTrivia(removed.value)
+  if (suffix) {
+    const trivia = suffix.tokens.slice(suffix.index)
+    if (next) next.start.unshift(...trivia)
+    else parent.items.push({ start: trivia })
   }
   if (index === 0 && next?.start[0]?.type === 'space') next.start.shift()
 }

@@ -129,6 +129,14 @@ mcp:
   expect(preview).toHaveProperty('machine_sources.0.extension.value', 'retained')
   expect(preview).toHaveProperty('mcp.docs.extension', true)
   expect(preview).not.toHaveProperty('mcp.docs.auth')
+  const removed = agentBuilderToolsRequest({
+    ...session.initialDraft,
+    advancedEntries: session.initialDraft.advancedEntries?.map((entry) =>
+      entry.kind === 'custom' ? { ...entry, removed: true } : entry,
+    ),
+  })
+  expect(previewSource(removed)).not.toHaveProperty('tools.custom_example')
+  expect(previewSource(removed)).toHaveProperty('tools.web_search.extension', true)
 })
 
 it('keeps the last definition in tool previews while raw YAML contains an unresolved alias', () => {

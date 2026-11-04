@@ -115,8 +115,7 @@ export function editConfigDocument(source: string, original: Document, preserved
     write(path, value, true)
   }
 
-  function remove(path: ConfigPath) {
-    requireManaged(path)
+  function deleteAt(path: ConfigPath) {
     if (!document.hasIn(path)) return
     mutableDocument().deleteIn(path)
     edits.push({ type: 'delete', path })
@@ -136,6 +135,17 @@ export function editConfigDocument(source: string, original: Document, preserved
       document.deleteIn(parentPath)
       edits.push({ type: 'delete', path: parentPath })
     }
+  }
+
+  function remove(path: ConfigPath) {
+    requireManaged(path)
+    deleteAt(path)
+  }
+
+  function removeRawDefinition(path: string[]) {
+    if (!protectedPaths.some((entry) => configPath(entry.map(String)) === configPath(path)))
+      throw new ConfigEditError(path, 'This definition is not owned by the advanced editor.')
+    deleteAt(path)
   }
 
   function setRawDefinition(path: string[], raw: string) {
@@ -210,6 +220,7 @@ export function editConfigDocument(source: string, original: Document, preserved
     remove,
     orderSequence,
     setRawDefinition,
+    removeRawDefinition,
     serialize,
   }
 }
