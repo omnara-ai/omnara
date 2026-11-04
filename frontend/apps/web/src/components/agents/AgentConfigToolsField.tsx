@@ -198,7 +198,6 @@ export function AgentConfigToolRow({
   onPermissionChange,
   onRemove,
   onEdit,
-  editing,
   permissionDisabled,
   allowDisable = tool.enabled === false,
 }: {
@@ -207,7 +206,6 @@ export function AgentConfigToolRow({
   onPermissionChange: (mode: string) => void
   onRemove?: () => void
   onEdit?: () => void
-  editing?: boolean
   permissionDisabled?: boolean
   allowDisable?: boolean
 }) {
@@ -220,8 +218,7 @@ export function AgentConfigToolRow({
           size="icon"
           variant="ghost"
           aria-label={`Edit ${tool.name}`}
-          aria-expanded={editing}
-          aria-controls={`tool-definition-${tool.name}`}
+          aria-haspopup="dialog"
           onClick={onEdit}
         >
           <PencilIcon />

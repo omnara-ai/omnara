@@ -142,7 +142,10 @@ export function applyToDocument(
     del,
   )
 
-  for (const entry of config.advancedEntries ?? []) {
+  const advancedEntries = [...(config.advancedEntries ?? [])].sort(
+    (left, right) => Number(!!left.removed) - Number(!!right.removed),
+  )
+  for (const entry of advancedEntries) {
     const previous = baseline?.advancedEntries?.find(
       (item) => item.path.join('\0') === entry.path.join('\0'),
     )
