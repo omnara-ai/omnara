@@ -2,7 +2,6 @@ import type { ToolCatalog } from '@omnara/sdk'
 import { zAgentConfigDefinitionTool } from '@omnara/sdk/zod'
 import { useMemo, useState } from 'react'
 
-import { AddCustomToolDialog } from '@/components/agents/AddCustomToolDialog'
 import {
   type AdvancedConfigEntry,
   configPath,
@@ -14,10 +13,8 @@ import {
   AgentConfigToolRow,
   AgentConfigToolsField,
 } from '@/components/agents/AgentConfigToolsField'
+import { CustomToolDialog } from '@/components/agents/CustomToolDialog'
 import type { AgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
-import { Button } from '@/components/ui/button'
-import { Field, FieldLabel } from '@/components/ui/field'
-import { Textarea } from '@/components/ui/textarea'
 
 export function AgentConfigToolsSection({
   catalog,
@@ -26,7 +23,7 @@ export function AgentConfigToolsSection({
   catalog?: ToolCatalog
   form: AgentBuilderForm
 }) {
-  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<AdvancedConfigEntry | 'new' | null>(null)
   return (
     <AgentConfigToolsField
       catalog={catalog}
@@ -37,7 +34,7 @@ export function AgentConfigToolsSection({
       onAddCustomTool={
         catalog
           ? () => {
-              setAdding(true)
+              setEditing('new')
             }
           : undefined
       }
@@ -45,21 +42,44 @@ export function AgentConfigToolsSection({
       {form.advancedEntries
         .filter((entry) => entry.kind === 'custom' && !entry.removed)
         .map((entry) => (
-          <CustomToolRow key={configPath(entry.path)} entry={entry} form={form} catalog={catalog} />
+          <CustomToolRow
+            key={configPath(entry.path)}
+            entry={entry}
+            form={form}
+            catalog={catalog}
+            onEdit={() => {
+              setEditing(entry)
+            }}
+          />
         ))}
-      {adding && (
-        <AddCustomToolDialog
+      {editing && (
+        <CustomToolDialog
+          entry={editing === 'new' ? undefined : editing}
+          configurationDirty={form.dirty}
           reservedNames={[
             ...(catalog?.built_in_tools.map((tool) => tool.name) ?? []),
             ...form.tools.map((tool) => tool.name),
-            ...form.reservedToolNames,
+            ...form.advancedEntries
+              .filter((entry) => entry.path[0] === 'tools' && !entry.removed)
+              .map((entry) => entry.path[1] ?? ''),
           ]}
           onClose={() => {
-            setAdding(false)
+            setEditing(null)
           }}
-          onAdd={(entry) => {
-            form.setAdvancedEntries([...form.advancedEntries, entry])
-            setAdding(false)
+          onSave={(updated) => {
+            const target = configPath(updated.path)
+            const entries = form.advancedEntries.flatMap((item) => {
+              if (configPath(item.path) === target) return updated
+              if (item !== editing) return item
+              return form.originalAdvancedEntries.some(
+                (saved) => configPath(saved.path) === configPath(item.path),
+              )
+                ? { ...item, removed: true }
+                : []
+            })
+            if (!entries.some((item) => configPath(item.path) === target)) entries.push(updated)
+            form.setAdvancedEntries(entries)
+            setEditing(null)
           }}
         />
       )}
@@ -71,12 +91,13 @@ function CustomToolRow({
   entry,
   form,
   catalog,
+  onEdit,
 }: {
   entry: AdvancedConfigEntry
   form: AgentBuilderForm
   catalog?: ToolCatalog
+  onEdit: () => void
 }) {
-  const [editing, setEditing] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const path = configPath(entry.path)
   const name = entry.path[1] ?? ''
@@ -117,10 +138,7 @@ function CustomToolRow({
               }
             : undefined
         }
-        editing={editing}
-        onEdit={() => {
-          setEditing(!editing)
-        }}
+        onEdit={onEdit}
         permissionDisabled={issues.length > 0 || !definition}
         onPermissionChange={(mode) => {
           try {
@@ -142,36 +160,6 @@ function CustomToolRow({
           else form.setAdvancedEntries(form.advancedEntries.filter((item) => item !== entry))
         }}
       />
-      {editing && (
-        <Field id={`tool-definition-${name}`} className="px-4 pb-4 sm:px-5">
-          <FieldLabel htmlFor={`advanced-${path}`}>{path} definition (YAML or JSON)</FieldLabel>
-          <p className="text-muted-foreground text-sm">
-            The definition is preserved unless you edit it here.
-          </p>
-          <Textarea
-            id={`advanced-${path}`}
-            className="min-h-64 font-mono text-xs"
-            value={entry.source}
-            spellCheck={false}
-            aria-invalid={issues.length > 0}
-            onChange={(event) => {
-              update({ ...entry, source: event.target.value })
-            }}
-          />
-          {original && original.source !== entry.source && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                update(original)
-              }}
-            >
-              Discard edits to {name}
-            </Button>
-          )}
-        </Field>
-      )}
       {(issues.length > 0 || editError) && (
         <div className="px-4 pb-3 sm:px-5">
           <AgentConfigDiagnostics issues={issues} />
