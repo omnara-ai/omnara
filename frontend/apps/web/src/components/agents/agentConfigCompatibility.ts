@@ -18,6 +18,15 @@ export interface AdvancedConfigEntry {
   source: string
 }
 
+export function customToolNameError(name: string, reservedNames: readonly string[] = []) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name))
+    return 'Use 1–64 letters, digits, or underscores, starting with a letter or underscore.'
+  if (name.startsWith('mcp__') || name.startsWith('int__') || name === 'call_deferred_tool')
+    return 'This name is reserved for system tools.'
+  if (reservedNames.includes(name)) return 'This tool name is already in use or reserved.'
+  return undefined
+}
+
 export function configPath(path: readonly string[]) {
   return path.length === 0
     ? '/'
@@ -25,7 +34,7 @@ export function configPath(path: readonly string[]) {
 }
 
 const customTool = z
-  .looseObject({
+  .strictObject({
     ...zAgentConfigDefinitionTool.shape,
     type: z.literal('custom'),
     description: z.string().refine((value) => value.trim() !== '', 'Description is required.'),

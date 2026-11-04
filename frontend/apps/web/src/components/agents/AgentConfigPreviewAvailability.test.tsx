@@ -1,7 +1,7 @@
 /** @vitest-environment happy-dom */
 
 import { OmnaraClientProvider, useAgentConfigTools } from '@omnara/react'
-import { createOmnaraClient, schemas } from '@omnara/sdk'
+import { createOmnaraClient, schemas, type ToolCatalog } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,
@@ -24,9 +24,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vite
 import { parse } from 'yaml'
 import { z } from 'zod'
 
-import { AgentConfigAdvancedFields } from '@/components/agents/AgentConfigAdvancedFields'
 import { configPath } from '@/components/agents/agentConfigCompatibility'
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
+import { AgentConfigToolsSection } from '@/components/agents/AgentConfigToolsSection'
 import { agentTemplates } from '@/components/agents/agentTemplates'
 import customFixture from '@/components/agents/fixtures/inline-custom-tools.yaml?raw'
 import { savePendingMcpBuilderOAuth } from '@/components/agents/pendingMcpBuilderOAuth'
@@ -43,7 +43,7 @@ import { ActiveOrgContext } from '@/lib/active-org-context'
 import { fakeApi, type FakeRoute, jsonResponse } from '@/test/fake-api'
 import { currentUserOrg } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { enter, field } from '@/test/secret-editor'
+import { button, enter, field } from '@/test/secret-editor'
 
 const includedSource = 'instruction: Help.\nmodel: {provider_config: openai, name: primary}\n'
 let container: HTMLDivElement
@@ -452,8 +452,18 @@ function AdvancedEditorHarness({
       yamlFieldClassName=""
     />
   ) : (
-    <AgentConfigAdvancedFields form={editor.form} />
+    <AgentConfigToolsSection catalog={customCatalog} form={editor.form} />
   )
+}
+
+const customPermissions = {
+  default_permission: { mode: 'always_allow', parameters: {} },
+  permission_modes: [],
+}
+const customCatalog: ToolCatalog = {
+  built_in_tools: [{ name: 'web_search', description: 'Search.', ...customPermissions }],
+  custom_tool_permissions: customPermissions,
+  mcp_tool_permissions: customPermissions,
 }
 
 function advancedProviders() {
@@ -498,7 +508,6 @@ it('shows normal Builder controls and every custom tool without a whole-document
   const editor = await renderAdvancedEditor(customFixture, true)
   expect(editor().showBuilder).toBe(true)
   expect(container.querySelector('#agent-config-basic-instruction')).not.toBeNull()
-  expect(container.textContent).toContain('8 custom tool definitions are preserved')
   expect(container.textContent).not.toContain('editable as YAML only')
   const customNames = Object.entries(
     schemas.zAgentConfigDefinition.parse(parse(customFixture)).tools ?? {},
@@ -510,6 +519,10 @@ it('shows normal Builder controls and every custom tool without a whole-document
       (summary) => summary.querySelector('span')?.textContent,
     ),
   ).toEqual(customNames)
+  for (const summary of container.querySelectorAll('summary')) {
+    expect(summary.querySelector('[data-slot="badge"]')?.textContent).toBe('Custom')
+    expect(summary.closest('section')?.querySelector('h3')?.textContent).toBe('Tools')
+  }
 })
 
 it('validates raw edits, retains unfinished changes across a mode switch, and supports repair or discard', async () => {
@@ -690,3 +703,71 @@ it.each(['yaml', 'oauth'])(
     expect(parse(draft().yaml)).toHaveProperty('instruction', template.instruction)
   },
 )
+
+async function openCustomToolDialog() {
+  await act(async () => {
+    button('Add tools').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+    )
+    await Promise.resolve()
+  })
+  const option = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent === 'Custom tool…',
+  )
+  expect(option).toBeDefined()
+  act(() => {
+    option?.click()
+  })
+}
+
+it('adds a validated custom tool from Tools plus and leaves cancelled drafts untouched', async () => {
+  const editor = await renderAdvancedEditor()
+  await openCustomToolDialog()
+  await enter('Tool name', 'cancelled_tool')
+  act(() => {
+    button('Cancel').click()
+  })
+  expect(editor().yaml).toBe(customFixture)
+  expect(editor().dirty).toBe(false)
+  await openCustomToolDialog()
+  for (const name of [
+    'search_records',
+    'web_search',
+    'mcp__reserved',
+    'bad-name',
+    'call_deferred_tool',
+  ]) {
+    await enter('Tool name', name)
+    expect(button('Add custom tool').disabled).toBe(true)
+    expect(document.querySelector('#custom-tool-name-error')?.textContent).toBeTruthy()
+  }
+  await enter('Tool name', 'new_tool')
+  await enter('Definition (YAML or JSON)', 'type: custom\ninput_schema: [')
+  expect(button('Add custom tool').disabled).toBe(true)
+  expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
+    '/tools/new_tool',
+  )
+  expect(editor().yaml).toBe(customFixture)
+  const definition =
+    'type: custom\ndescription: New example.\ninput_schema: {type: object, properties: {items: {type: array, items: {anyOf: [{type: string}, {type: object}]}}}}'
+  await enter('Definition (YAML or JSON)', definition)
+  act(() => {
+    button('Add custom tool').click()
+  })
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  expect(editor().saveBlocked).toBe(false)
+  expect(parse(editor().yaml)).toHaveProperty(['tools', 'new_tool'], parse(definition))
+  const row = [...container.querySelectorAll('summary')].find((item) =>
+    item.textContent.includes('new_tool'),
+  )
+  expect(row?.querySelector('[data-slot="badge"]')?.textContent).toBe('Custom')
+  expect(row?.closest('section')?.querySelector('h3')?.textContent).toBe('Tools')
+  await enter('/tools/new_tool definition (YAML or JSON)', 'type: custom\ninput_schema: [')
+  expect(editor().saveBlocked).toBe(true)
+  act(() => {
+    button('Remove new_tool').click()
+  })
+  expect(editor().yaml).toBe(customFixture)
+  expect(editor().dirty).toBe(false)
+  expect(editor().saveBlocked).toBe(false)
+})

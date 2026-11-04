@@ -138,7 +138,11 @@ it('keeps the last definition in tool previews while raw YAML contains an unreso
   if (!draft) throw new Error('Missing draft')
   const request = agentBuilderToolsRequest({
     ...draft,
-    advancedEntries: draft.advancedEntries?.map((entry) => ({ ...entry, source: '*missing' })),
+    advancedEntries: [
+      ...(draft.advancedEntries ?? []).map((entry) => ({ ...entry, source: '*missing' })),
+      { path: ['tools', 'unfinished'], kind: 'custom', source: '*missing' },
+    ],
   })
   expect(previewSource(request)).toHaveProperty('tools.example.description', 'Example')
+  expect(previewSource(request)).not.toHaveProperty('tools.unfinished')
 })

@@ -142,8 +142,11 @@ export function applyToDocument(
     const previous = baseline?.advancedEntries?.find(
       (item) => item.path.join('\0') === entry.path.join('\0'),
     )
-    if (previous && previous.source !== entry.source) {
-      transaction.replaceDefinition(entry.path, entry.source)
+    if (
+      (previous && previous.source !== entry.source) ||
+      (!previous && entry.kind === 'custom' && entry.path.length === 2 && entry.path[0] === 'tools')
+    ) {
+      transaction.setRawDefinition(entry.path, entry.source)
     }
   }
   return transaction.serialize()
