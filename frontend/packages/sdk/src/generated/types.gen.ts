@@ -17,6 +17,7 @@ export type AgentConfigDefinition = {
     mcp?: AgentConfigDefinitionMcpServers;
     memory_stores?: AgentConfigDefinitionMemoryStores;
     model: AgentConfigDefinitionModel;
+    programmatic_tool_calls?: AgentConfigDefinitionProgrammaticToolCalls;
     skills?: AgentConfigDefinitionSkills;
     subagents?: AgentConfigDefinitionSubagents;
     tools?: AgentConfigDefinitionTools;
@@ -51,6 +52,17 @@ export type AgentConfigDefinitionGitCredentials = {
      * Prevents pushing, even if the integration allows it.
      */
     read_only?: boolean;
+};
+
+/**
+ * Lets commands started by run_command call the agent's other tools with `omnarad call <tool> '<json input>'`. Subagents do not inherit this setting.
+ */
+export type AgentConfigDefinitionProgrammaticToolCalls = {
+    enabled: boolean;
+    /**
+     * Tool names commands cannot call, such as web_search or mcp__github__create_issue. Names are not checked against the agent's tools, since MCP tools are only known at runtime.
+     */
+    exclude?: Array<string>;
 };
 
 /**
@@ -1731,6 +1743,7 @@ export type CompiledAgentConfig = {
         [key: string]: CompiledIntegrationCapability;
     };
     git_credentials?: CompiledGitCredentials;
+    programmatic_tool_calls?: CompiledProgrammaticToolCalls;
     skills?: Array<CompiledSkill>;
     memory_stores?: Array<CompiledMemoryStore>;
     subagents?: {
@@ -1797,6 +1810,14 @@ export type CompiledGitCredentials = {
     integration_id: IntegrationId;
     repository_ids?: Array<number>;
     read_only?: boolean;
+};
+
+/**
+ * Lets commands started by run_command call the agent's other tools, except the sorted excluded tool names.
+ */
+export type CompiledProgrammaticToolCalls = {
+    enabled: boolean;
+    exclude?: Array<string>;
 };
 
 export type CompiledMcpServer = {
@@ -2559,13 +2580,18 @@ export type ToolCallState = 'awaiting_authorization' | 'awaiting_permission' | '
 export type ToolCallOutcome = 'succeeded' | 'failed' | 'denied' | 'canceled';
 
 /**
- * A model-emitted tool call together with its current lifecycle state.
+ * A tool call together with its current lifecycle state. Calls the model emits have caller model; calls a run_command process makes with `omnarad call` have caller program, a parent_tool_call_id naming that run_command call, and never enter the model's context.
  */
 export type ToolCall = {
     id: ToolCallId;
     agent_id: AgentId;
     turn_id: AgentTurnId;
     provider_call_id: string;
+    caller?: ToolCallCaller;
+    /**
+     * The run_command call whose process made this call. Present only when caller is program.
+     */
+    parent_tool_call_id?: ToolCallId;
     name: string;
     input: ToolInput;
     type: ToolCallType;
@@ -2589,6 +2615,44 @@ export type ToolCallUpdate = {
      * Only present when this transition opens, resolves, or cancels an interaction.
      */
     interaction_update?: AgentInteractionUpdate;
+};
+
+/**
+ * Who made the call. model is the agent's model; program is a run_command process using `omnarad call`.
+ */
+export type ToolCallCaller = 'model' | 'program';
+
+export type DaemonProgramToolCallRequest = {
+    /**
+     * Idempotency key, stable across retries of one call.
+     */
+    key: string;
+    /**
+     * Tool name, or tool_search to find callable tools.
+     */
+    name: string;
+    input: ToolInput;
+};
+
+export type DaemonProgramToolCall = {
+    /**
+     * Absent for calls answered inline, such as tool_search.
+     */
+    tool_call_id?: ToolCallId;
+    state: 'pending' | 'awaiting_approval' | 'completed';
+    outcome?: ToolCallOutcome;
+    /**
+     * The result's first structured value, when it has one.
+     */
+    structured?: unknown;
+    content?: Array<DaemonProgramToolCallContent>;
+};
+
+export type DaemonProgramToolCallContent = {
+    type: 'text' | 'structured_data' | 'media_ref';
+    text?: string;
+    value?: unknown;
+    artifact_id?: ArtifactId;
 };
 
 export type AgentInteractionUpdate = {
@@ -3539,6 +3603,10 @@ export type CreateMachinePoolRequestBase = {
      * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to false when omitted.
      */
     runtime_protection_enabled?: boolean;
+    /**
+     * Whether machines created from the pool let commands call their agent's tools with `omnarad call`. Enabling it lets every agent bound to such a machine whose config enables programmatic tool calls call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access. Defaults to false when omitted.
+     */
+    default_programmatic_tool_calls?: boolean;
     max_total_machines: number;
     max_total_cpu?: number;
     max_total_memory_mb?: number;
@@ -3600,6 +3668,10 @@ export type UpdateMachinePoolRequest = {
      * Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
      */
     runtime_protection_enabled?: boolean;
+    /**
+     * Whether machines created from the pool after this change let commands call their agent's tools with `omnarad call`. Enabling it lets every agent bound to such a machine whose config enables programmatic tool calls call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
+     */
+    default_programmatic_tool_calls?: boolean;
     /**
      * Maximum number of live machines in the pool.
      */
@@ -3668,6 +3740,10 @@ export type MachinePool = {
      * Whether Omnara deletes this pool's machines when the provider remains running after the daemon becomes inactive.
      */
     runtime_protection_enabled: boolean;
+    /**
+     * Whether machines created from the pool let commands call their agent's tools with `omnarad call`. When true, every agent bound to such a machine whose config enables programmatic tool calls can call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
+     */
+    default_programmatic_tool_calls: boolean;
     max_total_machines: number;
     max_total_cpu: number | null;
     max_total_memory_mb: number | null;
@@ -3728,6 +3804,10 @@ export type Machine = {
     secret_env: {
         [key: string]: SecretId;
     };
+    /**
+     * Whether commands on this machine can call their agent's tools with `omnarad call`. When true, every agent bound to the machine whose config enables programmatic tool calls can call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
+     */
+    programmatic_tool_calls: boolean;
     lifecycle_reason_code: string;
     lifecycle_reason_message: string;
     failure_report?: MachineFailureReport;
@@ -3813,6 +3893,10 @@ export type UpdateMachineRequest = {
     secret_env?: {
         [key: string]: SecretId;
     };
+    /**
+     * Lets commands on this machine call their agent's tools with `omnarad call`. Enabling it lets every agent bound to the machine whose config enables programmatic tool calls call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access. Only enable it on machines whose agents trust each other.
+     */
+    programmatic_tool_calls?: boolean;
 };
 
 /**
@@ -12826,6 +12910,10 @@ export type ListToolCallsData = {
         state?: ToolCallState;
         type?: ToolCallType;
         /**
+         * Return only the calls a run_command call's process made with `omnarad call`, by that run_command call's ID.
+         */
+        parent_tool_call_id?: ToolCallId;
+        /**
          * Also return tool calls from this agent's subagents at every depth. Each row's agent_id says which agent made the call.
          */
         include_subagents?: boolean;
@@ -17906,6 +17994,143 @@ export type GetDaemonGitCredentialsResponses = {
 };
 
 export type GetDaemonGitCredentialsResponse = GetDaemonGitCredentialsResponses[keyof GetDaemonGitCredentialsResponses];
+
+export type CreateDaemonProgramToolCallData = {
+    body: DaemonProgramToolCallRequest;
+    path: {
+        /**
+         * Process ID (prc_...).
+         */
+        processID: ProcessId;
+    };
+    query?: never;
+    url: '/daemon/processes/{processID}/tool-calls';
+};
+
+export type CreateDaemonProgramToolCallErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The request cannot be processed in its current form.
+     */
+    422: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateDaemonProgramToolCallError = CreateDaemonProgramToolCallErrors[keyof CreateDaemonProgramToolCallErrors];
+
+export type CreateDaemonProgramToolCallResponses = {
+    /**
+     * The call's current state.
+     */
+    200: DaemonProgramToolCall;
+};
+
+export type CreateDaemonProgramToolCallResponse = CreateDaemonProgramToolCallResponses[keyof CreateDaemonProgramToolCallResponses];
+
+export type GetDaemonProgramToolCallData = {
+    body?: never;
+    path: {
+        /**
+         * Process ID (prc_...).
+         */
+        processID: ProcessId;
+        /**
+         * Tool call ID returned when the call was created.
+         */
+        toolCallID: ToolCallId;
+    };
+    query?: {
+        /**
+         * Longest time to wait for a state change, in milliseconds.
+         */
+        wait_ms?: number;
+    };
+    url: '/daemon/processes/{processID}/tool-calls/{toolCallID}';
+};
+
+export type GetDaemonProgramToolCallErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetDaemonProgramToolCallError = GetDaemonProgramToolCallErrors[keyof GetDaemonProgramToolCallErrors];
+
+export type GetDaemonProgramToolCallResponses = {
+    /**
+     * The call's current state.
+     */
+    200: DaemonProgramToolCall;
+};
+
+export type GetDaemonProgramToolCallResponse = GetDaemonProgramToolCallResponses[keyof GetDaemonProgramToolCallResponses];
 
 export type GetDaemonSkillArchiveData = {
     body?: never;

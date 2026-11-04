@@ -318,4 +318,18 @@ func TestDaemonProgramToolCallRoutes(t *testing.T) {
 	require.Equal(t, "program", child["caller"])
 	require.Equal(t, testPublicID(t, publicid.KindToolCall, f.process.ToolCallUUID), child["parent_tool_call_id"])
 	require.Equal(t, "completed", child["state"])
+
+	// parent_tool_call_id narrows the list to that run_command call's children.
+	parentID := testPublicID(t, publicid.KindToolCall, f.process.ToolCallUUID)
+	children := requestJSONWithHeaders(t, f.handler, http.MethodGet,
+		"/api/v1/orgs/"+f.project.OrgID+"/projects/"+f.project.ProjectID+"/agents/"+testPublicID(t, publicid.KindAgent, f.process.AgentUUID)+
+			"/tool-calls?parent_tool_call_id="+parentID, "", "", http.StatusOK, authHeaders(f.project.AdminToken))
+	childItems, ok := children["data"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, childItems)
+	for _, item := range childItems {
+		call, ok := item.(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, parentID, call["parent_tool_call_id"])
+	}
 }

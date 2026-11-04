@@ -101,7 +101,7 @@ Machine tokens can be created, listed, and revoked through the API.
 
 ### Programmatic tool calls
 
-`programmatic_tool_calls` lets commands on the machine [call their agent's tools](/tools/built-in#calling-tools-from-commands) when the agent's config also [enables it](/agents/configuration#programmatic-tool-calls). It is off by default. Turn it on through the API:
+`programmatic_tool_calls` lets commands on the machine [call their agent's tools](/tools/built-in#calling-tools-from-commands) when the agent's config also [enables it](/agents/configuration#programmatic-tool-calls). It is off by default. Turn it on from **Settings** in the machine's row menu on the Machines pages, or through the API:
 
 ```bash
 curl -X PATCH "$OMNARA_API/orgs/$ORG/machines/mch_aaaaaaaaaaaaaaaaaaaaaaaaae" \

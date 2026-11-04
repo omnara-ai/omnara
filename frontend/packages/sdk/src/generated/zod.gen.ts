@@ -12,6 +12,14 @@ export const zAgentConfigDefinitionGitCredentials = z.object({
 });
 
 /**
+ * Lets commands started by run_command call the agent's other tools with `omnarad call <tool> '<json input>'`. Subagents do not inherit this setting.
+ */
+export const zAgentConfigDefinitionProgrammaticToolCalls = z.object({
+    enabled: z.boolean(),
+    exclude: z.array(z.string().min(1).max(64)).max(256).optional()
+});
+
+/**
  * Enables an integration's interaction handler. Takes no settings.
  */
 export const zAgentConfigDefinitionInteractionHandler = z.record(z.string(), z.never());
@@ -192,6 +200,7 @@ export const zAgentConfigDefinition = z.object({
     mcp: zAgentConfigDefinitionMcpServers.optional(),
     memory_stores: zAgentConfigDefinitionMemoryStores.optional(),
     model: zAgentConfigDefinitionModel,
+    programmatic_tool_calls: zAgentConfigDefinitionProgrammaticToolCalls.optional(),
     skills: zAgentConfigDefinitionSkills.optional(),
     subagents: zAgentConfigDefinitionSubagents.optional(),
     tools: zAgentConfigDefinitionTools.optional(),
@@ -1269,6 +1278,14 @@ export const zCompiledMachineSource = z.object({
     description: z.string().optional()
 });
 
+/**
+ * Lets commands started by run_command call the agent's other tools, except the sorted excluded tool names.
+ */
+export const zCompiledProgrammaticToolCalls = z.object({
+    enabled: z.boolean(),
+    exclude: z.array(z.string()).optional()
+});
+
 export const zCompiledMcpAuthBearer = z.object({
     type: z.enum(['bearer']),
     secret_id: zSecretId
@@ -1767,13 +1784,20 @@ export const zToolCallOutcome = z.enum([
 ]);
 
 /**
- * A model-emitted tool call together with its current lifecycle state.
+ * Who made the call. model is the agent's model; program is a run_command process using `omnarad call`.
+ */
+export const zToolCallCaller = z.enum(['model', 'program']);
+
+/**
+ * A tool call together with its current lifecycle state. Calls the model emits have caller model; calls a run_command process makes with `omnarad call` have caller program, a parent_tool_call_id naming that run_command call, and never enter the model's context.
  */
 export const zToolCall = z.object({
     id: zToolCallId,
     agent_id: zAgentId,
     turn_id: zAgentTurnId,
     provider_call_id: z.string(),
+    caller: zToolCallCaller.optional(),
+    parent_tool_call_id: zToolCallId.optional(),
     name: z.string(),
     input: zToolInput,
     type: zToolCallType,
@@ -1781,6 +1805,35 @@ export const zToolCall = z.object({
     outcome: zToolCallOutcome.optional(),
     completed_at: zTimestamp.optional(),
     created_at: zTimestamp
+});
+
+export const zDaemonProgramToolCallRequest = z.object({
+    key: z.string().min(1).max(200),
+    name: z.string().min(1).max(128),
+    input: zToolInput
+});
+
+export const zDaemonProgramToolCallContent = z.object({
+    type: z.enum([
+        'text',
+        'structured_data',
+        'media_ref'
+    ]),
+    text: z.string().optional(),
+    value: z.unknown().optional(),
+    artifact_id: zArtifactId.optional()
+});
+
+export const zDaemonProgramToolCall = z.object({
+    tool_call_id: zToolCallId.optional(),
+    state: z.enum([
+        'pending',
+        'awaiting_approval',
+        'completed'
+    ]),
+    outcome: zToolCallOutcome.optional(),
+    structured: z.unknown().optional(),
+    content: z.array(zDaemonProgramToolCallContent).optional()
 });
 
 export const zListToolCallsResponse = z.object({
@@ -2523,6 +2576,7 @@ export const zCreateMachinePoolRequestBase = z.object({
     provider_config: z.record(z.string(), z.unknown()).optional(),
     provider_auth_secret_id: zSecretId,
     runtime_protection_enabled: z.boolean().optional().default(false),
+    default_programmatic_tool_calls: z.boolean().optional().default(false),
     max_total_machines: z.int().gte(0).lte(2147483647),
     max_total_cpu: z.int().gte(0).lte(2147483647).optional(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).optional(),
@@ -2587,6 +2641,7 @@ export const zUpdateMachinePoolRequest = z.object({
     provider_config: z.record(z.string(), z.unknown()).optional(),
     provider_auth_secret_id: zSecretId.optional(),
     runtime_protection_enabled: z.boolean().optional(),
+    default_programmatic_tool_calls: z.boolean().optional(),
     max_total_machines: z.int().gte(0).lte(2147483647).optional(),
     max_total_cpu: z.int().gte(0).lte(2147483647).nullish(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
@@ -2620,6 +2675,7 @@ export const zMachinePool = z.object({
     provider_auth_secret_id: zSecretId.optional(),
     provider_config: z.record(z.string(), z.unknown()),
     runtime_protection_enabled: z.boolean(),
+    default_programmatic_tool_calls: z.boolean(),
     max_total_machines: z.int().gte(0).lte(2147483647),
     max_total_cpu: z.int().gte(0).lte(2147483647).nullable(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
@@ -2675,6 +2731,7 @@ export const zMachine = z.object({
     cwd: z.string(),
     env: z.record(z.string(), z.string()),
     secret_env: z.record(z.string(), zSecretId),
+    programmatic_tool_calls: z.boolean(),
     lifecycle_reason_code: z.string(),
     lifecycle_reason_message: z.string(),
     failure_report: zMachineFailureReport.optional(),
@@ -2710,7 +2767,8 @@ export const zConnectByoMachineRequest = z.object({
 export const zUpdateMachineRequest = z.object({
     cwd: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
-    secret_env: z.record(z.string(), zSecretId).optional()
+    secret_env: z.record(z.string(), zSecretId).optional(),
+    programmatic_tool_calls: z.boolean().optional()
 });
 
 /**
@@ -3440,6 +3498,7 @@ export const zCompiledAgentConfig = z.object({
     mcp: z.record(z.string(), zCompiledMcpServer).optional(),
     interaction_handlers: z.record(z.string(), zCompiledIntegrationCapability).optional(),
     git_credentials: zCompiledGitCredentials.optional(),
+    programmatic_tool_calls: zCompiledProgrammaticToolCalls.optional(),
     skills: z.array(zCompiledSkill).optional(),
     memory_stores: z.array(zCompiledMemoryStore).optional(),
     subagents: z.record(z.string(), zCompiledSubagent).optional(),
@@ -5155,6 +5214,7 @@ export const zListToolCallsPath = z.object({
 export const zListToolCallsQuery = z.object({
     state: zToolCallState.optional(),
     type: zToolCallType.optional(),
+    parent_tool_call_id: zToolCallId.optional(),
     include_subagents: z.boolean().optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
@@ -5992,6 +6052,31 @@ export const zGetDaemonGitCredentialsResponse = z.object({
     token: z.string(),
     expires_at: zTimestamp
 });
+
+export const zCreateDaemonProgramToolCallBody = zDaemonProgramToolCallRequest;
+
+export const zCreateDaemonProgramToolCallPath = z.object({
+    processID: zProcessId
+});
+
+/**
+ * The call's current state.
+ */
+export const zCreateDaemonProgramToolCallResponse = zDaemonProgramToolCall;
+
+export const zGetDaemonProgramToolCallPath = z.object({
+    processID: zProcessId,
+    toolCallID: zToolCallId
+});
+
+export const zGetDaemonProgramToolCallQuery = z.object({
+    wait_ms: z.int().gte(0).lte(25000).optional().default(0)
+});
+
+/**
+ * The call's current state.
+ */
+export const zGetDaemonProgramToolCallResponse = zDaemonProgramToolCall;
 
 export const zGetDaemonSkillArchivePath = z.object({
     skillID: z.string().regex(/^skl_[a-z2-7]{26}$/)

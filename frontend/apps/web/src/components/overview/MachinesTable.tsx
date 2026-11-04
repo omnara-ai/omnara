@@ -1,11 +1,12 @@
 import { type MachineListSort, useMachines, useProjectMachines } from '@omnara/react'
 import type { MachineSourceKind, VisibleMachine } from '@omnara/sdk'
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
+import { MachineSettingsDialog } from '@/components/machines/MachineSettingsDialog'
 import { MachineConnectionDot } from '@/components/overview/MachineConnectionDot'
 import { machineDetailItems, machineStatusLabel } from '@/components/overview/machineFormat'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
@@ -31,6 +32,7 @@ export function MachinesTable({
   guide,
   headerAction,
   actions,
+  settings = false,
   emptyMessage,
   emptyAction,
 }: {
@@ -42,6 +44,8 @@ export function MachinesTable({
   headerAction?: ReactNode
   /** Share/delete handlers; offered only on BYO machines the caller can manage. */
   actions?: MachineActions
+  /** Offer machine settings on rows the caller can manage. */
+  settings?: boolean
   emptyMessage: string
   emptyAction?: ReactNode
 }) {
@@ -54,6 +58,7 @@ export function MachinesTable({
   })
   const query = projectId === undefined ? orgQuery : projectQuery
   const paged = usePagedQuery(query, list.queryKey)
+  const [settingsTarget, setSettingsTarget] = useState<VisibleMachine | null>(null)
 
   return (
     <div className="flex flex-col gap-3">
@@ -107,24 +112,43 @@ export function MachinesTable({
               )
             },
           },
-          ...(actions
+          ...(actions || settings
             ? [
                 {
                   id: 'actions',
                   header: '',
                   className: 'w-14',
                   isActions: true,
-                  cell: (machine: VisibleMachine) =>
-                    machine.source_kind === 'byo' && machine.access.can_manage ? (
+                  cell: (machine: VisibleMachine) => {
+                    if (!machine.access.can_manage) return null
+                    const byoActions = actions && machine.source_kind === 'byo' ? actions : null
+                    return (
                       <ResourceRowActions
-                        onGrant={() => {
-                          actions.onGrant(machine)
-                        }}
-                        onDelete={() => {
-                          actions.onDelete(machine)
-                        }}
+                        editLabel="Settings"
+                        onEdit={
+                          settings
+                            ? () => {
+                                setSettingsTarget(machine)
+                              }
+                            : undefined
+                        }
+                        onGrant={
+                          byoActions
+                            ? () => {
+                                byoActions.onGrant(machine)
+                              }
+                            : undefined
+                        }
+                        onDelete={
+                          byoActions
+                            ? () => {
+                                byoActions.onDelete(machine)
+                              }
+                            : undefined
+                        }
                       />
-                    ) : null,
+                    )
+                  },
                 },
               ]
             : []),
@@ -142,6 +166,17 @@ export function MachinesTable({
         emptyMessage={emptyMessage}
         emptyAction={emptyAction}
       />
+      {settingsTarget && (
+        <MachineSettingsDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setSettingsTarget(null)
+          }}
+          orgId={orgId}
+          machineId={settingsTarget.id}
+          machineName={settingsTarget.display_name}
+        />
+      )}
     </div>
   )
 }
