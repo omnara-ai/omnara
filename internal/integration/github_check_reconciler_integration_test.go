@@ -140,6 +140,7 @@ func TestGitHubCheckReconcilerPausesRateLimitedInstallations(t *testing.T) {
 	pass, err = reconciler.Reconcile(ctx)
 	require.NoError(t, err)
 	require.False(t, pass.Worked)
-	require.Equal(t, limited, requests.Load(), "checks on another integration sharing the rate-limited installation wait instead of calling GitHub")
+	require.Equal(t, limited, requests.Load(),
+		"checks on another integration sharing the rate-limited installation wait instead of calling GitHub")
 	require.Equal(t, retrying, pass.Retrying)
 }
