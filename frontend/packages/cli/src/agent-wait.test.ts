@@ -1,4 +1,4 @@
-import { createOmnaraClient, type JsonBody } from '@omnara/sdk'
+import { type AgentActivity, createOmnaraClient, type JsonBody } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -24,7 +24,17 @@ function json(value: JsonBody, status = 200): Response {
   })
 }
 
-function agentPayload(state: 'running' | 'idle' | 'waiting_on_interaction' | 'archived') {
+function activity(state: AgentActivity['state']): AgentActivity {
+  return {
+    state,
+    last_activity_at: now,
+    open_interactions: { question_count: 0, permission_request_count: 0 },
+    running_processes: { count: 0, process_ids: [] },
+    working_subagents: { count: 0, agent_ids: [] },
+  }
+}
+
+function agentPayload(state: AgentActivity['state']) {
   return {
     agent: {
       id: path.agentID,
@@ -34,7 +44,7 @@ function agentPayload(state: 'running' | 'idle' | 'waiting_on_interaction' | 'ar
       name: 'wait-demo',
       created_at: now,
       updated_at: now,
-      activity: { state, last_activity_at: now },
+      activity: activity(state),
     },
     machine_ids: [],
     mcp_connections: [],
@@ -75,15 +85,10 @@ describe('agent wait helpers', () => {
   })
 
   it('matches only listed activity states', () => {
-    expect(
-      agentMatchesWaitStates({ activity: { state: 'idle', last_activity_at: now } }, ['idle']),
-    ).toBe(true)
-    expect(
-      agentMatchesWaitStates({ activity: { state: 'running', last_activity_at: now } }, [
-        'idle',
-        'archived',
-      ]),
-    ).toBe(false)
+    expect(agentMatchesWaitStates({ activity: activity('idle') }, ['idle'])).toBe(true)
+    expect(agentMatchesWaitStates({ activity: activity('running') }, ['idle', 'archived'])).toBe(
+      false,
+    )
     expect(agentMatchesWaitStates({}, ['idle'])).toBe(false)
   })
 
