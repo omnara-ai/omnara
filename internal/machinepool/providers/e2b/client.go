@@ -88,9 +88,6 @@ type restClient struct {
 }
 
 func newRESTClient(domain, token string, client *http.Client) *restClient {
-	if client == nil {
-		client = providers.NewHTTPClient()
-	}
 	return &restClient{domain: domain, token: token, httpClient: client}
 }
 

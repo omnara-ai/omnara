@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/ssrf"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 func TestHTTPClientBlocksInternalAddresses(t *testing.T) {
@@ -20,9 +21,18 @@ func TestHTTPClientBlocksInternalAddresses(t *testing.T) {
 		"http://localhost",
 	} {
 		t.Run(target, func(t *testing.T) {
-			_, err := NewHTTPClient().Get(target)
+			set := metrics.New()
+			client := NewHTTPClient(metrics.NewHTTPClientRecorder(set, metrics.SubsystemHTTPClient), E2B)
+			_, err := client.Get(target)
 			if !errors.Is(err, ssrf.ErrBlockedAddress) {
 				t.Fatalf("request error = %v, want ErrBlockedAddress", err)
+			}
+			scrape := httptest.NewRecorder()
+			set.Handler().ServeHTTP(scrape, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+			want := `omnara_http_client_requests_total{code="none",error_kind="transport",host="e2b",` +
+				`method="GET",path="/*",result="error"} 1`
+			if !strings.Contains(scrape.Body.String(), want) {
+				t.Fatalf("metrics missing %q:\n%s", want, scrape.Body.String())
 			}
 		})
 	}
@@ -90,7 +100,7 @@ func TestRetryAfterDelayParsesHTTPDateAndRejectsMalformedValues(t *testing.T) {
 }
 
 func TestHTTPClientBlocksRedirects(t *testing.T) {
-	client := NewHTTPClient()
+	client := NewHTTPClient(metrics.NewHTTPClientRecorder(metrics.New(), metrics.SubsystemHTTPClient), E2B)
 	request, err := http.NewRequest(http.MethodGet, "https://api.example.com/next", nil)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -101,8 +111,8 @@ func TestHTTPClientBlocksRedirects(t *testing.T) {
 }
 
 func TestHTTPClientsShareTransport(t *testing.T) {
-	first := NewHTTPClient()
-	second := NewHTTPClient()
+	first := NewHTTPClient(nil, "")
+	second := NewHTTPClient(nil, "")
 	if first == second {
 		t.Fatal("clients must be isolated")
 	}

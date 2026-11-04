@@ -22,6 +22,7 @@ type HTTPClientRecorder struct {
 type HTTPClientObserverOption func(*httpClientObserverOptions)
 
 type httpClientObserverOptions struct {
+	hostLabel string
 	pathLabel string
 }
 
@@ -32,6 +33,12 @@ type HTTPRequestData struct {
 	StatusCode int
 	ErrorKind  string
 	Duration   time.Duration
+}
+
+func WithHTTPClientHostLabel(host string) HTTPClientObserverOption {
+	return func(opts *httpClientObserverOptions) {
+		opts.hostLabel = host
+	}
 }
 
 func WithHTTPClientPathLabel(path string) HTTPClientObserverOption {
@@ -89,25 +96,31 @@ func NewObservedHTTPTransport(
 	for _, opt := range opts {
 		opt(&options)
 	}
-	return observedHTTPTransport{base: base, recorder: recorder, pathLabel: options.pathLabel}
+	return observedHTTPTransport{
+		base:      base,
+		recorder:  recorder,
+		hostLabel: options.hostLabel,
+		pathLabel: options.pathLabel,
+	}
 }
 
 type observedHTTPTransport struct {
 	base      http.RoundTripper
 	recorder  *HTTPClientRecorder
+	hostLabel string
 	pathLabel string
 }
 
 func (rt observedHTTPTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	start := rt.recorder.now()
 	resp, err := rt.base.RoundTrip(req)
-	rt.recorder.RecordRoundTrip(req, rt.pathLabel, start, resp, err)
+	rt.recorder.recordRoundTrip(req, rt.hostLabel, rt.pathLabel, start, resp, err)
 	return resp, err
 }
 
-func (m *HTTPClientRecorder) RecordRoundTrip(
+func (m *HTTPClientRecorder) recordRoundTrip(
 	req *http.Request,
-	pathLabel string,
+	hostLabel, pathLabel string,
 	start time.Time,
 	resp *http.Response,
 	err error,
@@ -115,7 +128,7 @@ func (m *HTTPClientRecorder) RecordRoundTrip(
 	if start.IsZero() {
 		return
 	}
-	host, path := httpRequestHostPath(req, pathLabel)
+	host, path := httpRequestHostPath(req, hostLabel, pathLabel)
 	duration := m.now().Sub(start)
 	var errText string
 	request := HTTPRequestData{
@@ -150,12 +163,15 @@ func (m *HTTPClientRecorder) RecordRequest(request HTTPRequestData) {
 	m.requestDuration.WithLabelValues(labels...).Observe(request.Duration.Seconds())
 }
 
-func httpRequestHostPath(req *http.Request, pathLabel string) (host, path string) {
+func httpRequestHostPath(req *http.Request, hostLabel, pathLabel string) (host, path string) {
 	if req == nil {
 		return "", "/*"
 	}
 	if req.URL != nil {
 		host = req.URL.Host
+	}
+	if hostLabel != "" {
+		host = hostLabel
 	}
 	if pathLabel != "" {
 		return host, pathLabel

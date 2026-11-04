@@ -114,6 +114,7 @@ func main() {
 		os.Exit(1)
 	}
 	daemonRecorder := metrics.NewDaemonRecorder(metricSet)
+	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
 	publisher, err := notifications.NewRoutedPublisher(
 		notifications.RoutedPublisherPorts{
 			DaemonWakeups:     redisBus,
@@ -160,7 +161,7 @@ func main() {
 	}
 	replicaID := uuid.New()
 
-	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
+	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder)
 	for _, defaultPoolTemplate := range cfg.DefaultMachinePools {
 		if err := machinePoolManager.ValidateDefaultMachinePool(defaultPoolTemplate); err != nil {
 			log.Error("validate default machine pool", "error", err)
@@ -171,6 +172,7 @@ func main() {
 		cfg,
 		metricSet,
 		daemonRecorder,
+		httpRecorder,
 		machinePoolManager,
 		redisClient,
 		rateLimitRedisClient,
@@ -388,6 +390,7 @@ func apiOptions(
 	cfg config.Config,
 	metricSet *metrics.Set,
 	daemonRecorder *metrics.DaemonRecorder,
+	httpRecorder *metrics.HTTPClientRecorder,
 	machinePoolManager *machinepool.Manager,
 	redisClient *redistore.Client,
 	rateLimitRedisClient *redistore.Client,
@@ -396,7 +399,6 @@ func apiOptions(
 	replicaID uuid.UUID,
 	secretKeyWrapper secrets.KeyWrapper,
 ) ([]httpapi.Option, error) {
-	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
 	operatorHTTPClient := metrics.NewObservedHTTPClient(
 		&http.Client{Timeout: outboundHTTPClientTimeout},
 		httpRecorder,

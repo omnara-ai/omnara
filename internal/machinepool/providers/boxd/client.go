@@ -167,11 +167,11 @@ type grpcClient struct {
 	tokens     *sessionTokenCache
 }
 
-func newGRPCClient(apiKey string) *grpcClient {
+func newGRPCClient(apiKey string, httpClient *http.Client) *grpcClient {
 	return &grpcClient{
 		authURL:    authURL,
 		apiKey:     apiKey,
-		httpClient: providers.NewHTTPClient(),
+		httpClient: httpClient,
 		tokens:     sharedSessionTokens,
 	}
 }

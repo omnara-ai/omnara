@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 const (
@@ -26,6 +27,7 @@ type provider struct {
 	apiToken      string
 	apiBaseURL    string
 	omnaraAPIURL  string
+	httpRecorder  *metrics.HTTPClientRecorder
 	wakeTransport http.RoundTripper
 }
 
@@ -40,7 +42,7 @@ func (p *provider) apiForMetro(metro string) apiClient {
 	return &restClient{
 		baseURL:    baseURL,
 		apiToken:   p.apiToken,
-		httpClient: providers.NewHTTPClient(),
+		httpClient: providers.NewHTTPClient(p.httpRecorder, providers.Unikraft),
 	}
 }
 
@@ -207,7 +209,7 @@ func (p *provider) WakeMachine(
 	if err != nil {
 		return fmt.Errorf("build unikraft wake request: %w", err)
 	}
-	client := providers.NewHTTPClient()
+	client := providers.NewHTTPClient(p.httpRecorder, providers.Unikraft)
 	if p.wakeTransport != nil {
 		client.Transport = p.wakeTransport
 	}

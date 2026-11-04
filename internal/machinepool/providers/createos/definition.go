@@ -73,7 +73,11 @@ func newProvider(
 		return nil, errors.New("createos provider auth token is required")
 	}
 	return &provider{
-		api:          newRESTClient(apiBaseURL, token, nil),
+		api: newRESTClient(
+			apiBaseURL,
+			token,
+			providers.NewHTTPClient(runtimeConfig.HTTPRecorder, providers.CreateOS),
+		),
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 		pollDelay:    pollDelay,
 	}, nil

@@ -119,9 +119,6 @@ type restClient struct {
 }
 
 func newRESTClient(endpoints regionEndpoints, apiKey string, httpClient *http.Client) *restClient {
-	if httpClient == nil {
-		httpClient = providers.NewHTTPClient()
-	}
 	return &restClient{
 		apiBaseURL:  strings.TrimRight(endpoints.apiBaseURL, "/"),
 		sandboxHost: endpoints.sandboxHost,

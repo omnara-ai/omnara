@@ -95,9 +95,6 @@ type restClient struct {
 }
 
 func newRESTClient(baseURL, token string, httpClient *http.Client) *restClient {
-	if httpClient == nil {
-		httpClient = providers.NewHTTPClient()
-	}
 	return &restClient{
 		apiBaseURL: strings.TrimRight(baseURL, "/"),
 		apiToken:   token,

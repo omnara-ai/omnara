@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 const (
@@ -30,9 +31,12 @@ var providerHTTPClient = outboundhttp.NewPublicClient(
 	outboundhttp.PublicClientOptions{Timeout: HTTPClientTimeout},
 )
 
-func NewHTTPClient() *http.Client {
-	client := *providerHTTPClient
-	return &client
+func NewHTTPClient(recorder *metrics.HTTPClientRecorder, provider string) *http.Client {
+	return ObserveHTTPClient(providerHTTPClient, recorder, provider)
+}
+
+func ObserveHTTPClient(client *http.Client, recorder *metrics.HTTPClientRecorder, provider string) *http.Client {
+	return metrics.NewObservedHTTPClient(client, recorder, metrics.WithHTTPClientHostLabel(provider))
 }
 
 func IsHTTPS(parsed *url.URL) bool {

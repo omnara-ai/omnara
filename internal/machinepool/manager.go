@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -49,6 +50,7 @@ type Manager struct {
 	Identity                   *identitystore.Store
 	Catalog                    Catalog
 	PublicAPIURL               string
+	HTTPRecorder               *metrics.HTTPClientRecorder
 	runtimeReconciliationState *runtimeReconciliationState
 }
 
@@ -56,12 +58,14 @@ func NewManager(
 	execution *executionstore.Store,
 	identity *identitystore.Store,
 	publicAPIURL string,
+	httpRecorder *metrics.HTTPClientRecorder,
 ) *Manager {
 	return &Manager{
 		Execution:                  execution,
 		Identity:                   identity,
 		Catalog:                    DefaultCatalog(),
 		PublicAPIURL:               publicAPIURL,
+		HTTPRecorder:               httpRecorder,
 		runtimeReconciliationState: newRuntimeReconciliationState(),
 	}
 }
@@ -721,6 +725,7 @@ func (m Manager) providerForMachine(
 	runtimeConfig := providers.RuntimeConfig{
 		OmnaraAPIURL:      m.PublicAPIURL,
 		ProviderAuthToken: providerAuthToken,
+		HTTPRecorder:      m.HTTPRecorder,
 	}
 	provider, err := definition.NewProvider(pool.ProviderConfig, runtimeConfig)
 	if err != nil {
@@ -766,6 +771,7 @@ func (m Manager) CheckPoolConnection(ctx context.Context, input PoolConnectionCh
 	provider, err := definition.NewProvider(input.ProviderConfig, providers.RuntimeConfig{
 		OmnaraAPIURL:      m.PublicAPIURL,
 		ProviderAuthToken: providerAuthToken,
+		HTTPRecorder:      m.HTTPRecorder,
 	})
 	if err != nil {
 		return err

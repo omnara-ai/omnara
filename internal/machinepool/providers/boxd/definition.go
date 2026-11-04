@@ -68,7 +68,10 @@ func newProvider(
 		return nil, errors.New("boxd provider auth token is required")
 	}
 	return &provider{
-		api:          newGRPCClient(runtimeConfig.ProviderAuthToken),
+		api: newGRPCClient(
+			runtimeConfig.ProviderAuthToken,
+			providers.NewHTTPClient(runtimeConfig.HTTPRecorder, providers.Boxd),
+		),
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 	}, nil
 }
