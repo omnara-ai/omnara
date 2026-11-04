@@ -331,6 +331,20 @@ func (c *IntegrationInboxConsumer) consumeEvent(ctx context.Context, lease integ
 	if err != nil {
 		failures = append(failures, err)
 	}
+	var agentIDs []uuid.UUID
+	for _, result := range results {
+		if result.Input == nil || result.Input.Skipped == "" {
+			agentIDs = append(agentIDs, plan.Recipients[result.Recipient].AgentID)
+		}
+	}
+	if tracker, ok := adapter.(interface {
+		trackAgents(context.Context, integrationstore.IntegrationRecord, executionstore.InboxMessage, []uuid.UUID) error
+	}); ok && len(agentIDs) > 0 {
+		if err := tracker.trackAgents(ctx, integrationSetup, *plan.Message, agentIDs); err != nil {
+			log.WarnContext(ctx, "Integration agent tracking failed",
+				"receipt_id", lease.ReceiptID, "integration_id", integrationSetup.ID, "error", err)
+		}
+	}
 	created := slices.ContainsFunc(results, func(result IntegrationRecipientAdmission) bool {
 		return (result.Launch != nil && result.Launch.Created) || (result.Input != nil && result.Input.Created)
 	})

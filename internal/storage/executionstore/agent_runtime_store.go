@@ -240,6 +240,20 @@ func (s *Store) GetAgentActivity(ctx context.Context, projectID, agentID uuid.UU
 	return agentActivityFromRow(rows[0]), nil
 }
 
+func (s *Store) ListAgentTreeStates(
+	ctx context.Context, projectIDs, agentIDs []uuid.UUID,
+) (map[uuid.UUID]string, error) {
+	rows, err := s.q.ListAgentTreeStates(ctx, dbsqlc.ListAgentTreeStatesParams{ProjectIds: projectIDs, AgentIds: agentIDs})
+	if err != nil {
+		return nil, fmt.Errorf("list agent tree states: %w", err)
+	}
+	states := make(map[uuid.UUID]string, len(rows))
+	for _, row := range rows {
+		states[row.ID] = agentActivityState(row.Archived, row.Waiting, false, row.Working)
+	}
+	return states, nil
+}
+
 func agentActivityFromRow(row dbsqlc.ListAgentActivityForAgentsRow) AgentActivity {
 	archived := row.State == string(AgentStateArchived)
 	return AgentActivity{
