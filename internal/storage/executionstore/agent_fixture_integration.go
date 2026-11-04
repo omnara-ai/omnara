@@ -40,6 +40,7 @@ func (s *Store) IntegrationExecuteToolCallOnce(
 			return s.executeToolCallOnce(
 				ctx,
 				input,
+				nil,
 				func(*ToolCallReader) (ToolCallCommand, error) { return command, nil },
 			)
 		})

@@ -1752,6 +1752,9 @@ func prepareLocalRunner(
 			return preparedRunnerWithStartFailure(runner, err)
 		}
 	}
+	if assignment.ProgramToolHelper != nil {
+		command.Env = programToolCallEnvironment(command.Env, assignment.ID, assignment.ProgramToolHelper)
+	}
 	runner.cmd = command
 	return runner, nil
 }

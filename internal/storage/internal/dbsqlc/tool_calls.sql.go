@@ -44,7 +44,7 @@ const getToolCall = `-- name: GetToolCall :one
 WITH selected_call AS MATERIALIZED (
   SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id, tc.source_event_id, tc.source_event_sequence,
          tc.model_call_context_id, tc.model_output_id, tc.provider_call_id, tc.name, tc.input,
-         tc.type, tc.state, tc.runtime_lock_id, tc.created_at
+         tc.type, tc.state, tc.runtime_lock_id, tc.created_at, tc.caller, tc.parent_tool_call_id
   FROM tool_call_read_projection tc
   WHERE tc.project_id = $1
     AND tc.agent_id = $2
@@ -57,7 +57,9 @@ SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id,
   tc.runtime_lock_id,
   coalesce(result_blocks.content_parts, '[]'::jsonb)::jsonb AS result_content_parts,
   tc.created_at,
-  result.completed_at
+  result.completed_at,
+  tc.caller,
+  tc.parent_tool_call_id
 FROM selected_call tc
 LEFT JOIN tool_call_results result ON result.agent_id = tc.agent_id
   AND result.tool_call_id = tc.id
@@ -104,6 +106,8 @@ type GetToolCallRow struct {
 	ResultContentParts json.RawMessage
 	CreatedAt          time.Time
 	CompletedAt        *time.Time
+	Caller             string
+	ParentToolCallID   *uuid.UUID
 }
 
 func (q *Queries) GetToolCall(ctx context.Context, arg GetToolCallParams) (GetToolCallRow, error) {
@@ -126,6 +130,8 @@ func (q *Queries) GetToolCall(ctx context.Context, arg GetToolCallParams) (GetTo
 		&i.ResultContentParts,
 		&i.CreatedAt,
 		&i.CompletedAt,
+		&i.Caller,
+		&i.ParentToolCallID,
 	)
 	return i, err
 }
@@ -140,6 +146,7 @@ WITH selected_call AS MATERIALIZED (
     AND tc.agent_id = $2
     AND tc.model_call_context_id = $3
     AND tc.provider_call_id = $4
+    AND tc.caller = 'model'
 )
 SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id,
   tc.source_event_id, tc.model_call_context_id, tc.provider_call_id,
@@ -316,6 +323,7 @@ WITH selected_calls AS MATERIALIZED (
   WHERE tc.project_id = $3
     AND tc.agent_id = $4
     AND tc.state = 'completed'
+    AND tc.caller = 'model'
     AND tc.source_event_sequence > $1
     AND tc.source_event_sequence <= $2
 )
@@ -444,8 +452,10 @@ const listToolCallsForAgent = `-- name: ListToolCallsForAgent :many
 SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
-  coalesce(result.outcome, '') AS outcome,
-  call.created_at, result.completed_at
+  coalesce(result.outcome, '') AS outcome, call.runtime_lock_id,
+  '[]'::jsonb AS result_content_parts,
+  call.created_at, result.completed_at,
+  call.caller, call.parent_tool_call_id
 FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
   AND result.tool_call_id = call.id
@@ -475,17 +485,24 @@ type ListToolCallsForAgentParams struct {
 }
 
 type ListToolCallsForAgentRow struct {
-	ID             uuid.UUID
-	AgentID        uuid.UUID
-	TurnID         uuid.UUID
-	ProviderCallID string
-	Name           string
-	Input          json.RawMessage
-	Type           string
-	State          string
-	Outcome        string
-	CreatedAt      time.Time
-	CompletedAt    *time.Time
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	TurnID             uuid.UUID
+	SourceEventID      uuid.UUID
+	ModelCallContextID uuid.UUID
+	ProviderCallID     string
+	Name               string
+	Input              json.RawMessage
+	Type               string
+	State              string
+	Outcome            string
+	RuntimeLockID      *uuid.UUID
+	ResultContentParts json.RawMessage
+	CreatedAt          time.Time
+	CompletedAt        *time.Time
+	Caller             string
+	ParentToolCallID   *uuid.UUID
 }
 
 func (q *Queries) ListToolCallsForAgent(ctx context.Context, arg ListToolCallsForAgentParams) ([]ListToolCallsForAgentRow, error) {
@@ -617,6 +634,8 @@ func (q *Queries) ListUnfinishedToolCallsForProject(ctx context.Context, arg Lis
 			&i.Outcome,
 			&i.CreatedAt,
 			&i.CompletedAt,
+			&i.Caller,
+			&i.ParentToolCallID,
 		); err != nil {
 			return nil, err
 		}
@@ -644,6 +663,7 @@ LEFT JOIN content_blocks call_block ON call_block.agent_id = call.agent_id
 WHERE call.project_id = $1
   AND call.agent_id = $2
   AND call.model_output_id = $3
+  AND call.caller = 'model'
   AND (
     COALESCE(cardinality($4::uuid[]), 0) = 0
     OR NOT (call.id = ANY($4::uuid[]))

@@ -76,6 +76,9 @@ func (t *toolCallTransaction) createPoolMachine(
 	ctx context.Context,
 	input CreatePoolMachineInput,
 ) (CreatePoolMachineResult, error) {
+	if err := t.requireRuntime(); err != nil {
+		return CreatePoolMachineResult{}, err
+	}
 	if input.MachinePoolID == uuid.Nil {
 		return CreatePoolMachineResult{}, errors.New("machine pool is required")
 	}
@@ -297,6 +300,9 @@ func (t *toolCallTransaction) deletePoolMachine(
 	ctx context.Context,
 	input DeletePoolMachineInput,
 ) (PoolMachineRecord, error) {
+	if err := t.requireRuntime(); err != nil {
+		return PoolMachineRecord{}, err
+	}
 	if input.MachineID == uuid.Nil {
 		return PoolMachineRecord{}, errors.New("machine ID is required")
 	}

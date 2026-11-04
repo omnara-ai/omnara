@@ -113,6 +113,35 @@ Set `run_command` to `always_ask` to require approval before execution. The prom
 
 If Omnara cannot choose a machine, the tool returns an error to the agent so it can inspect its machines and retry.
 
+### Calling tools from commands
+
+When [programmatic tool calls](/agents/configuration#programmatic-tool-calls) are enabled in the agent's config and [on the machine](/machines/connect#programmatic-tool-calls), commands started with `run_command` can call the agent's other tools with `"$OMNARA_BIN" call <tool> '<json input>'`. The `run_command` description then tells the model how. For example, to list the paths of Markdown files in a memory store:
+
+```bash
+"$OMNARA_BIN" call storage_list '{"pattern":"/memory/notes/**/*.md"}' | jq -r '.entries[].path'
+```
+
+The tool's structured JSON result, or its text, goes to stdout. Pass `-` as the input to read it from stdin; omit it to send `{}`. `--json` prints the full result envelope instead, and `--timeout` (default `10m`) sets how long to wait for the call to finish.
+
+Results go only to the command, never into the model's context, so an agent can chain calls with pipes, `jq`, loops, or scripts, or run them in parallel with `xargs -P`, and print only what it needs. A command can have up to 16 calls in flight.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | The tool succeeded |
+| `1` | The tool failed, was denied, or was canceled. The outcome and content are printed to stderr as JSON |
+| `2` | The tool can't be called from commands, programmatic tool calls are off, or the input isn't a JSON object |
+| `3` | The daemon couldn't be reached or the call timed out. A timed-out call may still complete |
+
+To find tools and their input schemas, call `tool_search` with a case-insensitive regular expression. It returns every matching tool the command can call, deferred or not, unless `max_results` limits it:
+
+```bash
+"$OMNARA_BIN" call tool_search '{"pattern":"linear","max_results":10}'
+```
+
+Each call from a command is a real tool call. [`GET /tool-calls`](/api-reference/endpoints/agents/list-tool-calls) lists it with `caller: "program"` and a `parent_tool_call_id` naming the `run_command` call, and it follows the tool's [permission mode](/tools/permissions). For an `always_ask` tool, a normal permission interaction opens and the command waits, printing `omnarad: waiting for approval of <tool> in Omnara...` to stderr, until someone resolves it. Raise `--timeout` for calls that may wait on a person.
+
+Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools such as `int__engineering__read`, except tools listed in the config's `exclude`. Other tools can't be called from commands, including command and process tools, `ask_question`, subagent and machine tools, `skill`, custom tools, and tools that write or upload.
+
 ## Processes
 
 Use these tools to follow or control commands that are still running. A process moves from `starting` to `running`, then ends as `exited`, `failed`, or `killed`.

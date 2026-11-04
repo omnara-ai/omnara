@@ -79,6 +79,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	if machinePool["runtime_protection_enabled"] != false {
 		t.Fatalf("default runtime_protection_enabled = %v, want false", machinePool["runtime_protection_enabled"])
 	}
+	if machinePool["default_programmatic_tool_calls"] != false {
+		t.Fatalf("default default_programmatic_tool_calls = %v, want false", machinePool["default_programmatic_tool_calls"])
+	}
 	defaultProviderOptions := testutil.RequireType[map[string]any](t, machinePool["default_machine_provider_options"])
 	if machinePool["default_cwd"] != "/pool" || defaultProviderOptions["image"] != "test" {
 		t.Fatalf("unexpected pool default_machine fields: %+v", machinePool)
@@ -353,7 +356,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		"machine-pool-provider-auth-rotated",
 		"rotated-token",
 	)
-	poolUpdateBody := `{"name":"updated-target","description":"updated pool","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{"SECRET_THING":"updated-pool-value"},"default_machine_provider_options":{"image":"updated","metro":"sfo","startup_script":"echo updated"},"default_cwd":"/pool-updated","provider_auth_secret_id":"` + rotatedProviderAuthSecretID + `","max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"min_machine_cpu":1,"min_machine_memory_mb":1024,"max_machine_cpu":2,"max_machine_memory_mb":4096,"runtime_protection_enabled":true,"metadata":{"team":"infra"}}`
+	poolUpdateBody := `{"name":"updated-target","description":"updated pool","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{"SECRET_THING":"updated-pool-value"},"default_machine_provider_options":{"image":"updated","metro":"sfo","startup_script":"echo updated"},"default_cwd":"/pool-updated","provider_auth_secret_id":"` + rotatedProviderAuthSecretID + `","max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"min_machine_cpu":1,"min_machine_memory_mb":1024,"max_machine_cpu":2,"max_machine_memory_mb":4096,"runtime_protection_enabled":true,"default_programmatic_tool_calls":true,"metadata":{"team":"infra"}}`
 	updatedPool := requestJSONWithHeaders(
 		t,
 		handler,
@@ -371,7 +374,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		testutil.RequireType[float64](t, updatedPool["max_total_cpu"]) != 4 ||
 		testutil.RequireType[float64](t, updatedPool["min_machine_cpu"]) != 1 ||
 		testutil.RequireType[float64](t, updatedPool["min_machine_memory_mb"]) != 1024 ||
-		updatedPool["runtime_protection_enabled"] != true {
+		updatedPool["runtime_protection_enabled"] != true || updatedPool["default_programmatic_tool_calls"] != true {
 		t.Fatalf("unexpected updated pool response: %+v", updatedPool)
 	}
 	patchedPool := requestJSONWithHeaders(
@@ -389,7 +392,7 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		testutil.RequireType[float64](t, patchedPool["max_total_cpu"]) != 4 ||
 		testutil.RequireType[float64](t, patchedPool["min_machine_cpu"]) != 1 ||
 		testutil.RequireType[float64](t, patchedPool["min_machine_memory_mb"]) != 1024 ||
-		patchedPool["runtime_protection_enabled"] != true {
+		patchedPool["runtime_protection_enabled"] != true || patchedPool["default_programmatic_tool_calls"] != true {
 		t.Fatalf("unexpected patched pool response: %+v", patchedPool)
 	}
 	zeroMinimumPool := requestJSONWithHeaders(

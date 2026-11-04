@@ -77,7 +77,7 @@ func (e Executor) dispatchMCPTool(
 		Name:      remoteName,
 		Arguments: call.Input,
 		BeforeSend: func(ctx context.Context) error {
-			return e.Store.Execution().EnsureRuntimeLockActive(ctx, turn.ProjectID, turn.AgentID, turn.RuntimeLockID)
+			return turn.toolAuthority().ensureActive(ctx, e, turn)
 		},
 	})
 	if cause := mcp.InitializationCause(err); cause != nil && mcp.InitializationRecorded(err) {

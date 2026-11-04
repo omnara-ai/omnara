@@ -72,6 +72,7 @@ var (
 	ErrNotFound                     = errors.New("not found")
 	ErrMCPOAuthFlowConsumed         = errors.New("mcp oauth flow already consumed")
 	ErrIntegrationOAuthFlowConsumed = errors.New("integration oauth flow already consumed")
+	ErrProgramToolCallClaimLost     = errors.New("program tool call claim was lost")
 )
 
 type FileContentConflictError struct {

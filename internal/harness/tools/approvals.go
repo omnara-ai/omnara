@@ -134,9 +134,7 @@ func (e Executor) PrepareRecordedToolCallPermission(
 	}
 	switch modeResult.kind {
 	case permissionModeAllow:
-		return e.Store.Execution().MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{
-			ProjectID: turn.ProjectID, AgentID: turn.AgentID, ID: proposal.ID, RuntimeLockID: turn.RuntimeLockID,
-		})
+		return turn.toolAuthority().markReady(ctx, e, turn, proposal.ID)
 	case permissionModeDeny:
 		return executionstore.ToolCallRecord{}, e.completeDeniedToolCall(
 			ctx,
@@ -151,16 +149,7 @@ func (e Executor) PrepareRecordedToolCallPermission(
 			call.Name,
 		)
 	}
-	interaction, err := e.Store.Execution().CreatePermissionInteraction(
-		ctx,
-		executionstore.CreatePermissionInteractionInput{
-			ProjectID:     turn.ProjectID,
-			AgentID:       turn.AgentID,
-			ToolCallID:    proposal.ID,
-			RuntimeLockID: turn.RuntimeLockID,
-			Request:       modeResult.request,
-		},
-	)
+	interaction, err := turn.toolAuthority().openPermission(ctx, e, turn, proposal.ID, modeResult.request)
 	if err != nil {
 		return executionstore.ToolCallRecord{}, err
 	}
@@ -181,12 +170,7 @@ func (e Executor) evaluateExistingPermissionInteraction(
 	}
 	switch permission.State {
 	case executionstore.AgentInteractionStateOpen:
-		if err := e.Store.Execution().EnsureRuntimeLockActive(
-			ctx,
-			turn.ProjectID,
-			turn.AgentID,
-			turn.RuntimeLockID,
-		); err != nil {
+		if err := turn.toolAuthority().ensureActive(ctx, e, turn); err != nil {
 			return err
 		}
 		return nil
@@ -254,16 +238,8 @@ func (e Executor) completeInvalidToolCall(
 	if err != nil {
 		return fmt.Errorf("marshal invalid tool content parts: %w", err)
 	}
-	_, err = e.Store.Execution().CompleteToolCall(
-		ctx,
-		executionstore.CompleteToolCallInput{
-			ProjectID:          turn.ProjectID,
-			AgentID:            turn.AgentID,
-			ID:                 toolCallID,
-			Outcome:            executionstore.ToolResultOutcomeFailed,
-			RuntimeLockID:      turn.RuntimeLockID,
-			ResultContentParts: contentParts,
-		},
+	_, err = turn.toolAuthority().complete(
+		ctx, e, turn, toolCallID, executionstore.ToolResultOutcomeFailed, contentParts,
 	)
 	return err
 }
@@ -278,16 +254,8 @@ func (e Executor) completeToolCallPreparationFailure(
 	if err != nil {
 		return fmt.Errorf("marshal tool preparation failure content parts: %w", err)
 	}
-	_, err = e.Store.Execution().CompleteToolCall(
-		ctx,
-		executionstore.CompleteToolCallInput{
-			ProjectID:          turn.ProjectID,
-			AgentID:            turn.AgentID,
-			ID:                 toolCallID,
-			Outcome:            executionstore.ToolResultOutcomeFailed,
-			RuntimeLockID:      turn.RuntimeLockID,
-			ResultContentParts: contentParts,
-		},
+	_, err = turn.toolAuthority().complete(
+		ctx, e, turn, toolCallID, executionstore.ToolResultOutcomeFailed, contentParts,
 	)
 	return err
 }
@@ -316,16 +284,8 @@ func (e Executor) completeDeniedToolCall(
 	if err != nil {
 		return fmt.Errorf("marshal denied tool content parts: %w", err)
 	}
-	_, err = e.Store.Execution().CompleteToolCall(
-		ctx,
-		executionstore.CompleteToolCallInput{
-			ProjectID:          turn.ProjectID,
-			AgentID:            turn.AgentID,
-			ID:                 toolCallID,
-			Outcome:            executionstore.ToolResultOutcomeDenied,
-			RuntimeLockID:      turn.RuntimeLockID,
-			ResultContentParts: contentParts,
-		},
+	_, err = turn.toolAuthority().complete(
+		ctx, e, turn, toolCallID, executionstore.ToolResultOutcomeDenied, contentParts,
 	)
 	return err
 }
@@ -385,16 +345,8 @@ func (e Executor) completeAsyncToolResult(
 	if err != nil {
 		return fmt.Errorf("marshal async tool result: %w", err)
 	}
-	input := executionstore.CompleteRuntimeToolCallInput{
-		ProjectID:          turn.ProjectID,
-		AgentID:            turn.AgentID,
-		ID:                 toolCallID,
-		RuntimeLockID:      turn.RuntimeLockID,
-		Outcome:            outcome,
-		ResultContentParts: parts,
-	}
 	persist := func(ctx context.Context) error {
-		_, err := e.Store.Execution().CompleteRuntimeToolCall(ctx, input)
+		_, err := turn.toolAuthority().completeRunning(ctx, e, turn, toolCallID, outcome, parts)
 		return err
 	}
 	err = retryAsyncToolPersistence(ctx, persist)
@@ -421,11 +373,11 @@ func (e Executor) completeAsyncToolResult(
 	if fallbackErr != nil {
 		return errors.Join(err, fallbackErr)
 	}
-	input.ResultContentParts, fallbackErr = fallback.contentParts()
+	parts, fallbackErr = fallback.contentParts()
 	if fallbackErr != nil {
 		return errors.Join(err, fallbackErr)
 	}
-	input.Outcome = executionstore.ToolResultOutcomeFailed
+	outcome = executionstore.ToolResultOutcomeFailed
 	completionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
 	defer cancel()
 	if fallbackErr := retryAsyncToolPersistence(completionCtx, persist); fallbackErr != nil {

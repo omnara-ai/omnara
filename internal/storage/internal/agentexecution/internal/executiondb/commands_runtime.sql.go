@@ -145,7 +145,7 @@ func (q *Queries) ListExecutionLiveContexts(ctx context.Context, db DBTX, arg Li
 const listExecutionUnfinishedTools = `-- name: ListExecutionUnfinishedTools :many
 SELECT c.id FROM tool_calls c JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
 JOIN model_call_contexts m ON m.agent_id=o.agent_id AND m.id=o.model_call_context_id
-WHERE c.agent_id=$1 AND c.state<>'completed'
+WHERE c.agent_id=$1 AND c.state<>'completed' AND c.caller='model'
  AND ($2::uuid IS NULL OR m.turn_id=$2)
  AND ($3::uuid IS NULL OR (c.state='running' AND c.runtime_lock_id=$3)) ORDER BY c.id
 `
