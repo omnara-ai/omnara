@@ -112,6 +112,20 @@ describe('agents wait', () => {
     expect(console.error).not.toHaveBeenCalled()
   })
 
+  it('keeps waiting while an idle agent still has background work', async () => {
+    const busy = agentPayload('idle')
+    busy.agent.activity.working_subagents = { count: 1, agent_ids: [id('agt')] }
+    const replies = [busy, agentPayload('idle')]
+    const command = cli(() => Response.json(replies.shift() ?? agentPayload('idle')))
+    vi.useFakeTimers()
+    const run = command.run('--json')
+    await vi.advanceTimersByTimeAsync(2_000)
+    await run
+    expect(command.requests).toHaveLength(2)
+    expect(console.log).toHaveBeenCalledWith(printed('idle'))
+    expect(console.error).not.toHaveBeenCalled()
+  })
+
   it('rejects an unknown state before calling the API', async () => {
     const command = cli(() => Response.json(agentPayload('idle')))
     await command.run('--state', 'nope')

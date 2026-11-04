@@ -1,3 +1,4 @@
+import { isAgentActive } from '@omnara/react'
 import type { Agent, AgentActivity, GetAgentResponse, OmnaraClient } from '@omnara/sdk'
 import { sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
@@ -50,12 +51,11 @@ function agentWaitDeadline(nowMs: number, timeoutSeconds: number): string {
   return new Date(nowMs + timeoutSeconds * 1000).toISOString()
 }
 
-function agentMatchesWaitStates(
-  agent: Pick<Agent, 'activity'>,
-  states: readonly AgentActivity['state'][],
-): boolean {
+function agentMatchesWaitStates(agent: Agent, states: readonly AgentActivity['state'][]): boolean {
   const current = agent.activity?.state
-  return current !== undefined && states.includes(current)
+  if (current === undefined || !states.includes(current)) return false
+  // An idle agent with working subagents or background processes can wake again, so it is not done yet.
+  return current !== 'idle' || !isAgentActive(agent)
 }
 
 function agentWaitExpiredMessage(
