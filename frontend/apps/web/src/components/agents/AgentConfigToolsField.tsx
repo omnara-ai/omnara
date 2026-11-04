@@ -1,5 +1,5 @@
 import type { ToolCatalog, ToolCatalogEntry } from '@omnara/sdk'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import {
   type PermissionSelection,
@@ -18,6 +18,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -57,12 +58,16 @@ export function AgentConfigToolsField({
   resolvedTools,
   reservedNames = [],
   onToolsChange,
+  onAddCustomTool,
+  children,
 }: {
   catalog?: ToolCatalog
   tools: BasicTool[]
   reservedNames?: string[]
   resolvedTools?: { name: string; enabled: boolean }[]
   onToolsChange: (tools: BasicTool[]) => void
+  onAddCustomTool?: () => void
+  children?: ReactNode
 }) {
   const catalogTools = catalog?.built_in_tools ?? []
   const catalogByName = new Map(catalogTools.map((entry) => [entry.name, entry]))
@@ -95,13 +100,19 @@ export function AgentConfigToolsField({
               size="icon"
               variant="ghost"
               className="text-muted-foreground size-10 sm:size-8"
-              disabled={availableTools.length === 0}
+              disabled={availableTools.length === 0 && !onAddCustomTool}
               aria-label="Add tools"
             >
               <PlusIcon />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
+            {onAddCustomTool && (
+              <>
+                <DropdownMenuItem onSelect={onAddCustomTool}>Custom tool…</DropdownMenuItem>
+                {availableTools.length > 0 && <DropdownMenuSeparator />}
+              </>
+            )}
             {availableTools.map((entry) => (
               <DropdownMenuItem
                 key={entry.name}
@@ -169,6 +180,7 @@ export function AgentConfigToolsField({
           })}
         </div>
       ) : null}
+      {children}
       <AgentConfigIncludedTools
         catalog={catalog}
         tools={includedTools}

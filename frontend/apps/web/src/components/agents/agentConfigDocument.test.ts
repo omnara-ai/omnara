@@ -44,6 +44,22 @@ describe('document ownership', () => {
     }
   })
 
+  it('cannot insert raw definitions over existing nodes or under opaque parents', () => {
+    const source = `${header}tools: {managed: {}, opaque: {future: true}}\n`
+    const transaction = editConfigDocument(source, parseConfigDocument(source).doc, [
+      ['tools', 'opaque'],
+    ])
+    for (const path of [
+      ['tools', 'managed'],
+      ['tools', 'opaque', 'new'],
+    ]) {
+      expect(() => {
+        transaction.setRawDefinition(path, '{type: custom}')
+      }).toThrow()
+      expect(transaction.serialize()).toBe(source)
+    }
+  })
+
   it('keeps supported machine rows editable beside an advanced row', () => {
     const { session, draft } = draftFor(sources)
     expect(draft.machineSources.map((row) => row.name)).toEqual(['managed-pool', 'managed-machine'])
@@ -312,7 +328,7 @@ it('changes a machine source kind without losing the sequence entry', () => {
   expect(parse(result.yaml)).toHaveProperty('machine_sources', [{ machine_name: 'example' }])
 })
 
-it('preserves large schema integers exactly when editing a flow definition', () => {
+it('preserves large schema integers and blocks conversions that would round them', () => {
   const source =
     header +
     'tools: {example: {type: custom, description: Example, input_schema: {type: object, properties: {value: {const: 9007199254740993}}}}}\n'
@@ -327,6 +343,15 @@ it('preserves large schema integers exactly when editing a flow definition', () 
   expect(result.issues).toEqual([])
   expect(result.yaml).toContain('const: 9007199254740993')
   expect(result.yaml).toContain('description: Updated')
+  const empty = '{instruction: Help.}\n'
+  const transaction = editConfigDocument(empty, parseConfigDocument(empty).doc, [])
+  expect(() => {
+    transaction.setRawDefinition(
+      ['tools', 'new_tool'],
+      'type: custom\ndescription: Example\ninput_schema: {type: object, properties: {value: {const: 9007199254740993}}}',
+    )
+  }).toThrow('Use a flow YAML or JSON definition')
+  expect(transaction.serialize()).toBe(empty)
 })
 
 it('explains explicit YAML 1.1 documents without rewriting them', () => {

@@ -1,6 +1,5 @@
 import { useToolCatalog } from '@omnara/react'
 
-import { AgentConfigAdvancedFields } from '@/components/agents/AgentConfigAdvancedFields'
 import { AgentConfigGitCredentialsField } from '@/components/agents/AgentConfigGitCredentialsField'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
@@ -8,7 +7,7 @@ import { AgentConfigMemoryField } from '@/components/agents/AgentConfigMemoryFie
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigSubagentsField } from '@/components/agents/AgentConfigSubagentsField'
-import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
+import { AgentConfigToolsSection } from '@/components/agents/AgentConfigToolsSection'
 import type { AgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
 import { ChevronRightIcon } from '@/components/icons'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -66,15 +65,8 @@ export function AgentConfigBasicForm({
             />
           )}
           {form.isManaged('tools') && (
-            <AgentConfigToolsField
-              catalog={toolCatalog.data}
-              tools={form.tools}
-              reservedNames={form.reservedToolNames}
-              resolvedTools={form.resolvedTools}
-              onToolsChange={form.setTools}
-            />
+            <AgentConfigToolsSection catalog={toolCatalog.data} form={form} />
           )}
-          <AgentConfigAdvancedFields form={form} />
           {Object.keys(form.interactionHandlers).length > 0 && (
             <AgentConfigSectionCard title="Integration capabilities" action={null}>
               <div className="space-y-2 px-4 pb-4 text-sm sm:px-5">

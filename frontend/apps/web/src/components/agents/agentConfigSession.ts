@@ -6,6 +6,7 @@ import {
   type AdvancedConfigEntry,
   type ConfigDiagnostic,
   configPath,
+  customToolNameError,
   validateAdvancedEntry,
 } from '@/components/agents/agentConfigCompatibility'
 import { ConfigEditError } from '@/components/agents/agentConfigDocument'
@@ -38,11 +39,30 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
     validationCache.set(key, { source: entry.source, issues })
     return issues
   }
-  const validate = (config: BasicConfig) => {
+  const validateConfig = (config: BasicConfig) => {
+    let conflictingNames = false
     const issues = [
       ...diagnostics.filter((issue) => issue.error && issue.kind === 'opaque'),
       ...(config.advancedEntries ?? []).flatMap(validateEntry),
     ]
+    const seen = new Set<string>()
+    for (const entry of config.advancedEntries ?? []) {
+      const path = configPath(entry.path)
+      const isNew = !reserved.has(path)
+      const message = seen.has(path)
+        ? 'This tool name is already in use.'
+        : isNew && entry.kind === 'custom'
+          ? customToolNameError(
+              entry.path[1] ?? '',
+              config.tools.map((tool) => tool.name),
+            )
+          : undefined
+      if (message) {
+        conflictingNames = true
+        issues.push({ path: entry.path, kind: 'advanced', error: true, message })
+      }
+      seen.add(path)
+    }
     const named = [
       ['tools', config.tools.map((tool) => tool.name)],
       ['mcp', config.mcpServers.map((server) => server.name)],
@@ -60,12 +80,14 @@ export function createBasicConfigSession(source: string): BasicConfigSession {
         }
       }
     }
-    return issues
+    return { issues, conflictingNames }
   }
+  const validate = (config: BasicConfig) => validateConfig(config).issues
   const evaluate = (config: BasicConfig): ConfigEvaluation => {
-    const issues = validate(config)
+    const { issues, conflictingNames } = validateConfig(config)
     if (source !== '' && initialDraft == null)
       return { yaml: source, issues, unappliedChanges: false }
+    if (conflictingNames) return { yaml: source, issues, unappliedChanges: true }
     const unappliedChanges =
       (config.advancedEntries ?? []).some(
         (entry) =>
