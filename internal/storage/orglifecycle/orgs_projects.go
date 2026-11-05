@@ -66,6 +66,20 @@ func (s *Service) CreateOrgForUser(
 		return identitystore.CreateOrgForUserRecord{}, err
 	}
 	if record.Created {
+		q := dbsqlc.New(tx)
+		eligible, err := q.ConsumeAgentPanelBootstrapEligibility(
+			ctx, dbsqlc.ConsumeAgentPanelBootstrapEligibilityParams{UserID: input.UserID},
+		)
+		if err != nil {
+			return identitystore.CreateOrgForUserRecord{}, fmt.Errorf("consume assistant eligibility: %w", err)
+		}
+		if eligible == 1 {
+			if err := q.EnqueueAgentPanelBootstrap(ctx, dbsqlc.EnqueueAgentPanelBootstrapParams{
+				UserID: input.UserID, ProjectID: &record.Project.ID,
+			}); err != nil {
+				return identitystore.CreateOrgForUserRecord{}, fmt.Errorf("queue first organization assistant: %w", err)
+			}
+		}
 		if err := s.execution.ProvisionOrganizationDefaultsTx(
 			ctx,
 			tx,
@@ -174,6 +188,9 @@ func deleteProjectOwnedContentTx(
 	}
 	if referenced {
 		return nil, fmt.Errorf("a project-owned secret is still referenced outside the project: %w", storeerr.ErrConflict)
+	}
+	if err := q.RevokeAssistantTokensForHome(ctx, dbsqlc.RevokeAssistantTokensForHomeParams{OrgID: orgID, ProjectID: &projectID}); err != nil {
+		return nil, fmt.Errorf("revoke project assistant tokens: %w", err)
 	}
 	if err := q.DeleteProjectSecrets(ctx, dbsqlc.DeleteProjectSecretsParams{OrgID: orgID, ProjectID: &projectID}); err != nil {
 		return nil, fmt.Errorf("delete project secrets: %w", err)
@@ -649,6 +666,9 @@ func (s *Service) deleteOrganizationOnce(
 		dbsqlc.DeleteDefaultModelProviderProvisioningForOrganizationParams{OrganizationID: orgID},
 	); err != nil {
 		return nil, fmt.Errorf("delete default model provider provisioning: %w", err)
+	}
+	if err := q.RevokeAssistantTokensForHome(ctx, dbsqlc.RevokeAssistantTokensForHomeParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("revoke organization assistant tokens: %w", err)
 	}
 	if err := q.DeleteOrganizationSecrets(ctx, dbsqlc.DeleteOrganizationSecretsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization secrets: %w", err)

@@ -9,6 +9,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  Outlet,
   RouterProvider,
 } from '@tanstack/react-router'
 import { act, Suspense } from 'react'
@@ -19,7 +20,9 @@ import { ActiveOrgProvider } from '@/components/active-org/ActiveOrgProvider'
 import { DeleteAccountSection } from '@/components/settings/DeleteAccountSection'
 import { DeleteOrganizationSection } from '@/components/settings/DeleteOrganizationSection'
 import { useActiveOrg } from '@/lib/use-active-org'
+import { webConfigQuery } from '@/lib/web-config'
 import { AccountSettingsPage } from '@/routes/AccountSettingsPage'
+import { AuthedLayout } from '@/routes/AuthedLayout'
 import { emptyResponse, fakeApi, type FakeRoute, jsonResponse } from '@/test/fake-api'
 import { currentUser, currentUserOrg, fakeId } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
@@ -60,28 +63,50 @@ function ActiveOrgName() {
 }
 
 async function render(me: CurrentUser, initialPath: string, routes: FakeRoute[]) {
-  const api = fakeApi(routes)
+  const api = fakeApi([
+    ...routes,
+    ...me.orgs.map((org) => ({
+      method: 'GET',
+      path: `/api/v1/orgs/${org.id}/projects`,
+      respond: () => jsonResponse({ data: [], next_cursor: null }),
+    })),
+  ])
   const client = createOmnaraClient({ baseUrl: apiBase })
   client.setConfig({ fetch: api.fetch })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient.setQueryDefaults(webConfigQuery.queryKey, { staleTime: Infinity })
+  queryClient.setQueryData(webConfigQuery.queryKey, {})
   const meKey = getCurrentUserQueryKey({ client })
   queryClient.setQueryData(meKey, me)
 
-  const rootRoute = createRootRoute()
+  const rootRoute = createRootRoute({
+    component: () => (
+      <ActiveOrgProvider>
+        <Outlet />
+      </ActiveOrgProvider>
+    ),
+  })
+  const orgRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    id: 'org',
+    component: AuthedLayout,
+  })
   const page = (children: React.ReactNode) => () => (
-    <ActiveOrgProvider>
+    <>
       <ActiveOrgName />
       {children}
-    </ActiveOrgProvider>
+    </>
   )
   const router = createRouter({
     routeTree: rootRoute.addChildren([
-      createRoute({ getParentRoute: () => rootRoute, path: '/', component: page(null) }),
-      createRoute({
-        getParentRoute: () => rootRoute,
-        path: '/settings',
-        component: page(<DeleteOrganizationSection />),
-      }),
+      orgRoute.addChildren([
+        createRoute({ getParentRoute: () => orgRoute, path: '/', component: page(null) }),
+        createRoute({
+          getParentRoute: () => orgRoute,
+          path: '/settings',
+          component: page(<DeleteOrganizationSection />),
+        }),
+      ]),
       createRoute({
         getParentRoute: () => rootRoute,
         path: '/user/account',
@@ -205,13 +230,37 @@ describe('DeleteOrganizationSection', () => {
   })
 
   it('sends the user to onboarding after deleting their last org', async () => {
+    let finishRefetch: (response: Response) => void = () => undefined
+    const refetch = new Promise<Response>((resolve) => {
+      finishRefetch = resolve
+    })
+    let deleted = false
     const { router } = await render(currentUser([acme]), '/settings', [
-      { method: 'DELETE', path: `/api/v1/orgs/${acme.id}`, respond: () => emptyResponse() },
-      { method: 'GET', path: '/api/v1/me', respond: () => jsonResponse(currentUser([])) },
+      {
+        method: 'DELETE',
+        path: `/api/v1/orgs/${acme.id}`,
+        respond: () => {
+          deleted = true
+          return emptyResponse()
+        },
+      },
+      {
+        method: 'GET',
+        path: '/api/v1/me',
+        respond: () => (deleted ? refetch : jsonResponse(currentUser([acme]))),
+      },
     ])
     await openDialog('Delete organization')
     await typeConfirmation('Acme')
     await confirm('Delete organization')
+
+    expect(container.textContent).not.toContain('Something went wrong')
+    expect(container.textContent).not.toContain('ActiveOrgProvider')
+    expect(document.querySelector('[data-testid="active-org"]')).toBeNull()
+    act(() => {
+      finishRefetch(jsonResponse(currentUser([])))
+    })
+    await flush()
 
     expect(router.state.location.pathname).toBe('/onboarding')
   })

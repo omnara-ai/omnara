@@ -23,6 +23,13 @@ docker compose -f compose.yaml --profile app up -d
 
 Open `http://localhost:8000` and sign up — the local email driver is `console`, so the verification link will appear in `docker compose logs api`.
 
+Before sharing a tool-capable model with your first project, configure an HTTPS
+domain or tunnel as described [below](#exposing-the-deployment-publicly). Sharing
+the model creates your dashboard assistant automatically. Its Omnara MCP tools connect
+from the worker container, where `localhost:8000` is not the API. An existing
+assistant can be updated in its agent configuration: set the Omnara MCP URL to
+the reachable origin's `/mcp` endpoint.
+
 ## Production database upgrades
 
 Run the release's one-shot `migrate` image before starting its API, worker, and

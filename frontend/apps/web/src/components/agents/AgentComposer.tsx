@@ -15,7 +15,7 @@ import {
 } from '@/lib/agent-attachments'
 import { isImeComposing } from '@/lib/ime-composition'
 
-import { useWindowFileDrop } from './useWindowFileDrop'
+import { useFileDrop } from './useFileDrop'
 
 function attachmentSelectionError(
   current: readonly SelectedAgentAttachment[],
@@ -128,6 +128,7 @@ export function AgentComposer({
   cancelError,
   canOperate,
   hidden,
+  fileDropScope = 'window',
 }: {
   chat: UseAgentChatResult
   model?: AgentConfigModel
@@ -136,6 +137,7 @@ export function AgentComposer({
   cancelError?: Error | null
   canOperate: boolean
   hidden: boolean
+  fileDropScope?: 'window' | 'composer'
 }) {
   const { scrollToEnd } = useMessageScroller()
   const [text, setText] = useState('')
@@ -145,14 +147,19 @@ export function AgentComposer({
   const [submitting, setSubmitting] = useState(false)
   const busyRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
   const working = chat.isWorking
   const ready = canOperate && chat.historyStatus === 'success'
   const busy = addingFiles || submitting
   const acceptsFiles = !hidden && ready && model != null && !busy
   const canSend = ready && !busy && (text.trim() !== '' || attachments.length > 0)
-  const dragging = useWindowFileDrop(acceptsFiles, (files) => {
-    void addFiles(files)
-  })
+  const dragging = useFileDrop(
+    acceptsFiles,
+    (files) => {
+      void addFiles(files)
+    },
+    fileDropScope === 'composer' ? formRef : undefined,
+  )
 
   async function send() {
     if (!canSend || busyRef.current) return
@@ -231,6 +238,7 @@ export function AgentComposer({
 
   return (
     <form
+      ref={formRef}
       onSubmit={onSubmit}
       className="bg-background relative rounded-3xl border p-2 pt-3 shadow-sm"
     >

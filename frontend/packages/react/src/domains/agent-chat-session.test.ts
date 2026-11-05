@@ -484,6 +484,38 @@ describe('AgentChatSession input lifecycle', () => {
     },
   )
 
+  it('retries the exact hidden context after navigation and an ambiguous failure', async () => {
+    vi.useFakeTimers()
+    transport.createAgentInput.mockRejectedValueOnce(new Error('response lost'))
+    const session = startSession([])
+    await connection(0)
+    const originalHint = 'Dashboard context: org-one, project-one'
+    const firstHint = vi.fn().mockResolvedValue(originalHint)
+    const changedHint = vi.fn().mockResolvedValue('Dashboard context: org-two, project-two')
+    try {
+      const rejected = expect(
+        session.sendMessage({ text: 'Create it here' }, 'conversation', firstHint),
+      ).rejects.toThrow('response lost')
+      await vi.advanceTimersByTimeAsync(1)
+      await rejected
+      await session.sendMessage({ text: 'Create it here' }, 'conversation', changedHint)
+      expect(changedHint).not.toHaveBeenCalled()
+      expect(sentIdempotencyKey(1)).toBe(sentIdempotencyKey(0))
+      const first = transport.createAgentInput.mock.calls[0]?.[0]
+      const second = transport.createAgentInput.mock.calls[1]?.[0]
+      expect(second?.body).toEqual(first?.body)
+      expect(second?.body.content_blocks[0]).toEqual({
+        type: 'text',
+        text: originalHint,
+        metadata: { omnara_hidden: 'true' },
+      })
+      expect(read(session).messages.flatMap(messageText)).not.toContain(originalHint)
+    } finally {
+      session.disconnect()
+      vi.useRealTimers()
+    }
+  })
+
   it('uses backlog confirmation when the event stream fails during the grace period', async () => {
     vi.useFakeTimers()
     transport.createAgentInput.mockRejectedValueOnce(new Error('response lost'))

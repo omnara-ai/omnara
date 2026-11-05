@@ -71,6 +71,7 @@ const modelGrant: ProjectModelGrantListItem = {
     default_reasoning_effort: '',
     supported_reasoning_efforts: [],
   },
+  supports_tools: true,
 }
 
 const pool = machinePool({ name: 'shared-pool' })

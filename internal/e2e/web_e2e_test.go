@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/mcpregistry"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -55,6 +56,13 @@ func TestWebE2E(t *testing.T) {
 	t.Cleanup(proxy.Close)
 	env.publicURL = strings.Replace(proxy.URL, "127.0.0.1", "app.omnara.test", 1)
 	env.publicURLHost = strings.TrimPrefix(env.publicURL, "https://")
+	registryPath := filepath.Join(env.root, "mcp-registry.json")
+	require.NoError(t, mcpregistry.WriteSnapshot(registryPath, mcpregistry.BuildSnapshot([]mcpregistry.Server{{
+		Name: "ai.omnara/omnara", Title: "Omnara", Description: "Web E2E Omnara MCP server",
+		Version: "1.0.0", Status: "active", UpdatedAt: time.Now().UTC(),
+		Remotes: []mcpregistry.Remote{{Type: "streamable-http", URL: env.publicURL + "/mcp"}},
+	}}, time.Now())))
+	t.Setenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", registryPath)
 	env.startEmbeddedWebAPI(t, ctx)
 
 	project := env.bootstrapProjectViaAPI(
@@ -169,6 +177,13 @@ func TestWebE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create web e2e switch target organization: %v", err)
 	}
+	panelEmail := "web-panel-" + env.seed + "@example.com"
+	panelUserID := createWebE2EUser(t, ctx, store, orgID, projectID, panelEmail,
+		authz.OrgRoleOwner, authz.ProjectRoleAdmin)
+	_, err = store.Identity().AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
+		OrgID: switchOrg.Org.ID, UserID: panelUserID, Role: authz.OrgRoleMember,
+	})
+	require.NoError(t, err)
 	secondInvitationOrg, err := store.Organizations().CreateOrgForUser(
 		ctx,
 		orglifecycle.CreateOrgForUserInput{
@@ -222,6 +237,7 @@ func TestWebE2E(t *testing.T) {
 		"OMNARA_WEB_E2E_VIEWER_EMAIL="+viewerEmail,
 		"OMNARA_WEB_E2E_INVITEE_EMAIL="+inviteeEmail,
 		"OMNARA_WEB_E2E_ONBOARDING_EMAIL="+onboardingEmail,
+		"OMNARA_WEB_E2E_PANEL_EMAIL="+panelEmail,
 		"OMNARA_WEB_E2E_PASSWORD="+webE2EPassword,
 		"OMNARA_WEB_E2E_PROVIDER_CONFIG="+webE2EProviderConfig,
 		"OMNARA_WEB_E2E_MODEL_NAME="+webE2EModelName,

@@ -965,7 +965,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (C
 const createUser = `-- name: CreateUser :one
 INSERT INTO users(display_name, created_at, updated_at)
 VALUES ($1, transaction_timestamp(), transaction_timestamp())
-RETURNING id, display_name, deleted_at, created_at, updated_at
+RETURNING id, display_name, deleted_at, created_at, updated_at, agent_panel_bootstrap_eligible
 `
 
 type CreateUserParams struct {
@@ -981,6 +981,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AgentPanelBootstrapEligible,
 	)
 	return i, err
 }
@@ -3003,7 +3004,7 @@ func (q *Queries) GetProjectByIdempotencyKey(ctx context.Context, arg GetProject
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, display_name, deleted_at, created_at, updated_at
+SELECT id, display_name, deleted_at, created_at, updated_at, agent_panel_bootstrap_eligible
 FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
@@ -3021,6 +3022,7 @@ func (q *Queries) GetUser(ctx context.Context, arg GetUserParams) (User, error) 
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AgentPanelBootstrapEligible,
 	)
 	return i, err
 }
@@ -4923,7 +4925,7 @@ UPDATE users
 SET display_name = $1,
     updated_at = transaction_timestamp()
 WHERE id = $2
-RETURNING id, display_name, deleted_at, created_at, updated_at
+RETURNING id, display_name, deleted_at, created_at, updated_at, agent_panel_bootstrap_eligible
 `
 
 type UpdateUserDisplayNameParams struct {
@@ -4940,6 +4942,7 @@ func (q *Queries) UpdateUserDisplayName(ctx context.Context, arg UpdateUserDispl
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AgentPanelBootstrapEligible,
 	)
 	return i, err
 }

@@ -5,9 +5,12 @@ import {
   openAgentEventStream,
   sdk,
 } from '@omnara/sdk'
+import { getAgentOptions } from '@omnara/sdk/tanstack'
+import type { QueryClient } from '@tanstack/react-query'
 
 import type {
   AgentChatMessageInput,
+  AgentChatScope,
   AgentChatSource,
   AgentChatTransport,
   LocalAgentInput,
@@ -17,6 +20,18 @@ const sourceLabels: Record<AgentChatSource, string> = { web: 'web app', cli: 'CL
 
 export function sourceHint(source: AgentChatSource): string {
   return `This message came from the Omnara ${sourceLabels[source]}. Reply with normal assistant text unless explicitly asked to send a message through an integration.`
+}
+
+export async function resolveAgentChatHint(
+  client: OmnaraClient,
+  queryClient: QueryClient,
+  scope: AgentChatScope,
+  source: AgentChatSource,
+  context?: string,
+): Promise<string | undefined> {
+  const { agent } = await queryClient.ensureQueryData(getAgentOptions({ path: scope, client }))
+  const sourceContext = agent.integration_target == null ? undefined : sourceHint(source)
+  return [sourceContext, context].filter(Boolean).join('\n\n') || undefined
 }
 
 export const sdkAgentChatTransport: AgentChatTransport = {

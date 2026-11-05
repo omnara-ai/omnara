@@ -2,7 +2,6 @@ import { useMe, usePendingInvitations } from '@omnara/react'
 import type { OrgInvitation } from '@omnara/sdk'
 import { Link, useNavigate } from '@tanstack/react-router'
 
-import { ActiveOrgProvider } from '@/components/active-org/ActiveOrgProvider'
 import { AppShell } from '@/components/app-shell/AppShell'
 import { BrandMark } from '@/components/brand/OmnaraMark'
 import { MailCheck } from '@/components/icons'
@@ -23,7 +22,7 @@ export function Invitations() {
 
   if (me.orgs.length === 0) {
     return (
-      <div className="flex min-h-svh flex-col items-center gap-8 p-6 sm:pt-12">
+      <div className="flex min-h-[var(--app-height,100svh)] flex-col items-center gap-8 p-6 sm:pt-12">
         <Link to="/onboarding" className="type-card-title flex items-center gap-2 text-base">
           <BrandMark />
           Omnara
@@ -40,11 +39,7 @@ export function Invitations() {
     )
   }
 
-  return (
-    <ActiveOrgProvider>
-      <OrganizationInvitations />
-    </ActiveOrgProvider>
-  )
+  return <OrganizationInvitations />
 }
 
 function OrganizationInvitations() {
