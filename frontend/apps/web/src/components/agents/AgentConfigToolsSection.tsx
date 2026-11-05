@@ -77,12 +77,9 @@ export function AgentConfigToolsSection({
                 : editing
             const updated = { ...definition, originalPath: previous?.originalPath }
             const target = configPath(definition.path)
-            const entries = form.advancedEntries.map((item) => {
-              if (item === editing || (editing === 'new' && configPath(item.path) === target))
-                return updated
-              return item
-            })
-            if (!entries.some((item) => configPath(item.path) === target)) entries.push(updated)
+            const entries = form.advancedEntries.map((item) => (item === previous ? updated : item))
+            if (!entries.some((item) => !item.removed && configPath(item.path) === target))
+              entries.push(updated)
             const result = form.evaluateAdvancedEntries(entries)
             if (result.unappliedChanges) return result.issues
             form.setAdvancedEntries(entries)

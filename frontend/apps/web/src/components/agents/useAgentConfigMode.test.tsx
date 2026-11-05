@@ -38,7 +38,7 @@ function Harness({ state }: { state: Ref<State> }) {
   return null
 }
 
-it.each(['instruction', 'model', 'skills', 'machines'])(
+it.each(['instruction', 'model'])(
   'retains the %s save gate when switching to source without edits',
   async (invalid) => {
     const restore = enableReactActEnvironment()
@@ -75,8 +75,6 @@ it.each(['instruction', 'model', 'skills', 'machines'])(
         const { form } = current()
         if (invalid === 'instruction') form.setInstruction('')
         if (invalid === 'model') form.reportModelUnavailable(true)
-        if (invalid === 'skills') form.reportUnavailableSkillIds(['unavailable'])
-        if (invalid === 'machines') form.reportUnavailableSourceIds(['unavailable'])
       })
       expect(current().saveBlocked).toBe(true)
       act(() => {

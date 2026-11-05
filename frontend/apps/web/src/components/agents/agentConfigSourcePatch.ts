@@ -71,7 +71,11 @@ function applyEdit(
     for (const item of previous.value.items) {
       const name = CST.resolveAsScalar(item.key)?.value
       const renamed = edit.names.get(String(name))
-      if (renamed !== undefined && item.key) CST.setScalarValue(item.key, renamed)
+      if (renamed !== undefined && item.key)
+        CST.setScalarValue(item.key, renamed, {
+          type:
+            item.key.type === 'scalar' && yamlKey(renamed) !== renamed ? 'QUOTE_DOUBLE' : undefined,
+        })
     }
   } else if (edit.type === 'reorder') {
     if (!previous?.value || !CST.isCollection(previous.value) || !isSequence(previous.value))
@@ -374,7 +378,10 @@ function removeItem(parent: Collection, index: number) {
   const next = parent.items[index]
   if (parent.type === 'flow-collection') {
     const gap = removed.start.filter((token) => token.type !== 'comma')
-    if (next) next.start = [...gap, ...next.start]
+    if (next && index === 0) {
+      const comment = next.start.findIndex((token) => token.type === 'comment')
+      next.start = [...gap, ...(comment < 0 ? [] : next.start.slice(comment))]
+    } else if (next) next.start = [...gap, ...next.start]
     else parent.end.unshift(...gap)
     if (parent.items[0])
       parent.items[0].start = parent.items[0].start.filter((token) => token.type !== 'comma')
