@@ -20,6 +20,11 @@ const (
 	defaultExecBaseURL = "https://sandbox.agent37.app"
 )
 
+var lifecycleHTTPClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
+	DisableResponseHeaderTimeout: true,
+	Timeout:                      provisioningTimeout,
+})
+
 type instanceStatus string
 
 const (
@@ -85,15 +90,6 @@ type restClient struct {
 }
 
 func newRESTClient(apiBaseURL, execBaseURL, apiKey string, httpClient, lifecycleClient *http.Client) *restClient {
-	if httpClient == nil {
-		httpClient = providers.NewHTTPClient()
-	}
-	if lifecycleClient == nil {
-		lifecycleClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
-			DisableResponseHeaderTimeout: true,
-			Timeout:                      provisioningTimeout,
-		})
-	}
 	return &restClient{
 		apiBaseURL:      strings.TrimRight(apiBaseURL, "/"),
 		execBaseURL:     strings.TrimRight(execBaseURL, "/"),

@@ -464,11 +464,7 @@ func (e Executor) deleteMachineForToolCall(
 	defer cancel()
 	return e.MachinePoolManager.DeleteMachine(
 		attemptCtx,
-		executionstore.PoolMachineCleanupCandidate{
-			Machine:       record.Machine,
-			ReasonCode:    record.Machine.LifecycleReasonCode,
-			ReasonMessage: record.Machine.LifecycleReasonMessage,
-		},
+		executionstore.PoolMachineCleanupCandidate{Machine: record.Machine},
 	)
 }
 

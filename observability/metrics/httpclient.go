@@ -19,9 +19,11 @@ type HTTPClientRecorder struct {
 	now             func() time.Time
 }
 
-type HTTPClientObserverOption func(*httpClientObserverOptions)
+type HTTPClientObserverOption func(*clientObserver)
 
-type httpClientObserverOptions struct {
+type clientObserver struct {
+	recorder  *HTTPClientRecorder
+	hostLabel string
 	pathLabel string
 }
 
@@ -34,9 +36,15 @@ type HTTPRequestData struct {
 	Duration   time.Duration
 }
 
+func WithHTTPClientHostLabel(host string) HTTPClientObserverOption {
+	return func(observer *clientObserver) {
+		observer.hostLabel = host
+	}
+}
+
 func WithHTTPClientPathLabel(path string) HTTPClientObserverOption {
-	return func(opts *httpClientObserverOptions) {
-		opts.pathLabel = normalizeHTTPClientPathLabel(path)
+	return func(observer *clientObserver) {
+		observer.pathLabel = normalizeHTTPClientPathLabel(path)
 	}
 }
 
@@ -85,59 +93,68 @@ func NewObservedHTTPTransport(
 	if recorder == nil {
 		return base
 	}
-	options := httpClientObserverOptions{}
-	for _, opt := range opts {
-		opt(&options)
-	}
-	return observedHTTPTransport{base: base, recorder: recorder, pathLabel: options.pathLabel}
+	return observedHTTPTransport{base: base, observer: newClientObserver(recorder, opts)}
 }
 
 type observedHTTPTransport struct {
-	base      http.RoundTripper
-	recorder  *HTTPClientRecorder
-	pathLabel string
+	base     http.RoundTripper
+	observer clientObserver
 }
 
 func (rt observedHTTPTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	start := rt.recorder.now()
+	start := rt.observer.now()
 	resp, err := rt.base.RoundTrip(req)
-	rt.recorder.RecordRoundTrip(req, rt.pathLabel, start, resp, err)
+	rt.observer.recordRoundTrip(req, start, resp, err)
 	return resp, err
 }
 
-func (m *HTTPClientRecorder) RecordRoundTrip(
-	req *http.Request,
-	pathLabel string,
-	start time.Time,
-	resp *http.Response,
-	err error,
-) {
+func newClientObserver(recorder *HTTPClientRecorder, opts []HTTPClientObserverOption) clientObserver {
+	observer := clientObserver{recorder: recorder}
+	for _, opt := range opts {
+		opt(&observer)
+	}
+	return observer
+}
+
+func (o clientObserver) now() time.Time {
+	if o.recorder == nil {
+		return time.Time{}
+	}
+	return o.recorder.now()
+}
+
+func (o clientObserver) recordRoundTrip(req *http.Request, start time.Time, resp *http.Response, err error) {
 	if start.IsZero() {
 		return
 	}
-	host, path := httpRequestHostPath(req, pathLabel)
-	duration := m.now().Sub(start)
-	var errText string
+	host, path := httpRequestHostPath(req, o.hostLabel, o.pathLabel)
 	request := HTTPRequestData{
-		Method:   req.Method,
-		Host:     host,
-		Path:     path,
-		Duration: duration,
+		Method: req.Method,
+		Host:   host,
+		Path:   path,
 	}
 	if resp != nil {
 		request.StatusCode = resp.StatusCode
 	}
 	if err != nil {
-		errText = truncate(log.ScrubLogString(err.Error()), 256)
 		request.ErrorKind = httpRequestErrorKind(err)
 	}
-	log.AttachHTTPRequest(req.Context(), log.HTTPRequestTraceRecord{
+	o.recorder.recordCall(req.Context(), request, start, err)
+}
+
+func (m *HTTPClientRecorder) recordCall(ctx context.Context, request HTTPRequestData, start time.Time, err error) {
+	request.Duration = m.now().Sub(start)
+	var errText string
+	if err != nil {
+		errText = truncate(log.ScrubLogString(err.Error()), 256)
+	}
+	log.AttachHTTPRequest(ctx, log.HTTPRequestTraceRecord{
 		Method:     request.Method,
 		Host:       request.Host,
 		Path:       request.Path,
 		StatusCode: request.StatusCode,
 		Start:      start,
-		Duration:   duration,
+		Duration:   request.Duration,
 		Error:      errText,
 	})
 	m.RecordRequest(request)
@@ -150,12 +167,15 @@ func (m *HTTPClientRecorder) RecordRequest(request HTTPRequestData) {
 	m.requestDuration.WithLabelValues(labels...).Observe(request.Duration.Seconds())
 }
 
-func httpRequestHostPath(req *http.Request, pathLabel string) (host, path string) {
+func httpRequestHostPath(req *http.Request, hostLabel, pathLabel string) (host, path string) {
 	if req == nil {
 		return "", "/*"
 	}
 	if req.URL != nil {
 		host = req.URL.Host
+	}
+	if hostLabel != "" {
+		host = hostLabel
 	}
 	if pathLabel != "" {
 		return host, pathLabel

@@ -825,6 +825,7 @@ func (m Manager) providerForRuntimeScope(
 	runtimeProvider, err := runtimeDefinition.NewRuntimeProvider(candidate.ProviderConfig, providers.RuntimeConfig{
 		OmnaraAPIURL:      m.PublicAPIURL,
 		ProviderAuthToken: credential.Token,
+		HTTPRecorder:      m.HTTPRecorder,
 	})
 	if err != nil {
 		return nil, err

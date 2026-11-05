@@ -264,12 +264,13 @@ SELECT agent.id,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
        model_provider_config.name AS model_provider_config_name,
-       CASE $6::text
+       CASE $2::text
          WHEN 'name' THEN lower(agent.name)
          WHEN 'created_at' THEN to_char(agent.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'updated_at' THEN to_char(agent.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'state' THEN agent.state
-       END::text AS sort_key
+       END::text AS sort_key,
+       activity.state::text AS activity_state
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
@@ -292,13 +293,16 @@ JOIN configured_models configured_model
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
-WHERE agent.project_id = ANY($7::uuid[])
-  AND ($8::boolean OR agent.state = 'active')
-  AND ($9::text = '' OR agent.name ILIKE $9::text ESCAPE '\')
-  AND ($10::uuid IS NULL OR agent.agent_profile_id = $10::uuid)
-  AND ($11::uuid IS NULL OR agent.parent_agent_id = $11::uuid)
-  AND ($12::boolean OR $11::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
-)
+CROSS JOIN LATERAL agent_activity_state(agent.id, agent.state) activity
+WHERE agent.project_id = ANY($3::uuid[])
+  AND ($4::boolean OR agent.state = 'active')
+  AND ($5::text = '' OR agent.name ILIKE $5::text ESCAPE '\')
+  AND ($6::uuid IS NULL OR agent.agent_profile_id = $6::uuid)
+  AND ($7::uuid IS NULL OR agent.parent_agent_id = $7::uuid)
+  AND ($8::boolean OR $7::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND ($9::text = '' OR activity.state = $9::text)
+),
+page AS (
 SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        interaction_target_id, idempotency_key,
        next_event_sequence, created_at, updated_at,
@@ -306,24 +310,56 @@ SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        integration_target_provider_tenant_id, integration_target_scope_ref,
        integration_target_scope_kind,
        integration_target_display_name, model_name,
-       model_provider_config_name, sort_key
+       model_provider_config_name, sort_key, activity_state
 FROM listed
-WHERE $1::boolean = false
-   OR ($2::boolean = false AND (sort_key, id) > ($3::text, $4::uuid))
-   OR ($2::boolean = true AND (sort_key, id) < ($3::text, $4::uuid))
-ORDER BY CASE WHEN $2::boolean = false THEN sort_key END ASC,
-         CASE WHEN $2::boolean = true THEN sort_key END DESC,
-         CASE WHEN $2::boolean = false THEN id END ASC,
-         CASE WHEN $2::boolean = true THEN id END DESC
-LIMIT $5::bigint
+WHERE $10::boolean = false
+   OR ($1::boolean = false AND (sort_key, id) > ($11::text, $12::uuid))
+   OR ($1::boolean = true AND (sort_key, id) < ($11::text, $12::uuid))
+ORDER BY CASE WHEN $1::boolean = false THEN sort_key END ASC,
+         CASE WHEN $1::boolean = true THEN sort_key END DESC,
+         CASE WHEN $1::boolean = false THEN id END ASC,
+         CASE WHEN $1::boolean = true THEN id END DESC
+LIMIT $13::bigint
+)
+SELECT page.id,
+       page.org_id,
+       page.project_id,
+       page.state,
+       page.name,
+       page.agent_profile_id,
+       page.current_config_id,
+       page.interaction_target_id,
+       page.idempotency_key,
+       page.next_event_sequence,
+       page.created_at,
+       page.updated_at,
+       page.archived_at,
+       page.parent_agent_id,
+       page.subagent_key,
+       page.integration_target_integration_kind,
+       page.integration_target_provider_tenant_id,
+       page.integration_target_scope_ref,
+       page.integration_target_scope_kind,
+       page.integration_target_display_name,
+       page.model_name,
+       page.model_provider_config_name,
+       page.sort_key,
+       page.activity_state,
+       details.last_activity_at::timestamptz AS last_activity_at,
+       details.open_question_count::integer AS open_question_count,
+       details.open_permission_count::integer AS open_permission_count,
+       details.background_process_ids::uuid[] AS background_process_ids,
+       details.working_subagent_ids::uuid[] AS working_subagent_ids
+FROM page
+CROSS JOIN LATERAL agent_activity_details(page.project_id, page.id, page.created_at) details
+ORDER BY CASE WHEN $1::boolean = false THEN page.sort_key END ASC,
+         CASE WHEN $1::boolean = true THEN page.sort_key END DESC,
+         CASE WHEN $1::boolean = false THEN page.id END ASC,
+         CASE WHEN $1::boolean = true THEN page.id END DESC
 `
 
 type ListAgentsForProjectsParams struct {
-	CursorSet        bool
 	SortDesc         bool
-	CursorKey        string
-	CursorID         uuid.UUID
-	RowLimit         int64
 	SortField        string
 	ProjectIds       []uuid.UUID
 	IncludeArchived  bool
@@ -331,6 +367,11 @@ type ListAgentsForProjectsParams struct {
 	AgentProfileID   *uuid.UUID
 	ParentAgentID    *uuid.UUID
 	IncludeSubagents bool
+	ActivityState    string
+	CursorSet        bool
+	CursorKey        string
+	CursorID         uuid.UUID
+	RowLimit         int64
 }
 
 type ListAgentsForProjectsRow struct {
@@ -357,15 +398,19 @@ type ListAgentsForProjectsRow struct {
 	ModelName                         string
 	ModelProviderConfigName           string
 	SortKey                           string
+	ActivityState                     string
+	LastActivityAt                    time.Time
+	OpenQuestionCount                 int32
+	OpenPermissionCount               int32
+	BackgroundProcessIds              []uuid.UUID
+	WorkingSubagentIds                []uuid.UUID
 }
 
+// Read the page's activity in the same statement that filtered it, so the
+// returned activity matches the activity_state filter.
 func (q *Queries) ListAgentsForProjects(ctx context.Context, arg ListAgentsForProjectsParams) ([]ListAgentsForProjectsRow, error) {
 	rows, err := q.db.Query(ctx, listAgentsForProjects,
-		arg.CursorSet,
 		arg.SortDesc,
-		arg.CursorKey,
-		arg.CursorID,
-		arg.RowLimit,
 		arg.SortField,
 		arg.ProjectIds,
 		arg.IncludeArchived,
@@ -373,6 +418,11 @@ func (q *Queries) ListAgentsForProjects(ctx context.Context, arg ListAgentsForPr
 		arg.AgentProfileID,
 		arg.ParentAgentID,
 		arg.IncludeSubagents,
+		arg.ActivityState,
+		arg.CursorSet,
+		arg.CursorKey,
+		arg.CursorID,
+		arg.RowLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -405,6 +455,12 @@ func (q *Queries) ListAgentsForProjects(ctx context.Context, arg ListAgentsForPr
 			&i.ModelName,
 			&i.ModelProviderConfigName,
 			&i.SortKey,
+			&i.ActivityState,
+			&i.LastActivityAt,
+			&i.OpenQuestionCount,
+			&i.OpenPermissionCount,
+			&i.BackgroundProcessIds,
+			&i.WorkingSubagentIds,
 		); err != nil {
 			return nil, err
 		}
@@ -417,6 +473,7 @@ func (q *Queries) ListAgentsForProjects(ctx context.Context, arg ListAgentsForPr
 }
 
 const listAgentsForProjectsByCreatedAtDesc = `-- name: ListAgentsForProjectsByCreatedAtDesc :many
+WITH page AS (
 SELECT agent.id,
        agent.org_id,
        agent.project_id,
@@ -438,7 +495,8 @@ SELECT agent.id,
        coalesce(target.scope_kind, '') AS integration_target_scope_kind,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
-       model_provider_config.name AS model_provider_config_name
+       model_provider_config.name AS model_provider_config_name,
+       activity.state::text AS activity_state
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
@@ -461,18 +519,52 @@ JOIN configured_models configured_model
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
+CROSS JOIN LATERAL agent_activity_state(agent.id, agent.state) activity
 WHERE agent.project_id = ANY($1::uuid[])
   AND ($2::boolean OR agent.state = 'active')
   AND ($3::text = '' OR agent.name ILIKE $3::text ESCAPE '\')
   AND ($4::uuid IS NULL OR agent.agent_profile_id = $4::uuid)
   AND ($5::uuid IS NULL OR agent.parent_agent_id = $5::uuid)
   AND ($6::boolean OR $5::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND ($7::text = '' OR activity.state = $7::text)
   AND (
-    $7::boolean = false
-    OR (agent.created_at, agent.id) < ($8::timestamptz, $9::uuid)
+    $8::boolean = false
+    OR (agent.created_at, agent.id) < ($9::timestamptz, $10::uuid)
   )
 ORDER BY agent.created_at DESC, agent.id DESC
-LIMIT $10::bigint
+LIMIT $11::bigint
+)
+SELECT page.id,
+       page.org_id,
+       page.project_id,
+       page.state,
+       page.name,
+       page.agent_profile_id,
+       page.current_config_id,
+       page.interaction_target_id,
+       page.idempotency_key,
+       page.next_event_sequence,
+       page.created_at,
+       page.updated_at,
+       page.archived_at,
+       page.parent_agent_id,
+       page.subagent_key,
+       page.integration_target_integration_kind,
+       page.integration_target_provider_tenant_id,
+       page.integration_target_scope_ref,
+       page.integration_target_scope_kind,
+       page.integration_target_display_name,
+       page.model_name,
+       page.model_provider_config_name,
+       page.activity_state,
+       details.last_activity_at::timestamptz AS last_activity_at,
+       details.open_question_count::integer AS open_question_count,
+       details.open_permission_count::integer AS open_permission_count,
+       details.background_process_ids::uuid[] AS background_process_ids,
+       details.working_subagent_ids::uuid[] AS working_subagent_ids
+FROM page
+CROSS JOIN LATERAL agent_activity_details(page.project_id, page.id, page.created_at) details
+ORDER BY page.created_at DESC, page.id DESC
 `
 
 type ListAgentsForProjectsByCreatedAtDescParams struct {
@@ -482,6 +574,7 @@ type ListAgentsForProjectsByCreatedAtDescParams struct {
 	AgentProfileID   *uuid.UUID
 	ParentAgentID    *uuid.UUID
 	IncludeSubagents bool
+	ActivityState    string
 	CursorSet        bool
 	CursorCreatedAt  time.Time
 	CursorID         uuid.UUID
@@ -511,8 +604,16 @@ type ListAgentsForProjectsByCreatedAtDescRow struct {
 	IntegrationTargetDisplayName      string
 	ModelName                         string
 	ModelProviderConfigName           string
+	ActivityState                     string
+	LastActivityAt                    time.Time
+	OpenQuestionCount                 int32
+	OpenPermissionCount               int32
+	BackgroundProcessIds              []uuid.UUID
+	WorkingSubagentIds                []uuid.UUID
 }
 
+// Read the page's activity in the same statement that filtered it, so the
+// returned activity matches the activity_state filter.
 func (q *Queries) ListAgentsForProjectsByCreatedAtDesc(ctx context.Context, arg ListAgentsForProjectsByCreatedAtDescParams) ([]ListAgentsForProjectsByCreatedAtDescRow, error) {
 	rows, err := q.db.Query(ctx, listAgentsForProjectsByCreatedAtDesc,
 		arg.ProjectIds,
@@ -521,6 +622,7 @@ func (q *Queries) ListAgentsForProjectsByCreatedAtDesc(ctx context.Context, arg 
 		arg.AgentProfileID,
 		arg.ParentAgentID,
 		arg.IncludeSubagents,
+		arg.ActivityState,
 		arg.CursorSet,
 		arg.CursorCreatedAt,
 		arg.CursorID,
@@ -556,6 +658,12 @@ func (q *Queries) ListAgentsForProjectsByCreatedAtDesc(ctx context.Context, arg 
 			&i.IntegrationTargetDisplayName,
 			&i.ModelName,
 			&i.ModelProviderConfigName,
+			&i.ActivityState,
+			&i.LastActivityAt,
+			&i.OpenQuestionCount,
+			&i.OpenPermissionCount,
+			&i.BackgroundProcessIds,
+			&i.WorkingSubagentIds,
 		); err != nil {
 			return nil, err
 		}

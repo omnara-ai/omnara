@@ -41,6 +41,7 @@ export function agentBuilderToolsDefinition(source: ToolPreviewDraft): AgentConf
       ),
     skills: source.skillIds,
     memory_stores: source.memoryStores,
+    git_credentials: source.gitCredentials,
     subagents: Object.fromEntries(
       source.subagents.filter(subagentValid).map((row) => {
         const { type, profile } = subagentWire(row)

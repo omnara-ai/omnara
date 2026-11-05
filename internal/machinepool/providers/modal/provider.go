@@ -8,12 +8,14 @@ import (
 
 	"github.com/google/uuid"
 	modalsdk "github.com/modal-labs/modal-client/go"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 const (
@@ -28,6 +30,7 @@ type provider struct {
 	environment  string
 	credential   providerCredential
 	omnaraAPIURL string
+	httpRecorder *metrics.HTTPClientRecorder
 }
 
 type sandbox struct {
@@ -41,6 +44,12 @@ func (p *provider) newClient() (*modalsdk.Client, error) {
 		TokenID:     p.credential.TokenID,
 		TokenSecret: p.credential.TokenSecret,
 		Environment: p.environment,
+		GRPCUnaryInterceptors: []grpc.UnaryClientInterceptor{
+			metrics.NewObservedGRPCUnaryInterceptor(p.httpRecorder, metrics.WithHTTPClientHostLabel(providers.Modal)),
+		},
+		GRPCStreamInterceptors: []grpc.StreamClientInterceptor{
+			metrics.NewObservedGRPCStreamInterceptor(p.httpRecorder, metrics.WithHTTPClientHostLabel(providers.Modal)),
+		},
 	})
 }
 

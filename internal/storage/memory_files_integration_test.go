@@ -690,3 +690,47 @@ func TestMemoryCleanupFilesRefusesUnpreparedDirectory(t *testing.T) {
 	require.Equal(t, 1, result.RemovedStores)
 	require.NoDirExists(t, folder)
 }
+
+func TestMemoryStoreFileCount(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	files, err := memoryops.OpenFilesystem(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = files.Close() })
+	store := newIntegrationStore(pool, WithMemoryFilesystem(files))
+	admin := createSecretTestUser(t, ctx, store, "Memory Count Admin", "admin")
+	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
+	resource, err := store.Memories().Create(ctx, scope, "notes", "", agentconfig.MemoryStoreAccessReadWrite)
+	require.NoError(t, err)
+	write := func(path, content string, expected *string) memorystore.WriteResult {
+		t.Helper()
+		result, err := store.Memories().Write(ctx, memorystore.WriteInput{
+			Scope: scope, StoreID: resource.ID, Path: path, Content: []byte(content), ExpectedDigest: expected,
+		})
+		require.NoError(t, err)
+		return result
+	}
+	fileCount := func() *int64 {
+		t.Helper()
+		row, err := dbsqlc.New(pool).GetMemoryStore(ctx, dbsqlc.GetMemoryStoreParams{
+			ProjectID: scope.ProjectID, ID: resource.ID,
+		})
+		require.NoError(t, err)
+		return row.FileCount
+	}
+
+	first := write("a.md", "a", nil)
+	second := write("nested/b.md", "b", nil)
+	require.Equal(t, int64(2), *fileCount())
+	write("a.md", "changed", &first.Digest)
+	require.Equal(t, int64(2), *fileCount())
+	require.NoError(t, store.Memories().DeleteFile(ctx, scope, resource.ID, "nested/b.md", second.Digest))
+	require.Equal(t, int64(1), *fileCount())
+
+	_, err = pool.Exec(ctx, `UPDATE memory_stores SET file_count = NULL WHERE id = $1`, resource.ID)
+	require.NoError(t, err)
+	write("c.md", "c", nil)
+	require.Equal(t, int64(2), *fileCount())
+}

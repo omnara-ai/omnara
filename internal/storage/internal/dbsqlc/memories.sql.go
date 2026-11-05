@@ -34,7 +34,7 @@ func (q *Queries) CountMemoryStores(ctx context.Context, arg CountMemoryStoresPa
 const createMemoryStore = `-- name: CreateMemoryStore :one
 INSERT INTO memory_stores(id, project_id, name, description, agent_access)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count
 `
 
 type CreateMemoryStoreParams struct {
@@ -64,6 +64,7 @@ func (q *Queries) CreateMemoryStore(ctx context.Context, arg CreateMemoryStorePa
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.FilesRemovedAt,
+		&i.FileCount,
 	)
 	return i, err
 }
@@ -159,7 +160,7 @@ func (q *Queries) GetAgentMemoryFileLastSeen(ctx context.Context, arg GetAgentMe
 }
 
 const getMemoryStore = `-- name: GetMemoryStore :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count
 FROM memory_stores
 WHERE project_id = $1
   AND id = $2
@@ -184,12 +185,13 @@ func (q *Queries) GetMemoryStore(ctx context.Context, arg GetMemoryStoreParams) 
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.FilesRemovedAt,
+		&i.FileCount,
 	)
 	return i, err
 }
 
 const getMemoryStoreByName = `-- name: GetMemoryStoreByName :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count
 FROM memory_stores
 WHERE project_id = $1
   AND name = $2
@@ -214,6 +216,7 @@ func (q *Queries) GetMemoryStoreByName(ctx context.Context, arg GetMemoryStoreBy
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.FilesRemovedAt,
+		&i.FileCount,
 	)
 	return i, err
 }
@@ -298,7 +301,7 @@ func (q *Queries) ListAttachedMemoryStores(ctx context.Context, arg ListAttached
 }
 
 const listMemoryStores = `-- name: ListMemoryStores :many
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count
 FROM memory_stores
 WHERE project_id = ANY($1::uuid[])
   AND deleted_at IS NULL
@@ -341,6 +344,7 @@ func (q *Queries) ListMemoryStores(ctx context.Context, arg ListMemoryStoresPara
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.FilesRemovedAt,
+			&i.FileCount,
 		); err != nil {
 			return nil, err
 		}
@@ -422,7 +426,7 @@ func (q *Queries) LockAgentForMemoryWrite(ctx context.Context, arg LockAgentForM
 }
 
 const lockMemoryStore = `-- name: LockMemoryStore :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count
 FROM memory_stores
 WHERE project_id = $1
   AND id = $2
@@ -448,12 +452,13 @@ func (q *Queries) LockMemoryStore(ctx context.Context, arg LockMemoryStoreParams
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.FilesRemovedAt,
+		&i.FileCount,
 	)
 	return i, err
 }
 
 const lockMemoryStoreShared = `-- name: LockMemoryStoreShared :one
-SELECT id
+SELECT file_count
 FROM memory_stores
 WHERE project_id = $1
   AND id = $2
@@ -466,11 +471,11 @@ type LockMemoryStoreSharedParams struct {
 	ID        uuid.UUID
 }
 
-func (q *Queries) LockMemoryStoreShared(ctx context.Context, arg LockMemoryStoreSharedParams) (uuid.UUID, error) {
+func (q *Queries) LockMemoryStoreShared(ctx context.Context, arg LockMemoryStoreSharedParams) (*int64, error) {
 	row := q.db.QueryRow(ctx, lockMemoryStoreShared, arg.ProjectID, arg.ID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var file_count *int64
+	err := row.Scan(&file_count)
+	return file_count, err
 }
 
 const markMemoryStoreFilesRemoved = `-- name: MarkMemoryStoreFilesRemoved :exec
@@ -516,6 +521,24 @@ func (q *Queries) ResolveAgentMemoryStore(ctx context.Context, arg ResolveAgentM
 	return id, err
 }
 
+const setMemoryStoreFileCount = `-- name: SetMemoryStoreFileCount :exec
+UPDATE memory_stores
+SET file_count = $1::bigint
+WHERE project_id = $2
+  AND id = $3
+`
+
+type SetMemoryStoreFileCountParams struct {
+	FileCount int64
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) SetMemoryStoreFileCount(ctx context.Context, arg SetMemoryStoreFileCountParams) error {
+	_, err := q.db.Exec(ctx, setMemoryStoreFileCount, arg.FileCount, arg.ProjectID, arg.ID)
+	return err
+}
+
 const updateMemoryStore = `-- name: UpdateMemoryStore :one
 UPDATE memory_stores
 SET description = $1,
@@ -524,7 +547,7 @@ SET description = $1,
 WHERE project_id = $3
   AND id = $4
   AND deleted_at IS NULL
-RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count
 `
 
 type UpdateMemoryStoreParams struct {
@@ -552,6 +575,7 @@ func (q *Queries) UpdateMemoryStore(ctx context.Context, arg UpdateMemoryStorePa
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.FilesRemovedAt,
+		&i.FileCount,
 	)
 	return i, err
 }

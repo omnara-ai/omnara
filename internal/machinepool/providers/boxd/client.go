@@ -25,6 +25,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/boxd/boxdv1"
 	"github.com/omnara-ai/omnara/internal/ssrf"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 const (
@@ -160,19 +161,21 @@ func isRejectedRequest(err error) bool {
 }
 
 type grpcClient struct {
-	authURL    string
-	apiKey     string
-	httpClient *http.Client
-	stub       boxdv1.BoxdApiClient
-	tokens     *sessionTokenCache
+	authURL      string
+	apiKey       string
+	httpClient   *http.Client
+	httpRecorder *metrics.HTTPClientRecorder
+	stub         boxdv1.BoxdApiClient
+	tokens       *sessionTokenCache
 }
 
-func newGRPCClient(apiKey string) *grpcClient {
+func newGRPCClient(apiKey string, httpClient *http.Client, httpRecorder *metrics.HTTPClientRecorder) *grpcClient {
 	return &grpcClient{
-		authURL:    authURL,
-		apiKey:     apiKey,
-		httpClient: providers.NewHTTPClient(),
-		tokens:     sharedSessionTokens,
+		authURL:      authURL,
+		apiKey:       apiKey,
+		httpClient:   httpClient,
+		httpRecorder: httpRecorder,
+		tokens:       sharedSessionTokens,
 	}
 }
 
@@ -184,7 +187,9 @@ func (c *grpcClient) api() (boxdv1.BoxdApiClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	return boxdv1.NewBoxdApiClient(conn), nil
+	return boxdv1.NewBoxdApiClient(
+		metrics.NewObservedGRPCConn(conn, c.httpRecorder, metrics.WithHTTPClientHostLabel(providers.Boxd)),
+	), nil
 }
 
 func (c *grpcClient) session(ctx context.Context) (boxdv1.BoxdApiClient, context.Context, error) {

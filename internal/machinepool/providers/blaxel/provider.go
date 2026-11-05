@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 const (
@@ -53,6 +54,7 @@ type provider struct {
 	workspace    string
 	apiToken     string
 	omnaraAPIURL string
+	httpRecorder *metrics.HTTPClientRecorder
 }
 
 func (p *provider) apiClient() apiClient {
@@ -63,7 +65,7 @@ func (p *provider) apiClient() apiClient {
 		apiBaseURL: apiBaseURL,
 		workspace:  p.workspace,
 		apiToken:   p.apiToken,
-		httpClient: providers.NewHTTPClient(),
+		httpClient: providers.NewHTTPClient(p.httpRecorder, providers.Blaxel),
 	}
 }
 

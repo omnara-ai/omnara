@@ -2203,11 +2203,13 @@ export type Agent = {
     archived_at?: Timestamp;
 };
 
+/**
+ * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived. Running processes and working subagents do not change it; see running_processes and working_subagents.
+ */
+export type AgentActivityState = 'running' | 'idle' | 'waiting_on_interaction' | 'archived';
+
 export type AgentActivity = {
-    /**
-     * running while the agent has work in progress, which includes a custom tool call awaiting its result; waiting_on_interaction while it has an open question or permission request; idle otherwise; and archived once the agent is archived. Running processes and working subagents do not change it; see running_processes and working_subagents.
-     */
-    state: 'running' | 'idle' | 'waiting_on_interaction' | 'archived';
+    state: AgentActivityState;
     /**
      * When the agent's latest event was recorded, or its creation time before any event.
      */
@@ -4724,6 +4726,11 @@ export type ListIntegrationDefinitionsResponse = {
 };
 
 /**
+ * Return only agents whose current `activity.state` matches. `archived` includes archived agents even when `include_archived` is omitted.
+ */
+export type AgentActivityStateFilter = AgentActivityState;
+
+/**
  * Include each agent's `usage`, so a list can show costs without a request per agent.
  */
 export type AgentIncludeUsage = boolean;
@@ -6244,6 +6251,10 @@ export type ListOrgAgentsData = {
          * Include archived agents. Defaults to false.
          */
         include_archived?: boolean;
+        /**
+         * Return only agents whose current `activity.state` matches. `archived` includes archived agents even when `include_archived` is omitted.
+         */
+        activity_state?: AgentActivityState;
         /**
          * Include each agent's `usage`, so a list can show costs without a request per agent.
          */
@@ -12229,6 +12240,10 @@ export type ListAgentsData = {
          * Include archived agents. Defaults to false.
          */
         include_archived?: boolean;
+        /**
+         * Return only agents whose current `activity.state` matches. `archived` includes archived agents even when `include_archived` is omitted.
+         */
+        activity_state?: AgentActivityState;
         /**
          * Include each agent's `usage`, so a list can show costs without a request per agent.
          */

@@ -129,6 +129,7 @@ type AgentListFilters struct {
 	ParentAgentID    *uuid.UUID
 	IncludeSubagents bool
 	IncludeArchived  bool
+	ActivityState    string
 }
 
 type ListAgentsForProjectsResult struct {
@@ -156,11 +157,7 @@ func (s *Store) ListAgentsForProjects(
 		return ListAgentsForProjectsResult{}, errors.New("unsupported agent list sort")
 	}
 	if input.List.SortField == "created_at" && input.List.SortDesc {
-		result, err := s.listAgentsForProjectsByCreatedAtDesc(ctx, input)
-		if err != nil {
-			return ListAgentsForProjectsResult{}, err
-		}
-		return s.attachAgentActivity(ctx, input.ProjectIDs, result)
+		return s.listAgentsForProjectsByCreatedAtDesc(ctx, input)
 	}
 	params := dbsqlc.ListAgentsForProjectsParams{
 		ProjectIds: input.ProjectIDs, RowLimit: int64(input.Limit) + 1,
@@ -172,6 +169,7 @@ func (s *Store) ListAgentsForProjects(
 		ParentAgentID:    input.Filters.ParentAgentID,
 		IncludeSubagents: input.Filters.IncludeSubagents,
 		IncludeArchived:  input.Filters.IncludeArchived,
+		ActivityState:    input.Filters.ActivityState,
 	}
 	rows, err := s.q.ListAgentsForProjects(ctx, params)
 	if err != nil {
@@ -188,37 +186,14 @@ func (s *Store) ListAgentsForProjects(
 	}
 	result.Agents = make([]AgentRecord, 0, len(rows))
 	for _, row := range rows {
-		result.Agents = append(result.Agents, agentRecordFromListForProjectsSQLC(row))
-	}
-	return s.attachAgentActivity(ctx, input.ProjectIDs, result)
-}
-
-func (s *Store) attachAgentActivity(
-	ctx context.Context,
-	projectIDs []uuid.UUID,
-	result ListAgentsForProjectsResult,
-) (ListAgentsForProjectsResult, error) {
-	if len(result.Agents) == 0 {
-		return result, nil
-	}
-	agentIDs := make([]uuid.UUID, 0, len(result.Agents))
-	for _, agent := range result.Agents {
-		agentIDs = append(agentIDs, agent.ID)
-	}
-	rows, err := s.q.ListAgentActivityForAgents(
-		ctx, dbsqlc.ListAgentActivityForAgentsParams{ProjectIds: projectIDs, AgentIds: agentIDs},
-	)
-	if err != nil {
-		return ListAgentsForProjectsResult{}, fmt.Errorf("list agent activity: %w", err)
-	}
-	activity := make(map[uuid.UUID]AgentActivity, len(rows))
-	for _, row := range rows {
-		activity[row.ID] = agentActivityFromRow(row)
-	}
-	for i := range result.Agents {
-		if value, ok := activity[result.Agents[i].ID]; ok {
-			result.Agents[i].Activity = &value
-		}
+		agent := agentRecordFromListForProjectsSQLC(row)
+		activity := agentActivityFromColumns(
+			row.State, row.ActivityState, row.LastActivityAt,
+			row.OpenQuestionCount, row.OpenPermissionCount,
+			row.BackgroundProcessIds, row.WorkingSubagentIds,
+		)
+		agent.Activity = &activity
+		result.Agents = append(result.Agents, agent)
 	}
 	return result, nil
 }
@@ -240,22 +215,59 @@ func (s *Store) GetAgentActivity(ctx context.Context, projectID, agentID uuid.UU
 	return agentActivityFromRow(rows[0]), nil
 }
 
+func (s *Store) ListAgentTreeStates(
+	ctx context.Context, projectIDs, agentIDs []uuid.UUID,
+) (map[uuid.UUID]string, error) {
+	rows, err := s.q.ListAgentTreeStates(ctx, dbsqlc.ListAgentTreeStatesParams{ProjectIds: projectIDs, AgentIds: agentIDs})
+	if err != nil {
+		return nil, fmt.Errorf("list agent tree states: %w", err)
+	}
+	states := make(map[uuid.UUID]string, len(rows))
+	for _, row := range rows {
+		states[row.ID] = agentTreeState(row.Archived, row.Waiting, row.Working)
+	}
+	return states, nil
+}
+
+// agentTreeState folds a subtree's flags into one state. A tree counts as running
+// while any descendant or background process works, so it cannot reuse the
+// per-agent agent_activity_state SQL function.
+func agentTreeState(archived, waiting, working bool) string {
+	switch {
+	case archived:
+		return SubagentStateArchived
+	case waiting:
+		return SubagentStateWaitingOnInteraction
+	case working:
+		return SubagentStateRunning
+	default:
+		return SubagentStateIdle
+	}
+}
+
 func agentActivityFromRow(row dbsqlc.ListAgentActivityForAgentsRow) AgentActivity {
-	archived := row.State == string(AgentStateArchived)
+	return agentActivityFromColumns(
+		row.State, row.ActivityState, row.LastActivityAt,
+		row.OpenQuestionCount, row.OpenPermissionCount,
+		row.BackgroundProcessIds, row.WorkingSubagentIds,
+	)
+}
+
+func agentActivityFromColumns(
+	agentState, activityState string,
+	lastActivityAt time.Time,
+	openQuestions, openPermissions int32,
+	processIDs, subagentIDs []uuid.UUID,
+) AgentActivity {
 	return AgentActivity{
-		State: agentActivityState(
-			archived,
-			row.OpenQuestionCount > 0,
-			row.OpenPermissionCount > 0,
-			row.IsRunning,
-		),
-		LastActivityAt: row.LastActivityAt,
+		State:          activityState,
+		LastActivityAt: lastActivityAt,
 		AgentActivityWork: agentActivityWork(
-			archived,
-			row.OpenQuestionCount,
-			row.OpenPermissionCount,
-			row.BackgroundProcessIds,
-			row.WorkingSubagentIds,
+			agentState == string(AgentStateArchived),
+			openQuestions,
+			openPermissions,
+			processIDs,
+			subagentIDs,
 		),
 	}
 }
@@ -281,6 +293,7 @@ func (s *Store) listAgentsForProjectsByCreatedAtDesc(
 			ParentAgentID:    input.Filters.ParentAgentID,
 			IncludeSubagents: input.Filters.IncludeSubagents,
 			IncludeArchived:  input.Filters.IncludeArchived,
+			ActivityState:    input.Filters.ActivityState,
 			CursorSet:        input.List.After.Set,
 			CursorCreatedAt:  cursorCreatedAt,
 			CursorID:         input.List.After.ID,
@@ -305,7 +318,14 @@ func (s *Store) listAgentsForProjectsByCreatedAtDesc(
 	}
 	result.Agents = make([]AgentRecord, 0, len(rows))
 	for _, row := range rows {
-		result.Agents = append(result.Agents, agentRecordFromListForProjectsByCreatedAtDescSQLC(row))
+		agent := agentRecordFromListForProjectsByCreatedAtDescSQLC(row)
+		activity := agentActivityFromColumns(
+			row.State, row.ActivityState, row.LastActivityAt,
+			row.OpenQuestionCount, row.OpenPermissionCount,
+			row.BackgroundProcessIds, row.WorkingSubagentIds,
+		)
+		agent.Activity = &activity
+		result.Agents = append(result.Agents, agent)
 	}
 	return result, nil
 }

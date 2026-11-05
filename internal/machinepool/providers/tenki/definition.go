@@ -63,7 +63,11 @@ func newProvider(raw json.RawMessage, runtimeConfig providers.RuntimeConfig) (*p
 		return nil, errors.New("tenki provider auth token is required")
 	}
 	return &provider{
-		api:          newRESTClient(apiBaseURL, runtimeConfig.ProviderAuthToken, providers.NewHTTPClient()),
+		api: newRESTClient(
+			apiBaseURL,
+			runtimeConfig.ProviderAuthToken,
+			providers.NewHTTPClient(runtimeConfig.HTTPRecorder, providers.Tenki),
+		),
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 	}, nil
 }

@@ -70,8 +70,13 @@ func newProvider(
 		return nil, errors.New("freestyle provider auth token is required")
 	}
 	return &provider{
-		api:          newRESTClient(apiBaseURL, token, nil),
+		api: newRESTClient(
+			apiBaseURL,
+			token,
+			providers.NewHTTPClient(runtimeConfig.HTTPRecorder, providers.Freestyle),
+		),
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
+		httpRecorder: runtimeConfig.HTTPRecorder,
 	}, nil
 }
 

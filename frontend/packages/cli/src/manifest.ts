@@ -4,6 +4,7 @@ import * as z from 'zod'
 
 import { agentChatOp, agentEventsStreamOp } from './agent-commands.ts'
 import { formatAgentEventList } from './agent-rendering.ts'
+import { agentWaitOp } from './agent-wait.ts'
 import {
   currentProfileConfigId,
   renderConfigSource,
@@ -33,9 +34,18 @@ export const commandGroups: CommandGroup[] = [
         summary: 'List agents in a project',
         fn: sdk.listAgents,
         format: (response) =>
-          formatTable(['id', 'name', 'state', 'model', 'parent_agent_id', 'created_at'])({
+          formatTable([
+            'id',
+            'name',
+            'state',
+            'activity',
+            'model',
+            'parent_agent_id',
+            'created_at',
+          ])({
             data: response.data.map((agent) => ({
               ...agent,
+              activity: agent.activity?.state,
               model: agent.model?.name,
               parent_agent_id: agent.parent_agent_id ?? '',
             })),
@@ -51,6 +61,7 @@ export const commandGroups: CommandGroup[] = [
         format: formatRecord(),
         path: schemas.zGetAgentPath,
       }),
+      agentWaitOp,
       op({
         verb: 'launch',
         summary: 'Launch a new agent',
@@ -427,7 +438,7 @@ export const commandGroups: CommandGroup[] = [
         fn: sdk.connectByoMachine,
         format: formatMachineSetup,
         path: schemas.zConnectByoMachinePath,
-        body: schemas.zConnectByoMachineBody,
+        body: zMachineSetupBody,
       }),
       flowOp({
         verb: 'create-local',

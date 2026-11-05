@@ -10,10 +10,12 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/defaultprovider"
+	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/maintenance"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
@@ -111,11 +113,15 @@ func main() {
 		metricSet,
 		metrics.ReadyAll(db.Ping, redisClient.Ping),
 	)
+	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
+	githubHTTPClient := metrics.NewObservedHTTPClient(
+		outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{Timeout: github.OperationTimeout}), httpRecorder,
+	)
 	var defaultModelProvider *defaultprovider.Runner
 	if cfg.DefaultModelProvider != nil {
 		hostedHTTPClient := metrics.NewObservedHTTPClient(
 			&http.Client{Timeout: modelprovider.HostedCredentialProvisionTimeout},
-			metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient),
+			httpRecorder,
 			metrics.WithHTTPClientPathLabel(modelprovider.HostedCredentialPath),
 		)
 		defaultModelProvider = defaultprovider.NewRunner(
@@ -135,9 +141,11 @@ func main() {
 		maintenance.Run(ctx, maintenance.Options{
 			Log:                  logger,
 			Store:                store,
-			MachinePools:         machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL),
+			MachinePools:         machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder),
 			Metrics:              metricSet,
 			Interval:             cfg.MaintenanceInterval,
+			PublicURL:            cfg.PublicURL,
+			GitHubHTTPClient:     githubHTTPClient,
 			DefaultModelProvider: defaultModelProvider,
 		})
 	}()

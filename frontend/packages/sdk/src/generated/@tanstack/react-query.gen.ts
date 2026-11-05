@@ -516,7 +516,7 @@ export const listOrgAgentsQueryKey = (options: Options<ListOrgAgentsData>) => cr
 /**
  * List agents across projects
  *
- * Lists agents in every project of the organization where the caller can read agents. Each agent carries its project_id. Items are ordered by created_at descending, then id descending.
+ * Lists agents in every project of the organization where the caller can read agents. Each agent carries its project_id. Items are ordered by created_at descending, then id descending. Pass `activity_state` to keep only agents in that activity.
  */
 export const listOrgAgentsOptions = (options: Options<ListOrgAgentsData>) => queryOptions<ListOrgAgentsResponse, ListOrgAgentsError, ListOrgAgentsResponse, ReturnType<typeof listOrgAgentsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -536,7 +536,7 @@ export const listOrgAgentsInfiniteQueryKey = (options: Options<ListOrgAgentsData
 /**
  * List agents across projects
  *
- * Lists agents in every project of the organization where the caller can read agents. Each agent carries its project_id. Items are ordered by created_at descending, then id descending.
+ * Lists agents in every project of the organization where the caller can read agents. Each agent carries its project_id. Items are ordered by created_at descending, then id descending. Pass `activity_state` to keep only agents in that activity.
  */
 export const listOrgAgentsInfiniteOptions = (options: Options<ListOrgAgentsData>) => {
     const opts = infiniteQueryOptions<ListOrgAgentsResponse, ListOrgAgentsError, InfiniteData<ListOrgAgentsResponse>, QueryKey<Options<ListOrgAgentsData>>, string | Pick<QueryKey<Options<ListOrgAgentsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -2488,7 +2488,7 @@ export const listAgentsQueryKey = (options: Options<ListAgentsData>) => createQu
 /**
  * List agents
  *
- * Lists the project's agents with their current activity, newest first by default. Archived agents and subagents are excluded unless requested.
+ * Lists the project's agents with their current activity, newest first by default. Archived agents and subagents are excluded unless requested. Pass `activity_state` to keep only agents in that activity.
  */
 export const listAgentsOptions = (options: Options<ListAgentsData>) => queryOptions<ListAgentsResponse2, ListAgentsError, ListAgentsResponse2, ReturnType<typeof listAgentsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -2508,7 +2508,7 @@ export const listAgentsInfiniteQueryKey = (options: Options<ListAgentsData>): Qu
 /**
  * List agents
  *
- * Lists the project's agents with their current activity, newest first by default. Archived agents and subagents are excluded unless requested.
+ * Lists the project's agents with their current activity, newest first by default. Archived agents and subagents are excluded unless requested. Pass `activity_state` to keep only agents in that activity.
  */
 export const listAgentsInfiniteOptions = (options: Options<ListAgentsData>) => {
     const opts = infiniteQueryOptions<ListAgentsResponse2, ListAgentsError, InfiniteData<ListAgentsResponse2>, QueryKey<Options<ListAgentsData>>, string | Pick<QueryKey<Options<ListAgentsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(

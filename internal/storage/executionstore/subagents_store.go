@@ -45,7 +45,6 @@ type SubagentStatus struct {
 	State             string
 	LastActivityAt    time.Time
 	Archived          bool
-	IsRunning         bool
 	HasOpenQuestion   bool
 	HasOpenPermission bool
 	AgentActivityWork
@@ -267,8 +266,8 @@ func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 		Name:              row.Name,
 		Key:               row.SubagentKey,
 		LastActivityAt:    row.LastActivityAt,
+		State:             row.ActivityState,
 		Archived:          row.State == string(AgentStateArchived),
-		IsRunning:         row.IsRunning,
 		HasOpenQuestion:   row.OpenQuestionCount > 0,
 		HasOpenPermission: row.OpenPermissionCount > 0,
 	}
@@ -279,26 +278,7 @@ func subagentStatusFromSQLC(row dbsqlc.ListChildAgentsRow) SubagentStatus {
 		row.BackgroundProcessIds,
 		row.WorkingSubagentIds,
 	)
-	status.State = agentActivityState(
-		status.Archived,
-		status.HasOpenQuestion,
-		status.HasOpenPermission,
-		status.IsRunning,
-	)
 	return status
-}
-
-func agentActivityState(archived, hasOpenQuestion, hasOpenPermission, isRunning bool) string {
-	switch {
-	case archived:
-		return SubagentStateArchived
-	case hasOpenQuestion, hasOpenPermission:
-		return SubagentStateWaitingOnInteraction
-	case isRunning:
-		return SubagentStateRunning
-	default:
-		return SubagentStateIdle
-	}
 }
 
 func listChildAgentsTx(

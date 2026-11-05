@@ -387,6 +387,162 @@ func TestListAgentsChildrenWithActivity(t *testing.T) {
 	}
 }
 
+func TestListAgentsByActivityState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	store := integrationStoreForHandler(t, handler)
+	project := bootstrapPublicHTTPProject(t, handler, "list-agents-activity")
+
+	idleA := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-activity-idle-a",
+	)
+	idleB := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-activity-idle-b",
+	)
+	running := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-activity-running",
+	)
+	archived := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-activity-archived",
+	)
+	waiting := createHTTPRuntimeAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, "list-activity-waiting",
+	)
+	idleIDs := []uuid.UUID{idleA.Agent.ID, idleB.Agent.ID, archived.Agent.ID}
+	if _, err := pool.Exec(ctx, `DELETE FROM agent_wakeups WHERE agent_id = ANY($1)`, idleIDs); err != nil {
+		t.Fatalf("clear idle wakeups: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM agent_runtime_locks WHERE agent_id = ANY($1)`, idleIDs); err != nil {
+		t.Fatalf("clear idle runtime locks: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = false WHERE agent_id = ANY($1)`,
+		idleIDs,
+	); err != nil {
+		t.Fatalf("clear idle execution state: %v", err)
+	}
+	// Open the question first: recording the waiting agent's tool call claims
+	// queued agent work, which would consume the running agent's wakeup.
+	createHTTPInteractionForAgent(
+		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, waiting.Agent, "question", "",
+		json.RawMessage(`{"questions":[{"prompt":"Ship?","options":[{"label":"Yes"},{"label":"No"}]}]}`),
+	)
+	if _, err := pool.Exec(
+		ctx,
+		`INSERT INTO agent_wakeups(agent_id, ready_at, updated_at)
+		 VALUES ($1, statement_timestamp(), statement_timestamp())
+		 ON CONFLICT (agent_id) DO UPDATE SET
+		   ready_at = EXCLUDED.ready_at,
+		   updated_at = EXCLUDED.updated_at`,
+		running.Agent.ID,
+	); err != nil {
+		t.Fatalf("mark running agent: %v", err)
+	}
+	if _, _, err := store.Execution().ArchiveAgent(
+		ctx, project.ProjectUUID, archived.Agent.ID, httpUserPrincipal(project.AdminUserUUID),
+	); err != nil {
+		t.Fatalf("archive agent: %v", err)
+	}
+
+	idleAID := testPublicID(t, publicid.KindAgent, idleA.Agent.ID)
+	idleBID := testPublicID(t, publicid.KindAgent, idleB.Agent.ID)
+	runningID := testPublicID(t, publicid.KindAgent, running.Agent.ID)
+	archivedID := testPublicID(t, publicid.KindAgent, archived.Agent.ID)
+	waitingID := testPublicID(t, publicid.KindAgent, waiting.Agent.ID)
+	agentsPath := project.ProjectPath + "/agents"
+	listPath := func(query string) string { return agentsPath + "?" + query }
+
+	// The console sorts by -updated_at and the API defaults to -created_at; the
+	// two sorts run different list queries, so cover the filter on both.
+	for _, order := range []string{"-created_at", "-updated_at"} {
+		t.Run(order, func(t *testing.T) {
+			t.Parallel()
+			cases := []struct {
+				state string
+				want  []string
+			}{
+				{"idle", []string{idleAID, idleBID}},
+				{"running", []string{runningID}},
+				{"waiting_on_interaction", []string{waitingID}},
+				{"archived", []string{archivedID}},
+			}
+			for _, tc := range cases {
+				listed := requestJSONWithHeaders(
+					t, handler, http.MethodGet, listPath("activity_state="+tc.state+"&sort="+order), "", "",
+					http.StatusOK, authHeaders(project.AdminToken),
+				)
+				require.ElementsMatch(t, tc.want, listedAgentIDs(t, listed), "activity_state=%s", tc.state)
+				for _, id := range tc.want {
+					require.Equal(t, tc.state, listedAgentActivity(t, listed, id))
+				}
+			}
+
+			// Page through the idle filter one row at a time: each match comes
+			// back exactly once and the last page carries no cursor.
+			var paged []string
+			cursor := ""
+			for page := 0; ; page++ {
+				require.Less(t, page, 3, "idle pagination did not end")
+				query := "activity_state=idle&limit=1&sort=" + order
+				if cursor != "" {
+					query += "&cursor=" + cursor
+				}
+				listed := requestJSONWithHeaders(
+					t, handler, http.MethodGet, listPath(query), "", "", http.StatusOK,
+					authHeaders(project.AdminToken),
+				)
+				paged = append(paged, listedAgentIDs(t, listed)...)
+				next, _ := listed["next_cursor"].(string)
+				if next == "" {
+					break
+				}
+				if page == 0 {
+					requestJSONWithHeaders(
+						t, handler, http.MethodGet,
+						listPath("activity_state=running&limit=1&sort="+order+"&cursor="+next), "", "",
+						http.StatusBadRequest, authHeaders(project.AdminToken),
+					)
+				}
+				cursor = next
+			}
+			require.ElementsMatch(t, []string{idleAID, idleBID}, paged)
+		})
+	}
+
+	requestJSONWithHeaders(
+		t, handler, http.MethodGet, listPath("activity_state=nope"), "", "", http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
+}
+
+func listedAgentIDs(t *testing.T, listed map[string]any) []string {
+	t.Helper()
+	rows := testutil.RequireType[[]any](t, listed["data"])
+	ids := make([]string, 0, len(rows))
+	for _, raw := range rows {
+		row := testutil.RequireType[map[string]any](t, raw)
+		ids = append(ids, testutil.RequireType[string](t, row["id"]))
+	}
+	return ids
+}
+
+func listedAgentActivity(t *testing.T, listed map[string]any, agentID string) string {
+	t.Helper()
+	for _, raw := range testutil.RequireType[[]any](t, listed["data"]) {
+		row := testutil.RequireType[map[string]any](t, raw)
+		if testutil.RequireType[string](t, row["id"]) != agentID {
+			continue
+		}
+		activity := testutil.RequireType[map[string]any](t, row["activity"])
+		return testutil.RequireType[string](t, activity["state"])
+	}
+	t.Fatalf("agent %s missing from list: %+v", agentID, listed)
+	return ""
+}
+
 func TestListAgentsByProfile(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
