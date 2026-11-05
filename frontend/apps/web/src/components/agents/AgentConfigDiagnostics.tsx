@@ -1,17 +1,39 @@
-import { type ConfigDiagnostic, configPath } from '@/components/agents/agentConfigCompatibility'
+import type { ConfigDiagnostic } from '@/components/agents/agentConfigCompatibility'
 
-export function AgentConfigDiagnostics({ issues }: { issues: readonly ConfigDiagnostic[] }) {
+function fieldLabel(path: readonly string[]): string {
+  const [field, ...rest] = path
+  if (!field) return ''
+  if (field === 'tools' && rest[0])
+    return [`Tool “${rest[0]}”`, fieldLabel(rest.slice(1))].filter(Boolean).join(' → ')
+  const label = field.replaceAll('_', ' ')
+  return [label.charAt(0).toUpperCase() + label.slice(1), ...rest].join(' → ')
+}
+
+export function AgentConfigDiagnostics({
+  issues,
+  basePath = [],
+}: {
+  issues: readonly ConfigDiagnostic[]
+  basePath?: readonly string[]
+}) {
   const visible = issues.filter((issue) => issue.kind !== 'advanced' || issue.error)
   const unique = new Map(
     visible.map((issue) => [JSON.stringify([issue.path, issue.kind, issue.message]), issue]),
   )
-  return [...unique].map(([key, issue]) => (
-    <p
-      key={key}
-      className={issue.error ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'}
-      role={issue.error ? 'alert' : undefined}
-    >
-      {configPath(issue.path)}: {issue.message}
-    </p>
-  ))
+  return [...unique].map(([key, issue]) => {
+    const path = basePath.every((part, index) => issue.path[index] === part)
+      ? issue.path.slice(basePath.length)
+      : issue.path
+    const label = fieldLabel(path)
+    return (
+      <p
+        key={key}
+        className={issue.error ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'}
+        role={issue.error ? 'alert' : undefined}
+      >
+        {label && !issue.message.toLowerCase().startsWith(label.toLowerCase()) && `${label}: `}
+        {issue.message}
+      </p>
+    )
+  })
 }
