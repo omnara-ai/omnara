@@ -34,7 +34,6 @@ import {
 import { memoryGbDraftValid } from '@/lib/machine-memory'
 import { resourceNameValid } from '@/lib/resource-name'
 
-export { toolWire } from '@/components/agents/agentConfigBasicWrite'
 export { createBasicConfigSession } from '@/components/agents/agentConfigSession'
 export { type BasicMcpServer, type BasicMcpTool, type McpAuthType }
 export {
@@ -184,6 +183,12 @@ export function useAgentBuilderForm(
       patch({ advancedEntries })
     },
     originalAdvancedEntries: session.initialDraft?.advancedEntries ?? [],
+    evaluateAdvancedEntries: (advancedEntries: AdvancedConfigEntry[]) =>
+      session.evaluate({
+        ...(session.initialDraft ?? emptyBasicConfig),
+        tools: draft.tools,
+        advancedEntries,
+      }),
     yaml: evaluated.yaml,
     blocked,
     resolvedTools: tools.data?.tools,

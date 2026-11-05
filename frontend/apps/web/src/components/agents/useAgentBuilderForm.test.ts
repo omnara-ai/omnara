@@ -170,32 +170,17 @@ function applyToSource(source: string, config: BasicConfig): string {
 
 describe('createBasicConfigSession initialDraft', () => {
   it.each([
-    `mcp:
-  external:
-    url: https://example.com/mcp
-    tools: &toolConfig
-      web_search: {}
-tools: *toolConfig
-`,
-    `tools: &toolConfig
-  web_search: {}
-mcp:
-  external:
-    url: https://example.com/mcp
-    default_enabled: false
-    tools: *toolConfig
-`,
-    `tools:
-  run_command: &shared {}
-  web_search: *shared
-`,
-    `<<: {tools: {run_command: {enabled: false}}}
-`,
-  ])('keeps shared or merged YAML in YAML mode: %s', (tools) => {
-    const source = `${minimalYaml}machine_sources: [{machine_pool_name: pool}]\n${tools}`
+    ['tools: &shared {}\n', 'anchors', ['tools']],
+    ['tools: *shared\n', 'aliases', ['tools']],
+    ['tools: {<<: {web_search: {}}}\n', 'merge keys', ['tools', '<<']],
+  ])('preserves shared YAML and explains the exact blocker: %s', (tools, reason, path) => {
+    const source = minimalYaml + tools
     const session = createBasicConfigSession(source)
     expect(session.initialDraft).toBeNull()
     expect(session.apply(fullConfig)).toBe(source)
+    const issue = session.diagnostics.find((issue) => issue.path.join('/') === path.join('/'))
+    expect(issue).toMatchObject({ path, kind: 'fatal' })
+    expect(issue?.message).toContain(reason)
   })
 
   it('does not serialize an unused builder draft for YAML-only source', () => {

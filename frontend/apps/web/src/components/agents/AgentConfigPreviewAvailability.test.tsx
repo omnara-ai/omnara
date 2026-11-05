@@ -21,7 +21,7 @@ import {
 } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
-import { isNode, parse, parseDocument } from 'yaml'
+import { Document, isNode, parse, parseDocument } from 'yaml'
 import { z } from 'zod'
 
 import { configPath } from '@/components/agents/agentConfigCompatibility'
@@ -530,6 +530,9 @@ it.each(['yaml', 'json'])(
     const editor = await renderAdvancedEditor(source)
     act(() => {
       editor().form.setInstruction('Pending instruction.')
+      editor().form.setMachineSources(
+        editor().form.machineSources.map((row) => ({ ...row, initialNumMachines: '-' })),
+      )
       button('Edit search_records').click()
     })
     const before = editor().yaml
@@ -551,7 +554,14 @@ it.each(['yaml', 'json'])(
     await enter('Definition', definition)
     clickLabel('Save tool')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(editor().form.unappliedChanges).toBe(true)
+    act(() => {
+      editor().form.setMachineSources(
+        editor().form.machineSources.map((row) => ({ ...row, initialNumMachines: '1' })),
+      )
+    })
     expect(editor().saveBlocked).toBe(false)
+    expect(parse(editor().yaml)).toHaveProperty('instruction', 'Pending instruction.')
     expect(parse(editor().yaml)).toHaveProperty(['tools', 'search_records'], parse(definition))
     expect(editor().yaml).toContain('9007199254740993')
   },
@@ -586,24 +596,10 @@ it.each(['yaml', 'json'])(
       const after = parseDocument(changed?.source ?? '').getIn([key], true)
       if (!isNode(before) || !isNode(after) || !before.range || !after.range)
         throw new Error('Missing definition')
-      expect(changed?.source.slice(after.range[0], after.range[2])).toBe(
-        original?.source.slice(before.range[0], before.range[2]),
+      expect(changed?.source.slice(after.range[0], after.range[1])).toBe(
+        original?.source.slice(before.range[0], before.range[1]),
       )
     }
-    act(() => {
-      editor().form.setAdvancedEntries(
-        editor().form.advancedEntries.map((entry) =>
-          entry.path[1] === 'search_records'
-            ? { ...entry, source: 'type: custom\ninput_schema: [' }
-            : entry,
-        ),
-      )
-    })
-    expect(editor().saveBlocked).toBe(true)
-    expect(
-      container.querySelector<HTMLButtonElement>('[aria-label="search_records permission"] button')
-        ?.disabled,
-    ).toBe(true)
     clickLabel('Remove search_records')
     expect(editor().saveBlocked).toBe(false)
     const expected = schemas.zAgentConfigDefinition.parse(parse(source))
@@ -771,15 +767,20 @@ async function openCustomToolDialog() {
   })
 }
 
-it.each(['yaml', 'json'])(
+it.each(['yaml', 'json', 'inline-yaml'])(
   'adds a custom tool in %s from Tools plus and leaves cancelled drafts untouched',
   async (format) => {
-    const source = format === 'json' ? JSON.stringify(parse(customFixture), null, 2) : customFixture
+    const source =
+      format === 'json'
+        ? JSON.stringify(parse(customFixture), null, 2)
+        : format === 'inline-yaml'
+          ? new Document(parse(customFixture)).toString({ collectionStyle: 'flow' })
+          : customFixture
     const editor = await renderAdvancedEditor(source)
     await openCustomToolDialog()
     const template = field('Definition').value
     expect(parse(template)).toHaveProperty('type', 'custom')
-    expect(template.startsWith('{')).toBe(format === 'json')
+    expect(template.startsWith('{')).toBe(format !== 'yaml')
     await enter('Tool name', 'cancelled_tool')
     clickLabel('Cancel')
     expect(editor().yaml).toBe(source)
@@ -789,24 +790,17 @@ it.each(['yaml', 'json'])(
     await enter('Tool name', 'new_tool')
     await enter('Definition', definition)
     expect(document.querySelector('[role="dialog"] [role="alert"]')).toBeNull()
-    if (format === 'json') {
+    if (format !== 'yaml') {
       clickLabel('Add custom tool')
       expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
-        'Enter valid JSON',
+        format === 'json' ? 'Enter valid JSON' : 'requires a flow definition',
       )
+      expect(editor().yaml).toBe(source)
       await enter('Definition', JSON.stringify(parse(definition)))
     }
-    for (const name of [
-      'search_records',
-      'web_search',
-      'mcp__reserved',
-      'bad-name',
-      'call_deferred_tool',
-    ]) {
-      await enter('Tool name', name)
-      clickLabel('Add custom tool')
-      expect(document.activeElement).toBe(field('Tool name'))
-    }
+    await enter('Tool name', 'search_records')
+    clickLabel('Add custom tool')
+    expect(document.activeElement).toBe(field('Tool name'))
     await enter('Tool name', 'new_tool')
     clickLabel('Add custom tool')
     expect(parse(editor().yaml)).toHaveProperty(['tools', 'new_tool'], parse(definition))

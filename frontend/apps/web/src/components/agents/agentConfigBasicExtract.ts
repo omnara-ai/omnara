@@ -213,15 +213,13 @@ export function parseBasicConfigSource(source: string, format: ConfigSourceForma
   const preserve = (path: string[], kind: AdvancedConfigEntry['kind'] = 'opaque') => {
     const entry = { path, kind, source: configNodeSource(source, doc, path) }
     advancedEntries.push(entry)
-    diagnostics.push({
-      path,
-      kind: kind === 'custom' ? 'advanced' : 'opaque',
-      message:
-        kind === 'custom'
-          ? 'Custom tool definition preserved. Edit it using the tool’s edit button.'
-          : 'Preserved without changes. Edit this definition in the source editor.',
-    })
     if (kind === 'custom') diagnostics.push(...validateAdvancedEntry(entry, format))
+    else
+      diagnostics.push({
+        path,
+        kind: 'opaque',
+        message: 'Preserved without changes. Edit this definition in the source editor.',
+      })
   }
   const invalid = (path: string[], result: z.ZodSafeParseResult<unknown>) => {
     if (result.success) return
@@ -307,7 +305,7 @@ export function parseBasicConfigSource(source: string, format: ConfigSourceForma
     }
   }
   const parsed = basicDocument.parse(projection)
-  const model = z.record(z.string(), z.unknown()).safeParse(raw.model)
+  const model = z.record(z.string(), z.unknown()).safeParse(projection.model)
   if (model.success) {
     for (const key of Object.keys(model.data)) {
       if (!['provider_config', 'name', 'reasoning'].includes(key)) {

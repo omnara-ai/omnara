@@ -16,9 +16,8 @@ export function AgentConfigDiagnostics({
   issues: readonly ConfigDiagnostic[]
   basePath?: readonly string[]
 }) {
-  const visible = issues.filter((issue) => issue.kind !== 'advanced' || issue.error)
   const unique = new Map(
-    visible.map((issue) => [JSON.stringify([issue.path, issue.kind, issue.message]), issue]),
+    issues.map((issue) => [JSON.stringify([issue.path, issue.kind, issue.message]), issue]),
   )
   return [...unique].map(([key, issue]) => {
     const path = basePath.every((part, index) => issue.path[index] === part)
