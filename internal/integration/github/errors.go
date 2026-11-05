@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var errPermissionsNotGranted = errors.New("the GitHub App installation has not granted the requested permissions")
+
 type ErrorCode string
 
 const (
@@ -78,6 +80,10 @@ func responseError(status int, header http.Header, body []byte, mutation bool, n
 			if strings.Contains(text, "can only have one pending review") {
 				result.cause = errors.New("this bot already has a pending review on this PR; read pending_review to " +
 					"continue it, submit_review to publish it, or discard_review to delete it")
+				break
+			}
+			if strings.Contains(text, "permissions requested are not granted") {
+				result.cause = errPermissionsNotGranted
 				break
 			}
 		}

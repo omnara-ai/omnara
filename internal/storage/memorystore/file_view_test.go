@@ -92,8 +92,11 @@ func TestGlobFilesystem(t *testing.T) {
 		t.Fatalf("nonmatching traversal did not stop: %v", err)
 	}
 	remaining = 2
-	if entries, err := filesystem.ReadDir("."); len(entries) != 0 || !errors.Is(err, ErrFileTraversalLimit) {
-		t.Fatalf("returned an incomplete directory: %v, %v", entries, err)
+	if entries, err := filesystem.ReadDir("."); err != nil || len(entries) <= 2 || remaining >= 0 {
+		t.Fatalf("did not read a directory past the budget whole: %v, %v, remaining=%d", entries, err, remaining)
+	}
+	if entries, err := filesystem.ReadDir("dir"); len(entries) != 0 || !errors.Is(err, ErrFileTraversalLimit) {
+		t.Fatalf("read past an exhausted budget: %v, %v", entries, err)
 	}
 	remaining = 0
 	skipping := filesystem

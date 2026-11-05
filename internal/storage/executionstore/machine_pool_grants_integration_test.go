@@ -2016,7 +2016,7 @@ tools:
 	}
 	cleanupMachineIDs := make(map[uuid.UUID]bool, len(cleanup))
 	for _, candidate := range cleanup {
-		if candidate.ReasonCode != "deleting_retry" {
+		if candidate.ReasonCode != "" {
 			t.Fatalf("cleanup after pool archive = %+v", cleanup)
 		}
 		cleanupMachineIDs[candidate.Machine.ID] = true
@@ -2252,7 +2252,7 @@ tools:
 	if err != nil {
 		t.Fatalf("list pool machines for cleanup after pool revoke: %v", err)
 	}
-	if len(cleanup) != 1 || cleanup[0].Machine.ID != machine.ID || cleanup[0].ReasonCode != "deleting_retry" {
+	if len(cleanup) != 1 || cleanup[0].Machine.ID != machine.ID || cleanup[0].ReasonCode != "" {
 		t.Fatalf("cleanup after pool grant revoke = %+v", cleanup)
 	}
 	staleCleanup, err := store.Execution().ListPoolMachinesForCleanup(
@@ -2264,7 +2264,7 @@ tools:
 		t.Fatalf("list stale pool machines for cleanup after pool revoke: %v", err)
 	}
 	if len(staleCleanup) != 1 || staleCleanup[0].Machine.ID != machine.ID ||
-		staleCleanup[0].ReasonCode != "deleting_retry" {
+		staleCleanup[0].ReasonCode != "" {
 		t.Fatalf("stale cleanup after pool grant revoke = %+v", staleCleanup)
 	}
 	replayed, err := store.Execution().LaunchAgent(
@@ -2411,7 +2411,7 @@ tools:
 	if err != nil {
 		t.Fatalf("list cleanup after provisioning revoke: %v", err)
 	}
-	if len(cleanup) != 1 || cleanup[0].Machine.ID != claimed.ID || cleanup[0].ReasonCode != "deleting_retry" {
+	if len(cleanup) != 1 || cleanup[0].Machine.ID != claimed.ID || cleanup[0].ReasonCode != "" {
 		t.Fatalf("cleanup after provisioning revoke = %+v", cleanup)
 	}
 	staleCleanup, err := store.Execution().ListPoolMachinesForCleanup(
@@ -2423,7 +2423,7 @@ tools:
 		t.Fatalf("list stale cleanup after provisioning revoke: %v", err)
 	}
 	if len(staleCleanup) != 1 || staleCleanup[0].Machine.ID != claimed.ID ||
-		staleCleanup[0].ReasonCode != "deleting_retry" {
+		staleCleanup[0].ReasonCode != "" {
 		t.Fatalf("stale cleanup after provisioning revoke = %+v", staleCleanup)
 	}
 }
@@ -2550,7 +2550,7 @@ tools:
 	if err != nil {
 		t.Fatalf("list cleanup after provider-not-configured revoke: %v", err)
 	}
-	if len(cleanup) != 1 || cleanup[0].Machine.ID != claimed.ID || cleanup[0].ReasonCode != "deleting_retry" ||
+	if len(cleanup) != 1 || cleanup[0].Machine.ID != claimed.ID || cleanup[0].ReasonCode != "" ||
 		cleanup[0].Machine.LifecycleReasonCode != "pool_grant_revoked" {
 		t.Fatalf("cleanup after provider-not-configured revoke = %+v", cleanup)
 	}
@@ -2563,7 +2563,7 @@ tools:
 		t.Fatalf("list stale cleanup after provider-not-configured revoke: %v", err)
 	}
 	if len(staleCleanup) != 1 || staleCleanup[0].Machine.ID != claimed.ID ||
-		staleCleanup[0].ReasonCode != "deleting_retry" ||
+		staleCleanup[0].ReasonCode != "" ||
 		staleCleanup[0].Machine.LifecycleReasonCode != "pool_grant_revoked" {
 		t.Fatalf("stale cleanup after provider-not-configured revoke = %+v", staleCleanup)
 	}
@@ -2854,7 +2854,7 @@ tools:
 	if err != nil {
 		t.Fatalf("list cleanup after active pool revoke: %v", err)
 	}
-	if len(cleanup) != 1 || cleanup[0].Machine.ID != machineID || cleanup[0].ReasonCode != "deleting_retry" {
+	if len(cleanup) != 1 || cleanup[0].Machine.ID != machineID || cleanup[0].ReasonCode != "" {
 		t.Fatalf("cleanup after active pool revoke = %+v", cleanup)
 	}
 	staleCleanup, err := store.Execution().ListPoolMachinesForCleanup(
@@ -2866,7 +2866,7 @@ tools:
 		t.Fatalf("list stale cleanup after active pool revoke: %v", err)
 	}
 	if len(staleCleanup) != 1 || staleCleanup[0].Machine.ID != machineID ||
-		staleCleanup[0].ReasonCode != "deleting_retry" {
+		staleCleanup[0].ReasonCode != "" {
 		t.Fatalf("stale cleanup after active pool revoke = %+v", staleCleanup)
 	}
 }

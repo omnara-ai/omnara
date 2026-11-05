@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
@@ -178,8 +179,8 @@ func TestInstallationGitCredentialsCacheIsBounded(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if client.gitCredentials.Len() != gitCredentialCacheSize {
-		t.Fatalf("cached %d credentials, want at most %d", client.gitCredentials.Len(), gitCredentialCacheSize)
+	if client.gitCredentials.entries.Len() != gitCredentialCacheSize {
+		t.Fatalf("cached %d credentials, want at most %d", client.gitCredentials.entries.Len(), gitCredentialCacheSize)
 	}
 }
 
@@ -204,7 +205,7 @@ func TestInstallationRepositoriesReturnsOnePageAndTheNext(t *testing.T) {
 		repository Repository
 		next       int
 	}{1: {Repository{ID: 1, Name: "repo-1"}, 2}, 2: {Repository{ID: 2, Name: "repo-2"}, 0}} {
-		repositories, next, err := client.InstallationRepositories(t.Context(), page)
+		repositories, next, err := client.InstallationRepositories(t.Context(), false, nil, page)
 		if err != nil || len(repositories) != 1 || repositories[0] != want.repository || next != want.next {
 			t.Fatalf("page %d = %v, next %d, %v", page, repositories, next, err)
 		}
@@ -224,11 +225,100 @@ func TestInstallationRepositoriesRejectsInvalidPages(t *testing.T) {
 				fmt.Fprint(w, page)
 			})
 			var apiErr *APIError
-			if _, _, err := client.InstallationRepositories(t.Context(), 1); !errors.As(err, &apiErr) ||
+			if _, _, err := client.InstallationRepositories(t.Context(), false, nil, 1); !errors.As(err, &apiErr) ||
 				apiErr.Code != InvalidResponse {
 				t.Fatalf("invalid repository page accepted: %v", err)
 			}
 		})
+	}
+}
+
+func TestInstallationGitCredentialsAcceptsLargeRepositorySelections(t *testing.T) {
+	client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprintf(w, `{"token":"git-token","expires_at":%q,"permissions":{"contents":"read"},`+
+			`"repositories":[{"id":1,"name":"app","description":%q}]}`,
+			time.Now().Add(time.Hour).Format(time.RFC3339), strings.Repeat("x", ResponseMaxBytes))
+	})
+	credentials, err := client.InstallationGitCredentials(t.Context(), false, []int64{1})
+	if err != nil || credentials.Token != "git-token" {
+		t.Fatalf("large token response = %v, %v", credentials, err)
+	}
+}
+
+func TestInstallationGitCredentialsAreSharedUntilRejected(t *testing.T) {
+	var mints atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost:
+			gitCredentialResponse(w, fmt.Sprintf("git-%d", mints.Add(1)), "read", time.Now().Add(time.Hour))
+		case r.Header.Get("Authorization") == "Bearer git-1":
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			fmt.Fprint(w, `{"repositories":[]}`)
+		}
+	}))
+	t.Cleanup(server.Close)
+	config := sharedTokenConfig(t, server)
+	var clients [2]*Client
+	for i := range clients {
+		client, err := NewClient(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		credentials, err := client.InstallationGitCredentials(t.Context(), false, []int64{7})
+		if err != nil || credentials.Token != "git-1" {
+			t.Fatalf("credentials = %v, %v", credentials, err)
+		}
+		clients[i] = client
+	}
+	if mints.Load() != 1 {
+		t.Fatalf("minted %d tokens for one credential identity, want 1", mints.Load())
+	}
+	if _, _, err := clients[0].InstallationRepositories(t.Context(), false, []int64{7}, 1); err == nil {
+		t.Fatal("revoked token listed repositories")
+	}
+	if _, _, err := clients[1].InstallationRepositories(t.Context(), false, []int64{7}, 1); err != nil {
+		t.Fatalf("revoked token stayed cached: %v", err)
+	}
+	clients[0].invalidateToken(t.Context(), "git-1")
+	credentials, err := clients[1].InstallationGitCredentials(t.Context(), false, []int64{7})
+	if err != nil || credentials.Token != "git-2" {
+		t.Fatalf("a late 401 removed the newer token: %v, %v", credentials, err)
+	}
+}
+
+func TestInstallationGitCredentialsMintDoesNotBlockOtherScope(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	finish := sync.OnceFunc(func() { close(release) })
+	defer finish()
+	var mints atomic.Int32
+	client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if mints.Add(1) == 1 {
+			close(entered)
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		gitCredentialResponse(w, "git-token", "read", time.Now().Add(time.Hour))
+	})
+	done := make(chan error, 1)
+	go func() { _, err := client.InstallationGitCredentials(t.Context(), false, []int64{7}); done <- err }()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("refresh did not start")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if _, err := client.InstallationGitCredentials(ctx, false, []int64{8}); err != nil {
+		t.Fatalf("an unrelated repository scope waited for the first refresh: %v", err)
+	}
+	finish()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -321,9 +411,8 @@ func TestInstallationGitCredentialsRevokesMissingContents(t *testing.T) {
 				}
 			})
 			result, err := client.InstallationGitCredentials(t.Context(), true, nil)
-			if !errors.Is(err, ErrContentsPermissionRequired) || result != (InstallationCredentials{}) ||
-				client.gitCredentials.Len() != 0 {
-				t.Fatalf("cleanup changed the permission error or retained the rejected token: %v", err)
+			if !errors.Is(err, ErrContentsPermissionRequired) || result != (InstallationCredentials{}) {
+				t.Fatalf("cleanup changed the permission error: %v", err)
 			}
 			if minted.Load() != 1 || revoked.Load() != 1 {
 				t.Fatal("rejected token must receive exactly one best-effort revocation attempt")

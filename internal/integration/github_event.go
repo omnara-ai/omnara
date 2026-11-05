@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -35,6 +36,9 @@ type GitHubInboxSecrets interface {
 
 type GitHubInboxIntegrations interface {
 	GetIntegration(context.Context, uuid.UUID, uuid.UUID) (integrationstore.IntegrationRecord, error)
+	MarkGitHubCheckRun(
+		context.Context, uuid.UUID, uuid.UUID, uuid.UUID, integrationstore.ConversationAddress, bool,
+	) error
 }
 
 // GitHubIntegrationInboxProvider uses signed body fields because event/delivery headers are unsigned:
@@ -326,6 +330,22 @@ func GitHubWebhookInstallationMatches(c integrationstore.IntegrationRecord, even
 		(event.Installation.AppID == 0 || event.Installation.AppID == appID)
 }
 
+func GitHubSelfPush(
+	integrationSetup integrationstore.IntegrationRecord, raw []byte,
+) (integrationstore.ConversationAddress, bool) {
+	var payload githubEventPayload
+	var identity GitHubAppIdentity
+	if json.Unmarshal(raw, &payload) != nil || json.Unmarshal(integrationSetup.ProviderIdentity, &identity) != nil ||
+		identity.BotUserID <= 0 || githubPayloadEventType(payload) != "pull_request" ||
+		payload.Action != "synchronize" || !githubSelfEvent(payload.Sender, identity) {
+		return integrationstore.ConversationAddress{}, false
+	}
+	kind, ref, err := integrationdefinition.Scope{GitHub: &integrationdefinition.GitHubScope{
+		RepositoryID: payload.Repository.ID, PullRequest: payload.PullRequest.Number,
+	}}.Conversation()
+	return integrationstore.ConversationAddress{Kind: kind, Ref: ref}, err == nil
+}
+
 func githubSelfEvent(user github.User, identity GitHubAppIdentity) bool {
 	return user.ID == identity.BotUserID || strings.EqualFold(user.Login, identity.BotLogin)
 }
@@ -395,6 +415,25 @@ func githubEventSenderAllowed(ctx context.Context, client *github.Client, event 
 	scope := event.Event.Scope.GitHub
 	return client.CanDirectPullRequest(ctx, github.Scope{RepositoryID: scope.RepositoryID, PullRequest: scope.PullRequest},
 		github.User{ID: userID, Login: *event.Actor.DisplayName})
+}
+
+func (p GitHubIntegrationInboxProvider) trackAgents(ctx context.Context,
+	integration integrationstore.IntegrationRecord, message executionstore.InboxMessage, agentIDs []uuid.UUID,
+) error {
+	kind, ref, err := message.Scope.Conversation()
+	if err != nil {
+		return err
+	}
+	var metadata GitHubEventMetadata
+	if err := json.Unmarshal(message.Metadata, &metadata); err != nil {
+		return err
+	}
+	var failures []error
+	for _, agentID := range agentIDs {
+		failures = append(failures, p.integrations.MarkGitHubCheckRun(ctx, integration.ProjectID, integration.ID,
+			agentID, integrationstore.ConversationAddress{Kind: kind, Ref: ref}, metadata.EventType == "pull_request"))
+	}
+	return errors.Join(failures...)
 }
 
 func (p GitHubIntegrationInboxProvider) acknowledge(ctx context.Context,

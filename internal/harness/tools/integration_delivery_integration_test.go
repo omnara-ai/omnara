@@ -889,6 +889,7 @@ type toolFixtureOptions struct {
 	withDiscordIntegration bool
 	withGitHubIntegration  bool
 	githubPermission       string
+	gitCredentials         string
 	withToolContext        bool
 	toolContextAddress     integrationstore.ConversationAddress
 	slackPermission        string
@@ -1287,6 +1288,9 @@ tools:
 		} {
 			sourceYAML += "  int__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n"
 		}
+	}
+	if fixtureOptions.gitCredentials != "" {
+		sourceYAML += "git_credentials: " + fixtureOptions.gitCredentials + "\n"
 	}
 	if withMCP {
 		sourceYAML += `mcp:
