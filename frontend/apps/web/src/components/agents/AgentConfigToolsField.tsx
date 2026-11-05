@@ -136,7 +136,7 @@ export function AgentConfigToolsField({
             {onAddCustomTool && (
               <>
                 {availableTools.length > 0 && <DropdownMenuSeparator />}
-                <DropdownMenuItem onSelect={onAddCustomTool}>Custom tool…</DropdownMenuItem>
+                <DropdownMenuItem onSelect={onAddCustomTool}>Custom tool</DropdownMenuItem>
               </>
             )}
           </DropdownMenuContent>
