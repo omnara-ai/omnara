@@ -18,7 +18,8 @@ export function CreateModelButton() {
   const { activeOrg } = useActiveOrg()
   const { projectId, project } = useProjectPage()
   const canCreate = canManageOrg(activeOrg.role) && (project?.access.can_manage_access ?? false)
-  const providersQuery = useModelProviders(activeOrg.id, { enabled: canCreate })
+  // The provider picker only sees loaded pages, so load enough for every provider an org has.
+  const providersQuery = useModelProviders(activeOrg.id, { pageSize: 100, enabled: canCreate })
   const providers = providersQuery.data?.pages.flatMap((page) => page.data) ?? []
   const [open, setOpen] = useState(false)
   // Chosen on click and kept until the next one: creating the first provider refreshes the

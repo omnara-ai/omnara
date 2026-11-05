@@ -86,9 +86,8 @@ export function ProjectMachinesView({
           />
         }
       >
-        <GrantMachineButton />
         <GrantMachinePoolButton />
-        <ConnectMachineButton />
+        <ConnectMachineButton variant="outline" />
         <CreateMachinePoolButton />
       </SearchHeader>
       {!list.isFiltering && <ProjectByoCard orgId={orgId} projectId={projectId} />}

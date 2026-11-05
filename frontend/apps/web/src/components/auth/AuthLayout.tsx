@@ -33,7 +33,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         <Wordmark />
       </header>
       <main className="relative flex flex-1 items-center justify-center py-10">
-        <AuroraPanel source="auth" className="w-full max-w-md p-6 sm:p-8">
+        <AuroraPanel source="auth" className="auth-panel w-full max-w-md p-6 sm:p-8">
           {children}
         </AuroraPanel>
       </main>

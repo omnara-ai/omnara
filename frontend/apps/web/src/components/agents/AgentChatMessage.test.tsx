@@ -129,7 +129,6 @@ it('collapses a turn of tool calls and reasoning into one line across steps', ()
   const queryClient = new QueryClient()
   queryClient.setQueryData(['web-config'], {})
   const activeOrg = currentUserOrg({ id: 'org_test' })
-  const succeeded = { outcome: 'succeeded', contentBlocks: [] }
   const tool = (id: string, toolName: string) =>
     ({
       type: 'dynamic-tool',
@@ -138,7 +137,8 @@ it('collapses a turn of tool calls and reasoning into one line across steps', ()
       toolName,
       state: 'output-available',
       input: {},
-      output: succeeded,
+      output: { contentBlocks: [] },
+      toolOutcome: 'succeeded',
     }) as const
   const reasoning = (id: string) =>
     ({ type: 'reasoning', id, text: 'Thinking it over', state: 'done' }) as const

@@ -7,6 +7,7 @@ import type {
   MediaRefContentBlock,
   ModelOutputDelta,
   ModelOutputEvent,
+  ToolCallOutcome,
   ToolCallType,
   ToolResultContentBlock,
 } from '@omnara/sdk'
@@ -43,6 +44,8 @@ type BaseOmnaraUIMessage = UIMessage<OmnaraMessageMetadata, OmnaraUIData>
 type OmnaraUIMessagePart = BaseOmnaraUIMessage['parts'][number] & {
   id: string
   toolType?: ToolCallType
+  /** How a finished tool call ended; set alongside `output-available`. */
+  toolOutcome?: ToolCallOutcome
   toolErrorCode?: string
 }
 export type OmnaraUIMessage = Omit<BaseOmnaraUIMessage, 'parts'> & {
@@ -249,10 +252,8 @@ export function agentEventsToMessages(
       toolType: part.toolType,
       state: 'output-available',
       input: part.input,
-      output: {
-        outcome: event.outcome,
-        contentBlocks,
-      },
+      output: { contentBlocks },
+      toolOutcome: event.outcome,
     }
     if (toolErrorCode != null) toolPart.toolErrorCode = toolErrorCode
     const mediaParts = contentBlocks.flatMap((block, blockIndex) =>

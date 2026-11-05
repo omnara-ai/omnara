@@ -94,7 +94,7 @@ const toolDefs = {
   },
   storage_download: {
     verbs: ['copy', 'Copying', 'Copied'],
-    target: (i) => `${pathOr(i.source, 'a file')} to a machine`,
+    target: (i) => `${pathOr(i.path, 'a file')} to a machine`,
     noun: files,
   },
 
@@ -135,12 +135,13 @@ const humanize = (name: string) => name.replaceAll(/[_-]+/g, ' ').trim()
 function toolDef(name: string): ToolDef {
   const known = tools.get(name)
   if (known) return known
-  // MCP tools arrive as mcp__{server}__{tool}; server keys never contain underscores.
-  const mcp = /^mcp__([A-Za-z][A-Za-z0-9-]*)__(.+)$/.exec(name)
-  if (mcp?.[1] && mcp[2]) {
-    const tool = humanize(mcp[2])
-    const server = mcp[1]
-    return { verbs: ['use', 'Using', 'Used'], target: () => `${tool} on ${server}` }
+  // MCP tools arrive as mcp__{server}__{tool} and integration tools as
+  // int__{integration}__{operation}; server and integration keys never contain underscores.
+  const namespaced = /^(?:mcp|int)__([A-Za-z][A-Za-z0-9-]*)__(.+)$/.exec(name)
+  if (namespaced?.[1] && namespaced[2]) {
+    const tool = humanize(namespaced[2])
+    const source = namespaced[1]
+    return { verbs: ['use', 'Using', 'Used'], target: () => `${tool} on ${source}` }
   }
   return { verbs: ['use', 'Using', 'Used'], target: () => humanize(name) }
 }
@@ -160,7 +161,8 @@ export function describeTool(name: string, input: ToolInput, status: ToolStatus)
     done: past,
     failed: `Couldn't ${base}`,
     denied: `Wasn't allowed to ${base}`,
-    canceled: `Didn't ${base}`,
+    // A canceled call may already have run part way, so don't claim it didn't happen.
+    canceled: `Canceled ${present.toLowerCase()}`,
   }[status]
   return { verb, target: target(input) }
 }

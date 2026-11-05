@@ -16,20 +16,23 @@ import { cn } from '@/lib/utils'
 export type ToolPart = Extract<OmnaraUIMessage['parts'][number], { type: 'dynamic-tool' }>
 export type ReasoningPart = Extract<OmnaraUIMessage['parts'][number], { type: 'reasoning' }>
 
-// A finished call's output as the chat stream builds it: the outcome plus the result blocks.
+// A finished call's output as the chat stream builds it: the result blocks.
 const toolOutputSchema = z
-  .object({
-    outcome: z.string().optional(),
-    contentBlocks: z.array(z.object({ text: z.string().optional() })).optional(),
-  })
+  .object({ contentBlocks: z.array(z.object({ text: z.string().optional() })).optional() })
   .catch({})
 
 function toolStatus(part: ToolPart): ToolStatus {
   if (part.state === 'output-error') return 'failed'
   if (part.state !== 'output-available') return 'running'
-  const { outcome } = toolOutputSchema.parse(part.output)
-  if (outcome === 'failed' || outcome === 'denied' || outcome === 'canceled') return outcome
-  return 'done'
+  switch (part.toolOutcome) {
+    case 'failed':
+    case 'denied':
+    case 'canceled':
+      return part.toolOutcome
+    case 'succeeded':
+    case undefined:
+      return 'done'
+  }
 }
 
 function activityItem(part: ToolPart | ReasoningPart): ActivityItem {

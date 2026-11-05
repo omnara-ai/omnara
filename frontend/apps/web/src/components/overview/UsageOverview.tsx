@@ -14,7 +14,6 @@ import {
   type UsageTimeseriesScope,
 } from '@/components/usage/UsageTimeseriesPanel'
 import { formatCount } from '@/lib/format'
-import { cn } from '@/lib/utils'
 
 const usageDays = 30
 
@@ -31,54 +30,44 @@ export function UsageOverview({
   orgId,
   filters = {},
   reportLink,
-  aurora = false,
 }: {
   orgId: string
   filters?: UsageTimeseriesScope
   reportLink?: ReactNode
-  /** Draws the usage in a panel lit by the page's backdrop, under a quiet label. */
-  aurora?: boolean
 }) {
-  const panel = (
-    <UsageTimeseriesPanel
-      orgId={orgId}
-      filters={{ ...filters, ...lastDaysUsageWindow(usageDays), interval: 'day' }}
-      summary={(timeseries) => <UsageFigures timeseries={timeseries} plain={aurora} />}
-      showControls={false}
-    />
-  )
+  // Drawn in a panel lit by the page's backdrop, under a quiet label.
   return (
-    <section className={cn('flex flex-col pb-10', aurora ? 'gap-3' : 'gap-6')}>
+    <section className="flex flex-col gap-3 pb-10">
       <OverviewSectionHeader
         title="Usage"
         subtitle={`Last ${usageDays} days`}
         action={reportLink}
-        subtle={aurora}
       />
-      {aurora ? (
-        <div className="relative">
-          <DitherBackdrop
-            className="absolute inset-x-0 -inset-y-24"
-            blobs={usageBlobs}
-            fadeFrom={1}
-            source="usage"
+      <div className="relative">
+        <DitherBackdrop
+          className="absolute inset-x-0 -inset-y-24"
+          blobs={usageBlobs}
+          fadeFrom={1}
+          source="usage"
+        />
+        <AuroraPanel source="usage" className="p-5 sm:p-6">
+          <UsageTimeseriesPanel
+            orgId={orgId}
+            filters={{ ...filters, ...lastDaysUsageWindow(usageDays), interval: 'day' }}
+            summary={(timeseries) => <UsageFigures timeseries={timeseries} />}
+            showControls={false}
           />
-          <AuroraPanel source="usage" className="p-5 sm:p-6">
-            {panel}
-          </AuroraPanel>
-        </div>
-      ) : (
-        panel
-      )}
+        </AuroraPanel>
+      </div>
     </section>
   )
 }
 
-function UsageFigures({ timeseries, plain }: { timeseries: UsageTimeseries; plain: boolean }) {
+function UsageFigures({ timeseries }: { timeseries: UsageTimeseries }) {
   const { totals } = timeseries
   return (
     <UsageStats
-      plain={plain}
+      plain
       stats={[
         { label: 'Tokens', value: formatUsageValue('tokens', usageMeasureValue(totals, 'tokens')) },
         {

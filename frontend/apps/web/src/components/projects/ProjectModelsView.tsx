@@ -33,10 +33,13 @@ export function ProjectModelsView({
   orgId,
   projectId,
   canManageAccess,
+  canCreateModels,
 }: {
   orgId: string
   projectId: string
   canManageAccess: boolean
+  /** Creating a model also needs org management, so only some access managers can. */
+  canCreateModels: boolean
 }) {
   const list = useResourceList<ProjectModelGrantListSort>('-created_at')
   const grantsQuery = useProjectModelGrants(orgId, projectId, {
@@ -153,9 +156,11 @@ export function ProjectModelsView({
           void grantsQuery.refetch()
         }}
         emptyMessage={
-          canManageAccess
+          canCreateModels
             ? 'No shared models. Create a model or share an organization model so agents in this project can use it.'
-            : 'No models are shared with this project yet. Ask a project admin to share one.'
+            : canManageAccess
+              ? 'No shared models. Share an organization model so agents in this project can use it.'
+              : 'No models are shared with this project yet. Ask a project admin to share one.'
         }
         emptyAction={<GrantModelButton />}
       />

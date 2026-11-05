@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type ComponentProps, useState } from 'react'
 
 import { ConnectMachineDialog } from '@/components/org/ConnectMachineDialog'
 import { Button } from '@/components/ui/button'
@@ -11,7 +11,11 @@ import { useProjectPage } from '@/lib/use-project-page'
  * you operate with the org and shares it with the project. Renders nothing unless the
  * viewer can manage both project access and the org.
  */
-export function ConnectMachineButton() {
+export function ConnectMachineButton({
+  variant,
+}: {
+  variant?: ComponentProps<typeof Button>['variant']
+}) {
   const { activeOrg } = useActiveOrg()
   const { projectId, project } = useProjectPage()
   const [open, setOpen] = useState(false)
@@ -21,7 +25,7 @@ export function ConnectMachineButton() {
     <>
       <Button
         type="button"
-        variant="outline"
+        variant={variant}
         size="sm"
         onClick={() => {
           setOpen(true)

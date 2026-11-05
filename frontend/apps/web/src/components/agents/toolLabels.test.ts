@@ -16,6 +16,10 @@ describe('describeTool', () => {
       verb: "Couldn't run",
       target: 'npm test',
     })
+    expect(describeTool('storage_download', { path: 'reports/q3.csv' }, 'done')).toEqual({
+      verb: 'Copied',
+      target: 'reports/q3.csv to a machine',
+    })
   })
 
   it('says when a call was denied or canceled instead of describing it as done', () => {
@@ -23,7 +27,7 @@ describe('describeTool', () => {
       "Wasn't allowed to run",
     )
     expect(describeTool('storage_read', { path: 'a.md' }, 'canceled')).toEqual({
-      verb: "Didn't read",
+      verb: 'Canceled reading',
       target: 'a.md',
     })
   })
@@ -34,10 +38,14 @@ describe('describeTool', () => {
     )
   })
 
-  it('names MCP and unknown tools by their humanized name', () => {
+  it('names MCP, integration, and unknown tools by their humanized name', () => {
     expect(describeTool('mcp__linear__create_issue', {}, 'done')).toEqual({
       verb: 'Used',
       target: 'create issue on linear',
+    })
+    expect(describeTool('int__slack__post_message', {}, 'done')).toEqual({
+      verb: 'Used',
+      target: 'post message on slack',
     })
     expect(describeTool('slack_post_message', {}, 'done').target).toBe('slack post message')
   })
