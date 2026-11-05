@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/urlpolicy"
 	"golang.org/x/oauth2"
 )
@@ -32,7 +34,10 @@ const (
 )
 
 type AuthOptions struct {
-	HTTPClient *http.Client
+	HTTPClient             *http.Client
+	EndpointHTTPClient     *http.Client
+	PrivateEndpoints       *ssrf.Allowlist
+	AllowInsecureLocalHTTP bool
 }
 
 type AuthRequirement struct {
@@ -108,11 +113,11 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 	if endpoint == "" {
 		return AuthRequirement{}, errors.New("mcp auth: endpoint URL is required")
 	}
-	if err := urlpolicy.RequireHTTPSOrLoopback(endpoint); err != nil {
+	if err := urlpolicy.RequireHTTPSOrPrivateEndpoint(endpoint, opts.PrivateEndpoints); err != nil {
 		return AuthRequirement{}, fmt.Errorf("mcp auth: endpoint URL: %w", err)
 	}
 	client := clientWithoutRedirects(opts.HTTPClient)
-	response, err := probeMCPAuth(ctx, endpoint, client)
+	response, err := probeMCPAuth(ctx, endpoint, clientWithoutRedirects(cmp.Or(opts.EndpointHTTPClient, opts.HTTPClient)))
 	if err != nil {
 		return AuthRequirement{}, err
 	}
@@ -130,6 +135,7 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 		endpoint,
 		response.Header.Values("WWW-Authenticate"),
 		client,
+		opts.AllowInsecureLocalHTTP,
 	)
 	if errors.Is(err, context.Canceled) || IsRetryableConnectionFailure(err) {
 		return AuthRequirement{}, err
@@ -399,6 +405,7 @@ func authRequirementFromChallenge(
 	endpoint string,
 	headers []string,
 	client *http.Client,
+	allowInsecureLocalHTTP bool,
 ) (AuthRequirement, error) {
 	challenges, err := oauthex.ParseWWWAuthenticate(headers)
 	if err != nil {
@@ -408,7 +415,9 @@ func authRequirementFromChallenge(
 	if err != nil {
 		return AuthRequirement{}, err
 	}
-	authorizationServerMetadata, err := discoverAuthorizationServerMetadata(ctx, protectedResourceMetadata, client)
+	authorizationServerMetadata, err := discoverAuthorizationServerMetadata(
+		ctx, protectedResourceMetadata, client, allowInsecureLocalHTTP,
+	)
 	if err != nil {
 		return AuthRequirement{}, err
 	}
@@ -473,10 +482,11 @@ func discoverAuthorizationServerMetadata(
 	ctx context.Context,
 	protectedResourceMetadata *oauthex.ProtectedResourceMetadata,
 	client *http.Client,
+	allowInsecureLocalHTTP bool,
 ) (*oauthex.AuthServerMeta, error) {
 	var discoveryError error
 	for _, issuer := range protectedResourceMetadata.AuthorizationServers {
-		authorizationServerMetadata, err := authServerMetadataForIssuer(ctx, issuer, client)
+		authorizationServerMetadata, err := authServerMetadataForIssuer(ctx, issuer, client, allowInsecureLocalHTTP)
 		if err != nil {
 			discoveryError = preferRetryableFailure(discoveryError, err)
 			continue
@@ -493,10 +503,11 @@ func authServerMetadataForIssuer(
 	ctx context.Context,
 	issuer string,
 	client *http.Client,
+	allowInsecureLocalHTTP bool,
 ) (*oauthex.AuthServerMeta, error) {
 	var discoveryError error
 	for _, metadataURL := range authorizationServerMetadataURLs(issuer) {
-		authorizationServerMetadata, err := fetchAuthServerMetadata(ctx, metadataURL, issuer, client)
+		authorizationServerMetadata, err := fetchAuthServerMetadata(ctx, metadataURL, issuer, client, allowInsecureLocalHTTP)
 		if errors.Is(err, errAuthServerMetadataNotFound) {
 			continue
 		}
@@ -554,6 +565,7 @@ func fetchAuthServerMetadata(
 	metadataURL string,
 	issuer string,
 	client *http.Client,
+	allowInsecureLocalHTTP bool,
 ) (*oauthex.AuthServerMeta, error) {
 	if err := urlpolicy.RequireHTTPSOrLoopback(metadataURL); err != nil {
 		return nil, fmt.Errorf("metadataURL: %w", err)
@@ -586,13 +598,13 @@ func fetchAuthServerMetadata(
 	if metadata.Issuer != issuer && !isMultiTenantIssuerAlias(metadata.Issuer, issuer) {
 		return nil, fmt.Errorf("metadata issuer %q does not match issuer URL %q", metadata.Issuer, issuer)
 	}
-	if err := validateAuthServerMetadataURLs(metadata); err != nil {
+	if err := validateAuthServerMetadataURLs(metadata, allowInsecureLocalHTTP); err != nil {
 		return nil, err
 	}
 	return &metadata, nil
 }
 
-func validateAuthServerMetadataURLs(metadata oauthex.AuthServerMeta) error {
+func validateAuthServerMetadataURLs(metadata oauthex.AuthServerMeta, allowInsecureLocalHTTP bool) error {
 	required := map[string]string{
 		"authorization_endpoint": metadata.AuthorizationEndpoint,
 		"token_endpoint":         metadata.TokenEndpoint,
@@ -601,7 +613,7 @@ func validateAuthServerMetadataURLs(metadata oauthex.AuthServerMeta) error {
 		if value == "" {
 			continue
 		}
-		if err := urlpolicy.RequireHTTPSOrLoopback(value); err != nil {
+		if err := requireOAuthURL(value, allowInsecureLocalHTTP); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 	}
@@ -615,9 +627,19 @@ func validateAuthServerMetadataURLs(metadata oauthex.AuthServerMeta) error {
 		if value == "" {
 			continue
 		}
-		if err := urlpolicy.RequireHTTPSOrLoopback(value); err != nil {
+		if err := requireOAuthURL(value, allowInsecureLocalHTTP); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
+	}
+	return nil
+}
+
+func requireOAuthURL(rawURL string, allowInsecureLocalHTTP bool) error {
+	if err := urlpolicy.RequireHTTPSOrLoopback(rawURL); err != nil {
+		return err
+	}
+	if parsed, _ := url.Parse(rawURL); parsed.Scheme != "https" && !allowInsecureLocalHTTP {
+		return errors.New("URL must use HTTPS")
 	}
 	return nil
 }

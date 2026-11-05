@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -33,6 +34,7 @@ type RuntimeConfig struct {
 	OmnaraAPIURL      string
 	ProviderAuthToken string
 	HTTPRecorder      *metrics.HTTPClientRecorder
+	HTTPClient        *http.Client
 }
 
 type ProvisionMachineResult struct {

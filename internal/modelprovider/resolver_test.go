@@ -209,7 +209,8 @@ func TestHTTPClientForProviderConfigAllowsLoopbackInDevMode(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := (Resolver{AllowLoopback: true}).httpClientForProviderConfig(modelstore.ModelProviderConfigRecord{
+	resolver := Resolver{HTTPTransport: NewHTTPTransport(true, nil)}
+	client, err := resolver.httpClientForProviderConfig(modelstore.ModelProviderConfigRecord{
 		APIFormat: modelprotocol.APIFormatOpenAIResponses,
 	})
 	if err != nil {
@@ -230,11 +231,11 @@ func TestHTTPClientForProviderConfigDefersRedirectHandlingToRoute(t *testing.T) 
 		name     string
 		resolver Resolver
 	}{
-		{name: "plain", resolver: Resolver{AllowLoopback: true}},
+		{name: "plain", resolver: Resolver{HTTPTransport: NewHTTPTransport(true, nil)}},
 		{
 			name: "observed",
 			resolver: Resolver{
-				AllowLoopback: true,
+				HTTPTransport: NewHTTPTransport(true, nil),
 				HTTPRecorder:  metrics.NewHTTPClientRecorder(metrics.New(), metrics.SubsystemHTTPClient),
 			},
 		},

@@ -168,6 +168,17 @@ timeout. Explicit values in `OMNARA_DATABASE_URL` take precedence.
 | `OMNARA_WEB_SERVING` | `embedded` serves a SPA compiled into `cmd/api`; `disabled` leaves web assets to a separate service. The official cluster API image contains no frontend assets and sets this to `disabled`; the cluster web image serves only static assets and does not proxy API traffic. | `disabled` | No |
 | `OMNARA_TRUSTED_PROXY_CIDRS` | Comma-separated proxy/load-balancer hop CIDRs whose `X-Forwarded-For`/`X-Real-IP` are trusted for auth rate limiting. Only hops you control. | — | No |
 
+## Private network egress
+
+Omnara refuses outbound requests to private, loopback, and other non-public addresses by default. To reach services on your own network, such as a model server, list their addresses.
+
+| Variable | Purpose | Default | Required |
+| --- | --- | --- | --- |
+| `OMNARA_PRIVATE_ENDPOINT_CIDRS` | Private addresses that model providers, MCP servers, event webhooks, and machine pool APIs may reach. Plain `http://` URLs are accepted for model providers, MCP servers, and event webhooks, and only connect to listed addresses. MCP sign-in (OAuth) still requires HTTPS. Set it on the API, worker, and maintenance services. | — | No |
+| `OMNARA_WEB_FETCH_PRIVATE_CIDRS` | Private addresses the `web_fetch` tool may reach. Plain `http://` works for listed IP addresses; other `http://` links are upgraded to HTTPS. Set it on the worker. | — | No |
+
+Both take a comma-separated list of IP addresses or CIDR ranges, each with an optional port, such as `10.0.5.0/24,192.168.1.20:11434,[fd00::5]:8080`. A URL can use a hostname that resolves to a listed address. To reach a service in Docker, list its Docker network's range, which `docker network inspect <network>` shows. Link-local and cloud metadata addresses stay blocked even inside a listed range.
+
 ## API rate limits
 
 Limits apply per user, per org for org API keys, and per machine for machine daemons.

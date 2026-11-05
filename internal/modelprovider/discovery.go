@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
@@ -45,6 +46,7 @@ type DiscoverFunc func(
 	apiKey string,
 	headers map[string]string,
 	allowLoopback bool,
+	privateEndpoints *ssrf.Allowlist,
 ) ([]DiscoveredModel, error)
 
 const (
@@ -59,6 +61,7 @@ func DiscoverModels(
 	apiKey string,
 	headers map[string]string,
 	allowLoopback bool,
+	privateEndpoints *ssrf.Allowlist,
 ) ([]DiscoveredModel, error) {
 	auth, err := routeAuthForProviderConfig(providerConfig, apiKey)
 	if err != nil {
@@ -74,7 +77,8 @@ func DiscoverModels(
 	}
 	ctx, cancel := context.WithTimeout(ctx, discoveryRequestTimeout)
 	defer cancel()
-	client := newSSRFHTTPClient(allowLoopback)
+	client := &http.Client{Transport: NewHTTPTransport(allowLoopback, privateEndpoints)}
+	defer client.CloseIdleConnections()
 	client.Timeout = discoveryRequestTimeout
 	client = outboundhttp.CloneWithoutRedirects(client)
 	if providerConfig.APIVariant == modelprotocol.APIVariantOpenRouter {

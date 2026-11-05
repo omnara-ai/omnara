@@ -80,6 +80,10 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
+	webFetchPrivateToolDescription = "Fetch a public http(s) URL or an allowed private address " +
+		"and return its readable content as markdown (read-only). " +
+		"Other localhost and private or internal addresses are not reachable from this tool - use run_command " +
+		"(e.g. curl) on the machine where the service runs instead."
 	storageWriteToolDescription = "Create or edit a memory text file. " +
 		"Changing an existing file fails unless you read, wrote, uploaded, or downloaded its current content. " +
 		"Returns path."
@@ -402,7 +406,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameWebSearch], err = webSearchTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
+	if entries[ToolNameWebFetch], err = WebFetchTool(false); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameStorageRead], err = storageReadTool(); err != nil {
@@ -604,15 +608,20 @@ func skillTool() (Entry, error) {
 	)
 }
 
-func webFetchTool() (Entry, error) {
+func WebFetchTool(privateAddresses bool) (Entry, error) {
+	description, urlDescription := webFetchToolDescription, "Absolute http(s) URL of a public web page."
+	if privateAddresses {
+		description = webFetchPrivateToolDescription
+		urlDescription = "Absolute http(s) URL of a public web page or an allowed private address."
+	}
 	entry, err := toolEntry(
 		ToolNameWebFetch,
-		webFetchToolDescription,
+		description,
 		[]string{"url"},
 		map[string]any{
 			"url": map[string]any{
 				"type":        "string",
-				"description": "Absolute http(s) URL of a public web page.",
+				"description": urlDescription,
 			},
 			"format": map[string]any{
 				"type":        "string",

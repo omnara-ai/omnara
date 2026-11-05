@@ -2,6 +2,7 @@ package providers
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
@@ -27,16 +29,22 @@ const (
 
 var ErrResponseTooLarge = errors.New("provider response exceeds the byte limit")
 
-var providerHTTPClient = outboundhttp.NewPublicClient(
-	outboundhttp.PublicClientOptions{Timeout: HTTPClientTimeout},
-)
+var providerHTTPClient = NewSharedHTTPClient(nil)
+
+func NewSharedHTTPClient(privateEndpoints *ssrf.Allowlist) *http.Client {
+	return outboundhttp.NewPublicClient(
+		outboundhttp.PublicClientOptions{Timeout: HTTPClientTimeout, Allowlist: privateEndpoints},
+	)
+}
 
 func NewHTTPClient(recorder *metrics.HTTPClientRecorder, provider string) *http.Client {
 	return ObserveHTTPClient(providerHTTPClient, recorder, provider)
 }
 
 func ObserveHTTPClient(client *http.Client, recorder *metrics.HTTPClientRecorder, provider string) *http.Client {
-	return metrics.NewObservedHTTPClient(client, recorder, metrics.WithHTTPClientHostLabel(provider))
+	return metrics.NewObservedHTTPClient(
+		cmp.Or(client, providerHTTPClient), recorder, metrics.WithHTTPClientHostLabel(provider),
+	)
 }
 
 func IsHTTPS(parsed *url.URL) bool {

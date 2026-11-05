@@ -107,7 +107,7 @@ func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 		OrgID: uuid.New(), ToolCallID: &toolID, ToolState: &state,
 		ClaimToken: uuid.New(), AttemptCount: 1,
 	}
-	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7), store, delivery
+	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7, nil), store, delivery
 }
 
 func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {

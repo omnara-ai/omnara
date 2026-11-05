@@ -485,7 +485,7 @@ export type CreateModelProviderConfigRequest = {
     api_format?: ModelApiFormat;
     api_variant?: ModelProviderApiVariant;
     /**
-     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
+     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted when the API is running in insecure dev mode.
      */
     base_url?: string;
     /**
@@ -529,7 +529,7 @@ export type CreateModelProviderConfigRequest = {
  */
 export type UpdateModelProviderConfigRequest = {
     /**
-     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
+     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted when the API is running in insecure dev mode.
      */
     base_url?: string;
     /**
@@ -576,7 +576,7 @@ export type ModelProviderConfig = {
     api_format: ModelApiFormat;
     api_variant: ModelProviderApiVariantResponse;
     /**
-     * Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs.
+     * Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are for insecure dev-mode configs.
      */
     base_url: string;
     endpoint_path: string;

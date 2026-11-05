@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -225,7 +226,7 @@ func normalizeModelProviderEndpointPath(apiFormat modelprotocol.APIFormat, endpo
 	return endpointPath
 }
 
-func normalizeModelProviderBaseURL(baseURL string) (string, error) {
+func normalizeModelProviderBaseURL(baseURL string, privateEndpoints *ssrf.Allowlist) (string, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
 		return "", fmt.Errorf("base_url is required: %w", storeerr.ErrInvalidModelProviderConfig)
@@ -243,7 +244,8 @@ func normalizeModelProviderBaseURL(baseURL string) (string, error) {
 	if parsed.User != nil {
 		return "", fmt.Errorf("base_url cannot include user information: %w", storeerr.ErrInvalidModelProviderConfig)
 	}
-	if parsed.Scheme == "http" && !isLocalModelProviderHTTPHost(parsed.Hostname()) {
+	if parsed.Scheme == "http" && !isLocalModelProviderHTTPHost(parsed.Hostname()) &&
+		!privateEndpoints.PermitsPlainHTTP(parsed) {
 		return "", fmt.Errorf(
 			"base_url must use https unless it targets localhost or a loopback IP: %w",
 			storeerr.ErrInvalidModelProviderConfig,

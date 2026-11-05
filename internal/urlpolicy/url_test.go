@@ -1,6 +1,10 @@
 package urlpolicy
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/omnara-ai/omnara/internal/ssrf"
+)
 
 func TestRequireHTTPSOrLoopback(t *testing.T) {
 	t.Parallel()
@@ -32,5 +36,38 @@ func TestRequireHTTPSOrLoopback(t *testing.T) {
 				t.Fatalf("RequireHTTPSOrLoopback(%q) error = %v, wantErr %v", test.rawURL, err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestRequireHTTPSOrPrivateEndpoint(t *testing.T) {
+	t.Parallel()
+	privateEndpoints, err := ssrf.ParseEndpointAllowlist([]string{"10.0.0.0/8", "fd00::/8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		rawURL  string
+		wantErr bool
+	}{
+		{name: "allowlisted literal http", rawURL: "http://10.0.5.21:8000/v1"},
+		{name: "allowlisted bracketed ipv6 literal accepted", rawURL: "http://[fd00::1]:8080/token"},
+		{name: "non-allowlisted bracketed ipv6 rejected", rawURL: "http://[2001:db8::1]/token", wantErr: true},
+		{name: "non-allowlisted private literal http", rawURL: "http://192.168.1.10:11434/v1", wantErr: true},
+		{name: "hostname defers to dial when allowlist configured", rawURL: "http://auth.example.com/token"},
+		{name: "https unaffected", rawURL: "https://anything.example.com/token"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			err := RequireHTTPSOrPrivateEndpoint(test.rawURL, privateEndpoints)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("RequireHTTPSOrPrivateEndpoint(%q) error = %v, wantErr %v", test.rawURL, err, test.wantErr)
+			}
+		})
+	}
+	if err := RequireHTTPSOrLoopback("http://10.0.5.21:8000/v1"); err == nil {
+		t.Fatal("RequireHTTPSOrLoopback accepted plain HTTP to an allowed private address")
 	}
 }

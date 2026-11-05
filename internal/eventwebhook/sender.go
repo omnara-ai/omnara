@@ -24,6 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	logpkg "github.com/omnara-ai/omnara/observability/wideevent"
@@ -61,9 +62,11 @@ func (e recipientError) Unwrap() error { return e.error }
 
 func (recipientError) EventWebhookRecipientFailure() {}
 
-func New(store Store, log *slog.Logger, maxInFlight, perOrgLimit int) *Sender {
+func New(store Store, log *slog.Logger, maxInFlight, perOrgLimit int, privateEndpoints *ssrf.Allowlist) *Sender {
 	return &Sender{store: store, log: log, maxInFlight: maxInFlight, perOrgLimit: perOrgLimit,
-		client: outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{Timeout: attemptTimeout})}
+		client: outboundhttp.NewPublicClient(
+			outboundhttp.PublicClientOptions{Timeout: attemptTimeout, Allowlist: privateEndpoints},
+		)}
 }
 
 func (s *Sender) Run(ctx context.Context) {

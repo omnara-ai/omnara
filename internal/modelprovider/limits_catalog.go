@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
@@ -48,7 +49,7 @@ type LimitsCatalog struct {
 }
 
 func NewLimitsCatalog() *LimitsCatalog {
-	client := newSSRFHTTPClient(false)
+	client := &http.Client{Transport: defaultHTTPTransport}
 	client.Timeout = catalogRequestTimeout
 	return &LimitsCatalog{
 		baseURL: openRouterCatalogBaseURL,
@@ -248,8 +249,9 @@ func NewDiscoverer(catalog *LimitsCatalog) DiscoverFunc {
 		apiKey string,
 		headers map[string]string,
 		allowLoopback bool,
+		privateEndpoints *ssrf.Allowlist,
 	) ([]DiscoveredModel, error) {
-		models, err := DiscoverModels(ctx, providerConfig, apiKey, headers, allowLoopback)
+		models, err := DiscoverModels(ctx, providerConfig, apiKey, headers, allowLoopback, privateEndpoints)
 		if err != nil {
 			return nil, err
 		}

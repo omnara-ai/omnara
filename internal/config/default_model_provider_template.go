@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"gopkg.in/yaml.v3"
 )
@@ -43,7 +44,10 @@ type defaultConfiguredModelFile struct {
 	APIVariantOptions         map[string]any `yaml:"api_variant_options"`
 }
 
-func loadDefaultModelProviderTemplate(path string) (modelstore.DefaultModelProviderTemplate, error) {
+func loadDefaultModelProviderTemplate(
+	path string,
+	privateEndpoints *ssrf.Allowlist,
+) (modelstore.DefaultModelProviderTemplate, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return modelstore.DefaultModelProviderTemplate{}, fmt.Errorf("open OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE: %w", err)
@@ -64,12 +68,13 @@ func loadDefaultModelProviderTemplate(path string) (modelstore.DefaultModelProvi
 		}
 		return modelstore.DefaultModelProviderTemplate{}, fmt.Errorf("parse OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE: %w", err)
 	}
-	return defaultModelProviderTemplateFromFile(parsed, "provider")
+	return defaultModelProviderTemplateFromFile(parsed, "provider", privateEndpoints)
 }
 
 func defaultModelProviderTemplateFromFile(
 	parsed defaultModelProviderTemplateFile,
 	label string,
+	privateEndpoints *ssrf.Allowlist,
 ) (modelstore.DefaultModelProviderTemplate, error) {
 	models := make([]modelstore.DefaultConfiguredModelTemplate, 0, len(parsed.Models))
 	for index, parsedModel := range parsed.Models {
@@ -97,7 +102,7 @@ func defaultModelProviderTemplateFromFile(
 		AuthOptions:          authOptions,
 		Models:               models,
 	}
-	prepared, err := modelstore.PrepareDefaultModelProviderTemplate(template)
+	prepared, err := modelstore.PrepareDefaultModelProviderTemplate(template, privateEndpoints)
 	if err != nil {
 		return modelstore.DefaultModelProviderTemplate{}, fmt.Errorf(
 			"OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE %s: %w",

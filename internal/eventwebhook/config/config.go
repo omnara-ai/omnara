@@ -17,8 +17,8 @@ type Settings struct {
 	SigningSecretID uuid.UUID
 }
 
-func Validate(settings Settings) (Settings, error) {
-	url, err := ValidateURL(settings.URL)
+func Validate(settings Settings, privateEndpoints *ssrf.Allowlist) (Settings, error) {
+	url, err := ValidateURL(settings.URL, privateEndpoints)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -39,16 +39,19 @@ func Validate(settings Settings) (Settings, error) {
 	return settings, nil
 }
 
-func ValidateURL(raw string) (string, error) {
+func ValidateURL(raw string, privateEndpoints *ssrf.Allowlist) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.Opaque != "" {
+	if err != nil || parsed.Hostname() == "" || parsed.Opaque != "" || (parsed.Scheme != "https" &&
+		(parsed.Scheme != "http" || !privateEndpoints.PermitsPlainHTTP(parsed))) {
 		return "", errors.New("event webhook URL must be an absolute HTTPS URL")
 	}
 	if parsed.User != nil || parsed.Fragment != "" {
 		return "", errors.New("event webhook URL must not contain credentials or a fragment")
 	}
 	host := ssrf.ClassifyURLHost(parsed.Hostname())
-	if host.LocalDev || (host.IP != nil && !ssrf.IsAllowedIP(host.IP, false)) {
+	port := ssrf.URLPort(parsed)
+	if (host.IP == nil && host.LocalDev && !privateEndpoints.PermitsLocalhost(port)) ||
+		(host.IP != nil && !privateEndpoints.PermitsIP(host.IP, port, false)) {
 		return "", errors.New("event webhook URL must target a public host")
 	}
 	normalized := parsed.String()

@@ -231,7 +231,11 @@ func createModelProviderConfigHasField(body openapigen.CreateModelProviderConfig
 	}
 }
 
-func validateModelProviderBaseURLNetworkPolicy(baseURL string, allowInsecureDev bool) error {
+func validateModelProviderBaseURLNetworkPolicy(
+	baseURL string,
+	allowInsecureDev bool,
+	privateEndpoints *ssrf.Allowlist,
+) error {
 	parsed, err := url.Parse(strings.TrimRight(strings.TrimSpace(baseURL), "/"))
 	if err != nil {
 		return errors.New("base_url is invalid")
@@ -241,7 +245,7 @@ func validateModelProviderBaseURLNetworkPolicy(baseURL string, allowInsecureDev 
 	}
 	hostname := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
 	if hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") {
-		if allowInsecureDev {
+		if allowInsecureDev || privateEndpoints.PermitsLocalhost(ssrf.URLPort(parsed)) {
 			return nil
 		}
 		return errors.New("base_url cannot target localhost unless insecure dev mode is enabled")
@@ -250,7 +254,7 @@ func validateModelProviderBaseURLNetworkPolicy(baseURL string, allowInsecureDev 
 	if ip == nil {
 		return nil
 	}
-	if ssrf.IsAllowedIP(ip, allowInsecureDev) {
+	if privateEndpoints.PermitsIP(ip, ssrf.URLPort(parsed), allowInsecureDev) {
 		return nil
 	}
 	if ip.IsLoopback() {
@@ -315,6 +319,7 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 	if err := validateModelProviderBaseURLNetworkPolicy(
 		command.BaseURL,
 		s.server.allowInsecureModelProviderEndpoints,
+		s.server.privateEndpoints,
 	); err != nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
 	}
@@ -405,6 +410,7 @@ func (s strictOpenAPIServer) providerModelCatalog(
 		apiKey,
 		headers,
 		s.server.allowInsecureModelProviderEndpoints,
+		s.server.privateEndpoints,
 	)
 	if err != nil {
 		return failed(err.Error())
@@ -551,6 +557,7 @@ func (s strictOpenAPIServer) UpdateModelProviderConfig(
 		if err := validateModelProviderBaseURLNetworkPolicy(
 			*input.BaseURL,
 			s.server.allowInsecureModelProviderEndpoints,
+			s.server.privateEndpoints,
 		); err != nil {
 			return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
 		}
