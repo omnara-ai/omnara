@@ -226,7 +226,7 @@ func normalizeModelProviderEndpointPath(apiFormat modelprotocol.APIFormat, endpo
 	return endpointPath
 }
 
-func normalizeModelProviderBaseURL(baseURL string) (string, error) {
+func normalizeModelProviderBaseURL(baseURL string, privateEndpoints *ssrf.Allowlist) (string, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
 		return "", fmt.Errorf("base_url is required: %w", storeerr.ErrInvalidModelProviderConfig)
@@ -245,7 +245,7 @@ func normalizeModelProviderBaseURL(baseURL string) (string, error) {
 		return "", fmt.Errorf("base_url cannot include user information: %w", storeerr.ErrInvalidModelProviderConfig)
 	}
 	if parsed.Scheme == "http" && !isLocalModelProviderHTTPHost(parsed.Hostname()) &&
-		!ssrf.Endpoints.PermitsPlainHTTP(parsed.Hostname()) {
+		!privateEndpoints.PermitsPlainHTTP(parsed) {
 		return "", fmt.Errorf(
 			"base_url must use https unless it targets localhost or a loopback IP: %w",
 			storeerr.ErrInvalidModelProviderConfig,

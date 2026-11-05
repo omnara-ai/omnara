@@ -3,8 +3,6 @@ package toolcatalog
 import (
 	"strings"
 	"testing"
-
-	"github.com/omnara-ai/omnara/internal/ssrf"
 )
 
 func TestDefaultCatalogDoesNotUseReservedMCPNamespace(t *testing.T) {
@@ -63,26 +61,6 @@ func TestDefaultCatalogIncludesRuntimeDiscoveryGuidance(t *testing.T) {
 			if !strings.Contains(string(entry.InputSchema), needle) {
 				t.Fatalf("%s schema does not contain %q: %s", check.name, needle, entry.InputSchema)
 			}
-		}
-	}
-}
-
-func TestWebFetchDescribesAllowedPrivateAddressesOnlyWhenConfigured(t *testing.T) {
-	t.Cleanup(func() { _ = ssrf.Configure(nil, nil) })
-	for _, list := range [][]string{nil, {"10.0.3.0/24"}} {
-		if err := ssrf.Configure(nil, list); err != nil {
-			t.Fatal(err)
-		}
-		entry, err := webFetchTool()
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := list != nil
-		if got := strings.Contains(entry.Description, "an allowed private address"); got != want {
-			t.Fatalf("list %v: description mentions allowed private addresses = %v: %s", list, got, entry.Description)
-		}
-		if got := strings.Contains(string(entry.InputSchema), "an allowed private address"); got != want {
-			t.Fatalf("list %v: url hint mentions allowed private addresses = %v: %s", list, got, entry.InputSchema)
 		}
 	}
 }

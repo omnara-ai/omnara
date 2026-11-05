@@ -88,7 +88,7 @@ func TestResolverOutputAllowancePrecedenceAndWire(t *testing.T) {
 				MaxOutputTokens: tc.grantMax, DefaultMaxOutputTokens: tc.grantDefault,
 			})
 			require.NoError(t, err)
-			resolver := Resolver{Models: store.Models(), Secrets: store.Secrets(), AllowLoopback: true}
+			resolver := Resolver{Models: store.Models(), Secrets: store.Secrets(), HTTPTransport: NewHTTPTransport(true, nil)}
 			selection := model.Selection{
 				OrgID: created.Org.ID.String(), ProjectID: created.Project.ID.String(),
 				ConfiguredModelRevisionID: configured.CurrentRevisionID.String(),

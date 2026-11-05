@@ -200,7 +200,7 @@ func TestNewDiscovererEnrichesProviderModels(t *testing.T) {
 		modelstore.ModelProviderAuthKindBearerToken,
 		`{}`,
 	)
-	models, err := NewDiscoverer(catalog)(context.Background(), config, "sk", nil, true)
+	models, err := NewDiscoverer(catalog)(context.Background(), config, "sk", nil, true, nil)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestNewDiscovererEnrichesProviderModels(t *testing.T) {
 	config.APIFormat = modelprotocol.APIFormatAnthropicMessages
 	config.AuthKind = modelstore.ModelProviderAuthKindAPIKeyHeader
 	config.AuthOptions = []byte(`{"header_name":"x-api-key"}`)
-	models, err = NewDiscoverer(catalog)(context.Background(), config, "sk", nil, true)
+	models, err = NewDiscoverer(catalog)(context.Background(), config, "sk", nil, true, nil)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}

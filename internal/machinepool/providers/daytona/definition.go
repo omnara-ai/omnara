@@ -75,7 +75,7 @@ func newProvider(
 		api: newRESTClient(
 			config.APIBaseURL,
 			runtimeConfig.ProviderAuthToken,
-			providers.NewHTTPClient(runtimeConfig.HTTPRecorder, providers.Daytona),
+			providers.ObserveHTTPClient(runtimeConfig.HTTPClient, runtimeConfig.HTTPRecorder, providers.Daytona),
 		),
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 	}, nil

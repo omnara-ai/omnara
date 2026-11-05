@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"golang.org/x/oauth2"
 )
 
@@ -339,6 +340,35 @@ func TestOAuthTokenExchangeRejectsPublicHTTP(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "must use HTTPS") {
 		t.Fatalf("RefreshOAuthToken error = %v, want secure token endpoint error", err)
+	}
+}
+
+func TestOAuthTokenExchangeNeedsDevModeForPlainHTTPToListedLoopback(t *testing.T) {
+	ts := newOAuthMCPTestServer(t, oauthMCPTestConfig{PKCE: true})
+	serverURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateEndpoints, err := ssrf.ParseEndpointAllowlist([]string{serverURL.Host})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, devMode := range []bool{false, true} {
+		_, err := mcp.ExchangeOAuthCode(context.Background(), mcp.OAuthCodeExchangeInput{
+			TokenEndpoint: ts.URL + "/token",
+			ClientID:      "client-123",
+			RedirectURI:   "http://127.0.0.1/callback",
+			Code:          "code-123",
+			CodeVerifier:  "verifier-123",
+			Resource:      ts.URL + "/mcp",
+			HTTPClient: outboundhttp.NewPublicClient(
+				outboundhttp.PublicClientOptions{AllowLoopback: devMode, Allowlist: privateEndpoints},
+			),
+			AuthStyle: oauth2.AuthStyleInParams,
+		})
+		if devMode != (err == nil) || (!devMode && !errors.Is(err, ssrf.ErrBlockedAddress)) {
+			t.Fatalf("dev mode %v: ExchangeOAuthCode error = %v", devMode, err)
+		}
 	}
 }
 

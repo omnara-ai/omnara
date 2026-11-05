@@ -231,7 +231,11 @@ func createModelProviderConfigHasField(body openapigen.CreateModelProviderConfig
 	}
 }
 
-func validateModelProviderBaseURLNetworkPolicy(baseURL string, allowInsecureDev bool) error {
+func validateModelProviderBaseURLNetworkPolicy(
+	baseURL string,
+	allowInsecureDev bool,
+	privateEndpoints *ssrf.Allowlist,
+) error {
 	parsed, err := url.Parse(strings.TrimRight(strings.TrimSpace(baseURL), "/"))
 	if err != nil {
 		return errors.New("base_url is invalid")
@@ -241,8 +245,8 @@ func validateModelProviderBaseURLNetworkPolicy(baseURL string, allowInsecureDev 
 	}
 	hostname := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
 	if hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") {
-		if allowInsecureDev || ssrf.Endpoints.PermitsIP(net.IPv4(127, 0, 0, 1), false) ||
-			ssrf.Endpoints.PermitsIP(net.IPv6loopback, false) {
+		if allowInsecureDev || privateEndpoints.PermitsIP(net.IPv4(127, 0, 0, 1), false) ||
+			privateEndpoints.PermitsIP(net.IPv6loopback, false) {
 			return nil
 		}
 		return errors.New("base_url cannot target localhost unless insecure dev mode is enabled")
@@ -251,7 +255,7 @@ func validateModelProviderBaseURLNetworkPolicy(baseURL string, allowInsecureDev 
 	if ip == nil {
 		return nil
 	}
-	if ssrf.Endpoints.PermitsIP(ip, allowInsecureDev) {
+	if privateEndpoints.PermitsIP(ip, allowInsecureDev) {
 		return nil
 	}
 	if ip.IsLoopback() {
@@ -316,6 +320,7 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 	if err := validateModelProviderBaseURLNetworkPolicy(
 		command.BaseURL,
 		s.server.allowInsecureModelProviderEndpoints,
+		s.server.privateEndpoints,
 	); err != nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
 	}
@@ -406,6 +411,7 @@ func (s strictOpenAPIServer) providerModelCatalog(
 		apiKey,
 		headers,
 		s.server.allowInsecureModelProviderEndpoints,
+		s.server.privateEndpoints,
 	)
 	if err != nil {
 		return failed(err.Error())
@@ -552,6 +558,7 @@ func (s strictOpenAPIServer) UpdateModelProviderConfig(
 		if err := validateModelProviderBaseURLNetworkPolicy(
 			*input.BaseURL,
 			s.server.allowInsecureModelProviderEndpoints,
+			s.server.privateEndpoints,
 		); err != nil {
 			return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
 		}

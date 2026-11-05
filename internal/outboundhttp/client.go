@@ -15,6 +15,7 @@ var ErrRedirect = errors.New("outbound HTTP redirect is not permitted")
 type PublicClientOptions struct {
 	AllowLoopback                bool
 	Allowlist                    *ssrf.Allowlist
+	AllowAnyPlainHTTP            bool
 	DisableResponseHeaderTimeout bool
 	Timeout                      time.Duration
 }
@@ -24,6 +25,7 @@ func NewPublicClient(opts PublicClientOptions) *http.Client {
 		Transport: ssrf.NewTransport(ssrf.TransportOptions{
 			AllowLoopback:                opts.AllowLoopback,
 			Allowlist:                    opts.Allowlist,
+			AllowAnyPlainHTTP:            opts.AllowAnyPlainHTTP,
 			DisableResponseHeaderTimeout: opts.DisableResponseHeaderTimeout,
 		}),
 		Timeout: opts.Timeout,

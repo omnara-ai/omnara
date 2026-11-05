@@ -18,6 +18,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/urlpolicy"
 	"golang.org/x/oauth2"
 )
@@ -32,7 +33,8 @@ const (
 )
 
 type AuthOptions struct {
-	HTTPClient *http.Client
+	HTTPClient       *http.Client
+	PrivateEndpoints *ssrf.Allowlist
 }
 
 type AuthRequirement struct {
@@ -108,7 +110,7 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 	if endpoint == "" {
 		return AuthRequirement{}, errors.New("mcp auth: endpoint URL is required")
 	}
-	if err := urlpolicy.RequireHTTPSOrPrivateEndpoint(endpoint); err != nil {
+	if err := urlpolicy.RequireHTTPSOrPrivateEndpoint(endpoint, opts.PrivateEndpoints); err != nil {
 		return AuthRequirement{}, fmt.Errorf("mcp auth: endpoint URL: %w", err)
 	}
 	client := clientWithoutRedirects(opts.HTTPClient)
@@ -126,7 +128,7 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 		return AuthRequirement{Required: false, EndpointURL: endpoint, Resource: canonicalResourceURI(endpoint)}, nil
 	}
 	authRequirement, err := authRequirementFromChallenge(
-		ctx,
+		ssrf.WithoutPlainHTTPGrant(ctx),
 		endpoint,
 		response.Header.Values("WWW-Authenticate"),
 		client,
@@ -768,6 +770,7 @@ func retrieveOAuthToken(
 	if err := urlpolicy.RequireHTTPSOrLoopback(tokenEndpoint); err != nil {
 		return OAuthTokenSet{}, fmt.Errorf("token endpoint: %w", err)
 	}
+	ctx = ssrf.WithoutPlainHTTPGrant(ctx)
 	client = clientWithoutRedirects(client)
 	if authStyle != oauth2.AuthStyleAutoDetect {
 		return retrieveOAuthTokenOnce(ctx, tokenEndpoint, clientID, clientSecret, tokenRequestValues, authStyle, client)

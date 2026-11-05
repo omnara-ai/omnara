@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/resourcename"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -54,6 +55,7 @@ type DefaultConfiguredModelTemplate struct {
 
 func PrepareDefaultModelProviderTemplate(
 	template DefaultModelProviderTemplate,
+	privateEndpoints *ssrf.Allowlist,
 ) (DefaultModelProviderTemplate, error) {
 	template = cloneDefaultModelProviderTemplate(template)
 	var err error
@@ -74,7 +76,7 @@ func PrepareDefaultModelProviderTemplate(
 	if template.APIVariant == "" {
 		template.APIVariant = modelprotocol.APIVariantDefault
 	}
-	baseURL, err := normalizeModelProviderBaseURL(template.BaseURL)
+	baseURL, err := normalizeModelProviderBaseURL(template.BaseURL, privateEndpoints)
 	if err != nil {
 		return DefaultModelProviderTemplate{}, err
 	}
@@ -237,7 +239,7 @@ func (s *Store) ProvisionDefaultTx(
 	if orgID == uuid.Nil || defaultProjectID == uuid.Nil || createdByUserID == uuid.Nil || credentialSecretID == uuid.Nil {
 		return errors.New("org, default project, creator, and credential are required")
 	}
-	prepared, err := PrepareDefaultModelProviderTemplate(template)
+	prepared, err := PrepareDefaultModelProviderTemplate(template, s.privateEndpoints)
 	if err != nil {
 		return fmt.Errorf("default model provider %q: %w", template.Name, err)
 	}

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
@@ -78,7 +77,6 @@ models:
 func TestLoadDefaultModelProviderTemplateWithPrivateEndpoint(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	t.Setenv("OMNARA_PRIVATE_ENDPOINT_CIDRS", "10.0.5.0/24")
-	t.Cleanup(func() { _ = ssrf.Configure(nil, nil) })
 	path := filepath.Join(t.TempDir(), "default-model-provider.yaml")
 	if err := os.WriteFile(path, []byte(`
 provisioner: openrouter

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -156,6 +157,7 @@ type CompileOptions struct {
 	ResolveIntegrationName    func(name string) (IntegrationResolution, error)
 	ResolveMemoryStoreName    func(string) (uuid.UUID, error)
 	AllowInsecureLocalMCPHTTP bool
+	PrivateEndpoints          *ssrf.Allowlist
 	ResolveModelSelection     func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error)
 	ValidateSecretID          func(secretID uuid.UUID, expectedKind secrets.Kind) error
 	ResolveMachineName        func(machineName string) (uuid.UUID, error)

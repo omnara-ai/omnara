@@ -121,11 +121,11 @@ func TestNormalizeModelProviderConfigUpdateValidatesHeaders(t *testing.T) {
 		APIVariant:         modelprotocol.APIVariantDefault,
 	}
 	validateCredential := func(context.Context, uuid.UUID, uuid.UUID, string) error { return nil }
-	_, err := normalizeModelProviderConfigUpdate(context.Background(), update, validateCredential)
+	_, err := normalizeModelProviderConfigUpdate(context.Background(), update, nil, validateCredential)
 	require.NoError(t, err)
 
 	update.Headers = json.RawMessage(`{"X-Api-Key":"k"}`)
-	_, err = normalizeModelProviderConfigUpdate(context.Background(), update, validateCredential)
+	_, err = normalizeModelProviderConfigUpdate(context.Background(), update, nil, validateCredential)
 	require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
 }
 
@@ -462,7 +462,7 @@ func TestDefaultModelProviderTemplateRejectsSigV4(t *testing.T) {
 		Models: []DefaultConfiguredModelTemplate{{
 			Name: "model", ProviderModelSlug: "model", ContextWindowTokens: 8192,
 		}},
-	})
+	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "do not support sigv4 authentication") {
 		t.Fatalf("PrepareDefaultModelProviderTemplate error = %v", err)
 	}

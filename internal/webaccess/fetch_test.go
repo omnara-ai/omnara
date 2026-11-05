@@ -28,12 +28,13 @@ func TestFetchAllowsPlainHTTPIntoWebFetchPrivateRanges(t *testing.T) {
 	}))
 	defer server.Close()
 
-	if err := ssrf.Configure(nil, []string{"127.0.0.0/8"}); err != nil {
+	privateAddresses, err := ssrf.ParseWebFetchAllowlist([]string{"127.0.0.0/8"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = ssrf.Configure(nil, nil) })
-
-	result, err := prodFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL})
+	result, err := NewFetcher(FetcherOptions{PrivateAddresses: privateAddresses}).Fetch(
+		context.Background(), FetchRequest{URL: server.URL},
+	)
 	if err != nil {
 		t.Fatalf("fetch allowlisted loopback http: %v", err)
 	}
@@ -45,7 +46,6 @@ func TestFetchAllowsPlainHTTPIntoWebFetchPrivateRanges(t *testing.T) {
 func TestBlockedFetchGuidanceFollowsWebFetchList(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer server.Close()
-	t.Cleanup(func() { _ = ssrf.Configure(nil, nil) })
 	for _, test := range []struct {
 		list []string
 		want string
@@ -53,26 +53,16 @@ func TestBlockedFetchGuidanceFollowsWebFetchList(t *testing.T) {
 		{want: BlockedAddressGuidance},
 		{list: []string{"10.0.3.0/24"}, want: privateNetworkBlockedAddressGuidance},
 	} {
-		if err := ssrf.Configure(nil, test.list); err != nil {
+		privateAddresses, err := ssrf.ParseWebFetchAllowlist(test.list)
+		if err != nil {
 			t.Fatal(err)
 		}
-		_, err := prodFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL})
+		_, err = NewFetcher(FetcherOptions{PrivateAddresses: privateAddresses}).Fetch(
+			context.Background(), FetchRequest{URL: server.URL},
+		)
 		if providerErr, ok := AsProviderError(err); !ok || providerErr.Message != test.want {
 			t.Fatalf("list %v: blocked fetch error = %v, want %q", test.list, err, test.want)
 		}
-	}
-}
-
-func TestFetchIgnoresPrivateEndpointRanges(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
-	defer server.Close()
-
-	if err := ssrf.Configure([]string{"127.0.0.0/8"}, nil); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ssrf.Configure(nil, nil) })
-	if _, err := prodFetcher().Fetch(context.Background(), FetchRequest{URL: server.URL}); err == nil {
-		t.Fatal("web_fetch reached a range listed only for endpoints")
 	}
 }
 
@@ -484,7 +474,7 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestFetchRejectsHTTPSRedirectToHTTPInProduction(t *testing.T) {
-	client := newSSRFHTTPClient(false)
+	client := newSSRFHTTPClient(false, nil)
 	var requests int
 	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		requests++
@@ -521,13 +511,25 @@ func TestFetchSchemeValidationAndUpgrade(t *testing.T) {
 	if _, err := prodFetcher().Fetch(context.Background(), FetchRequest{URL: "ftp://example.com/x"}); err == nil {
 		t.Fatal("ftp scheme must be rejected")
 	}
-	upgraded, err := normalizeFetchURL("http://example.com/page", false)
+	upgraded, err := normalizeFetchURL("http://example.com/page", false, nil)
 	if err != nil || upgraded != "https://example.com/page" {
 		t.Fatalf("https upgrade: %q %v", upgraded, err)
 	}
-	kept, err := normalizeFetchURL("http://example.com/page", true)
+	kept, err := normalizeFetchURL("http://example.com/page", true, nil)
 	if err != nil || kept != "http://example.com/page" {
 		t.Fatalf("dev mode should keep http: %q %v", kept, err)
+	}
+	listedPort, err := ssrf.ParseWebFetchAllowlist([]string{"0.0.0.0/0:11434"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rawURL, want := range map[string]string{
+		"http://93.184.216.34/":       "https://93.184.216.34/",
+		"http://93.184.216.34:11434/": "http://93.184.216.34:11434/",
+	} {
+		if got, err := normalizeFetchURL(rawURL, false, listedPort); err != nil || got != want {
+			t.Fatalf("normalizeFetchURL(%s) = %q %v, want %q", rawURL, got, err, want)
+		}
 	}
 }
 

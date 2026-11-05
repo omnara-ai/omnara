@@ -12,16 +12,10 @@ import (
 )
 
 func RequireHTTPSOrLoopback(rawURL string) error {
-	return requireHTTPS(rawURL, loopbackHost)
+	return RequireHTTPSOrPrivateEndpoint(rawURL, nil)
 }
 
-func RequireHTTPSOrPrivateEndpoint(rawURL string) error {
-	return requireHTTPS(rawURL, func(host string) bool {
-		return loopbackHost(host) || ssrf.Endpoints.PermitsPlainHTTP(host)
-	})
-}
-
-func requireHTTPS(rawURL string, allowHTTP func(string) bool) error {
+func RequireHTTPSOrPrivateEndpoint(rawURL string, privateEndpoints *ssrf.Allowlist) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("parse URL: %w", err)
@@ -46,7 +40,8 @@ func requireHTTPS(rawURL string, allowHTTP func(string) bool) error {
 	if strings.EqualFold(parsed.Scheme, "https") {
 		return nil
 	}
-	if strings.EqualFold(parsed.Scheme, "http") && allowHTTP(parsed.Hostname()) {
+	if strings.EqualFold(parsed.Scheme, "http") &&
+		(loopbackHost(parsed.Hostname()) || privateEndpoints.PermitsPlainHTTP(parsed)) {
 		return nil
 	}
 	return errors.New("URL must use HTTPS unless it uses a loopback host")

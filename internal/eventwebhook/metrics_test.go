@@ -114,7 +114,7 @@ func TestSenderHTTPMetricsKeepRecipientLabelsPrivate(t *testing.T) {
 	store.endpoint.URL = "http://127.0.0.1:1/customer-private-path?token=private"
 	set := metrics.New()
 	sender := New(store, slog.Default(), 1, 1, metrics.NewEventWebhookRecorder(set),
-		metrics.NewHTTPClientRecorder(set, metrics.SubsystemHTTPClient))
+		metrics.NewHTTPClientRecorder(set, metrics.SubsystemHTTPClient), nil)
 	require.Equal(t, attemptTimeout, sender.client.Timeout)
 	require.ErrorIs(t, sender.client.CheckRedirect(nil, nil), http.ErrUseLastResponse)
 	sender.deliver(t.Context(), delivery)

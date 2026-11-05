@@ -7,6 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/accountsecurity"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -43,6 +44,7 @@ type storeConfig struct {
 	memoryRecorder        *metrics.MemoryRecorder
 	machinePoolProviders  executionstore.MachinePoolProviders
 	modelCallRetryBackoff func(int, string) time.Duration
+	privateEndpoints      *ssrf.Allowlist
 }
 
 type Option func(*storeConfig)
@@ -83,6 +85,12 @@ func WithMachinePoolProviders(machinePoolProviders executionstore.MachinePoolPro
 	}
 }
 
+func WithPrivateEndpoints(privateEndpoints *ssrf.Allowlist) Option {
+	return func(config *storeConfig) {
+		config.privateEndpoints = privateEndpoints
+	}
+}
+
 func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	config := storeConfig{}
 	for _, opt := range opts {
@@ -93,7 +101,7 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 		blobs: config.blobs,
 	}
 	store.identity = identitystore.New(pool, config.secretKeyWrapper, config.blobs)
-	store.models = modelstore.New(pool)
+	store.models = modelstore.New(pool, modelstore.Config{PrivateEndpoints: config.privateEndpoints})
 	store.secrets = secretstore.New(pool, config.secretKeyWrapper, store.identity)
 	store.skills = skillstore.New(pool, config.blobs, store.identity)
 	store.memories = memorystore.New(pool, config.memoryFS, config.memoryRecorder)
@@ -109,6 +117,7 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 		Identity:              store.identity,
 		Secrets:               store.secrets,
 		Artifacts:             store.artifacts,
+		PrivateEndpoints:      config.privateEndpoints,
 	})
 	store.organizations = orglifecycle.New(pool, orglifecycle.Config{
 		Blobs:               config.blobs,
@@ -117,6 +126,7 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 		Execution:           store.execution,
 		Models:              store.models,
 		Secrets:             store.secrets,
+		PrivateEndpoints:    config.privateEndpoints,
 	})
 	store.accountSecurity = accountsecurity.New(
 		pool,

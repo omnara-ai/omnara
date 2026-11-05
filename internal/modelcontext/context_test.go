@@ -846,6 +846,7 @@ func TestRuntimeContractToolSpecsRejectDuplicateModelFacingNames(t *testing.T) {
 			}},
 		},
 		time.Time{},
+		false,
 	)
 	if err == nil || !strings.Contains(err.Error(), `duplicate model-facing tool name "mcp__docs__search"`) {
 		t.Fatalf("error = %v, want duplicate model-facing tool name", err)
@@ -894,6 +895,7 @@ skills:
 		testAgentID,
 		contract,
 		time.Now().UTC(),
+		false,
 	)
 	if err != nil {
 		t.Fatalf("build runtime tool specs: %v", err)

@@ -124,7 +124,7 @@ func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 	}
 	store.endpoint.OrgID = delivery.OrgID
 	store.endpoint.RootAgentID = delivery.AgentID
-	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7, nil, nil), store, delivery
+	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7, nil, nil, nil), store, delivery
 }
 
 func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
