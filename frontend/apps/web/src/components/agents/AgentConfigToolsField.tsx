@@ -11,13 +11,8 @@ import {
   disabledPermissionOption,
   permissionModeOptions,
 } from '@/components/agents/permissionModeOptions'
-import {
-  ChevronDownIcon,
-  CodeBracketIcon,
-  PencilIcon,
-  PlusIcon,
-  Trash2Icon,
-} from '@/components/icons'
+import { ChevronDownIcon, PlusIcon, Trash2Icon } from '@/components/icons'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
@@ -28,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 
 export interface BasicTool {
   name: string
@@ -172,6 +168,7 @@ export function AgentConfigToolsField({
           })}
         </div>
       ) : null}
+      {children}
       <AgentConfigIncludedTools
         catalog={catalog}
         tools={includedTools}
@@ -183,7 +180,6 @@ export function AgentConfigToolsField({
           )
         }}
       />
-      {children}
     </AgentConfigSectionCard>
   )
 }
@@ -206,38 +202,33 @@ export function AgentConfigToolRow({
   allowDisable?: boolean
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-2.5 sm:flex-nowrap sm:gap-3 sm:px-5">
-      <ToolName name={tool.name} entry={entry} custom={onEdit != null} />
-      {onEdit && (
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label={`Edit ${tool.name}`}
-          aria-haspopup="dialog"
-          onClick={onEdit}
-        >
-          <PencilIcon />
-        </Button>
+    <div
+      className={cn(
+        'relative flex flex-wrap items-center justify-end gap-2 px-4 py-2.5 sm:flex-nowrap sm:gap-3 sm:px-5',
+        onEdit && 'hover:bg-muted/50',
       )}
-      <PermissionModeSelect
-        tool={tool}
-        entry={entry}
-        allowDisable={allowDisable}
-        disabled={permissionDisabled}
-        onChange={onPermissionChange}
-      />
-      {onRemove && (
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label={`Remove ${tool.name}`}
-          onClick={onRemove}
-        >
-          <Trash2Icon />
-        </Button>
-      )}
+    >
+      <ToolName name={tool.name} entry={entry} onEdit={onEdit} />
+      <div className="relative flex items-center gap-2 sm:gap-3">
+        <PermissionModeSelect
+          tool={tool}
+          entry={entry}
+          allowDisable={allowDisable}
+          disabled={permissionDisabled}
+          onChange={onPermissionChange}
+        />
+        {onRemove && (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label={`Remove ${tool.name}`}
+            onClick={onRemove}
+          >
+            <Trash2Icon />
+          </Button>
+        )}
+      </div>
     </div>
   )
 }
@@ -324,19 +315,21 @@ function PermissionModeSelect({
 function ToolName({
   name,
   entry,
-  custom,
+  onEdit,
 }: {
   name: string
   entry?: ToolCatalogEntry
-  custom?: boolean
+  onEdit?: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const description = custom
-    ? `Custom tool. ${entry?.description.length ? entry.description : 'Edit its definition using the edit button.'}`
+  const description = onEdit
+    ? entry?.description.length
+      ? entry.description
+      : 'Click to edit this custom tool’s definition.'
     : (toolDescriptions.get(name) ?? entry?.description)
   return (
     <div
-      className="-my-2.5 flex min-w-0 flex-1 basis-full items-center self-stretch py-2.5 sm:basis-auto"
+      className="-my-2.5 flex min-w-0 flex-1 basis-full items-center gap-2 self-stretch py-2.5 sm:basis-auto"
       onPointerEnter={() => {
         setOpen(true)
       }}
@@ -349,8 +342,15 @@ function ToolName({
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="bg-muted inline-flex max-w-full cursor-default items-center gap-1.5 rounded-md px-2 py-1 text-left font-mono text-xs outline-none focus-visible:ring-2"
-              aria-label={`About ${name}`}
+              className={cn(
+                'bg-muted inline-flex max-w-full min-w-0 items-center rounded-md px-2 py-1 text-left font-mono text-xs outline-none',
+                onEdit
+                  ? 'focus-visible:after:ring-ring cursor-pointer after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-inset'
+                  : 'cursor-default focus-visible:ring-2',
+              )}
+              aria-label={`${onEdit ? 'Edit' : 'About'} ${name}`}
+              aria-haspopup={onEdit ? 'dialog' : undefined}
+              onClick={onEdit}
               onFocus={() => {
                 setOpen(true)
               }}
@@ -358,12 +358,6 @@ function ToolName({
                 setOpen(false)
               }}
             >
-              {custom && (
-                <CodeBracketIcon
-                  className="text-muted-foreground size-3.5 shrink-0"
-                  aria-hidden="true"
-                />
-              )}
               <span className="truncate">{name}</span>
             </button>
           </TooltipTrigger>
@@ -373,6 +367,11 @@ function ToolName({
         </Tooltip>
       ) : (
         <span className="bg-muted truncate rounded-md px-2 py-1 font-mono text-xs">{name}</span>
+      )}
+      {onEdit && (
+        <Badge variant="outline" className="text-muted-foreground">
+          Custom
+        </Badge>
       )}
     </div>
   )

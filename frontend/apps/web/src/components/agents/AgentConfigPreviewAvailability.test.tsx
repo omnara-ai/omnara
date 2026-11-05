@@ -514,9 +514,10 @@ it('shows normal Builder controls and every custom tool without a whole-document
     .filter(([, tool]) => tool.type === 'custom')
     .map(([name]) => name)
   for (const name of customNames) {
-    expect(button(`Edit ${name}`).closest('section')?.querySelector('h3')?.textContent).toBe(
-      'Tools',
-    )
+    const rowButton = button(`Edit ${name}`)
+    expect(rowButton.closest('section')?.querySelector('h3')?.textContent).toBe('Tools')
+    expect(rowButton.textContent).toBe(name)
+    expect(rowButton.parentElement?.textContent).toBe(`${name}Custom`)
     expect(
       container.querySelector(`[role="radiogroup"][aria-label="${name} permission"]`),
     ).not.toBeNull()
@@ -583,6 +584,7 @@ it.each(['yaml', 'json'])(
     )
     expect(permission?.disabled).toBe(false)
     act(() => permission?.click())
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(editor().saveBlocked).toBe(false)
     expect(parse(editor().yaml)).toHaveProperty(
       ['tools', 'search_records', 'permission', 'mode'],
@@ -601,6 +603,7 @@ it.each(['yaml', 'json'])(
       )
     }
     clickLabel('Remove search_records')
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(editor().saveBlocked).toBe(false)
     const expected = schemas.zAgentConfigDefinition.parse(parse(source))
     delete expected.tools?.search_records
@@ -804,7 +807,7 @@ it.each(['yaml', 'json', 'inline-yaml'])(
     await enter('Tool name', 'new_tool')
     clickLabel('Add custom tool')
     expect(parse(editor().yaml)).toHaveProperty(['tools', 'new_tool'], parse(definition))
-    expect(button('Built-in tools').compareDocumentPosition(button('Edit new_tool'))).toBe(
+    expect(button('Edit new_tool').compareDocumentPosition(button('Built-in tools'))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     )
     clickLabel('Remove new_tool')
