@@ -98,6 +98,7 @@ export function AgentConfigBasicForm({
             orgId={orgId}
             projectId={projectId}
             subagents={form.subagents}
+            parentReasoningEffort={form.model.reasoningEffort}
             maxSubagents={form.maxSubagents}
             maxDepth={form.maxDepth}
             onSubagentsChange={form.setSubagents}

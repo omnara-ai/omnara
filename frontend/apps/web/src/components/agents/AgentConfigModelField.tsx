@@ -133,6 +133,7 @@ function EffortSelect({
   value,
   options,
   defaultEffort,
+  inheritedEffort,
   invalid,
   disabled,
   onChange,
@@ -140,12 +141,19 @@ function EffortSelect({
   value: string
   options: string[]
   defaultEffort: string
+  inheritedEffort: string
   invalid: boolean
   disabled: boolean
   onChange: (effort: string) => void
 }) {
   const items = value === '' || options.includes(value) ? options : [...options, value]
-  const defaultLabel = defaultEffort === '' ? 'Default' : `Default (${effortLabel(defaultEffort)})`
+  const defaultLabel =
+    inheritedEffort !== ''
+      ? `Same as this agent (${effortLabel(inheritedEffort)})`
+      : defaultEffort === ''
+        ? 'Default'
+        : `Default (${effortLabel(defaultEffort)})`
+  const emptyValueLabel = inheritedEffort === '' ? 'Default' : effortLabel(inheritedEffort)
   return (
     <Select
       value={value === '' ? defaultEffortValue : value}
@@ -162,7 +170,7 @@ function EffortSelect({
       >
         <span className="flex min-w-0 items-center gap-2">
           <Brain className="size-4" />
-          <SelectValue>{value === '' ? 'Default' : effortLabel(value)}</SelectValue>
+          <SelectValue>{value === '' ? emptyValueLabel : effortLabel(value)}</SelectValue>
         </span>
       </SelectTrigger>
       <SelectContent align="end">
@@ -204,10 +212,24 @@ function modelPlaceholder(isPending: boolean, noneGranted: boolean): string {
 function UnsupportedEffortError({
   effort,
   supportsReasoning,
+  inherited,
 }: {
   effort: string
   supportsReasoning: boolean
+  inherited: boolean
 }) {
+  if (inherited) {
+    return (
+      <p className="text-destructive text-sm">
+        {supportsReasoning
+          ? `This model doesn’t support the “${effort}” reasoning effort this agent uses.`
+          : `This model doesn’t support reasoning, so it can’t use the “${effort}” effort this agent uses.`}{' '}
+        {supportsReasoning
+          ? 'Pick an effort for it.'
+          : 'Pick another model or change this agent’s effort.'}
+      </p>
+    )
+  }
   return (
     <p className="text-destructive text-sm">
       {supportsReasoning
@@ -258,6 +280,7 @@ export function AgentConfigModelField({
   id = 'agent-config-model',
   label = 'Model',
   inheritLabel,
+  inheritedReasoningEffort = '',
 }: {
   orgId: string
   projectId: string
@@ -268,6 +291,11 @@ export function AgentConfigModelField({
   label?: string
   /** Makes the model optional, naming what an empty choice falls back to, e.g. "Same as this agent". */
   inheritLabel?: string
+  /**
+   * An explicit effort that an empty choice keeps from elsewhere (a clone keeps its parent's),
+   * instead of the model's own default.
+   */
+  inheritedReasoningEffort?: string
 }) {
   const { project } = useProjectPage()
   const [grantOpen, setGrantOpen] = useState(false)
@@ -282,9 +310,10 @@ export function AgentConfigModelField({
     unavailable,
     pricingPending,
   } = useModelChoices(orgId, projectId, value)
+  const effectiveEffort = value.reasoningEffort || inheritedReasoningEffort
   const { options: effortOptions, unsupported: effortUnsupported } = reasoningEffortState(
     selected,
-    value.reasoningEffort,
+    effectiveEffort,
   )
   useEffect(() => {
     onUnavailableChange?.(unavailable || effortUnsupported)
@@ -341,6 +370,7 @@ export function AgentConfigModelField({
             value={value.reasoningEffort}
             options={effortOptions}
             defaultEffort={selected?.reasoning.default_reasoning_effort ?? ''}
+            inheritedEffort={inheritedReasoningEffort}
             invalid={effortUnsupported}
             disabled={selected === null || (effortOptions.length === 0 && !effortUnsupported)}
             onChange={(reasoningEffort) => {
@@ -353,8 +383,9 @@ export function AgentConfigModelField({
         <ResourceNameFieldError value={value.modelName} fieldLabel="Model name" />
         {effortUnsupported && (
           <UnsupportedEffortError
-            effort={value.reasoningEffort}
+            effort={effectiveEffort}
             supportsReasoning={effortOptions.length > 0}
+            inherited={value.reasoningEffort === ''}
           />
         )}
         {unavailable && (

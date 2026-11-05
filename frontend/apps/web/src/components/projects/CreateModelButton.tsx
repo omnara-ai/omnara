@@ -21,6 +21,9 @@ export function CreateModelButton() {
   const providersQuery = useModelProviders(activeOrg.id, { enabled: canCreate })
   const providers = providersQuery.data?.pages.flatMap((page) => page.data) ?? []
   const [open, setOpen] = useState(false)
+  // Chosen on click and kept until the next one: creating the first provider refreshes the
+  // provider list, which must not swap the open wizard for the model dialog.
+  const [startWithProvider, setStartWithProvider] = useState(false)
   if (!canCreate) return null
 
   const defaultProjectIds = [projectId]
@@ -29,30 +32,34 @@ export function CreateModelButton() {
       <Button
         type="button"
         size="sm"
-        disabled={providersQuery.isPending}
+        // A failed provider list would look empty and send an org that has providers through
+        // the add-a-provider wizard.
+        disabled={!providersQuery.isSuccess}
+        title={providersQuery.isError ? 'Could not load model providers.' : undefined}
         onClick={() => {
+          setStartWithProvider(providers.length === 0)
           setOpen(true)
         }}
       >
         New model
       </Button>
-      {providers.length > 0 ? (
-        <CreateConfiguredModelDialog
+      {startWithProvider ? (
+        <CreateModelProviderDialog
           // Keyed by project: the page stays mounted when switching projects, and the dialog's
           // share defaults are only read when it mounts.
           key={projectId}
           open={open}
           onOpenChange={setOpen}
           orgId={activeOrg.id}
-          providers={providers}
           defaultProjectIds={defaultProjectIds}
         />
       ) : (
-        <CreateModelProviderDialog
+        <CreateConfiguredModelDialog
           key={projectId}
           open={open}
           onOpenChange={setOpen}
           orgId={activeOrg.id}
+          providers={providers}
           defaultProjectIds={defaultProjectIds}
         />
       )}
