@@ -191,6 +191,34 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/EventWebhookID'
+    get:
+      operationId: getEventWebhook
+      tags: [Events]
+      summary: Get event webhook
+      description: Returns one event webhook in the project.
+      responses:
+        '200':
+          description: The event webhook.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventWebhook'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     patch:
       operationId: updateEventWebhook
       tags: [Events]
@@ -1156,6 +1184,70 @@ paths:
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
+    get:
+      operationId: getProject
+      tags: [Organizations and Projects]
+      summary: Get project
+      description: Returns one project the caller can access.
+      responses:
+        '200':
+          description: The project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      operationId: updateProject
+      tags: [Organizations and Projects]
+      summary: Update project
+      description: Renames the project.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectRequest'
+      responses:
+        '200':
+          description: The updated project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteProject
       tags: [Organizations and Projects]
@@ -2286,6 +2378,34 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/SkillGrantID'
+    get:
+      operationId: getSkillGrant
+      tags: [Skills]
+      summary: Get skill grant
+      description: Returns one project grant for the skill.
+      responses:
+        '200':
+          description: The skill grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillGrant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteSkillGrant
       tags: [Skills]
@@ -3236,6 +3356,34 @@ paths:
         schema:
           type: string
           pattern: '^sgr_[a-z2-7]{26}$'
+    get:
+      operationId: getSecretGrant
+      tags: [Secrets]
+      summary: Get secret grant
+      description: Returns one project grant for the secret.
+      responses:
+        '200':
+          description: The secret grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretGrant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteSecretGrant
       tags: [Secrets]
@@ -6160,6 +6308,34 @@ paths:
         schema:
           type: string
           pattern: '^pmg_[a-z2-7]{26}$'
+    get:
+      operationId: getProjectMachineGrant
+      tags: [Machines]
+      summary: Get project machine grant
+      description: Returns one explicit machine grant with its machine. Pool-derived machine access is managed through project machine pool grants.
+      responses:
+        '200':
+          description: The machine grant and its machine.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateProjectMachineGrantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteProjectMachineGrant
       tags: [Machines]
@@ -7044,6 +7220,34 @@ paths:
         schema:
           type: string
           pattern: '^mdl_[a-z2-7]{26}$'
+    get:
+      operationId: getConfiguredModel
+      tags: [Models]
+      summary: Get configured model
+      description: Returns one configured model under the model provider config.
+      responses:
+        '200':
+          description: The configured model.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfiguredModel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     put:
       operationId: updateConfiguredModel
       tags: [Models]
@@ -7236,6 +7440,34 @@ paths:
         schema:
           type: string
           pattern: '^pmog_[a-z2-7]{26}$'
+    get:
+      operationId: getProjectModelGrant
+      tags: [Models]
+      summary: Get project model grant
+      description: Returns one of the project's model grants with its overrides.
+      responses:
+        '200':
+          description: The model grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectModelGrantEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteProjectModelGrant
       tags: [Models]
@@ -8665,6 +8897,32 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationSubscriptionID'
+    get:
+      operationId: getIntegrationSubscription
+      tags: [Integrations]
+      summary: Get integration conversation subscription
+      description: Requires project read permission.
+      responses:
+        '200':
+          description: The subscription.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationSubscription'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteIntegrationSubscription
       tags: [Integrations]
@@ -16451,6 +16709,13 @@ components:
         machine_id:
           $ref: '#/components/schemas/MachineID'
     CreateProjectRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          $ref: '#/components/schemas/ResourceName'
+    UpdateProjectRequest:
       type: object
       additionalProperties: false
       required: [name]

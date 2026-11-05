@@ -131,18 +131,7 @@ func (s *Store) ListIntegrationSubscriptions(
 		rows = rows[:input.Limit]
 	}
 	for _, row := range rows {
-		record := integrationSubscriptionRecord(dbsqlc.IntegrationSubscription{
-			ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, IntegrationID: row.IntegrationID,
-			ScopeKind: row.ScopeKind, ScopeRef: row.ScopeRef,
-			CreatedAt: row.CreatedAt,
-		})
-		record.AgentName = row.AgentName
-		record.ConversationName = row.ConversationName
-		scope, err := integrationdefinition.ParseConversation(integration.Provider, row.ScopeKind, row.ScopeRef)
-		if err != nil {
-			return ListIntegrationSubscriptionsResult{}, err
-		}
-		record.Conversation, err = scope.ConversationJSON()
+		record, err := listedIntegrationSubscriptionRecord(integration.Provider, row)
 		if err != nil {
 			return ListIntegrationSubscriptionsResult{}, err
 		}
@@ -153,4 +142,51 @@ func (s *Store) ListIntegrationSubscriptions(
 		result.Next = listing.KeysetCursor{Set: true, CreatedAt: last.CreatedAt, ID: last.ID}
 	}
 	return result, nil
+}
+
+func (s *Store) GetIntegrationSubscription(
+	ctx context.Context,
+	projectID, integrationID, id uuid.UUID,
+) (IntegrationSubscriptionRecord, error) {
+	if projectID == uuid.Nil || integrationID == uuid.Nil || id == uuid.Nil {
+		return IntegrationSubscriptionRecord{}, storeerr.InvalidRequest(
+			errors.New("project, integration and subscription are required"),
+		)
+	}
+	integration, err := getIntegration(ctx, s.q, projectID, integrationID)
+	if err != nil {
+		return IntegrationSubscriptionRecord{}, err
+	}
+	row, err := s.q.GetIntegrationSubscriptionDisplay(ctx, dbsqlc.GetIntegrationSubscriptionDisplayParams{
+		ProjectID: projectID, IntegrationID: integrationID, ID: id,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IntegrationSubscriptionRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return IntegrationSubscriptionRecord{}, err
+	}
+	return listedIntegrationSubscriptionRecord(integration.Provider, dbsqlc.ListIntegrationSubscriptionsRow(row))
+}
+
+func listedIntegrationSubscriptionRecord(
+	provider integrationdefinition.Provider,
+	row dbsqlc.ListIntegrationSubscriptionsRow,
+) (IntegrationSubscriptionRecord, error) {
+	record := integrationSubscriptionRecord(dbsqlc.IntegrationSubscription{
+		ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, IntegrationID: row.IntegrationID,
+		ScopeKind: row.ScopeKind, ScopeRef: row.ScopeRef,
+		CreatedAt: row.CreatedAt,
+	})
+	record.AgentName = row.AgentName
+	record.ConversationName = row.ConversationName
+	scope, err := integrationdefinition.ParseConversation(provider, row.ScopeKind, row.ScopeRef)
+	if err != nil {
+		return IntegrationSubscriptionRecord{}, err
+	}
+	record.Conversation, err = scope.ConversationJSON()
+	if err != nil {
+		return IntegrationSubscriptionRecord{}, err
+	}
+	return record, nil
 }

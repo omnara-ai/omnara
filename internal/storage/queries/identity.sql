@@ -166,6 +166,11 @@ SELECT id, org_id, name, coalesce(idempotency_key, '') AS idempotency_key, creat
 FROM projects
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL;
 
+-- name: RenameProject :one
+UPDATE projects SET name = sqlc.arg(name), updated_at = transaction_timestamp()
+WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id) AND deleted_at IS NULL
+RETURNING id, org_id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at;
+
 -- name: DeleteProject :execrows
 UPDATE projects SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id) AND deleted_at IS NULL;

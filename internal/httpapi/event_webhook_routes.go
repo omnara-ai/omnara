@@ -196,6 +196,29 @@ func (s strictOpenAPIServer) ListEventWebhooks(
 	return openapi.ListEventWebhooks200JSONResponse(response), nil
 }
 
+func (s strictOpenAPIServer) GetEventWebhook(
+	ctx context.Context,
+	request openapi.GetEventWebhookRequestObject,
+) (openapi.GetEventWebhookResponseObject, error) {
+	projectScope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, ok := parseOpenAPIPublicID(publicid.KindEventWebhook, request.WebhookID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	record, err := s.server.store.Execution().GetEventWebhook(ctx, projectScope.project.ID, id)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	response, err := eventWebhookResponseFromRecord(record)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.GetEventWebhook200JSONResponse(response), nil
+}
+
 func (s strictOpenAPIServer) UpdateEventWebhook(
 	ctx context.Context,
 	request openapi.UpdateEventWebhookRequestObject,

@@ -250,6 +250,23 @@ export const commandGroups: CommandGroup[] = [
         body: schemas.zCreateProjectBody,
       }),
       op({
+        verb: 'get',
+        summary: 'Fetch a project',
+        fn: sdk.getProject,
+        format: formatRecord(),
+        path: schemas.zGetProjectPath,
+        positional: ['projectID'],
+      }),
+      op({
+        verb: 'update',
+        summary: 'Rename a project',
+        fn: sdk.updateProject,
+        format: formatRecord(),
+        path: schemas.zUpdateProjectPath,
+        body: schemas.zUpdateProjectBody,
+        positional: ['projectID'],
+      }),
+      op({
         verb: 'delete',
         summary: 'Delete a project',
         fn: sdk.deleteProject,
@@ -579,6 +596,13 @@ export const commandGroups: CommandGroup[] = [
         ]),
         path: schemas.zListConfiguredModelsPath,
         query: schemas.zListConfiguredModelsQuery,
+      }),
+      op({
+        verb: 'get',
+        summary: 'Fetch a configured model',
+        fn: sdk.getConfiguredModel,
+        format: formatRecord(),
+        path: schemas.zGetConfiguredModelPath,
       }),
       op({
         verb: 'create',
@@ -957,6 +981,13 @@ export const commandGroups: CommandGroup[] = [
             query: schemas.zListSkillGrantsQuery,
           }),
           op({
+            verb: 'get',
+            summary: 'Fetch a skill grant',
+            fn: sdk.getSkillGrant,
+            format: formatRecord(),
+            path: schemas.zGetSkillGrantPath,
+          }),
+          op({
             verb: 'add',
             summary: 'Grant a skill to a project',
             fn: sdk.createSkillGrant,
@@ -994,6 +1025,13 @@ export const commandGroups: CommandGroup[] = [
             query: schemas.zListSecretGrantsQuery,
           }),
           op({
+            verb: 'get',
+            summary: 'Fetch a secret grant',
+            fn: sdk.getSecretGrant,
+            format: formatRecord(),
+            path: schemas.zGetSecretGrantPath,
+          }),
+          op({
             verb: 'add',
             summary: 'Grant a secret to a project',
             fn: sdk.createSecretGrant,
@@ -1029,6 +1067,13 @@ export const commandGroups: CommandGroup[] = [
               }),
             path: schemas.zListProjectMachineGrantsPath,
             query: schemas.zListProjectMachineGrantsQuery,
+          }),
+          op({
+            verb: 'get',
+            summary: 'Fetch a machine grant',
+            fn: sdk.getProjectMachineGrant,
+            format: (response) => formatRecord()(response.grant),
+            path: schemas.zGetProjectMachineGrantPath,
           }),
           op({
             verb: 'add',
@@ -1115,6 +1160,13 @@ export const commandGroups: CommandGroup[] = [
               }),
             path: schemas.zListProjectModelGrantsPath,
             query: schemas.zListProjectModelGrantsQuery,
+          }),
+          op({
+            verb: 'get',
+            summary: 'Fetch a model grant',
+            fn: sdk.getProjectModelGrant,
+            format: (response) => formatRecord()(response.grant),
+            path: schemas.zGetProjectModelGrantPath,
           }),
           op({
             verb: 'add',

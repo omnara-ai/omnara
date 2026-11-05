@@ -53,7 +53,7 @@ func TestEventWebhookRoutes(t *testing.T) {
 		requestJSONWithHeaders(t, f.handler, http.MethodPost,
 			endpoint, body, "", http.StatusConflict, authHeaders(token))
 		id := testutil.RequireType[string](t, first["id"])
-		for _, method := range []string{http.MethodPatch, http.MethodDelete} {
+		for _, method := range []string{http.MethodGet, http.MethodPatch, http.MethodDelete} {
 			crossProjectBody := ""
 			if method == http.MethodPatch {
 				crossProjectBody = `{"event_types":["model_output"]}`
@@ -68,6 +68,8 @@ func TestEventWebhookRoutes(t *testing.T) {
 		listed := requestJSONWithHeaders(t, f.handler, http.MethodGet,
 			endpoint+query, "", "", http.StatusOK, authHeaders(token))
 		require.Equal(t, []any{first}, listed["data"])
+		require.Equal(t, first, requestJSONWithHeaders(t, f.handler, http.MethodGet,
+			endpoint+"/"+id, "", "", http.StatusOK, authHeaders(operator)))
 		requestJSONWithHeaders(t, f.handler, http.MethodGet,
 			endpoint+query, "", "", http.StatusOK, authHeaders(operator))
 		if scopeType != "project" {
@@ -100,6 +102,8 @@ func TestEventWebhookRoutes(t *testing.T) {
 			authHeaders(token))
 		requestJSONWithHeaders(t, f.handler, http.MethodDelete,
 			endpoint+"/"+id, "", "", http.StatusNoContent, authHeaders(token))
+		requestJSONWithHeaders(t, f.handler, http.MethodGet,
+			endpoint+"/"+id, "", "", http.StatusNotFound, authHeaders(token))
 		listed = requestJSONWithHeaders(t, f.handler, http.MethodGet,
 			endpoint+query, "", "", http.StatusOK, authHeaders(token))
 		require.Empty(t, testutil.RequireType[[]any](t, listed["data"]))

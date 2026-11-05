@@ -346,6 +346,23 @@ func (s *Store) ListProjectModelGrants(
 	return result, nil
 }
 
+func (s *Store) GetProjectModelGrant(
+	ctx context.Context,
+	orgID, projectID, id uuid.UUID,
+) (ProjectModelGrantRecord, error) {
+	row, err := s.q.GetProjectModelGrant(
+		ctx,
+		dbsqlc.GetProjectModelGrantParams{OrgID: orgID, ProjectID: projectID, ID: id},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProjectModelGrantRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return ProjectModelGrantRecord{}, fmt.Errorf("get project model grant: %w", err)
+	}
+	return projectModelGrantRecordFromSQLC(row), nil
+}
+
 func (s *Store) DeleteProjectModelGrant(
 	ctx context.Context,
 	orgID, projectID, id uuid.UUID,

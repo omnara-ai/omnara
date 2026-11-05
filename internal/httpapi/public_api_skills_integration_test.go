@@ -180,6 +180,16 @@ func TestPublicSkillsUseFlatOwnerAwareRoutes(t *testing.T) {
 		)["id"] != grantID {
 		t.Fatalf("skill grants = %+v", grants)
 	}
+	fetchedGrant := requestJSONWithHeaders(t, handler, http.MethodGet, grantPath+"/"+grantID,
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	if fetchedGrant["id"] != grantID || fetchedGrant["target_project_id"] != project.ProjectID {
+		t.Fatalf("get skill grant = %+v", fetchedGrant)
+	}
+	_, memberToken := createHTTPOrgMemberToken(
+		t, ctx, pool, integrationStoreForHandler(t, handler), project.OrgUUID, "skill-grant-member",
+	)
+	requestJSONWithHeaders(t, handler, http.MethodGet, grantPath+"/"+grantID,
+		"", "", http.StatusNotFound, authHeaders(memberToken))
 	available := requestJSONWithHeaders(t, handler, http.MethodGet, project.ProjectPath+"/skills",
 		"", "", http.StatusOK, authHeaders(project.AdminToken))
 	availableData, ok := available["data"].([]any)
@@ -204,6 +214,8 @@ func TestPublicSkillsUseFlatOwnerAwareRoutes(t *testing.T) {
 	}
 	requestJSONWithHeaders(t, handler, http.MethodDelete, grantPath+"/"+grantID,
 		"", "", http.StatusNoContent, authHeaders(project.AdminToken))
+	requestJSONWithHeaders(t, handler, http.MethodGet, grantPath+"/"+grantID,
+		"", "", http.StatusNotFound, authHeaders(project.AdminToken))
 
 	for _, legacy := range []struct {
 		method string

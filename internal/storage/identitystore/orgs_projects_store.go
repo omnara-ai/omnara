@@ -462,3 +462,27 @@ func (s *Store) GetProject(ctx context.Context, orgID, projectID uuid.UUID) (Pro
 	}
 	return projectRecordFromGetSQLC(row), nil
 }
+
+func (s *Store) RenameProject(ctx context.Context, orgID, projectID uuid.UUID, name string) (ProjectRecord, error) {
+	if orgID == uuid.Nil {
+		return ProjectRecord{}, errors.New("org id is required")
+	}
+	if projectID == uuid.Nil {
+		return ProjectRecord{}, errors.New("project id is required")
+	}
+	normalizedName, err := resourcename.CanonicalizeRequired("project name", name)
+	if err != nil {
+		return ProjectRecord{}, storeerr.InvalidRequest(err)
+	}
+	row, err := s.q.RenameProject(ctx, dbsqlc.RenameProjectParams{OrgID: orgID, ID: projectID, Name: normalizedName})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ProjectRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		if storeutil.IsUniqueViolation(err) {
+			return ProjectRecord{}, fmt.Errorf("project name already exists: %w", storeerr.ErrConflict)
+		}
+		return ProjectRecord{}, fmt.Errorf("rename project: %w", err)
+	}
+	return projectRecordFromRenameSQLC(row), nil
+}

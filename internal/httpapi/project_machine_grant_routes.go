@@ -166,6 +166,42 @@ func (s strictOpenAPIServer) listProjectMachineGrants(
 	), nil
 }
 
+func (s strictOpenAPIServer) GetProjectMachineGrant(
+	ctx context.Context,
+	request openapi.GetProjectMachineGrantRequestObject,
+) (openapi.GetProjectMachineGrantResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	grantID, ok := parseOpenAPIPublicID(publicid.KindProjectMachineGrant, request.GrantID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	grant, err := s.server.store.Execution().GetProjectMachineGrant(ctx, scope.org.ID, scope.project.ID, grantID)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	if grant.SourceKind != executionstore.ProjectMachineGrantSourceKindExplicit {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	machine, err := s.server.store.Execution().GetMachine(ctx, scope.org.ID, grant.MachineID)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	grantResponse, err := projectMachineGrantResponse(grant)
+	if err != nil {
+		return nil, err
+	}
+	machineResponse, err := machineResponse(machine)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.GetProjectMachineGrant200JSONResponse(
+		openapi.CreateProjectMachineGrantResponse{Grant: grantResponse, Machine: machineResponse},
+	), nil
+}
+
 func (s strictOpenAPIServer) ListVisibleProjectMachines(
 	ctx context.Context,
 	request openapi.ListVisibleProjectMachinesRequestObject,
