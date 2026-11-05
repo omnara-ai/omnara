@@ -85,7 +85,13 @@ func newProvider(raw json.RawMessage, runtimeConfig providers.RuntimeConfig) (*p
 		return nil, errors.New("agent37 provider auth token is required")
 	}
 	return &provider{
-		api:          newRESTClient(defaultAPIBaseURL, defaultExecBaseURL, apiKey, nil, nil),
+		api: newRESTClient(
+			defaultAPIBaseURL,
+			defaultExecBaseURL,
+			apiKey,
+			providers.NewHTTPClient(runtimeConfig.HTTPRecorder, providers.Agent37),
+			providers.ObserveHTTPClient(lifecycleHTTPClient, runtimeConfig.HTTPRecorder, providers.Agent37),
+		),
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 		pollDelay:    pollDelay,
 	}, nil

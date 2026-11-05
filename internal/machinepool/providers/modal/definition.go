@@ -87,6 +87,7 @@ func newProvider(
 		environment:  config.Environment,
 		credential:   credential,
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
+		httpRecorder: runtimeConfig.HTTPRecorder,
 	}, nil
 }
 

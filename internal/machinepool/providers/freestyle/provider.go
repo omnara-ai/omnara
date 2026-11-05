@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 const (
@@ -40,6 +41,7 @@ var daemonInstallScript string
 type provider struct {
 	api           apiClient
 	omnaraAPIURL  string
+	httpRecorder  *metrics.HTTPClientRecorder
 	wakeTransport http.RoundTripper
 }
 
@@ -326,7 +328,7 @@ func (p *provider) WakeMachine(ctx context.Context, input providers.WakeMachineI
 	if err != nil {
 		return fmt.Errorf("build freestyle wake request: %w", err)
 	}
-	client := providers.NewHTTPClient()
+	client := providers.NewHTTPClient(p.httpRecorder, providers.Freestyle)
 	if p.wakeTransport != nil {
 		client.Transport = p.wakeTransport
 	}

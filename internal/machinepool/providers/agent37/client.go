@@ -90,12 +90,6 @@ type restClient struct {
 }
 
 func newRESTClient(apiBaseURL, execBaseURL, apiKey string, httpClient, lifecycleClient *http.Client) *restClient {
-	if httpClient == nil {
-		httpClient = providers.NewHTTPClient()
-	}
-	if lifecycleClient == nil {
-		lifecycleClient = lifecycleHTTPClient
-	}
 	return &restClient{
 		apiBaseURL:      strings.TrimRight(apiBaseURL, "/"),
 		execBaseURL:     strings.TrimRight(execBaseURL, "/"),

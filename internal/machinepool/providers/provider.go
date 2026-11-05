@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 const (
@@ -31,6 +32,7 @@ const (
 type RuntimeConfig struct {
 	OmnaraAPIURL      string
 	ProviderAuthToken string
+	HTTPRecorder      *metrics.HTTPClientRecorder
 }
 
 type ProvisionMachineResult struct {

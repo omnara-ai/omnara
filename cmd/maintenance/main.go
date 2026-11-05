@@ -141,7 +141,7 @@ func main() {
 		maintenance.Run(ctx, maintenance.Options{
 			Log:                  logger,
 			Store:                store,
-			MachinePools:         machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL),
+			MachinePools:         machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder),
 			Metrics:              metricSet,
 			Interval:             cfg.MaintenanceInterval,
 			PublicURL:            cfg.PublicURL,

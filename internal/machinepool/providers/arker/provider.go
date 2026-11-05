@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 const (
@@ -39,6 +40,7 @@ type provider struct {
 	apiToken     string
 	apiBaseURL   string
 	omnaraAPIURL string
+	httpRecorder *metrics.HTTPClientRecorder
 }
 
 func (p *provider) regionBaseURL(region string) string {
@@ -55,7 +57,7 @@ func (p *provider) apiFor(baseURL string) *restClient {
 	return &restClient{
 		baseURL:    baseURL,
 		apiToken:   p.apiToken,
-		httpClient: providers.NewHTTPClient(),
+		httpClient: providers.NewHTTPClient(p.httpRecorder, providers.Arker),
 	}
 }
 

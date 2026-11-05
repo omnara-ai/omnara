@@ -170,11 +170,11 @@ func TestHTTPClientRecorderUsesEndpointLabelOption(t *testing.T) {
 		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 		}),
-	}, recorder, WithHTTPClientPathLabel("/v1/messages/{messageID}"))
+	}, recorder, WithHTTPClientHostLabel("example"), WithHTTPClientPathLabel("/v1/messages/{messageID}"))
 	req, _ := http.NewRequestWithContext(
 		context.Background(),
 		http.MethodGet,
-		"https://api.example.com/v1/messages/msg_123?include=body",
+		"https://msg-123.api.example.com/v1/messages/msg_123?include=body",
 		nil,
 	)
 	resp, err := client.Do(req)
@@ -184,12 +184,12 @@ func TestHTTPClientRecorderUsesEndpointLabelOption(t *testing.T) {
 	resp.Body.Close()
 
 	body := scrapeMetrics(t, set)
-	want := `omnara_http_client_requests_total{code="200",error_kind="none",host="api.example.com",` +
+	want := `omnara_http_client_requests_total{code="200",error_kind="none",host="example",` +
 		`method="GET",path="/v1/messages/{messageID}",result="success"} 1`
 	if !strings.Contains(body, want) {
 		t.Fatalf("metrics missing %q:\n%s", want, body)
 	}
-	if strings.Contains(body, "msg_123") || strings.Contains(body, "include=body") {
+	if strings.Contains(body, "msg_123") || strings.Contains(body, "msg-123") || strings.Contains(body, "include=body") {
 		t.Fatalf("raw endpoint leaked into metrics:\n%s", body)
 	}
 }

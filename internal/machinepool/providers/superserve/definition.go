@@ -72,7 +72,11 @@ func newProvider(raw json.RawMessage, runtimeConfig providers.RuntimeConfig) (*p
 		return nil, errors.New("superserve provider auth token is required")
 	}
 	return &provider{
-		api:          newRESTClient(endpointsForAPIKey(apiKey), apiKey, nil),
+		api: newRESTClient(
+			endpointsForAPIKey(apiKey),
+			apiKey,
+			providers.NewHTTPClient(runtimeConfig.HTTPRecorder, providers.Superserve),
+		),
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 		pollDelay:    pollDelay,
 	}, nil
