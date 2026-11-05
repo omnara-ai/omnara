@@ -236,9 +236,13 @@ func TestFormatRecentContextRendersTablesAndFiles(t *testing.T) {
 				Type: "table", Rows: json.RawMessage(`[[{"type":"raw_text","text":"app\nposted"},{"type":"raw_text","text":"table"},` +
 					richText(section(`{"type":"emoji","name":"white_check_mark"}`)) + `,` +
 					richText(section(`{"type":"date","timestamp":1793916000,"format":"{date_short}",`+
-						`"url":"https://cal.example/1"}`)) + `]]`),
+						`"url":"https://cal.example/1"}`)) + `,` +
+					`{"type":"raw_number","value":42.5},{"type":"raw_number","value":1200,"text":"$1,200"}]]`),
 			}}},
 			{User: "U4", TS: "1.3", Files: []File{{Name: "notes.txt"}}},
+			{User: "U5", TS: "1.4", Text: "Build passed", Files: []File{{Name: "build.log"}}, Blocks: []HistoryBlock{{
+				Type: "section", Text: json.RawMessage(`{"type":"mrkdwn","text":"Build passed"}`),
+			}}},
 		},
 		Event{TS: "2.2"},
 		DisplayLabels{Users: map[string]string{"U2": "Ben"}},
@@ -246,9 +250,10 @@ func TestFormatRecentContextRendersTablesAndFiles(t *testing.T) {
 	want := "Recent Slack context:\n" +
 		"<@U1>: Trial | Owner | Links | Checkpoints\n" +
 		"review | <@U2> (Ben) <!subteam^S1> @here | [agent](https://app.omnara.com/a) and https://app.omnara.com/b | ccp_1 ccp_2 ccp_3\n" +
-		"<@U3>: [files: trajectory.json]\n" +
-		"app posted | table | :white_check_mark: | [2026-11-05T22:00:00Z](https://cal.example/1)\n" +
-		"<@U4>: [files: notes.txt]"
+		"<@U3>: app posted | table | :white_check_mark: | [2026-11-05T22:00:00Z](https://cal.example/1) | 42.5 | $1,200\n" +
+		"[files: trajectory.json]\n" +
+		"<@U4>: [files: notes.txt]\n" +
+		"<@U5>: Build passed\n[files: build.log]"
 	if got != want {
 		t.Fatalf("FormatRecentContext =\n%s\nwant\n%s", got, want)
 	}

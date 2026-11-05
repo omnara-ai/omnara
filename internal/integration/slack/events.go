@@ -195,11 +195,10 @@ func FormatRecentContext(messages []HistoryMessage, event Event, labels DisplayL
 				names = append(names, file.Name)
 			}
 		}
-		text := message.Text
+		text := MessageText(message.Text, message.Blocks, message.Attachments)
 		if len(names) > 0 {
-			text += " [files: " + strings.Join(names, ", ") + "]"
+			text = strings.TrimSpace(text + "\n[files: " + strings.Join(names, ", ") + "]")
 		}
-		text = MessageText(text, message.Blocks, message.Attachments)
 		if message.TS == "" || message.TS == event.TS || text == "" {
 			continue
 		}
@@ -310,16 +309,17 @@ func (block HistoryBlock) plainText() string {
 }
 
 type tableCell struct {
-	Type        string      `json:"type"`
-	Text        string      `json:"text"`
-	URL         string      `json:"url"`
-	UserID      string      `json:"user_id"`
-	ChannelID   string      `json:"channel_id"`
-	UsergroupID string      `json:"usergroup_id"`
-	Range       string      `json:"range"`
-	Name        string      `json:"name"`
-	Timestamp   int64       `json:"timestamp"`
-	Elements    []tableCell `json:"elements"`
+	Type        string          `json:"type"`
+	Text        string          `json:"text"`
+	URL         string          `json:"url"`
+	UserID      string          `json:"user_id"`
+	ChannelID   string          `json:"channel_id"`
+	UsergroupID string          `json:"usergroup_id"`
+	Range       string          `json:"range"`
+	Name        string          `json:"name"`
+	Timestamp   int64           `json:"timestamp"`
+	Value       json.RawMessage `json:"value"`
+	Elements    []tableCell     `json:"elements"`
 }
 
 func (cell tableCell) plainText() string {
@@ -338,6 +338,11 @@ func (cell tableCell) plainText() string {
 		return ":" + cell.Name + ":"
 	case "date":
 		return markdownLink(time.Unix(cell.Timestamp, 0).UTC().Format(time.RFC3339), cell.URL)
+	case "raw_number":
+		if cell.Text != "" {
+			return cell.Text
+		}
+		return string(cell.Value)
 	}
 	separator := ""
 	if cell.Type == "rich_text" || cell.Type == "rich_text_list" {
