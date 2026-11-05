@@ -1,7 +1,6 @@
 package ssrf
 
 import (
-	"cmp"
 	"fmt"
 	"net"
 	"net/netip"
@@ -74,8 +73,12 @@ func parseAllowEntry(raw string) (allowEntry, error) {
 	return allowEntry{prefix: prefix.Masked(), port: uint16(port)}, nil
 }
 
-func (a *Allowlist) PermitsIP(ip net.IP, allowLoopback bool) bool {
-	return a.contains(ip, 0) || IsAllowedIP(ip, allowLoopback)
+func (a *Allowlist) PermitsIP(ip net.IP, port uint16, allowLoopback bool) bool {
+	return a.contains(ip, port) || IsAllowedIP(ip, allowLoopback)
+}
+
+func (a *Allowlist) PermitsLocalhost(port uint16) bool {
+	return a.contains(net.IPv4(127, 0, 0, 1), port) || a.contains(net.IPv6loopback, port)
 }
 
 func (a *Allowlist) Configured() bool {
@@ -83,12 +86,32 @@ func (a *Allowlist) Configured() bool {
 }
 
 func (a *Allowlist) PermitsPlainHTTP(u *url.URL) bool {
-	host := u.Hostname()
-	if ip := net.ParseIP(host); ip != nil {
-		port, err := strconv.ParseUint(cmp.Or(u.Port(), "80"), 10, 16)
-		return err == nil && port > 0 && a.contains(ip, uint16(port))
+	host := ClassifyURLHost(u.Hostname())
+	switch {
+	case host.IP != nil:
+		return a.contains(host.IP, URLPort(u))
+	case !a.Configured() || !a.plainHTTPHostnames:
+		return false
+	case host.LocalDev:
+		return a.PermitsLocalhost(URLPort(u))
+	default:
+		return u.Hostname() != ""
 	}
-	return a.Configured() && a.plainHTTPHostnames && host != ""
+}
+
+func URLPort(u *url.URL) uint16 {
+	raw := u.Port()
+	if raw == "" {
+		raw = "443"
+		if u.Scheme == "http" {
+			raw = "80"
+		}
+	}
+	port, err := strconv.ParseUint(raw, 10, 16)
+	if err != nil {
+		return 0
+	}
+	return uint16(port)
 }
 
 func (a *Allowlist) permits(ip net.IP, port uint16, allowLoopback, plainHTTP bool) bool {
@@ -102,7 +125,7 @@ func (a *Allowlist) permits(ip net.IP, port uint16, allowLoopback, plainHTTP boo
 }
 
 func (a *Allowlist) contains(ip net.IP, port uint16) bool {
-	if a == nil {
+	if a == nil || port == 0 {
 		return false
 	}
 	addr, ok := netip.AddrFromSlice(ip)
@@ -111,7 +134,7 @@ func (a *Allowlist) contains(ip net.IP, port uint16) bool {
 		return false
 	}
 	for _, entry := range a.entries {
-		if entry.prefix.Contains(addr) && (entry.port == 0 || port == 0 || entry.port == port) {
+		if entry.prefix.Contains(addr) && (entry.port == 0 || entry.port == port) {
 			return true
 		}
 	}

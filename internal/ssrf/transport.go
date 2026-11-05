@@ -2,7 +2,6 @@ package ssrf
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -13,6 +12,7 @@ type TransportOptions struct {
 	AllowLoopback                bool
 	Allowlist                    *Allowlist
 	AllowAnyPlainHTTP            bool
+	AllowlistHTTPSOnly           bool
 	DialTimeout                  time.Duration
 	TLSHandshakeTimeout          time.Duration
 	ResponseHeaderTimeout        time.Duration
@@ -36,7 +36,11 @@ func NewTransport(opts TransportOptions) http.RoundTripper {
 	dialer := &net.Dialer{Timeout: opts.DialTimeout, KeepAlive: 30 * time.Second}
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return dial(ctx, dialer, network, addr, opts.AllowLoopback, opts.Allowlist)
+			allowlist := opts.Allowlist
+			if opts.AllowlistHTTPSOnly && ctx.Value(plainHTTPKey{}) != nil {
+				allowlist = nil
+			}
+			return dial(ctx, dialer, network, addr, opts.AllowLoopback, allowlist)
 		},
 		TLSHandshakeTimeout:   opts.TLSHandshakeTimeout,
 		ResponseHeaderTimeout: opts.ResponseHeaderTimeout,
@@ -50,30 +54,15 @@ func NewTransport(opts TransportOptions) http.RoundTripper {
 	if opts.Allowlist == nil || opts.AllowAnyPlainHTTP {
 		return transport
 	}
-	return plainHTTPMarker{Transport: transport, allowLoopback: opts.AllowLoopback}
+	return plainHTTPMarker{transport}
 }
 
 type plainHTTPKey struct{}
 
-type withoutPlainHTTPGrantKey struct{}
-
-func WithoutPlainHTTPGrant(ctx context.Context) context.Context {
-	return context.WithValue(ctx, withoutPlainHTTPGrantKey{}, true)
-}
-
-type plainHTTPMarker struct {
-	*http.Transport
-	allowLoopback bool
-}
+type plainHTTPMarker struct{ *http.Transport }
 
 func (t plainHTTPMarker) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL.Scheme == "http" {
-		if !t.allowLoopback && req.Context().Value(withoutPlainHTTPGrantKey{}) != nil {
-			if req.Body != nil {
-				_ = req.Body.Close()
-			}
-			return nil, fmt.Errorf("%w: %s", ErrBlockedAddress, req.URL.Hostname())
-		}
 		req = req.WithContext(context.WithValue(req.Context(), plainHTTPKey{}, true))
 	}
 	return t.Transport.RoundTrip(req)

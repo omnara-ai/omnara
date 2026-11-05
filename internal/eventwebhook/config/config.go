@@ -49,8 +49,9 @@ func ValidateURL(raw string, privateEndpoints *ssrf.Allowlist) (string, error) {
 		return "", errors.New("event webhook URL must not contain credentials or a fragment")
 	}
 	host := ssrf.ClassifyURLHost(parsed.Hostname())
-	if (host.IP == nil && host.LocalDev && !privateEndpoints.PermitsPlainHTTP(parsed)) ||
-		(host.IP != nil && !privateEndpoints.PermitsIP(host.IP, false)) {
+	port := ssrf.URLPort(parsed)
+	if (host.IP == nil && host.LocalDev && !privateEndpoints.PermitsLocalhost(port)) ||
+		(host.IP != nil && !privateEndpoints.PermitsIP(host.IP, port, false)) {
 		return "", errors.New("event webhook URL must target a public host")
 	}
 	normalized := parsed.String()
