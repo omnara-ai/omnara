@@ -46,9 +46,7 @@ jobs:
 
       - name: Check pull request
         if: github.event_name == 'pull_request'
-        env:
-          REACT_DOCTOR_BASE: HEAD^1
-        run: pnpm run doctor --base "$REACT_DOCTOR_BASE" --verbose 2>&1 | tee "$RUNNER_TEMP/react-doctor.txt"
+        run: pnpm run doctor --base "$(git rev-parse HEAD^1)" --verbose 2>&1 | tee "$RUNNER_TEMP/react-doctor.txt"
 
       - name: Check full workspace
         if: github.event_name != 'pull_request'
