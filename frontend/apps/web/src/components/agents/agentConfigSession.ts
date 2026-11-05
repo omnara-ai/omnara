@@ -17,7 +17,7 @@ import {
 import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 import type { BasicConfig } from '@/components/agents/useAgentBuilderForm'
 
-export interface ConfigEvaluation {
+interface ConfigEvaluation {
   yaml: string
   issues: ConfigDiagnostic[]
   unappliedChanges: boolean
@@ -27,7 +27,6 @@ export interface BasicConfigSession {
   readonly sourceFormat: ConfigSourceFormat
   readonly initialDraft: BasicConfig | null
   readonly diagnostics: ConfigDiagnostic[]
-  validate(config: BasicConfig): ConfigDiagnostic[]
   evaluate(config: BasicConfig): ConfigEvaluation
   apply(config: BasicConfig): string
 }
@@ -95,7 +94,6 @@ export function createBasicConfigSession(
     }
     return { issues, conflictingNames }
   }
-  const validate = (config: BasicConfig) => validateConfig(config).issues
   const evaluate = (config: BasicConfig): ConfigEvaluation => {
     const { issues, conflictingNames } = validateConfig(config)
     if (source !== '' && initialDraft == null)
@@ -157,7 +155,6 @@ export function createBasicConfigSession(
     sourceFormat,
     initialDraft,
     diagnostics,
-    validate,
     evaluate,
     apply: (config) => evaluate(config).yaml,
   }

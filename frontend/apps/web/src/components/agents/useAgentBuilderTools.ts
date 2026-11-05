@@ -4,17 +4,28 @@ import { useMemo } from 'react'
 import { Document, isMap, isSeq, parseDocument } from 'yaml'
 
 import type { McpEntry } from '@/components/agents/agentConfigBasicExtract'
+import { toolWire } from '@/components/agents/agentConfigBasicWrite'
 import { parseConfigDocument } from '@/components/agents/agentConfigCompatibility'
 import { mcpWire } from '@/components/agents/agentConfigMcp'
 import { subagentValid, subagentWire } from '@/components/agents/agentConfigSubagents'
 import { configYamlOptions } from '@/components/agents/agentConfigYaml'
-import {
-  type BasicConfig,
-  type BasicMcpServer,
-  toolWire,
-} from '@/components/agents/useAgentBuilderForm'
+import type { BasicConfig, BasicMcpServer } from '@/components/agents/useAgentBuilderForm'
 
-export function agentBuilderToolsDefinition(source: BasicConfig): AgentConfigToolsDefinition {
+type ToolPreviewDraft = Pick<
+  BasicConfig,
+  | 'interactionHandlers'
+  | 'tools'
+  | 'mcpServers'
+  | 'machineSources'
+  | 'skillIds'
+  | 'memoryStores'
+  | 'subagents'
+  | 'gitCredentials'
+  | 'advancedEntries'
+  | 'originalSource'
+>
+
+export function agentBuilderToolsDefinition(source: ToolPreviewDraft): AgentConfigToolsDefinition {
   const definition: AgentConfigToolsDefinition = {
     interaction_handlers: source.interactionHandlers,
     tools: Object.fromEntries(source.tools.map((tool) => [tool.name, toolWire(tool)])),
@@ -41,7 +52,7 @@ export function agentBuilderToolsDefinition(source: BasicConfig): AgentConfigToo
   return definition
 }
 
-export function agentBuilderToolsRequest(source: BasicConfig) {
+export function agentBuilderToolsRequest(source: ToolPreviewDraft) {
   const definition = agentBuilderToolsDefinition(source)
   const toolFields = new Set([...Object.keys(definition), 'git_credentials'])
   const advanced = (source.advancedEntries ?? []).filter(
@@ -84,10 +95,47 @@ function mcpPreviewWire(server: BasicMcpServer): McpEntry {
 }
 
 export function useAgentBuilderTools(
-  source: BasicConfig,
+  {
+    interactionHandlers,
+    tools,
+    mcpServers,
+    machineSources,
+    skillIds,
+    memoryStores,
+    subagents,
+    gitCredentials,
+    advancedEntries,
+    originalSource,
+  }: ToolPreviewDraft,
   scope: { orgId: string; projectId: string },
 ) {
-  const request = useMemo(() => agentBuilderToolsRequest(source), [source])
+  const request = useMemo(
+    () =>
+      agentBuilderToolsRequest({
+        interactionHandlers,
+        tools,
+        mcpServers,
+        machineSources,
+        skillIds,
+        memoryStores,
+        subagents,
+        gitCredentials,
+        advancedEntries,
+        originalSource,
+      }),
+    [
+      interactionHandlers,
+      tools,
+      mcpServers,
+      machineSources,
+      skillIds,
+      memoryStores,
+      subagents,
+      gitCredentials,
+      advancedEntries,
+      originalSource,
+    ],
+  )
   const query = useAgentConfigTools(scope.orgId, scope.projectId, request)
   const error = query.error
   const detail =

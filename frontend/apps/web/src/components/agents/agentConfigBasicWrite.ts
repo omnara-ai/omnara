@@ -1,4 +1,4 @@
-import { type Document, isMap, isSeq, type Node } from 'yaml'
+import { type Document, isMap, isSeq } from 'yaml'
 
 import {
   type MachineEntry,
@@ -8,8 +8,10 @@ import {
 } from '@/components/agents/agentConfigBasicExtract'
 import {
   ConfigEditError,
+  type ConfigValue,
   deepEqual,
   editConfigDocument,
+  isConfigObject,
 } from '@/components/agents/agentConfigDocument'
 import { mcpWire, permissionWire } from '@/components/agents/agentConfigMcp'
 import {
@@ -25,16 +27,7 @@ import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
 import { memoryGbToMb } from '@/lib/machine-memory'
 import { normalizeResourceName } from '@/lib/resource-name'
 
-type WireValue = string | number | boolean | null | undefined | WireValue[] | WireObject
-
-interface WireObject {
-  [key: string]: WireValue
-}
-
-type YamlInput = WireValue | Node | YamlInput[]
-
-type Setter = (path: string[], value: YamlInput) => void
-type Deleter = (path: (string | number)[]) => void
+type ConfigTransaction = ReturnType<typeof editConfigDocument>
 
 export function applyToDocument(
   original: Document,
@@ -51,12 +44,13 @@ export function applyToDocument(
   )
   const { set, remove: del } = transaction
 
-  const applyList = (key: string, items: WireValue[], base: WireValue[] | null) => {
+  const applyList = (key: string, items: ConfigValue[], base: ConfigValue[] | null) => {
     if (base == null) {
       if (items.length > 0) set([key], items)
       return
     }
-    const identity = (value: WireValue) => JSON.stringify(isWireObject(value) ? value.name : value)
+    const identity = (value: ConfigValue) =>
+      JSON.stringify(isConfigObject(value) ? value.name : value)
     const desired = new Map(items.map((value) => [identity(value), value]))
     const baselineIds = new Set(base.map(identity))
     const removed: number[] = []
@@ -103,6 +97,25 @@ export function applyToDocument(
   }
 
   applyMachineSources(transaction, config.machineSources, baseline?.machineSources ?? null)
+  const advancedEntries = [...(config.advancedEntries ?? [])].sort(
+    (left, right) => Number(!!left.removed) - Number(!!right.removed),
+  )
+  for (const entry of advancedEntries) {
+    const previous = baseline?.advancedEntries?.find(
+      (item) => item.path.join('\0') === entry.path.join('\0'),
+    )
+    if (previous?.source === entry.source && !entry.removed) continue
+    if (
+      entry.kind !== 'custom' ||
+      (previous && previous.kind !== 'custom') ||
+      entry.path.length !== 2 ||
+      entry.path[0] !== 'tools' ||
+      (entry.removed && !previous)
+    )
+      throw new ConfigEditError(entry.path, 'Only custom tools can be edited here.')
+    if (entry.removed) transaction.removeRawDefinition(entry.path)
+    else transaction.setRawDefinition(entry.path, entry.source)
+  }
   applyNamedEntries(
     'tools',
     config.tools.map((tool) => [tool.name, toolWire(tool)]),
@@ -148,35 +161,15 @@ export function applyToDocument(
     del,
   )
 
-  const advancedEntries = [...(config.advancedEntries ?? [])].sort(
-    (left, right) => Number(!!left.removed) - Number(!!right.removed),
-  )
-  for (const entry of advancedEntries) {
-    const previous = baseline?.advancedEntries?.find(
-      (item) => item.path.join('\0') === entry.path.join('\0'),
-    )
-    if (entry.removed) {
-      if (previous?.kind !== 'custom' || entry.path.length !== 2 || entry.path[0] !== 'tools')
-        throw new ConfigEditError(entry.path, 'Only an existing custom tool can be removed here.')
-      transaction.removeRawDefinition(entry.path)
-      continue
-    }
-    if (
-      (previous && previous.source !== entry.source) ||
-      (!previous && entry.kind === 'custom' && entry.path.length === 2 && entry.path[0] === 'tools')
-    ) {
-      transaction.setRawDefinition(entry.path, entry.source)
-    }
-  }
   return transaction.serialize()
 }
 
 function applyNamedEntries(
   key: string,
-  desired: [string, WireValue][],
-  baseline: [string, WireValue][] | null,
-  set: Setter,
-  del: Deleter,
+  desired: [string, ConfigValue][],
+  baseline: [string, ConfigValue][] | null,
+  set: ConfigTransaction['set'],
+  del: ConfigTransaction['remove'],
 ) {
   const baselineByName = new Map(baseline ?? [])
   const desiredNames = new Set(desired.map(([name]) => name))
@@ -192,17 +185,17 @@ function applyNamedEntries(
 
 function applyWireChanges(
   path: string[],
-  baseline: WireValue,
-  desired: WireValue,
-  set: Setter,
-  del: Deleter,
+  baseline: ConfigValue,
+  desired: ConfigValue,
+  set: ConfigTransaction['set'],
+  del: ConfigTransaction['remove'],
 ) {
   if (deepEqual(baseline, desired)) return
   if (desired === undefined) {
     del(path)
     return
   }
-  if (isWireObject(baseline) && isWireObject(desired)) {
+  if (isConfigObject(baseline) && isConfigObject(desired)) {
     for (const key of Object.keys(desired)) {
       if (desired[key] !== undefined)
         applyWireChanges([...path, key], baseline[key], desired[key], set, del)
@@ -214,7 +207,7 @@ function applyWireChanges(
 }
 
 function applyMachineSources(
-  transaction: ReturnType<typeof editConfigDocument>,
+  transaction: ConfigTransaction,
   rows: BasicMachineSource[],
   baselineRows: BasicMachineSource[] | null,
 ) {
@@ -277,10 +270,6 @@ function machineSourceComparable(source: BasicMachineSource) {
     env: overlayFromTextRows(source.envRows) ?? null,
     secretEnv: overlayFromSecretRows(source.secretEnvRows) ?? null,
   }
-}
-
-function isWireObject(value: WireValue): value is WireObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function machineSourceWire(source: BasicMachineSource): PoolEntry | MachineEntry {

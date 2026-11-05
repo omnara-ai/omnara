@@ -56,6 +56,7 @@ export function AgentConfigToolsSection({
         <CustomToolDialog
           entry={editing === 'new' ? undefined : editing}
           configurationDirty={form.dirty}
+          configurationSource={form.yaml}
           format={form.sourceFormat}
           reservedNames={[
             ...(catalog?.built_in_tools.map((tool) => tool.name) ?? []),
@@ -79,8 +80,11 @@ export function AgentConfigToolsSection({
                 : []
             })
             if (!entries.some((item) => configPath(item.path) === target)) entries.push(updated)
+            const result = form.evaluateAdvancedEntries(entries)
+            if (result.unappliedChanges) return result.issues
             form.setAdvancedEntries(entries)
             setEditing(null)
+            return []
           }}
         />
       )}

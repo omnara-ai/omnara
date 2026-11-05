@@ -133,7 +133,7 @@ export function AgentConfigSubagentsField({
                 inputMode="numeric"
                 value={maxSubagents}
                 disabled={!onMaxSubagentsChange}
-                placeholder={onMaxSubagentsChange ? 'Unlimited' : 'Preserved in YAML'}
+                placeholder={onMaxSubagentsChange ? 'Unlimited' : 'Preserved in source'}
                 onChange={(event) => {
                   onMaxSubagentsChange?.(event.target.value.trim())
                 }}
@@ -146,7 +146,7 @@ export function AgentConfigSubagentsField({
                 inputMode="numeric"
                 value={maxDepth}
                 disabled={!onMaxDepthChange}
-                placeholder={onMaxDepthChange ? '1' : 'Preserved in YAML'}
+                placeholder={onMaxDepthChange ? '1' : 'Preserved in source'}
                 onChange={(event) => {
                   onMaxDepthChange?.(event.target.value.trim())
                 }}
