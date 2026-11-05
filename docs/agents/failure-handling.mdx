@@ -56,19 +56,4 @@ A command a machine hasn't accepted yet never runs late. It fails if the machine
 
 ## How it's tested
 
-This behavior is covered by tests in the open-source [repository](https://github.com/omnara-ai/omnara), so you can read and run them yourself. They include:
-
-| Behavior | Tests |
-| --- | --- |
-| Lease claims, fencing, and recovery | [`TestExecutionClaimInvalidLease`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/internal/agentexecution/commands_runtime_integration_test.go), [`TestExecutionCommandFencing`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/internal/agentexecution/commands_integration_test.go), [`TestExecutionRuntimeRecoveryCommands`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/internal/agentexecution/commands_custody_integration_test.go), [`TestAgentRuntimeLockReaperWinningRaceFencesOldWorker`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/executionstore/agent_runtime_locks_integration_test.go) |
-| Crashed model calls and worker shutdown | [`TestServiceE2EMaintenanceRecoversCrashedModelCall`](https://github.com/omnara-ai/omnara/blob/main/internal/e2e/service_e2e_maintenance_recovery_test.go), [`TestServiceE2EWorkerDrainCompletesInFlightModelCall`](https://github.com/omnara-ai/omnara/blob/main/internal/e2e/service_e2e_worker_drain_test.go), [`TestDecideStopsAfterEightRetries`](https://github.com/omnara-ai/omnara/blob/main/internal/modelretry/policy_test.go) |
-| Interrupted tools and waiting interactions | [`TestExpiredRuntimeFailsOwnedToolAndFencesLateCompletion`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/executionstore/process_runtime_lease_recovery_integration_test.go), [`TestExpiredRuntimePreservesDurablyWaitingQuestionInteraction`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/executionstore/process_runtime_lease_recovery_integration_test.go), [`TestPublicCustomToolCallLifecycle`](https://github.com/omnara-ai/omnara/blob/main/internal/httpapi/agent_tool_calls_integration_test.go) |
-| Machine and daemon crashes | [`TestServiceE2EDaemonContainerCrashDoesNotRepeatAcceptedProcess`](https://github.com/omnara-ai/omnara/blob/main/internal/e2e/service_e2e_daemon_process_tools_test.go), [`TestAbruptSupervisorDeathNeverRepeatsCommittedEffects`](https://github.com/omnara-ai/omnara/blob/main/internal/machinedaemon/supervisor_crash_unix_test.go), [`TestMachineUnreachableProcessToolCallUnblocksWithoutTerminalizingProcess`](https://github.com/omnara-ai/omnara/blob/main/internal/storage/executionstore/process_machine_unreachable_integration_test.go) |
-
-To run the database-backed and end-to-end suites locally with Docker:
-
-```sh
-make db-up
-make test-integration
-make test-service-e2e
-```
+The [integration and end-to-end tests](https://github.com/omnara-ai/omnara/tree/main/internal/e2e) in the open-source repository cover this behavior, including worker crashes, interrupted tool calls, and machine failures.
