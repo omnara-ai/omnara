@@ -8902,7 +8902,7 @@ paths:
       operationId: getIntegrationSubscription
       tags: [Integrations]
       summary: Get integration conversation subscription
-      description: Requires project read permission.
+      description: Returns one conversation subscription for the integration. Requires project read permission.
       responses:
         '200':
           description: The subscription.

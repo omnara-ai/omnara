@@ -4775,7 +4775,7 @@ export const getIntegrationSubscriptionQueryKey = (options: Options<GetIntegrati
 /**
  * Get integration conversation subscription
  *
- * Requires project read permission.
+ * Returns one conversation subscription for the integration. Requires project read permission.
  */
 export const getIntegrationSubscriptionOptions = (options: Options<GetIntegrationSubscriptionData>) => queryOptions<GetIntegrationSubscriptionResponse, GetIntegrationSubscriptionError, GetIntegrationSubscriptionResponse, ReturnType<typeof getIntegrationSubscriptionQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

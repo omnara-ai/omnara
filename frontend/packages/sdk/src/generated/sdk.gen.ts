@@ -4214,7 +4214,7 @@ export const deleteIntegrationSubscription = <ThrowOnError extends boolean = tru
 /**
  * Get integration conversation subscription
  *
- * Requires project read permission.
+ * Returns one conversation subscription for the integration. Requires project read permission.
  */
 export const getIntegrationSubscription = <ThrowOnError extends boolean = true>(options: Options<GetIntegrationSubscriptionData, ThrowOnError>): RequestResult<GetIntegrationSubscriptionResponses, GetIntegrationSubscriptionErrors, ThrowOnError> => (options.client ?? client).get<GetIntegrationSubscriptionResponses, GetIntegrationSubscriptionErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zGetIntegrationSubscriptionResponse),
