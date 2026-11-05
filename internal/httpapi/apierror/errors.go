@@ -27,6 +27,7 @@ var definitions = map[openapi.ErrorCode]definition{
 	openapi.ErrorCodeFileReadOnly:            {http.StatusConflict, "file access is read-only"},
 	openapi.ErrorCodeExpectedDigestRequired:  {http.StatusConflict, "expected_digest is required"},
 	openapi.ErrorCodeNotAFile:                {http.StatusBadRequest, "path is not a file"},
+	openapi.ErrorCodePathNotFound:            {http.StatusNotFound, "path not found"},
 	openapi.ErrorCodeGone:                    {http.StatusGone, "gone"},
 	openapi.ErrorCodeRequestTooLarge:         {http.StatusRequestEntityTooLarge, "request too large"},
 	openapi.ErrorCodeUnsupportedMediaType:    {http.StatusUnsupportedMediaType, "unsupported media type"},
