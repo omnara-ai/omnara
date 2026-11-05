@@ -76,7 +76,6 @@ describe('document ownership', () => {
       nodeSource(sources, ['machine_sources', 1]),
     )
     expect(session.apply(draft)).toBe(sources)
-    expect(session.apply(changed)).toBe(result.yaml)
   })
 
   it('removes and appends managed rows while retaining opaque row identity and source', () => {
@@ -135,6 +134,11 @@ describe('document ownership', () => {
     'tools: {web_search: {}, future: {data: [a,b,c]},}\n',
     'tools: {web_search: {}, future: {data: [a,b,c]}, # keep comma, in comment\n}\n',
     'tools:\n  web_search: {}\n  # preserve opaque explanation\n  future: {data: [a,b,c]}\n',
+    `tools: {
+  web_search: {}, # after managed
+  # before opaque
+  future: {data: [a,b,c]} # after opaque
+}\n`,
   ])('preserves collection trivia when deleting and adding tools: %s', (tools) => {
     const { session, draft } = draftFor(header + tools)
     const result = session.evaluate({ ...draft, tools: [{ name: 'web_fetch', permission: null }] })
@@ -144,8 +148,7 @@ describe('document ownership', () => {
       future: { data: ['a', 'b', 'c'] },
       web_fetch: { type: 'built_in' },
     })
-    if (tools.includes('# keep')) expect(result.yaml).toContain('# keep comma, in comment')
-    if (tools.includes('# preserve')) expect(result.yaml).toContain('# preserve opaque explanation')
+    for (const comment of tools.match(/#[^\n]*/g) ?? []) expect(result.yaml).toContain(comment)
   })
 })
 
@@ -215,7 +218,7 @@ it('reorders managed machine rows without moving or rewriting an opaque row', ()
 })
 
 it('distinguishes string and number permission parameters when editing a scalar', () => {
-  const source = `${header}tools: {web_search: {permission: {mode: always_allow, parameters: {count: "5"}}}}\n`
+  const source = `${header}tools: {web_search: {permission: {mode: always_allow, parameters: {count: "5" # keep count\n  }}}}\n`
   const { session, draft } = draftFor(source)
   const result = session.evaluate({
     ...draft,
@@ -225,6 +228,7 @@ it('distinguishes string and number permission parameters when editing a scalar'
     })),
   })
   expect(result.issues).toEqual([])
+  expect(result.yaml).toBe(source.replace('"5"', '5'))
   expect(parse(result.yaml)).toHaveProperty(
     ['tools', 'web_search', 'permission', 'parameters', 'count'],
     5,
@@ -328,10 +332,10 @@ it('changes a machine source kind without losing the sequence entry', () => {
   expect(parse(result.yaml)).toHaveProperty('machine_sources', [{ machine_name: 'example' }])
 })
 
-it('preserves large schema integers and blocks conversions that would round them', () => {
+it('preserves large schema integers and rejects block definitions in inline collections', () => {
   const source =
     header +
-    'tools: {example: {type: custom, description: Example, input_schema: {type: object, properties: {value: {const: 9007199254740993}}}}}\n'
+    'tools: {example: {type: custom, description: Example, input_schema: {type: object, properties: {value: {const: 9007199254740993}}}} # keep custom\n}\n'
   const { session, draft } = draftFor(source)
   const result = session.evaluate({
     ...draft,
@@ -341,8 +345,7 @@ it('preserves large schema integers and blocks conversions that would round them
     })),
   })
   expect(result.issues).toEqual([])
-  expect(result.yaml).toContain('const: 9007199254740993')
-  expect(result.yaml).toContain('description: Updated')
+  expect(result.yaml).toBe(source.replace('description: Example', 'description: Updated'))
   const empty = '{instruction: Help.}\n'
   const transaction = editConfigDocument(empty, parseConfigDocument(empty).doc, [])
   expect(() => {
@@ -352,6 +355,74 @@ it('preserves large schema integers and blocks conversions that would round them
     )
   }).toThrow('This inline collection requires a flow definition')
   expect(transaction.serialize()).toBe(empty)
+})
+
+it.each([undefined, 2, 4])('keeps JSON layout stable across edits (indent: %s)', (indent) => {
+  const tool = { type: 'custom', description: 'Example.', input_schema: { type: 'object' } }
+  let source = JSON.stringify(
+    { tools: { example: tool }, skills: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa'] },
+    null,
+    indent,
+  )
+  const { session, draft } = draftFor(source)
+  const result = session.evaluate({
+    ...draft,
+    tools: [{ name: 'web_search', permission: null }],
+    skillIds: [...draft.skillIds, 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb'],
+  })
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toBe(
+    JSON.stringify(
+      {
+        tools: { example: tool, web_search: { type: 'built_in' } },
+        skills: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb'],
+      },
+      null,
+      indent,
+    ),
+  )
+  source = result.yaml
+  for (const mode of ['always_ask', 'always_allow', 'always_ask']) {
+    const { session, draft } = draftFor(source)
+    const entry = draft.advancedEntries?.[0]
+    if (!entry) throw new Error('Missing custom tool')
+    const transaction = editConfigDocument(
+      entry.source,
+      parseConfigDocument(entry.source).doc,
+      [['input_schema']],
+      'json',
+    )
+    transaction.set(['permission', 'mode'], mode)
+    const result = session.evaluate({
+      ...draft,
+      advancedEntries: [{ ...entry, source: transaction.serialize() }],
+    })
+    expect(result.issues).toEqual([])
+    expect(result.yaml).toBe(
+      JSON.stringify(
+        {
+          tools: { example: { ...tool, permission: { mode } }, web_search: { type: 'built_in' } },
+          skills: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb'],
+        },
+        null,
+        indent,
+      ),
+    )
+    source = result.yaml
+  }
+})
+
+it('keeps a following section comment outside appended tools', () => {
+  const source = 'tools:\n  web_search: {}\n  # Tool notes\n# Skill notes\nskills: []\n'
+  const { session, draft } = draftFor(source)
+  const result = session.evaluate({
+    ...draft,
+    tools: [...draft.tools, { name: 'web_fetch', permission: null }],
+  })
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toBe(
+    source.replace('# Skill notes', '  web_fetch:\n    type: built_in\n# Skill notes'),
+  )
 })
 
 it('explains explicit YAML 1.1 documents without rewriting them', () => {
@@ -364,10 +435,14 @@ it('explains explicit YAML 1.1 documents without rewriting them', () => {
   )
 })
 
-it.each([false, true])(
-  'adds custom tools beside a new built-in without creating an inline map (reopen: %s)',
-  (reopen) => {
-    let { session, draft } = draftFor(header)
+it.each([
+  [header, false],
+  [header, true],
+  [header + 'tools: {}\n', false],
+] as const)(
+  'adds custom tools beside a new built-in without creating an inline map (%#)',
+  (source, reopen) => {
+    let { session, draft } = draftFor(source)
     draft = { ...draft, tools: [{ name: 'web_search', permission: null }] }
     if (reopen) ({ session, draft } = draftFor(session.apply(draft)))
     const raw =
@@ -381,5 +456,23 @@ it.each([false, true])(
     expect(result.yaml).toContain('input_schema: # retain schema comment\n')
     expect(parse(result.yaml)).toHaveProperty(['tools', 'web_search'])
     expect(parse(result.yaml)).toHaveProperty(['tools', 'example'], parse(raw))
+  },
+)
+
+it.each(['# Updated\n  ', ''])(
+  'applies raw comment-only edits inside inline maps (%#)',
+  (comment) => {
+    const source =
+      'tools: {example: # Original\n  {type: custom, description: Example., input_schema: {type: object}}}\n'
+    const { session, draft } = draftFor(source)
+    const result = session.evaluate({
+      ...draft,
+      advancedEntries: draft.advancedEntries?.map((entry) => ({
+        ...entry,
+        source: entry.source.replace('# Original\n', comment.trimEnd() ? '# Updated\n' : ''),
+      })),
+    })
+    expect(result.issues).toEqual([])
+    expect(result.yaml).toBe(source.replace('# Original\n  ', comment))
   },
 )

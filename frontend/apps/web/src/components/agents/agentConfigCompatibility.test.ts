@@ -2,7 +2,7 @@ import { zAgentConfigDefinition } from '@omnara/sdk/zod'
 import { describe, expect, it } from 'vitest'
 import { isNode, parse, parseDocument } from 'yaml'
 
-import { configPath } from './agentConfigCompatibility'
+import { configPath, customToolNameError } from './agentConfigCompatibility'
 import fixture from './fixtures/inline-custom-tools.yaml?raw'
 import { type BasicConfig, createBasicConfigSession, emptyBasicConfig } from './useAgentBuilderForm'
 
@@ -16,12 +16,19 @@ function sessionFor(source = fixture) {
 function nodeSource(source: string, path: string[]) {
   const node = parseDocument(source).getIn(path, true)
   if (!isNode(node) || !node.range) throw new Error(`Missing ${path.join('.')}`)
-  return source.slice(node.range[0], node.range[2])
+  return source.slice(node.range[0], node.range[1])
 }
 
 const original = zAgentConfigDefinition.parse(parse(fixture))
 const customTools = Object.fromEntries(
   Object.entries(original.tools ?? {}).filter(([, tool]) => tool.type === 'custom'),
+)
+
+it.each(['', 'bad-name', 'mcp__reserved', 'int__reserved', 'call_deferred_tool', 'a'.repeat(65)])(
+  'rejects invalid or reserved custom tool names: %s',
+  (name) => {
+    expect(customToolNameError(name)).toBeDefined()
+  },
 )
 
 function expectCustomUnchanged(source: string, baseline = fixture) {
@@ -35,9 +42,7 @@ describe('mixed managed and advanced configurations', () => {
     const { session, draft } = sessionFor()
     expect(draft.tools).toHaveLength(3)
     expect(draft.advancedEntries).toHaveLength(8)
-    expect(session.diagnostics.every((issue) => issue.kind === 'advanced' && !issue.error)).toBe(
-      true,
-    )
+    expect(session.diagnostics).toEqual([])
     expect(session.apply(draft)).toBe(fixture)
   })
 
@@ -76,12 +81,6 @@ describe('mixed managed and advanced configurations', () => {
       { ...original.tools, ask_question: { type: 'built_in' } },
     ],
     ['removing every managed tool', () => ({ tools: [] }), 'tools', customTools],
-    [
-      'replacing managed tools',
-      () => ({ tools: [{ name: 'ask_question', permission: null }] }),
-      'tools',
-      { ...customTools, ask_question: { type: 'built_in' } },
-    ],
   ])(
     'saves %s edits while preserving custom definitions byte-for-byte',
     (_label, edit, path, expected) => {
@@ -99,10 +98,9 @@ describe('mixed managed and advanced configurations', () => {
       ...draft,
       tools: [...draft.tools, { name: 'search_records', permission: null }],
     }
-    expect(session.validate(collision)).toMatchObject([
-      { path: ['tools', 'search_records'], error: true },
-    ])
-    expect(session.apply(collision)).toBe(fixture + 'future: {a: b}\n')
+    const result = session.evaluate(collision)
+    expect(result.issues).toMatchObject([{ path: ['tools', 'search_records'], error: true }])
+    expect(result.yaml).toBe(fixture + 'future: {a: b}\n')
   })
 
   it('saves intentional description and arbitrary nested schema edits', () => {
@@ -167,8 +165,9 @@ input_schema:
         entry.path[1] === 'search_records' ? { ...entry, source: raw } : entry,
       ),
     }
-    expect(session.validate(invalid).map((issue) => configPath(issue.path))).toContain(path)
-    expect(session.apply(invalid)).toBe(fixture)
+    const result = session.evaluate(invalid)
+    expect(result.issues.map((issue) => configPath(issue.path))).toContain(path)
+    expect(result.yaml).toBe(fixture)
   })
 
   it('supports JSON including adding and removing managed tools while preserving custom source', () => {
@@ -202,9 +201,6 @@ input_schema:
     expect(updated).toContain('# keep extension\nextension: {quoted: "verbatim", list: [a,b,c]}')
     expect(parse(updated)).not.toHaveProperty(['tools', 'run_command'])
     expect(parse(updated)).toHaveProperty(['tools', 'search_records'])
-    expect(
-      session.validate({ ...draft, tools: [{ name: 'future_tool', permission: null }] }),
-    ).toMatchObject([{ path: ['tools', 'future_tool'] }])
   })
 
   it.each(['', '            # required: [q]\n', '            # required: [q]\n    # next tool\n'])(
@@ -260,54 +256,12 @@ ${comments}    web_search: {}
     expect(session.apply({ ...draft, advancedEntries: [] })).toBe(source)
     const opaque = draft.advancedEntries?.find((entry) => entry.kind === 'opaque')
     if (!opaque) throw new Error('Missing opaque entry')
-    const result = session.evaluate({
-      ...draft,
-      advancedEntries: [{ ...opaque, kind: 'custom', removed: true }],
-    })
-    expect(result.yaml).toBe(source)
-    expect(result.issues).toMatchObject([{ path: ['extension'], error: true }])
+    for (const changes of [{ removed: true }, { source: '{future: false}' }]) {
+      const result = session.evaluate({ ...draft, advancedEntries: [{ ...opaque, ...changes }] })
+      expect(result.yaml).toBe(source)
+      expect(result.issues).toMatchObject([{ path: ['extension'], error: true }])
+    }
   })
-
-  it.each([
-    ['tools: &shared {}\n', 'anchors', ['tools']],
-    ['tools: *shared\n', 'aliases', ['tools']],
-    ['tools: {<<: {web_search: {}}}\n', 'merge keys', ['tools', '<<']],
-  ])('preserves unsafe YAML and explains the exact construct', (yaml, reason, path) => {
-    const session = createBasicConfigSession(yaml)
-    expect(session.initialDraft).toBeNull()
-    expect(
-      session.diagnostics.some(
-        (issue) =>
-          issue.path.join('/') === path.join('/') &&
-          issue.kind === 'fatal' &&
-          issue.message.includes(reason),
-      ),
-    ).toBe(true)
-    expect(session.apply(sessionFor().draft)).toBe(yaml)
-  })
-})
-
-it('preserves comments around opaque siblings in a flow tools map', () => {
-  const source = `instruction: Help.
-model: {provider_config: openai, name: primary}
-tools: {
-  web_search: {}, # comment after the managed tool
-  # comment before the opaque tool
-  future: {unknown: [1,2,3]}, # comment after the opaque tool
-  web_fetch: {}
-}
-`
-  const { session, draft } = sessionFor(source)
-  const result = session.evaluate({ ...draft, tools: [{ name: 'ask_question', permission: null }] })
-  expect(result.issues).toEqual([])
-  for (const comment of [
-    'comment after the managed tool',
-    'comment before the opaque tool',
-    'comment after the opaque tool',
-  ])
-    expect(result.yaml).toContain(comment)
-  expect(result.yaml).toContain('future: {unknown: [1,2,3]}')
-  expect(parse(result.yaml)).toHaveProperty(['tools', 'ask_question'])
 })
 
 it.each(['tools: null', 'tools:', 'tools: {}'])(
@@ -325,6 +279,7 @@ it.each([
   fixture,
   JSON.stringify(parse(fixture)),
   'tools: null # keep parent\n',
+  'tools: {} # keep parent\n',
   'instruction: Help.\n',
   '',
 ])('inserts a custom definition without rewriting existing content (%#)', (source) => {

@@ -175,13 +175,21 @@ export function editConfigDocument(
     const parent = document.getIn(parentPath, true)
     const blocker = diagnostics.find((issue) => issue.kind === 'fatal')
     if (blocker) throw new ConfigEditError(path, blocker.message)
+    const rawFlow = isMap(parsed.contents) && parsed.contents.flow
+    const emptyInlineParent =
+      isMap(parent) &&
+      parent.flow &&
+      parent.items.length === 0 &&
+      !rawFlow &&
+      !(isMap(document.contents) && document.contents.flow)
     const needsConversion =
-      [document.contents, parent].some((node) => isMap(node) && node.flow) &&
-      !(isMap(parsed.contents) && parsed.contents.flow)
+      [document.contents, emptyInlineParent ? null : parent].some(
+        (node) => isMap(node) && node.flow,
+      ) && !rawFlow
     if (needsConversion)
       throw new ConfigEditError(
         path,
-        'This inline collection requires a flow definition using { ... }. Edit the collection in the source editor to use block YAML.',
+        'This inline collection requires a flow definition using { ... }. To use block YAML, cancel this edit and change the collection in Source.',
       )
     if (parsed.errors.length > 0 || !parsed.contents)
       throw new ConfigEditError(path, 'Invalid advanced definition.')
@@ -189,7 +197,7 @@ export function editConfigDocument(
     if (
       name !== undefined &&
       path.length > 1 &&
-      (parent == null || (isScalar(parent) && parent.value === null))
+      (parent == null || (isScalar(parent) && parent.value === null) || emptyInlineParent)
     )
       set(parentPath, { [name]: null })
     write(path, parsed.contents, false)
@@ -215,7 +223,7 @@ export function editConfigDocument(
     } catch (error) {
       if (error instanceof ConfigEditError) throw error
       throw new ConfigEditError(
-        edits.at(-1)?.path ?? [],
+        [],
         error instanceof Error ? error.message : 'Cannot patch this field.',
       )
     }
@@ -226,7 +234,7 @@ export function editConfigDocument(
       !deepEqual(z.json().parse(parsed.toJS()), z.json().parse(document.toJS()))
     )
       throw new ConfigEditError(
-        edits.at(-1)?.path ?? [],
+        [],
         'The Builder cannot safely patch this edit. Use the source editor to edit this definition.',
       )
     return result
@@ -260,6 +268,6 @@ export function deepEqual(a: ConfigValue, b: ConfigValue): boolean {
   )
 }
 
-function isConfigObject(value: ConfigValue): value is ConfigObject {
+export function isConfigObject(value: ConfigValue): value is ConfigObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

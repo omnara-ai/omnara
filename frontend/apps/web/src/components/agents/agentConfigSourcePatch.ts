@@ -92,6 +92,7 @@ function applyEdit(
   } else if (edit.type === 'delete') {
     if (index >= 0 && previous) removeItem(parent, index)
   } else {
+    const existing = previous && (previous.key || previous.value) ? previous : undefined
     const replacement = renderItem(
       parent,
       key,
@@ -101,10 +102,28 @@ function applyEdit(
       newline,
       previous?.value?.type === 'block-map' ? previous.value.indent : undefined,
       followingSiblingTrivia(previous?.value),
+      existing?.sep?.some((token) => token.type === 'newline') === false,
     )
-    if (previous && (previous.key || previous.value)) {
-      replacement.start = previous.start
-      if (previous.key) replacement.key = previous.key
+    if (existing) {
+      replacement.start = existing.start
+      if (existing.key) replacement.key = existing.key
+      if (parent.type === 'flow-collection') {
+        if (existing.sep) {
+          const previousComment = existing.sep.findIndex((token) => token.type === 'comment')
+          const newComment = replacement.sep?.findIndex((token) => token.type === 'comment') ?? -1
+          replacement.sep =
+            edit.raw === undefined
+              ? existing.sep
+              : [
+                  ...existing.sep.slice(
+                    0,
+                    previousComment < 0 ? existing.sep.length : previousComment,
+                  ),
+                  ...(newComment < 0 ? [] : (replacement.sep?.slice(newComment) ?? [])),
+                ]
+        }
+        keepTrailing(replacement, takeTrailing(existing.value), edit.raw !== undefined)
+      }
       parent.items[index] = replacement
     } else appendItem(parent, replacement, newline)
   }
@@ -134,12 +153,15 @@ function renderItem(
   newline: string,
   valueIndent = parent.indent + 2,
   preservedSuffix?: { tokens: CST.SourceToken[]; index: number },
+  inline = false,
 ): CST.CollectionItem {
   const sequence = isSequence(parent)
   const flow = parent.type === 'flow-collection'
+  const keyText = json ? JSON.stringify(key) : yamlKey(key)
   let rendered: string
   if (raw !== undefined && !flow && !sequence) {
     const indent = ' '.repeat(valueIndent)
+    const single = raw.trim()
     const definition = raw
       .replace(/\r?\n/g, '\n')
       .split('\n')
@@ -147,23 +169,36 @@ function renderItem(
       .join('\n')
     rendered =
       ' '.repeat(parent.indent) +
-      JSON.stringify(key) +
-      ':\n' +
-      definition +
-      (definition.endsWith('\n') ? '' : '\n') +
+      keyText +
+      (inline && !single.includes('\n') && rawStartsWithFlowMap(single)
+        ? ': ' + single + '\n'
+        : ':\n' + definition + (definition.endsWith('\n') ? '' : '\n')) +
       ' '.repeat(parent.indent) +
       '__end__: null\n'
   } else if (raw !== undefined) {
     if (!flow || sequence || !(json ? isJsonSource(raw) : rawStartsWithFlowMap(raw)))
       throw new Error('Cannot insert this definition without changing its syntax.')
-    rendered = '{' + JSON.stringify(key) + ': ' + raw + (raw.endsWith('\n') ? '' : '\n') + '}'
-    rendered = rendered.replace(/^/gm, ' '.repeat(parent.indent))
+    const body = raw.replace(/\r?\n/g, '\n').trimEnd()
+    const lastLine = body.slice(body.lastIndexOf('\n') + 1)
+    rendered =
+      '{' +
+      keyText +
+      ': ' +
+      body.replaceAll('\n', '\n' + ' '.repeat(flowLineIndent(parent).indent)) +
+      (!json && lastLine.includes('#') ? '\n' : '') +
+      '}'
+  } else if (json) {
+    const layout = flowLineIndent(parent)
+    const unit = layout.multiline ? Math.max(layout.indent - parent.indent, 0) : 0
+    const text = JSON.stringify(value.toJSON(), null, unit).replaceAll(
+      '\n',
+      '\n' + ' '.repeat(layout.indent),
+    )
+    rendered = sequence ? '[' + text + ']' : '{' + keyText + ':' + text + '}'
   } else {
     const doc = new Document(sequence ? [] : {}, configYamlOptions)
     doc.set(sequence ? 0 : key, value.clone())
-    rendered = json
-      ? JSON.stringify(doc.toJS())
-      : doc.toString({ lineWidth: 0, collectionStyle: flow ? 'flow' : 'any' })
+    rendered = doc.toString({ lineWidth: 0, collectionStyle: flow ? 'flow' : 'any' })
     rendered = rendered.replace(/^/gm, ' '.repeat(parent.indent))
   }
   rendered = rendered.replace(/\r?\n/g, newline)
@@ -171,6 +206,11 @@ function renderItem(
   if (!token || !CST.isCollection(token) || !token.items[0])
     throw new Error('Cannot render the edited configuration field.')
   const item = token.items[0]
+  const sibling = parent.items.find((item) => item.key)
+  if (flow && sibling?.sep && !item.sep?.some((token) => token.type === 'comment')) {
+    const end = sibling.sep.findIndex((token) => !['map-value-ind', 'space'].includes(token.type))
+    item.sep = structuredClone(end < 0 ? sibling.sep : sibling.sep.slice(0, end))
+  }
   if (raw !== undefined && !flow && !sequence && item.value && CST.isCollection(item.value)) {
     const tail = token.items[1]?.start ?? []
     if (tail.at(-1)?.type === 'space') tail.pop()
@@ -218,6 +258,63 @@ function followingSiblingTrivia(token: CST.Token | undefined) {
   return undefined
 }
 
+function yamlKey(key: string | number) {
+  return new Document(String(key), configYamlOptions).toString().trimEnd()
+}
+
+function flowLineIndent(parent: Collection) {
+  const items: CST.CollectionItem[] = parent.items
+  const sample = [...items].reverse().find((item) => item.key != null || item.value != null)
+  const start = sample?.start ?? []
+  const newlineAt = start.map((token) => token.type).lastIndexOf('newline')
+  const space = newlineAt < 0 ? undefined : start[newlineAt + 1]
+  return newlineAt < 0
+    ? {
+        multiline: false,
+        indent: parent.indent + 2,
+        layout: start.filter((token) => token.type === 'space'),
+      }
+    : {
+        multiline: true,
+        indent: space?.type === 'space' ? space.source.length : 0,
+        layout: start
+          .slice(newlineAt)
+          .filter((token) => token.type === 'newline' || token.type === 'space'),
+      }
+}
+
+function takeTrailing(token: CST.Token | undefined): CST.SourceToken[] {
+  const end = token && 'end' in token && Array.isArray(token.end) ? token.end : undefined
+  if (!end) return []
+  if (token?.type === 'flow-collection') {
+    const close = end.findIndex(
+      (part) => part.type === 'flow-map-end' || part.type === 'flow-seq-end',
+    )
+    return close < 0 ? [] : end.splice(close + 1)
+  }
+  return end.splice(0)
+}
+
+function keepTrailing(
+  item: CST.CollectionItem,
+  tail: CST.SourceToken[],
+  preserveOwnComments = true,
+) {
+  const own = takeTrailing(item.value)
+  const kept = preserveOwnComments && own.some((part) => part.type === 'comment') ? own : []
+  const whitespace = preserveOwnComments
+    ? tail.slice(tail.map((part) => part.type).lastIndexOf('comment') + 1)
+    : tail
+  const rest =
+    kept.at(-1)?.type === 'newline' && whitespace[0]?.type === 'newline'
+      ? whitespace.slice(1)
+      : whitespace
+  const target = item.value
+  if (target?.type === 'flow-collection') target.end.push(...kept, ...rest)
+  else if (target && 'end' in target && Array.isArray(target.end)) target.end.push(...kept, ...rest)
+  else if (target) Object.assign(target, { end: [...kept, ...rest] })
+}
+
 function rawStartsWithFlowMap(source: string) {
   const node = parseDocument(source).contents
   return isMap(node) && node.flow === true
@@ -229,22 +326,37 @@ function sourceToken(type: CST.SourceToken['type'], source: string): CST.SourceT
 
 function appendItem(parent: Collection, item: CST.CollectionItem, lineEnding: string) {
   if (parent.type === 'flow-collection') {
+    const layout = flowLineIndent(parent)
     const last = parent.items.at(-1)
     const trailing = last && !last.key && !last.value ? parent.items.pop() : undefined
-    item.start =
-      parent.items.length > 0
-        ? [sourceToken('comma', ','), sourceToken('space', ' '), ...item.start]
-        : item.start
+    const sibling = parent.items.at(-1)
+    if (sibling) {
+      const tail = takeTrailing(sibling.value)
+      const commentAt = tail.map((part) => part.type).lastIndexOf('comment')
+      const moved = commentAt < 0 ? [] : tail.splice(0, commentAt + 1)
+      item.start = [
+        sourceToken('comma', ','),
+        ...moved,
+        ...(moved.length > 0 && !layout.multiline
+          ? [sourceToken('newline', lineEnding), sourceToken('space', ' '.repeat(layout.indent))]
+          : layout.layout),
+        ...item.start.filter((token) => token.type !== 'space'),
+      ]
+      keepTrailing(item, tail)
+    }
     parent.items.push(item)
     if (trailing) parent.items.push(trailing)
     return
   }
+  const suffix = followingSiblingTrivia(parent)
+  const trailing = suffix?.tokens.splice(suffix.index)
   if (parent.items.length > 0) {
     const newline = CST.stringify(parent).endsWith('\n') ? [] : [sourceToken('newline', lineEnding)]
     item.start = [...newline, sourceToken('space', ' '.repeat(parent.indent)), ...item.start]
   }
   const items: CST.CollectionItem[] = parent.items
   items.push(item)
+  if (trailing?.length) items.push({ start: trailing })
 }
 
 function removeItem(parent: Collection, index: number) {

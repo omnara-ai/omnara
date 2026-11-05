@@ -1,8 +1,11 @@
 import { useMemo, useRef, useState } from 'react'
+import { Document, isMap } from 'yaml'
 
 import {
   type AdvancedConfigEntry,
+  type ConfigDiagnostic,
   customToolNameError,
+  parseConfigDocument,
   validateAdvancedEntry,
 } from '@/components/agents/agentConfigCompatibility'
 import { AgentConfigDiagnostics } from '@/components/agents/AgentConfigDiagnostics'
@@ -21,19 +24,17 @@ import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
-const templates = {
-  yaml: "type: custom\ndescription: ''\ninput_schema:\n  type: object\n  properties: {}\n",
-  json: JSON.stringify(
-    { type: 'custom', description: '', input_schema: { type: 'object', properties: {} } },
-    null,
-    2,
-  ),
+const emptyTool = {
+  type: 'custom',
+  description: '',
+  input_schema: { type: 'object', properties: {} },
 }
 
 export function CustomToolDialog({
   entry,
   format,
   configurationDirty,
+  configurationSource,
   reservedNames,
   onSave,
   onClose,
@@ -41,15 +42,26 @@ export function CustomToolDialog({
   entry?: AdvancedConfigEntry
   format: ConfigSourceFormat
   configurationDirty: boolean
+  configurationSource: string
   reservedNames: string[]
-  onSave: (entry: AdvancedConfigEntry) => void
+  onSave: (entry: AdvancedConfigEntry) => ConfigDiagnostic[]
   onClose: () => void
 }) {
   const initialName = entry?.path[1] ?? ''
-  const initialSource = entry?.source ?? templates[format]
+  const [initialSource] = useState(() => {
+    if (entry) return entry.source
+    if (format === 'json') return JSON.stringify(emptyTool, null, 2)
+    const { doc } = parseConfigDocument(configurationSource)
+    const tools = doc.get('tools', true)
+    const flow =
+      (isMap(doc.contents) && doc.contents.flow === true) ||
+      (isMap(tools) && tools.flow === true && tools.items.length > 0)
+    return new Document(emptyTool).toString({ collectionStyle: flow ? 'flow' : 'block' })
+  })
   const [name, setName] = useState(initialName)
   const [source, setSource] = useState(initialSource)
   const [submitted, setSubmitted] = useState(false)
+  const [saveIssues, setSaveIssues] = useState<ConfigDiagnostic[]>([])
   const nameRef = useRef<HTMLInputElement>(null)
   const definitionRef = useRef<HTMLTextAreaElement>(null)
   const nameError = customToolNameError(
@@ -62,6 +74,7 @@ export function CustomToolDialog({
     [name, source],
   )
   const issues = useMemo(() => validateAdvancedEntry(definition, format), [definition, format])
+  const visibleIssues = [...issues, ...saveIssues]
   const dirty = name !== initialName || source !== initialSource
   useAgentUnsavedChangesWarning(dirty && !configurationDirty)
   return (
@@ -92,6 +105,7 @@ export function CustomToolDialog({
             aria-describedby={visibleNameError ? 'custom-tool-name-error' : undefined}
             onChange={(event) => {
               setName(event.target.value)
+              setSaveIssues([])
             }}
           />
           {visibleNameError && (
@@ -108,18 +122,19 @@ export function CustomToolDialog({
             className="max-h-96 min-h-64 font-mono text-xs"
             value={source}
             spellCheck={false}
-            aria-invalid={submitted && issues.length > 0}
+            aria-invalid={submitted && visibleIssues.length > 0}
             aria-describedby={
-              submitted && issues.length > 0 ? 'custom-tool-definition-errors' : undefined
+              submitted && visibleIssues.length > 0 ? 'custom-tool-definition-errors' : undefined
             }
             onChange={(event) => {
               setSource(event.target.value)
+              setSaveIssues([])
             }}
           />
         </Field>
-        {submitted && issues.length > 0 && (
+        {submitted && visibleIssues.length > 0 && (
           <div id="custom-tool-definition-errors">
-            <AgentConfigDiagnostics issues={issues} basePath={definition.path} />
+            <AgentConfigDiagnostics issues={visibleIssues} basePath={definition.path} />
           </div>
         )}
         <DialogFooter>
@@ -135,7 +150,11 @@ export function CustomToolDialog({
                 invalidField?.focus()
                 return
               }
-              onSave(definition)
+              const errors = onSave(definition)
+              if (errors.length > 0) {
+                setSaveIssues(errors)
+                definitionRef.current?.focus()
+              }
             }}
           >
             {entry ? 'Save tool' : 'Add custom tool'}
