@@ -14,7 +14,7 @@ Omnara agents are durable: every step is saved to Postgres as it happens, so an 
 | The worker running a command dies | The command keeps running on its machine, and the agent gets the result when it exits | Nothing |
 | An MCP, web, or integration call is cut off | It isn't rerun. The agent is told its outcome is unknown and decides whether to check or try again | Make tools safe to receive the same request twice |
 | Your backend restarts | Custom tool calls wait in Postgres until you post a result | Deduplicate by tool-call ID |
-| A machine goes offline | Commands it hasn't accepted never run late, and after 30 seconds the agent is told the machine is unreachable and can move to another one | Nothing |
+| A machine goes offline | Commands it hasn't accepted never run late. After 30 seconds, the agent is told the machine is unreachable and that an accepted command may still be running there, so it can wait or move to another machine | Nothing |
 | Nobody answers an approval | It waits in Postgres for as long as it takes | Nothing |
 
 ## How recovery works
@@ -44,7 +44,7 @@ As with any system that retries an interrupted request, the provider can bill fo
 
 [Approvals and questions](/events/interactions) wait in Postgres for as long as it takes and survive worker crashes and restarts. The first answer wins: the same answer sent again by the same person is safe, and a different answer is rejected.
 
-A command a machine hasn't accepted yet never runs late. It fails if the machine doesn't accept it within five minutes, or once the machine has been offline for 30 seconds with no wake attempt in progress. If the machine goes offline while the agent is waiting on a command it already accepted, the agent gets a retryable `machine_unreachable` result after 30 seconds, so it can move on, for example to [another machine](/machines/overview).
+A command a machine hasn't accepted yet never runs late. It fails if the machine doesn't accept it within five minutes, or once the machine has been offline for 30 seconds with no wake attempt in progress. If the machine goes offline while the agent is waiting on a command it already accepted, the agent gets a retryable `machine_unreachable` result after 30 seconds, with the command's last known state, so it can move on, for example to [another machine](/machines/overview). The command may still be running on the offline machine, so redoing its work elsewhere can repeat it.
 
 ## What your code should handle
 
