@@ -71,6 +71,7 @@ func newProvider(
 		api: newGRPCClient(
 			runtimeConfig.ProviderAuthToken,
 			providers.NewHTTPClient(runtimeConfig.HTTPRecorder, providers.Boxd),
+			runtimeConfig.HTTPRecorder,
 		),
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 	}, nil
