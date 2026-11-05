@@ -1,7 +1,7 @@
 import { useAgentConfigTools } from '@omnara/react'
 import { type AgentConfigToolsDefinition, ApiError } from '@omnara/sdk'
 import { useMemo } from 'react'
-import { Document, isMap, isNode, isSeq, type Node, parseDocument } from 'yaml'
+import { Document, isMap, isSeq, parseDocument } from 'yaml'
 
 import type { McpEntry } from '@/components/agents/agentConfigBasicExtract'
 import { toolWire } from '@/components/agents/agentConfigBasicWrite'
@@ -49,19 +49,17 @@ export function agentBuilderToolsDefinition(source: ToolPreviewDraft): AgentConf
       }),
     ),
   }
-  if (source.gitCredentials !== undefined) definition.git_credentials = source.gitCredentials
   return definition
 }
 
 export function agentBuilderToolsRequest(source: ToolPreviewDraft) {
   const definition = agentBuilderToolsDefinition(source)
-  const toolFields = new Set([...Object.keys(definition), 'git_credentials'])
+  const toolFields = new Set(Object.keys(definition))
   const advanced = (source.advancedEntries ?? []).filter(
     (entry) => !entry.removed && toolFields.has(entry.path[0] ?? ''),
   )
   if (advanced.length === 0) return { source: definition, source_format: 'json' as const }
   const preview = new Document(definition, configYamlOptions)
-  const preservedSources = new Map<number, Node>()
   for (const entry of advanced) {
     const parsed = parseConfigDocument(entry.source)
     const value = !parsed.diagnostics.some((issue) => issue.kind === 'fatal')
@@ -70,24 +68,13 @@ export function agentBuilderToolsRequest(source: ToolPreviewDraft) {
           entry.originalPath ?? entry.path,
           true,
         )
-    if (!isNode(value)) continue
+    if (value == null) continue
     if (entry.path[0] === 'machine_sources' && entry.path.length === 2) {
-      preservedSources.set(Number(entry.path[1]), value)
+      const sources = preview.get('machine_sources', true)
+      if (isSeq(sources)) sources.add(value)
     } else {
       preview.setIn(entry.path, value)
     }
-  }
-  const sources = preview.get('machine_sources', true)
-  if (preservedSources.size > 0 && isSeq(sources)) {
-    const managed = [...sources.items]
-    const positions = [
-      ...source.machineSources.flatMap((row) =>
-        row.name.trim() !== '' && row.sourceIndex !== undefined ? [row.sourceIndex] : [],
-      ),
-      ...preservedSources.keys(),
-    ].sort((a, b) => a - b)
-    sources.items = positions.map((index) => preservedSources.get(index) ?? managed.shift())
-    sources.items.push(...managed)
   }
   for (const key of ['mcp', 'subagents']) {
     const entries = preview.get(key, true)

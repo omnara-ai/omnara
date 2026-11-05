@@ -114,10 +114,8 @@ tools:
     input_schema: {type: object}
   web_search: {permission: {mode: always_ask}, extension: true}
 machine_sources:
-  - machine_name: first-machine
   - machine_pool_name: shared-pool
     extension: {value: retained}
-  - machine_name: last-machine
 mcp:
   docs: {url: 'https://example.com', extension: true, auth: {type: bearer, secret: example}}
 `)
@@ -127,35 +125,18 @@ mcp:
   expect(preview).toHaveProperty('tools.custom_example.deferred', true)
   expect(preview).toHaveProperty('tools.custom_example.input_schema.type', 'object')
   expect(preview).toHaveProperty('tools.web_search.extension', true)
-  expect(preview).toHaveProperty('machine_sources', [
-    { machine_name: 'first-machine' },
-    { machine_pool_name: 'shared-pool', extension: { value: 'retained' } },
-    { machine_name: 'last-machine' },
-  ])
-  const reordered = agentBuilderToolsRequest({
-    ...session.initialDraft,
-    machineSources: [...session.initialDraft.machineSources].reverse(),
-  })
-  expect(previewSource(reordered)).toHaveProperty('machine_sources', [
-    { machine_name: 'last-machine' },
-    { machine_pool_name: 'shared-pool', extension: { value: 'retained' } },
-    { machine_name: 'first-machine' },
-  ])
+  expect(preview).toHaveProperty('machine_sources.0.machine_pool_name', 'shared-pool')
+  expect(preview).toHaveProperty('machine_sources.0.extension.value', 'retained')
   expect(preview).toHaveProperty('mcp.docs.extension', true)
   expect(preview).not.toHaveProperty('mcp.docs.auth')
   const removed = agentBuilderToolsRequest({
     ...session.initialDraft,
-    machineSources: session.initialDraft.machineSources.slice(1),
     advancedEntries: session.initialDraft.advancedEntries?.map((entry) =>
       entry.kind === 'custom' ? { ...entry, removed: true } : entry,
     ),
   })
   expect(previewSource(removed)).not.toHaveProperty('tools.custom_example')
   expect(previewSource(removed)).toHaveProperty('tools.web_search.extension', true)
-  expect(previewSource(removed)).toHaveProperty('machine_sources', [
-    { machine_pool_name: 'shared-pool', extension: { value: 'retained' } },
-    { machine_name: 'last-machine' },
-  ])
 })
 
 it('keeps the last definition in tool previews while raw YAML contains an unresolved alias', () => {
