@@ -178,7 +178,6 @@ export function useAgentBuilderForm(
     setAdvancedEntries: (advancedEntries: AdvancedConfigEntry[]) => {
       patch({ advancedEntries })
     },
-    originalAdvancedEntries: session.initialDraft?.advancedEntries ?? [],
     evaluateAdvancedEntries: (advancedEntries: AdvancedConfigEntry[]) =>
       session.evaluate({
         ...(session.initialDraft ?? emptyBasicConfig),

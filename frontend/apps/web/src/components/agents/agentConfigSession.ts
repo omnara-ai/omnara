@@ -59,6 +59,7 @@ export function createBasicConfigSession(
     ]
     const seen = new Set<string>()
     for (const entry of config.advancedEntries ?? []) {
+      if (entry.removed) continue
       const path = configPath(entry.path)
       const isNew = !reserved.has(path)
       const message = seen.has(path)
@@ -103,9 +104,12 @@ export function createBasicConfigSession(
       (config.advancedEntries ?? []).some(
         (entry) =>
           validateEntry(entry).length > 0 &&
-          entry.source !==
-            advancedEntries.find((saved) => configPath(saved.path) === configPath(entry.path))
-              ?.source,
+          (entry.source !==
+            advancedEntries.find(
+              (saved) => configPath(saved.path) === configPath(entry.originalPath ?? entry.path),
+            )?.source ||
+            (entry.originalPath !== undefined &&
+              configPath(entry.originalPath) !== configPath(entry.path))),
       ) ||
       config.tools.some((entry) => reserved.has(configPath(['tools', entry.name]))) ||
       config.mcpServers.some((entry) => reserved.has(configPath(['mcp', entry.name]))) ||

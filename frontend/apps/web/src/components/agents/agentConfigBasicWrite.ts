@@ -97,29 +97,47 @@ export function applyToDocument(
   }
 
   applyMachineSources(transaction, config.machineSources, baseline?.machineSources ?? null)
-  const advancedEntries = [...(config.advancedEntries ?? [])].sort(
-    (left, right) => Number(!!left.removed) - Number(!!right.removed),
+  const toolNames = new Set(config.tools.map((tool) => tool.name))
+  const retainedTools = baseline?.tools.filter((tool) => toolNames.has(tool.name))
+  for (const tool of baseline?.tools ?? []) {
+    if (!toolNames.has(tool.name)) del(['tools', tool.name])
+  }
+  const advancedEntries = config.advancedEntries ?? []
+  const previousEntries = new Map(
+    baseline?.advancedEntries?.map((entry) => [entry.path.join('\0'), entry]),
   )
+  const renamedTools = new Map<string, string>()
   for (const entry of advancedEntries) {
-    const previous = baseline?.advancedEntries?.find(
-      (item) => item.path.join('\0') === entry.path.join('\0'),
-    )
-    if (previous?.source === entry.source && !entry.removed) continue
+    const originalPath = entry.originalPath ?? entry.path
+    const previous = entry.originalPath && previousEntries.get(entry.originalPath.join('\0'))
+    if (previous?.source === entry.source && !entry.removed && deepEqual(originalPath, entry.path))
+      continue
     if (
       entry.kind !== 'custom' ||
       (previous && previous.kind !== 'custom') ||
+      previousEntries.get(entry.path.join('\0'))?.kind === 'opaque' ||
       entry.path.length !== 2 ||
       entry.path[0] !== 'tools' ||
       (entry.removed && !previous)
     )
       throw new ConfigEditError(entry.path, 'Only custom tools can be edited here.')
-    if (entry.removed) transaction.removeRawDefinition(entry.path)
-    else transaction.setRawDefinition(entry.path, entry.source)
+    if (entry.removed) transaction.removeRawDefinition(originalPath)
+    else if (previous && !deepEqual(originalPath, entry.path)) {
+      const name = originalPath[1]
+      const destination = entry.path[1]
+      if (name !== undefined && destination !== undefined) renamedTools.set(name, destination)
+    }
+  }
+  transaction.renameRawDefinitions(['tools'], renamedTools)
+  for (const entry of advancedEntries) {
+    const previous = entry.originalPath && previousEntries.get(entry.originalPath.join('\0'))
+    if (!entry.removed && previous?.source !== entry.source)
+      transaction.setRawDefinition(entry.path, entry.source)
   }
   applyNamedEntries(
     'tools',
     config.tools.map((tool) => [tool.name, toolWire(tool)]),
-    baseline == null ? null : baseline.tools.map((tool) => [tool.name, toolWire(tool)]),
+    retainedTools?.map((tool) => [tool.name, toolWire(tool)]) ?? null,
     set,
     del,
   )

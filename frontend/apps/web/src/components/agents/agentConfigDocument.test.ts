@@ -27,7 +27,71 @@ function nodeSource(source: string, path: (string | number)[]) {
   return source.slice(node.range[0], node.range[2])
 }
 
+it.each(['tools: {web_search: {}}\n', 'tools: {}\n'])(
+  'applies managed removals, raw additions, then managed additions: %s',
+  (tools) => {
+    const { session, draft } = draftFor(header + tools)
+    const result = session.evaluate({
+      ...draft,
+      tools: [{ name: 'web_fetch', permission: null }],
+      advancedEntries: [
+        {
+          path: ['tools', 'example'],
+          kind: 'custom',
+          source: 'type: custom\ndescription: Example.\ninput_schema: {type: object}\n',
+        },
+      ],
+    })
+    expect(result.issues).toEqual([])
+    expect(parse(result.yaml)).toHaveProperty('tools', {
+      web_fetch: { type: 'built_in' },
+      example: { type: 'custom', description: 'Example.', input_schema: { type: 'object' } },
+    })
+  },
+)
+
+it.each([
+  'tools:\n  web_search: {}\n  # Keep this tool comment.\n  old_tool: {type: custom, description: Example., input_schema: {type: object}} # inline\n',
+  'tools: {web_search: {}, "old_tool": {type: custom, description: Example., input_schema: {type: object}}}\n',
+  '{"tools":{"web_search":{},"old_tool":{"type":"custom","description":"Example.","input_schema":{"type":"object"}}}}',
+])('renames a custom key in place and retains all other source bytes: %s', (source) => {
+  const { session, draft } = draftFor(source)
+  const result = session.evaluate({
+    ...draft,
+    advancedEntries: draft.advancedEntries?.map((entry) => ({
+      ...entry,
+      originalPath: entry.path,
+      path: ['tools', 'new_tool'],
+    })),
+  })
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toBe(source.replace('old_tool', 'new_tool'))
+  expect(session.apply(draft)).toBe(source)
+})
+
 describe('document ownership', () => {
+  it('keeps rename identity distinct from a new tool reusing its original name', () => {
+    const source =
+      'tools: {old_tool: {type: custom, description: Example., input_schema: {type: object}}}\n'
+    const { session, draft } = draftFor(source)
+    const original = draft.advancedEntries?.[0]
+    if (!original) throw new Error('Missing tool')
+    const renamed = { ...original, path: ['tools', 'renamed_tool'] }
+    const added = { path: original.path, kind: 'custom' as const, source: original.source }
+    const result = session.evaluate({ ...draft, advancedEntries: [renamed, added] })
+    expect(result.issues).toEqual([])
+    expect(parse(result.yaml)).toHaveProperty('tools', {
+      renamed_tool: parse(original.source),
+      old_tool: parse(original.source),
+    })
+    const removed = session.evaluate({
+      ...draft,
+      advancedEntries: [{ ...renamed, removed: true }, added],
+    })
+    expect(removed.issues).toEqual([])
+    expect(parse(removed.yaml)).toEqual(parse(source))
+  })
+
   it('rejects edits to a preserved path or its parent', () => {
     const source = `${header}tools: {managed: {}, opaque: {future: true}}\n`
     for (const path of [['tools'], ['tools', 'opaque'], ['tools', 'opaque', 'future']]) {

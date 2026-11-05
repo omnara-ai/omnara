@@ -12,6 +12,7 @@ export type ConfigEdit =
   | { type: 'set'; path: ConfigPath; value: Node; raw?: string }
   | { type: 'delete'; path: ConfigPath }
   | { type: 'reorder'; path: ConfigPath; order: number[] }
+  | { type: 'rename'; path: ConfigPath; names: Map<string, string> }
 
 type Collection = CST.BlockMap | CST.BlockSequence | CST.FlowCollection
 
@@ -63,6 +64,14 @@ function applyEdit(
       previous.sep?.every((token) => ['map-value-ind', 'space', 'newline'].includes(token.type))
     ) {
       previous.sep = [sourceToken('map-value-ind', ':'), sourceToken('space', ' ')]
+    }
+  } else if (edit.type === 'rename') {
+    if (!previous?.value || !CST.isCollection(previous.value) || isSequence(previous.value))
+      throw new Error('Cannot rename entries in a missing mapping.')
+    for (const item of previous.value.items) {
+      const name = CST.resolveAsScalar(item.key)?.value
+      const renamed = edit.names.get(String(name))
+      if (renamed !== undefined && item.key) CST.setScalarValue(item.key, renamed)
     }
   } else if (edit.type === 'reorder') {
     if (!previous?.value || !CST.isCollection(previous.value) || !isSequence(previous.value))
