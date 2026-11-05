@@ -113,12 +113,6 @@ export function AgentConfigToolsField({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
-            {onAddCustomTool && (
-              <>
-                <DropdownMenuItem onSelect={onAddCustomTool}>Custom tool…</DropdownMenuItem>
-                {availableTools.length > 0 && <DropdownMenuSeparator />}
-              </>
-            )}
             {availableTools.map((entry) => (
               <DropdownMenuItem
                 key={entry.name}
@@ -135,6 +129,12 @@ export function AgentConfigToolsField({
                 {entry.name}
               </DropdownMenuItem>
             ))}
+            {onAddCustomTool && (
+              <>
+                {availableTools.length > 0 && <DropdownMenuSeparator />}
+                <DropdownMenuItem onSelect={onAddCustomTool}>Custom tool…</DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       }
@@ -172,7 +172,6 @@ export function AgentConfigToolsField({
           })}
         </div>
       ) : null}
-      {children}
       <AgentConfigIncludedTools
         catalog={catalog}
         tools={includedTools}
@@ -184,6 +183,7 @@ export function AgentConfigToolsField({
           )
         }}
       />
+      {children}
     </AgentConfigSectionCard>
   )
 }
@@ -255,7 +255,7 @@ function AgentConfigIncludedTools({
   const catalogByName = new Map(catalog?.built_in_tools.map((entry) => [entry.name, entry]))
 
   return (
-    <Collapsible>
+    <Collapsible className="border-y last:border-b-0">
       <Tooltip>
         <CollapsibleTrigger asChild>
           <TooltipTrigger className="text-muted-foreground group flex w-fit items-center gap-2 px-4 py-3 text-left text-sm sm:px-5">

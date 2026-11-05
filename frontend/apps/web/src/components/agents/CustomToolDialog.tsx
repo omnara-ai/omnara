@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import {
   type AdvancedConfigEntry,
@@ -49,11 +49,14 @@ export function CustomToolDialog({
   const initialSource = entry?.source ?? templates[format]
   const [name, setName] = useState(initialName)
   const [source, setSource] = useState(initialSource)
+  const [submitted, setSubmitted] = useState(false)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const definitionRef = useRef<HTMLTextAreaElement>(null)
   const nameError = customToolNameError(
     name,
     reservedNames.filter((reserved) => reserved !== initialName),
   )
-  const visibleNameError = name === '' ? undefined : nameError
+  const visibleNameError = submitted ? nameError : undefined
   const definition = useMemo<AdvancedConfigEntry>(
     () => ({ path: ['tools', name], kind: 'custom', source }),
     [name, source],
@@ -81,6 +84,7 @@ export function CustomToolDialog({
         <Field>
           <FieldLabel htmlFor="custom-tool-name">Tool name</FieldLabel>
           <Input
+            ref={nameRef}
             id="custom-tool-name"
             value={name}
             placeholder="search_records"
@@ -99,25 +103,38 @@ export function CustomToolDialog({
         <Field>
           <FieldLabel htmlFor="custom-tool-definition">Definition</FieldLabel>
           <Textarea
+            ref={definitionRef}
             id="custom-tool-definition"
             className="max-h-96 min-h-64 font-mono text-xs"
             value={source}
             spellCheck={false}
-            aria-invalid={issues.length > 0}
+            aria-invalid={submitted && issues.length > 0}
+            aria-describedby={
+              submitted && issues.length > 0 ? 'custom-tool-definition-errors' : undefined
+            }
             onChange={(event) => {
               setSource(event.target.value)
             }}
           />
         </Field>
-        {name !== '' && <AgentConfigDiagnostics issues={issues} />}
+        {submitted && issues.length > 0 && (
+          <div id="custom-tool-definition-errors">
+            <AgentConfigDiagnostics issues={issues} basePath={definition.path} />
+          </div>
+        )}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button
             type="button"
-            disabled={!!nameError || issues.length > 0}
             onClick={() => {
+              setSubmitted(true)
+              if (nameError || issues.length > 0) {
+                const invalidField = nameError ? nameRef.current : definitionRef.current
+                invalidField?.focus()
+                return
+              }
               onSave(definition)
             }}
           >
