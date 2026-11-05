@@ -761,7 +761,7 @@ async function openCustomToolDialog() {
     await Promise.resolve()
   })
   const option = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].at(-1)
-  expect(option?.textContent).toBe('Custom tool…')
+  expect(option?.textContent).toBe('Custom tool')
   act(() => {
     option?.click()
   })
