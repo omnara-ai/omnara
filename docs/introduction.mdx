@@ -7,7 +7,16 @@ icon: "hand-wave"
 
 Omnara is the open-source managed agent platform: the self-hostable alternative to Claude Managed Agents and OpenAI's Agents API. Launch production AI agents through one API, on any model and any machine, with tools, secrets, permissions, approvals, and streaming built in. Use [Omnara Cloud](https://app.omnara.com), where there's nothing for you to operate, or self-host the whole platform for free under Apache 2.0.
 
-Teams use it for agents in their product, internal bots in Slack or GitHub, code review, and long-running background work. Unlike the AI labs' managed agents, Omnara runs any model, and you can run all of it yourself with agent history in your own Postgres. Unlike frameworks such as LangGraph or Mastra, it's a running platform, not a library you host and build around.
+Unlike the AI labs' managed agents, Omnara runs any model, and you can run all of it yourself with agent history in your own Postgres. Unlike frameworks such as LangGraph or Mastra, it's a running platform, not a library you host and build around.
+
+## Use cases
+
+Omnara can be used to build agents for internal use cases or external use cases, such as:
+* Internal Slack bots
+* Code review agents
+* Agents integrated in a product dashboard
+
+Omnara exposes a web interface, CLI, and REST API to enable these use cases.
 
 ## How it works
 
@@ -17,7 +26,7 @@ You describe an agent in a config: its instructions, model, tools, and machines.
 - **Scaling is adding workers.** Workers are stateless, and an agent only uses one while it's taking a turn.
 - **Agents are API objects.** Launch one per customer, ticket, or thread. [Post a new config](/events/sending-input#change-the-config-mid-conversation) to change a running agent's model, tools, permissions, or instructions at its next model call, or send a [steering message](/events/sending-input#queued-vs-steering), without restarting the conversation or redeploying.
 - **Your logic stays in your code.** [Custom tools](/tools/custom) run in your own backend, in any language, and Omnara holds each call until you answer. [MCP servers](/tools/mcp) work too.
-- **People stay in control.** [Each tool](/tools/permissions) can run immediately, wait for a person's approval, or be blocked, and an approval waits as long as it takes.
+- **Per-tool permissions.** [Each tool](/tools/permissions) can run immediately, require approval, or be blocked, and the platform enforces it.
 - **Configs are files.** Keep a [config](/agents/configuration) in your repository, review it in pull requests, and apply it from CI. Every change creates a new version.
 
 ## Build an agent
@@ -39,7 +48,12 @@ machine_sources:
   - machine_pool_name: default-pool
 ```
 
-Create and launch it from the dashboard with **New agent**, or from your code with the **API**, **TypeScript SDK**, or **CLI**. Your code can generate configs too, for example one per customer. The [quickstart](/quickstart) walks through your first agent.
+You can create and launch the agent in two ways:
+
+- **Dashboard**: click **New agent** in your project in the dashboard.
+- **Programmatically**: Omnara provides an **API**, **TypeScript SDK**, and **CLI** to interact with Omnara.
+
+The [quickstart](/quickstart) provides a more detailed guide to setting up your first agent.
 
 ## What's included
 
@@ -48,7 +62,6 @@ Create and launch it from the dashboard with **New agent**, or from your code wi
 - **[Built-in tools](/tools/built-in):** shell commands, files, web search and fetch, and questions for a person.
 - **[Secrets](/organization/secrets):** encrypted and shared with projects through grants. MCP credentials stay on Omnara's workers, never on the agent's machines.
 - **[Skills](/tools/skills), [memory](/agents/configuration#memory-stores), and [subagents](/agents/configuration#subagents):** subagents you can inspect, message, and stop, with limits on how many and how deep.
-- **[Long conversations](/agents/configuration#model):** automatic compaction at a context budget you set, and per-request output limits.
 - **[Schedules](/api-reference/endpoints/configs-and-profiles/create-cron-trigger), [integrations](/integrations/overview)** for Slack, Discord, and GitHub, **[streaming](/events/streaming)** that resumes after a reconnect, and **[webhooks](/events/webhooks).**
 
 ## Open source and Omnara Cloud
