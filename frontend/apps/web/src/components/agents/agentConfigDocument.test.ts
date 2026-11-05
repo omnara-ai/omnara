@@ -61,15 +61,29 @@ it.each([
     advancedEntries: draft.advancedEntries?.map((entry) => ({
       ...entry,
       originalPath: entry.path,
-      path: ['tools', 'new_tool'],
+      path: ['tools', 'true'],
     })),
   })
   expect(result.issues).toEqual([])
-  expect(result.yaml).toBe(source.replace('old_tool', 'new_tool'))
+  expect(result.yaml).toBe(
+    source.replace('old_tool', source.includes('"old_tool"') ? 'true' : '"true"'),
+  )
+  expect(createBasicConfigSession(result.yaml).initialDraft).not.toBeNull()
   expect(session.apply(draft)).toBe(source)
 })
 
 describe('document ownership', () => {
+  it('removes the first inline entry without adding whitespace or moving the next comment', () => {
+    const source = `${header}tools: {\n  web_search: {},\n  # Keep this tool comment.\n  web_fetch: {}\n}\n`
+    const { session, draft } = draftFor(source)
+    const result = session.evaluate({
+      ...draft,
+      tools: draft.tools.filter((tool) => tool.name !== 'web_search'),
+    })
+    expect(result.issues).toEqual([])
+    expect(result.yaml).toBe(source.replace('  web_search: {},\n', ''))
+  })
+
   it('keeps rename identity distinct from a new tool reusing its original name', () => {
     const source =
       'tools: {old_tool: {type: custom, description: Example., input_schema: {type: object}}}\n'
@@ -79,10 +93,11 @@ describe('document ownership', () => {
     const renamed = { ...original, path: ['tools', 'renamed_tool'] }
     const added = { path: original.path, kind: 'custom' as const, source: original.source }
     const result = session.evaluate({ ...draft, advancedEntries: [renamed, added] })
+    const definition: unknown = parse(original.source)
     expect(result.issues).toEqual([])
     expect(parse(result.yaml)).toHaveProperty('tools', {
-      renamed_tool: parse(original.source),
-      old_tool: parse(original.source),
+      renamed_tool: definition,
+      old_tool: definition,
     })
     const removed = session.evaluate({
       ...draft,
