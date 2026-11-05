@@ -466,6 +466,62 @@ func TestSlackInboxEnrichmentUsesTypedProviderContent(t *testing.T) {
 	require.Equal(t, "Cached Alex", *expanded.Event.Actor.DisplayName)
 }
 
+func TestSlackInboxThreadMentionIncludesEarlierFilesAndTables(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		file := `{"id":"F1","name":"notes.txt","mimetype":"text/plain","size":5,` +
+			`"url_private_download":"` + server.URL + `/files/F1"}`
+		switch r.URL.Path {
+		case "/auth.test":
+			_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
+		case "/users.info":
+			_, _ = w.Write([]byte(`{"ok":true,"user":{"profile":{"display_name":"Alex"}}}`))
+		case "/conversations.info":
+			_, _ = w.Write([]byte(`{"ok":true,"channel":{"name":"reviews"}}`))
+		case "/conversations.replies", "/conversations.history":
+			_, _ = w.Write([]byte(`{"ok":true,"messages":[{"user":"U123","text":"earlier","ts":"1.0","files":[` +
+				file + `]},{"user":"U123","text":"shared again","ts":"1.1","files":[` + file + `]}]}`))
+		case "/files.info":
+			_, _ = w.Write([]byte(`{"ok":true,"file":` + file + `}`))
+		case "/files/F1":
+			_, _ = w.Write([]byte("hello"))
+		default:
+			t.Errorf("unexpected provider method %s", r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+	setup := slackInboxTestIntegration()
+	access := &slackInboxTestAccess{integrationSetup: setup, version: uuid.New()}
+	provider := NewSlackIntegrationInboxProvider(
+		slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()}, access, access, nil,
+	)
+	table := func(agent, checkpoint string) []slack.HistoryBlock {
+		return []slack.HistoryBlock{{Type: "table", Rows: json.RawMessage(`[[{"type":"raw_text","text":"` + agent +
+			`"},{"type":"raw_text","text":"` + checkpoint + `"}]]`)}}
+	}
+	event := slack.Event{
+		Type: "app_mention", User: "U123", Channel: "C123", TS: "1.2", ThreadTS: "1.0",
+		Text:   "<@UBOT> add these up",
+		Blocks: table("agt_2", "ccp_2"), Attachments: []slack.Attachment{{Blocks: table("agt_1", "ccp_1")}},
+	}
+	payload := slackInboxTestPayload(t, event)
+	expanded, err := provider.Expand(t.Context(), setup, payload)
+	require.NoError(t, err)
+	require.Contains(t, string(expanded.Event.ContentBlocks), `add these up\nagt_2 | ccp_2\nagt_1 | ccp_1`)
+	require.Len(t, expanded.Event.Files, 1)
+	require.Equal(t, "F1", expanded.Event.Files[0].ProviderFileID)
+	file, err := provider.DownloadFile(t.Context(), setup, payload, "F1")
+	require.NoError(t, err)
+	require.Equal(t, "hello", string(file.Content))
+
+	event.ThreadTS = ""
+	expanded, err = provider.Expand(t.Context(), setup, slackInboxTestPayload(t, event))
+	require.NoError(t, err)
+	require.Contains(t, string(expanded.Event.ContentBlocks), "earlier")
+	require.Empty(t, expanded.Event.Files, "channel history files must not attach to a new thread")
+}
+
 func TestSlackInboxDisplayMetadataUnicodeBoundary(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/auth.test" {

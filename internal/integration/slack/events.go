@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,20 +48,26 @@ type Authorization struct {
 }
 
 type Event struct {
-	Type        string        `json:"type"`
-	Subtype     string        `json:"subtype"`
-	User        string        `json:"user"`
-	BotID       string        `json:"bot_id"`
-	Text        string        `json:"text"`
-	Channel     string        `json:"channel"`
-	ChannelType string        `json:"channel_type"`
-	TS          string        `json:"ts"`
-	ThreadTS    string        `json:"thread_ts"`
-	Team        string        `json:"team"`
-	SourceTeam  string        `json:"source_team"`
-	UserTeam    string        `json:"user_team"`
-	Tokens      RevokedTokens `json:"tokens"`
-	Files       []File        `json:"files"`
+	Type        string         `json:"type"`
+	Subtype     string         `json:"subtype"`
+	User        string         `json:"user"`
+	BotID       string         `json:"bot_id"`
+	Text        string         `json:"text"`
+	Channel     string         `json:"channel"`
+	ChannelType string         `json:"channel_type"`
+	TS          string         `json:"ts"`
+	ThreadTS    string         `json:"thread_ts"`
+	Team        string         `json:"team"`
+	SourceTeam  string         `json:"source_team"`
+	UserTeam    string         `json:"user_team"`
+	Tokens      RevokedTokens  `json:"tokens"`
+	Files       []File         `json:"files"`
+	Blocks      []HistoryBlock `json:"blocks"`
+	Attachments []Attachment   `json:"attachments"`
+}
+
+type Attachment struct {
+	Blocks []HistoryBlock `json:"blocks,omitempty"`
 }
 
 type RevokedTokens struct {
@@ -83,19 +90,23 @@ type historyResponse struct {
 }
 
 type HistoryMessage struct {
-	Channel  string         `json:"channel,omitempty"`
-	User     string         `json:"user"`
-	BotID    string         `json:"bot_id"`
-	Text     string         `json:"text"`
-	TS       string         `json:"ts"`
-	ThreadTS string         `json:"thread_ts"`
-	Blocks   []HistoryBlock `json:"blocks"`
+	Channel     string         `json:"channel,omitempty"`
+	User        string         `json:"user"`
+	BotID       string         `json:"bot_id"`
+	Text        string         `json:"text"`
+	TS          string         `json:"ts"`
+	ThreadTS    string         `json:"thread_ts"`
+	Blocks      []HistoryBlock `json:"blocks"`
+	Files       []File         `json:"files,omitempty"`
+	Attachments []Attachment   `json:"attachments,omitempty"`
 }
 
 type HistoryBlock struct {
-	BlockID  string         `json:"block_id"`
-	Element  *actionButton  `json:"element"`
-	Elements []actionButton `json:"elements"`
+	Type     string          `json:"type"`
+	BlockID  string          `json:"block_id"`
+	Element  *actionButton   `json:"element"`
+	Elements []actionButton  `json:"elements"`
+	Rows     json.RawMessage `json:"rows,omitempty"`
 }
 
 type DisplayLabels struct {
@@ -164,14 +175,21 @@ func FetchRecentContextMessages(
 func FormatRecentContext(messages []HistoryMessage, event Event, labels DisplayLabels) string {
 	lines := make([]string, 0, len(messages))
 	for _, message := range messages {
-		if message.TS == "" || message.TS == event.TS || strings.TrimSpace(message.Text) == "" {
+		var names []string
+		for _, file := range message.Files {
+			if file.Name != "" {
+				names = append(names, file.Name)
+			}
+		}
+		text := message.Text
+		if len(names) > 0 {
+			text += " [files: " + strings.Join(names, ", ") + "]"
+		}
+		text = MessageText(text, message.Blocks, message.Attachments)
+		if message.TS == "" || message.TS == event.TS || text == "" {
 			continue
 		}
-		lines = append(
-			lines,
-			labels.UserReference(message.User)+": "+
-				labels.RenderText(strings.TrimSpace(message.Text)),
-		)
+		lines = append(lines, labels.UserReference(message.User)+": "+labels.RenderText(text))
 	}
 	if len(lines) == 0 {
 		return ""
@@ -181,6 +199,62 @@ func FormatRecentContext(messages []HistoryMessage, event Event, labels DisplayL
 		heading = "Earlier Slack thread context (first page, oldest-first; newer replies may be omitted):"
 	}
 	return heading + "\n" + strings.Join(lines, "\n")
+}
+
+func MessageText(text string, blocks []HistoryBlock, attachments []Attachment) string {
+	blocks = slices.Clone(blocks)
+	for _, attachment := range attachments {
+		blocks = append(blocks, attachment.Blocks...)
+	}
+	for _, block := range blocks {
+		var rows [][]tableCell
+		if block.Type != "table" || json.Unmarshal(block.Rows, &rows) != nil {
+			continue
+		}
+		for _, row := range rows {
+			cells := make([]string, len(row))
+			for i, cell := range row {
+				cells[i] = strings.ReplaceAll(cell.plainText(), "\n", " ")
+			}
+			text += "\n" + strings.Join(cells, " | ")
+		}
+	}
+	return strings.TrimSpace(text)
+}
+
+type tableCell struct {
+	Type      string      `json:"type"`
+	Text      string      `json:"text"`
+	URL       string      `json:"url"`
+	UserID    string      `json:"user_id"`
+	ChannelID string      `json:"channel_id"`
+	Name      string      `json:"name"`
+	Elements  []tableCell `json:"elements"`
+}
+
+func (cell tableCell) plainText() string {
+	switch cell.Type {
+	case "link":
+		if cell.Text == "" {
+			return cell.URL
+		}
+		return "[" + cell.Text + "](" + cell.URL + ")"
+	case "user":
+		return "<@" + cell.UserID + ">"
+	case "channel":
+		return "<#" + cell.ChannelID + ">"
+	case "emoji":
+		return ":" + cell.Name + ":"
+	}
+	separator := ""
+	if cell.Type == "rich_text" || cell.Type == "rich_text_list" {
+		separator = " "
+	}
+	parts := make([]string, len(cell.Elements))
+	for i, element := range cell.Elements {
+		parts[i] = element.plainText()
+	}
+	return cell.Text + strings.Join(parts, separator)
 }
 
 func ShouldFetchRecentContext(route InboundRoute, newlyMapped bool) bool {

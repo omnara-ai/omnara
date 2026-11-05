@@ -209,6 +209,48 @@ func TestFormatRecentContextRendersSlackReferences(t *testing.T) {
 	}
 }
 
+func TestFormatRecentContextRendersTablesAndFiles(t *testing.T) {
+	section := func(elements string) string {
+		return `{"type":"rich_text_section","elements":[` + elements + `]}`
+	}
+	richText := func(elements ...string) string {
+		return `{"type":"rich_text","elements":[` + strings.Join(elements, ",") + `]}`
+	}
+	text := func(value string) string { return `{"type":"text","text":"` + value + `"}` }
+	pasted := json.RawMessage(`[[` +
+		richText(section(`{"type":"text","text":"Trial","style":{"bold":true}}`)) + `,` +
+		`{"type":"raw_text","text":"Owner"},{"type":"raw_text","text":"Links"},{"type":"raw_text","text":"Checkpoints"}` +
+		`],[` +
+		richText(section(text("re")+`,{"type":"text","text":"view","style":{"bold":true}}`)) + `,` +
+		richText(section(`{"type":"user","user_id":"U2"}`)) + `,` +
+		richText(section(`{"type":"link","url":"https://app.omnara.com/a","text":"agent"},`+text(" and ")+
+			`,{"type":"link","url":"https://app.omnara.com/b"}`)) + `,` +
+		richText(section(text("ccp_1")), `{"type":"rich_text_list","elements":[`+
+			section(text("ccp_2"))+`,`+section(text("ccp_3"))+`]}`) +
+		`]]`)
+	got := FormatRecentContext(
+		[]HistoryMessage{
+			{User: "U1", TS: "1.1", Attachments: []Attachment{{Blocks: []HistoryBlock{{Type: "table", Rows: pasted}}}}},
+			{User: "U3", TS: "1.2", Files: []File{{Name: "trajectory.json"}}, Blocks: []HistoryBlock{{
+				Type: "table", Rows: json.RawMessage(`[[{"type":"raw_text","text":"app\nposted"},{"type":"raw_text","text":"table"},` +
+					richText(section(`{"type":"emoji","name":"white_check_mark"}`)) + `]]`),
+			}}},
+			{User: "U4", TS: "1.3", Files: []File{{Name: "notes.txt"}}},
+		},
+		Event{TS: "2.2"},
+		DisplayLabels{Users: map[string]string{"U2": "Ben"}},
+	)
+	want := "Recent Slack context:\n" +
+		"<@U1>: Trial | Owner | Links | Checkpoints\n" +
+		"review | <@U2> (Ben) | [agent](https://app.omnara.com/a) and https://app.omnara.com/b | ccp_1 ccp_2 ccp_3\n" +
+		"<@U3>: [files: trajectory.json]\n" +
+		"app posted | table | :white_check_mark:\n" +
+		"<@U4>: [files: notes.txt]"
+	if got != want {
+		t.Fatalf("FormatRecentContext =\n%s\nwant\n%s", got, want)
+	}
+}
+
 func TestInboundEventMetadataSerializesTypedFileResults(t *testing.T) {
 	ordinal := 0
 	raw, err := InboundEventMetadata(
