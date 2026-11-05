@@ -3,10 +3,8 @@ package metrics
 import (
 	"context"
 	"errors"
-	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -59,9 +57,7 @@ func NewObservedGRPCStreamInterceptor(
 		streamer grpc.Streamer,
 		callOpts ...grpc.CallOption,
 	) (grpc.ClientStream, error) {
-		start := observer.now()
-		stream, err := streamer(ctx, desc, cc, method, callOpts...)
-		return observer.observeStream(ctx, cc, method, start, stream, err)
+		return streamer(ctx, desc, cc, method, observer.recordOnFinish(ctx, cc, method, callOpts)...)
 	}
 }
 
@@ -83,48 +79,22 @@ func (c observedGRPCConn) NewStream(
 	method string,
 	opts ...grpc.CallOption,
 ) (grpc.ClientStream, error) {
-	start := c.observer.now()
-	stream, err := c.conn.NewStream(ctx, desc, method, opts...)
-	return c.observer.observeStream(ctx, c.conn, method, start, stream, err)
+	return c.conn.NewStream(ctx, desc, method, c.observer.recordOnFinish(ctx, c.conn, method, opts)...)
 }
 
-func (o clientObserver) observeStream(
+func (o clientObserver) recordOnFinish(
 	ctx context.Context,
 	cc *grpc.ClientConn,
 	method string,
-	start time.Time,
-	stream grpc.ClientStream,
-	err error,
-) (grpc.ClientStream, error) {
+	opts []grpc.CallOption,
+) []grpc.CallOption {
+	start := o.now()
 	if start.IsZero() {
-		return stream, err
+		return opts
 	}
-	if err != nil {
+	return append([]grpc.CallOption{grpc.OnFinish(func(err error) {
 		o.recordGRPC(ctx, cc, method, start, err)
-		return stream, err
-	}
-	return &observedClientStream{
-		ClientStream: stream,
-		record:       func(err error) { o.recordGRPC(ctx, cc, method, start, err) },
-	}, nil
-}
-
-type observedClientStream struct {
-	grpc.ClientStream
-	once   sync.Once
-	record func(error)
-}
-
-func (s *observedClientStream) RecvMsg(m any) error {
-	err := s.ClientStream.RecvMsg(m)
-	s.once.Do(func() {
-		if errors.Is(err, io.EOF) {
-			s.record(nil)
-			return
-		}
-		s.record(err)
-	})
-	return err
+	})}, opts...)
 }
 
 func (o clientObserver) recordGRPC(
