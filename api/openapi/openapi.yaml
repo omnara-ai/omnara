@@ -948,7 +948,8 @@ paths:
       description: >-
         Lists agents in every project of the organization where the caller can
         read agents. Each agent carries its project_id. Items are ordered by
-        created_at descending, then id descending.
+        created_at descending, then id descending. Pass `activity_state` to keep
+        only agents in that activity.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - name: agent_profile_id
@@ -973,6 +974,7 @@ paths:
           description: Include archived agents. Defaults to false.
           schema:
             type: boolean
+        - $ref: '#/components/parameters/AgentActivityStateFilter'
         - $ref: '#/components/parameters/AgentIncludeUsage'
         - name: sort
           in: query
@@ -4528,7 +4530,8 @@ paths:
       summary: List agents
       description: >-
         Lists the project's agents with their current activity, newest first by default. Archived
-        agents and subagents are excluded unless requested.
+        agents and subagents are excluded unless requested. Pass `activity_state` to keep only
+        agents in that activity.
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - name: agent_profile_id
@@ -4553,6 +4556,7 @@ paths:
           description: Include archived agents. Defaults to false.
           schema:
             type: boolean
+        - $ref: '#/components/parameters/AgentActivityStateFilter'
         - $ref: '#/components/parameters/AgentIncludeUsage'
         - name: sort
           in: query
@@ -8910,6 +8914,15 @@ components:
       bearerFormat: Omnara machine daemon token
       description: An opaque Omnara machine-daemon bearer token. The bootstrap route derives the organization, installation, and machine identity from the credential; runtime routes verify that the addressed runtime belongs to the token-derived machine.
   parameters:
+    AgentActivityStateFilter:
+      name: activity_state
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/AgentActivityState'
+      description: >-
+        Return only agents whose current `activity.state` matches. `archived`
+        includes archived agents even when `include_archived` is omitted.
     AgentIncludeUsage:
       name: include_usage
       in: query
@@ -12919,21 +12932,23 @@ components:
           $ref: '#/components/schemas/Timestamp'
         archived_at:
           $ref: '#/components/schemas/Timestamp'
+    AgentActivityState:
+      description: >-
+        running while the agent has work in progress, which includes a
+        custom tool call awaiting its result; waiting_on_interaction while
+        it has an open question or permission request; idle otherwise; and
+        archived once the agent is archived. Running processes and working
+        subagents do not change it; see running_processes and
+        working_subagents.
+      type: string
+      enum: [running, idle, waiting_on_interaction, archived]
     AgentActivity:
       type: object
       additionalProperties: false
       required: [state, last_activity_at, open_interactions, running_processes, working_subagents]
       properties:
         state:
-          description: >-
-            running while the agent has work in progress, which includes a
-            custom tool call awaiting its result; waiting_on_interaction while
-            it has an open question or permission request; idle otherwise; and
-            archived once the agent is archived. Running processes and working
-            subagents do not change it; see running_processes and
-            working_subagents.
-          type: string
-          enum: [running, idle, waiting_on_interaction, archived]
+          $ref: '#/components/schemas/AgentActivityState'
         last_activity_at:
           description: When the agent's latest event was recorded, or its creation time before any event.
           $ref: '#/components/schemas/Timestamp'

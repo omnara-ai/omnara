@@ -380,6 +380,33 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+	t.Run("directory larger than the traversal budget", func(t *testing.T) {
+		root, err := files.OpenStore(memoryFilesystemRef(t, scope, resource))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = root.Close() }()
+		if err := root.Mkdir("large", 0700); err != nil {
+			t.Fatal(err)
+		}
+		for i := range 10001 {
+			if err := root.WriteFile(fmt.Sprintf("large/%05d.md", i), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		page, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/engineering/large/*", 0, 100)
+		if err != nil || len(page.Entries) != 100 || !page.HasMore {
+			t.Fatalf("large directory page: %d entries, more=%t: %v", len(page.Entries), page.HasMore, err)
+		}
+		last, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/engineering/large/*", 10000, 100)
+		if err != nil || last.HasMore || len(last.Entries) != 1 ||
+			last.Entries[0].Path != "/memory/engineering/large/10000.md" {
+			t.Fatalf("large directory last page: %+v: %v", last, err)
+		}
+		if err := root.RemoveAll("large"); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("resource budget", func(t *testing.T) {
 		root, err := files.OpenStore(memoryFilesystemRef(t, scope, resource))
 		if err != nil {

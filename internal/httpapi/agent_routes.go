@@ -444,12 +444,28 @@ func (s strictOpenAPIServer) listAgents(
 	if params.IncludeArchived != nil {
 		filters.IncludeArchived = *params.IncludeArchived
 	}
+	if params.ActivityState != nil {
+		state := *params.ActivityState
+		if !state.Valid() {
+			return openapi.ListAgentsResponse{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest, "invalid activity state filter",
+			)
+		}
+		filters.ActivityState = string(state)
+		if state == openapi.AgentActivityStateArchived {
+			filters.IncludeArchived = true
+		}
+	}
 	extra := struct {
 		AgentProfileID   *uuid.UUID
 		ParentAgentID    *uuid.UUID
 		IncludeSubagents bool
 		IncludeArchived  bool
-	}{filters.AgentProfileID, filters.ParentAgentID, filters.IncludeSubagents, filters.IncludeArchived}
+		ActivityState    string
+	}{
+		filters.AgentProfileID, filters.ParentAgentID, filters.IncludeSubagents,
+		filters.IncludeArchived, filters.ActivityState,
+	}
 	list, err := parseResourceListQuery(resourceListQueryInput{
 		Name: params.Name, Sort: optionalString(params.Sort),
 		Cursor: params.Cursor, ListKind: "agents",

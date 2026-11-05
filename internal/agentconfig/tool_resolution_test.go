@@ -49,6 +49,8 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 		"subagents: {worker: {type: self}}\nskills: [" + skillID + "]\ntools:\n  spawn_agent: {enabled: false}\n  read_agent: {permission: {mode: always_ask}}\n",
 		"machine_sources: [{machine_pool_name: build-pool}]\nskills: [" + skillID + "]\ntools:\n  run_command: {enabled: false}\n  delete_machine: {permission: {mode: always_ask}}\n  skill: {enabled: false}\n  web_search: {enabled: false}\n",
 		"tools:\n  web_search: {}\n  custom_tool: {type: custom, description: Test, input_schema: {type: object}, permission: {mode: always_ask}}\n",
+		"git_credentials: {integration: reviews}\n",
+		"git_credentials: {integration: reviews}\ntools: {list_github_repositories: {permission: {mode: always_ask}}}\n",
 	} {
 		t.Run(source, func(t *testing.T) {
 			opts := testMachineSourceCompileOptions(t)
@@ -58,6 +60,7 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 			opts.ResolveSkillID = func(id string) (SkillResolution, error) {
 				return SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "test-skill"}, nil
 			}
+			opts.ResolveIntegrationName = gitCredentialsTestOptions(t).ResolveIntegrationName
 			raw := []byte(validAgentSource(source))
 			result, err := Compile(SourceFormatYAML, raw, opts)
 			if err != nil {

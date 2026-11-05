@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { isImeComposing } from '@/lib/ime-composition'
 import { errorMessage } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
 
@@ -94,7 +95,7 @@ function PermissionActions({
               setReason(event.target.value)
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing && !disabled) {
+              if (event.key === 'Enter' && !isImeComposing(event.nativeEvent) && !disabled) {
                 event.preventDefault()
                 answer(reasonIndex)
               }
@@ -308,7 +309,7 @@ function InteractionFormCard({
                         onKeyDown={(event) => {
                           if (
                             event.key === 'Enter' &&
-                            !event.nativeEvent.isComposing &&
+                            !isImeComposing(event.nativeEvent) &&
                             complete &&
                             !pending
                           ) {

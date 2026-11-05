@@ -1,24 +1,24 @@
 -- name: CreateMemoryStore :one
 INSERT INTO memory_stores(id, project_id, name, description, agent_access)
 VALUES (sqlc.arg(id), sqlc.arg(project_id), sqlc.arg(name), sqlc.arg(description), sqlc.arg(agent_access))
-RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at;
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count;
 
 -- name: GetMemoryStore :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL;
 
 -- name: GetMemoryStoreByName :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND name = sqlc.arg(name)
   AND deleted_at IS NULL;
 
 -- name: LockMemoryStore :one
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
@@ -33,10 +33,10 @@ SET description = sqlc.arg(description),
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL
-RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at;
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count;
 
 -- name: ListMemoryStores :many
-SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at, files_removed_at, file_count
 FROM memory_stores
 WHERE project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND deleted_at IS NULL
@@ -75,7 +75,7 @@ WHERE a.project_id = sqlc.arg(project_id)
   AND a.state = 'active';
 
 -- name: LockMemoryStoreShared :one
-SELECT id
+SELECT file_count
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
@@ -150,3 +150,9 @@ WHERE call.agent_id = sqlc.arg(agent_id)
   AND block.structured_data->>'digest' IS NOT NULL
 ORDER BY result.completed_at DESC, result.id DESC
 LIMIT 1;
+
+-- name: SetMemoryStoreFileCount :exec
+UPDATE memory_stores
+SET file_count = sqlc.arg(file_count)::bigint
+WHERE project_id = sqlc.arg(project_id)
+  AND id = sqlc.arg(id);

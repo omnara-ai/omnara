@@ -52,6 +52,12 @@ func (f *githubFeedbackFixture) GetIntegration(_ context.Context, projectID, int
 	return f.integration, nil
 }
 
+func (*githubFeedbackFixture) MarkGitHubCheckRun(
+	context.Context, uuid.UUID, uuid.UUID, uuid.UUID, integrationstore.ConversationAddress, bool,
+) error {
+	return nil
+}
+
 func (f *githubFeedbackFixture) ReadProjectAvailableSecretPayload(_ context.Context,
 	input secretstore.ReadProjectAvailableSecretPayloadInput,
 ) (secretstore.SecretPayloadRecord, error) {

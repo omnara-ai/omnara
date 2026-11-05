@@ -12,7 +12,11 @@ import type { OutputFormat } from './format.ts'
 import { CliInputError } from './output.ts'
 import type { FlowReporter } from './reporter.ts'
 
-export const zMachineSetupBody = zConnectByoMachineRequest
+export const zMachineSetupBody = zConnectByoMachineRequest.extend({
+  project_ids: zConnectByoMachineRequest.shape.project_ids.describe(
+    'project ID to grant the machine to, from omnara projects list',
+  ),
+})
 
 type MachineSetupBody = z.output<typeof zMachineSetupBody>
 type MachineSetupContext = FlowContext<{ orgID: string }, MachineSetupBody>

@@ -187,6 +187,30 @@ func TestGitHubSynchronizeQueuesAndUsesTransitionIdentity(t *testing.T) {
 	}
 }
 
+func TestGitHubSelfPush(t *testing.T) {
+	t.Parallel()
+	bot := github.User{ID: 999, Login: "helper[bot]", Type: "Bot"}
+	push := githubEventFixture("pull_request")
+	push.Action, push.Sender = "synchronize", bot
+	push.Before, push.After = strings.Repeat("a", 40), strings.Repeat("b", 40)
+	address, ok := GitHubSelfPush(githubEventIntegration(), githubEventJSON(t, push))
+	if !ok || address != (integrationstore.ConversationAddress{Kind: "pull_request", Ref: "1001#42"}) {
+		t.Fatalf("bot push = %+v, %v", address, ok)
+	}
+	human := push
+	human.Sender = github.User{ID: 71, Login: "human", Type: "User"}
+	opened := githubEventFixture("pull_request")
+	opened.Sender = bot
+	comment := githubEventFixture("issue_comment")
+	comment.Sender, comment.Comment.User = bot, bot
+	others := map[string]githubEventPayload{"human push": human, "bot open": opened, "bot comment": comment}
+	for name, payload := range others {
+		if _, ok := GitHubSelfPush(githubEventIntegration(), githubEventJSON(t, payload)); ok {
+			t.Errorf("%s detected as bot push", name)
+		}
+	}
+}
+
 func TestGitHubNormalizeIgnoresNonInputs(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

@@ -2777,7 +2777,7 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 	}
 	invalidCancelRec := performRequest(handler, invalidCancelReq)
 	if invalidCancelRec.Code != http.StatusFound ||
-		invalidCancelRec.Header().Get("Location") != "/login?auth_error=invalid_state" {
+		invalidCancelRec.Header().Get("Location") != "/login?auth_connector=github-test&auth_error=invalid_state" {
 		t.Fatalf(
 			"invalid cancel callback status=%d location=%q body=%s",
 			invalidCancelRec.Code,
@@ -2802,7 +2802,7 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 	cancelRec = performRequest(handler, cancelCallbackReq)
 	if cancelRec.Code != http.StatusFound ||
 		cancelRec.Header().Get("Location") !=
-			"/login?auth_error=access_denied&return_to=%2Fdevice%3Fuser_code%3DABCD" {
+			"/login?auth_connector=github-test&auth_error=access_denied&return_to=%2Fdevice%3Fuser_code%3DABCD" {
 		t.Fatalf(
 			"cancel callback status=%d location=%q body=%s",
 			cancelRec.Code,
@@ -2825,7 +2825,7 @@ func TestOAuthLoginGitHubConnectorMintsBrowserSessionAndRejectsReplay(t *testing
 	}
 	cancelReplayRec := performRequest(handler, cancelReplayReq)
 	if cancelReplayRec.Code != http.StatusFound ||
-		cancelReplayRec.Header().Get("Location") != "/login?auth_error=invalid_state" {
+		cancelReplayRec.Header().Get("Location") != "/login?auth_connector=github-test&auth_error=invalid_state" {
 		t.Fatalf(
 			"cancel replay status=%d location=%q body=%s",
 			cancelReplayRec.Code,
@@ -2993,7 +2993,8 @@ func TestOAuthLoginGitHubRequiresPrimaryVerifiedEmail(t *testing.T) {
 	}
 	rec = performRequest(handler, callbackReq)
 	if rec.Code != http.StatusFound ||
-		rec.Header().Get("Location") != "/login?auth_error=identity_failed&return_to=%2Fafter" {
+		rec.Header().Get("Location") !=
+			"/login?auth_connector=github-primary-required&auth_error=email_not_verified&return_to=%2Fafter" {
 		t.Fatalf("callback status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	if sessionToken := cookieValue(rec.Result().Cookies(), httpauth.BrowserSessionCookieName); sessionToken != "" {
@@ -3483,7 +3484,7 @@ func TestSSOOIDCConnectorRejectsMismatchedAuthorizedParty(t *testing.T) {
 	}
 	rec = performRequest(handler, callbackReq)
 	if rec.Code != http.StatusFound ||
-		rec.Header().Get("Location") != "/login?auth_error=identity_failed&return_to=%2Fsso-done" {
+		rec.Header().Get("Location") != "/login?auth_connector=azp-sso&auth_error=identity_failed&return_to=%2Fsso-done" {
 		t.Fatalf("sso callback status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	if sessionToken := cookieValue(rec.Result().Cookies(), httpauth.BrowserSessionCookieName); sessionToken != "" {
@@ -3710,7 +3711,8 @@ func TestSSOOIDCConnectorRejectsSubjectOnlyFirstLogin(t *testing.T) {
 	}
 	rec = performRequest(handler, callbackReq)
 	if rec.Code != http.StatusFound ||
-		rec.Header().Get("Location") != "/login?auth_error=identity_failed&return_to=%2Fsso-done" {
+		rec.Header().Get("Location") !=
+			"/login?auth_connector=subject-only-sso&auth_error=email_not_verified&return_to=%2Fsso-done" {
 		t.Fatalf("sso callback status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	sessionToken := cookieValue(rec.Result().Cookies(), httpauth.BrowserSessionCookieName)

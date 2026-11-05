@@ -212,11 +212,8 @@ func (g globFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if err := g.checkCanceled(); err != nil {
 		return nil, err
 	}
-	budget, charged := *g.remaining, g.skipping == nil || !g.skipping()
-	if !charged {
-		budget = memoryListingTraversalLimit
-	}
-	if budget <= 0 {
+	charged := g.skipping == nil || !g.skipping()
+	if charged && *g.remaining <= 0 {
 		return nil, ErrFileTraversalLimit
 	}
 	file, err := g.Open(name)
@@ -228,14 +225,14 @@ func (g globFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if !ok {
 		return nil, errors.New("memory path is not a directory")
 	}
-	entries, err := directory.ReadDir(budget + 1)
+	entries, err := directory.ReadDir(memoryListingDirectoryLimit + 1)
 	if errors.Is(err, syscall.ENOTDIR) {
 		return nil, fs.ErrNotExist
 	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
-	if len(entries) > budget {
+	if len(entries) > memoryListingDirectoryLimit {
 		return nil, ErrFileTraversalLimit
 	}
 	if charged {

@@ -673,3 +673,32 @@ func TestWatchWithoutOffsetStartsAtTheLastReadCursor(t *testing.T) {
 	_, err = createProcessActionForTest(ctx, fixture.Store, transaction, input)
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict, "a replay naming another offset conflicts")
 }
+
+func TestAgentTreeStatesCountBackgroundProcessesAsWork(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "tree_state_background_process")
+	startBackgroundProcessForTest(t, ctx, fixture, "tree_state_background_process")
+	if err := fixture.Store.Execution().ReleaseAgentRuntimeLock(
+		ctx, testProjectID, fixture.AgentID, fixture.Lock.ID,
+	); err != nil {
+		t.Fatalf("release runtime lock: %v", err)
+	}
+	for _, statement := range []string{
+		`DELETE FROM agent_wakeups WHERE agent_id = $1`,
+		`UPDATE agent_execution_state SET logical_ready_at = NULL, incomplete_tools = false WHERE agent_id = $1`,
+	} {
+		if _, err := fixture.Store.pool.Exec(ctx, statement, fixture.AgentID); err != nil {
+			t.Fatalf("clear agent work: %v", err)
+		}
+	}
+	states, err := fixture.Store.Execution().ListAgentTreeStates(
+		ctx, []uuid.UUID{testProjectID}, []uuid.UUID{fixture.AgentID},
+	)
+	if err != nil {
+		t.Fatalf("list tree states: %v", err)
+	}
+	if got := states[fixture.AgentID]; got != executionstore.SubagentStateRunning {
+		t.Fatalf("tree state with only a background process = %q, want running", got)
+	}
+}

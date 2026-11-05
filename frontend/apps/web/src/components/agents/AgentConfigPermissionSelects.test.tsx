@@ -30,7 +30,7 @@ import {
 import { useAgentDraft } from '@/components/agents/useAgentDraft'
 import { useProjectDefaults } from '@/components/agents/useProjectDefaults'
 import { ActiveOrgContext } from '@/lib/active-org-context'
-import { fakeApi, type FakeRoute, jsonResponse } from '@/test/fake-api'
+import { fakeApi, type FakeRoute, jsonResponse, type JsonValue } from '@/test/fake-api'
 import { currentUserOrg, machinePool, projectMachinePoolGrant } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 
@@ -78,13 +78,15 @@ const activeOrg = currentUserOrg({ id: 'org-test', name: 'Test org' })
 
 const includedCatalog: ToolCatalog = {
   ...catalog,
-  built_in_tools: ['run_command', 'skill', 'list_agents'].map((name) => ({
-    name,
-    description: name,
-    implicit: true,
-    default_permission: alwaysAllowProfile.default_permission,
-    permission_modes: alwaysAllowProfile.permission_modes,
-  })),
+  built_in_tools: ['run_command', 'skill', 'list_agents', 'list_github_repositories'].map(
+    (name) => ({
+      name,
+      description: name,
+      implicit: true,
+      default_permission: alwaysAllowProfile.default_permission,
+      permission_modes: alwaysAllowProfile.permission_modes,
+    }),
+  ),
 }
 
 let container: HTMLDivElement
@@ -438,7 +440,20 @@ function IncludedToolsHarness({
   })
   return (
     <>
-      <AgentConfigToolsField catalog={catalog} tools={form.tools} onToolsChange={form.setTools} />
+      <button
+        type="button"
+        onClick={() => {
+          form.setGitCredentials({ integration: 'reviews' })
+        }}
+      >
+        Select Git credentials
+      </button>
+      <AgentConfigToolsField
+        catalog={catalog}
+        tools={form.tools}
+        resolvedTools={form.resolvedTools}
+        onToolsChange={form.setTools}
+      />
       <output>{form.yaml}</output>
     </>
   )
@@ -491,6 +506,38 @@ it('adds interaction helpers and edits their permissions as ordinary tools', asy
     list_interaction_handlers: { type: 'built_in', permission: { mode: 'always_ask' } },
     set_interaction_handler: { type: 'built_in', permission: { mode: 'always_ask' } },
   })
+})
+
+it('shows the Git credentials tool from the preview and saves its permission', async () => {
+  const name = 'list_github_repositories'
+  let previewed: JsonValue | undefined
+  Providers = testProviders([
+    {
+      method: 'POST',
+      path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
+      respond: (request) => {
+        previewed = request.body
+        return jsonResponse({
+          tools: [{ name, enabled: true, permission: { mode: 'always_allow', parameters: {} } }],
+        })
+      },
+    },
+  ])
+  await renderAndFlush(<IncludedToolsHarness source={includedSource} />)
+  click('button')
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  expect(previewed).toMatchObject({ source: { git_credentials: { integration: 'reviews' } } })
+  click('[data-slot="collapsible-trigger"]')
+  expect(container.querySelector(`[aria-label="${name} permission"]`)?.textContent).toBe(
+    'Always allow',
+  )
+  await selectIncludedPermission(name, 'Always ask')
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+    ['tools', name],
+    { type: 'built_in', permission: { mode: 'always_ask' } },
+  )
 })
 
 it.each(['run_command', 'skill', 'list_agents'])(
