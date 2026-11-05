@@ -222,7 +222,8 @@ func TestFormatRecentContextRendersTablesAndFiles(t *testing.T) {
 		`{"type":"raw_text","text":"Owner"},{"type":"raw_text","text":"Links"},{"type":"raw_text","text":"Checkpoints"}` +
 		`],[` +
 		richText(section(text("re")+`,{"type":"text","text":"view","style":{"bold":true}}`)) + `,` +
-		richText(section(`{"type":"user","user_id":"U2"}`)) + `,` +
+		richText(section(`{"type":"user","user_id":"U2"},`+text(" ")+`,{"type":"usergroup","usergroup_id":"S1"},`+
+			text(" ")+`,{"type":"broadcast","range":"here"}`)) + `,` +
 		richText(section(`{"type":"link","url":"https://app.omnara.com/a","text":"agent"},`+text(" and ")+
 			`,{"type":"link","url":"https://app.omnara.com/b"}`)) + `,` +
 		richText(section(text("ccp_1")), `{"type":"rich_text_list","elements":[`+
@@ -233,7 +234,9 @@ func TestFormatRecentContextRendersTablesAndFiles(t *testing.T) {
 			{User: "U1", TS: "1.1", Attachments: []Attachment{{Blocks: []HistoryBlock{{Type: "table", Rows: pasted}}}}},
 			{User: "U3", TS: "1.2", Files: []File{{Name: "trajectory.json"}}, Blocks: []HistoryBlock{{
 				Type: "table", Rows: json.RawMessage(`[[{"type":"raw_text","text":"app\nposted"},{"type":"raw_text","text":"table"},` +
-					richText(section(`{"type":"emoji","name":"white_check_mark"}`)) + `]]`),
+					richText(section(`{"type":"emoji","name":"white_check_mark"}`)) + `,` +
+					richText(section(`{"type":"date","timestamp":1793916000,"format":"{date_short}",`+
+						`"url":"https://cal.example/1"}`)) + `]]`),
 			}}},
 			{User: "U4", TS: "1.3", Files: []File{{Name: "notes.txt"}}},
 		},
@@ -242,12 +245,65 @@ func TestFormatRecentContextRendersTablesAndFiles(t *testing.T) {
 	)
 	want := "Recent Slack context:\n" +
 		"<@U1>: Trial | Owner | Links | Checkpoints\n" +
-		"review | <@U2> (Ben) | [agent](https://app.omnara.com/a) and https://app.omnara.com/b | ccp_1 ccp_2 ccp_3\n" +
+		"review | <@U2> (Ben) <!subteam^S1> @here | [agent](https://app.omnara.com/a) and https://app.omnara.com/b | ccp_1 ccp_2 ccp_3\n" +
 		"<@U3>: [files: trajectory.json]\n" +
-		"app posted | table | :white_check_mark:\n" +
+		"app posted | table | :white_check_mark: | [2026-11-05T22:00:00Z](https://cal.example/1)\n" +
 		"<@U4>: [files: notes.txt]"
 	if got != want {
 		t.Fatalf("FormatRecentContext =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestMessageTextRendersAttachmentsAndAppBlocks(t *testing.T) {
+	var message HistoryMessage
+	raw := `{"text":"Deploy alert","blocks":[` +
+		`{"type":"header","text":{"type":"plain_text","text":"Deploy failed"}},` +
+		`{"type":"section","text":{"type":"mrkdwn","text":"*Service* api"},"fields":[{"type":"mrkdwn","text":"*Env* prod"}]},` +
+		`{"type":"markdown","text":"See **runbook**"},` +
+		`{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"Deploy failed"}]}]}],` +
+		`"attachments":[{"author_name":"Ben","text":"original note","message_blocks":[{"message":{"blocks":[` +
+		`{"type":"table","rows":[[{"type":"raw_text","text":"a"},{"type":"raw_text","text":"b"}]]}]}}]},` +
+		`{"pretext":"Alert","title":"CPU high","title_link":"https://monitor.example/1","text":"95%",` +
+		`"fields":[{"title":"host","value":"web-1"},{"value":"untitled"}]}]}`
+	if err := json.Unmarshal([]byte(raw), &message); err != nil {
+		t.Fatal(err)
+	}
+	got := MessageText(message.Text, message.Blocks, message.Attachments)
+	want := "Deploy alert\nDeploy failed\n*Service* api\n*Env* prod\nSee **runbook**\nBen: original note\na | b\n" +
+		"Alert\n[CPU high](https://monitor.example/1)\n95%\nhost: web-1\nuntitled"
+	if got != want {
+		t.Fatalf("MessageText =\n%s\nwant\n%s", got, want)
+	}
+	table := []HistoryBlock{{Type: "table", Rows: json.RawMessage(`[[{"type":"raw_text","text":"10"}]]`)}}
+	if got := MessageText("Build 100 failed", table, nil); got != "Build 100 failed\n10" {
+		t.Fatalf("MessageText = %q, want the table kept", got)
+	}
+	section := func(text string) HistoryBlock {
+		return HistoryBlock{Type: "section", Text: json.RawMessage(`{"type":"mrkdwn","text":"` + text + `"}`)}
+	}
+	statuses := []HistoryBlock{
+		section("Production"), section("Status: healthy"), section("Staging"), section("Status: healthy"),
+	}
+	if got := MessageText("Status: healthy", statuses, nil); got !=
+		"Status: healthy\nProduction\nStatus: healthy\nStaging\nStatus: healthy" {
+		t.Fatalf("MessageText = %q, want every section kept", got)
+	}
+	if got := MessageText("Build passed", []HistoryBlock{section("Build passed")}, nil); got != "Build passed" {
+		t.Fatalf("MessageText = %q, want the repeated summary once", got)
+	}
+}
+
+func TestReferencedIDsIncludeRenderedContent(t *testing.T) {
+	event := Event{User: "U1", Channel: "C1", Blocks: []HistoryBlock{{Type: "table", Rows: json.RawMessage(
+		`[[{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[` +
+			`{"type":"user","user_id":"U2"},{"type":"channel","channel_id":"C2"}]}]}]]`,
+	)}}}
+	history := []HistoryMessage{{User: "U3", Attachments: []Attachment{{Text: "from <@U4> in <#C4>"}}}}
+	if got := ReferencedUserIDs(event, history); !reflect.DeepEqual(got, []string{"U1", "U3", "U2", "U4"}) {
+		t.Fatalf("ReferencedUserIDs = %v", got)
+	}
+	if got := referencedChannelIDs(event, history); !reflect.DeepEqual(got, []string{"C1", "C2", "C4"}) {
+		t.Fatalf("referencedChannelIDs = %v", got)
 	}
 }
 

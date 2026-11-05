@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -67,7 +68,18 @@ type Event struct {
 }
 
 type Attachment struct {
-	Blocks []HistoryBlock `json:"blocks,omitempty"`
+	Pretext       string          `json:"pretext,omitempty"`
+	AuthorName    string          `json:"author_name,omitempty"`
+	Title         string          `json:"title,omitempty"`
+	TitleLink     string          `json:"title_link,omitempty"`
+	Text          string          `json:"text,omitempty"`
+	Fields        json.RawMessage `json:"fields,omitempty"`
+	Blocks        []HistoryBlock  `json:"blocks,omitempty"`
+	MessageBlocks []struct {
+		Message struct {
+			Blocks []HistoryBlock `json:"blocks"`
+		} `json:"message"`
+	} `json:"message_blocks,omitempty"`
 }
 
 type RevokedTokens struct {
@@ -106,6 +118,8 @@ type HistoryBlock struct {
 	BlockID  string          `json:"block_id"`
 	Element  *actionButton   `json:"element"`
 	Elements []actionButton  `json:"elements"`
+	Text     json.RawMessage `json:"text,omitempty"`
+	Fields   json.RawMessage `json:"fields,omitempty"`
 	Rows     json.RawMessage `json:"rows,omitempty"`
 }
 
@@ -202,49 +216,128 @@ func FormatRecentContext(messages []HistoryMessage, event Event, labels DisplayL
 }
 
 func MessageText(text string, blocks []HistoryBlock, attachments []Attachment) string {
-	blocks = slices.Clone(blocks)
+	var pieces []string
+	add := func(piece string) {
+		if piece = strings.TrimSpace(piece); piece != "" {
+			pieces = append(pieces, piece)
+		}
+	}
+	addBlocks := func(blocks []HistoryBlock) {
+		for _, block := range blocks {
+			add(block.plainText())
+		}
+	}
+	addBlocks(blocks)
 	for _, attachment := range attachments {
-		blocks = append(blocks, attachment.Blocks...)
+		add(attachment.plainText())
+		addBlocks(attachment.Blocks)
+		for _, shared := range attachment.MessageBlocks {
+			addBlocks(shared.Message.Blocks)
+		}
 	}
-	for _, block := range blocks {
+	text = strings.TrimSpace(text)
+	if rendered := strings.Join(pieces, "\n"); rendered != text {
+		text = strings.TrimSpace(text + "\n" + rendered)
+	}
+	return text
+}
+
+func markdownLink(text, url string) string {
+	if url == "" || text == "" {
+		return text + url
+	}
+	return "[" + text + "](" + url + ")"
+}
+
+func (attachment Attachment) plainText() string {
+	text := attachment.Text
+	if attachment.AuthorName != "" && text != "" {
+		text = attachment.AuthorName + ": " + text
+	}
+	lines := []string{attachment.Pretext, markdownLink(attachment.Title, attachment.TitleLink), text}
+	var fields []struct {
+		Title string `json:"title"`
+		Value string `json:"value"`
+	}
+	if json.Unmarshal(attachment.Fields, &fields) == nil {
+		for _, field := range fields {
+			lines = append(lines, strings.TrimPrefix(field.Title+": "+field.Value, ": "))
+		}
+	}
+	return strings.Join(slices.DeleteFunc(lines, func(line string) bool { return line == "" }), "\n")
+}
+
+func (block HistoryBlock) plainText() string {
+	switch block.Type {
+	case "table":
 		var rows [][]tableCell
-		if block.Type != "table" || json.Unmarshal(block.Rows, &rows) != nil {
-			continue
+		if json.Unmarshal(block.Rows, &rows) != nil {
+			return ""
 		}
-		for _, row := range rows {
+		lines := make([]string, len(rows))
+		for i, row := range rows {
 			cells := make([]string, len(row))
-			for i, cell := range row {
-				cells[i] = strings.ReplaceAll(cell.plainText(), "\n", " ")
+			for j, cell := range row {
+				cells[j] = strings.ReplaceAll(cell.plainText(), "\n", " ")
 			}
-			text += "\n" + strings.Join(cells, " | ")
+			lines[i] = strings.Join(cells, " | ")
+		}
+		return strings.Join(lines, "\n")
+	case "section", "header":
+		var lines []string
+		var text struct {
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(block.Text, &text) == nil {
+			lines = append(lines, text.Text)
+		}
+		var fields []struct {
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(block.Fields, &fields) == nil {
+			for _, field := range fields {
+				lines = append(lines, field.Text)
+			}
+		}
+		return strings.Join(lines, "\n")
+	case "markdown":
+		var text string
+		if json.Unmarshal(block.Text, &text) == nil {
+			return text
 		}
 	}
-	return strings.TrimSpace(text)
+	return ""
 }
 
 type tableCell struct {
-	Type      string      `json:"type"`
-	Text      string      `json:"text"`
-	URL       string      `json:"url"`
-	UserID    string      `json:"user_id"`
-	ChannelID string      `json:"channel_id"`
-	Name      string      `json:"name"`
-	Elements  []tableCell `json:"elements"`
+	Type        string      `json:"type"`
+	Text        string      `json:"text"`
+	URL         string      `json:"url"`
+	UserID      string      `json:"user_id"`
+	ChannelID   string      `json:"channel_id"`
+	UsergroupID string      `json:"usergroup_id"`
+	Range       string      `json:"range"`
+	Name        string      `json:"name"`
+	Timestamp   int64       `json:"timestamp"`
+	Elements    []tableCell `json:"elements"`
 }
 
 func (cell tableCell) plainText() string {
 	switch cell.Type {
 	case "link":
-		if cell.Text == "" {
-			return cell.URL
-		}
-		return "[" + cell.Text + "](" + cell.URL + ")"
+		return markdownLink(cell.Text, cell.URL)
 	case "user":
 		return "<@" + cell.UserID + ">"
 	case "channel":
 		return "<#" + cell.ChannelID + ">"
+	case "usergroup":
+		return "<!subteam^" + cell.UsergroupID + ">"
+	case "broadcast":
+		return "<!" + cell.Range + ">"
 	case "emoji":
 		return ":" + cell.Name + ":"
+	case "date":
+		return markdownLink(time.Unix(cell.Timestamp, 0).UTC().Format(time.RFC3339), cell.URL)
 	}
 	separator := ""
 	if cell.Type == "rich_text" || cell.Type == "rich_text_list" {
@@ -654,6 +747,10 @@ func ReferencedUserIDs(event Event, messages []HistoryMessage) []string {
 	for _, message := range messages {
 		ids = append(ids, userMentionIDs(message.Text)...)
 	}
+	ids = append(ids, userMentionIDs(MessageText(event.Text, event.Blocks, event.Attachments))...)
+	for _, message := range messages {
+		ids = append(ids, userMentionIDs(MessageText(message.Text, message.Blocks, message.Attachments))...)
+	}
 	return orderedReferencedIDs(event.User, ids...)
 }
 
@@ -665,6 +762,11 @@ func referencedChannelIDs(event Event, messages []HistoryMessage) []string {
 	ids = append(ids, mentionIDs(channelMentionPattern, event.Text)...)
 	for _, message := range messages {
 		ids = append(ids, mentionIDs(channelMentionPattern, message.Text)...)
+	}
+	ids = append(ids, mentionIDs(channelMentionPattern, MessageText(event.Text, event.Blocks, event.Attachments))...)
+	for _, message := range messages {
+		text := MessageText(message.Text, message.Blocks, message.Attachments)
+		ids = append(ids, mentionIDs(channelMentionPattern, text)...)
 	}
 	return orderedReferencedIDs("", ids...)
 }
