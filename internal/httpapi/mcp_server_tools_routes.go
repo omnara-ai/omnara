@@ -234,8 +234,10 @@ func (s strictOpenAPIServer) mcpServerAuthRequired(
 	message string,
 ) (openapi.ListMCPServerToolsResponseObject, error) {
 	requirement, err := mcp.DetectAuth(ctx, endpoint, mcp.AuthOptions{
-		HTTPClient:       s.server.mcpOAuthHTTPClient,
-		PrivateEndpoints: s.server.privateEndpoints,
+		HTTPClient:             s.server.mcpOAuthHTTPClient,
+		EndpointHTTPClient:     s.server.mcpHTTPClient,
+		PrivateEndpoints:       s.server.privateEndpoints,
+		AllowInsecureLocalHTTP: s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
 	})
 	switch {
 	case err == nil && !requirement.Required:

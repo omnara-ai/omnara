@@ -19,7 +19,7 @@ func TestParseAllowlistEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !list.PermitsIP(net.ParseIP("10.1.200.1"), false) {
+	if !list.PermitsIP(net.ParseIP("10.1.200.1"), 443, false) {
 		t.Fatal("unmasked CIDR entry was not masked")
 	}
 	invalid := []string{
@@ -81,7 +81,7 @@ func TestAllowlistPermits(t *testing.T) {
 	if IsAllowedIP(net.ParseIP("10.0.5.21"), false) {
 		t.Fatal("IsAllowedIP reached a listed range")
 	}
-	webFetch, err := ParseWebFetchAllowlist([]string{"10.0.3.0/24"})
+	webFetch, err := ParseWebFetchAllowlist([]string{"10.0.3.0/24", "127.0.0.1:3000"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,14 +90,34 @@ func TestAllowlistPermits(t *testing.T) {
 		"http://10.0.6.1/":          false,
 		"http://192.168.1.10:8000/": true,
 		"http://192.168.1.10/":      false,
+		"http://10.0.5.21:0/":       false,
+		"http://10.0.5.21:65536/":   false,
 		"http://ollama/":            true,
 	} {
 		if got := endpoints.PermitsPlainHTTP(mustParseURL(t, rawURL)); got != want {
 			t.Errorf("PermitsPlainHTTP(%s) = %v, want %v", rawURL, got, want)
 		}
 	}
-	if webFetch.PermitsPlainHTTP(mustParseURL(t, "http://ollama/")) {
+	if webFetch.PermitsPlainHTTP(mustParseURL(t, "http://ollama/")) ||
+		webFetch.PermitsPlainHTTP(mustParseURL(t, "http://localhost:3000/")) {
 		t.Fatal("web_fetch kept plain HTTP for a hostname")
+	}
+	if !endpoints.PermitsIP(net.ParseIP("192.168.1.10"), 8000, false) ||
+		endpoints.PermitsIP(net.ParseIP("192.168.1.10"), 8001, false) {
+		t.Fatal("PermitsIP ignored the listed port")
+	}
+	loopbackPort, err := ParseEndpointAllowlist([]string{"10.0.5.0/24", "127.0.0.1:8080"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rawURL, want := range map[string]bool{
+		"http://localhost/":      false,
+		"http://localhost:8080/": true,
+		"http://ollama/":         true,
+	} {
+		if got := loopbackPort.PermitsPlainHTTP(mustParseURL(t, rawURL)); got != want {
+			t.Errorf("PermitsPlainHTTP(%s) with only 127.0.0.1:8080 listed = %v, want %v", rawURL, got, want)
+		}
 	}
 
 	endpointsCatchAll, err := ParseEndpointAllowlist([]string{"0.0.0.0/0", "::/0"})
@@ -115,7 +135,7 @@ func TestAllowlistPermits(t *testing.T) {
 		ip := net.ParseIP(raw)
 		for _, list := range []*Allowlist{endpointsCatchAll, webFetchCatchAll} {
 			for _, devMode := range []bool{false, true} {
-				if list.PermitsIP(ip, devMode) || list.permits(ip, 443, devMode, false) ||
+				if list.PermitsIP(ip, 443, devMode) || list.permits(ip, 443, devMode, false) ||
 					list.permits(ip, 80, devMode, true) {
 					t.Errorf("catch-all list reached metadata address %s (dev mode %v)", raw, devMode)
 				}

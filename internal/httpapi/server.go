@@ -76,6 +76,7 @@ type Server struct {
 	hostedCredentialProvisioner         modelprovider.HostedCredentialProvisioner
 	daemonNotifications                 *daemonNotificationConfig
 	replyPublisher                      replyChannelPublisher
+	mcpHTTPClient                       *http.Client
 	mcpOAuthHTTPClient                  *http.Client
 	mcpClient                           mcp.Client
 	sigV4CredentialCache                *sigv4.CredentialCache
@@ -504,11 +505,16 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 			return nil, fmt.Errorf("create daemon socket hub: %w", err)
 		}
 	}
-	server.mcpOAuthHTTPClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
+	server.mcpHTTPClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
 		AllowLoopback: server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
 		Allowlist:     server.privateEndpoints,
 	})
-	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpOAuthHTTPClient})
+	server.mcpOAuthHTTPClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
+		AllowLoopback:      server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
+		Allowlist:          server.privateEndpoints,
+		AllowlistHTTPSOnly: true,
+	})
+	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpHTTPClient})
 	server.sigV4CredentialCache, err = sigv4.NewCredentialCache()
 	if err != nil {
 		return nil, err

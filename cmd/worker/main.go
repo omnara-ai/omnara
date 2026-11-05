@@ -172,6 +172,11 @@ func main() {
 	mcpHTTPClient := outboundhttp.NewPublicClient(
 		outboundhttp.PublicClientOptions{AllowLoopback: cfg.AllowInsecureDev, Allowlist: cfg.PrivateEndpoints},
 	)
+	mcpAuthHTTPClient := outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
+		AllowLoopback:      cfg.AllowInsecureDev,
+		Allowlist:          cfg.PrivateEndpoints,
+		AllowlistHTTPSOnly: true,
+	})
 	searchHTTPClient := metrics.NewObservedHTTPClient(
 		outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{}),
 		httpRecorder,
@@ -251,7 +256,7 @@ func main() {
 			},
 		},
 		MCP:                  mcp.New(mcp.Options{HTTPClient: mcpHTTPClient}),
-		MCPAuthHTTPClient:    mcpHTTPClient,
+		MCPAuthHTTPClient:    mcpAuthHTTPClient,
 		SigV4CredentialCache: sigV4CredentialCache,
 		SafetyIdentifierKey:  safetyIdentifierKey,
 		ToolExecutor: tools.Executor{

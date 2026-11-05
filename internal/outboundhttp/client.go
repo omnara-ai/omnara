@@ -16,6 +16,7 @@ type PublicClientOptions struct {
 	AllowLoopback                bool
 	Allowlist                    *ssrf.Allowlist
 	AllowAnyPlainHTTP            bool
+	AllowlistHTTPSOnly           bool
 	DisableResponseHeaderTimeout bool
 	Timeout                      time.Duration
 }
@@ -26,6 +27,7 @@ func NewPublicClient(opts PublicClientOptions) *http.Client {
 			AllowLoopback:                opts.AllowLoopback,
 			Allowlist:                    opts.Allowlist,
 			AllowAnyPlainHTTP:            opts.AllowAnyPlainHTTP,
+			AllowlistHTTPSOnly:           opts.AllowlistHTTPSOnly,
 			DisableResponseHeaderTimeout: opts.DisableResponseHeaderTimeout,
 		}),
 		Timeout: opts.Timeout,

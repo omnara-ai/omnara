@@ -1,11 +1,13 @@
 package mcp_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -38,7 +40,7 @@ func oauthTestKeyWrapper(t *testing.T) secrets.KeyWrapper {
 func TestDetectAuthDiscoversChallengeMetadataAndAuthServer(t *testing.T) {
 	ts := newOAuthMCPTestServer(t, oauthMCPTestConfig{ChallengeScope: "files:read files:write", PKCE: true})
 
-	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
@@ -75,7 +77,7 @@ func TestDetectAuthDoesNotFetchInvalidChallengeMetadataURL(t *testing.T) {
 		return baseTransport.RoundTrip(request)
 	})
 
-	if _, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: &client}); err != nil {
+	if _, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(&client)); err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
 	if fetchedInvalidURL.Load() {
@@ -86,7 +88,7 @@ func TestDetectAuthDoesNotFetchInvalidChallengeMetadataURL(t *testing.T) {
 func TestDetectAuthAllowsInformationalMetadataURLsOutsideEndpointPolicy(t *testing.T) {
 	ts := newOAuthMCPTestServer(t, oauthMCPTestConfig{PKCE: true, InsecureInformationalMetadata: true})
 
-	requirement, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	requirement, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
@@ -113,7 +115,7 @@ func TestDetectAuthDoesNotFollowDiscoveryRedirects(t *testing.T) {
 	}))
 	t.Cleanup(source.Close)
 
-	_, err := mcp.DetectAuth(context.Background(), source.URL+"/mcp", mcp.AuthOptions{HTTPClient: source.Client()})
+	_, err := mcp.DetectAuth(context.Background(), source.URL+"/mcp", localAuthOptions(source.Client()))
 	if !errors.Is(err, outboundhttp.ErrRedirect) {
 		t.Fatalf("DetectAuth error = %v, want redirect rejection", err)
 	}
@@ -129,7 +131,7 @@ func TestDetectAuthNoChallengeMeansAuthNotRequired(t *testing.T) {
 	}))
 	t.Cleanup(ts.Close)
 
-	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
@@ -140,7 +142,7 @@ func TestDetectAuthNoChallengeMeansAuthNotRequired(t *testing.T) {
 
 func TestStartOAuthBuildsAuthorizationURLWithSealedStateAndPKCE(t *testing.T) {
 	ts := newOAuthMCPTestServer(t, oauthMCPTestConfig{ChallengeScope: "files:read", PKCE: true})
-	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
@@ -362,7 +364,9 @@ func TestOAuthTokenExchangeNeedsDevModeForPlainHTTPToListedLoopback(t *testing.T
 			CodeVerifier:  "verifier-123",
 			Resource:      ts.URL + "/mcp",
 			HTTPClient: outboundhttp.NewPublicClient(
-				outboundhttp.PublicClientOptions{AllowLoopback: devMode, Allowlist: privateEndpoints},
+				outboundhttp.PublicClientOptions{
+					AllowLoopback: devMode, Allowlist: privateEndpoints, AllowlistHTTPSOnly: true,
+				},
 			),
 			AuthStyle: oauth2.AuthStyleInParams,
 		})
@@ -494,7 +498,7 @@ func TestDetectAuthRejectsAuthorizationServerWithoutPKCES256(t *testing.T) {
 			_, err := mcp.DetectAuth(
 				context.Background(),
 				ts.URL+"/mcp",
-				mcp.AuthOptions{HTTPClient: ts.Client()},
+				localAuthOptions(ts.Client()),
 			)
 			if err == nil || !strings.Contains(err.Error(), "PKCE") {
 				t.Fatalf("DetectAuth error = %v, want PKCE error", err)
@@ -509,7 +513,7 @@ func TestDetectAuthFallsBackToWellKnownProtectedResourceMetadata(t *testing.T) {
 		oauthMCPTestConfig{ChallengeScope: "", PKCE: true, OmitResourceMetadataChallenge: true},
 	)
 
-	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
@@ -527,7 +531,7 @@ func TestDetectAuthFallsBackToRootProtectedResourceMetadata(t *testing.T) {
 		oauthMCPTestConfig{PKCE: true, OmitResourceMetadataChallenge: true, ServeRootMetadataOnly: true},
 	)
 
-	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
@@ -546,7 +550,7 @@ func TestDetectAuthAcceptsRootProtectedResourceWithTrailingSlash(t *testing.T) {
 		ResourceTrailingSlash: true,
 	})
 
-	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
@@ -555,10 +559,63 @@ func TestDetectAuthAcceptsRootProtectedResourceWithTrailingSlash(t *testing.T) {
 	}
 }
 
+func TestDetectAuthSkipsHTTPAuthorizationServersOutsideDevMode(t *testing.T) {
+	t.Parallel()
+	authServerMetadata := func(issuer, authorizationEndpoint string) map[string]any {
+		return map[string]any{
+			"issuer":                           issuer,
+			"authorization_endpoint":           authorizationEndpoint,
+			"token_endpoint":                   issuer + "/token",
+			"response_types_supported":         []string{"code"},
+			"code_challenge_methods_supported": []string{"S256"},
+		}
+	}
+	responses := map[string]any{
+		"https://mcp.example/resource-metadata": map[string]any{
+			"resource":              "https://mcp.example/mcp",
+			"authorization_servers": []string{"https://a.example", "https://b.example"},
+		},
+		"https://a.example/.well-known/oauth-authorization-server": authServerMetadata(
+			"https://a.example", "http://127.0.0.1:8080/authorize",
+		),
+		"https://b.example/.well-known/oauth-authorization-server": authServerMetadata(
+			"https://b.example", "https://b.example/authorize",
+		),
+	}
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		response := &http.Response{
+			StatusCode: http.StatusNotFound, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("{}")),
+			Request: request,
+		}
+		if request.URL.String() == "https://mcp.example/mcp" {
+			response.StatusCode = http.StatusUnauthorized
+			response.Header.Set("WWW-Authenticate", `Bearer resource_metadata="https://mcp.example/resource-metadata"`)
+		} else if body, ok := responses[request.URL.String()]; ok {
+			encoded, err := json.Marshal(body)
+			if err != nil {
+				return nil, err
+			}
+			response.StatusCode = http.StatusOK
+			response.Header.Set("Content-Type", "application/json")
+			response.Body = io.NopCloser(bytes.NewReader(encoded))
+		}
+		return response, nil
+	})}
+	for devMode, wantIssuer := range map[bool]string{false: "https://b.example", true: "https://a.example"} {
+		req, err := mcp.DetectAuth(context.Background(), "https://mcp.example/mcp", mcp.AuthOptions{
+			HTTPClient:             client,
+			AllowInsecureLocalHTTP: devMode,
+		})
+		if err != nil || req.AuthorizationServer == nil || req.AuthorizationServer.Issuer != wantIssuer {
+			t.Fatalf("dev mode %v: DetectAuth = %+v, %v; want issuer %s", devMode, req.AuthorizationServer, err, wantIssuer)
+		}
+	}
+}
+
 func TestDetectAuthFallsBackToNextAuthorizationServer(t *testing.T) {
 	ts := newOAuthMCPTestServer(t, oauthMCPTestConfig{PKCE: true, BrokenFirstIssuer: true})
 
-	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
@@ -574,7 +631,7 @@ func TestDetectAuthAcceptsMultiTenantIssuerAlias(t *testing.T) {
 		ServeOIDCPathAppending: true,
 	})
 
-	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
@@ -589,7 +646,7 @@ func TestDetectAuthRejectsSameOriginIssuerPathMismatch(t *testing.T) {
 		MetadataIssuer: "same-origin-alias",
 	})
 
-	_, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	_, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err == nil || !strings.Contains(err.Error(), "does not match issuer URL") {
 		t.Fatalf("DetectAuth error = %v, want issuer mismatch error", err)
 	}
@@ -639,7 +696,7 @@ func TestDetectAuthKeepsTransientMetadataFailuresDistinctFromMissingMetadata(t *
 				})
 			}
 
-			_, err := mcp.DetectAuth(context.Background(), server.URL+"/mcp", mcp.AuthOptions{HTTPClient: server.Client()})
+			_, err := mcp.DetectAuth(context.Background(), server.URL+"/mcp", localAuthOptions(server.Client()))
 			if err == nil {
 				t.Fatal("DetectAuth error = nil")
 			}
@@ -673,7 +730,7 @@ func TestDetectAuthDoesNotReportCanceledMetadataLookupAsMissingMetadata(t *testi
 		return baseTransport.RoundTrip(request)
 	})
 
-	_, err := mcp.DetectAuth(ctx, server.URL+"/mcp", mcp.AuthOptions{HTTPClient: &client})
+	_, err := mcp.DetectAuth(ctx, server.URL+"/mcp", localAuthOptions(&client))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("DetectAuth error = %v, want context.Canceled", err)
 	}
@@ -688,7 +745,7 @@ func TestDetectAuthErrorsOnUnexpectedProbeStatus(t *testing.T) {
 	}))
 	t.Cleanup(ts.Close)
 
-	_, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	_, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err == nil || !strings.Contains(err.Error(), "503") {
 		t.Fatalf("DetectAuth error = %v, want unexpected HTTP 503 error", err)
 	}
@@ -858,6 +915,10 @@ type unexpectedRoundTripper struct {
 func (transport unexpectedRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 	transport.t.Fatal("HTTP request was sent before token endpoint validation")
 	return nil, errors.New("unexpected HTTP request")
+}
+
+func localAuthOptions(client *http.Client) mcp.AuthOptions {
+	return mcp.AuthOptions{HTTPClient: client, AllowInsecureLocalHTTP: true}
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -1121,7 +1182,7 @@ func TestDetectAuthProbesStatelessServersWithoutInitialize(t *testing.T) {
 	}))
 	t.Cleanup(ts.Close)
 
-	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
@@ -1156,7 +1217,7 @@ func TestDetectAuthFallsBackToInitializeForSessionBasedServers(t *testing.T) {
 	}))
 	t.Cleanup(ts.Close)
 
-	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	req, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err != nil {
 		t.Fatalf("DetectAuth: %v", err)
 	}
@@ -1196,7 +1257,7 @@ func TestDetectAuthFallsBackToInitializeWhenDiscoverReturnsMethodNotFound(t *tes
 	}))
 	t.Cleanup(ts.Close)
 
-	_, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	_, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if !errors.Is(err, mcp.ErrOAuthMetadataUnavailable) {
 		t.Fatalf("DetectAuth error = %v, want the initialize challenge without OAuth metadata", err)
 	}
@@ -1215,7 +1276,7 @@ func TestDetectAuthTreatsForbiddenDiscoverAsFinal(t *testing.T) {
 	}))
 	t.Cleanup(ts.Close)
 
-	_, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", mcp.AuthOptions{HTTPClient: ts.Client()})
+	_, err := mcp.DetectAuth(context.Background(), ts.URL+"/mcp", localAuthOptions(ts.Client()))
 	if err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("DetectAuth error = %v, want unexpected HTTP 403 error", err)
 	}

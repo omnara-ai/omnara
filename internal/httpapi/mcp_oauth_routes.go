@@ -157,8 +157,10 @@ func (s strictOpenAPIServer) startMCPOAuth(
 	outboundCtx, cancel := context.WithTimeout(ctx, mcpOAuthOutboundTimeout)
 	defer cancel()
 	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, mcp.AuthOptions{
-		HTTPClient:       s.server.mcpOAuthHTTPClient,
-		PrivateEndpoints: s.server.privateEndpoints,
+		HTTPClient:             s.server.mcpOAuthHTTPClient,
+		EndpointHTTPClient:     s.server.mcpHTTPClient,
+		PrivateEndpoints:       s.server.privateEndpoints,
+		AllowInsecureLocalHTTP: s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
 	})
 	if err != nil {
 		apiErr := mcpUpstreamFailure(

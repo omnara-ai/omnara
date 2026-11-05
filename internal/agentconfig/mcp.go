@@ -220,7 +220,8 @@ func ValidateMCPURL(raw string, allowInsecureLocalHTTP bool, privateEndpoints *s
 	default:
 		return "", errors.New("url scheme must be https")
 	}
-	if host.IP != nil && !privateEndpoints.PermitsIP(host.IP, allowInsecureLocalHTTP && parsed.Scheme == "http") {
+	if host.IP != nil &&
+		!privateEndpoints.PermitsIP(host.IP, ssrf.URLPort(parsed), allowInsecureLocalHTTP && parsed.Scheme == "http") {
 		return "", fmt.Errorf("url host IP is not permitted: %s", host.IP.String())
 	}
 	return parsed.String(), nil
