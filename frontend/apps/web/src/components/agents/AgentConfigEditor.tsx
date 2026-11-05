@@ -43,7 +43,7 @@ export function AgentConfigEditorFields({
               onValueChange={editor.switchMode}
               tabs={[
                 { value: 'builder', label: 'Builder' },
-                { value: 'yaml', label: 'Source' },
+                { value: 'yaml', label: editor.editorFormat.toUpperCase() },
               ]}
             />
           )}

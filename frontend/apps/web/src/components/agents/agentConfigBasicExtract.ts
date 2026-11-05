@@ -211,7 +211,7 @@ export function parseBasicConfigSource(source: string, format: ConfigSourceForma
   const projection: typeof raw = {}
   const machineSources: BasicMachineSource[] = []
   const preserve = (path: string[], kind: AdvancedConfigEntry['kind'] = 'opaque') => {
-    const entry = { path, kind, source: configNodeSource(source, doc, path) }
+    const entry = { path, originalPath: path, kind, source: configNodeSource(source, doc, path) }
     advancedEntries.push(entry)
     if (kind === 'custom') diagnostics.push(...validateAdvancedEntry(entry, format))
     else

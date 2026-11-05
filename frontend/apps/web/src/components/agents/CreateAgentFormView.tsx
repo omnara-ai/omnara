@@ -113,7 +113,7 @@ export function CreateAgentFormView({
                 onValueChange={switchMode}
                 tabs={[
                   { value: 'builder', label: 'Builder' },
-                  { value: 'yaml', label: 'Source' },
+                  { value: 'yaml', label: editorFormat.toUpperCase() },
                 ]}
               />
             </div>
