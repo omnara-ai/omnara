@@ -56,8 +56,8 @@ export function editConfigDocument(
     const protectedPath = protectedPathAt(path)
     if (protectedPath)
       throw new ConfigEditError(
-        path,
-        `${configPath(protectedPath.map(String))} is preserved. Edit that definition explicitly in the source editor.`,
+        protectedPath,
+        'This definition is preserved. Edit it explicitly in the source editor.',
       )
   }
 

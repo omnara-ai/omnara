@@ -168,10 +168,10 @@ function CustomToolRow({
       />
       {(issues.length > 0 || editError) && (
         <div className="px-4 pb-3 sm:px-5">
-          <AgentConfigDiagnostics issues={issues} />
+          <AgentConfigDiagnostics issues={issues} basePath={entry.path} />
           {editError && (
             <p role="alert" className="text-destructive text-sm">
-              {path}/permission: {editError}
+              Permission: {editError}
             </p>
           )}
         </div>

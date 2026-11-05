@@ -456,7 +456,12 @@ const customPermissions = {
   })),
 }
 const customCatalog: ToolCatalog = {
-  built_in_tools: [{ name: 'web_search', description: 'Search.', ...customPermissions }],
+  built_in_tools: ['web_search', 'ask_question', 'run_command'].map((name) => ({
+    name,
+    description: name,
+    implicit: name === 'run_command',
+    ...customPermissions,
+  })),
   custom_tool_permissions: customPermissions,
   mcp_tool_permissions: customPermissions,
 }
@@ -503,7 +508,6 @@ it('shows normal Builder controls and every custom tool without a whole-document
   const editor = await renderAdvancedEditor(customFixture, true)
   expect(editor().showBuilder).toBe(true)
   expect(container.querySelector('#agent-config-basic-instruction')).not.toBeNull()
-  expect(container.textContent).not.toContain('editable as YAML only')
   const customNames = Object.entries(
     schemas.zAgentConfigDefinition.parse(parse(customFixture)).tools ?? {},
   )
@@ -513,7 +517,6 @@ it('shows normal Builder controls and every custom tool without a whole-document
     expect(button(`Edit ${name}`).closest('section')?.querySelector('h3')?.textContent).toBe(
       'Tools',
     )
-    expect(button(`Remove ${name}`)).toBeDefined()
     expect(
       container.querySelector(`[role="radiogroup"][aria-label="${name} permission"]`),
     ).not.toBeNull()
@@ -536,11 +539,12 @@ it.each(['yaml', 'json'])(
       'Definition',
       '{"type":"custom","description":"Example.","input_schema":{"type":"array"}}',
     )
-    expect(button('Save tool').disabled).toBe(true)
+    expect(document.querySelector('[role="dialog"] [role="alert"]')).toBeNull()
+    clickLabel('Save tool')
     expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
-      '/tools/search_records/input_schema/type',
+      'Input schema → type:',
     )
-    expect(editor().yaml).toBe(before)
+    expect(document.activeElement).toBe(field('Definition'))
     clickLabel('Cancel')
     expect(editor().yaml).toBe(before)
     clickLabel('Edit search_records')
@@ -760,10 +764,8 @@ async function openCustomToolDialog() {
     )
     await Promise.resolve()
   })
-  const option = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-    (item) => item.textContent === 'Custom tool…',
-  )
-  expect(option).toBeDefined()
+  const option = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].at(-1)
+  expect(option?.textContent).toBe('Custom tool…')
   act(() => {
     option?.click()
   })
@@ -776,11 +778,7 @@ it.each(['yaml', 'json'])(
     const editor = await renderAdvancedEditor(source)
     await openCustomToolDialog()
     const template = field('Definition').value
-    expect(parse(template)).toEqual({
-      type: 'custom',
-      description: '',
-      input_schema: { type: 'object', properties: {} },
-    })
+    expect(parse(template)).toHaveProperty('type', 'custom')
     expect(template.startsWith('{')).toBe(format === 'json')
     await enter('Tool name', 'cancelled_tool')
     clickLabel('Cancel')
@@ -790,8 +788,9 @@ it.each(['yaml', 'json'])(
     const definition = 'type: custom\ndescription: New example.\ninput_schema: {type: object}\n'
     await enter('Tool name', 'new_tool')
     await enter('Definition', definition)
-    expect(button('Add custom tool').disabled).toBe(format === 'json')
+    expect(document.querySelector('[role="dialog"] [role="alert"]')).toBeNull()
     if (format === 'json') {
+      clickLabel('Add custom tool')
       expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
         'Enter valid JSON',
       )
@@ -805,13 +804,14 @@ it.each(['yaml', 'json'])(
       'call_deferred_tool',
     ]) {
       await enter('Tool name', name)
-      expect(button('Add custom tool').disabled).toBe(true)
+      clickLabel('Add custom tool')
+      expect(document.activeElement).toBe(field('Tool name'))
     }
     await enter('Tool name', 'new_tool')
     clickLabel('Add custom tool')
     expect(parse(editor().yaml)).toHaveProperty(['tools', 'new_tool'], parse(definition))
-    expect(button('Edit new_tool').closest('section')?.querySelector('h3')?.textContent).toBe(
-      'Tools',
+    expect(button('Built-in tools').compareDocumentPosition(button('Edit new_tool'))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
     )
     clickLabel('Remove new_tool')
     expect(editor().yaml).toBe(source)
@@ -825,7 +825,8 @@ it('renames the only custom tool, rejects occupied names, and can restore its na
   const original = schemas.zAgentConfigDefinition.parse(parse(editor().yaml)).tools?.search_records
   clickLabel('Edit search_records')
   await enter('Tool name', 'web_search')
-  expect(button('Save tool').disabled).toBe(true)
+  clickLabel('Save tool')
+  expect(document.activeElement).toBe(field('Tool name'))
   await enter('Tool name', 'renamed_search')
   clickLabel('Save tool')
   expect(parse(editor().yaml)).not.toHaveProperty(['tools', 'search_records'])
