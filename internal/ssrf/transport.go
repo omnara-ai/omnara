@@ -2,6 +2,7 @@ package ssrf
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 type TransportOptions struct {
 	AllowLoopback                bool
 	Allowlist                    *Allowlist
+	AllowAnyPlainHTTP            bool
 	DialTimeout                  time.Duration
 	TLSHandshakeTimeout          time.Duration
 	ResponseHeaderTimeout        time.Duration
@@ -45,18 +47,33 @@ func NewTransport(opts TransportOptions) http.RoundTripper {
 			PingTimeout:     5 * time.Second,
 		},
 	}
-	if opts.Allowlist == nil || !opts.Allowlist.plainHTTPHostnames {
+	if opts.Allowlist == nil || opts.AllowAnyPlainHTTP {
 		return transport
 	}
-	return plainHTTPMarker{transport}
+	return plainHTTPMarker{Transport: transport, allowLoopback: opts.AllowLoopback}
 }
 
 type plainHTTPKey struct{}
 
-type plainHTTPMarker struct{ *http.Transport }
+type withoutPlainHTTPGrantKey struct{}
+
+func WithoutPlainHTTPGrant(ctx context.Context) context.Context {
+	return context.WithValue(ctx, withoutPlainHTTPGrantKey{}, true)
+}
+
+type plainHTTPMarker struct {
+	*http.Transport
+	allowLoopback bool
+}
 
 func (t plainHTTPMarker) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL.Scheme == "http" {
+		if !t.allowLoopback && req.Context().Value(withoutPlainHTTPGrantKey{}) != nil {
+			if req.Body != nil {
+				_ = req.Body.Close()
+			}
+			return nil, fmt.Errorf("%w: %s", ErrBlockedAddress, req.URL.Hostname())
+		}
 		req = req.WithContext(context.WithValue(req.Context(), plainHTTPKey{}, true))
 	}
 	return t.Transport.RoundTrip(req)

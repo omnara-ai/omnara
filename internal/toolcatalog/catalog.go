@@ -11,7 +11,6 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/processaction"
-	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -407,7 +406,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameWebSearch], err = webSearchTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
+	if entries[ToolNameWebFetch], err = WebFetchTool(false); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameStorageRead], err = storageReadTool(); err != nil {
@@ -609,9 +608,9 @@ func skillTool() (Entry, error) {
 	)
 }
 
-func webFetchTool() (Entry, error) {
+func WebFetchTool(privateAddresses bool) (Entry, error) {
 	description, urlDescription := webFetchToolDescription, "Absolute http(s) URL of a public web page."
-	if ssrf.WebFetch.Configured() {
+	if privateAddresses {
 		description = webFetchPrivateToolDescription
 		urlDescription = "Absolute http(s) URL of a public web page or an allowed private address."
 	}

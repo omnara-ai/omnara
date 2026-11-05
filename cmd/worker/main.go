@@ -36,7 +36,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
-	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/webaccess"
@@ -135,6 +134,7 @@ func main() {
 		storage.WithSecretKeyWrapper(secretKeyWrapper),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
 		storage.WithMemoryRecorder(metrics.NewMemoryRecorder(metricSet)),
+		storage.WithPrivateEndpoints(cfg.PrivateEndpoints),
 	}
 	if cfg.BlobS3Bucket != "" {
 		blobs, err := blobstore.NewS3Store(context.Background(), cfg.BlobStoreS3Config())
@@ -170,7 +170,7 @@ func main() {
 		httpRecorder,
 	)
 	mcpHTTPClient := outboundhttp.NewPublicClient(
-		outboundhttp.PublicClientOptions{AllowLoopback: cfg.AllowInsecureDev, Allowlist: ssrf.Endpoints},
+		outboundhttp.PublicClientOptions{AllowLoopback: cfg.AllowInsecureDev, Allowlist: cfg.PrivateEndpoints},
 	)
 	searchHTTPClient := metrics.NewObservedHTTPClient(
 		outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{}),
@@ -178,8 +178,13 @@ func main() {
 		metrics.WithHTTPClientPathLabel("/search"),
 	)
 	searchProvider := webaccess.ExaProvider{APIKey: cfg.ExaAPIKey, HTTPClient: searchHTTPClient}
-	webFetcher := webaccess.NewFetcher(webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev})
-	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder)
+	webFetcher := webaccess.NewFetcher(webaccess.FetcherOptions{
+		AllowLoopback:    cfg.AllowInsecureDev,
+		PrivateAddresses: cfg.WebFetchPrivateAddresses,
+	})
+	machinePoolManager := machinepool.NewManager(
+		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.PrivateEndpoints,
+	)
 	backgroundRunner, err := tools.NewBackgroundExecutionRunner(
 		executionCtx,
 		log,
@@ -219,20 +224,25 @@ func main() {
 	if safetyIdentifierKey == nil {
 		log.Warn("OMNARA_SAFETY_IDENTIFIER_KEY is not set; model requests will not carry safety identifiers")
 	}
+	agentConfigOptions := agentconfig.CompileOptions{
+		AllowInsecureLocalMCPHTTP: cfg.AllowInsecureDev,
+		PrivateEndpoints:          cfg.PrivateEndpoints,
+	}
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
 		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
 			Store: store, HTTPClient: integrationHTTPClient,
 		}.Notify,
 		ContextBuilder: modelcontext.Builder{
-			Store:  modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
-			Skills: store.Skills(),
+			Store:                    modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Skills:                   store.Skills(),
+			WebFetchPrivateAddresses: cfg.WebFetchPrivateAddresses.Configured(),
 		},
 		ModelResolver: modelprovider.Resolver{
 			Models:               store.Models(),
 			Secrets:              store.Secrets(),
 			HTTPRecorder:         httpRecorder,
-			AllowLoopback:        cfg.AllowInsecureDev,
+			HTTPTransport:        modelprovider.NewHTTPTransport(cfg.AllowInsecureDev, cfg.PrivateEndpoints),
 			SigV4CredentialCache: sigV4CredentialCache,
 			OpenRouterAttribution: modelprovider.OpenRouterAttribution{
 				SiteURL:       cfg.OpenRouterSiteURL,
@@ -253,7 +263,7 @@ func main() {
 			MachinePoolManager:    machinePoolManager,
 			BackgroundRunner:      backgroundRunner,
 			SkillBroadcaster:      skillBroadcaster,
-			AgentConfigOptions:    agentconfig.CompileOptions{AllowInsecureLocalMCPHTTP: cfg.AllowInsecureDev},
+			AgentConfigOptions:    agentConfigOptions,
 			Log:                   log,
 		},
 		StreamPublisher: redisBus,
@@ -375,6 +385,7 @@ func main() {
 
 	eventWebhooks := eventwebhook.New(
 		store.Execution(), log, cfg.WorkerEventWebhookConcurrency, cfg.EventWebhookPerOrgConcurrency,
+		cfg.PrivateEndpoints,
 	)
 	eventWebhookDone := make(chan struct{})
 	go func() {

@@ -24,6 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -289,6 +290,7 @@ func newIntegrationServerWithStoreOptions(
 				string,
 				map[string]string,
 				bool,
+				*ssrf.Allowlist,
 			) ([]modelprovider.DiscoveredModel, error) {
 				return nil, errors.New("model discovery is disabled in integration tests")
 			}),

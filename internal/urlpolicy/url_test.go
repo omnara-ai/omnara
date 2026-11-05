@@ -40,10 +40,11 @@ func TestRequireHTTPSOrLoopback(t *testing.T) {
 }
 
 func TestRequireHTTPSOrPrivateEndpoint(t *testing.T) {
-	if err := ssrf.Configure([]string{"10.0.0.0/8", "fd00::/8"}, nil); err != nil {
+	t.Parallel()
+	privateEndpoints, err := ssrf.ParseEndpointAllowlist([]string{"10.0.0.0/8", "fd00::/8"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = ssrf.Configure(nil, nil) })
 
 	tests := []struct {
 		name    string
@@ -59,7 +60,8 @@ func TestRequireHTTPSOrPrivateEndpoint(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := RequireHTTPSOrPrivateEndpoint(test.rawURL)
+			t.Parallel()
+			err := RequireHTTPSOrPrivateEndpoint(test.rawURL, privateEndpoints)
 			if (err != nil) != test.wantErr {
 				t.Fatalf("RequireHTTPSOrPrivateEndpoint(%q) error = %v, wantErr %v", test.rawURL, err, test.wantErr)
 			}

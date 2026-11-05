@@ -177,7 +177,7 @@ Omnara refuses outbound requests to private, loopback, and other non-public addr
 | `OMNARA_PRIVATE_ENDPOINT_CIDRS` | Private addresses that model providers, MCP servers, event webhooks, and machine pool APIs may reach. Plain `http://` URLs are accepted for model providers, MCP servers, and event webhooks, and only connect to listed addresses. MCP sign-in (OAuth) still requires HTTPS. Set it on the API, worker, and maintenance services. | — | No |
 | `OMNARA_WEB_FETCH_PRIVATE_CIDRS` | Private addresses the `web_fetch` tool may reach. Plain `http://` works for listed IP addresses; other `http://` links are upgraded to HTTPS. Set it on the worker. | — | No |
 
-Both take a comma-separated list of IP addresses or CIDR ranges, each with an optional port, such as `10.0.5.0/24,192.168.1.20:11434,[fd00::5]:8080`. A URL can use a hostname that resolves to a listed address. To reach a service in Docker, list its Docker network's range, which `docker network inspect <network>` shows. Cloud metadata addresses (`169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`) stay blocked even inside a listed range.
+Both take a comma-separated list of IP addresses or CIDR ranges, each with an optional port, such as `10.0.5.0/24,192.168.1.20:11434,[fd00::5]:8080`. A URL can use a hostname that resolves to a listed address. To reach a service in Docker, list its Docker network's range, which `docker network inspect <network>` shows. Link-local and cloud metadata addresses stay blocked even inside a listed range.
 
 ## API rate limits
 

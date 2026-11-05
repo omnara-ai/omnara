@@ -62,10 +62,10 @@ func (e recipientError) Unwrap() error { return e.error }
 
 func (recipientError) EventWebhookRecipientFailure() {}
 
-func New(store Store, log *slog.Logger, maxInFlight, perOrgLimit int) *Sender {
+func New(store Store, log *slog.Logger, maxInFlight, perOrgLimit int, privateEndpoints *ssrf.Allowlist) *Sender {
 	return &Sender{store: store, log: log, maxInFlight: maxInFlight, perOrgLimit: perOrgLimit,
 		client: outboundhttp.NewPublicClient(
-			outboundhttp.PublicClientOptions{Timeout: attemptTimeout, Allowlist: ssrf.Endpoints},
+			outboundhttp.PublicClientOptions{Timeout: attemptTimeout, Allowlist: privateEndpoints},
 		)}
 }
 

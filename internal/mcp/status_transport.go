@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 )
 
 type statusErrorTransport struct {
@@ -43,7 +44,9 @@ func RegisterClient(
 	clientMeta *oauthex.ClientRegistrationMetadata,
 	client *http.Client,
 ) (*oauthex.ClientRegistrationResponse, error) {
-	return oauthex.RegisterClient(ctx, registrationEndpoint, clientMeta, clientRegistrationHTTPClient(client))
+	return oauthex.RegisterClient(
+		ssrf.WithoutPlainHTTPGrant(ctx), registrationEndpoint, clientMeta, clientRegistrationHTTPClient(client),
+	)
 }
 
 func clientRegistrationHTTPClient(client *http.Client) *http.Client {

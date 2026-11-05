@@ -97,7 +97,9 @@ func startServiceSlackWorkers(
 		ContextBuilder: modelcontext.Builder{
 			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
 		},
-		ModelResolver:   modelprovider.Resolver{Models: store.Models(), Secrets: store.Secrets(), AllowLoopback: true},
+		ModelResolver: modelprovider.Resolver{
+			Models: store.Models(), Secrets: store.Secrets(), HTTPTransport: modelprovider.NewHTTPTransport(true, nil),
+		},
 		ToolExecutor:    tools.Executor{Store: store, IntegrationHTTPClient: client, Log: log},
 		StreamPublisher: bus, StreamLog: log,
 	}, worker.Options{Log: log, Capacity: 1, ControlSubscriber: bus})

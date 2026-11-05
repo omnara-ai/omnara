@@ -95,6 +95,8 @@ type Config struct {
 	PublicAPIURL                      string
 	BillingURL                        string
 	TrustedProxyCIDRs                 []string
+	PrivateEndpoints                  *ssrf.Allowlist
+	WebFetchPrivateAddresses          *ssrf.Allowlist
 	APIRateLimitReadsPerHour          int
 	APIRateLimitWritesPerHour         int
 	APIRateLimitBurst                 int
@@ -345,11 +347,13 @@ func Load() (Config, error) {
 		HostedAPIToken:                    getenv("OMNARA_HOSTED_API_TOKEN", ""),
 		MCPRegistrySnapshotPath:           getenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", "/app/mcp-registry/mcp-registry.json"),
 	}
-	if err := ssrf.Configure(
-		getenvCSV("OMNARA_PRIVATE_ENDPOINT_CIDRS"),
-		getenvCSV("OMNARA_WEB_FETCH_PRIVATE_CIDRS"),
-	); err != nil {
-		return Config{}, err
+	cfg.PrivateEndpoints, err = ssrf.ParseEndpointAllowlist(getenvCSV("OMNARA_PRIVATE_ENDPOINT_CIDRS"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse OMNARA_PRIVATE_ENDPOINT_CIDRS: %w", err)
+	}
+	cfg.WebFetchPrivateAddresses, err = ssrf.ParseWebFetchAllowlist(getenvCSV("OMNARA_WEB_FETCH_PRIVATE_CIDRS"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse OMNARA_WEB_FETCH_PRIVATE_CIDRS: %w", err)
 	}
 	if defaultMachinePoolTemplatesPath := getenv(
 		"OMNARA_DEFAULT_MACHINE_POOL_TEMPLATES",
@@ -365,7 +369,7 @@ func Load() (Config, error) {
 		"OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE",
 		"",
 	); defaultModelProviderTemplatePath != "" {
-		defaultProvider, err := loadDefaultModelProviderTemplate(defaultModelProviderTemplatePath)
+		defaultProvider, err := loadDefaultModelProviderTemplate(defaultModelProviderTemplatePath, cfg.PrivateEndpoints)
 		if err != nil {
 			return Config{}, err
 		}

@@ -67,6 +67,7 @@ type Server struct {
 	daemonRecorder                      *metrics.DaemonRecorder
 	agentConfigOptions                  agentconfig.CompileOptions
 	allowInsecureModelProviderEndpoints bool
+	privateEndpoints                    *ssrf.Allowlist
 	modelDiscoverer                     modelprovider.DiscoverFunc
 	allowInsecureLocalHostBypass        bool
 	defaultPools                        []executionstore.DefaultMachinePoolTemplate
@@ -351,6 +352,12 @@ func WithAllowInsecureModelProviderEndpoints() Option {
 	}
 }
 
+func WithPrivateEndpoints(privateEndpoints *ssrf.Allowlist) Option {
+	return func(s *Server) {
+		s.privateEndpoints = privateEndpoints
+	}
+}
+
 func WithModelDiscoverer(discoverer modelprovider.DiscoverFunc) Option {
 	return func(s *Server) {
 		s.modelDiscoverer = discoverer
@@ -407,6 +414,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	for _, opt := range opts {
 		opt(server)
 	}
+	server.agentConfigOptions.PrivateEndpoints = server.privateEndpoints
 	gitHTTPClient := server.githubClientConfig.HTTPClient
 	if gitHTTPClient == nil {
 		gitHTTPClient = server.integrationHTTPClient
@@ -493,7 +501,7 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	}
 	server.mcpOAuthHTTPClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
 		AllowLoopback: server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
-		Allowlist:     ssrf.Endpoints,
+		Allowlist:     server.privateEndpoints,
 	})
 	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpOAuthHTTPClient})
 	server.sigV4CredentialCache, err = sigv4.NewCredentialCache()

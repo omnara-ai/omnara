@@ -6,35 +6,36 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
 
-func TestConfigureParsesEntries(t *testing.T) {
-	t.Cleanup(func() { _ = Configure(nil, nil) })
-
-	if err := Configure(
+func TestParseAllowlistEntries(t *testing.T) {
+	t.Parallel()
+	list, err := ParseEndpointAllowlist(
 		[]string{"10.0.5.21", "10.1.2.3/16", "10.0.5.21:8000", "10.0.0.0/8:8000", "[fd00::5]:8080", "fd00::/8"},
-		[]string{"0.0.0.0/0"},
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !Endpoints.PermitsIP(net.ParseIP("10.1.200.1"), false) {
+	if !list.PermitsIP(net.ParseIP("10.1.200.1"), false) {
 		t.Fatal("unmasked CIDR entry was not masked")
 	}
 	invalid := []string{
 		"localhost:11434", "10.0.0.0/33", "10.0.5.21:0", "10.0.5.21:http", "[::1]", "fe80::1%eth0", "::ffff:10.0.5.21",
 	}
 	for _, raw := range invalid {
-		if err := Configure([]string{raw}, nil); err == nil || !strings.Contains(err.Error(), Endpoints.setting) {
-			t.Errorf("Configure(%q) error = %v, want a parse error naming the setting", raw, err)
+		if _, err := ParseEndpointAllowlist([]string{raw}); err == nil {
+			t.Errorf("ParseEndpointAllowlist(%q) succeeded, want a parse error", raw)
 		}
 	}
 }
 
 func TestAllowlistPermits(t *testing.T) {
-	t.Cleanup(func() { _ = Configure(nil, nil) })
-	if err := Configure([]string{"10.0.5.0/24", "192.168.1.10:8000", "169.254.0.0/16", "::/0"}, nil); err != nil {
+	t.Parallel()
+	endpoints, err := ParseEndpointAllowlist([]string{"10.0.5.0/24", "192.168.1.10:8000", "169.254.0.0/16", "::/0"})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -63,28 +64,73 @@ func TestAllowlistPermits(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := Endpoints.permits(net.ParseIP(test.ip), test.port, false, test.plainHTTP); got != test.want {
+			t.Parallel()
+			if got := endpoints.permits(net.ParseIP(test.ip), test.port, false, test.plainHTTP); got != test.want {
 				t.Fatalf("permits(%s, %d, plainHTTP=%v) = %v, want %v", test.ip, test.port, test.plainHTTP, got, test.want)
 			}
 		})
 	}
 
-	if Endpoints.permits(net.ParseIP("93.184.216.34"), 80, true, true) ||
-		!Endpoints.permits(net.ParseIP("127.0.0.1"), 80, true, true) {
+	if endpoints.permits(net.ParseIP("93.184.216.34"), 80, true, true) ||
+		!endpoints.permits(net.ParseIP("127.0.0.1"), 80, true, true) {
 		t.Fatal("dev mode should allow plain HTTP to loopback only")
 	}
-	if WebFetch.permits(net.ParseIP("10.0.5.21"), 443, false, false) {
-		t.Fatal("web_fetch reached a range listed only for endpoints")
+	if (*Allowlist)(nil).permits(net.ParseIP("10.0.5.21"), 443, false, false) {
+		t.Fatal("no list reached a private address")
 	}
 	if IsAllowedIP(net.ParseIP("10.0.5.21"), false) {
 		t.Fatal("IsAllowedIP reached a listed range")
 	}
-	if !Endpoints.PermitsPlainHTTP("10.0.5.21") || Endpoints.PermitsPlainHTTP("10.0.6.1") {
-		t.Fatal("plain HTTP literal check does not follow the list")
+	webFetch, err := ParseWebFetchAllowlist([]string{"10.0.3.0/24"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !Endpoints.PermitsPlainHTTP("ollama") || WebFetch.PermitsPlainHTTP("ollama") {
-		t.Fatal("plain HTTP hostname check does not follow whether the list is set")
+	for rawURL, want := range map[string]bool{
+		"http://10.0.5.21/":         true,
+		"http://10.0.6.1/":          false,
+		"http://192.168.1.10:8000/": true,
+		"http://192.168.1.10/":      false,
+		"http://ollama/":            true,
+	} {
+		if got := endpoints.PermitsPlainHTTP(mustParseURL(t, rawURL)); got != want {
+			t.Errorf("PermitsPlainHTTP(%s) = %v, want %v", rawURL, got, want)
+		}
 	}
+	if webFetch.PermitsPlainHTTP(mustParseURL(t, "http://ollama/")) {
+		t.Fatal("web_fetch kept plain HTTP for a hostname")
+	}
+
+	endpointsCatchAll, err := ParseEndpointAllowlist([]string{"0.0.0.0/0", "::/0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	webFetchCatchAll, err := ParseWebFetchAllowlist([]string{"0.0.0.0/0", "::/0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		"169.254.170.2", "169.254.170.23", "100.100.100.200", "168.63.129.16", "fd00:ec2::23", "fd20:ce::254",
+		"fd00:c1::a9fe:a9fe", "fe80::a9fe:a9fe", "64:ff9b::169.254.170.2", "64:ff9b::a83f:8110",
+	} {
+		ip := net.ParseIP(raw)
+		for _, list := range []*Allowlist{endpointsCatchAll, webFetchCatchAll} {
+			for _, devMode := range []bool{false, true} {
+				if list.PermitsIP(ip, devMode) || list.permits(ip, 443, devMode, false) ||
+					list.permits(ip, 80, devMode, true) {
+					t.Errorf("catch-all list reached metadata address %s (dev mode %v)", raw, devMode)
+				}
+			}
+		}
+	}
+}
+
+func mustParseURL(t *testing.T, rawURL string) *url.URL {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed
 }
 
 func TestTransportEnforcesAllowlist(t *testing.T) {
@@ -94,33 +140,49 @@ func TestTransportEnforcesAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = Configure(nil, nil) })
-	if err := Configure([]string{"127.0.0.1:" + port}, []string{"10.0.3.0/24"}); err != nil {
+	endpoints, err := ParseEndpointAllowlist([]string{"127.0.0.1:" + port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	webFetch, err := ParseWebFetchAllowlist([]string{"10.0.3.0/24"})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	get := func(allowlist *Allowlist) error {
-		response, err := (&http.Client{Transport: NewTransport(TransportOptions{Allowlist: allowlist})}).Get(server.URL)
+	get := func(allowlist *Allowlist, target string) error {
+		response, err := (&http.Client{Transport: NewTransport(TransportOptions{Allowlist: allowlist})}).Get(target)
 		if err == nil {
 			_ = response.Body.Close()
 		}
 		return err
 	}
-	if err := get(Endpoints); err != nil {
+	if err := get(endpoints, server.URL); err != nil {
 		t.Fatalf("listed address: %v", err)
 	}
-	err = get(WebFetch)
-	if !errors.Is(err, ErrBlockedAddress) || !strings.Contains(err.Error(), "not an allowed private address") {
-		t.Fatalf("other list error = %v, want a blocked error saying the address is not allowed", err)
+	err = get(webFetch, server.URL)
+	if !errors.Is(err, ErrBlockedAddress) || !strings.Contains(err.Error(), "needs an allowed private address") {
+		t.Fatalf("other list error = %v, want a blocked error saying plain HTTP needs an allowed address", err)
 	}
-	if err := get(nil); !errors.Is(err, ErrBlockedAddress) {
+	if err := get(nil, server.URL); !errors.Is(err, ErrBlockedAddress) {
 		t.Fatalf("no list error = %v, want ErrBlockedAddress", err)
+	}
+
+	listedPort, err := ParseWebFetchAllowlist([]string{"0.0.0.0/0:11434"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := get(listedPort, "http://93.184.216.34/"); !errors.Is(err, ErrBlockedAddress) {
+		t.Fatalf("plain HTTP to an unlisted public port error = %v, want ErrBlockedAddress", err)
+	}
+	devTransport := NewTransport(TransportOptions{Allowlist: listedPort, AllowAnyPlainHTTP: true})
+	if _, marked := devTransport.(plainHTTPMarker); marked {
+		t.Fatal("AllowAnyPlainHTTP still restricts plain HTTP")
 	}
 }
 
 func TestPlainHTTPMarkerReachesDial(t *testing.T) {
 	var plainHTTP []bool
-	marker := plainHTTPMarker{&http.Transport{
+	marker := plainHTTPMarker{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			plainHTTP = append(plainHTTP, ctx.Value(plainHTTPKey{}) != nil)
 			return nil, errors.New("stop")

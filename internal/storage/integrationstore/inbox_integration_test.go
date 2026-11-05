@@ -58,7 +58,8 @@ func newInboxFixture(t *testing.T) inboxFixture {
 	})
 	require.NoError(t, err)
 	execution := executionstore.New(pool, executionstore.Config{})
-	config := storagefixture.SeedAgentConfig(t, ctx, modelstore.New(pool), execution, ids.OrgID, ids.ProjectID,
+	models := modelstore.New(pool, modelstore.Config{})
+	config := storagefixture.SeedAgentConfig(t, ctx, models, execution, ids.OrgID, ids.ProjectID,
 		"instruction: inbox test\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
 	_, err = execution.CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "inbox-profile", CurrentConfigID: config.ID,

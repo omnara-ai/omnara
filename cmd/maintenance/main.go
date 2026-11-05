@@ -105,6 +105,7 @@ func main() {
 		storage.WithMemoryFilesystem(memoryFS),
 		storage.WithMemoryRecorder(metrics.NewMemoryRecorder(metricSet)),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
+		storage.WithPrivateEndpoints(cfg.PrivateEndpoints),
 	)
 	healthErr := metrics.Serve(
 		ctx,
@@ -135,13 +136,16 @@ func main() {
 		)
 	}
 
+	machinePools := machinepool.NewManager(
+		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.PrivateEndpoints,
+	)
 	jobsDone := make(chan struct{})
 	go func() {
 		defer close(jobsDone)
 		maintenance.Run(ctx, maintenance.Options{
 			Log:                  logger,
 			Store:                store,
-			MachinePools:         machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder),
+			MachinePools:         machinePools,
 			Metrics:              metricSet,
 			Interval:             cfg.MaintenanceInterval,
 			PublicURL:            cfg.PublicURL,

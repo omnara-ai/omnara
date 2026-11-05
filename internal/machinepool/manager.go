@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"sync"
 	"time"
@@ -51,6 +52,7 @@ type Manager struct {
 	Catalog                    Catalog
 	PublicAPIURL               string
 	HTTPRecorder               *metrics.HTTPClientRecorder
+	ProviderHTTPClient         *http.Client
 	runtimeReconciliationState *runtimeReconciliationState
 }
 
@@ -59,6 +61,7 @@ func NewManager(
 	identity *identitystore.Store,
 	publicAPIURL string,
 	httpRecorder *metrics.HTTPClientRecorder,
+	privateEndpoints *ssrf.Allowlist,
 ) *Manager {
 	return &Manager{
 		Execution:                  execution,
@@ -66,6 +69,7 @@ func NewManager(
 		Catalog:                    DefaultCatalog(),
 		PublicAPIURL:               publicAPIURL,
 		HTTPRecorder:               httpRecorder,
+		ProviderHTTPClient:         providers.NewSharedHTTPClient(privateEndpoints),
 		runtimeReconciliationState: newRuntimeReconciliationState(),
 	}
 }
@@ -726,6 +730,7 @@ func (m Manager) providerForMachine(
 		OmnaraAPIURL:      m.PublicAPIURL,
 		ProviderAuthToken: providerAuthToken,
 		HTTPRecorder:      m.HTTPRecorder,
+		HTTPClient:        m.ProviderHTTPClient,
 	}
 	provider, err := definition.NewProvider(pool.ProviderConfig, runtimeConfig)
 	if err != nil {
@@ -772,6 +777,7 @@ func (m Manager) CheckPoolConnection(ctx context.Context, input PoolConnectionCh
 		OmnaraAPIURL:      m.PublicAPIURL,
 		ProviderAuthToken: providerAuthToken,
 		HTTPRecorder:      m.HTTPRecorder,
+		HTTPClient:        m.ProviderHTTPClient,
 	})
 	if err != nil {
 		return err

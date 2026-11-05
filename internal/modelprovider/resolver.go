@@ -28,7 +28,7 @@ type Resolver struct {
 	Models                *modelstore.Store
 	Secrets               *secretstore.Store
 	HTTPRecorder          *metrics.HTTPClientRecorder
-	AllowLoopback         bool
+	HTTPTransport         http.RoundTripper
 	SigV4CredentialCache  *sigv4.CredentialCache
 	OpenRouterAttribution OpenRouterAttribution
 }
@@ -39,14 +39,15 @@ type OpenRouterAttribution struct {
 	AppCategories []string
 }
 
-var (
-	defaultHTTPTransport = ssrf.NewTransport(
-		ssrf.TransportOptions{Allowlist: ssrf.Endpoints, DisableResponseHeaderTimeout: true},
-	)
-	loopbackHTTPTransport = ssrf.NewTransport(
-		ssrf.TransportOptions{AllowLoopback: true, Allowlist: ssrf.Endpoints, DisableResponseHeaderTimeout: true},
-	)
-)
+var defaultHTTPTransport = NewHTTPTransport(false, nil)
+
+func NewHTTPTransport(allowLoopback bool, privateEndpoints *ssrf.Allowlist) http.RoundTripper {
+	return ssrf.NewTransport(ssrf.TransportOptions{
+		AllowLoopback:                allowLoopback,
+		Allowlist:                    privateEndpoints,
+		DisableResponseHeaderTimeout: true,
+	})
+}
 
 func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model.ResolvedClient, error) {
 	if r.Models == nil || r.Secrets == nil {
@@ -413,8 +414,14 @@ func (r Resolver) sigV4RouteAuth(
 func (r Resolver) httpClientForProviderConfig(
 	providerConfig modelstore.ModelProviderConfigRecord,
 ) (*http.Client, error) {
-	base := newSSRFHTTPClient(r.AllowLoopback)
-	base.Timeout = time.Duration(providerConfig.RequestTimeoutMS) * time.Millisecond
+	transport := r.HTTPTransport
+	if transport == nil {
+		transport = defaultHTTPTransport
+	}
+	base := &http.Client{
+		Transport: transport,
+		Timeout:   time.Duration(providerConfig.RequestTimeoutMS) * time.Millisecond,
+	}
 	if r.HTTPRecorder == nil {
 		return base, nil
 	}
@@ -423,13 +430,6 @@ func (r Resolver) httpClientForProviderConfig(
 		r.HTTPRecorder,
 		metrics.WithHTTPClientPathLabel(providerConfig.EndpointPath),
 	), nil
-}
-
-func newSSRFHTTPClient(allowLoopback bool) *http.Client {
-	if allowLoopback {
-		return &http.Client{Transport: loopbackHTTPTransport}
-	}
-	return &http.Client{Transport: defaultHTTPTransport}
 }
 
 func capabilitiesForRevision(record modelstore.ConfiguredModelRevisionRecord) model.Capabilities {

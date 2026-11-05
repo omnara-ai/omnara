@@ -14,6 +14,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -972,6 +973,7 @@ func TestModelProviderConfigRoutesRejectLocalEndpointsOutsideInsecureDev(t *test
 			string,
 			map[string]string,
 			bool,
+			*ssrf.Allowlist,
 		) ([]modelprovider.DiscoveredModel, error) {
 			return nil, errors.New("model discovery is disabled in integration tests")
 		}),
