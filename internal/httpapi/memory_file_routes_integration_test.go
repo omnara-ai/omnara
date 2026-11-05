@@ -175,7 +175,13 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		project.AdminToken, http.StatusBadRequest)
 	require.JSONEq(t,
 		`{"code":"invalid_request","error":"invalid request: path must identify a directory"}`, notDirectory.Body.String())
-	request(t, http.MethodGet, file("missing.txt"), nil, project.AdminToken, http.StatusNotFound)
+	pathNotFound := `{"code":"path_not_found","error":"path not found: no file or directory exists at this path"}`
+	missingFile := request(t, http.MethodGet, file("missing.txt"), nil, project.AdminToken, http.StatusNotFound)
+	require.JSONEq(t, pathNotFound, missingFile.Body.String())
+	missingDelete := request(t, http.MethodDelete,
+		file("missing.txt")+"&expected_digest="+url.QueryEscape(blobstore.ContentDigest([]byte("content"))), nil,
+		project.AdminToken, http.StatusNotFound)
+	require.JSONEq(t, pathNotFound, missingDelete.Body.String())
 	conflict := request(t, http.MethodPut, file("nested"), []byte("content"),
 		project.AdminToken, http.StatusBadRequest)
 	var conflictBody map[string]string
@@ -239,9 +245,11 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		project.AdminToken, http.StatusOK)
 	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &page))
 	require.Equal(t, "a.txt", page.Data[0].Path)
-	request(t, http.MethodGet, base+"/files?path=missing", nil,
+	missingFolder := request(t, http.MethodGet, base+"/files?path=missing", nil,
 		project.AdminToken, http.StatusNotFound)
-	request(t, http.MethodGet, base+"/files", nil, other.AdminToken, http.StatusNotFound)
+	require.JSONEq(t, pathNotFound, missingFolder.Body.String())
+	hidden := request(t, http.MethodGet, base+"/files", nil, other.AdminToken, http.StatusNotFound)
+	require.JSONEq(t, `{"code":"not_found","error":"not found"}`, hidden.Body.String())
 	request(t, http.MethodGet, base+"/files?path=..", nil,
 		project.AdminToken, http.StatusBadRequest)
 	request(t, http.MethodPut, file("../escape"), []byte("x"),

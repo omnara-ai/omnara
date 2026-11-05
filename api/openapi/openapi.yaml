@@ -9776,6 +9776,7 @@ components:
             - file_read_only
             - expected_digest_required
             - not_a_file
+            - path_not_found
             - gone
             - request_too_large
             - unsupported_media_type
@@ -9807,6 +9808,7 @@ components:
         - file_read_only
         - expected_digest_required
         - not_a_file
+        - path_not_found
         - gone
         - request_too_large
         - unsupported_media_type
@@ -9840,6 +9842,7 @@ components:
         - file_read_only
         - expected_digest_required
         - not_a_file
+        - path_not_found
         - idempotency_key_conflict
         - agent_backlog_full
         - state_transition_conflict

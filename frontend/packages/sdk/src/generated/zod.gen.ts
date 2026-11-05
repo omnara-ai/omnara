@@ -261,6 +261,7 @@ export const zErrorCode = z.enum([
     'file_read_only',
     'expected_digest_required',
     'not_a_file',
+    'path_not_found',
     'gone',
     'request_too_large',
     'unsupported_media_type',

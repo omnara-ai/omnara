@@ -47,6 +47,7 @@ var (
 	ErrFileReadOnly                  = errors.New("file access is read-only")
 	ErrExpectedDigestRequired        = errors.New("expected_digest is required")
 	ErrNotAFile                      = errors.New("path is a directory; list its contents and choose a file")
+	ErrPathNotFound                  = errors.New("no file or directory exists at this path")
 	ErrIdempotencyConflict           = errors.New("idempotency key used for different resource")
 	ErrAuthConnectorImmutable        = errors.New("auth connector kind and issuer are immutable for slug")
 	ErrAuthConnectorIdentityConflict = errors.New("auth connector issuer already exists")
@@ -89,6 +90,8 @@ func FileErrorCode(err error) string {
 		return "expected_digest_required"
 	case errors.Is(err, ErrNotAFile):
 		return "not_a_file"
+	case errors.Is(err, ErrPathNotFound):
+		return "path_not_found"
 	case errors.As(err, &conflict):
 		return "file_content_conflict"
 	default:
