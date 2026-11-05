@@ -176,33 +176,41 @@ test('opens and answers pending invitations outside onboarding', async ({ page }
   expect(failures).toEqual([])
 })
 
-test('creates an agent from YAML', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signIn(page, adminEmail, createAgentPath)
+for (const viewport of [
+  { name: 'desktop', width: 1280, height: 720 },
+  { name: 'mobile', width: 390, height: 844 },
+]) {
+  test(`creates an agent from YAML on ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    const failures = installFailureTracking(page)
+    await signIn(page, adminEmail, createAgentPath)
 
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'YAML' }).click()
-  await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toHaveAttribute(
-    'aria-required',
-    'true',
-  )
+    await page.getByRole('button', { name: 'YAML' }).click()
+    await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toHaveAttribute(
+      'aria-required',
+      'true',
+    )
 
-  const agentName = uniqueName('YAML E2E Agent')
-  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
-  const yamlLines = [
-    'instruction: Test agent creation from YAML.',
-    `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
-  ]
-  await replaceConfigEditor(page, yamlLines.join('\n'))
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
-  await page.getByRole('button', { name: 'Create & launch agent' }).click()
+    const agentName = uniqueName(`YAML E2E Agent ${viewport.name}`)
+    await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
+    const yamlLines = [
+      'instruction: Test agent creation from YAML.',
+      `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
+    ]
+    await replaceConfigEditor(page, yamlLines.join('\n'))
+    await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
+    await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
-  await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(agentName)
-  expect(failures).toEqual([])
-})
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
+    await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(
+      agentName,
+    )
+    expect(failures).toEqual([])
+  })
+}
 
 test('creates an agent with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)

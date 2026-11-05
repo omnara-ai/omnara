@@ -337,6 +337,8 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	}
 
 	browserOnlyMutations := map[string]bool{
+		"patch /me/agent-panel":               true,
+		"post /orgs/{orgID}/assistant-agents": true,
 		"post /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup":               true,
 		"post /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup/installations": true,
 		"post /personal-access-tokens":                               true,
@@ -424,6 +426,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"AgentConfigDefinitionSubagentModel.provider_config":      resourceNameReferenceRef,
 		"Integration.name":                                        "#/components/schemas/IntegrationName",
 		"CreateIntegrationRequest.name":                           "#/components/schemas/IntegrationName",
+		"AgentPanelSelection.name":                                "#/components/schemas/AgentName",
 		"Agent.name":                                              "#/components/schemas/AgentName",
 		"AgentInteraction.agent_name":                             "#/components/schemas/AgentName",
 		"IntegrationSubscription.agent_name":                      "#/components/schemas/AgentName",

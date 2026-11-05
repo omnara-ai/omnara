@@ -154,6 +154,23 @@ func annotationsFor(tool Tool, method string) *mcp.ToolAnnotations {
 	}
 }
 
+// ReadOnlyToolNames uses the same trusted operation definitions as the MCP
+// server. Unknown operations fail closed instead of receiving an allow rule.
+func ReadOnlyToolNames(spec *openapi3.T, tools []Tool) ([]string, error) {
+	operations := indexOperations(spec)
+	var names []string
+	for _, tool := range tools {
+		operation, ok := operations[operationKey(tool.OperationID)]
+		if !ok {
+			return nil, fmt.Errorf("mcp tool %q references unknown operation %q", tool.Name, tool.OperationID)
+		}
+		if annotationsFor(tool, operation.method).ReadOnlyHint {
+			names = append(names, tool.Name)
+		}
+	}
+	return names, nil
+}
+
 func specVersion(spec *openapi3.T) string {
 	if spec.Info == nil {
 		return ""

@@ -25,6 +25,7 @@ import {
   AgentSidebarToggle,
   sidebarToggleActiveClass,
 } from '@/components/agents/AgentSidebar'
+import { cancelAgentChatTurn } from '@/components/agents/cancel-agent-chat-turn'
 import { hasPendingMcpBuilderOAuthOutcome } from '@/components/agents/pendingMcpBuilderOAuth'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { SettingsIcon } from '@/components/icons'
@@ -112,20 +113,6 @@ export function AgentView() {
     }
     if (configDirty.current && !window.confirm(discardConfigEditsPrompt)) return
     closeConfig()
-  }
-
-  async function cancelCurrent() {
-    const steeringInputIDs: string[] = []
-    for (const input of chat.inputBacklog.inputs) {
-      if (input.delivery_mode === 'steering') steeringInputIDs.push(input.id)
-    }
-    const rollback = await chat.inputBacklog.beginCancellation(steeringInputIDs)
-    try {
-      await cancelAgent.mutateAsync()
-    } catch (error) {
-      rollback()
-      throw error
-    }
   }
 
   return (
@@ -244,7 +231,7 @@ export function AgentView() {
             agentID={agentId}
             cancelPending={cancelAgent.isPending}
             cancelError={cancelAgent.error}
-            onCancel={cancelCurrent}
+            onCancel={() => cancelAgentChatTurn(chat, () => cancelAgent.mutateAsync())}
           />
         </div>
       </MessageScrollerProvider>

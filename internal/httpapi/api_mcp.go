@@ -19,6 +19,10 @@ func (s *Server) newAPIMCPServer() (*mcp.Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load generated openapi spec: %w", err)
 	}
+	s.apiMCPReadOnlyTools, err = apimcp.ReadOnlyToolNames(spec, apimcp.Tools)
+	if err != nil {
+		return nil, err
+	}
 	return apimcp.NewServer(spec, apimcp.Tools, apimcp.Options{
 		Dispatch:    http.HandlerFunc(s.dispatchAPIRequest),
 		APIBasePath: openAPIBasePath,

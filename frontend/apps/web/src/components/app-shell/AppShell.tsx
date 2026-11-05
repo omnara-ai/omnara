@@ -56,7 +56,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [scrolled, setScrolled] = useState(false)
 
   return (
-    <SidebarProvider className="h-svh" keyboardShortcut={false}>
+    <SidebarProvider className="h-[var(--app-height,100svh)] min-h-0" keyboardShortcut={false}>
       <AppSidebar>
         <SidebarHeader className="h-12 shrink-0 justify-center border-b py-0">
           <OrgSwitcher />

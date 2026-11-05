@@ -10,7 +10,30 @@ import type {
   OpenAgentEventStreamOptions,
   sdk,
 } from '@omnara/sdk'
-import type { QueryClient } from '@tanstack/react-query'
+import type { QueryClient, QueryStatus } from '@tanstack/react-query'
+
+import type { OmnaraUIMessage } from './agent-chat-messages'
+import type { AgentInputBacklogControls } from './agent-input-backlog'
+
+export type AgentChatHistoryStatus = QueryStatus
+
+export interface UseAgentChatResult {
+  events: AgentEvent[]
+  messages: OmnaraUIMessage[]
+  status: AgentChatStatus
+  isWorking: boolean
+  error: Error | undefined
+  streamError: Error | undefined
+  historyStatus: AgentChatHistoryStatus
+  historyError: Error | null
+  retryHistory: () => void
+  reconnect: () => void
+  hasOlderMessages: boolean
+  isLoadingOlderMessages: boolean
+  loadOlderMessages: () => void
+  sendMessage: (message: AgentChatMessageInput) => Promise<void>
+  inputBacklog: AgentInputBacklogControls
+}
 
 export interface AgentChatScope {
   orgID: string
@@ -22,6 +45,8 @@ export type AgentChatSource = 'web' | 'cli'
 
 export interface AgentChatOptions {
   source: AgentChatSource
+  /** Captured synchronously when a message is sent; never displayed as user text. */
+  getContext?: () => string | undefined
 }
 
 export type CreateAgentInputOptions = Parameters<typeof sdk.createAgentInput<true>>[0]

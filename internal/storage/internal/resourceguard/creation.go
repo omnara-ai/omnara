@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
 const (
@@ -15,6 +16,7 @@ const (
 	Agents              = "agents"
 	Machines            = "machines"
 	MachineDaemonTokens = "machine_daemon_tokens"
+	Secrets             = "secrets"
 )
 
 type Creation struct {
@@ -22,9 +24,14 @@ type Creation struct {
 	OrgID     uuid.UUID
 	ProjectID uuid.UUID
 	MachineID uuid.UUID
+	OwnerKind string
+	UserID    uuid.UUID
 }
 
 func (c Creation) scope() string {
+	if c.Kind == Secrets {
+		return OwnerScope(c.OrgID, c.OwnerKind, c.ProjectID, c.UserID)
+	}
 	if c.Kind == MachineDaemonTokens {
 		return c.OrgID.String() + ":" + c.MachineID.String()
 	}
@@ -78,6 +85,12 @@ func (c Creation) check(ctx context.Context, q *dbsqlc.Queries, limits dbsqlc.Ef
 	var count, limit int64
 	var name string
 	switch c.Kind {
+	case Secrets:
+		count, err = q.CountActiveTenantSecretsForOwner(ctx, dbsqlc.CountActiveTenantSecretsForOwnerParams{
+			OrgID: c.OrgID, OwnerKind: c.OwnerKind,
+			OwnerProjectID: storeutil.IDFromNil(c.ProjectID), OwnerUserID: storeutil.IDFromNil(c.UserID),
+		})
+		limit, name = limits.MaxActiveTenantSecretsPerOwner, "active secrets"
 	case Agents:
 		count, err = q.CountActiveAgentsForProject(ctx, dbsqlc.CountActiveAgentsForProjectParams{ProjectID: c.ProjectID})
 		limit, name = limits.MaxActiveAgentsPerProject, "active agents"

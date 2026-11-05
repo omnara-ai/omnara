@@ -75,7 +75,10 @@ const authenticatedRoute = createRoute({
     const me = await ensureMe(context.queryClient, context.omnaraClient, location.href)
     return { me }
   },
-  component: Outlet,
+  component: lazyRouteComponent(
+    () => import('@/routes/AuthenticatedLayout'),
+    'AuthenticatedLayout',
+  ),
 })
 
 const onboardedRoute = createRoute({

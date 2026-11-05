@@ -566,6 +566,121 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /me/agent-panel:
+    get:
+      operationId: getAgentPanel
+      tags: [Users and API Keys]
+      summary: Get the user's dashboard agent selection
+      description: The selection is shared across organizations. Reading never creates an agent.
+      security:
+        - browserSessionCookie: []
+      responses:
+        '200':
+          description: Current panel preference and any pending first-organization setup.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPanel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      operationId: updateAgentPanel
+      tags: [Users and API Keys]
+      summary: Connect, disconnect or disable the user's dashboard agent
+      description: Any explicit update cancels pending automatic setup. Other agent resources are unaffected.
+      security:
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentPanelRequest'
+      responses:
+        '200':
+          description: Updated preference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPanel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/assistant-agents:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    post:
+      operationId: createAssistantAgent
+      tags: [Agents]
+      summary: Create and connect an Omnara assistant
+      description: >-
+        Browser-session-only, organization-owner-only operation. Atomically creates an idle ordinary
+        agent, its configuration, a personal access token and encrypted project secret. Requires a
+        tool-capable project model grant. Replaying a request never changes the user's later selection.
+      security:
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAssistantAgentRequest'
+      responses:
+        '200':
+          description: Assistant created, or a replay of the same request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAssistantAgentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /me:
     get:
       operationId: getCurrentUser
@@ -10787,7 +10902,7 @@ components:
     ProjectModelGrantListItem:
       type: object
       additionalProperties: false
-      required: [grant, model, effective_reasoning]
+      required: [grant, model, effective_reasoning, supports_tools]
       properties:
         grant:
           $ref: '#/components/schemas/ProjectModelGrant'
@@ -10795,6 +10910,9 @@ components:
           $ref: '#/components/schemas/ConfiguredModelSummary'
         effective_reasoning:
           $ref: '#/components/schemas/ProjectModelGrantEffectiveReasoning'
+        supports_tools:
+          type: boolean
+          description: Whether the effective model after project overrides is valid and supports tool calls.
     ProjectModelGrantEffectiveReasoning:
       type: object
       additionalProperties: false
@@ -16833,6 +16951,104 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CurrentUserOrg'
+    AgentPanelScope:
+      type: object
+      additionalProperties: false
+      required: [org_id, project_id, org_name, project_name]
+      properties:
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        org_name:
+          $ref: '#/components/schemas/ResourceName'
+        project_name:
+          $ref: '#/components/schemas/ResourceName'
+    AgentPanelSelection:
+      type: object
+      additionalProperties: false
+      required: [scope, agent_id, name, can_operate]
+      properties:
+        can_operate:
+          type: boolean
+        scope:
+          $ref: '#/components/schemas/AgentPanelScope'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        name:
+          $ref: '#/components/schemas/AgentName'
+    AgentPanelSetup:
+      type: object
+      additionalProperties: false
+      required: [scope, ready, request_id]
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        scope:
+          $ref: '#/components/schemas/AgentPanelScope'
+        ready:
+          type: boolean
+          description: Whether the project currently has a model that supports tools.
+    AgentPanel:
+      type: object
+      additionalProperties: false
+      required: [enabled, revision, state]
+      properties:
+        enabled:
+          type: boolean
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        state:
+          type: string
+          enum: [empty, ready, archived, unavailable]
+          x-enum-varnames: [AgentPanelStateEmpty, AgentPanelStateReady, AgentPanelStateArchived, AgentPanelStateUnavailable]
+        selection:
+          $ref: '#/components/schemas/AgentPanelSelection'
+        setup:
+          $ref: '#/components/schemas/AgentPanelSetup'
+    UpdateAgentPanelRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        agent_id:
+          type: [string, "null"]
+          pattern: '^agt_[a-z2-7]{26}$'
+          description: Agent to connect, or null to disconnect. Omit to preserve the selection.
+        enabled:
+          type: boolean
+    CreateAssistantAgentRequest:
+      type: object
+      additionalProperties: false
+      required: [project_id, request_id, expected_revision, automatic]
+      properties:
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        request_id:
+          type: string
+          format: uuid
+          description: Stable UUID for retries. Automatic setup uses the pending project's UUID.
+        expected_revision:
+          type: integer
+          format: int64
+          minimum: 0
+        automatic:
+          type: boolean
+          description: Complete pending first-organization setup; otherwise explicitly create an assistant.
+        model_id:
+          $ref: '#/components/schemas/ConfiguredModelID'
+    CreateAssistantAgentResponse:
+      type: object
+      additionalProperties: false
+      required: [agent_id, panel]
+      properties:
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        panel:
+          $ref: '#/components/schemas/AgentPanel'
     CurrentUser:
       type: object
       additionalProperties: false

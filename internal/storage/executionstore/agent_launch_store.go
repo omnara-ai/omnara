@@ -104,6 +104,18 @@ func validateLaunchAgentInput(input LaunchAgentInput) (LaunchAgentInput, error) 
 	return input, nil
 }
 
+// LaunchAgentInUnit participates in a caller-owned transaction. The caller must
+// commit the unit to enforce creation quotas and publish execution changes.
+func (s *Store) LaunchAgentInUnit(
+	ctx context.Context, unit *agentexecution.Unit, input LaunchAgentInput,
+) (LaunchAgentResult, error) {
+	input, err := validateLaunchAgentInput(input)
+	if err != nil {
+		return LaunchAgentResult{}, err
+	}
+	return s.launchAgentTx(ctx, unit, dbsqlc.New(unit.DB()), input)
+}
+
 func (s *Store) launchAgentOnce(
 	ctx context.Context,
 	input LaunchAgentInput,

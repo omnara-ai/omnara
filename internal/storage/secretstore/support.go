@@ -38,5 +38,3 @@ type ProjectRecord struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
-
-const resourceSecrets = "secrets"

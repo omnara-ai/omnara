@@ -19,26 +19,38 @@ func (s *Store) AuthorizeSecretOwnerManage(
 	owner SecretOwner,
 	actor identitystore.PrincipalRecord,
 ) error {
+	return authorizeSecretOwnerManage(ctx, s.q, orgID, owner, actor)
+}
+
+func authorizeSecretOwnerManage(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	orgID uuid.UUID,
+	owner SecretOwner,
+	actor identitystore.PrincipalRecord,
+) error {
+	var allowed bool
+	var err error
 	switch owner.Kind {
 	case SecretOwnerOrg:
 		if owner.ProjectID != uuid.Nil || owner.UserID != uuid.Nil {
 			return invalidSecretRequest("org-owned secret cannot set project or user owner")
 		}
-		if err := s.authorizeOrgSecretsManage(ctx, orgID, actor); err != nil {
-			return err
-		}
+		allowed, err = identitystore.AuthorizeOrg(ctx, q, identitystore.AuthorizeOrgInput{
+			Principal: actor,
+			OrgID:     orgID,
+			Action:    authz.OrgSecretsManage,
+		})
 	case SecretOwnerProject:
 		if owner.ProjectID == uuid.Nil || owner.UserID != uuid.Nil {
 			return invalidSecretRequest("project-owned secret requires only project owner")
 		}
-		if err := s.authorizeProjectSecretsManage(
-			ctx,
-			orgID,
-			owner.ProjectID,
-			actor,
-		); err != nil {
-			return err
-		}
+		allowed, err = identitystore.AuthorizeProject(ctx, q, identitystore.AuthorizeProjectInput{
+			Principal: actor,
+			OrgID:     orgID,
+			ProjectID: owner.ProjectID,
+			Action:    authz.ProjectSecretsManage,
+		})
 	case SecretOwnerUser:
 		if owner.ProjectID != uuid.Nil || owner.UserID == uuid.Nil {
 			return invalidSecretRequest("user-owned secret requires only user owner")
@@ -46,11 +58,19 @@ func (s *Store) AuthorizeSecretOwnerManage(
 		if actor.Type != authz.PrincipalUser || owner.UserID != actor.ID {
 			return storeerr.ErrUnauthorized
 		}
-		if err := s.requireOrgMember(ctx, orgID, actor); err != nil {
-			return err
-		}
+		allowed, err = identitystore.AuthorizeOrg(ctx, q, identitystore.AuthorizeOrgInput{
+			Principal: actor,
+			OrgID:     orgID,
+			Action:    authz.OrgRead,
+		})
 	default:
 		return invalidSecretRequest("unsupported secret owner kind %q", owner.Kind)
+	}
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return storeerr.ErrUnauthorized
 	}
 	return nil
 }

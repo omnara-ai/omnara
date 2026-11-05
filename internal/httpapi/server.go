@@ -85,6 +85,7 @@ type Server struct {
 	openAPIRequestValidator             middleware
 	openAPIAuthorizer                   operationAuthorizer
 	apiMCP                              *mcpsdk.Server
+	apiMCPReadOnlyTools                 []string
 	apiDispatch                         atomic.Pointer[http.Handler]
 	webAssets                           fs.FS
 	closeOnce                           sync.Once
