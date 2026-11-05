@@ -17,6 +17,7 @@ export interface AdvancedConfigEntry {
   path: string[]
   kind: 'custom' | 'opaque'
   source: string
+  originalPath?: string[]
   removed?: boolean
 }
 

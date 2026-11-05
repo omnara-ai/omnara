@@ -68,16 +68,19 @@ export function AgentConfigToolsSection({
           onClose={() => {
             setEditing(null)
           }}
-          onSave={(updated) => {
-            const target = configPath(updated.path)
-            const entries = form.advancedEntries.flatMap((item) => {
-              if (configPath(item.path) === target) return updated
-              if (item !== editing) return item
-              return form.originalAdvancedEntries.some(
-                (saved) => configPath(saved.path) === configPath(item.path),
-              )
-                ? { ...item, removed: true }
-                : []
+          onSave={(definition) => {
+            const previous =
+              editing === 'new'
+                ? form.advancedEntries.find(
+                    (item) => item.removed && configPath(item.path) === configPath(definition.path),
+                  )
+                : editing
+            const updated = { ...definition, originalPath: previous?.originalPath }
+            const target = configPath(definition.path)
+            const entries = form.advancedEntries.map((item) => {
+              if (item === editing || (editing === 'new' && configPath(item.path) === target))
+                return updated
+              return item
             })
             if (!entries.some((item) => configPath(item.path) === target)) entries.push(updated)
             const result = form.evaluateAdvancedEntries(entries)
@@ -104,9 +107,7 @@ function CustomToolRow({
   onEdit: () => void
 }) {
   const [editError, setEditError] = useState<string | null>(null)
-  const path = configPath(entry.path)
   const name = entry.path[1] ?? ''
-  const original = form.originalAdvancedEntries.find((saved) => configPath(saved.path) === path)
   const issues = form.validationIssues.filter((issue) =>
     entry.path.every((part, index) => issue.path[index] === part),
   )
@@ -166,7 +167,7 @@ function CustomToolRow({
           }
         }}
         onRemove={() => {
-          if (original) update({ ...entry, removed: true })
+          if (entry.originalPath) update({ ...entry, removed: true })
           else form.setAdvancedEntries(form.advancedEntries.filter((item) => item !== entry))
         }}
       />

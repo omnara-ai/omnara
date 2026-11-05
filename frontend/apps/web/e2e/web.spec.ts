@@ -1,5 +1,6 @@
 import { schemas } from '@omnara/sdk'
 import { expect, type Page, test } from '@playwright/test'
+import { stringify } from 'yaml'
 import { z } from 'zod'
 
 import { exerciseProjectWebhooks } from './event-webhooks'
@@ -177,33 +178,51 @@ test('opens and answers pending invitations outside onboarding', async ({ page }
   expect(failures).toEqual([])
 })
 
-test('creates an agent from YAML', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signIn(page, adminEmail, createAgentPath)
+for (const format of ['YAML', 'JSON']) {
+  test(`creates an agent from ${format}`, async ({ page }) => {
+    const failures = installFailureTracking(page)
+    await signIn(page, adminEmail, createAgentPath)
 
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'YAML' }).click()
-  await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toHaveAttribute(
-    'aria-required',
-    'true',
-  )
+    await page.getByRole('button', { name: 'YAML' }).click()
+    await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toHaveAttribute(
+      'aria-required',
+      'true',
+    )
 
-  const agentName = uniqueName('YAML E2E Agent')
-  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
-  const yamlLines = [
-    'instruction: Test agent creation from YAML.',
-    `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
-  ]
-  await replaceConfigEditor(page, yamlLines.join('\n'))
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
-  await page.getByRole('button', { name: 'Create & launch agent' }).click()
+    const agentName = uniqueName(`${format} E2E Agent`)
+    await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
+    const definition = {
+      instruction: 'Test agent creation from source.',
+      model: { provider_config: providerConfig, name: modelName },
+      tools: {
+        lookup_item: {
+          type: 'custom',
+          description: 'Look up an example item.',
+          input_schema: { type: 'object' },
+        },
+      },
+    }
+    await replaceConfigEditor(
+      page,
+      format === 'YAML' ? stringify(definition) : JSON.stringify(definition, null, 2),
+    )
+    await page.getByRole('button', { name: 'Builder', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Edit lookup_item' })).toBeVisible()
+    await page.getByRole('button', { name: format, exact: true }).click()
+    await expect(page.getByRole('textbox', { name: `Config (${format})` })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
+    await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
-  await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(agentName)
-  expect(failures).toEqual([])
-})
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
+    await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(
+      agentName,
+    )
+    expect(failures).toEqual([])
+  })
+}
 
 test('creates an agent with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)

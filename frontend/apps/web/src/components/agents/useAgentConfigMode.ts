@@ -59,9 +59,7 @@ export function useAgentConfigMode({
     editorYaml.trim() === '' ||
     form.unappliedChanges ||
     compatibility.some((issue) => issue.syntaxError) ||
-    (showBuilder
-      ? form.blocked
-      : !yamlDiverged(mode) && form.dirty && form.validationIssues.length > 0)
+    ((showBuilder || (builderAvailable && !yamlDiverged(mode))) && form.blocked)
 
   function switchMode(nextMode: AgentConfigMode) {
     if (form.unappliedChanges) return

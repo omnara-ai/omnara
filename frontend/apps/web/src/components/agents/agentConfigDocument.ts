@@ -158,9 +158,39 @@ export function editConfigDocument(
   }
 
   function removeRawDefinition(path: string[]) {
-    if (!protectedPaths.some((entry) => configPath(entry.map(String)) === configPath(path)))
+    const index = protectedPaths.findIndex(
+      (entry) => configPath(entry.map(String)) === configPath(path),
+    )
+    if (index < 0)
       throw new ConfigEditError(path, 'This definition is not owned by the advanced editor.')
     deleteAt(path)
+    protectedPaths.splice(index, 1)
+  }
+
+  function renameRawDefinitions(path: string[], names: Map<string, string>) {
+    if (names.size === 0) return
+    const parent = mutableDocument().getIn(path, true)
+    if (!isMap(parent)) throw new ConfigEditError(path, 'Missing definitions to rename.')
+    const destinations = new Set<string>()
+    for (const [name, destination] of names) {
+      const from = [...path, name]
+      if (!parent.has(name) || !protectedPaths.some((item) => deepEqual(item.map(String), from)))
+        throw new ConfigEditError(from, 'This definition is not owned by the advanced editor.')
+      if (destinations.has(destination) || (parent.has(destination) && !names.has(destination)))
+        throw new ConfigEditError([...path, destination], 'This name is already in use.')
+      destinations.add(destination)
+    }
+    for (const pair of parent.items) {
+      if (!isScalar(pair.key)) continue
+      const renamed = names.get(String(pair.key.value))
+      if (renamed !== undefined) pair.key.value = renamed
+    }
+    for (const protectedPath of protectedPaths) {
+      if (!deepEqual(protectedPath.slice(0, -1).map(String), path)) continue
+      const renamed = names.get(String(protectedPath.at(-1)))
+      if (renamed !== undefined) protectedPath[protectedPath.length - 1] = renamed
+    }
+    edits.push({ type: 'rename', path, names })
   }
 
   function setRawDefinition(path: string[], raw: string) {
@@ -249,6 +279,7 @@ export function editConfigDocument(
     orderSequence,
     setRawDefinition,
     removeRawDefinition,
+    renameRawDefinitions,
     serialize,
   }
 }
