@@ -25,6 +25,7 @@ type AgentTurnRecord struct {
 }
 
 type AgentEventReadRecord struct {
+	AgentProfileID uuid.UUID `json:"agent_profile_id"`
 	ID             uuid.UUID `json:"id"`
 	OrgID          uuid.UUID `json:"org_id"`
 	ProjectID      uuid.UUID `json:"project_id"`
@@ -367,6 +368,7 @@ func (s *Store) requireAgentTurnInProject(ctx context.Context, projectID, agentI
 
 func agentEventReadRecordFromSQLC(row dbsqlc.AgentEventReadProjection) AgentEventReadRecord {
 	record := AgentEventReadRecord{
+		AgentProfileID:      storeutil.IDFromPtr(row.AgentProfileID),
 		ID:                  row.ID,
 		OrgID:               row.OrgID,
 		ProjectID:           row.ProjectID,

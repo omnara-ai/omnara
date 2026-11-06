@@ -88,6 +88,27 @@ To avoid continuous polling, which counts against your [rate limits](/api/overvi
 You can also configure an [Event webhook](/agents/configuration#event-webhooks) to trigger custom-tool execution when a `tool_call_update` arrives with `state: ready`. On the stream and in webhooks, `ready` updates for custom calls include the tool's `name`, plus its `input` when the JSON-encoded input is at most 64 KiB; for larger inputs, fetch the call with `GET /tool-calls/{toolCallID}`. See the runnable [custom-tool webhook example](https://github.com/omnara-ai/omnara/tree/main/examples/custom-tool-webhook) for signature verification and duplicate handling.
 </Tip>
 
+## TypeScript helper
+
+The SDK's `createCustomToolWorker` connects tool functions to this workflow.
+Choose a project, optionally an agent profile, and register the functions you
+handle. The helper checks current readiness, submits results, retries temporary
+API failures, and retains finished results in memory when submission fails.
+Its optional `run()` loop checks for missed calls at startup and every minute.
+
+You can instead await `handle(update)` in a queue job or use `check()` for a
+single page of recovery work. Each call reports whether it completed, was ignored,
+was busy/stopped, or failed; a recovery page also returns a cursor. `shutdown()`
+stops intake and gives finished results a bounded opportunity to be submitted.
+See the [complete example and one-off operations](https://github.com/omnara-ai/omnara/tree/main/examples/custom-tool-webhook)
+for signature verification, scope filters, retries, and shutdown.
+
+Webhooks and SSE include the emitting agent's organization, project, agent ID,
+and nullable profile ID. The SDK uses those fields for filtering without fetching
+the whole agent; it still fetches the tool call to avoid starting work that has
+already finished. This check is not an exclusive claim: use the tool-call ID as
+an idempotency key when your tool changes external state.
+
 ## Submit the result
 
 Post the outcome with content blocks — text, inline media, or structured data:
@@ -132,7 +153,7 @@ The agent wakes and continues its turn with your result in context. If your syst
 
 Result text, structured-data string keys and values, and metadata must not contain U+0000.
 
-**The first result wins.** Only `ready` custom calls accept results. A second submission for the same call returns `409` with code `tool_call_already_completed`:
+**The first result wins.** Only `ready` custom calls accept results. Submitting to a call that has already finished returns `409` with code `tool_call_already_completed`, including when the call was canceled:
 
 ```json
 { "error": "custom tool call is already completed", "code": "tool_call_already_completed" }
@@ -140,7 +161,7 @@ Result text, structured-data string keys and values, and metadata must not conta
 
 A result for a call that isn't ready, or for a built-in or MCP call, returns `409` with code `conflict`.
 
-That makes result submission safe when several workers race for the same call: the losers get a clean `409`, not a corrupted timeline. A `409` can also mean your own earlier submission succeeded and its response was lost, so fetch the tool call to check its state before treating the `409` as an error.
+That makes result submission safe when several workers race for the same call: the losers get a clean `409`, not a corrupted timeline. The specific `tool_call_already_completed` code means no further submission is needed. It does not establish whose result was accepted or whether the call was canceled.
 
 <Info>
 Full schema and playground: [List tool calls](/api-reference/endpoints/agents/list-tool-calls) · [Get a tool call](/api-reference/endpoints/agents/get-a-tool-call) · [List unfinished tool calls across agents](/api-reference/endpoints/agents/list-unfinished-tool-calls-across-agents) · [Submit a result](/api-reference/endpoints/agents/submit-a-result-for-a-ready-custom-tool-call).

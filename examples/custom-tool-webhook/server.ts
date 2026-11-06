@@ -18,10 +18,16 @@ const textLength: CustomToolHandler = async ({ input }) =>
     ? {
         outcome: 'succeeded',
         content_blocks: [
-          { type: 'structured_data', value: { length: Array.from(input.text).length } },
+          {
+            type: 'structured_data',
+            value: { length: Array.from(input.text).length },
+          },
         ],
       }
-    : { outcome: 'failed', content_blocks: [{ type: 'text', text: 'text must be a string' }] }
+    : {
+        outcome: 'failed',
+        content_blocks: [{ type: 'text', text: 'text must be a string' }],
+      }
 
 export function createWebhookApp(options: {
   client: OmnaraClient
@@ -52,7 +58,7 @@ export function createWebhookApp(options: {
     } catch {
       return c.text('invalid webhook', 400)
     }
-    if (payload.event === 'tool_call_update') worker.handle(payload.data)
+    if (payload.event === 'tool_call_update') void worker.handle(payload.data)
     return c.body(null, 204)
   })
   return { app, worker }
@@ -74,11 +80,27 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     agentProfileID: process.env.OMNARA_AGENT_PROFILE_ID || undefined,
     signingSecret: required('WEBHOOK_SIGNING_SECRET'),
   })
-  serve(
-    { fetch: app.fetch, port: Number(process.env.PORT ?? 3000), hostname: '127.0.0.1' },
+  const server = serve(
+    {
+      fetch: app.fetch,
+      port: Number(process.env.PORT ?? 3000),
+      hostname: '127.0.0.1',
+    },
     (info) => {
       console.log(`webhook receiver listening on http://127.0.0.1:${info.port}/webhook`)
     },
   )
-  await worker.run()
+  const stop = () => {
+    server.close()
+    void worker.shutdown()
+  }
+  process.once('SIGTERM', stop)
+  process.once('SIGINT', stop)
+  try {
+    await worker.run()
+  } finally {
+    server.close()
+    process.removeListener('SIGTERM', stop)
+    process.removeListener('SIGINT', stop)
+  }
 }

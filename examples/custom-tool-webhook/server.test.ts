@@ -12,7 +12,16 @@ const toolCallID = 'tcl_5n6a2bfgik7mv4qtrwz3jehcyd'
 const input = { text: 'hello 🌍' }
 const payload = {
   event: 'tool_call_update',
-  data: { agent_id: agentID, tool_call_id: toolCallID, state: 'ready', name: 'text_length', input },
+  data: {
+    org_id: 'org_5n6a2bfgik7mv4qtrwz3jehcyd',
+    project_id: 'proj_5n6a2bfgik7mv4qtrwz3jehcyd',
+    agent_profile_id: null,
+    agent_id: agentID,
+    tool_call_id: toolCallID,
+    state: 'ready',
+    name: 'text_length',
+    input,
+  },
 }
 const result = {
   outcome: 'succeeded',
@@ -88,18 +97,26 @@ test('rejects bad signatures and invalid payloads before calling the API', async
   assert.equal((await post({ event: 'unknown', data: {} })).status, 400)
 })
 
-test('acknowledges a ready update, then runs the tool and submits its result', async () => {
+test('acknowledges before execution finishes, then submits the result', async () => {
+  let release: (response: Response) => void = () => {}
+  const currentCall = new Promise<Response>((resolve) => {
+    release = resolve
+  })
+  let completed = false
   let submit: (body: unknown) => void = () => {}
   const submitted = new Promise((resolve) => {
     submit = resolve
   })
   const { post } = receiver(async (url, init) => {
     const request = new Request(url, init)
-    if (request.method === 'GET') return Response.json(readyCall())
+    if (request.method === 'GET') return currentCall
     submit(await request.json())
+    completed = true
     return accepted()
   })
   assert.equal((await post()).status, 204)
+  assert.equal(completed, false)
+  release(Response.json(readyCall()))
   assert.deepEqual(await submitted, result)
 })
 

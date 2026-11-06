@@ -198,42 +198,47 @@ func (q *Queries) ListAgentActivityForAgents(ctx context.Context, arg ListAgentA
 	return items, nil
 }
 
-const listAgentDescendantIDs = `-- name: ListAgentDescendantIDs :many
+const listAgentDescendants = `-- name: ListAgentDescendants :many
 WITH RECURSIVE descendants AS (
-  SELECT agent.id, 1 AS depth
+  SELECT agent.id, agent.agent_profile_id, 1 AS depth
   FROM agents agent
   WHERE agent.project_id = $1
     AND agent.parent_agent_id = $2
   UNION ALL
-  SELECT child.id, descendants.depth + 1
+  SELECT child.id, child.agent_profile_id, descendants.depth + 1
   FROM agents child
   JOIN descendants ON child.parent_agent_id = descendants.id
   WHERE child.project_id = $1
     AND descendants.depth < 64
 )
-SELECT descendants.id
+SELECT descendants.id, descendants.agent_profile_id
 FROM descendants
 ORDER BY descendants.depth, descendants.id
 `
 
-type ListAgentDescendantIDsParams struct {
+type ListAgentDescendantsParams struct {
 	ProjectID uuid.UUID
 	AgentID   *uuid.UUID
 }
 
-func (q *Queries) ListAgentDescendantIDs(ctx context.Context, arg ListAgentDescendantIDsParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, listAgentDescendantIDs, arg.ProjectID, arg.AgentID)
+type ListAgentDescendantsRow struct {
+	ID             uuid.UUID
+	AgentProfileID *uuid.UUID
+}
+
+func (q *Queries) ListAgentDescendants(ctx context.Context, arg ListAgentDescendantsParams) ([]ListAgentDescendantsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentDescendants, arg.ProjectID, arg.AgentID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []uuid.UUID{}
+	items := []ListAgentDescendantsRow{}
 	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var i ListAgentDescendantsRow
+		if err := rows.Scan(&i.ID, &i.AgentProfileID); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -2124,7 +2124,7 @@ func TestWriteToolCallUpdateFrameIncludesInteraction(t *testing.T) {
 		if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
 			AgentID: httpTestAgentID, ToolCallID: httpTestToolCallID, State: "awaiting_permission",
 			InteractionUpdate: interaction,
-		}) {
+		}, publicevents.AgentContext{OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID}) {
 			t.Fatal("writeToolCallUpdateFrame returned false")
 		}
 		body := rec.Body.String()
@@ -2173,7 +2173,7 @@ func TestWriteToolCallUpdateFrameIncludesReadyCustomCall(t *testing.T) {
 		if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
 			AgentID: httpTestAgentID, ToolCallID: httpTestToolCallID, State: tc.state,
 			Name: "lookup_customer", Input: tc.input,
-		}) {
+		}, publicevents.AgentContext{OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID}) {
 			t.Fatal("writeToolCallUpdateFrame returned false")
 		}
 		var payload openapi.ToolCallUpdate
@@ -2197,7 +2197,7 @@ func TestWriteToolCallUpdateFrameSkipsUnknownState(t *testing.T) {
 	if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
 		ToolCallID: httpTestToolCallID,
 		State:      "unknown",
-	}) {
+	}, publicevents.AgentContext{OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID}) {
 		t.Fatal("writeToolCallUpdateFrame returned false for unknown state")
 	}
 	if rec.Body.Len() != 0 {

@@ -20,6 +20,7 @@ import (
 const eventWebhookDeliveryWindow = 10 * time.Minute
 
 type EventWebhookEndpoint struct {
+	AgentProfileID  uuid.UUID
 	ProjectID       uuid.UUID
 	OrgID           uuid.UUID
 	URL             string
@@ -41,6 +42,7 @@ func (s *Store) GetEventWebhookEndpoint(
 	return EventWebhookEndpoint{
 		ProjectID: row.ProjectID, OrgID: row.OrgID, URL: row.Url,
 		SigningSecretID: storeutil.IDFromPtr(row.SigningSecretID),
+		AgentProfileID:  storeutil.IDFromPtr(row.AgentProfileID),
 	}, nil
 }
 

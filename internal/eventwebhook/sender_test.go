@@ -121,6 +121,7 @@ func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 		OrgID: uuid.New(), ToolCallID: &toolID, ToolState: &state,
 		ClaimToken: uuid.New(), AttemptCount: 1,
 	}
+	store.endpoint.OrgID = delivery.OrgID
 	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7), store, delivery
 }
 

@@ -46,7 +46,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.agent_profile_id
 FROM agent_event_read_projection projection
 WHERE projection.project_id = sqlc.arg(project_id)
   AND projection.agent_id = sqlc.arg(agent_id)
@@ -68,7 +68,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.agent_profile_id
 FROM agent_event_read_projection projection
 WHERE projection.project_id = sqlc.arg(project_id)
   AND projection.agent_id = sqlc.arg(agent_id)
@@ -93,7 +93,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.agent_profile_id
 FROM agent_event_read_projection projection
 WHERE projection.project_id = sqlc.arg(project_id)
   AND projection.agent_id = sqlc.arg(agent_id)
@@ -119,7 +119,7 @@ SELECT projection.id, projection.org_id, projection.project_id, projection.agent
        projection.input_tokens_total, projection.uncached_input_tokens,
        projection.cache_read_input_tokens, projection.cache_write_input_tokens,
        projection.output_tokens_total, projection.reasoning_output_tokens,
-       projection.provider_metadata
+       projection.provider_metadata, projection.agent_profile_id
 FROM agent_event_read_projection projection
 JOIN agent_turns turn
   ON turn.agent_id = projection.agent_id

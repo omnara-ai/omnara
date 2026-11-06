@@ -15,7 +15,11 @@ export {
   createCustomToolWorker,
   type CreateCustomToolWorkerOptions,
   type CustomToolCall,
+  type CustomToolCallRef,
+  type CustomToolCheckOptions,
+  type CustomToolCheckResult,
   type CustomToolHandler,
+  type CustomToolOutcome,
   type CustomToolWorker,
 } from './custom-tool-worker'
 export {

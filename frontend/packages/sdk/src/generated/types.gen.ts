@@ -2579,11 +2579,17 @@ export type ToolCall = {
  * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export type ToolCallUpdate = {
+    org_id: OrganizationId;
+    project_id: ProjectId;
     tool_call_id: ToolCallId;
     /**
      * The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
      */
-    agent_id?: AgentId;
+    agent_id: AgentId;
+    /**
+     * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+     */
+    agent_profile_id: AgentProfileId | null;
     state: ToolCallState;
     /**
      * The tool name. Present when a custom tool call becomes ready.
@@ -2640,6 +2646,10 @@ export type AgentInputEvent = {
     org_id: OrganizationId;
     project_id: ProjectId;
     agent_id: AgentId;
+    /**
+     * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+     */
+    agent_profile_id: AgentProfileId | null;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: boolean;
@@ -2676,6 +2686,10 @@ export type ModelOutputEvent = {
     org_id: OrganizationId;
     project_id: ProjectId;
     agent_id: AgentId;
+    /**
+     * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+     */
+    agent_profile_id: AgentProfileId | null;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: false;
@@ -2699,6 +2713,10 @@ export type ToolResultEvent = {
     org_id: OrganizationId;
     project_id: ProjectId;
     agent_id: AgentId;
+    /**
+     * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+     */
+    agent_profile_id: AgentProfileId | null;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: false;
@@ -2715,6 +2733,10 @@ export type ContextCheckpointEvent = {
     org_id: OrganizationId;
     project_id: ProjectId;
     agent_id: AgentId;
+    /**
+     * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+     */
+    agent_profile_id: AgentProfileId | null;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: false;

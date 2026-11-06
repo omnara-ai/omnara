@@ -82,7 +82,7 @@ Expose `/webhook` over public HTTPS. This snippet only validates and acknowledge
 
 ## Payload examples
 
-Timeline events include event, agent, project, organization, and turn identifiers, an event sequence, and a creation timestamp. The examples below include all required fields; the OpenAPI schemas describe optional fields and content-block variants.
+Every event includes `org_id`, `project_id`, `agent_id`, and `agent_profile_id`. The profile belongs to the emitting agent, including for subagents, and is `null` when it has none. These fields match SSE and REST timeline events. Timeline events also include event and turn identifiers, an event sequence, and a creation timestamp. The examples below include all required fields; the OpenAPI schemas describe optional fields and content-block variants.
 
 <AccordionGroup>
 <Accordion title="Agent input (`agent_input`)">
@@ -95,6 +95,7 @@ Timeline events include event, agent, project, organization, and turn identifier
     "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
     "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
     "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_profile_id": null,
     "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_sequence": 1,
     "is_opening_event": true,
@@ -124,6 +125,7 @@ Timeline events include event, agent, project, organization, and turn identifier
     "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
     "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
     "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_profile_id": null,
     "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_sequence": 1,
     "is_opening_event": false,
@@ -153,6 +155,7 @@ Timeline events include event, agent, project, organization, and turn identifier
     "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
     "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
     "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_profile_id": null,
     "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_sequence": 1,
     "is_opening_event": false,
@@ -182,6 +185,7 @@ Timeline events include event, agent, project, organization, and turn identifier
     "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
     "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
     "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_profile_id": null,
     "turn_id": "trn_5n6a2bfgik7mv4qtrwz3jehcyd",
     "turn_sequence": 1,
     "is_opening_event": false,
@@ -202,8 +206,11 @@ Timeline events include event, agent, project, organization, and turn identifier
 {
   "event": "tool_call_update",
   "data": {
+    "org_id": "org_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "project_id": "proj_5n6a2bfgik7mv4qtrwz3jehcyd",
     "tool_call_id": "tcl_5n6a2bfgik7mv4qtrwz3jehcyd",
     "agent_id": "agt_5n6a2bfgik7mv4qtrwz3jehcyd",
+    "agent_profile_id": null,
     "state": "awaiting_permission",
     "interaction_update": {
       "id": "int_5n6a2bfgik7mv4qtrwz3jehcyd",

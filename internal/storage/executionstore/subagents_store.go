@@ -835,18 +835,39 @@ func (s *Store) ListSubagents(
 	return listChildAgentsTx(ctx, s.q, projectID, parentAgentID, true)
 }
 
-func (s *Store) ListAgentDescendantIDs(
+type AgentDescendant struct {
+	ID             uuid.UUID
+	AgentProfileID uuid.UUID
+}
+
+func (s *Store) ListAgentDescendantIDs(ctx context.Context, projectID, agentID uuid.UUID) ([]uuid.UUID, error) {
+	descendants, err := s.ListAgentDescendants(ctx, projectID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]uuid.UUID, 0, len(descendants))
+	for _, agent := range descendants {
+		ids = append(ids, agent.ID)
+	}
+	return ids, nil
+}
+
+func (s *Store) ListAgentDescendants(
 	ctx context.Context,
 	projectID, agentID uuid.UUID,
-) ([]uuid.UUID, error) {
+) ([]AgentDescendant, error) {
 	if projectID == uuid.Nil || agentID == uuid.Nil {
 		return nil, errors.New("project and agent are required")
 	}
-	rows, err := s.q.ListAgentDescendantIDs(
-		ctx, dbsqlc.ListAgentDescendantIDsParams{ProjectID: projectID, AgentID: &agentID},
+	rows, err := s.q.ListAgentDescendants(
+		ctx, dbsqlc.ListAgentDescendantsParams{ProjectID: projectID, AgentID: &agentID},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list agent descendants: %w", err)
 	}
-	return rows, nil
+	out := make([]AgentDescendant, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, AgentDescendant{ID: row.ID, AgentProfileID: storeutil.IDFromPtr(row.AgentProfileID)})
+	}
+	return out, nil
 }

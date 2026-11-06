@@ -185,7 +185,10 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 				update.Name, update.Input = call.Name, call.Input
 			}
 		}
-		data, err = publicevents.ToolCallUpdate(update)
+		data, err = publicevents.ToolCallUpdate(update, publicevents.AgentContext{
+			OrgID: endpoint.OrgID, ProjectID: endpoint.ProjectID,
+			AgentID: delivery.AgentID, AgentProfileID: endpoint.AgentProfileID,
+		})
 	}
 	if err != nil {
 		return err

@@ -14057,13 +14057,22 @@ components:
         for the current rows.
       type: object
       additionalProperties: false
-      required: [tool_call_id, state]
+      required: [org_id, project_id, agent_id, agent_profile_id, tool_call_id, state]
       properties:
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
         tool_call_id:
           $ref: '#/components/schemas/ToolCallID'
         agent_id:
           description: The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
           $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
         state:
           $ref: '#/components/schemas/ToolCallState'
         name:
@@ -14146,7 +14155,7 @@ components:
     AgentInputEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, agent_input_id, input_kind, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, agent_input_id, input_kind, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -14156,6 +14165,11 @@ components:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
           $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
         turn_sequence:
@@ -14195,7 +14209,7 @@ components:
     ModelOutputEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -14205,6 +14219,11 @@ components:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
           $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
         turn_sequence:
@@ -14242,7 +14261,7 @@ components:
     ToolResultEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, tool_call_id, outcome, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, tool_call_id, outcome, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -14252,6 +14271,11 @@ components:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
           $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
         turn_sequence:
@@ -14278,7 +14302,7 @@ components:
     ContextCheckpointEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, context_checkpoint_id, summarized_through_event_sequence, summary, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, context_checkpoint_id, summarized_through_event_sequence, summary, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -14288,6 +14312,11 @@ components:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
           $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
         turn_sequence:

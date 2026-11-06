@@ -10,6 +10,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
 	openapispec "github.com/omnara-ai/omnara/api/openapi"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
@@ -21,11 +22,13 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 	for _, kind := range []string{"agent_input", "model_output", "tool_result", "context_checkpoint", "tool_call_update"} {
 		t.Run(kind, func(t *testing.T) {
 			sender, store, delivery := testSender()
+			store.endpoint.AgentProfileID = uuid.New()
 			if kind != "tool_call_update" {
 				store.record = executionstore.AgentEventReadRecord{
-					ID: uuid.New(), OrgID: uuid.New(), ProjectID: store.endpoint.ProjectID,
-					AgentID: delivery.AgentID,
-					TurnID:  uuid.New(), TurnSequence: 1, Sequence: 17, EventKind: kind,
+					ID: uuid.New(), OrgID: store.endpoint.OrgID, ProjectID: store.endpoint.ProjectID,
+					AgentProfileID: store.endpoint.AgentProfileID,
+					AgentID:        delivery.AgentID,
+					TurnID:         uuid.New(), TurnSequence: 1, Sequence: 17, EventKind: kind,
 					AgentInputID: uuid.New(), InputKind: "content",
 					ModelCallContextID: uuid.New(), ModelStopReason: "end_turn",
 					ToolCallID: uuid.New(), ToolOutcome: "succeeded",
@@ -47,6 +50,21 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 				require.NoError(t, json.NewDecoder(req.Body).Decode(&payload))
 				require.Equal(t, kind, payload["event"])
 				require.NoError(t, schema.VisitJSON(payload))
+				data, ok := payload["data"].(map[string]any)
+				require.True(t, ok)
+				for key, expected := range map[string]struct {
+					kind publicid.Kind
+					id   uuid.UUID
+				}{
+					"org_id":           {publicid.KindOrganization, store.endpoint.OrgID},
+					"project_id":       {publicid.KindProject, store.endpoint.ProjectID},
+					"agent_id":         {publicid.KindAgent, delivery.AgentID},
+					"agent_profile_id": {publicid.KindAgentProfile, store.endpoint.AgentProfileID},
+				} {
+					encoded, err := publicid.Encode(expected.kind, expected.id)
+					require.NoError(t, err)
+					require.Equal(t, encoded, data[key], key)
+				}
 				if kind == "tool_call_update" {
 					data, ok := payload["data"].(map[string]any)
 					require.True(t, ok)

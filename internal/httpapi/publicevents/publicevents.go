@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/google/uuid"
+	"github.com/oapi-codegen/nullable"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -45,15 +46,19 @@ func EventFromReadRecord(record executionstore.AgentEventReadRecord) (openapi.Ag
 	if err != nil {
 		return openapi.AgentEvent{}, err
 	}
+	profileID, err := nullableProfileID(record.AgentProfileID)
+	if err != nil {
+		return openapi.AgentEvent{}, err
+	}
 	switch record.EventKind {
 	case "agent_input":
-		return publicAgentInputEvent(record, id, orgID, projectID, agentID, turnID)
+		return publicAgentInputEvent(record, id, orgID, projectID, agentID, turnID, profileID)
 	case "model_output":
-		return publicModelOutputEvent(record, id, orgID, projectID, agentID, turnID)
+		return publicModelOutputEvent(record, id, orgID, projectID, agentID, turnID, profileID)
 	case "tool_result":
-		return publicToolResultEvent(record, id, orgID, projectID, agentID, turnID)
+		return publicToolResultEvent(record, id, orgID, projectID, agentID, turnID, profileID)
 	case "context_checkpoint":
-		return publicContextCheckpointEvent(record, id, orgID, projectID, agentID, turnID)
+		return publicContextCheckpointEvent(record, id, orgID, projectID, agentID, turnID, profileID)
 	default:
 		return openapi.AgentEvent{}, fmt.Errorf("unsupported agent event kind %q", record.EventKind)
 	}
@@ -62,6 +67,7 @@ func EventFromReadRecord(record executionstore.AgentEventReadRecord) (openapi.Ag
 func publicContextCheckpointEvent(
 	record executionstore.AgentEventReadRecord,
 	id, orgID, projectID, agentID, turnID string,
+	profileID nullable.Nullable[openapi.AgentProfileID],
 ) (openapi.AgentEvent, error) {
 	if record.IsOpeningEvent {
 		return openapi.AgentEvent{}, errors.New("context checkpoint cannot open a turn")
@@ -74,6 +80,7 @@ func publicContextCheckpointEvent(
 		return openapi.AgentEvent{}, err
 	}
 	event := openapi.ContextCheckpointEvent{
+		AgentProfileId:                 profileID,
 		Id:                             id,
 		OrgId:                          orgID,
 		ProjectId:                      projectID,
@@ -97,6 +104,7 @@ func publicContextCheckpointEvent(
 func publicAgentInputEvent(
 	record executionstore.AgentEventReadRecord,
 	id, orgID, projectID, agentID, turnID string,
+	profileID nullable.Nullable[openapi.AgentProfileID],
 ) (openapi.AgentEvent, error) {
 	agentInputID, err := publicID(publicid.KindAgentInput, record.AgentInputID)
 	if err != nil {
@@ -111,6 +119,7 @@ func publicAgentInputEvent(
 		return openapi.AgentEvent{}, err
 	}
 	event := openapi.AgentInputEvent{
+		AgentProfileId: profileID,
 		Id:             id,
 		OrgId:          orgID,
 		ProjectId:      projectID,
@@ -165,6 +174,7 @@ func publicAgentInputEvent(
 func publicModelOutputEvent(
 	record executionstore.AgentEventReadRecord,
 	id, orgID, projectID, agentID, turnID string,
+	profileID nullable.Nullable[openapi.AgentProfileID],
 ) (openapi.AgentEvent, error) {
 	if record.IsOpeningEvent {
 		return openapi.AgentEvent{}, errors.New("model output cannot open a turn")
@@ -188,6 +198,7 @@ func publicModelOutputEvent(
 		return openapi.AgentEvent{}, err
 	}
 	event := openapi.ModelOutputEvent{
+		AgentProfileId:     profileID,
 		Id:                 id,
 		OrgId:              orgID,
 		ProjectId:          projectID,
@@ -219,6 +230,7 @@ func publicModelOutputEvent(
 func publicToolResultEvent(
 	record executionstore.AgentEventReadRecord,
 	id, orgID, projectID, agentID, turnID string,
+	profileID nullable.Nullable[openapi.AgentProfileID],
 ) (openapi.AgentEvent, error) {
 	if record.IsOpeningEvent {
 		return openapi.AgentEvent{}, errors.New("tool result cannot open a turn")
@@ -236,6 +248,7 @@ func publicToolResultEvent(
 		return openapi.AgentEvent{}, err
 	}
 	event := openapi.ToolResultEvent{
+		AgentProfileId: profileID,
 		Id:             id,
 		OrgId:          orgID,
 		ProjectId:      projectID,
@@ -789,7 +802,27 @@ func publicJSONValue(
 	return json.RawMessage(bytes.Clone(trimmed)), nil
 }
 
-func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted) (openapi.ToolCallUpdate, error) {
+// AgentContext is the immutable identity of the emitting agent. It is supplied
+// by the authenticated stream subscription or the webhook's agent lookup.
+type AgentContext struct {
+	OrgID          uuid.UUID
+	ProjectID      uuid.UUID
+	AgentID        uuid.UUID
+	AgentProfileID uuid.UUID
+}
+
+func nullableProfileID(id uuid.UUID) (nullable.Nullable[openapi.AgentProfileID], error) {
+	if id == uuid.Nil {
+		return nullable.NewNullNullable[openapi.AgentProfileID](), nil
+	}
+	encoded, err := publicID(publicid.KindAgentProfile, id)
+	if err != nil {
+		return nil, err
+	}
+	return nullable.NewNullableWithValue(encoded), nil
+}
+
+func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted, agent AgentContext) (openapi.ToolCallUpdate, error) {
 	state := openapi.ToolCallState(update.State)
 	if !state.Valid() {
 		return openapi.ToolCallUpdate{}, fmt.Errorf("invalid tool call state %q", update.State)
@@ -802,7 +835,23 @@ func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted) (openapi.Tool
 	if err != nil {
 		return openapi.ToolCallUpdate{}, err
 	}
-	response := openapi.ToolCallUpdate{ToolCallId: toolCallID, AgentId: &agentID, State: state}
+	if update.AgentID != agent.AgentID {
+		return openapi.ToolCallUpdate{}, errors.New("tool call update agent does not match routing context")
+	}
+	orgID, err := publicID(publicid.KindOrganization, agent.OrgID)
+	if err != nil {
+		return openapi.ToolCallUpdate{}, err
+	}
+	projectID, err := publicID(publicid.KindProject, agent.ProjectID)
+	if err != nil {
+		return openapi.ToolCallUpdate{}, err
+	}
+	profileID, err := nullableProfileID(agent.AgentProfileID)
+	if err != nil {
+		return openapi.ToolCallUpdate{}, err
+	}
+	response := openapi.ToolCallUpdate{ToolCallId: toolCallID, AgentId: agentID, State: state,
+		OrgId: orgID, ProjectId: projectID, AgentProfileId: profileID}
 	if state == openapi.ToolCallStateReady && update.Name != "" {
 		response.Name = &update.Name
 		response.Input = notifications.ToolCallUpdateInput(update.Input)

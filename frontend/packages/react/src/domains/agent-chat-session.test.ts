@@ -101,7 +101,14 @@ describe('AgentChatSession input lifecycle', () => {
 
     stream.push({
       event: 'tool_call_update',
-      data: { tool_call_id: 'tcl_123', state: 'ready' },
+      data: {
+        org_id: 'org',
+        project_id: 'project',
+        agent_id: 'agent',
+        agent_profile_id: null,
+        tool_call_id: 'tcl_123',
+        state: 'ready',
+      },
     })
     stream.push({ event: 'agent_input', data: userInputEvent() })
 
