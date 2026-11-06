@@ -42,14 +42,14 @@ that profile. `OMNARA_API_URL` optionally overrides `https://api.omnara.com/v1`;
 The receiver verifies the original request bytes, signature, and timestamp,
 then validates with `zEventWebhookPayload`, passes `tool_call_update` payloads
 to `worker.handle`, and acknowledges right away. The worker runs `ready` calls
-to the tools it registers and ignores everything else. It fetches each call
-first and skips any that are no longer ready.
+to the tools it registers, stops a running tool when its call completes, and
+ignores everything else. It fetches each call first and skips any that are no
+longer ready.
 
 The worker submits the tool's result, retrying network errors and `408`,
-`429`, and `5xx` responses. If the tool throws, it submits a `failed` result with the
-error message. A `409` with code `tool_call_already_completed` means another
-worker already submitted a result, so it counts as done. Other errors go to
-`onError`.
+`429`, and `5xx` responses. If the tool throws, it submits a `failed` result
+with the error message. A `409` with code `tool_call_already_completed` means
+the call already finished, so it counts as done. Other errors go to `onError`.
 
 `worker.run()` lists ready calls at startup and every minute, so a call still
 runs if its webhook was missed or the receiver was down. That can repeat a
