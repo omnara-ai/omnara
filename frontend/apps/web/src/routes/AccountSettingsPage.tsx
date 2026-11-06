@@ -22,7 +22,7 @@ export function AccountSettingsPage() {
     // Carry onboarding's return_to (e.g. a CLI device approval) back so it can finish there.
     const returnTo = safeReturnTo(new URLSearchParams(window.location.search).get('return_to'))
     return (
-      <div className="flex min-h-[var(--app-height,100svh)] flex-col items-center gap-8 p-6 sm:pt-12">
+      <div className="flex min-h-svh flex-col items-center gap-8 p-6 sm:pt-12">
         <Link
           to="/onboarding"
           search={returnTo === '/' ? {} : { return_to: returnTo }}

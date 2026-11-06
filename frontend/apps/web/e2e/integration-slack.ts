@@ -2,6 +2,7 @@ import { schemas } from '@omnara/sdk'
 import { type BrowserContext, expect, type Page } from '@playwright/test'
 
 import {
+  expectClearOfAssistantLauncher,
   expectIntegrationCapabilities,
   expectSlackAuthorization,
   installIntegrationFailureTracking,
@@ -67,7 +68,8 @@ export async function exerciseSlackIntegrationSetup(
       response.request().method() === 'POST',
   )
   const created = integrationCreation(page)
-  await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
+  await expectClearOfAssistantLauncher(page, connect, [390, 768])
+  await connect.click()
   const creation = await created
   expect(creation.status()).toBe(201)
   const integration = schemas.zIntegration.parse(await creation.json())
@@ -122,6 +124,7 @@ export async function exerciseSlackIntegrationSetup(
       result.request().method() === 'PUT' &&
       new URL(result.url()).pathname === `${projectPath}/integrations/${integration.id}`,
   )
+  await expectClearOfAssistantLauncher(page, save, [390, 768])
   await save.click()
   const saved = await savedSettings
   expect(saved.status()).toBe(200)

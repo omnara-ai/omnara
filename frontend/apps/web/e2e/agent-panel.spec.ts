@@ -1,7 +1,35 @@
 import { schemas, zJsonText } from '@omnara/sdk'
-import { expect, type Request, test } from '@playwright/test'
+import { expect, type Locator, type Page, type Request, test } from '@playwright/test'
 
-import { installFailureTracking, requiredEnvironmentVariable, signIn } from './helpers'
+import {
+  expectClearOfAssistantLauncher,
+  installFailureTracking,
+  requiredEnvironmentVariable,
+  signIn,
+} from './helpers'
+
+const desktop = { width: 1280, height: 720 }
+const mobile = { width: 390, height: 844 }
+
+async function box(locator: Locator) {
+  const rect = await locator.boundingBox()
+  if (!rect) throw new Error('Element is not rendered')
+  return rect
+}
+
+/** The launcher floats in the corner without shrinking the app or covering the page's action. */
+async function expectFloatingLauncher(page: Page, action: Locator) {
+  for (const viewport of [desktop, mobile]) {
+    await page.setViewportSize(viewport)
+    await expectClearOfAssistantLauncher(page, action)
+    const shell = await box(page.locator('[data-slot="sidebar-inset"]'))
+    const launcher = await box(page.getByRole('button', { name: 'Assistant', exact: true }))
+    expect(shell.height).toBe(viewport.height)
+    expect(launcher.width).toBeLessThanOrEqual(48)
+    expect(viewport.width - launcher.x - launcher.width).toBeLessThanOrEqual(24)
+  }
+  await page.setViewportSize(desktop)
+}
 
 test('creates a personal assistant and keeps its conversation across organizations and account pages', async ({
   page,
@@ -73,14 +101,27 @@ test('creates a personal assistant and keeps its conversation across organizatio
   await expect(panel.getByText('Omnara assistant', { exact: true })).toBeVisible()
   await expect(panel.getByText('Keep this draft', { exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('assistant-desktop.png') })
-  await page.setViewportSize({ width: 390, height: 844 })
+  await page.setViewportSize(mobile)
   await expect(panel).toBeInViewport()
   await expect(composer).toBeInViewport()
   await page.screenshot({ path: testInfo.outputPath('assistant-mobile.png') })
-  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.setViewportSize(desktop)
   await panel.getByRole('button', { name: 'Open agent', exact: true }).click()
   await expect(page).toHaveURL(`/projects/${projectID}/agents/${created.agent_id}/chat`)
   await expect(page.getByRole('button', { name: orgName })).toBeVisible()
+  await expectFloatingLauncher(page, page.getByRole('button', { name: 'Send message' }))
+  await page.goto(`/projects/${projectID}/agents/new`)
+  await expectFloatingLauncher(page, page.getByRole('button', { name: 'Create & launch agent' }))
+  // A short viewport puts the last action of a scrolling page or pane at its scroll end.
+  await page.setViewportSize({ width: desktop.width, height: 360 })
+  await page.goto(`/projects/${projectID}/agents/${created.agent_id}/events`)
+  const addSchedule = page.getByRole('button', { name: 'Add', exact: true })
+  await expectClearOfAssistantLauncher(page, addSchedule, [768, desktop.width])
+  await page.setViewportSize({ width: desktop.width, height: 200 })
+  await page.goto('/user/api-tokens')
+  const lastTokenActions = page.getByRole('button', { name: /^Actions for / }).last()
+  await expectClearOfAssistantLauncher(page, lastTokenActions, [mobile.width, 768, desktop.width])
+  await page.setViewportSize(desktop)
   const consentPanel = page.waitForResponse((response) =>
     response.url().endsWith('/me/agent-panel'),
   )

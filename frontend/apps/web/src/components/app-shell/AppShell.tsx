@@ -56,7 +56,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [scrolled, setScrolled] = useState(false)
 
   return (
-    <SidebarProvider className="h-[var(--app-height,100svh)] min-h-0" keyboardShortcut={false}>
+    <SidebarProvider className="h-svh" keyboardShortcut={false}>
       <AppSidebar>
         <SidebarHeader className="h-12 shrink-0 justify-center border-b py-0">
           <OrgSwitcher />
@@ -101,7 +101,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <BreadcrumbSlotContext value={breadcrumbSlot}>
           <div
-            className="relative min-h-0 flex-1 overflow-auto p-4 pt-6 sm:p-6 sm:pt-9"
+            className="floating-launcher:not-has-[.pinned-actions]:pb-20 relative min-h-0 flex-1 overflow-auto p-4 pt-6 sm:p-6 sm:pt-9"
             onScroll={(event) => {
               setScrolled(event.currentTarget.scrollTop > 0)
             }}

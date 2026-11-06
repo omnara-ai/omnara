@@ -15,7 +15,7 @@ import {
   readIntegration,
   requiredEnvironmentVariable,
 } from './fixtures'
-import { signIn, signInThroughLoginForm } from './helpers'
+import { expectClearOfAssistantLauncher, signIn, signInThroughLoginForm } from './helpers'
 import { exerciseGuidedGitHubSetup } from './integration-github'
 import { exerciseDiscordIntegrationSchedule } from './integration-schedules'
 import { exerciseSlackIntegrationSetup } from './integration-slack'
@@ -466,6 +466,11 @@ test('deletes a profile from its detail page', async ({ page }) => {
   ])
   const profileName = uniqueName('Deleted Profile E2E')
   await createProfile(page, profileName, 'Delete this profile from its detail page.')
+  await page.getByLabel('Instruction').fill('Edited before deletion.')
+  for (const name of ['Discard changes', 'Delete profile', 'Save revision']) {
+    const action = page.getByRole('button', { name, exact: true })
+    await expectClearOfAssistantLauncher(page, action, [390, 768])
+  }
 
   page.once('dialog', (dialog) => void dialog.accept())
   const profilesListed = page.waitForResponse(

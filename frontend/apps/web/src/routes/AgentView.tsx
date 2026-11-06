@@ -309,7 +309,12 @@ function AgentDock({
 }) {
   const composerHidden = !composer || configOpen
   return (
-    <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3">
+    <div
+      className={cn(
+        'mx-auto grid w-full max-w-3xl shrink-0 gap-3 pt-3',
+        !configOpen && 'pinned-actions',
+      )}
+    >
       {!archived && !configOpen && (
         <AgentInteractions
           orgID={orgID}

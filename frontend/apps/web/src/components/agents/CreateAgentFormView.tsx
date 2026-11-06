@@ -86,7 +86,7 @@ export function CreateAgentFormView({
     >
       {/* Negative margins offset the page padding so the scroll region and the pinned bar reach the pane edges. */}
       <div className="surface-page relative z-10 -mx-4 -mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-bl-xl px-4 pt-6 sm:-mx-6 sm:-mt-9 sm:px-6 sm:pt-9">
-        <div className="flex min-h-full w-full flex-col gap-6 pb-6">
+        <div className="before-pinned-actions:floating-launcher:pb-20 flex min-h-full w-full flex-col gap-6 pb-6">
           <PageBreadcrumb
             items={[
               {

@@ -3,10 +3,10 @@ import type { AgentPanel as Panel } from '@omnara/sdk'
 import { CatchBoundary, useParams, useRouterState } from '@tanstack/react-router'
 import { lazy, type ReactNode, Suspense, useContext, useEffect, useRef, useState } from 'react'
 
-import { Bot } from '@/components/icons'
+import { ChevronDown, MessageCircleQuestion } from '@/components/icons'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ActiveOrgContext } from '@/lib/active-org-context'
-import type { CssVariables } from '@/lib/css'
 import { containFileDrop } from '@/lib/file-drop-guard'
 
 import { AgentPanelBootstrap } from './AgentPanelBootstrap'
@@ -40,90 +40,101 @@ export function AgentPanel({ children }: { children: ReactNode }) {
   }
   const showLauncher = !consentPage && (panel?.enabled ?? query.isError)
   const visible = expanded && showLauncher
-  const style: CssVariables = {
-    '--app-height': showLauncher ? 'calc(100svh - 3rem)' : '100svh',
-  }
 
   useEffect(() => {
     if (visible) surface.current?.focus()
   }, [visible])
 
   return (
-    <div className="h-svh" style={style}>
-      <div className="h-(--app-height) overflow-auto">{children}</div>
-      {showLauncher && (
-        <div className="bg-background flex h-12 items-center justify-end border-t px-4">
-          <Button
-            ref={launcher}
-            className="rounded-full shadow-sm"
-            aria-expanded={visible}
-            aria-controls="agent-panel"
-            onClick={() => {
-              setOpened(true)
-              setExpanded((value) => !value)
-            }}
-          >
-            <Bot className="size-4" />
-            Assistant
-          </Button>
-        </div>
-      )}
-      {/* A nonmodal dialog handles Escape without trapping focus. */}
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
-      <dialog
-        open={visible}
-        ref={surface}
-        tabIndex={-1}
-        id="agent-panel"
-        aria-label="Assistant"
-        onDragOver={containFileDrop}
-        onDrop={containFileDrop}
-        className={
-          visible
-            ? 'bg-background fixed top-auto right-3 bottom-14 left-auto z-50 m-0 flex h-[min(640px,75dvh,calc(100dvh-5rem))] w-[min(440px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border p-0 shadow-xl'
-            : 'hidden'
-        }
-        onKeyDown={(event) => {
-          if (event.key === 'Escape' && !event.defaultPrevented) {
-            event.preventDefault()
-            close()
+    <>
+      {children}
+      {/* Floats over the page, above any pinned page actions, without reserving layout space. */}
+      <div className="above-pinned-actions pointer-events-none fixed top-3 right-3 z-40 flex flex-col items-end justify-end gap-3 *:pointer-events-auto sm:top-16 sm:right-4">
+        {/* A nonmodal dialog handles Escape without trapping focus. */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+        <dialog
+          open={visible}
+          ref={surface}
+          tabIndex={-1}
+          id="agent-panel"
+          aria-label="Assistant"
+          onDragOver={containFileDrop}
+          onDrop={containFileDrop}
+          className={
+            visible
+              ? 'bg-background animate-in fade-in-0 zoom-in-95 static m-0 flex max-h-[40rem] min-h-0 w-[calc(100vw-1.5rem)] flex-1 origin-bottom-right flex-col overflow-hidden rounded-2xl border p-0 shadow-xl duration-[var(--duration-panel)] motion-reduce:animate-none sm:w-[27.5rem]'
+              : 'hidden'
           }
-        }}
-      >
-        <AgentPanelHeader
-          selection={selection}
-          settings={settings}
-          onClose={close}
-          onSettings={() => {
-            setSettings((value) => !value)
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && !event.defaultPrevented) {
+              event.preventDefault()
+              close()
+            }
           }}
-        />
-        {query.isPending && <p className="text-muted-foreground p-4 text-sm">Loading assistant…</p>}
-        {panel == null && query.error != null && (
-          <div className="p-4">
-            <p role="alert" className="text-destructive text-sm">
-              Could not load your assistant.
-            </p>
-            <Button variant="outline" onClick={() => void query.refetch()}>
-              Try again
-            </Button>
-          </div>
-        )}
-        {panel != null && (
-          <PanelContents
-            panel={panel}
-            opened={opened}
-            visible={visible}
+        >
+          <AgentPanelHeader
+            selection={selection}
             settings={settings}
-            allowSetup={!consentPage}
-            onConnected={() => {
-              setSettings(false)
-            }}
             onClose={close}
+            onSettings={() => {
+              setSettings((value) => !value)
+            }}
           />
+          {query.isPending && (
+            <p className="text-muted-foreground p-4 text-sm">Loading assistant…</p>
+          )}
+          {panel == null && query.error != null && (
+            <div className="p-4">
+              <p role="alert" className="text-destructive text-sm">
+                Could not load your assistant.
+              </p>
+              <Button variant="outline" onClick={() => void query.refetch()}>
+                Try again
+              </Button>
+            </div>
+          )}
+          {panel != null && (
+            <PanelContents
+              panel={panel}
+              opened={opened}
+              visible={visible}
+              settings={settings}
+              allowSetup={!consentPage}
+              onConnected={() => {
+                setSettings(false)
+              }}
+              onClose={close}
+            />
+          )}
+        </dialog>
+        {showLauncher && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                ref={launcher}
+                data-floating-launcher
+                size="icon"
+                className="size-11 rounded-full shadow-lg"
+                aria-expanded={visible}
+                aria-controls="agent-panel"
+                onClick={() => {
+                  setOpened(true)
+                  setExpanded((value) => !value)
+                }}
+              >
+                {visible ? (
+                  <ChevronDown className="size-5" />
+                ) : (
+                  <MessageCircleQuestion className="size-5" />
+                )}
+                <span className="sr-only">Assistant</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Assistant</TooltipContent>
+          </Tooltip>
         )}
-      </dialog>
-    </div>
+      </div>
+    </>
   )
 }
 

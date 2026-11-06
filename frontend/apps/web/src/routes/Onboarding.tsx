@@ -55,7 +55,7 @@ export function Onboarding() {
   }
 
   return (
-    <div className="flex min-h-[var(--app-height,100svh)] flex-col items-center justify-center gap-8 p-6">
+    <div className="flex min-h-svh flex-col items-center justify-center gap-8 p-6">
       <div className="type-card-title flex items-center gap-2 text-base">
         <BrandMark />
         Omnara

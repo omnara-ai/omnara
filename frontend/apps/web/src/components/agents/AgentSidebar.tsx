@@ -73,7 +73,7 @@ export function AgentSidebar({
   return (
     <>
       <Sidebar side="right" collapsible="offcanvas">
-        <SidebarContent className="px-3 pt-4">
+        <SidebarContent className="floating-launcher:pb-20 px-3 pt-4">
           <SidebarGroup>
             <SidebarGroupContent>
               <DetailList
