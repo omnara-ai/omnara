@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
+import { Field, FieldError, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { resourceNameValid } from '@/lib/resource-name'
@@ -21,12 +21,14 @@ export function NewSecretDialog({
   orgId,
   projectId,
   defaultName = '',
+  valueError,
   onClose,
   onCreated,
 }: {
   orgId: string
   projectId?: string
   defaultName?: string
+  valueError?: (value: string) => string | undefined
   onClose: () => void
   onCreated: (secret: Secret) => void
 }) {
@@ -35,7 +37,8 @@ export function NewSecretDialog({
   const [name, setName] = useState(defaultName)
   const [value, setValue] = useState('')
   const [error, setError] = useState('')
-  const valid = resourceNameValid(name) && value !== ''
+  const valueMessage = value === '' ? undefined : valueError?.(value)
+  const valid = resourceNameValid(name) && value !== '' && valueMessage === undefined
   const owner: SecretOwnerInput =
     projectId === undefined ? { kind: 'org' } : { kind: 'project', project_id: projectId }
 
@@ -101,6 +104,7 @@ export function NewSecretDialog({
                   setValue(event.target.value)
                 }}
               />
+              {valueMessage && <FieldError>{valueMessage}</FieldError>}
             </Field>
             {error && <p className="text-destructive text-sm">{error}</p>}
             <DialogFooter>
