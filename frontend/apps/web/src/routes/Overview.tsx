@@ -3,11 +3,10 @@ import type { OrgOverviewResponse } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import type { Blob } from '@/components/aurora/aurora'
-import { DitherBackdrop } from '@/components/aurora/DitherBackdrop'
 import { ArrowRight } from '@/components/icons'
 import { AgentOnboarding } from '@/components/overview/AgentOnboarding'
 import { panelHintClass } from '@/components/overview/CodeBlock'
+import { OverviewBackdrop } from '@/components/overview/OverviewBackdrop'
 import { OverviewSummary } from '@/components/overview/OverviewSummary'
 import { UsageOverview } from '@/components/overview/UsageOverview'
 import { Button } from '@/components/ui/button'
@@ -16,12 +15,6 @@ import { canManageOrg } from '@/lib/permissions'
 import { errorMessage } from '@/lib/submit-status'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { cn } from '@/lib/utils'
-
-/** The landing hero's blobs, larger and lower so they sit behind the onboarding content. */
-const onboardingBlobs: Blob[] = [
-  { cx: 0.2, cy: 0.4, ax: 0.14, ay: 0.14, wx: 0.31, wy: 0.23, r: 0.4, peak: 0.6 },
-  { cx: 0.84, cy: 0.44, ax: 0.12, ay: 0.12, wx: 0.19, wy: 0.29, r: 0.35, peak: 0.4 },
-]
 
 export function Overview() {
   const { activeOrg } = useActiveOrg()
@@ -32,26 +25,21 @@ export function Overview() {
     <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-12">
       {overviewQuery.isPending ? (
         <Skeleton className="h-28 rounded-xl" />
-      ) : onboarding ? (
-        <>
-          <DitherBackdrop
-            className="absolute inset-x-0 top-0 h-[760px] sm:h-[900px]"
-            blobs={onboardingBlobs}
-          />
-          <div
-            data-transparent-header
-            className="relative flex min-h-0 flex-1 justify-center pt-20 pb-8 sm:pt-24 sm:pb-12"
-          >
+      ) : onboarding || overviewQuery.data ? (
+        <OverviewBackdrop>
+          {onboarding ? (
             <AgentOnboarding
               key={onboarding.key}
               orgId={activeOrg.id}
               project={onboarding.project}
               onAgentLaunched={onboarding.finish}
             />
-          </div>
-        </>
-      ) : overviewQuery.data ? (
-        <OverviewContent orgId={activeOrg.id} overview={overviewQuery.data} />
+          ) : (
+            overviewQuery.data && (
+              <OverviewContent orgId={activeOrg.id} overview={overviewQuery.data} />
+            )
+          )}
+        </OverviewBackdrop>
       ) : (
         <OverviewError
           error={overviewQuery.error}
@@ -90,7 +78,7 @@ function useOverviewOnboarding(orgId: string, overview: OrgOverviewResponse | un
 function OverviewContent({ orgId, overview }: { orgId: string; overview: OrgOverviewResponse }) {
   const { activeOrg } = useActiveOrg()
   return (
-    <>
+    <div className="flex w-full min-w-0 flex-col gap-14 sm:gap-16">
       <OverviewSummary overview={overview} />
       <UsageOverview
         orgId={orgId}
@@ -103,7 +91,7 @@ function OverviewContent({ orgId, overview }: { orgId: string; overview: OrgOver
           )
         }
       />
-    </>
+    </div>
   )
 }
 

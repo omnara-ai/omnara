@@ -27,6 +27,8 @@ import { MachinePoolProviderLogo } from '@/components/org/MachinePoolProviderLog
 import { formatPoolMachines } from '@/components/overview/machinePoolFormat'
 import { MachinePreviewList } from '@/components/overview/MachinePreviewList'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
+import { ConnectMachineButton } from '@/components/projects/ConnectMachineButton'
+import { CreateMachinePoolButton } from '@/components/projects/CreateMachinePoolButton'
 import { EditMachinePoolGrantDialog } from '@/components/projects/EditMachinePoolGrantDialog'
 import { poolGrantOverrides } from '@/components/projects/grant-override-diffs'
 import { GrantMachineButton } from '@/components/projects/GrantMachineButton'
@@ -84,8 +86,8 @@ export function ProjectMachinesView({
           />
         }
       >
-        <GrantMachineButton />
         <GrantMachinePoolButton />
+        <CreateMachinePoolButton />
       </SearchHeader>
       {!list.isFiltering && <ProjectByoCard orgId={orgId} projectId={projectId} />}
       <AgentCardList
@@ -120,7 +122,7 @@ export function ProjectMachinesView({
         }}
         emptyMessage={
           canManageGrants
-            ? 'No shared machine pools. Share a pool so agents in this project can run.'
+            ? 'No shared machine pools. Create or share a pool so agents in this project can run.'
             : 'No machine pools are shared with this project yet.'
         }
         emptyAction={<GrantMachinePoolButton />}
@@ -338,7 +340,7 @@ function ProjectByoCard({ orgId, projectId }: { orgId: string; projectId: string
         </Link>
       }
       subtitle={<span className="truncate">Individual machines shared with this project</span>}
-      meta={null}
+      meta={<ConnectMachineButton inRow />}
       stats={
         <AgentCardStatToggle
           icon={Server}

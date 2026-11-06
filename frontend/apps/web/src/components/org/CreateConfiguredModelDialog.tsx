@@ -10,12 +10,14 @@ export function CreateConfiguredModelDialog({
   orgId,
   providers,
   defaultProviderId,
+  defaultProjectIds,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orgId: string
   providers: ModelProviderConfig[]
   defaultProviderId?: string
+  defaultProjectIds?: string[]
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -24,6 +26,7 @@ export function CreateConfiguredModelDialog({
           orgId={orgId}
           providers={providers}
           defaultProviderId={defaultProviderId}
+          defaultProjectIds={defaultProjectIds}
           onDone={() => {
             onOpenChange(false)
           }}

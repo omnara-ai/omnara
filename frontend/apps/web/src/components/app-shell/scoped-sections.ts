@@ -8,7 +8,7 @@ const scopedSections = [
   'skills',
   'memory',
 ] as const
-type ScopedSection = (typeof scopedSections)[number]
+export type ScopedSection = (typeof scopedSections)[number]
 
 export const projectPaths = {
   agents: '/projects/$projectId/agents',

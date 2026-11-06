@@ -115,10 +115,13 @@ export function CreateModelProviderDialog({
   open,
   onOpenChange,
   orgId,
+  defaultProjectIds,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orgId: string
+  /** Projects the provider's first models are shared with unless deselected. */
+  defaultProjectIds?: string[]
 }) {
   const createModelProvider = useCreateModelProvider(orgId)
   const deleteModelProvider = useDeleteModelProvider(orgId)
@@ -295,6 +298,7 @@ export function CreateModelProviderDialog({
             orgId={orgId}
             providers={[phase.provider]}
             defaultProviderId={phase.provider.id}
+            defaultProjectIds={defaultProjectIds}
             dismissLabel="Skip for now"
             onDone={close}
             onEditProvider={() => backToProviderSettings(phase.provider.id)}

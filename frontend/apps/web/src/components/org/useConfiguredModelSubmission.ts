@@ -14,7 +14,11 @@ import {
  * Creating the picked models and sharing them with the chosen projects, keeping the
  * shares that failed so they can be retried without creating anything twice.
  */
-export function useConfiguredModelSubmission(orgId: string, onDone: () => void) {
+export function useConfiguredModelSubmission(
+  orgId: string,
+  onDone: () => void,
+  defaultProjectIds?: string[],
+) {
   const createConfiguredModel = useCreateConfiguredModel(orgId)
   const createProjectModelGrant = useCreateProjectModelGrant(orgId)
   const shares = useProjectShares(async ({ resourceId, projectId }) => {
@@ -22,7 +26,7 @@ export function useConfiguredModelSubmission(orgId: string, onDone: () => void) 
       projectID: projectId,
       configured_model_id: resourceId,
     })
-  })
+  }, defaultProjectIds)
   const [addedCount, setAddedCount] = useState(0)
   const [createError, setCreateError] = useState('')
   // Closing the dialog mid-request unmounts this view while the request runs on, so

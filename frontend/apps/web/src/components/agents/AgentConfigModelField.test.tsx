@@ -202,10 +202,12 @@ async function renderField(
   model: ConfiguredModelSummary,
   {
     reasoningEffort = '',
+    inheritedReasoningEffort,
     onChange = () => undefined,
     onUnavailableChange,
   }: {
     reasoningEffort?: string
+    inheritedReasoningEffort?: string
     onChange?: (selection: ModelSelection) => void
     onUnavailableChange?: (unavailable: boolean) => void
   } = {},
@@ -219,6 +221,8 @@ async function renderField(
           value={{ providerConfig: model.provider_config, modelName: model.name, reasoningEffort }}
           onChange={onChange}
           onUnavailableChange={onUnavailableChange}
+          inheritLabel={inheritedReasoningEffort === undefined ? undefined : 'Same as this agent'}
+          inheritedReasoningEffort={inheritedReasoningEffort}
         />
       </Providers>,
     )
@@ -300,4 +304,51 @@ it('blocks an effort the selected model does not support', async () => {
   expect(container.textContent).toContain('doesn’t support the “max” reasoning effort')
   expect(effortTrigger().getAttribute('aria-invalid')).toBe('true')
   expect(effortTrigger().disabled).toBe(false)
+})
+
+it('shows the inherited effort instead of the model default when none is set', async () => {
+  const onUnavailableChange = vi.fn()
+  await renderField(pricedModel, { inheritedReasoningEffort: 'high', onUnavailableChange })
+
+  await vi.waitFor(() => {
+    expect(effortTrigger().disabled).toBe(false)
+  })
+  expect(effortTrigger().textContent).toContain('High')
+  expect(effortTrigger().textContent).not.toContain('Default')
+  expect(onUnavailableChange).toHaveBeenLastCalledWith(false)
+})
+
+it('blocks an inherited effort the selected model does not support', async () => {
+  const onUnavailableChange = vi.fn()
+  await renderField(pricedModel, { inheritedReasoningEffort: 'max', onUnavailableChange })
+
+  await vi.waitFor(() => {
+    expect(onUnavailableChange).toHaveBeenLastCalledWith(true)
+  })
+  expect(container.textContent).toContain(
+    'doesn’t support the “max” reasoning effort this agent uses',
+  )
+  expect(effortTrigger().getAttribute('aria-invalid')).toBe('true')
+})
+
+it('blocks an inherited effort on a model without reasoning', async () => {
+  await renderField(unpricedModel, { inheritedReasoningEffort: 'high' })
+
+  await vi.waitFor(() => {
+    expect(container.textContent).toContain('doesn’t support reasoning, so it can’t use the “high”')
+  })
+})
+
+it('lets an explicit effort replace the inherited one', async () => {
+  const onUnavailableChange = vi.fn()
+  await renderField(pricedModel, {
+    reasoningEffort: 'low',
+    inheritedReasoningEffort: 'max',
+    onUnavailableChange,
+  })
+
+  await vi.waitFor(() => {
+    expect(effortTrigger().textContent).toContain('Low')
+  })
+  expect(onUnavailableChange).toHaveBeenLastCalledWith(false)
 })
