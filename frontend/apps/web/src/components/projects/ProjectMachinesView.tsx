@@ -87,7 +87,6 @@ export function ProjectMachinesView({
         }
       >
         <GrantMachinePoolButton />
-        <ConnectMachineButton variant="outline" />
         <CreateMachinePoolButton />
       </SearchHeader>
       {!list.isFiltering && <ProjectByoCard orgId={orgId} projectId={projectId} />}
@@ -341,7 +340,7 @@ function ProjectByoCard({ orgId, projectId }: { orgId: string; projectId: string
         </Link>
       }
       subtitle={<span className="truncate">Individual machines shared with this project</span>}
-      meta={null}
+      meta={<ConnectMachineButton inRow />}
       stats={
         <AgentCardStatToggle
           icon={Server}

@@ -5,6 +5,7 @@ import { type ReactNode, useId, useState } from 'react'
 
 import {
   AgentCard,
+  agentCardActionClass,
   AgentCardGlyph,
   agentCardLinkClass,
   AgentCardList,
@@ -48,7 +49,8 @@ export function MachinePoolsSection() {
   const connectButton = (
     <Button
       size="sm"
-      variant="outline"
+      variant="ghost"
+      className={agentCardActionClass}
       onClick={() => {
         setConnectOpen(true)
       }}
@@ -86,10 +88,9 @@ export function MachinePoolsSection() {
             />
           }
         >
-          {connectButton}
           {newPoolButton()}
         </SearchHeader>
-        <ByoMachinesCard orgId={activeOrg.id} emptyAction={connectButton} />
+        <ByoMachinesCard orgId={activeOrg.id} action={connectButton} />
         <AgentCardList
           items={paged.rows}
           getId={(pool) => pool.id}
@@ -223,7 +224,7 @@ export function PoolSubtitle({ pool }: { pool: MachinePool }) {
   )
 }
 
-function ByoMachinesCard({ orgId, emptyAction }: { orgId: string; emptyAction: ReactNode }) {
+function ByoMachinesCard({ orgId, action }: { orgId: string; action: ReactNode }) {
   // One small page: enough for the preview, and one extra row tells us whether there are more.
   const preview = useMachines(orgId, {
     filters: { source_kind: 'byo' },
@@ -244,7 +245,6 @@ function ByoMachinesCard({ orgId, emptyAction }: { orgId: string; emptyAction: R
         isPending={preview.isPending}
         isError={preview.isError}
         emptyMessage="No machines connected yet. Connect a machine you operate to run agents on it."
-        emptyAction={emptyAction}
         viewAll={
           hasMore && (
             <Link to="/machines/byo" className={agentCardMoreLinkClass}>
@@ -268,7 +268,12 @@ function ByoMachinesCard({ orgId, emptyAction }: { orgId: string; emptyAction: R
         </Link>
       }
       subtitle={<span className="truncate">Machines you connect and run yourself</span>}
-      meta={machines[0] && <AgentCardTime label="Updated" value={machines[0].updated_at} />}
+      meta={
+        <>
+          {machines[0] && <AgentCardTime label="Updated" value={machines[0].updated_at} />}
+          {action}
+        </>
+      }
       stats={
         <AgentCardStatToggle
           icon={Server}
