@@ -115,7 +115,7 @@ func TestProgramToolCallCLIPrintsStructuredResult(t *testing.T) {
 	require.NotEmpty(t, requests[0].Body.Key)
 }
 
-func TestProgramToolCallCLIWaitsForApprovalThenPrintsText(t *testing.T) {
+func TestProgramToolCallCLIWaitsForApprovalThenPrintsTextAsJSONString(t *testing.T) {
 	daemon := startFakeToolCallDaemon(t, func(n int, request fakeToolCallRequest) (int, http.Header, string) {
 		switch n {
 		case 0:
@@ -130,7 +130,7 @@ func TestProgramToolCallCLIWaitsForApprovalThenPrintsText(t *testing.T) {
 	})
 	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{Tool: "send_email"}, "")
 	require.Equal(t, ProgramToolCallExitSucceeded, code, stderr)
-	require.Equal(t, "hello\nworld\n", stdout)
+	require.Equal(t, `"hello\nworld"`+"\n", stdout)
 	require.Equal(t, "omnarad: waiting for approval of send_email in Omnara...\n", stderr,
 		"the approval notice is printed once")
 	requests := daemon.recorded()
@@ -141,6 +141,29 @@ func TestProgramToolCallCLIWaitsForApprovalThenPrintsText(t *testing.T) {
 		require.Equal(t, "/tool-calls/"+daemon.processID+"/tc_1", request.Path)
 		require.Equal(t, "25000", request.WaitMs)
 	}
+}
+
+func TestProgramToolCallCLIPrintsTextOutput(t *testing.T) {
+	startFakeToolCallDaemon(t, reply(http.StatusOK, `{"state":"completed","outcome":"succeeded",`+
+		`"content":[{"type":"text","text":"hello"},{"type":"text","text":"world\n"}]}`))
+	code, stdout, _ := runToolCallCLI(t, ProgramToolCallOptions{Tool: "fetch", Output: ProgramToolCallOutputText}, "")
+	require.Equal(t, ProgramToolCallExitSucceeded, code)
+	require.Equal(t, "hello\nworld\n", stdout)
+
+	startFakeToolCallDaemon(t, reply(http.StatusOK,
+		`{"state":"completed","outcome":"succeeded","structured":{"a":1}}`))
+	code, stdout, _ = runToolCallCLI(t, ProgramToolCallOptions{Tool: "list", Output: ProgramToolCallOutputText}, "")
+	require.Equal(t, ProgramToolCallExitSucceeded, code)
+	require.Equal(t, `{"a":1}`+"\n", stdout, "text output falls back to the result without text")
+}
+
+func TestProgramToolCallCLIRejectsUnknownOutput(t *testing.T) {
+	daemon := startFakeToolCallDaemon(t, reply(http.StatusOK, `{"state":"completed","outcome":"succeeded"}`))
+	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{Tool: "list", Output: "json"}, "")
+	require.Equal(t, ProgramToolCallExitUnavailable, code)
+	require.Empty(t, stdout)
+	require.Equal(t, "omnarad call: --output must be result, envelope or text\n", stderr)
+	require.Empty(t, daemon.recorded())
 }
 
 func TestProgramToolCallCLIPrintsContentWithoutText(t *testing.T) {
@@ -164,8 +187,9 @@ func TestProgramToolCallCLIReportsToolFailure(t *testing.T) {
 			require.Empty(t, stdout)
 			require.JSONEq(t, `{"outcome":"`+outcome+`","content":[{"type":"text","text":"nope"}]}`, stderr)
 
-			code, stdout, stderr = runToolCallCLI(t, ProgramToolCallOptions{Tool: "storage_read", JSON: true}, "")
-			require.Equal(t, ProgramToolCallExitToolFailed, code, "--json keeps the outcome's exit code")
+			code, stdout, stderr = runToolCallCLI(t,
+				ProgramToolCallOptions{Tool: "storage_read", Output: ProgramToolCallOutputEnvelope}, "")
+			require.Equal(t, ProgramToolCallExitToolFailed, code, "the envelope keeps the outcome's exit code")
 			require.JSONEq(t, envelope, stdout)
 			require.Empty(t, stderr)
 		})
@@ -175,7 +199,8 @@ func TestProgramToolCallCLIReportsToolFailure(t *testing.T) {
 func TestProgramToolCallCLIPrintsEnvelope(t *testing.T) {
 	envelope := `{"tool_call_id":"tc_1","state":"completed","outcome":"succeeded","structured":{"a":1}}`
 	startFakeToolCallDaemon(t, reply(http.StatusOK, envelope))
-	code, stdout, _ := runToolCallCLI(t, ProgramToolCallOptions{Tool: "storage_list", JSON: true}, "")
+	code, stdout, _ := runToolCallCLI(t,
+		ProgramToolCallOptions{Tool: "storage_list", Output: ProgramToolCallOutputEnvelope}, "")
 	require.Equal(t, ProgramToolCallExitSucceeded, code)
 	require.JSONEq(t, envelope, stdout)
 	require.True(t, strings.HasSuffix(stdout, "\n"))
@@ -186,7 +211,7 @@ func TestProgramToolCallCLIReadsInputFromStdin(t *testing.T) {
 	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{Tool: "storage_write", Input: "-"},
 		"{\n  \"path\": \"a.txt\",\n  \"content\": \"x\"\n}\n")
 	require.Equal(t, ProgramToolCallExitSucceeded, code, stderr)
-	require.Empty(t, stdout)
+	require.Equal(t, "null\n", stdout, "a result with no content is still one JSON value")
 	require.Equal(t, `{"path":"a.txt","content":"x"}`, string(daemon.recorded()[0].Body.Input))
 }
 
@@ -258,7 +283,7 @@ func TestProgramToolCallCLIRetriesWithTheSameKey(t *testing.T) {
 	started := time.Now()
 	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{Tool: "storage_list"}, "")
 	require.Equal(t, ProgramToolCallExitSucceeded, code, stderr)
-	require.Equal(t, "done\n", stdout)
+	require.Equal(t, `"done"`+"\n", stdout)
 	require.GreaterOrEqual(t, time.Since(started), time.Second, "Retry-After must be honored")
 	requests := daemon.recorded()
 	require.Len(t, requests, 5)
