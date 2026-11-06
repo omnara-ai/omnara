@@ -265,13 +265,14 @@ func daemonProcessOfferMessage(processID string, offer executionstore.DaemonProc
 	}
 	if processOffer.PreparationError == "" {
 		processOffer = &daemonprotocol.ProcessOffer{
-			ExecutionSpec:  offer.Process.ExecutionSpec,
-			ProcessID:      processID,
-			Cwd:            offer.Process.Cwd,
-			Env:            offer.Env,
-			GitCredentials: offer.GitCredentials,
-			WaitMs:         offer.Process.InitialWaitMS,
-			TimeoutSeconds: offer.Process.TimeoutSeconds,
+			ExecutionSpec:         offer.Process.ExecutionSpec,
+			ProcessID:             processID,
+			Cwd:                   offer.Process.Cwd,
+			Env:                   offer.Env,
+			GitCredentials:        offer.GitCredentials,
+			ProgrammaticToolCalls: offer.ProgrammaticToolCalls,
+			WaitMs:                offer.Process.InitialWaitMS,
+			TimeoutSeconds:        offer.Process.TimeoutSeconds,
 		}
 		if wait, ok := offer.Process.ExecutionSpec.AgentOutputWait(); ok {
 			processOffer.OutputBytes = processaction.AgentOutputBytes

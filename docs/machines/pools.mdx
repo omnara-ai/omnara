@@ -116,6 +116,8 @@ Later values replace earlier ones. A project grant or agent config can remove an
 
 `delete_after_idle_minutes` follows the same override order. An unset grant or agent value inherits, `0` disables idle deletion at that level, and enabled values must be at least 5 minutes.
 
+`default_programmatic_tool_calls` sets whether machines the pool creates let commands [call their agent's tools](/machines/connect#programmatic-tool-calls). It defaults to `false` and belongs to the pool alone; in the dashboard it is **Programmatic tool calls** under the pool's **Advanced** settings. Read the trust warning there before enabling it.
+
 ## Use it from a config
 
 ```yaml

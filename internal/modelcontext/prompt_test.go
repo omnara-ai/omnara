@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -26,11 +27,12 @@ func TestDefaultSystemPromptUsesProductVocabulary(t *testing.T) {
 
 func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 	tests := []struct {
-		name           string
-		specs          []ToolSpec
-		gitCredentials bool
-		want           []string
-		forbidden      []string
+		name                  string
+		specs                 []ToolSpec
+		gitCredentials        bool
+		programmaticToolCalls bool
+		want                  []string
+		forbidden             []string
 	}{
 		{
 			name:      "no tools",
@@ -40,7 +42,7 @@ func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 			name:      "command only",
 			specs:     []ToolSpec{{Name: toolcatalog.ToolNameRunCommand}},
 			want:      []string{"daemon-backed machine", "run_command"},
-			forbidden: []string{"write_process", "read_process", "stop_process", "github.com"},
+			forbidden: []string{"write_process", "read_process", "stop_process", "github.com", "OMNARA_BIN"},
 		},
 		{
 			name:           "command with git credentials",
@@ -59,6 +61,23 @@ func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 			forbidden: []string{"run_command", "daemon-backed machine"},
 		},
 		{
+			name: "command with programmatic tool calls",
+			specs: []ToolSpec{
+				{Name: toolcatalog.ToolNameRunCommand, Type: toolcatalog.ToolTypeBuiltIn},
+				{Name: toolcatalog.ToolNameStorageList, Type: toolcatalog.ToolTypeBuiltIn},
+			},
+			programmaticToolCalls: true,
+			want: []string{"`\"$OMNARA_BIN\" call`", "call tool_search", "call storage_list",
+				"def call(tool, **tool_input)"},
+			forbidden: []string{"web_search", "storage_read"},
+		},
+		{
+			name:                  "programmatic tool calls without command",
+			specs:                 []ToolSpec{{Name: toolcatalog.ToolNameStorageList, Type: toolcatalog.ToolTypeBuiltIn}},
+			programmaticToolCalls: true,
+			forbidden:             []string{"OMNARA_BIN"},
+		},
+		{
 			name:           "git credentials without command",
 			gitCredentials: true,
 			forbidden:      []string{"run_command", "github.com"},
@@ -66,7 +85,14 @@ func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			prompt := capabilityGuidance(test.specs, test.gitCredentials)
+			var contract agentconfig.RuntimeContract
+			if test.gitCredentials {
+				contract.GitCredentials = &agentconfig.GitCredentialsCompiled{}
+			}
+			if test.programmaticToolCalls {
+				contract.ProgrammaticToolCalls = &agentconfig.ProgrammaticToolCallsCompiled{Enabled: true}
+			}
+			prompt := capabilityGuidance(test.specs, contract)
 			for _, want := range test.want {
 				if !strings.Contains(prompt, want) {
 					t.Fatalf("capability guidance missing %q: %s", want, prompt)

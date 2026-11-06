@@ -61,6 +61,7 @@ export const machinePoolFieldGroup: Record<MachinePoolFieldKey, MachinePoolField
   maxMachineMemoryGb: 'capacity',
   deleteAfterIdleMinutes: 'capacity',
   runtimeProtectionEnabled: 'capacity',
+  defaultProgrammaticToolCalls: 'capacity',
   startupScript: 'environment',
   cwd: 'environment',
   envRows: 'environment',

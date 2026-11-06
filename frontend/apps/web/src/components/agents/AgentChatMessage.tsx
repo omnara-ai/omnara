@@ -144,7 +144,13 @@ export function AgentChatMessage({
         ) : null}
         {groupToolRuns(message.parts).map((part) => {
           if (Array.isArray(part)) {
-            return <AgentToolGroup key={part[0]?.id} parts={part} />
+            return (
+              <AgentToolGroup
+                key={part[0]?.id}
+                parts={part}
+                scope={{ orgID, projectID, agentID }}
+              />
+            )
           }
           if (part.type === 'text') {
             if (message.role === 'assistant') {

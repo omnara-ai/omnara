@@ -105,6 +105,7 @@ WITH atomic_groups AS (
    AND result_event.tool_call_result_id = result.id
   WHERE tool_call.project_id = sqlc.arg(project_id)
     AND tool_call.agent_id = sqlc.arg(agent_id)
+    AND tool_call.caller = 'model'
     AND tool_call.source_event_sequence <= sqlc.arg(input_event_sequence)
     AND (result_event.sequence IS NULL OR result_event.sequence > sqlc.arg(last_checkpoint_end))
   GROUP BY tool_call.source_event_sequence

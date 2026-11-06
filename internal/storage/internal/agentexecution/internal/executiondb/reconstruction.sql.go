@@ -228,7 +228,7 @@ CROSS JOIN LATERAL (
         coalesce(max(result_event.sequence),0)::bigint AS last_result_sequence
  FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
  LEFT JOIN agent_events result_event ON result_event.agent_id=r.agent_id AND result_event.tool_call_result_id=r.id
- WHERE c.agent_id=o.agent_id AND c.model_output_id=o.id
+ WHERE c.agent_id=o.agent_id AND c.model_output_id=o.id AND c.caller='model'
 ) batch
 WHERE o.agent_id=$1 AND e.turn_id=$2 AND e.sequence>=$3
 ORDER BY e.sequence

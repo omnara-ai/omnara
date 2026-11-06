@@ -1,4 +1,5 @@
-import type { OmnaraUIMessage } from '@omnara/react'
+import { type OmnaraUIMessage, useProgramToolCalls } from '@omnara/react'
+import type { ToolCall } from '@omnara/sdk'
 import * as z from 'zod'
 
 import {
@@ -9,12 +10,26 @@ import {
   toolInputSchema,
   type ToolStatus,
 } from '@/components/agents/toolLabels'
-import { ChevronRight, CircleDashed } from '@/components/icons'
+import {
+  Check,
+  ChevronRight,
+  CircleDashed,
+  CodeBracket,
+  HandRaisedIcon,
+  XCircleIcon,
+} from '@/components/icons'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 
 export type ToolPart = Extract<OmnaraUIMessage['parts'][number], { type: 'dynamic-tool' }>
 export type ReasoningPart = Extract<OmnaraUIMessage['parts'][number], { type: 'reasoning' }>
+
+/** Where a message's tool calls live, for fetching the calls a command made. */
+export interface ToolCallScope {
+  orgID: string
+  projectID: string
+  agentID: string
+}
 
 // A finished call's output as the chat stream builds it: the result blocks.
 const toolOutputSchema = z
@@ -52,7 +67,13 @@ function activityItem(part: ToolPart | ReasoningPart): ActivityItem {
  * e.g. "Reasoned, ran 3 commands". It expands into a row per step; each row expands again to
  * show the reasoning, or what a call was given and what it returned.
  */
-export function AgentToolGroup({ parts }: { parts: (ToolPart | ReasoningPart)[] }) {
+export function AgentToolGroup({
+  parts,
+  scope,
+}: {
+  parts: (ToolPart | ReasoningPart)[]
+  scope: ToolCallScope
+}) {
   const steps = parts.map((part) => ({ part, item: activityItem(part) }))
   const running = steps.some((step) => step.item.status === 'running')
   const [only] = steps
@@ -71,7 +92,7 @@ export function AgentToolGroup({ parts }: { parts: (ToolPart | ReasoningPart)[] 
       </CollapsibleTrigger>
       <CollapsibleContent>
         {steps.length === 1 && only?.part.type === 'dynamic-tool' ? (
-          <ToolDetails part={only.part} className="mt-2" />
+          <ToolDetails part={only.part} scope={scope} className="mt-2" />
         ) : steps.length === 1 && only?.part.type === 'reasoning' ? (
           <p className="text-muted-foreground mt-2 text-sm whitespace-pre-wrap">{only.part.text}</p>
         ) : (
@@ -80,7 +101,7 @@ export function AgentToolGroup({ parts }: { parts: (ToolPart | ReasoningPart)[] 
               part.type === 'reasoning' ? (
                 <ReasoningRow key={part.id} part={part} status={item.status} />
               ) : (
-                <ToolRow key={part.id} part={part} status={item.status} />
+                <ToolRow key={part.id} part={part} status={item.status} scope={scope} />
               ),
             )}
           </div>
@@ -90,7 +111,15 @@ export function AgentToolGroup({ parts }: { parts: (ToolPart | ReasoningPart)[] 
   )
 }
 
-function ToolRow({ part, status }: { part: ToolPart; status: ToolStatus }) {
+function ToolRow({
+  part,
+  status,
+  scope,
+}: {
+  part: ToolPart
+  status: ToolStatus
+  scope: ToolCallScope
+}) {
   const { verb, target } = describeTool(part.toolName, toolInputSchema.parse(part.input), status)
   return (
     <Collapsible className="group/tool">
@@ -114,7 +143,7 @@ function ToolRow({ part, status }: { part: ToolPart; status: ToolStatus }) {
         />
       </CollapsibleTrigger>
       <CollapsibleContent className="px-3 pb-3">
-        <ToolDetails part={part} />
+        <ToolDetails part={part} scope={scope} />
       </CollapsibleContent>
     </Collapsible>
   )
@@ -141,13 +170,22 @@ function ReasoningRow({ part, status }: { part: ReasoningPart; status: ToolStatu
 }
 
 /** What the call was given and what it returned, with text results shown as text. */
-function ToolDetails({ part, className }: { part: ToolPart; className?: string }) {
+function ToolDetails({
+  part,
+  scope,
+  className,
+}: {
+  part: ToolPart
+  scope: ToolCallScope
+  className?: string
+}) {
   const result = part.state === 'output-available' ? resultText(part) : undefined
   return (
     <div className={cn('space-y-2', className)}>
       <pre className="bg-muted/40 type-code max-h-72 overflow-auto rounded-md border p-3">
         {JSON.stringify(part.input ?? {}, null, 2)}
       </pre>
+      {part.toolName === 'run_command' && <ProgramToolCalls part={part} scope={scope} />}
       {result !== undefined && (
         <pre className="text-muted-foreground type-code max-h-72 overflow-auto whitespace-pre-wrap">
           {result}
@@ -166,4 +204,92 @@ function resultText(part: ToolPart): string {
   return blocks && texts.every((text) => text !== undefined)
     ? texts.join('\n')
     : JSON.stringify(part.output, null, 2)
+}
+
+/**
+ * The tools a command called with `omnarad call`. Their results went to the command, not the
+ * model, so they show here rather than as steps of their own. Mounted only while the details
+ * are open, so the calls are fetched only when someone looks.
+ */
+function ProgramToolCalls({ part, scope }: { part: ToolPart; scope: ToolCallScope }) {
+  const programCalls = useProgramToolCalls(
+    scope.orgID,
+    scope.projectID,
+    scope.agentID,
+    part.toolCallId,
+  )
+  const calls = programCalls.data?.pages.flatMap((page) => page.data) ?? []
+  if (calls.length === 0) return null
+  return (
+    <div className="space-y-1">
+      <p className="text-muted-foreground text-xs font-medium">Tool calls from this command</p>
+      <ul className="space-y-1" aria-label="Tool calls from this command">
+        {calls.map((call) => (
+          <li key={call.id}>
+            <ProgramToolCallRow call={call} />
+          </li>
+        ))}
+      </ul>
+      {programCalls.hasNextPage && (
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-foreground text-xs underline"
+          disabled={programCalls.isFetchingNextPage}
+          onClick={() => void programCalls.fetchNextPage()}
+        >
+          Show more tool calls
+        </button>
+      )}
+    </div>
+  )
+}
+
+function programToolCallStatus(call: ToolCall) {
+  if (call.state === 'awaiting_permission' || call.state === 'awaiting_authorization') {
+    return {
+      label: call.state === 'awaiting_permission' ? 'Awaiting approval' : 'Awaiting authorization',
+      icon: <HandRaisedIcon className="text-primary size-3.5" />,
+    }
+  }
+  if (call.state !== 'completed') {
+    return {
+      label: 'Running',
+      icon: <CircleDashed className="text-primary size-3.5 motion-safe:animate-spin" />,
+    }
+  }
+  if (call.outcome === 'succeeded') {
+    return { label: 'Succeeded', icon: <Check className="text-muted-foreground size-3.5" /> }
+  }
+  return {
+    label: call.outcome === undefined ? 'Completed' : capitalize(call.outcome),
+    icon: <XCircleIcon className="text-destructive size-3.5" />,
+  }
+}
+
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+/** One `omnarad call` a command made. */
+function ProgramToolCallRow({ call }: { call: ToolCall }) {
+  const status = programToolCallStatus(call)
+  return (
+    <Collapsible className="group/program-call rounded-md border">
+      <CollapsibleTrigger className="hover:bg-muted/50 flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition-colors">
+        <CodeBracket className="text-muted-foreground size-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate font-medium">{call.name}</span>
+        <span className="text-muted-foreground shrink-0">{status.label}</span>
+        <span aria-hidden="true">{status.icon}</span>
+        <ChevronRight
+          aria-hidden="true"
+          className="text-muted-foreground size-3.5 shrink-0 transition-transform group-data-[state=open]/program-call:rotate-90"
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="border-t p-2">
+        <pre className="bg-muted/40 type-code max-h-72 overflow-auto rounded-md border p-3">
+          {JSON.stringify(call.input, null, 2)}
+        </pre>
+      </CollapsibleContent>
+    </Collapsible>
+  )
 }

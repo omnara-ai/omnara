@@ -15,6 +15,9 @@ type ToolSearchDefinition struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema"`
+	// OutputSchema is set only in program tool_search results: what calling
+	// the tool from a command prints.
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 }
 
 type ToolSearchResult struct {
@@ -81,48 +84,83 @@ func DeferredToolSearchDefinitions(specs []ToolSpec, search ToolSearchResult) []
 }
 
 func SearchDeferredTools(specs []ToolSpec, pattern string, maxResults int) (ToolSearchResult, error) {
-	pattern = strings.TrimSpace(pattern)
-	if pattern == "" {
-		return ToolSearchResult{}, errors.New("pattern is required")
-	}
-	if len(pattern) > toolcatalog.ToolSearchMaxPatternLength {
-		return ToolSearchResult{}, fmt.Errorf(
-			"pattern must be at most %d characters",
-			toolcatalog.ToolSearchMaxPatternLength,
-		)
-	}
 	if maxResults <= 0 {
 		maxResults = toolcatalog.ToolSearchDefaultResults
 	}
-	if maxResults > toolcatalog.ToolSearchMaxResults {
-		maxResults = toolcatalog.ToolSearchMaxResults
-	}
-	matcher, err := regexp.Compile("(?i)" + pattern)
-	if err != nil {
-		return ToolSearchResult{}, fmt.Errorf("invalid regular expression pattern: %w", err)
-	}
 	deferred := DeferredToolSpecs(specs)
+	pattern, matches, err := searchTools(deferred, pattern, min(maxResults, toolcatalog.ToolSearchMaxResults))
+	if err != nil {
+		return ToolSearchResult{}, err
+	}
 	result := ToolSearchResult{
 		Pattern:            pattern,
 		ToolNames:          []string{},
 		TotalDeferredTools: len(deferred),
 		Tools:              []ToolSearchDefinition{},
 	}
-	for _, spec := range deferred {
-		if matcher.MatchString(toolSearchText(spec)) {
-			result.ToolNames = append(result.ToolNames, spec.Name)
-		}
-	}
-	sort.Strings(result.ToolNames)
-	if len(result.ToolNames) > maxResults {
-		result.ToolNames = result.ToolNames[:maxResults]
-	}
-	for _, name := range result.ToolNames {
-		if spec, ok := ToolSpecByName(deferred, name); ok {
-			result.Tools = append(result.Tools, toolSearchDefinition(spec))
-		}
+	for _, spec := range matches {
+		result.ToolNames = append(result.ToolNames, spec.Name)
+		result.Tools = append(result.Tools, toolSearchDefinition(spec))
 	}
 	return result, nil
+}
+
+// ProgramToolSearchResult is tool_search's answer to `omnarad call`: every
+// matching tool, deferred or not, with its output schema when it has one.
+// Total counts matches before MaxResults.
+type ProgramToolSearchResult struct {
+	Pattern string                 `json:"pattern"`
+	Tools   []ToolSearchDefinition `json:"tools"`
+	Total   int                    `json:"total"`
+}
+
+// SearchTools matches pattern like SearchDeferredTools across all specs and
+// returns up to maxResults of them; maxResults <= 0 returns every match.
+func SearchTools(specs []ToolSpec, pattern string, maxResults int) (ProgramToolSearchResult, error) {
+	pattern, matches, err := searchTools(specs, pattern, 0)
+	if err != nil {
+		return ProgramToolSearchResult{}, err
+	}
+	result := ProgramToolSearchResult{Pattern: pattern, Tools: []ToolSearchDefinition{}, Total: len(matches)}
+	if maxResults > 0 && len(matches) > maxResults {
+		matches = matches[:maxResults]
+	}
+	for _, spec := range matches {
+		definition := toolSearchDefinition(spec)
+		definition.OutputSchema = spec.OutputSchema
+		result.Tools = append(result.Tools, definition)
+	}
+	return result, nil
+}
+
+// searchTools returns the trimmed pattern and up to limit matching specs (all
+// when limit <= 0), sorted by name.
+func searchTools(specs []ToolSpec, pattern string, limit int) (string, []ToolSpec, error) {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return "", nil, errors.New("pattern is required")
+	}
+	if len(pattern) > toolcatalog.ToolSearchMaxPatternLength {
+		return "", nil, fmt.Errorf(
+			"pattern must be at most %d characters",
+			toolcatalog.ToolSearchMaxPatternLength,
+		)
+	}
+	matcher, err := regexp.Compile("(?i)" + pattern)
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid regular expression pattern: %w", err)
+	}
+	var matches []ToolSpec
+	for _, spec := range specs {
+		if matcher.MatchString(toolSearchText(spec)) {
+			matches = append(matches, spec)
+		}
+	}
+	sort.SliceStable(matches, func(i, j int) bool { return matches[i].Name < matches[j].Name })
+	if limit > 0 && len(matches) > limit {
+		matches = matches[:limit]
+	}
+	return pattern, matches, nil
 }
 
 func toolSearchText(spec ToolSpec) string {

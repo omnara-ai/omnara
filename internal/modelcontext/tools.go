@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -76,12 +77,13 @@ func RuntimeContractToolSpecs(
 			}
 		}
 		spec := ToolSpec{
-			Name:        tool.Name,
-			Description: description,
-			InputSchema: inputSchema,
-			Deferred:    tool.Deferred,
-			Type:        tool.Type,
-			Permission:  tool.Permission,
+			Name:            tool.Name,
+			Description:     description,
+			InputSchema:     inputSchema,
+			Deferred:        tool.Deferred,
+			Type:            tool.Type,
+			Permission:      tool.Permission,
+			IntegrationKind: tool.IntegrationKind,
 		}
 		out = append(out, spec)
 	}
@@ -90,6 +92,17 @@ func RuntimeContractToolSpecs(
 		return nil, err
 	}
 	out = append(out, mcpSpecs...)
+	if contract.ProgrammaticToolCallsEnabled() {
+		if index := slices.IndexFunc(out, func(spec ToolSpec) bool {
+			return spec.Name == toolcatalog.ToolNameRunCommand
+		}); index >= 0 {
+			description, err := programmaticToolCallsDescription(contract, out)
+			if err != nil {
+				return nil, err
+			}
+			out[index].Description += description
+		}
+	}
 	seen := make(map[string]struct{}, len(out))
 	for _, spec := range out {
 		if _, duplicate := seen[spec.Name]; duplicate {
@@ -106,9 +119,10 @@ func RuntimeContractToolSpecs(
 }
 
 type mcpToolSnapshot struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	InputSchema  json.RawMessage `json:"inputSchema"`
+	OutputSchema json.RawMessage `json:"outputSchema"`
 }
 
 func runtimeMCPToolSpecs(
@@ -155,6 +169,10 @@ func runtimeMCPToolSpecs(
 			if !toolcatalog.IsMCPRuntimeToolName(name) {
 				continue
 			}
+			outputSchema := tool.OutputSchema
+			if string(outputSchema) == "null" {
+				outputSchema = nil
+			}
 			description := fmt.Sprintf("MCP tool %q from server %q.", tool.Name, server.ServerKey)
 			if tool.Description != "" {
 				description = fmt.Sprintf("%s %s", description, tool.Description)
@@ -162,12 +180,13 @@ func runtimeMCPToolSpecs(
 			out = append(
 				out,
 				ToolSpec{
-					Name:        name,
-					Description: description,
-					InputSchema: schema,
-					Deferred:    resolution.Deferred,
-					Type:        toolcatalog.ToolTypeMCP,
-					Permission:  resolution.Permission,
+					Name:         name,
+					Description:  description,
+					InputSchema:  schema,
+					OutputSchema: outputSchema,
+					Deferred:     resolution.Deferred,
+					Type:         toolcatalog.ToolTypeMCP,
+					Permission:   resolution.Permission,
 				},
 			)
 		}

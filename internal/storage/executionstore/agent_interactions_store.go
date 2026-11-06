@@ -113,6 +113,9 @@ func (t *toolCallTransaction) createQuestionInteraction(
 	ctx context.Context,
 	input CreateQuestionInteractionInput,
 ) (AgentInteractionRecord, error) {
+	if err := t.requireRuntime(); err != nil {
+		return AgentInteractionRecord{}, err
+	}
 	h, err := lockExecution(ctx, t.unit, t.input.ProjectID, t.input.AgentID, true, t.input.RuntimeLockID)
 	if err != nil {
 		return AgentInteractionRecord{}, err

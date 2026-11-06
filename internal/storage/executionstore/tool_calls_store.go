@@ -68,8 +68,11 @@ type ListToolCallsInput struct {
 	AgentIDs  []uuid.UUID
 	State     ToolCallState
 	Type      string
-	Limit     int
-	After     listing.KeysetCursor
+	// ParentToolCallID, when set, keeps only the calls that run_command
+	// call's process made.
+	ParentToolCallID uuid.UUID
+	Limit            int
+	After            listing.KeysetCursor
 }
 
 type ListToolCallsResult struct {
@@ -132,6 +135,11 @@ type ToolCallRecord struct {
 	SourceEventSequence     int64           `json:"source_event_sequence,omitempty"`
 	ToolResultEventSequence int64           `json:"tool_result_event_sequence,omitempty"`
 	ResultContentParts      json.RawMessage `json:"result_content_parts"`
+
+	// Caller is "program" for calls made by a run_command process through
+	// `omnarad call`; ParentToolCallID is then that run_command call.
+	Caller           string    `json:"caller"`
+	ParentToolCallID uuid.UUID `json:"parent_tool_call_id,omitempty"`
 }
 
 func (s *Store) CompleteToolCall(

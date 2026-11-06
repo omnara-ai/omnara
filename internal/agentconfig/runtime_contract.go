@@ -13,23 +13,25 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 type RuntimeContract struct {
-	Instruction         string
-	Model               ModelCompiled
-	MachineSources      []RuntimeMachine
-	Tools               []RuntimeTool
-	MCPServers          []RuntimeMCPServer
-	IntegrationTools    map[string]ToolCompiled
-	InteractionHandlers map[string]IntegrationCapabilityCompiled
-	GitCredentials      *GitCredentialsCompiled
-	Skills              []SkillCompiled
-	Subagents           map[string]SubagentCompiled
-	MaxSubagents        *int
-	MaxDepth            *int
+	Instruction           string
+	Model                 ModelCompiled
+	MachineSources        []RuntimeMachine
+	Tools                 []RuntimeTool
+	MCPServers            []RuntimeMCPServer
+	IntegrationTools      map[string]ToolCompiled
+	InteractionHandlers   map[string]IntegrationCapabilityCompiled
+	GitCredentials        *GitCredentialsCompiled
+	Skills                []SkillCompiled
+	Subagents             map[string]SubagentCompiled
+	MaxSubagents          *int
+	MaxDepth              *int
+	ProgrammaticToolCalls *ProgrammaticToolCallsCompiled
 }
 
 func (contract RuntimeContract) SubagentDepthLimit() int {
@@ -56,6 +58,8 @@ type RuntimeTool struct {
 	Deferred    bool
 	Description string
 	InputSchema json.RawMessage
+	// IntegrationKind is set on integration tools.
+	IntegrationKind integrationdefinition.Kind
 }
 
 type RuntimeMachine struct {
@@ -105,6 +109,9 @@ func RuntimeContractFromCompiled(
 	if err := validateCompiledIntegrations(compiled); err != nil {
 		return RuntimeContract{}, fmt.Errorf("compiled integration capabilities: %w", err)
 	}
+	if err := validateCompiledProgrammaticToolCalls(compiled.ProgrammaticToolCalls); err != nil {
+		return RuntimeContract{}, err
+	}
 	tools, err := runtimeTools(compiled.Tools)
 	if err != nil {
 		return RuntimeContract{}, err
@@ -114,18 +121,19 @@ func RuntimeContractFromCompiled(
 		return RuntimeContract{}, err
 	}
 	contract := RuntimeContract{
-		Instruction:         compiled.Instruction,
-		Model:               compiled.Model,
-		MachineSources:      runtimeMachineSources(compiled.MachineSources),
-		Tools:               tools,
-		MCPServers:          mcpServers,
-		IntegrationTools:    integrationToolsFromCompiled(compiled),
-		InteractionHandlers: compiled.InteractionHandlers,
-		GitCredentials:      compiled.GitCredentials,
-		Skills:              compiled.Skills,
-		Subagents:           compiled.Subagents,
-		MaxSubagents:        compiled.MaxSubagents,
-		MaxDepth:            compiled.MaxDepth,
+		Instruction:           compiled.Instruction,
+		Model:                 compiled.Model,
+		MachineSources:        runtimeMachineSources(compiled.MachineSources),
+		Tools:                 tools,
+		MCPServers:            mcpServers,
+		IntegrationTools:      integrationToolsFromCompiled(compiled),
+		InteractionHandlers:   compiled.InteractionHandlers,
+		GitCredentials:        compiled.GitCredentials,
+		Skills:                compiled.Skills,
+		Subagents:             compiled.Subagents,
+		MaxSubagents:          compiled.MaxSubagents,
+		MaxDepth:              compiled.MaxDepth,
+		ProgrammaticToolCalls: compiled.ProgrammaticToolCalls,
 	}
 	return contract, nil
 }

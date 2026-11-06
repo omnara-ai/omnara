@@ -99,6 +99,23 @@ You can update `cwd`, `env`, and `secret_env` with `omnara machines update {mach
 
 Machine tokens can be created, listed, and revoked through the API.
 
+### Programmatic tool calls
+
+`programmatic_tool_calls` lets commands on the machine [call their agent's tools](/tools/built-in#calling-tools-from-commands) when the agent's config also [enables it](/agents/configuration#programmatic-tool-calls). It is off by default. Turn it on from **Settings** in the machine's row menu on the Machines pages, or through the API:
+
+```bash
+curl -X PATCH "$OMNARA_API/orgs/$ORG/machines/mch_aaaaaaaaaaaaaaaaaaaaaaaaae" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"programmatic_tool_calls": true}'
+```
+
+Commands started after the change can call tools; turning it off refuses further calls, including from running commands. Machines a [pool](/machines/pools) creates take the pool's `default_programmatic_tool_calls`, also off by default; changing it affects only machines created afterwards. The machine needs an up-to-date `omnarad`.
+
+<Warning>
+Agents bound to the same machine run commands as the same OS user, so a process can read other processes' environments and the daemon's files. With this setting on, any agent on the machine can effectively call any opted-in tool of every other agent bound to it. Only enable it on machines dedicated to one agent or to agents you trust equally.
+</Warning>
+
 Deleting a BYO machine disconnects its daemon, revokes its tokens, removes its grants, and releases its agent bindings. In the dashboard, open the machine's row menu and click **Delete**; in the CLI, run `omnara machines delete {machine-id}`.
 
 <Info>
