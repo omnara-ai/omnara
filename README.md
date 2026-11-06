@@ -377,7 +377,8 @@ full, so the agent loop and its history stay on your infrastructure.
 **How much does it cost?** Nothing to self-host. Omnara Cloud has no platform
 fee. You can bring your own model keys and machines for free, or pay as you go
 for our models at provider token rates and our sandboxes by active time and
-retained storage. See [pricing](https://www.omnara.com/pricing).
+retained storage, with a 5% service fee on credits that covers provider costs.
+See [pricing](https://www.omnara.com/pricing).
 
 **Can I self-host it?** Yes. Run it with Docker Compose locally, then follow
 the [self-hosting guide](https://docs.omnara.com/self-hosting/deployment) for
