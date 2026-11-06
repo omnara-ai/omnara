@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -201,4 +202,24 @@ func ClassifyError(err error) (ProviderError, bool) {
 		return providerErr, true
 	}
 	return ProviderError{}, false
+}
+
+const minimumAffordableOutputTokens = 8_192
+
+var affordableOutputTokensPattern = regexp.MustCompile(`can only afford (\d+)`)
+
+func AffordableOutputTokens(err error) (int, bool) {
+	providerErr, ok := ClassifyError(err)
+	if !ok || providerErr.Kind != ErrorKindBillingAccount {
+		return 0, false
+	}
+	match := affordableOutputTokensPattern.FindStringSubmatch(providerErr.Message)
+	if match == nil {
+		return 0, false
+	}
+	tokens, err := strconv.Atoi(match[1])
+	if err != nil || tokens < minimumAffordableOutputTokens {
+		return 0, false
+	}
+	return tokens, true
 }

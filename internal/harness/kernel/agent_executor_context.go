@@ -280,6 +280,16 @@ func (e AgentExecutor) executeModelStep(
 		}
 	}
 	response, err := client.Respond(ctx, request)
+	if affordable, ok := model.AffordableOutputTokens(err); ok {
+		retryPolicy := policy
+		retryPolicy.MaxOutputTokens = affordable
+		if retry, retryErr := model.PrepareForSend(ctx, client, model.PrepareForSendInput{
+			Context: bundle, Policy: retryPolicy, ErrorSource: modelErrorSourceForClient(client),
+		}); retryErr == nil {
+			prepared, request.ProviderRequest = retry, retry.Body
+			response, err = client.Respond(ctx, request)
+		}
+	}
 	if err != nil {
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return modelStep{}, err

@@ -23,6 +23,14 @@ SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event
 FROM model_call_contexts c JOIN configured_model_revisions r ON r.org_id=c.org_id AND r.id=c.configured_model_revision_id
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
 
+-- name: ReadExecutionModelProvider :one
+-- @sqlc-vet-disable model-provider-configs-deleted-at
+SELECT p.name,(p.management_kind='cluster'
+ AND EXISTS(SELECT 1 FROM org_managed_work_admission w WHERE w.org_id=c.org_id))::boolean AS omnara_credits
+FROM model_call_contexts c JOIN configured_model_revisions r ON r.org_id=c.org_id AND r.id=c.configured_model_revision_id
+JOIN model_provider_configs p ON p.org_id=r.org_id AND p.id=r.model_provider_config_id
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
+
 -- name: ExecutionModelRevision :one
 -- @sqlc-vet-disable configured-models-deleted-at
 -- @sqlc-vet-disable model-provider-configs-deleted-at

@@ -48,6 +48,9 @@ type anthropicErrorBody struct {
 	Type      string `json:"type"`
 	ErrorType string `json:"error_type"`
 	Message   string `json:"message"`
+	Details   struct {
+		ErrorCode string `json:"error_code"`
+	} `json:"details"`
 }
 
 func (e anthropicErrorBody) present() bool {
@@ -75,7 +78,12 @@ func anthropicProviderError(
 	payload anthropicErrorEnvelope,
 	fallbackMessage string,
 ) model.ProviderError {
-	errorType := firstAnthropicNonEmpty(payload.Error.ErrorType, payload.Error.Type, payload.Type)
+	errorType := firstAnthropicNonEmpty(
+		payload.Error.Details.ErrorCode,
+		payload.Error.ErrorType,
+		payload.Error.Type,
+		payload.Type,
+	)
 	message := strings.TrimSpace(payload.Error.Message)
 	if message == "" {
 		message = fallbackMessage
@@ -84,6 +92,7 @@ func anthropicProviderError(
 		statusCode,
 		0,
 		message,
+		payload.Error.Details.ErrorCode,
 		payload.Error.ErrorType,
 		payload.Error.Type,
 		payload.Type,

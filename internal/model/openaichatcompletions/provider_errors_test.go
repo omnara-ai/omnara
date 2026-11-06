@@ -195,6 +195,46 @@ func TestRespondClassifiesCompleteMid200OpenRouterError(t *testing.T) {
 	}
 }
 
+func TestRespondClassifiesOpenRouterKeyLimitAsBilling(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(
+			`{"error":{"code":403,"message":"Key limit exceeded (total limit). Manage it using ` +
+				`https://openrouter.ai/workspaces/default/keys/abc $10.0 of $10.0 used; does not reset."}}`,
+		))
+	}))
+	defer server.Close()
+	_, err := testRespondClient(server).Respond(
+		context.Background(),
+		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindBillingAccount || providerErr.StatusCode != http.StatusForbidden {
+		t.Fatalf("OpenRouter key limit = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestRespondClassifiesOpenRouterInFlightBudgetAsTransient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "3")
+		w.WriteHeader(http.StatusPaymentRequired)
+		_, _ = w.Write([]byte(
+			`{"error":{"code":"payment_required","message":"This request would exceed your available credits ` +
+				`given your current in-flight requests.","metadata":{"reason":"in_flight_budget_exhausted",` +
+				`"limit_source":"openrouter_in_flight_budget"}}}`,
+		))
+	}))
+	defer server.Close()
+	_, err := testRespondClient(server).Respond(
+		context.Background(),
+		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
+	)
+	providerErr, ok := model.ClassifyError(err)
+	if !ok || providerErr.Kind != model.ErrorKindTransient || providerErr.RetryAfter == nil {
+		t.Fatalf("OpenRouter in-flight budget = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
 func TestRespondClassifiesOpenRouterWrappedContextOverflow(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)

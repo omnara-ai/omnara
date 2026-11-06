@@ -158,6 +158,12 @@ func TestClassifyEvidencePrecedence(t *testing.T) {
 			want:       model.ErrorKindInvalidRequest,
 		},
 		{
+			name:       "budget limit status is billing",
+			httpStatus: http.StatusForbidden,
+			message:    "Org member budget limit exceeded (weekly limit). Contact your org admin.",
+			want:       model.ErrorKindBillingAccount,
+		},
+		{
 			name:       "permission wrapper allows moderation evidence",
 			httpStatus: http.StatusForbidden,
 			message:    "Request blocked by content policy.",
