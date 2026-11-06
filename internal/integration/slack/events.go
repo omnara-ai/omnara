@@ -519,14 +519,10 @@ func RemoteUserEvent(workspaceID string, event Event) bool {
 	return false
 }
 
-// MessageParticipantAllowed is separate from installation authentication: an
-// external sender does not change which installation owns the signed event.
 func MessageParticipantAllowed(workspaceID string, envelope EventsEnvelope, allowExternal bool) bool {
 	if !RemoteUserEvent(workspaceID, envelope.Event) {
 		return true
 	}
-	// Slack identifies shared channels on the outer event. DMs and group DMs
-	// remain outside this policy even when the integration opts in.
 	return allowExternal && sharedChannelEvent(envelope)
 }
 
@@ -540,7 +536,7 @@ func sharedChannelEvent(envelope EventsEnvelope) bool {
 	case "channel", "group":
 		return true
 	case "":
-		// app_mention omits channel_type; retain it for mention feedback and deduplication.
+		// Slack omits channel_type from app_mention.
 		return envelope.Event.Type == "app_mention"
 	default:
 		return false

@@ -123,7 +123,7 @@ func TestIntegrationDiscordRoleMentionRetriesThenChoosesOnce(t *testing.T) {
 	require.True(t, source.Event.Mentioned)
 	for range 2 {
 		_, err = SelectChatIntegrationProfile(ctx, store.Integrations(), integrationSetup,
-			choice.ID, choice.Options[1].Key, "33", "500", "900")
+			choice.ID, choice.Options[1].Key, "33", "500", "900", false)
 		require.NoError(t, err)
 	}
 	f.mu.Lock()

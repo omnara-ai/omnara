@@ -293,6 +293,10 @@ func (s *Store) ChooseIntegrationProfile(
 	if err != nil {
 		return result, err
 	}
+	definition, _ := integrationdefinition.Lookup(integration.IntegrationKind)
+	if input.ExternalActor && !definition.AllowsExternalParticipants(integration.Settings) {
+		return result, storeerr.ErrUnauthorized
+	}
 	row.SelectedKey, row.SelectedBy = input.Key, input.ActorID
 	row, err = replaceIntegrationProfileChoice(ctx, q, row, true)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -459,6 +463,9 @@ func validateIntegrationProfileChoiceOptions(
 		Event integrationdefinition.Event `json:"event"`
 	}
 	if err := json.Unmarshal(event, &source); err != nil {
+		return storeerr.ErrStateTransitionConflict
+	}
+	if source.Event.ExternalParticipant && !definition.AllowsExternalParticipants(integration.Settings) {
 		return storeerr.ErrStateTransitionConflict
 	}
 	ids := make([]uuid.UUID, 0, len(options))

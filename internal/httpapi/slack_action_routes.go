@@ -69,7 +69,6 @@ func (s *Server) slackActionsRoute(w http.ResponseWriter, r *http.Request) {
 	if s.slackProfileChoiceAction(w, r, install, envelope) {
 		return
 	}
-	// Messaging access does not grant authority to resolve agent interactions.
 	if !slack.ValidateActionIdentity(identity, envelope) {
 		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack action identity")
 		return

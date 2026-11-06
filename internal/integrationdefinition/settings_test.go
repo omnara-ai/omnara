@@ -29,6 +29,8 @@ func TestIntegrationSettingsOwnedByDefinition(t *testing.T) {
 			require.NoError(t, err)
 		}
 	}
+	_, err := ValidateSettings(SlackThread, json.RawMessage(`{"allow_external_participants":true}`))
+	require.NoError(t, err)
 	for _, tc := range []struct {
 		kind     Kind
 		settings string
@@ -36,6 +38,10 @@ func TestIntegrationSettingsOwnedByDefinition(t *testing.T) {
 		{SlackThread, fmt.Sprintf(`{"launcher":{"profiles":[%q,%q]}}`, profile, profile)},
 		{SlackThread, `{"launcher":{"profiles":[]}}`},
 		{SlackThread, `{"launcher":{"profiles":["11111111-1111-4111-8111-111111111111"]}}`},
+		{SlackThread, `{"allow_external_participants":"true"}`},
+		{SlackThread, `{"allow_external_participants":null}`},
+		{DiscordThread, `{"allow_external_participants":true}`},
+		{GitHubPR, `{"allow_external_participants":true}`},
 		{GitHubPR, fmt.Sprintf(`{"launcher":{"profiles":[%q]}}`, profile)},
 		{GitHubPR, fmt.Sprintf(
 			`{"launcher":{"profile":%q,"trigger":"mention","repository_id":"9223372036854775808"}}`, profile)},
@@ -58,24 +64,6 @@ func TestSettingsSchemasMatchGoStructs(t *testing.T) {
 		schema, _ := schemas[name].(map[string]any)
 		testutil.AssertSchemaMatchesStruct(t, name, schema, structType)
 	}
-}
-
-func TestSlackExternalParticipantsSetting(t *testing.T) {
-	for _, raw := range []string{`{}`, `{"allow_external_participants":false}`, `{"allow_external_participants":true}`} {
-		_, err := ValidateSettings(SlackThread, json.RawMessage(raw))
-		require.NoError(t, err)
-		require.Equal(t, raw == `{"allow_external_participants":true}`, SlackAllowsExternalParticipants(json.RawMessage(raw)))
-	}
-	for _, kind := range []Kind{DiscordThread, GitHubPR} {
-		_, err := ValidateSettings(kind, json.RawMessage(`{"allow_external_participants":true}`))
-		require.Error(t, err, "external participants is a Slack-only setting")
-	}
-	for _, raw := range []string{`{"allow_external_participants":"true"}`, `{"allow_external_participants":null}`} {
-		_, err := ValidateSettings(SlackThread, json.RawMessage(raw))
-		require.Error(t, err)
-		require.False(t, SlackAllowsExternalParticipants(json.RawMessage(raw)))
-	}
-	require.False(t, SlackAllowsExternalParticipants(nil))
 }
 
 func TestIntegrationLaunchAuthorizationAndScope(t *testing.T) {

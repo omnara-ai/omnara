@@ -47,4 +47,5 @@ type ChooseIntegrationProfileInput struct {
 	MessageChannelID, MessageID  string
 	SourceChoiceRevision         int64
 	SourceSetupRevision          int64
+	ExternalActor                bool
 }

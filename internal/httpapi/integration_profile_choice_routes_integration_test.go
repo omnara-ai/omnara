@@ -184,6 +184,8 @@ func (f profileChoiceHTTPFixture) menuWithSenderTeam(
 	require.NoError(t, err)
 	payload := []byte("  {\"text\":\"original request\"}\n")
 	if f.integration.Provider == integrationdefinition.ProviderSlack {
+		source.Event.ExternalParticipant = senderTeam != "T123"
+		source.CancelOpenInteractions = !source.Event.ExternalParticipant
 		payload = []byte(fmt.Sprintf(`{"type":"event_callback","team_id":"T123","api_app_id":"A123",
 			"event_id":%q,"is_ext_shared_channel":true,
 			"authorizations":[{"team_id":"T123","user_id":"U_BOT","is_bot":true}],
@@ -433,11 +435,7 @@ func TestIntegrationProfileChoiceCallbacksRejectForgedAndCrossMenuChoices(t *tes
 						require.Equal(t, unavailableProfileChoice, data["content"])
 					} else {
 						require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-						if test.name == "unoffered option" {
-							require.JSONEq(t, `{"ok":"recorded"}`, response.Body.String())
-						} else {
-							require.JSONEq(t, `{"ok":"ignored"}`, response.Body.String())
-						}
+						require.JSONEq(t, `{"ok":"ignored"}`, response.Body.String())
 					}
 					require.Equal(t, menu, f.readChoice(t, menu.ID))
 					require.Equal(t, other, f.readChoice(t, other.ID))

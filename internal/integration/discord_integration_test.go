@@ -366,7 +366,7 @@ func TestIntegrationDiscordEarlyReplyWaitsForLaunchOrAcceptedMenu(t *testing.T) 
 					ctx, ids.ProjectID, integrationID, choice.ID, "500", "600",
 				))
 				_, err = SelectChatIntegrationProfile(
-					ctx, store.Integrations(), integration, choice.ID, profileKey, "33", "500", "600",
+					ctx, store.Integrations(), integration, choice.ID, profileKey, "33", "500", "600", false,
 				)
 				require.NoError(t, err)
 				_, _, err = router.Freeze(ctx, root.Lease(), nil, nil)

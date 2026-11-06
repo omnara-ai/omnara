@@ -148,15 +148,16 @@ func NormalizeSlackIntegrationEvent(
 	}
 	result := IntegrationEvent{
 		Event: integrationdefinition.Event{
-			Scope:     integrationdefinition.Scope{Slack: &scope},
-			Kind:      integrationdefinition.EventMessage,
-			Mentioned: mentioned,
+			Scope:               integrationdefinition.Scope{Slack: &scope},
+			Kind:                integrationdefinition.EventMessage,
+			Mentioned:           mentioned,
+			ExternalParticipant: slack.RemoteUserEvent(integrationSetup.ProviderTenantID, event),
 		},
-		SemanticKey:            "slack:message:" + integrationSetup.ProviderTenantID + ":" + event.Channel + ":" + event.TS,
-		Actor:                  integrationActor,
-		DeliveryMode:           executionstore.DeliveryModeSteering,
-		CancelOpenInteractions: !slack.RemoteUserEvent(integrationSetup.ProviderTenantID, event),
+		SemanticKey:  "slack:message:" + integrationSetup.ProviderTenantID + ":" + event.Channel + ":" + event.TS,
+		Actor:        integrationActor,
+		DeliveryMode: executionstore.DeliveryModeSteering,
 	}
+	result.CancelOpenInteractions = !result.Event.ExternalParticipant
 	key, sibling := slack.InputIdempotencyKeyPair(envelope)
 	result.SemanticKey = key
 	result.Sibling = &executionstore.InboxMessageSibling{Key: sibling}
@@ -333,7 +334,7 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 		}
 	}
 	_, contextText := slack.ModelInputTextParts(event, route, newConversation, historyText, labels)
-	if slack.RemoteUserEvent(integrationSetup.ProviderTenantID, event) {
+	if normalized.Event.ExternalParticipant {
 		contextText = "The sender is an external participant from another Slack organization.\n\n" + contextText
 	}
 	blocks := []map[string]any{

@@ -54,6 +54,10 @@ func SlackAllowsExternalParticipants(raw json.RawMessage) bool {
 	return json.Unmarshal(raw, &settings) == nil && settings.AllowExternalParticipants
 }
 
+func (d Definition) AllowsExternalParticipants(settings json.RawMessage) bool {
+	return d.Provider == ProviderSlack && SlackAllowsExternalParticipants(settings)
+}
+
 func ReadChatLauncher(raw json.RawMessage) (*ChatLauncherSettings, error) {
 	var settings ChatSettings
 	if err := json.Unmarshal(raw, &settings); err != nil {

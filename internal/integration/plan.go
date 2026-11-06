@@ -110,6 +110,14 @@ func (r *IntegrationRouter) Freeze(
 			if !sameIntegrationCandidates(current, request.candidates) {
 				return ErrIntegrationRoutingChanged
 			}
+			if receipt.Source == integrationstore.IntegrationInboxSourceProvider && event.Event.ExternalParticipant {
+				if err := work.LockExternalParticipantAccess(ctx); err != nil {
+					if errors.Is(err, storeerr.ErrUnauthorized) {
+						return ErrIntegrationRoutingChanged
+					}
+					return err
+				}
+			}
 			hasLaunchClaim := false
 			for _, recipient := range plan.Recipients {
 				if recipient.LaunchClaim != nil {

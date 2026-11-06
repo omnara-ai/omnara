@@ -16,9 +16,10 @@ const (
 )
 
 type Event struct {
-	Scope     Scope     `json:"scope"`
-	Kind      EventKind `json:"kind"`
-	Mentioned bool      `json:"mentioned,omitempty"`
+	Scope               Scope     `json:"scope"`
+	Kind                EventKind `json:"kind"`
+	Mentioned           bool      `json:"mentioned,omitempty"`
+	ExternalParticipant bool      `json:"external_participant,omitempty"`
 }
 
 type EventAddress struct {
