@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5"
@@ -29,13 +30,12 @@ func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
 		{name: "transport closed", want: "socket_failure"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			testCtx, testCancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer testCancel()
 			buf, logger := newRequestEventCapture()
 			recorder := metrics.NewDBRecorder(metrics.New(), metrics.SubsystemDB)
+			ready := make(chan struct{})
 			finished := make(chan error, 1)
-			// accepted closes once Accept has hijacked the connection. Closing the
-			// client earlier lets net/http's pending background read cancel the
-			// request context first, replacing the socket's cancellation cause.
-			accepted := make(chan struct{})
 			var handlerErr error
 			handler := requestEvents(logger, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				conn, err := websocket.Accept(w, r, nil)
@@ -43,12 +43,12 @@ func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
 					handlerErr = err
 					return
 				}
-				close(accepted)
 				defer func() { _ = conn.CloseNow() }()
 				socket := &daemonSocket{wire: daemonprotocol.NewBackendSocket(conn, ""), done: make(chan struct{})}
 				ctx, cancel := context.WithCancelCause(r.Context())
 				defer cancel(nil)
 				traceCtx := recorder.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "-- name: InFlightQuery :one"})
+				close(ready)
 				socket.readLoop(ctx, cancel, nil)
 				recorder.TraceQueryEnd(traceCtx, nil, pgx.TraceQueryEndData{Err: ctx.Err()})
 			}))
@@ -57,7 +57,7 @@ func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
 				finished <- handlerErr
 			}))
 			defer server.Close()
-			conn, response, err := websocket.Dial(t.Context(), server.URL, nil)
+			conn, response, err := websocket.Dial(testCtx, server.URL, nil)
 			if response != nil && response.Body != nil {
 				defer func() { _ = response.Body.Close() }()
 			}
@@ -65,10 +65,14 @@ func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = conn.CloseNow() }()
+			// Dial can finish before Hijack; closing then lets HTTP cancellation
+			// win over the socket's own cancellation cause.
 			select {
-			case <-accepted:
-			case <-t.Context().Done():
-				t.Fatal("socket handler did not accept")
+			case <-ready:
+			case err := <-finished:
+				t.Fatalf("socket handler exited before becoming ready: %v", err)
+			case <-testCtx.Done():
+				t.Fatal("socket handler did not become ready: ", testCtx.Err())
 			}
 			if tt.code == 0 {
 				_ = conn.CloseNow()
@@ -80,7 +84,7 @@ func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-			case <-t.Context().Done():
+			case <-testCtx.Done():
 				t.Fatal("socket handler did not finish")
 			}
 			event := decodeRequestEvent(t, buf)

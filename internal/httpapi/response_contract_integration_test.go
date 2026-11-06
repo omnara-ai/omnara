@@ -285,6 +285,8 @@ func (r *responseContractRecorder) Flush() {
 	}
 }
 
+func (r *responseContractRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
 func (r *responseContractRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	hijacker, ok := r.ResponseWriter.(http.Hijacker)
 	if !ok {
