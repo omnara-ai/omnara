@@ -17,10 +17,6 @@ const (
 		"snippet: string; title: string; url: string }> | null };\n"
 	programmaticWebFetchType = "web_fetch: { bytes: number; content: string; content_type: string; " +
 		"final_url: string; status_code: number; title?: string; truncated: boolean; url: string };\n"
-	programmaticWebExample = "\"$OMNARA_BIN\" call web_search '{\"query\":\"omnara changelog\",\"num_results\":3}' |\n" +
-		"  jq -c '.results[]? | {url}' |\n" +
-		"  while read -r input; do printf '%s' \"$input\" | \"$OMNARA_BIN\" call web_fetch - | " +
-		"jq -r '.title'; done\n"
 )
 
 func TestRuntimeContractToolSpecsDescribeProgrammaticToolCallsOnlyWhenEnabled(t *testing.T) {
@@ -58,8 +54,7 @@ func TestRuntimeContractToolSpecsDescribeProgrammaticToolCallsOnlyWhenEnabled(t 
 	enabled := descriptions(contract)
 	want := entry.Description + programmaticToolCallsRunCommandDescription +
 		programmaticToolCallsTypesHeading + programmaticWebSearchType + programmaticWebFetchType + "```" +
-		programmaticToolCallsSearchDescription +
-		programmaticToolCallsExamplesHeading + programmaticWebExample + "```"
+		programmaticToolCallsSearchDescription
 	if got := enabled[toolcatalog.ToolNameRunCommand]; got != want {
 		t.Fatalf("run_command description = %q, want %q", got, want)
 	}

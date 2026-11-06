@@ -15,8 +15,8 @@ type ToolSearchDefinition struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema"`
-	// OutputSchema is set only in program tool_search results, for tools that
-	// declare one.
+	// OutputSchema is set only in program tool_search results: what calling
+	// the tool from a command prints.
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 }
 

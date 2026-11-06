@@ -31,25 +31,60 @@ const programmaticToolCallsTypesHeading = "\n\nWhat these tools print, as TypeSc
 const programmaticToolCallsSearchDescription = "\n\nFind other tools, including ones not loaded here, with " +
 	"their input and output schemas: `\"$OMNARA_BIN\" call tool_search '{\"pattern\":\"<regex>\"}'`."
 
-const programmaticToolCallsExamplesHeading = "\n\nExamples:\n```sh\n"
+const programmaticToolCallsGuidance = "Commands you start with `run_command` can call your other tools with " +
+	"`\"$OMNARA_BIN\" call`; the `run_command` description explains what it prints and its exit codes. Use it " +
+	"instead of calling tools one at a time when a task needs many calls, or results you would only filter, " +
+	"join, count or reshape: results reach only the command and stay out of your context, so print only what " +
+	"you need. Before relying on fields of a tool's result that `run_command` doesn't show, check its " +
+	"`output_schema` with `tool_search`. Examples:\n```sh\n"
 
-// programmaticToolCallsExamples are shown when the agent has every tool they
-// call.
+// programmaticToolCallsExamples are shown in the system prompt when the agent
+// may call every tool they use from commands.
 var programmaticToolCallsExamples = []struct {
 	tools   []string
 	example string
 }{
 	{
+		example: "# Find tools you can call, with what they take and print\n" +
+			"\"$OMNARA_BIN\" call tool_search '{\"pattern\":\"issue|ticket\"}' | " +
+			"jq -c '.tools[] | {name, input_schema, output_schema}'\n",
+	},
+	{
 		tools: []string{toolcatalog.ToolNameStorageList},
-		example: "\"$OMNARA_BIN\" call storage_list '{\"pattern\":\"/memory/**\"}' | " +
+		example: "# Keep only the fields you need\n" +
+			"\"$OMNARA_BIN\" call storage_list '{\"pattern\":\"/memory/**\"}' | " +
 			"jq -r '.entries[]? | select(.type == \"file\") | .path'\n",
 	},
 	{
 		tools: []string{toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameWebFetch},
-		example: "\"$OMNARA_BIN\" call web_search '{\"query\":\"omnara changelog\",\"num_results\":3}' |\n" +
+		example: "# Build inputs with jq so values are escaped, pass them on stdin, and chain calls\n" +
+			"jq -n --arg q \"$TOPIC\" '{query: $q, num_results: 5}' | \"$OMNARA_BIN\" call web_search - |\n" +
 			"  jq -c '.results[]? | {url}' |\n" +
 			"  while read -r input; do printf '%s' \"$input\" | \"$OMNARA_BIN\" call web_fetch - | " +
 			"jq -r '.title'; done\n",
+	},
+	{
+		tools: []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead},
+		example: "# Run independent calls in parallel; a command can have 16 calls in flight\n" +
+			"\"$OMNARA_BIN\" call storage_list '{\"pattern\":\"/memory/notes/*.md\"}' | jq -r '.entries[]?.path' |\n" +
+			"  while read -r path; do\n" +
+			"    jq -nc --arg path \"$path\" '{path: $path}' | \"$OMNARA_BIN\" call storage_read - " +
+			"> \"$(basename \"$path\").json\" &\n" +
+			"  done; wait\n",
+	},
+	{
+		example: "# For longer logic, wrap calls in a function; a failed or denied call exits nonzero\n" +
+			"python3 - <<'PY'\n" +
+			"import json, os, subprocess\n\n" +
+			"def call(tool, **tool_input):\n" +
+			"    done = subprocess.run([os.environ[\"OMNARA_BIN\"], \"call\", tool, \"-\"],\n" +
+			"                          input=json.dumps(tool_input), capture_output=True, text=True)\n" +
+			"    if done.returncode != 0:\n" +
+			"        raise RuntimeError(f\"{tool} exited {done.returncode}: {done.stderr.strip()}\")\n" +
+			"    return json.loads(done.stdout)\n\n" +
+			"tools = call(\"tool_search\", pattern=\".\")[\"tools\"]\n" +
+			"print(len(tools), \"tools\")\n" +
+			"PY\n",
 	},
 }
 
@@ -76,12 +111,11 @@ func ProgramOutputSchema(spec ToolSpec) (json.RawMessage, error) {
 }
 
 // programmaticToolCallsDescription is appended to run_command's description:
-// how to call tools, the result types of the built-ins the agent may call
-// from commands, and examples that use them. Integration and MCP tools are
-// left to tool_search, which returns their schemas.
+// how to call tools and the result types of the built-ins the agent may call
+// from commands. Integration and MCP tools are left to tool_search, which
+// returns their schemas. Examples are in the system prompt.
 func programmaticToolCallsDescription(contract agentconfig.RuntimeContract, specs []ToolSpec) (string, error) {
 	var types strings.Builder
-	callable := map[string]bool{}
 	for _, spec := range specs {
 		if spec.Type != toolcatalog.ToolTypeBuiltIn || contract.ProgrammaticToolExcluded(spec.Name) {
 			continue
@@ -100,24 +134,33 @@ func programmaticToolCallsDescription(contract agentconfig.RuntimeContract, spec
 		if err != nil {
 			return "", err
 		}
-		callable[spec.Name] = true
 		types.WriteString(spec.Name + ": " + rendered + ";\n")
 	}
 	description := programmaticToolCallsRunCommandDescription
 	if types.Len() > 0 {
 		description += programmaticToolCallsTypesHeading + types.String() + "```"
 	}
-	description += programmaticToolCallsSearchDescription
-	var examples strings.Builder
-	for _, candidate := range programmaticToolCallsExamples {
-		if !slices.ContainsFunc(candidate.tools, func(name string) bool { return !callable[name] }) {
-			examples.WriteString(candidate.example)
+	return description + programmaticToolCallsSearchDescription, nil
+}
+
+// programmaticToolCallsSystemGuidance tells the model when to call tools
+// from commands, with examples that use only tools it may call from them.
+func programmaticToolCallsSystemGuidance(contract agentconfig.RuntimeContract, specs []ToolSpec) string {
+	callable := map[string]bool{}
+	for _, spec := range specs {
+		if spec.Type == toolcatalog.ToolTypeBuiltIn && !contract.ProgrammaticToolExcluded(spec.Name) {
+			callable[spec.Name] = true
 		}
 	}
-	if examples.Len() > 0 {
-		description += programmaticToolCallsExamplesHeading + examples.String() + "```"
+	var guidance strings.Builder
+	guidance.WriteString(programmaticToolCallsGuidance)
+	for _, candidate := range programmaticToolCallsExamples {
+		if !slices.ContainsFunc(candidate.tools, func(name string) bool { return !callable[name] }) {
+			guidance.WriteString(candidate.example)
+		}
 	}
-	return description, nil
+	guidance.WriteString("```")
+	return guidance.String()
 }
 
 var typeScriptIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
