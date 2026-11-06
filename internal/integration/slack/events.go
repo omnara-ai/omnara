@@ -23,6 +23,7 @@ var (
 	channelMentionPattern   = regexp.MustCompile(`<#([^>|]+)(?:\|([^>]+))?>`)
 	broadcastMentionPattern = regexp.MustCompile(`<!((?:here|channel|everyone))(?:\|[^>]*)?>`)
 	slackTextEntityReplacer = strings.NewReplacer("&amp;", "&", "&lt;", "<", "&gt;", ">")
+	attachmentTagPattern    = regexp.MustCompile(`(?i)(<|&lt;)(\s*/?\s*)slack_attachment`)
 )
 
 type Identity struct {
@@ -215,10 +216,11 @@ func FormatRecentContext(messages []HistoryMessage, event Event, labels DisplayL
 }
 
 func MessageText(text string, blocks []HistoryBlock, attachments []Attachment) string {
-	var pieces []string
+	var pieces, unwrapped []string
 	add := func(piece string) {
 		if piece = strings.TrimSpace(piece); piece != "" {
 			pieces = append(pieces, piece)
+			unwrapped = append(unwrapped, piece)
 		}
 	}
 	addBlocks := func(blocks []HistoryBlock) {
@@ -228,17 +230,23 @@ func MessageText(text string, blocks []HistoryBlock, attachments []Attachment) s
 	}
 	addBlocks(blocks)
 	for _, attachment := range attachments {
+		start := len(pieces)
 		add(attachment.plainText())
 		addBlocks(attachment.Blocks)
 		for _, shared := range attachment.MessageBlocks {
 			addBlocks(shared.Message.Blocks)
 		}
+		if len(pieces) > start {
+			body := attachmentTagPattern.ReplaceAllString(strings.Join(pieces[start:], "\n"), "${1}${2}slack-attachment")
+			pieces = append(pieces[:start], "<slack_attachment>\n"+body+"\n</slack_attachment>")
+		}
 	}
 	text = strings.TrimSpace(text)
-	if rendered := strings.Join(pieces, "\n"); rendered != text {
-		text = strings.TrimSpace(text + "\n" + rendered)
+	rendered := strings.Join(pieces, "\n")
+	if strings.Join(unwrapped, "\n") == text {
+		return rendered
 	}
-	return text
+	return strings.TrimSpace(text + "\n" + rendered)
 }
 
 func markdownLink(text, url string) string {

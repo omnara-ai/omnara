@@ -508,7 +508,12 @@ func TestSlackInboxThreadMentionIncludesEarlierFilesAndTables(t *testing.T) {
 	payload := slackInboxTestPayload(t, event)
 	expanded, err := provider.Expand(t.Context(), setup, payload)
 	require.NoError(t, err)
-	require.Contains(t, string(expanded.Event.ContentBlocks), `add these up\nagt_2 | ccp_2\nagt_1 | ccp_1`)
+	var contentBlocks []struct {
+		Text string `json:"text"`
+	}
+	require.NoError(t, json.Unmarshal(expanded.Event.ContentBlocks, &contentBlocks))
+	require.Contains(t, contentBlocks[1].Text,
+		"add these up\nagt_2 | ccp_2\n<slack_attachment>\nagt_1 | ccp_1\n</slack_attachment>")
 	require.Len(t, expanded.Event.Files, 1)
 	require.Equal(t, "F1", expanded.Event.Files[0].ProviderFileID)
 	file, err := provider.DownloadFile(t.Context(), setup, payload, "F1")
