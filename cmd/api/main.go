@@ -210,6 +210,7 @@ func main() {
 		Addr:              cfg.APIAddr,
 		Handler:           apiServer.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       180 * time.Second,
 	}
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
