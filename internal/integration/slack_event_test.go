@@ -99,6 +99,16 @@ func slackInboxTestPayload(t *testing.T, event slack.Event) []byte {
 	return payload
 }
 
+func slackInboxTestSharedPayload(t *testing.T, event slack.Event) []byte {
+	t.Helper()
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(slackInboxTestPayload(t, event), &envelope))
+	envelope["is_ext_shared_channel"] = true
+	payload, err := json.Marshal(envelope)
+	require.NoError(t, err)
+	return payload
+}
+
 func TestSlackInboxCanonicalMessageAndMentionRouting(t *testing.T) {
 	definition, _ := integrationdefinition.Lookup(integrationdefinition.SlackThread)
 	integrationSetup := slackInboxTestIntegration()
@@ -492,6 +502,7 @@ func TestSlackInboxThreadMentionIncludesEarlierFilesAndTables(t *testing.T) {
 	}))
 	defer server.Close()
 	setup := slackInboxTestIntegration()
+	setup.Settings = json.RawMessage(`{"allow_external_participants":true}`)
 	access := &slackInboxTestAccess{integrationSetup: setup, version: uuid.New()}
 	provider := NewSlackIntegrationInboxProvider(
 		slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()}, access, access, nil,
@@ -501,11 +512,11 @@ func TestSlackInboxThreadMentionIncludesEarlierFilesAndTables(t *testing.T) {
 			`"},{"type":"raw_text","text":"` + checkpoint + `"}]]`)}}
 	}
 	event := slack.Event{
-		Type: "app_mention", User: "U123", Channel: "C123", TS: "1.2", ThreadTS: "1.0",
+		Type: "app_mention", User: "U123", UserTeam: "T_REMOTE", Channel: "C123", TS: "1.2", ThreadTS: "1.0",
 		Text:   "<@UBOT> add these up",
 		Blocks: table("agt_2", "ccp_2"), Attachments: []slack.Attachment{{Blocks: table("agt_1", "ccp_1")}},
 	}
-	payload := slackInboxTestPayload(t, event)
+	payload := slackInboxTestSharedPayload(t, event)
 	expanded, err := provider.Expand(t.Context(), setup, payload)
 	require.NoError(t, err)
 	var contentBlocks []struct {
@@ -516,11 +527,14 @@ func TestSlackInboxThreadMentionIncludesEarlierFilesAndTables(t *testing.T) {
 		"add these up\nagt_2 | ccp_2\n<slack_attachment>\nagt_1 | ccp_1\n</slack_attachment>")
 	require.Len(t, expanded.Event.Files, 1)
 	require.Equal(t, "F1", expanded.Event.Files[0].ProviderFileID)
+	require.Contains(t, contentBlocks[0].Text, "external participant from another Slack organization")
+	setup.Settings = json.RawMessage(`{}`)
+	access.integrationSetup = setup
 	file, err := provider.DownloadFile(t.Context(), setup, payload, "F1")
 	require.NoError(t, err)
 	require.Equal(t, "hello", string(file.Content))
 
-	event.ThreadTS = ""
+	event.ThreadTS, event.UserTeam = "", ""
 	expanded, err = provider.Expand(t.Context(), setup, slackInboxTestPayload(t, event))
 	require.NoError(t, err)
 	require.Contains(t, string(expanded.Event.ContentBlocks), "earlier")

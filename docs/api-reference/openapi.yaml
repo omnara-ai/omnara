@@ -17196,7 +17196,7 @@ components:
     IntegrationSettings:
       type: object
       additionalProperties: true
-      description: Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack and Discord integrations use ChatIntegrationSettings.
+      description: Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack integrations use SlackIntegrationSettings; Discord integrations use ChatIntegrationSettings.
     GitHubIntegrationSettings:
       type: object
       additionalProperties: false
@@ -17224,6 +17224,18 @@ components:
           pattern: '^[1-9][0-9]*$'
           title: Repository ID
           description: 'Optional: restrict launches to this repository.'
+      x-go-type: json.RawMessage
+    SlackIntegrationSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        launcher:
+          $ref: '#/components/schemas/ChatIntegrationLauncher'
+        allow_external_participants:
+          type: boolean
+          default: false
+          title: Allow external participants in shared channels
+          description: Let people from other Slack organizations start agents, choose launch profiles, and continue conversations in shared channels this bot has joined. Does not grant permission to answer agent prompts or approve actions.
       x-go-type: json.RawMessage
     ChatIntegrationSettings:
       type: object

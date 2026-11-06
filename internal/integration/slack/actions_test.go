@@ -169,3 +169,12 @@ func TestResolveInteractionFormSupportsMultipleSelections(t *testing.T) {
 		t.Fatalf("ResolveInteractionForm() = %+v", result)
 	}
 }
+
+func TestExternalProfileSelectionRequiresSharedChannel(t *testing.T) {
+	source := EventsEnvelope{Event: Event{Type: "app_mention", Channel: "C123", Team: "T123"}}
+	action := ActionsEnvelope{User: ActionsUser{ID: "U_REMOTE", TeamID: "T_REMOTE"}}
+	action.Channel.ID = "C123"
+	require.False(t, ProfileChoiceSurfaceAllowed("T123", source, action))
+	source.IsExtSharedChannel = true
+	require.True(t, ProfileChoiceSurfaceAllowed("T123", source, action))
+}

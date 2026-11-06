@@ -44,6 +44,20 @@ type ChatSettings struct {
 	Launcher *ChatLauncherSettings `json:"launcher,omitempty"`
 }
 
+type SlackSettings struct {
+	Launcher                  *ChatLauncherSettings `json:"launcher,omitempty"`
+	AllowExternalParticipants bool                  `json:"allow_external_participants,omitempty"`
+}
+
+func SlackAllowsExternalParticipants(raw json.RawMessage) bool {
+	var settings SlackSettings
+	return json.Unmarshal(raw, &settings) == nil && settings.AllowExternalParticipants
+}
+
+func (d Definition) AllowsExternalParticipants(settings json.RawMessage) bool {
+	return d.Provider == ProviderSlack && SlackAllowsExternalParticipants(settings)
+}
+
 func ReadChatLauncher(raw json.RawMessage) (*ChatLauncherSettings, error) {
 	var settings ChatSettings
 	if err := json.Unmarshal(raw, &settings); err != nil {
@@ -78,6 +92,12 @@ var chatSettings = &SettingsDefinition{
 	SchemaComponent:  "ChatIntegrationSettings",
 	Description:      "Launch from a mention using one profile or a menu of profiles.",
 	ValidateSettings: func(raw json.RawMessage) error { _, err := ChatLaunchProfiles(raw); return err },
+}
+
+var slackSettings = &SettingsDefinition{
+	SchemaComponent:  "SlackIntegrationSettings",
+	Description:      "Choose mention profiles and whether external participants can use the bot in shared channels.",
+	ValidateSettings: chatSettings.ValidateSettings,
 }
 
 func newChatLauncher(provider Provider) *LauncherDefinition {

@@ -49,8 +49,24 @@ func (s *Server) slackProfileChoiceAction(
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
+	sourceChoice, err := s.store.Integrations().GetIntegrationProfileChoice(ctx, integration.ProjectID, integration.ID, id)
+	if err != nil {
+		writeIntegrationProviderError(w, err)
+		return true
+	}
+	source, err := slack.DecodeEventsEnvelope(sourceChoice.Payload)
+	if err != nil {
+		writeIntegrationProviderError(w, err)
+		return true
+	}
+	if sourceChoice.MessageChannelID != envelope.Channel.ID || sourceChoice.MessageID != envelope.Message.TS ||
+		!slack.ProfileChoiceSurfaceAllowed(integration.ProviderTenantID, source, envelope) {
+		writeJSON(w, http.StatusOK, map[string]string{"ok": "ignored"})
+		return true
+	}
 	choice, err := integrationruntime.SelectChatIntegrationProfile(ctx, s.store.Integrations(), integration, id,
-		selection.Key, envelope.User.ID, envelope.Channel.ID, envelope.Message.TS)
+		selection.Key, envelope.User.ID, envelope.Channel.ID, envelope.Message.TS,
+		envelope.User.TeamID != "" && envelope.User.TeamID != integration.ProviderTenantID)
 	text := profileChoiceText(choice)
 	if err != nil {
 		if !unavailableChoiceError(err) {
@@ -64,7 +80,11 @@ func (s *Server) slackProfileChoiceAction(
 		choice.MessageChannelID == envelope.Channel.ID {
 		s.dismissSlackProfileChoice(ctx, integration, choice, text)
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"ok": "recorded"})
+	status := "recorded"
+	if err != nil {
+		status = "ignored"
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ok": status})
 	return true
 }
 
@@ -81,7 +101,7 @@ func (s *Server) discordProfileChoiceAction(
 		return discordInteractionNotice(unavailableProfileChoice)
 	}
 	choice, err := integrationruntime.SelectChatIntegrationProfile(ctx, s.store.Integrations(), integration, id,
-		selection.Key, input.Actor().ID, input.ChannelID, input.Message.ID)
+		selection.Key, input.Actor().ID, input.ChannelID, input.Message.ID, false)
 	text := profileChoiceText(choice)
 	if err != nil {
 		if !unavailableChoiceError(err) {

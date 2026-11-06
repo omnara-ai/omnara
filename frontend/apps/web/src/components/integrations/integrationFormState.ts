@@ -16,6 +16,7 @@ export interface IntegrationFormValues {
   repositoryId: string
   trigger: GitHubIntegrationLauncher['trigger']
   codeWrite: boolean
+  allowExternalParticipants: boolean
 }
 
 export function integrationFormValues(
@@ -31,6 +32,9 @@ export function integrationFormValues(
     repositoryId: github?.launcher?.repository_id ?? '',
     trigger: github?.launcher?.trigger ?? (integrationKind === 'github_pr' ? 'both' : 'mention'),
     codeWrite: github?.code_write ?? false,
+    allowExternalParticipants:
+      integrationKind === 'slack_thread' &&
+      integration.settings.allow_external_participants === true,
   }
 }
 
@@ -44,6 +48,10 @@ export function integrationFormRequest(
   delete settings.launcher
   delete settings.code_write
   if (values.codeWrite) settings.code_write = true
+  if (integrationKind === 'slack_thread') {
+    delete settings.allow_external_participants
+    if (values.allowExternalParticipants) settings.allow_external_participants = true
+  }
   const configured = profileIntegrationSetup({
     integrationKind,
     name: integration.name,

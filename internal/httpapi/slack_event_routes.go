@@ -124,7 +124,8 @@ func (s *Server) acceptSlackEvent(
 		return "updated", s.applySlackNameUpdate(ctx, integration, update)
 	}
 	event := envelope.Event
-	if slack.RemoteUserEvent(integration.ProviderTenantID, event) ||
+	if !slack.MessageParticipantAllowed(integration.ProviderTenantID, envelope,
+		integrationdefinition.SlackAllowsExternalParticipants(integration.Settings)) ||
 		slack.BotOrSelfEvent(identity.BotUserID, event) ||
 		!slack.ConversationalMessage(event) || event.Channel == "" || event.TS == "" {
 		s.integrationInboxIntake.Record("slack", metrics.IntegrationInboxIntakeOutcomeFiltered)

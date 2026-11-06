@@ -229,6 +229,7 @@ func choiceIntent(choice integrationstore.IntegrationProfileChoiceRecord) []Inte
 func SelectChatIntegrationProfile(
 	ctx context.Context, store *integrationstore.Store, integrationSetup integrationstore.IntegrationRecord,
 	id uuid.UUID, key, actorID, channelID, messageID string,
+	externalActor bool,
 ) (integrationstore.IntegrationProfileChoiceRecord, error) {
 	for range 3 {
 		choice, err := store.GetIntegrationProfileChoice(ctx, integrationSetup.ProjectID, integrationSetup.ID, id)
@@ -239,6 +240,7 @@ func SelectChatIntegrationProfile(
 			ProjectID: integrationSetup.ProjectID, IntegrationID: integrationSetup.ID, ID: id,
 			Key: key, ActorID: actorID, MessageChannelID: channelID, MessageID: messageID,
 			SourceChoiceRevision: choice.Revision, SourceSetupRevision: integrationSetup.SetupRevision,
+			ExternalActor: externalActor,
 		})
 		if !errors.Is(err, storeerr.ErrConflict) {
 			return result, err

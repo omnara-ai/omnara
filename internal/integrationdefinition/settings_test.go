@@ -29,6 +29,8 @@ func TestIntegrationSettingsOwnedByDefinition(t *testing.T) {
 			require.NoError(t, err)
 		}
 	}
+	_, err := ValidateSettings(SlackThread, json.RawMessage(`{"allow_external_participants":true}`))
+	require.NoError(t, err)
 	for _, tc := range []struct {
 		kind     Kind
 		settings string
@@ -36,6 +38,10 @@ func TestIntegrationSettingsOwnedByDefinition(t *testing.T) {
 		{SlackThread, fmt.Sprintf(`{"launcher":{"profiles":[%q,%q]}}`, profile, profile)},
 		{SlackThread, `{"launcher":{"profiles":[]}}`},
 		{SlackThread, `{"launcher":{"profiles":["11111111-1111-4111-8111-111111111111"]}}`},
+		{SlackThread, `{"allow_external_participants":"true"}`},
+		{SlackThread, `{"allow_external_participants":null}`},
+		{DiscordThread, `{"allow_external_participants":true}`},
+		{GitHubPR, `{"allow_external_participants":true}`},
 		{GitHubPR, fmt.Sprintf(`{"launcher":{"profiles":[%q]}}`, profile)},
 		{GitHubPR, fmt.Sprintf(
 			`{"launcher":{"profile":%q,"trigger":"mention","repository_id":"9223372036854775808"}}`, profile)},
@@ -52,6 +58,7 @@ func TestSettingsSchemasMatchGoStructs(t *testing.T) {
 		"GitHubIntegrationSettings": reflect.TypeOf(GitHubSettings{}),
 		"GitHubIntegrationLauncher": reflect.TypeOf(GitHubLauncherSettings{}),
 		"ChatIntegrationSettings":   reflect.TypeOf(ChatSettings{}),
+		"SlackIntegrationSettings":  reflect.TypeOf(SlackSettings{}),
 		"ChatIntegrationLauncher":   reflect.TypeOf(ChatLauncherSettings{}),
 	} {
 		schema, _ := schemas[name].(map[string]any)

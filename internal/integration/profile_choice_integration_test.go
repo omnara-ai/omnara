@@ -178,15 +178,24 @@ func (f *choiceJourney) choose(choice integrationstore.IntegrationProfileChoiceR
 		}
 	}
 	selected, err := SelectChatIntegrationProfile(f.t.Context(), f.store.Integrations(), f.integrationSetup, choice.ID,
-		key, "U_CHOOSER", "C123", choice.ID.String())
+		key, "U_CHOOSER", "C123", choice.ID.String(), false)
 	require.NoError(f.t, err)
 	require.Equal(f.t, key, selected.SelectedKey)
 }
 
-func TestChatProfileChoiceLaunchesSelectedProfileAfterRestart(t *testing.T) {
+func TestChatProfileChoiceExternalRequestSurvivesRestartAndOptOut(t *testing.T) {
 	t.Parallel()
 	f := newChoiceJourney(t, 2)
 	ctx := t.Context()
+	var settings integrationdefinition.SlackSettings
+	require.NoError(t, json.Unmarshal(f.integration.Settings, &settings))
+	settings.AllowExternalParticipants = true
+	raw, err := json.Marshal(settings)
+	require.NoError(t, err)
+	update := integrationstore.SaveIntegrationInput{OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, Settings: raw}
+	f.integrationSetup, err = f.store.Integrations().UpdateIntegration(ctx, f.integration.ID, update)
+	require.NoError(t, err)
+	f.event.Event.ExternalParticipant = true
 	var originalConfigs int
 	require.NoError(t, f.pool.QueryRow(
 		ctx, `SELECT count(*) FROM agent_configs WHERE project_id=$1`, f.ids.ProjectID).Scan(&originalConfigs))
@@ -212,6 +221,9 @@ func TestChatProfileChoiceLaunchesSelectedProfileAfterRestart(t *testing.T) {
 	require.Empty(t, f.receive("while-waiting", later))
 	require.Len(t, f.provider.menus, 1)
 	f.choose(choice, "heavy")
+	update.Settings = f.integration.Settings
+	_, err = f.store.Integrations().UpdateIntegration(ctx, f.integration.ID, update)
+	require.NoError(t, err)
 	f.choose(choice, "heavy")
 	f.restart()
 	receipt := f.claim()
@@ -244,6 +256,7 @@ func TestChatProfileChoiceLaunchesSelectedProfileAfterRestart(t *testing.T) {
 	require.False(t, found, "duplicate selection cannot enqueue a second launch")
 
 	follow := f.event
+	follow.Event.ExternalParticipant, follow.Actor.ProviderUserID = false, "U_LOCAL"
 	follow.Event.Mentioned, follow.SemanticKey = false, "follow-up"
 	results = f.receive("follow-up", follow)
 	require.Len(t, results, 1)
@@ -686,7 +699,7 @@ func TestChatProfileChoiceStaleMenuDoesNotBlockFreshSelection(t *testing.T) {
 	)
 	require.NoError(t, err)
 	_, err = SelectChatIntegrationProfile(ctx, f.store.Integrations(), f.integrationSetup, old.ID,
-		old.Options[1].Key, "U_CHOOSER", "C123", old.ID.String())
+		old.Options[1].Key, "U_CHOOSER", "C123", old.ID.String(), false)
 	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 	next := f.event
 	next.SemanticKey = "new-mention"

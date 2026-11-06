@@ -3375,7 +3375,7 @@ export const zListCronTriggersResponse = z.object({
 });
 
 /**
- * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack and Discord integrations use ChatIntegrationSettings.
+ * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack integrations use SlackIntegrationSettings; Discord integrations use ChatIntegrationSettings.
  */
 export const zIntegrationSettings = z.record(z.string(), z.unknown());
 
@@ -3396,6 +3396,11 @@ export const zGitHubIntegrationSettings = z.object({
 
 export const zChatIntegrationLauncher = z.object({
     profiles: z.array(zAgentProfileId).min(1).max(16)
+});
+
+export const zSlackIntegrationSettings = z.object({
+    launcher: zChatIntegrationLauncher.optional(),
+    allow_external_participants: z.boolean().optional().default(false)
 });
 
 export const zChatIntegrationSettings = z.object({

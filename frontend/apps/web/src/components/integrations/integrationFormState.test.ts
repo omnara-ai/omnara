@@ -13,17 +13,32 @@ const first = fakeId('aprf'),
 describe('integration settings editor', () => {
   it('sends only settings and preserves unrelated settings when editing profiles', () => {
     const saved = integrationFixture({
-      settings: { launcher: { profiles: [first, second] }, other: 'kept' },
+      settings: {
+        launcher: { profiles: [first, second] },
+        allow_external_participants: true,
+        other: 'kept',
+      },
     })
     const values = integrationFormValues('slack_thread', saved)
     expect(
       integrationFormRequest('slack_thread', { ...values, profileIds: [second, first] }, saved),
     ).toEqual({
-      settings: { other: 'kept', launcher: { profiles: [second, first] } },
+      settings: {
+        other: 'kept',
+        allow_external_participants: true,
+        launcher: { profiles: [second, first] },
+      },
     })
     expect(integrationFormRequest('slack_thread', { ...values, profileIds: [] }, saved)).toEqual({
-      settings: { other: 'kept' },
+      settings: { other: 'kept', allow_external_participants: true },
     })
+    expect(
+      integrationFormRequest(
+        'slack_thread',
+        { ...values, allowExternalParticipants: false },
+        saved,
+      ),
+    ).toEqual({ settings: { other: 'kept', launcher: { profiles: [first, second] } } })
   })
   it.each(['slack_thread', 'discord_thread'] as const)(
     'keeps %s mention profiles independent from schedule destinations',

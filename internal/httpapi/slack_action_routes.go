@@ -57,18 +57,20 @@ func (s *Server) slackActionsRoute(w http.ResponseWriter, r *http.Request) {
 		writeIntegrationProviderError(w, err)
 		return
 	}
-	if !slack.ValidateActionIdentity(
-		slack.Identity{
-			AppID:       install.ProviderAccountRef,
-			WorkspaceID: install.ProviderTenantID,
-			BotUserID:   installIdentity.BotUserID,
-		},
-		envelope,
-	) {
+	identity := slack.Identity{
+		AppID:       install.ProviderAccountRef,
+		WorkspaceID: install.ProviderTenantID,
+		BotUserID:   installIdentity.BotUserID,
+	}
+	if !slack.ValidateActionInstallation(identity, envelope) {
 		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack action identity")
 		return
 	}
 	if s.slackProfileChoiceAction(w, r, install, envelope) {
+		return
+	}
+	if !slack.ValidateActionIdentity(identity, envelope) {
+		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack action identity")
 		return
 	}
 	result, err := s.resolveSlackInteractionAction(r, install, envelope)

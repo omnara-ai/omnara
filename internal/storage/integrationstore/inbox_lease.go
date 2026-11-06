@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -84,6 +85,18 @@ func (w *IntegrationInboxLeaseTx) Receipt() IntegrationInboxRecord {
 		r.CompletedAt = &v
 	}
 	return r
+}
+
+func (w *IntegrationInboxLeaseTx) LockExternalParticipantAccess(ctx context.Context) error {
+	integration, err := integrationProfileChoiceIntegration(ctx, w.q, w.record.ProjectID, w.record.IntegrationID)
+	if err != nil {
+		return err
+	}
+	definition, _ := integrationdefinition.Lookup(integration.IntegrationKind)
+	if !definition.AllowsExternalParticipants(integration.Settings) {
+		return storeerr.ErrUnauthorized
+	}
+	return nil
 }
 
 func (w *IntegrationInboxLeaseTx) FreezePlan(ctx context.Context, plan json.RawMessage) error {

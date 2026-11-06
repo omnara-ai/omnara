@@ -128,6 +128,10 @@ func NormalizeSlackIntegrationEvent(
 		return IntegrationEvent{}, ok, err
 	}
 	event := envelope.Event
+	if !slack.MessageParticipantAllowed(integrationSetup.ProviderTenantID, envelope,
+		integrationdefinition.SlackAllowsExternalParticipants(integrationSetup.Settings)) {
+		return IntegrationEvent{}, false, nil
+	}
 	mentioned := event.Type == "app_mention" || slackMentionsUser(event.Text, identity.BotUserID)
 	scope := integrationdefinition.SlackScope{ChannelID: event.Channel}
 	if event.ChannelType == "im" || strings.HasPrefix(event.Channel, "D") {
@@ -144,15 +148,16 @@ func NormalizeSlackIntegrationEvent(
 	}
 	result := IntegrationEvent{
 		Event: integrationdefinition.Event{
-			Scope:     integrationdefinition.Scope{Slack: &scope},
-			Kind:      integrationdefinition.EventMessage,
-			Mentioned: mentioned,
+			Scope:               integrationdefinition.Scope{Slack: &scope},
+			Kind:                integrationdefinition.EventMessage,
+			Mentioned:           mentioned,
+			ExternalParticipant: slack.RemoteUserEvent(integrationSetup.ProviderTenantID, event),
 		},
-		SemanticKey:            "slack:message:" + integrationSetup.ProviderTenantID + ":" + event.Channel + ":" + event.TS,
-		Actor:                  integrationActor,
-		DeliveryMode:           executionstore.DeliveryModeSteering,
-		CancelOpenInteractions: true,
+		SemanticKey:  "slack:message:" + integrationSetup.ProviderTenantID + ":" + event.Channel + ":" + event.TS,
+		Actor:        integrationActor,
+		DeliveryMode: executionstore.DeliveryModeSteering,
 	}
+	result.CancelOpenInteractions = !result.Event.ExternalParticipant
 	key, sibling := slack.InputIdempotencyKeyPair(envelope)
 	result.SemanticKey = key
 	result.Sibling = &executionstore.InboxMessageSibling{Key: sibling}
@@ -208,7 +213,7 @@ func slackInboxEnvelope(
 	if !slack.ConversationalMessage(event) {
 		return envelope, identity, false, nil
 	}
-	if slack.RemoteUserEvent(integrationSetup.ProviderTenantID, event) || slack.BotOrSelfEvent(identity.BotUserID, event) {
+	if slack.BotOrSelfEvent(identity.BotUserID, event) {
 		return envelope, identity, false, nil
 	}
 	if event.TS == "" || event.Channel == "" || envelope.EventID == "" {
@@ -329,6 +334,9 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 		}
 	}
 	_, contextText := slack.ModelInputTextParts(event, route, newConversation, historyText, labels)
+	if normalized.Event.ExternalParticipant {
+		contextText = "The sender is an external participant from another Slack organization.\n\n" + contextText
+	}
 	blocks := []map[string]any{
 		{"type": "text", "text": contextText, "metadata": map[string]string{"omnara_hidden": "true"}},
 	}

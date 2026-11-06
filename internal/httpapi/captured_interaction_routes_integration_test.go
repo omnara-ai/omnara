@@ -536,6 +536,13 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 					}}
 				}
 				if provider == integrationdefinition.ProviderSlack {
+					f.integration = setSlackExternalParticipants(t, f.project, f.integration, true)
+					f.callbackStatus = http.StatusForbidden
+					f.slackRequest(t, false, func(payload map[string]any) {
+						slackChoice(payload)
+						payload["user"] = map[string]string{"id": "U_REMOTE", "team_id": "T_REMOTE"}
+					})
+					f.callbackStatus = http.StatusOK
 					require.Equal(t, "ignored", f.slackRequest(t, true, slackChoice)["ok"])
 				} else {
 					require.Equal(t, float64(4), f.discordRequest(t, action, false, true)["type"])
