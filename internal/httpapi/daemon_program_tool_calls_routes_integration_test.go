@@ -226,14 +226,18 @@ func TestDaemonProgramToolCallRoutes(t *testing.T) {
 		Pattern string `json:"pattern"`
 		Total   int    `json:"total"`
 		Tools   []struct {
-			Name        string          `json:"name"`
-			InputSchema json.RawMessage `json:"input_schema"`
+			Name         string          `json:"name"`
+			InputSchema  json.RawMessage `json:"input_schema"`
+			OutputSchema json.RawMessage `json:"output_schema"`
 		} `json:"tools"`
 	}
 	require.NoError(t, json.Unmarshal(search.Structured, &listing))
 	var names []string
 	for _, tool := range listing.Tools {
 		require.NotEmpty(t, tool.InputSchema)
+		if tool.Name == toolcatalog.ToolNameStorageList {
+			require.NotEmpty(t, tool.OutputSchema, "built-in tools carry their output schema")
+		}
 		names = append(names, tool.Name)
 	}
 	require.Equal(t, len(names), listing.Total)

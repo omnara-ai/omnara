@@ -67,11 +67,9 @@ func (s strictOpenAPIServer) CreateDaemonProgramToolCall(
 		return nil, daemonProgramToolCallError(ctx, err)
 	}
 	if body.Name == toolcatalog.ToolNameToolSearch {
-		var callable []modelcontext.ToolSpec
-		for _, spec := range specs {
-			if tools.ProgramToolCallable(contract, spec) {
-				callable = append(callable, spec)
-			}
+		callable, err := tools.ProgramCallableToolSpecs(contract, specs)
+		if err != nil {
+			return nil, daemonProgramToolCallError(ctx, err)
 		}
 		search, err := tools.ProgramToolSearch(callable, body.Input)
 		if err != nil {
