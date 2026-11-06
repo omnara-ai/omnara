@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -13,15 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
-
-const programmaticToolCallsRunCommandDescription = " Commands can call this agent's other tools with " +
-	"`\"$OMNARA_BIN\" call <tool> '<json input>'` (pass `-` to read the input from stdin). It prints the tool's " +
-	"structured JSON result to stdout (`--json` prints the full result envelope), exits 1 if the tool fails " +
-	"or is denied, and exits 2 if the tool cannot be called from commands. Find tools, their input schemas " +
-	"and the output schemas of the JSON they print, including ones not loaded here, with " +
-	"`\"$OMNARA_BIN\" call tool_search '{\"pattern\":\"<regex>\"}'`. Results go only to the command, not to " +
-	"you, so chain calls with pipes, jq, loops or scripts and print only what you need. This works only on " +
-	"machines where programmatic tool calls are enabled."
 
 func RuntimeContractToolSpecs(
 	ctx context.Context,
@@ -76,9 +68,6 @@ func RuntimeContractToolSpecs(
 				now.UTC().Year(),
 			)
 		}
-		if tool.Name == toolcatalog.ToolNameRunCommand && contract.ProgrammaticToolCallsEnabled() {
-			description += programmaticToolCallsRunCommandDescription
-		}
 		inputSchema := tool.InputSchema
 		if tool.Name == toolcatalog.ToolNameSpawnAgent && len(contract.Subagents) > 0 {
 			var err error
@@ -103,6 +92,17 @@ func RuntimeContractToolSpecs(
 		return nil, err
 	}
 	out = append(out, mcpSpecs...)
+	if contract.ProgrammaticToolCallsEnabled() {
+		if index := slices.IndexFunc(out, func(spec ToolSpec) bool {
+			return spec.Name == toolcatalog.ToolNameRunCommand
+		}); index >= 0 {
+			description, err := programmaticToolCallsDescription(contract, out)
+			if err != nil {
+				return nil, err
+			}
+			out[index].Description += description
+		}
+	}
 	seen := make(map[string]struct{}, len(out))
 	for _, spec := range out {
 		if _, duplicate := seen[spec.Name]; duplicate {

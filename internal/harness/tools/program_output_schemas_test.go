@@ -83,8 +83,7 @@ func TestProgramOutputSchemasCoverCallableBuiltIns(t *testing.T) {
 
 	post := integrationReadSpec(integrationdefinition.SlackThread)
 	post.Name = toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationPostMessage)
-	for _, spec := range []modelcontext.ToolSpec{post, builtInSpec(toolcatalog.ToolNameStorageWrite),
-		{Name: "mcp__docs__greet", Type: toolcatalog.ToolTypeMCP}} {
+	for _, spec := range []modelcontext.ToolSpec{post, builtInSpec(toolcatalog.ToolNameStorageWrite)} {
 		schema, err := programOutputSchema(spec)
 		require.NoError(t, err)
 		require.Nil(t, schema, spec.Name)
@@ -94,6 +93,10 @@ func TestProgramOutputSchemasCoverCallableBuiltIns(t *testing.T) {
 	schema, err := programOutputSchema(mcp)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"type":"object"}`, string(schema))
+	mcp.OutputSchema = nil
+	schema = requireProgramOutputSchema(t, mcp)
+	require.Contains(t, string(schema), "declares no output schema",
+		"tool_search describes what commands get from a server that declares no schema")
 }
 
 // populated sets every field reachable from v, with one element in each slice

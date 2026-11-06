@@ -12,7 +12,7 @@ func TestCallCommandRequiresRunCommandEnvironment(t *testing.T) {
 	t.Setenv("OMNARA_TOOL_ENDPOINT", "")
 	t.Setenv("OMNARA_TOOL_CAPABILITY", "")
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"call", "storage_list", `{"prefix":"a"}`, "--json"}, nil,
+	code := Run(t.Context(), []string{"call", "storage_list", `{"prefix":"a"}`, "--output", "envelope"}, nil,
 		&stdout, &stderr, discardLogger())
 	require.Equal(t, 2, code)
 	require.Empty(t, stdout.String())
@@ -29,6 +29,15 @@ func TestCallCommandUsageErrorsExitTwo(t *testing.T) {
 	}
 }
 
+func TestCallCommandRejectsUnknownOutput(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"call", "storage_list", "--output", "yaml"}, nil,
+		&stdout, &stderr, discardLogger())
+	require.Equal(t, 2, code)
+	require.Empty(t, stdout.String())
+	require.Equal(t, "omnarad call: --output must be result, envelope or text\n", stderr.String())
+}
+
 func TestCallCommandIsListedInHelp(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	require.Equal(t, 0, Run(t.Context(), []string{"--help"}, nil, &stdout, &stderr, discardLogger()))
@@ -37,5 +46,5 @@ func TestCallCommandIsListedInHelp(t *testing.T) {
 	stdout.Reset()
 	require.Equal(t, 0, Run(t.Context(), []string{"call", "--help"}, nil, &stdout, &stderr, discardLogger()))
 	require.Contains(t, stdout.String(), "--timeout")
-	require.Contains(t, stdout.String(), "--json")
+	require.Contains(t, stdout.String(), "--output")
 }

@@ -47,7 +47,7 @@ type daemonCommand struct {
 	Call *struct {
 		Tool    string        `arg:"positional,required" help:"tool name, such as storage_list"`
 		Input   string        `arg:"positional" help:"JSON object input, or - to read it from stdin [default: {}]"`
-		JSON    bool          `arg:"--json" help:"print the full tool call result envelope"`
+		Output  string        `arg:"--output" default:"result" help:"result (one JSON value), envelope or text"`
 		Timeout time.Duration `arg:"--timeout" default:"10m" help:"how long to wait for the tool call to complete"`
 	} `arg:"subcommand:call" help:"call one of the agent's tools from inside a run_command process"`
 	GitCredential *struct {
@@ -243,7 +243,7 @@ func Run(
 		return machinedaemon.RunProgramToolCall(ctx, machinedaemon.ProgramToolCallOptions{
 			Tool:    command.Call.Tool,
 			Input:   command.Call.Input,
-			JSON:    command.Call.JSON,
+			Output:  machinedaemon.ProgramToolCallOutput(command.Call.Output),
 			Timeout: command.Call.Timeout,
 		}, stdin, stdout, stderr)
 	case command.GitCredential != nil:

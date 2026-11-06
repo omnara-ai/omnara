@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/programoutput"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -223,26 +224,11 @@ func runStorageSearchAsync(ctx context.Context, call asyncToolContext) (asyncPha
 	return completeFileTool(output.result)
 }
 
-type searchLine struct {
-	Path       string `json:"path"`
-	LineNumber int    `json:"line_number"`
-	EndLine    int    `json:"end_line"`
-	Text       string `json:"text"`
-	IsMatch    bool   `json:"is_match"`
-}
+type searchLine = programoutput.StorageSearchLine
 
-type searchFileResult struct {
-	Path  string  `json:"path"`
-	Count *uint64 `json:"count,omitempty"`
-}
+type searchFileResult = programoutput.StorageSearchFile
 
-type searchResult struct {
-	Lines            []searchLine       `json:"lines,omitempty"`
-	Files            []searchFileResult `json:"files,omitempty"`
-	MatchCount       int                `json:"match_count"`
-	Truncated        bool               `json:"truncated"`
-	IncompleteReason string             `json:"incomplete_reason,omitempty"`
-}
+type searchResult = programoutput.StorageSearch
 
 type searchOutput struct {
 	input  storageSearchRequest
