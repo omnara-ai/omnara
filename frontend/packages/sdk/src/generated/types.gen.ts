@@ -4215,6 +4215,10 @@ export type CreateProjectRequest = {
     name: ResourceName;
 };
 
+export type UpdateProjectRequest = {
+    name: ResourceName;
+};
+
 /**
  * Shared project fields composed into project response schemas. Composing schemas close their final shape with unevaluatedProperties.
  */
@@ -5045,6 +5049,75 @@ export type DeleteEventWebhookResponses = {
 };
 
 export type DeleteEventWebhookResponse = DeleteEventWebhookResponses[keyof DeleteEventWebhookResponses];
+
+export type GetEventWebhookData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        webhookID: EventWebhookId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID}';
+};
+
+export type GetEventWebhookErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetEventWebhookError = GetEventWebhookErrors[keyof GetEventWebhookErrors];
+
+export type GetEventWebhookResponses = {
+    /**
+     * The event webhook.
+     */
+    200: EventWebhook;
+};
+
+export type GetEventWebhookResponse = GetEventWebhookResponses[keyof GetEventWebhookResponses];
 
 export type UpdateEventWebhookData = {
     body: UpdateEventWebhookRequest;
@@ -6646,6 +6719,150 @@ export type DeleteProjectResponses = {
 };
 
 export type DeleteProjectResponse = DeleteProjectResponses[keyof DeleteProjectResponses];
+
+export type GetProjectData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}';
+};
+
+export type GetProjectErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetProjectError = GetProjectErrors[keyof GetProjectErrors];
+
+export type GetProjectResponses = {
+    /**
+     * The project.
+     */
+    200: Project;
+};
+
+export type GetProjectResponse = GetProjectResponses[keyof GetProjectResponses];
+
+export type UpdateProjectData = {
+    body: UpdateProjectRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}';
+};
+
+export type UpdateProjectErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateProjectError = UpdateProjectErrors[keyof UpdateProjectErrors];
+
+export type UpdateProjectResponses = {
+    /**
+     * The updated project.
+     */
+    200: Project;
+};
+
+export type UpdateProjectResponse = UpdateProjectResponses[keyof UpdateProjectResponses];
 
 export type GetProjectUsageData = {
     body?: never;
@@ -8628,6 +8845,84 @@ export type DeleteSkillGrantResponses = {
 
 export type DeleteSkillGrantResponse = DeleteSkillGrantResponses[keyof DeleteSkillGrantResponses];
 
+export type GetSkillGrantData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Skill ID (skl_...).
+         */
+        skillID: SkillId;
+        /**
+         * Skill grant ID (skg_...).
+         */
+        grantID: SkillGrantId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/skills/{skillID}/grants/{grantID}';
+};
+
+export type GetSkillGrantErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetSkillGrantError = GetSkillGrantErrors[keyof GetSkillGrantErrors];
+
+export type GetSkillGrantResponses = {
+    /**
+     * The skill grant.
+     */
+    200: SkillGrant;
+};
+
+export type GetSkillGrantResponse = GetSkillGrantResponses[keyof GetSkillGrantResponses];
+
 export type ListProjectAvailableSkillsData = {
     body?: never;
     path: {
@@ -10399,6 +10694,84 @@ export type DeleteSecretGrantResponses = {
 };
 
 export type DeleteSecretGrantResponse = DeleteSecretGrantResponses[keyof DeleteSecretGrantResponses];
+
+export type GetSecretGrantData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Secret ID (sec_...).
+         */
+        secretID: string;
+        /**
+         * Secret grant ID (sgr_...).
+         */
+        grantID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/secrets/{secretID}/grants/{grantID}';
+};
+
+export type GetSecretGrantErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * An unexpected internal server error occurred.
+     */
+    500: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetSecretGrantError = GetSecretGrantErrors[keyof GetSecretGrantErrors];
+
+export type GetSecretGrantResponses = {
+    /**
+     * The secret grant.
+     */
+    200: SecretGrant;
+};
+
+export type GetSecretGrantResponse = GetSecretGrantResponses[keyof GetSecretGrantResponses];
 
 export type ResolveAgentConfigToolsData = {
     body: ResolveAgentConfigToolsRequest;
@@ -14494,6 +14867,84 @@ export type DeleteProjectMachineGrantResponses = {
 
 export type DeleteProjectMachineGrantResponse = DeleteProjectMachineGrantResponses[keyof DeleteProjectMachineGrantResponses];
 
+export type GetProjectMachineGrantData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+        /**
+         * Project machine grant ID (pmg_...).
+         */
+        grantID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/machine-grants/{grantID}';
+};
+
+export type GetProjectMachineGrantErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetProjectMachineGrantError = GetProjectMachineGrantErrors[keyof GetProjectMachineGrantErrors];
+
+export type GetProjectMachineGrantResponses = {
+    /**
+     * The machine grant and its machine.
+     */
+    200: CreateProjectMachineGrantResponse;
+};
+
+export type GetProjectMachineGrantResponse = GetProjectMachineGrantResponses[keyof GetProjectMachineGrantResponses];
+
 export type ListProjectAvailableSecretsData = {
     body?: never;
     path: {
@@ -16065,6 +16516,84 @@ export type DeleteConfiguredModelResponses = {
 
 export type DeleteConfiguredModelResponse = DeleteConfiguredModelResponses[keyof DeleteConfiguredModelResponses];
 
+export type GetConfiguredModelData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Model provider config ID (mpc_...).
+         */
+        modelProviderConfigID: string;
+        /**
+         * Configured model ID (mdl_...).
+         */
+        configuredModelID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models/{configuredModelID}';
+};
+
+export type GetConfiguredModelErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetConfiguredModelError = GetConfiguredModelErrors[keyof GetConfiguredModelErrors];
+
+export type GetConfiguredModelResponses = {
+    /**
+     * The configured model.
+     */
+    200: ConfiguredModel;
+};
+
+export type GetConfiguredModelResponse = GetConfiguredModelResponses[keyof GetConfiguredModelResponses];
+
 export type UpdateConfiguredModelData = {
     body: UpdateConfiguredModelRequest;
     path: {
@@ -16382,6 +16911,84 @@ export type DeleteProjectModelGrantResponses = {
 };
 
 export type DeleteProjectModelGrantResponse = DeleteProjectModelGrantResponses[keyof DeleteProjectModelGrantResponses];
+
+export type GetProjectModelGrantData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+        /**
+         * Project model grant ID (pmog_...).
+         */
+        modelGrantID: string;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/model-grants/{modelGrantID}';
+};
+
+export type GetProjectModelGrantErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetProjectModelGrantError = GetProjectModelGrantErrors[keyof GetProjectModelGrantErrors];
+
+export type GetProjectModelGrantResponses = {
+    /**
+     * The model grant.
+     */
+    200: ProjectModelGrantEnvelope;
+};
+
+export type GetProjectModelGrantResponse = GetProjectModelGrantResponses[keyof GetProjectModelGrantResponses];
 
 export type UpdateProjectModelGrantData = {
     body: UpdateProjectModelGrantRequest;
@@ -18818,6 +19425,84 @@ export type DeleteIntegrationSubscriptionResponses = {
 };
 
 export type DeleteIntegrationSubscriptionResponse = DeleteIntegrationSubscriptionResponses[keyof DeleteIntegrationSubscriptionResponses];
+
+export type GetIntegrationSubscriptionData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: ProjectId;
+        /**
+         * Integration ID (itg_...).
+         */
+        integrationID: IntegrationId;
+        /**
+         * Integration subscription ID (isub_...).
+         */
+        subscriptionID: IntegrationSubscriptionId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions/{subscriptionID}';
+};
+
+export type GetIntegrationSubscriptionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetIntegrationSubscriptionError = GetIntegrationSubscriptionErrors[keyof GetIntegrationSubscriptionErrors];
+
+export type GetIntegrationSubscriptionResponses = {
+    /**
+     * The subscription.
+     */
+    200: IntegrationSubscription;
+};
+
+export type GetIntegrationSubscriptionResponse = GetIntegrationSubscriptionResponses[keyof GetIntegrationSubscriptionResponses];
 
 export type ConfigureIntegrationData = {
     body: ConfigureIntegrationRequest;

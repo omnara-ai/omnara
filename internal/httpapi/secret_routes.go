@@ -684,6 +684,39 @@ func (s strictOpenAPIServer) ListSecretGrants(
 	return openapi.ListSecretGrants200JSONResponse{Data: data, NextCursor: nullableFromPtr(next)}, nil
 }
 
+func (s strictOpenAPIServer) GetSecretGrant(
+	ctx context.Context,
+	request openapi.GetSecretGrantRequestObject,
+) (openapi.GetSecretGrantResponseObject, error) {
+	org, err := orgScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	principal, principalErr := accountPrincipalFromContext(ctx)
+	if principalErr != nil {
+		return nil, *principalErr
+	}
+	secretID, ok := parseOpenAPIPublicID(publicid.KindSecret, request.SecretID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	grantID, ok := parseOpenAPIPublicID(publicid.KindSecretGrant, request.GrantID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	grant, err := s.server.store.Secrets().GetSecretGrantForPrincipal(ctx, secretstore.GetSecretGrantForPrincipalInput{
+		OrgID: org.ID, SecretID: secretID, GrantID: grantID, Actor: principal,
+	})
+	if err != nil {
+		return nil, secretAPIError(ctx, err)
+	}
+	response, err := newSecretGrantResponse(grant)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.GetSecretGrant200JSONResponse(response), nil
+}
+
 func (s strictOpenAPIServer) DeleteSecretGrant(
 	ctx context.Context,
 	request openapi.DeleteSecretGrantRequestObject,

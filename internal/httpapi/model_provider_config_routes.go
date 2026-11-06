@@ -663,6 +663,36 @@ func (s strictOpenAPIServer) ListConfiguredModels(
 	), nil
 }
 
+func (s strictOpenAPIServer) GetConfiguredModel(
+	ctx context.Context,
+	request openapigen.GetConfiguredModelRequestObject,
+) (openapigen.GetConfiguredModelResponseObject, error) {
+	org, err := orgScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	configID, ok := parseOpenAPIPublicID(publicid.KindModelProviderConfig, request.ModelProviderConfigID)
+	if !ok {
+		return nil, apierror.FromCode(openapigen.ErrorCodeNotFound, "not found")
+	}
+	configuredModelID, ok := parseOpenAPIPublicID(publicid.KindConfiguredModel, request.ConfiguredModelID)
+	if !ok {
+		return nil, apierror.FromCode(openapigen.ErrorCodeNotFound, "not found")
+	}
+	record, err := s.server.store.Models().GetConfiguredModel(ctx, org.ID, configuredModelID)
+	if err != nil {
+		return nil, apierror.OrgScoped(err)
+	}
+	if record.ModelProviderConfigID != configID {
+		return nil, apierror.FromCode(openapigen.ErrorCodeNotFound, "not found")
+	}
+	response, err := configuredModelResponse(record)
+	if err != nil {
+		return nil, err
+	}
+	return openapigen.GetConfiguredModel200JSONResponse(response), nil
+}
+
 func (s strictOpenAPIServer) UpdateConfiguredModel(
 	ctx context.Context,
 	request openapigen.UpdateConfiguredModelRequestObject,
@@ -990,6 +1020,29 @@ func discoveredModelPricingResponse(
 		response.CacheWriteInputUsdPerMillion = &pricing.CacheWriteInputUSDPerMillion
 	}
 	return response
+}
+
+func (s strictOpenAPIServer) GetProjectModelGrant(
+	ctx context.Context,
+	request openapigen.GetProjectModelGrantRequestObject,
+) (openapigen.GetProjectModelGrantResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	grantID, ok := parseOpenAPIPublicID(publicid.KindProjectModelGrant, request.ModelGrantID)
+	if !ok {
+		return nil, apierror.FromCode(openapigen.ErrorCodeNotFound, "not found")
+	}
+	record, err := s.server.store.Models().GetProjectModelGrant(ctx, scope.org.ID, scope.project.ID, grantID)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	response, err := projectModelGrantResponse(record)
+	if err != nil {
+		return nil, err
+	}
+	return openapigen.GetProjectModelGrant200JSONResponse(openapigen.ProjectModelGrantEnvelope{Grant: response}), nil
 }
 
 func (s strictOpenAPIServer) UpdateProjectModelGrant(

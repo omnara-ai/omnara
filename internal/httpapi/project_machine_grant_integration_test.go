@@ -304,14 +304,16 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	`, project.OrgUUID, machinePoolID).Scan(&poolMachineID); err != nil {
 		t.Fatalf("insert pool machine fixture: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `
+	var poolMachineGrantID uuid.UUID
+	if err := pool.QueryRow(ctx, `
 		INSERT INTO project_machine_grants(
 			org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id,
 			metadata, created_at, updated_at
 		)
 		VALUES ($1, $2, $3, 'pool', $4, '{}'::jsonb,
 			transaction_timestamp(), transaction_timestamp())
-	`, project.OrgUUID, project.ProjectUUID, poolMachineID, poolGrantID); err != nil {
+		RETURNING id
+	`, project.OrgUUID, project.ProjectUUID, poolMachineID, poolGrantID).Scan(&poolMachineGrantID); err != nil {
 		t.Fatalf("insert pool-derived machine grant fixture: %v", err)
 	}
 
@@ -336,6 +338,22 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 			t.Fatalf("unexpected machine grant list: %+v", listed)
 		}
 	}
+
+	// Get requires project read, returns the grant with its machine, and hides pool-derived grants.
+	getPath := grantsPath + "/" + grantID
+	requestJSONWithHeaders(t, handler, http.MethodGet, getPath, "", "", http.StatusNotFound, authHeaders(memberToken))
+	for _, token := range []string{project.AdminToken, viewerToken} {
+		fetched := requestJSONWithHeaders(t, handler, http.MethodGet, getPath, "", "", http.StatusOK, authHeaders(token))
+		if testutil.RequireType[map[string]any](t, fetched["grant"])["id"] != grantID ||
+			testutil.RequireType[map[string]any](t, fetched["machine"])["id"] != machineID {
+			t.Fatalf("unexpected machine grant get: %+v", fetched)
+		}
+	}
+	requestJSONWithHeaders(
+		t, handler, http.MethodGet,
+		grantsPath+"/"+testPublicID(t, publicid.KindProjectMachineGrant, poolMachineGrantID),
+		"", "", http.StatusNotFound, authHeaders(project.AdminToken),
+	)
 
 	// Delete requires access-manage, is a not-found for missing grants, and
 	// removes the grant from the public surface entirely.
@@ -380,6 +398,10 @@ func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 		"",
 		http.StatusNotFound,
 		authHeaders(project.AdminToken),
+	)
+
+	requestJSONWithHeaders(
+		t, handler, http.MethodGet, getPath, "", "", http.StatusNotFound, authHeaders(project.AdminToken),
 	)
 
 	// Deleted grants leave listings.

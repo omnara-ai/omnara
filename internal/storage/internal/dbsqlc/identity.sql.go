@@ -4565,6 +4565,41 @@ func (q *Queries) RemoveUserOrgMembership(ctx context.Context, arg RemoveUserOrg
 	return i, err
 }
 
+const renameProject = `-- name: RenameProject :one
+UPDATE projects SET name = $1, updated_at = transaction_timestamp()
+WHERE org_id = $2 AND id = $3 AND deleted_at IS NULL
+RETURNING id, org_id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at
+`
+
+type RenameProjectParams struct {
+	Name  string
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+type RenameProjectRow struct {
+	ID             uuid.UUID
+	OrgID          uuid.UUID
+	Name           string
+	IdempotencyKey string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+func (q *Queries) RenameProject(ctx context.Context, arg RenameProjectParams) (RenameProjectRow, error) {
+	row := q.db.QueryRow(ctx, renameProject, arg.Name, arg.OrgID, arg.ID)
+	var i RenameProjectRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const revokeBrowserSession = `-- name: RevokeBrowserSession :exec
 UPDATE browser_sessions
 SET revoked_at = statement_timestamp()
