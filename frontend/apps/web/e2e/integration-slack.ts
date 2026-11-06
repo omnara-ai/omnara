@@ -104,9 +104,14 @@ export async function exerciseSlackIntegrationSetup(
   ).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(mentions.getByLabel('Integration name', { exact: true })).toHaveCount(0)
-  await expect(mentions.getByRole('checkbox')).toHaveCount(0)
+  const externalParticipants = mentions.getByRole('checkbox', {
+    name: 'Allow external participants in shared channels',
+    exact: true,
+  })
+  await expect(externalParticipants).not.toBeChecked()
   const save = mentions.getByRole('button', { name: 'Save changes', exact: true })
   await expect(save).toBeDisabled()
+  await externalParticipants.check()
   await mentions
     .getByRole('combobox', { name: 'Profiles for mentions', exact: true })
     .fill(profileName)
@@ -126,7 +131,7 @@ export async function exerciseSlackIntegrationSetup(
   const saved = await savedSettings
   expect(saved.status()).toBe(200)
   expect(saved.request().postDataJSON()).toEqual({
-    settings: { launcher: { profiles: [profileId] } },
+    settings: { launcher: { profiles: [profileId] }, allow_external_participants: true },
   })
   const connected = schemas.zIntegration.parse(await saved.json())
   expect(connected).toMatchObject({
@@ -135,6 +140,7 @@ export async function exerciseSlackIntegrationSetup(
     last_oauth_flow_id: setup.flow_id,
   })
   expect(connected.settings.launcher).toEqual({ profiles: [profileId] })
+  expect(connected.settings.allow_external_participants).toBe(true)
   await expect(save).toBeDisabled()
   await expectIntegrationCapabilities(page, connected)
   await expect(page.getByRole('heading', { name: integration.name, exact: true })).toBeVisible()
@@ -149,6 +155,7 @@ export async function exerciseSlackIntegrationSetup(
     mentions.getByRole('button', { name: `Remove ${profileName}`, exact: true }),
   ).toBeVisible()
   await expect(save).toBeDisabled()
+  await expect(externalParticipants).toBeChecked()
   expect((await readIntegration(page, apiProjectPath, integration.id)).settings.launcher).toEqual({
     profiles: [profileId],
   })
