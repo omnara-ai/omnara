@@ -38,6 +38,7 @@ import (
 )
 
 const (
+	serverIdleTimeout          = 180 * time.Second
 	outboundHTTPClientTimeout  = 30 * time.Second
 	apiRateLimitRedisTimeout   = 100 * time.Millisecond
 	defaultReconciliationPlan  = "plan"
@@ -210,7 +211,7 @@ func main() {
 		Addr:              cfg.APIAddr,
 		Handler:           apiServer.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
-		IdleTimeout:       180 * time.Second,
+		IdleTimeout:       serverIdleTimeout,
 	}
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
