@@ -309,14 +309,14 @@ func (q *Queries) RebalanceExecutionBacklog(ctx context.Context, db DBTX, arg Re
 
 const receiveExecutionInput = `-- name: ReceiveExecutionInput :one
 INSERT INTO agent_inputs(id,project_id,agent_id,state,input_rank,actor_id,input_kind,delivery_mode,
- integration_target_id,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata)
+ integration_target_id,agent_config_id,idempotency_scope,input_idempotency_key,queued_at,metadata,source)
 SELECT $1,a.project_id,a.id,'received',CASE WHEN $2::text='content' THEN coalesce((
  SELECT i.input_rank+1024 FROM agent_inputs i WHERE i.agent_id=a.id AND i.state='received'
  AND i.input_kind='content' AND i.delivery_mode=$3
  ORDER BY i.input_rank DESC,i.queued_at DESC,i.id DESC LIMIT 1),1024) ELSE 1024 END,
  $4,$2,$3,$5,$6,
- $7,$8,statement_timestamp(),$9::jsonb
-FROM agents a WHERE a.id=$10 AND a.project_id=$11 AND a.state='active'
+ $7,$8,statement_timestamp(),$9::jsonb,$10
+FROM agents a WHERE a.id=$11 AND a.project_id=$12 AND a.state='active'
 RETURNING id,queued_at
 `
 
@@ -330,6 +330,7 @@ type ReceiveExecutionInputParams struct {
 	Scope     *string
 	Key       *string
 	Metadata  json.RawMessage
+	Source    *string
 	AgentID   uuid.UUID
 	ProjectID uuid.UUID
 }
@@ -350,6 +351,7 @@ func (q *Queries) ReceiveExecutionInput(ctx context.Context, db DBTX, arg Receiv
 		arg.Scope,
 		arg.Key,
 		arg.Metadata,
+		arg.Source,
 		arg.AgentID,
 		arg.ProjectID,
 	)

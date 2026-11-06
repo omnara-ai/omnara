@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
+	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
@@ -170,6 +171,19 @@ func requestActorParams(
 		return nil, nil //nolint:nilnil // Nil params are the unattributed-request representation.
 	}
 	return externalActorParamsFromRequest(*actor), nil
+}
+
+// requestInputSource reports the surface that sent an agent input. Only the
+// console holds browser sessions, and Omnara MCP tool calls reach the API with
+// their tool call in the request context.
+func requestInputSource(ctx context.Context) executionstore.AgentInputSource {
+	if _, ok := apimcp.ToolCallFromContext(ctx); ok {
+		return executionstore.AgentInputSourceMCP
+	}
+	if principal, ok := principalFromContext(ctx); ok && principal.BrowserSessionID != uuid.Nil {
+		return executionstore.AgentInputSourceWeb
+	}
+	return executionstore.AgentInputSourceAPI
 }
 
 func publicActorFromRecord(

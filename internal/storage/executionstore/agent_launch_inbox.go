@@ -145,6 +145,10 @@ func (s *Store) admitInboxLaunchRecipientOnce(
 		}
 	}
 	launch := recipient.Launch.launchInput(lease.ProjectID, recipient.InitialInput)
+	launch.InputSource = AgentInputSourceIntegration
+	if scheduled {
+		launch.InputSource = AgentInputSourceCron
+	}
 	launch.admission = &launchAdmission{
 		Scheduled:     scheduled,
 		AgentID:       recipient.AgentID,

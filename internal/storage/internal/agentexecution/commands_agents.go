@@ -210,6 +210,7 @@ func (h *Handle) parentEffect(ctx context.Context, kind, text, key string, inter
 			IdempotencyScope: "subagent_message",
 			IdempotencyKey:   key,
 			Metadata:         data,
+			Source:           "subagent",
 			Content:          []Content{{Kind: "text", Text: body}},
 		},
 	)
