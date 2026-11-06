@@ -106,9 +106,11 @@ for (const { call, outcome } of page.results) {
 
 The cursor advances over the page that was checked, including failed or busy
 calls. Start a later recovery pass without a cursor to revisit unfinished calls.
-The first page also retries results retained by this helper. Listing failures or
-shutdown cancellation reject `check()`; calls it already started are settled
-before it rejects. Per-call outcomes identify execution/submission failures.
+The first page also retries results retained by this helper. Listing failures, or
+shutdown before or during listing, reject `check()` after any calls it already
+started have settled. After listing succeeds, `check()` returns each call's
+outcome; shutdown can leave calls `stopped` or `failed`. Check these outcomes
+before continuing.
 
 ## Shutdown and retries
 
