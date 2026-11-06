@@ -39,11 +39,27 @@ const (
 	programToolCallRequestMargin = programToolCallForwardMargin + 5*time.Second
 )
 
+// ProgramToolCallOutput is what `omnarad call` prints for a completed call.
+type ProgramToolCallOutput string
+
+const (
+	// ProgramToolCallOutputResult prints one JSON value: the structured
+	// result, or the text as a JSON string when there is none.
+	ProgramToolCallOutputResult ProgramToolCallOutput = "result"
+	// ProgramToolCallOutputEnvelope prints the full result envelope, whatever
+	// the outcome.
+	ProgramToolCallOutputEnvelope ProgramToolCallOutput = "envelope"
+	// ProgramToolCallOutputText prints the text as plain text, or the result
+	// as JSON when there is no text.
+	ProgramToolCallOutputText ProgramToolCallOutput = "text"
+)
+
 type ProgramToolCallOptions struct {
 	Tool string
 	// Input is a JSON object, "-" to read one from stdin, or empty for {}.
-	Input   string
-	JSON    bool
+	Input string
+	// Output defaults to ProgramToolCallOutputResult.
+	Output  ProgramToolCallOutput
 	Timeout time.Duration
 }
 
@@ -57,6 +73,13 @@ func RunProgramToolCall(
 	fail := func(code int, format string, args ...any) int {
 		_, _ = fmt.Fprintf(stderr, "omnarad call: "+format+"\n", args...)
 		return code
+	}
+	switch options.Output {
+	case "":
+		options.Output = ProgramToolCallOutputResult
+	case ProgramToolCallOutputResult, ProgramToolCallOutputEnvelope, ProgramToolCallOutputText:
+	default:
+		return fail(ProgramToolCallExitUnavailable, "--output must be result, envelope or text")
 	}
 	processID := os.Getenv(programToolProcessIDEnv)
 	endpoint := os.Getenv(programToolEndpointEnv)
@@ -103,7 +126,7 @@ func RunProgramToolCall(
 	if err != nil {
 		return reportProgramToolCallError(ctx, options.Tool, result, err, stderr)
 	}
-	return writeProgramToolCallResult(result, options.JSON, stdout, stderr)
+	return writeProgramToolCallResult(result, options.Output, stdout, stderr)
 }
 
 func readProgramToolCallInput(raw string, stdin io.Reader) (json.RawMessage, error) {
@@ -349,14 +372,14 @@ func reportProgramToolCallError(
 
 func writeProgramToolCallResult(
 	result daemonprotocol.ProgramToolCallResult,
-	envelope bool,
+	output ProgramToolCallOutput,
 	stdout, stderr io.Writer,
 ) int {
 	code := ProgramToolCallExitSucceeded
 	if result.Outcome != daemonprotocol.ProgramToolCallOutcomeSucceeded {
 		code = ProgramToolCallExitToolFailed
 	}
-	if envelope {
+	if output == ProgramToolCallOutputEnvelope {
 		if err := writeJSONLine(stdout, result); err != nil {
 			return ProgramToolCallExitTransport
 		}
@@ -373,26 +396,14 @@ func writeProgramToolCallResult(
 		}{result.Outcome, content})
 		return code
 	}
-	if len(result.Structured) > 0 && string(result.Structured) != "null" {
-		var compact bytes.Buffer
-		if err := json.Compact(&compact, result.Structured); err != nil {
-			_, _ = fmt.Fprintln(stderr, "omnarad call: invalid structured tool result")
-			return ProgramToolCallExitTransport
-		}
-		compact.WriteByte('\n')
-		if _, err := stdout.Write(compact.Bytes()); err != nil {
-			return ProgramToolCallExitTransport
-		}
-		return code
-	}
 	var texts []string
 	for _, part := range result.Content {
 		if part.Type == daemonprotocol.ProgramToolCallContentText {
 			texts = append(texts, part.Text)
 		}
 	}
-	if len(texts) > 0 {
-		text := strings.Join(texts, "\n")
+	text := strings.Join(texts, "\n")
+	if output == ProgramToolCallOutputText && len(texts) > 0 {
 		if !strings.HasSuffix(text, "\n") {
 			text += "\n"
 		}
@@ -401,10 +412,24 @@ func writeProgramToolCallResult(
 		}
 		return code
 	}
-	if len(result.Content) > 0 {
-		if err := writeJSONLine(stdout, result.Content); err != nil {
+	// Every success prints exactly one JSON value, so commands can always
+	// parse stdout.
+	var value any
+	switch {
+	case len(result.Structured) > 0 && string(result.Structured) != "null":
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, result.Structured); err != nil {
+			_, _ = fmt.Fprintln(stderr, "omnarad call: invalid structured tool result")
 			return ProgramToolCallExitTransport
 		}
+		value = json.RawMessage(compact.Bytes())
+	case len(texts) > 0:
+		value = text
+	case len(result.Content) > 0:
+		value = result.Content
+	}
+	if err := writeJSONLine(stdout, value); err != nil {
+		return ProgramToolCallExitTransport
 	}
 	return code
 }
