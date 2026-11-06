@@ -109,7 +109,7 @@ func runGitHubTool(
 			if found {
 				review = &pending
 			}
-			result = githubPendingReviewResult{review}
+			result = githubPendingReviewResult{Review: review}
 		case "review_threads":
 			result, err = client.ListReviewThreads(ctx, providerScope, github.ReviewThreadsOptions{
 				Cursor: input.Cursor, Limit: input.Limit,
