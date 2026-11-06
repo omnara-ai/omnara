@@ -47,6 +47,15 @@ Keep the mount private to API, workers, and maintenance. Back up the entire memo
   Set `OMNARA_PUBLIC_URL` on every backend service. Outside local development it is required.
 </Warning>
 
+When a reverse proxy connects directly to the API or web server, configure its
+idle timeout for pooled upstream HTTP connections below 180 seconds. For example,
+120 seconds leaves a 60-second margin before either server closes an unused
+keep-alive connection. This server timeout does not limit active SSE responses or
+upgraded WebSockets. Proxy timeouts for inactive streams are separate. Forward
+WebSocket upgrades, disable SSE buffering, and leave a comfortable margin above
+the 10-second SSE and daemon WebSocket heartbeat interval. Check these settings
+at each proxy hop.
+
 ### Cloudflare Tunnel
 
 One easy option to expose Omnara publicly is via a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
