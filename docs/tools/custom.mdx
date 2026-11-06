@@ -22,6 +22,13 @@ sequenceDiagram
 
 Because the call is a durable event, your worker can crash, redeploy, or take minutes to respond — the agent simply waits, and nothing is lost.
 
+Running the tool in your own system also means:
+
+- **Any language.** Your worker is any code that can make HTTPS requests, and it can share types, database access, and tests with the rest of your backend.
+- **No inbound access.** A worker that polls for ready calls only makes outbound requests, so your database and internal services never have to be reachable from Omnara.
+- **Separate deploys.** You ship and scale tool code on your own schedule, and running agents aren't affected.
+- **One result per call.** Omnara accepts the first result submitted for a call and rejects later ones, so a retried worker can't complete a call twice.
+
 ## Declare the tool
 
 In the agent config, a custom tool is a name, a description, and a JSON Schema for its input. Write the description as clear instructions: explain when to use the tool, what it does, and any important limits.
@@ -129,7 +136,7 @@ Result text, structured-data string keys and values, and metadata must not conta
 { "error": "custom tool call is not ready for a result", "code": "conflict" }
 ```
 
-That makes result submission naturally safe to retry from multiple workers — losers of the race get a clean `409`, not a corrupted timeline.
+That makes result submission safe when several workers race for the same call: the losers get a clean `409`, not a corrupted timeline. A `409` can also mean your own earlier submission succeeded and its response was lost, so fetch the tool call to check its state before treating the `409` as an error.
 
 <Info>
 Full schema and playground: [List tool calls](/api-reference/endpoints/agents/list-tool-calls) · [Submit a result](/api-reference/endpoints/agents/submit-a-result-for-a-ready-custom-tool-call).
