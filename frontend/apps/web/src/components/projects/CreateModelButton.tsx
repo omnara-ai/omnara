@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { CreateConfiguredModelDialog } from '@/components/org/CreateConfiguredModelDialog'
 import { CreateModelProviderDialog } from '@/components/org/CreateModelProviderDialog'
 import { Button } from '@/components/ui/button'
+import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
@@ -18,9 +19,12 @@ export function CreateModelButton() {
   const { activeOrg } = useActiveOrg()
   const { projectId, project } = useProjectPage()
   const canCreate = canManageOrg(activeOrg.role) && (project?.access.can_manage_access ?? false)
-  // The provider picker only sees loaded pages, so load enough for every provider an org has.
+  // The provider picker only sees loaded items, so load every page before offering it.
   const providersQuery = useModelProviders(activeOrg.id, { pageSize: 100, enabled: canCreate })
-  const providers = providersQuery.data?.pages.flatMap((page) => page.data) ?? []
+  const { items: providers, hasCompleteItems } = useCompleteInfiniteQueryItems(
+    providersQuery,
+    canCreate,
+  )
   const [open, setOpen] = useState(false)
   // Chosen on click and kept until the next one: creating the first provider refreshes the
   // provider list, which must not swap the open wizard for the model dialog.
@@ -35,7 +39,7 @@ export function CreateModelButton() {
         size="sm"
         // A failed provider list would look empty and send an org that has providers through
         // the add-a-provider wizard.
-        disabled={!providersQuery.isSuccess}
+        disabled={!hasCompleteItems}
         title={providersQuery.isError ? 'Could not load model providers.' : undefined}
         onClick={() => {
           setStartWithProvider(providers.length === 0)

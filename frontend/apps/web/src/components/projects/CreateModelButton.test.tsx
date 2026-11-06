@@ -15,7 +15,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from 'vitest'
 
 import { ActiveOrgContext } from '@/lib/active-org-context'
-import { type FakeApi, fakeApi, jsonResponse } from '@/test/fake-api'
+import { type FakeApi, fakeApi, jsonResponse, type RecordedRequest } from '@/test/fake-api'
 import { currentUserOrg, fakeId } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { waitForUI } from '@/test/secret-editor'
@@ -88,7 +88,7 @@ afterEach(() => {
   container.remove()
 })
 
-function buttonApi(providers: () => Response) {
+function buttonApi(providers: (request: RecordedRequest) => Response) {
   return fakeApi([
     { method: 'GET', path: providersPath, respond: providers },
     {
@@ -170,6 +170,29 @@ it('keeps the provider wizard open after the first provider is created', async (
     expect(api.requestsTo('GET', providersPath).length).toBeGreaterThan(1)
   })
   expect(document.querySelector('#mp-name')).not.toBeNull()
+})
+
+it('offers providers from every page', async () => {
+  const secondProvider = { ...provider, id: `mpc_${'b'.repeat(26)}`, name: 'Second provider' }
+  const api = buttonApi((request) =>
+    request.url.searchParams.get('cursor') === 'page-2'
+      ? jsonResponse({ data: [secondProvider], next_cursor: null })
+      : jsonResponse({ data: [provider], next_cursor: 'page-2' }),
+  )
+  await render(api)
+  await waitForUI(() => {
+    expect(newModelButton().disabled).toBe(false)
+  })
+  expect(api.requestsTo('GET', providersPath)).toHaveLength(2)
+
+  await act(async () => {
+    newModelButton().click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  // The dialog offers a provider choice only when it has more than one provider.
+  await waitForUI(() => {
+    expect(document.querySelector('[aria-label="Provider"]')).not.toBeNull()
+  })
 })
 
 it('does not start the provider wizard when the provider list fails to load', async () => {
