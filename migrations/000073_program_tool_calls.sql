@@ -5,13 +5,18 @@
 -- shares the owning run_command call's model output, has no tool_call content
 -- block or agent events, never holds the runtime lock, and stays outside the
 -- model context. Workers execute children under a claim lease instead.
+--
+-- tool_calls is large, so this migration only changes metadata under its
+-- ACCESS EXCLUSIVE lock: new constraints start NOT VALID (enforced for new
+-- rows, no scan). 000070 builds the unique indexes concurrently, and 000071
+-- attaches them and validates every constraint under weaker locks.
 ALTER TABLE tool_calls
     ADD COLUMN caller text NOT NULL DEFAULT 'model',
     ADD COLUMN parent_tool_call_id uuid,
     ADD COLUMN program_key text,
     ADD COLUMN program_claim_id uuid,
     ADD COLUMN program_claim_expires_at timestamptz,
-    ADD CONSTRAINT tool_calls_caller_check CHECK (caller IN ('model', 'program')),
+    ADD CONSTRAINT tool_calls_caller_check CHECK (caller IN ('model', 'program')) NOT VALID,
     -- Authorization leases are re-claimable after expiry; execution leases
     -- (waiting) are not, so a child body runs at most once.
     ADD CONSTRAINT tool_calls_program_shape CHECK (
@@ -23,17 +28,9 @@ ALTER TABLE tool_calls
             AND (program_claim_id IS NULL) = (program_claim_expires_at IS NULL)
             AND (program_claim_id IS NOT NULL OR state <> 'waiting')
             AND (program_claim_id IS NULL OR state IN ('awaiting_authorization', 'waiting')))
-    ),
-    ADD CONSTRAINT tool_calls_agent_id_id_model_output_id_key UNIQUE (agent_id, id, model_output_id),
-    ADD CONSTRAINT tool_calls_program_key_key UNIQUE (agent_id, parent_tool_call_id, program_key),
+    ) NOT VALID,
     ADD CONSTRAINT tool_calls_program_process_fkey
-        FOREIGN KEY (agent_id, parent_tool_call_id) REFERENCES processes(agent_id, tool_call_id),
-    ADD CONSTRAINT tool_calls_program_parent_fkey
-        FOREIGN KEY (agent_id, parent_tool_call_id, model_output_id)
-        REFERENCES tool_calls(agent_id, id, model_output_id);
-
-CREATE INDEX tool_calls_program_open_idx ON tool_calls(created_at, id)
-    WHERE caller = 'program' AND state <> 'completed';
+        FOREIGN KEY (agent_id, parent_tool_call_id) REFERENCES processes(agent_id, tool_call_id) NOT VALID;
 
 -- +goose StatementBegin
 CREATE FUNCTION enforce_program_tool_call_parent()
@@ -167,10 +164,12 @@ JOIN agent_events source_event ON source_event.agent_id = tool_call.agent_id
 -- Program-call interactions are resolved directly by an actor, without an
 -- interaction_response agent input; replays compare the recorded actor.
 ALTER TABLE agent_interactions
-    ADD COLUMN resolved_by_actor_id uuid REFERENCES actors(id),
+    ADD COLUMN resolved_by_actor_id uuid,
+    ADD CONSTRAINT agent_interactions_resolved_by_actor_id_fkey
+        FOREIGN KEY (resolved_by_actor_id) REFERENCES actors(id) NOT VALID,
     ADD CONSTRAINT agent_interactions_resolved_by_actor_check CHECK (
         resolved_by_actor_id IS NULL OR (state = 'resolved' AND resolved_by_input_id IS NULL)
-    );
+    ) NOT VALID;
 
 ALTER TABLE machine_pools
     ADD COLUMN default_programmatic_tool_calls boolean NOT NULL DEFAULT false;
