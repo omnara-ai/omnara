@@ -196,7 +196,7 @@ func defaultSystemPromptForContract(
 	skills []skillstore.SkillRecord,
 ) string {
 	parts := []string{DefaultSystemPrompt()}
-	if guidance := capabilityGuidance(toolSpecs, contract.GitCredentials != nil); guidance != "" {
+	if guidance := capabilityGuidance(toolSpecs, contract); guidance != "" {
 		parts = append(parts, guidance)
 	}
 	if instruction := strings.TrimSpace(contract.Instruction); instruction != "" {
