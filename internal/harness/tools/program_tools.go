@@ -80,7 +80,16 @@ func ProgramToolSpecs(
 	if err != nil {
 		return nil, err
 	}
-	callable := specs[:0]
+	return ProgramCallableToolSpecs(contract, specs)
+}
+
+// ProgramCallableToolSpecs keeps the specs commands may call under contract,
+// with the output schemas of their results. It does not modify specs.
+func ProgramCallableToolSpecs(
+	contract agentconfig.RuntimeContract, specs []modelcontext.ToolSpec,
+) ([]modelcontext.ToolSpec, error) {
+	callable := make([]modelcontext.ToolSpec, 0, len(specs))
+	var err error
 	for _, spec := range specs {
 		if !ProgramToolCallable(contract, spec) {
 			continue
