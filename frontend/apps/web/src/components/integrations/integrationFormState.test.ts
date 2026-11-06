@@ -11,6 +11,26 @@ import {
 const first = fakeId('aprf'),
   second = `aprf_${'b'.repeat(26)}`
 describe('integration settings editor', () => {
+  it('keeps external Slack access independent of mention profiles', () => {
+    const saved = integrationFixture({
+      settings: { launcher: { profiles: [first] }, allow_external_participants: true },
+    })
+    const values = integrationFormValues('slack_thread', saved)
+    expect(values.allowExternalParticipants).toBe(true)
+    expect(integrationFormRequest('slack_thread', { ...values, profileIds: [] }, saved)).toEqual({
+      settings: { allow_external_participants: true },
+    })
+    expect(
+      integrationFormRequest(
+        'slack_thread',
+        { ...values, allowExternalParticipants: false },
+        saved,
+      ),
+    ).toEqual({ settings: { launcher: { profiles: [first] } } })
+    expect(
+      integrationFormValues('slack_thread', integrationFixture()).allowExternalParticipants,
+    ).toBe(false)
+  })
   it('sends only settings and preserves unrelated settings when editing profiles', () => {
     const saved = integrationFixture({
       settings: { launcher: { profiles: [first, second] }, other: 'kept' },

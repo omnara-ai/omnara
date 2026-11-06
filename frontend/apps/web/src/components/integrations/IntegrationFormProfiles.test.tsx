@@ -645,6 +645,11 @@ it.each(['github_pr', 'slack_thread', 'discord_thread'] as const)(
     }
     expect(button('Save changes').disabled).toBe(false)
     rerender(<IntegrationForm {...props} canEdit={false} />)
+    if (integrationKind === 'slack_thread') {
+      expect(field('Allow external participants in shared channels').disabled).toBe(true)
+    } else {
+      expect(container.textContent).not.toContain('Allow external participants in shared channels')
+    }
     expect(container.querySelector('form')).not.toBeNull()
     expect(() => button('Save changes')).toThrow('Missing button')
     expect(() => button('Discard changes')).toThrow('Missing button')

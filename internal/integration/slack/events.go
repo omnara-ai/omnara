@@ -33,14 +33,15 @@ type Identity struct {
 }
 
 type EventsEnvelope struct {
-	Type           string          `json:"type"`
-	Challenge      string          `json:"challenge"`
-	TeamID         string          `json:"team_id"`
-	APIAppID       string          `json:"api_app_id"`
-	EventID        string          `json:"event_id"`
-	Authorizations []Authorization `json:"authorizations"`
-	Event          Event           `json:"-"`
-	RawEvent       json.RawMessage `json:"event"`
+	Type               string          `json:"type"`
+	Challenge          string          `json:"challenge"`
+	TeamID             string          `json:"team_id"`
+	APIAppID           string          `json:"api_app_id"`
+	EventID            string          `json:"event_id"`
+	Authorizations     []Authorization `json:"authorizations"`
+	IsExtSharedChannel bool            `json:"is_ext_shared_channel"`
+	Event              Event           `json:"-"`
+	RawEvent           json.RawMessage `json:"event"`
 }
 
 type Authorization struct {
@@ -516,6 +517,34 @@ func RemoteUserEvent(workspaceID string, event Event) bool {
 		}
 	}
 	return false
+}
+
+// MessageParticipantAllowed is separate from installation authentication: an
+// external sender does not change which installation owns the signed event.
+func MessageParticipantAllowed(workspaceID string, envelope EventsEnvelope, allowExternal bool) bool {
+	if !RemoteUserEvent(workspaceID, envelope.Event) {
+		return true
+	}
+	// Slack identifies shared channels on the outer event. DMs and group DMs
+	// remain outside this policy even when the integration opts in.
+	return allowExternal && sharedChannelEvent(envelope)
+}
+
+func sharedChannelEvent(envelope EventsEnvelope) bool {
+	// Slack Connect converts private channel IDs from G to C when sharing starts.
+	// https://docs.slack.dev/apis/slack-connect/
+	if !envelope.IsExtSharedChannel || !strings.HasPrefix(envelope.Event.Channel, "C") {
+		return false
+	}
+	switch envelope.Event.ChannelType {
+	case "channel", "group":
+		return true
+	case "":
+		// app_mention omits channel_type; retain it for mention feedback and deduplication.
+		return envelope.Event.Type == "app_mention"
+	default:
+		return false
+	}
 }
 
 func BotOrSelfEvent(botUserID string, event Event) bool {

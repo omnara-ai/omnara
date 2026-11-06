@@ -4505,7 +4505,7 @@ export type ListProjectMembershipGrantsResponse = {
 export type IntegrationId = string;
 
 /**
- * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack and Discord integrations use ChatIntegrationSettings.
+ * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime. GitHub integrations use GitHubIntegrationSettings; Slack integrations use SlackIntegrationSettings; Discord integrations use ChatIntegrationSettings.
  */
 export type IntegrationSettings = {
     [key: string]: unknown;
@@ -4533,6 +4533,16 @@ export type GitHubIntegrationLauncher = {
      * Optional: restrict launches to this repository.
      */
     repository_id?: string;
+};
+
+export type SlackIntegrationSettings = {
+    launcher?: ChatIntegrationLauncher;
+    /**
+     * Allow external participants in shared channels
+     *
+     * Let people from other Slack organizations start agents, choose launch profiles, and continue conversations in shared channels this bot has joined. Does not grant permission to answer agent prompts or approve actions.
+     */
+    allow_external_participants?: boolean;
 };
 
 export type ChatIntegrationSettings = {

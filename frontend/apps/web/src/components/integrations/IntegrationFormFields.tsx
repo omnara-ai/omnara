@@ -58,11 +58,56 @@ export function IntegrationLauncherFields({
       )}
       {!github && (
         <FieldDescription>
-          People who can reach the bot can launch these profiles and answer questions and approvals
-          without an Omnara account.
+          {integrationKind === 'slack_thread'
+            ? 'People in your Slack workspace'
+            : 'People who can reach the bot'}{' '}
+          can launch these profiles and answer questions and approvals without an Omnara account.
         </FieldDescription>
       )}
     </Field>
+  )
+}
+
+export function IntegrationAccessFields({
+  integrationKind,
+  values,
+  onChange,
+  disabled,
+}: Pick<LauncherFieldsProps, 'integrationKind' | 'values' | 'onChange' | 'disabled'>) {
+  const id = useId()
+  if (integrationKind === 'slack_thread') {
+    return (
+      <CheckboxField
+        className="items-start"
+        inputClassName="mt-0.5"
+        label="Allow external participants in shared channels"
+        description="Let people from other Slack organizations start agents with these profiles, choose a profile, and reply in shared channels this bot has joined. Only people in your Slack workspace can answer agent questions or approvals."
+        checked={values.allowExternalParticipants}
+        disabled={disabled}
+        onChange={(event) => {
+          onChange({ allowExternalParticipants: event.target.checked })
+        }}
+      />
+    )
+  }
+  if (integrationKind !== 'github_pr') return null
+  return (
+    <div role="group" aria-labelledby={`${id}-label`} className="flex flex-col gap-3">
+      <span id={`${id}-label`} className="type-label">
+        Git credentials
+      </span>
+      <CheckboxField
+        className="items-start"
+        inputClassName="mt-0.5"
+        label="Let agents push code"
+        description="Without this, agents can clone but not push."
+        checked={values.codeWrite}
+        disabled={disabled}
+        onChange={(event) => {
+          onChange({ codeWrite: event.target.checked })
+        }}
+      />
+    </div>
   )
 }
 

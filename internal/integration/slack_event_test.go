@@ -40,6 +40,30 @@ func slackInboxTestIntegration() integrationstore.IntegrationRecord {
 	}
 }
 
+func TestSlackInboxExternalParticipantsRespectCurrentSettings(t *testing.T) {
+	setup := slackInboxTestIntegration()
+	event := slack.Event{Type: "app_mention", User: "U_REMOTE", UserTeam: "T_REMOTE",
+		Channel: "C123", TS: "1.0", Text: "<@UBOT> help"}
+	payload := slackInboxTestSharedPayload(t, event)
+	_, ok, err := NormalizeSlackIntegrationEvent(setup, payload)
+	require.NoError(t, err)
+	require.False(t, ok)
+	setup.Settings = json.RawMessage(`{"allow_external_participants":true}`)
+	normalized, ok, err := NormalizeSlackIntegrationEvent(setup, payload)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "U_REMOTE", normalized.Actor.ProviderUserID)
+	require.False(t, normalized.CancelOpenInteractions, "external replies must not cancel approval prompts")
+	require.Equal(t, "slack:message:T123:C123:1.0", normalized.SemanticKey)
+	setup.Settings = json.RawMessage(`{}`)
+	_, ok, err = NormalizeSlackIntegrationEvent(setup, payload)
+	require.NoError(t, err)
+	require.False(t, ok, "a queued event must be checked against the current opt-in")
+	_, _, ok, err = slackInboxEnvelope(setup, payload)
+	require.NoError(t, err)
+	require.True(t, ok, "opt-out must not invalidate frozen payloads used by attachment downloads and acknowledgements")
+}
+
 func TestSlackInboxRoutesBeforeExpansion(t *testing.T) {
 	for _, routeErr := range []error{nil, integrationstore.ErrIntegrationLaunchReserved} {
 		provider := &SlackIntegrationInboxProvider{}
@@ -95,6 +119,16 @@ func slackInboxTestPayload(t *testing.T, event slack.Event) []byte {
 			RawEvent:       raw,
 		},
 	)
+	require.NoError(t, err)
+	return payload
+}
+
+func slackInboxTestSharedPayload(t *testing.T, event slack.Event) []byte {
+	t.Helper()
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(slackInboxTestPayload(t, event), &envelope))
+	envelope["is_ext_shared_channel"] = true
+	payload, err := json.Marshal(envelope)
 	require.NoError(t, err)
 	return payload
 }
@@ -525,6 +559,25 @@ func TestSlackInboxThreadMentionIncludesEarlierFilesAndTables(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(expanded.Event.ContentBlocks), "earlier")
 	require.Empty(t, expanded.Event.Files, "channel history files must not attach to a new thread")
+
+	// External delivery already admitted before opt-out retains its captured files.
+	event.ThreadTS, event.UserTeam = "1.0", "T_REMOTE"
+	setup.Settings = json.RawMessage(`{"allow_external_participants":true}`)
+	access.integrationSetup = setup
+	payload = slackInboxTestSharedPayload(t, event)
+	expanded, err = provider.Expand(t.Context(), setup, payload)
+	require.NoError(t, err)
+	require.Len(t, expanded.Event.Files, 1)
+	require.False(t, expanded.Event.CancelOpenInteractions)
+	require.Contains(t, string(expanded.Event.ContentBlocks), "external participant from another Slack organization")
+	setup.Settings = json.RawMessage(`{}`)
+	access.integrationSetup = setup
+	_, allowed, err := NormalizeSlackIntegrationEvent(setup, payload)
+	require.NoError(t, err)
+	require.False(t, allowed, "new admission is blocked after opt-out")
+	file, err = provider.DownloadFile(t.Context(), setup, payload, "F1")
+	require.NoError(t, err)
+	require.Equal(t, "hello", string(file.Content))
 }
 
 func TestSlackInboxDisplayMetadataUnicodeBoundary(t *testing.T) {

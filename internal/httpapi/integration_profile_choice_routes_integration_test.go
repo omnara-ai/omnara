@@ -151,6 +151,13 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider integrationdefinition.Pr
 
 func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstore.IntegrationProfileChoiceRecord {
 	t.Helper()
+	return f.menuWithSenderTeam(t, other, "T123")
+}
+
+func (f profileChoiceHTTPFixture) menuWithSenderTeam(
+	t *testing.T, other bool, senderTeam string,
+) integrationstore.IntegrationProfileChoiceRecord {
+	t.Helper()
 	channel, message, thread, originalActor := "300", "400", "300", "701"
 	if other {
 		message, thread = "401", "301"
@@ -176,6 +183,13 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 	kind, ref, err := scope.Conversation()
 	require.NoError(t, err)
 	payload := []byte("  {\"text\":\"original request\"}\n")
+	if f.integration.Provider == integrationdefinition.ProviderSlack {
+		payload = []byte(fmt.Sprintf(`{"type":"event_callback","team_id":"T123","api_app_id":"A123",
+			"event_id":%q,"is_ext_shared_channel":true,
+			"authorizations":[{"team_id":"T123","user_id":"U_BOT","is_bot":true}],
+			"event":{"type":"app_mention","user":%q,"team":%q,"channel":%q,
+			"ts":%q,"text":"original request"}}`, source.SemanticKey, originalActor, senderTeam, channel, thread))
+	}
 	store := f.project.Store.Integrations()
 	accepted, created, err := store.AcceptIntegrationReceipt(t.Context(), integrationstore.VerifiedIntegrationReceipt{
 		ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID, ReceiptKey: source.SemanticKey, Payload: payload,
@@ -419,7 +433,11 @@ func TestIntegrationProfileChoiceCallbacksRejectForgedAndCrossMenuChoices(t *tes
 						require.Equal(t, unavailableProfileChoice, data["content"])
 					} else {
 						require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-						require.JSONEq(t, `{"ok":"recorded"}`, response.Body.String())
+						if test.name == "unoffered option" {
+							require.JSONEq(t, `{"ok":"recorded"}`, response.Body.String())
+						} else {
+							require.JSONEq(t, `{"ok":"ignored"}`, response.Body.String())
+						}
 					}
 					require.Equal(t, menu, f.readChoice(t, menu.ID))
 					require.Equal(t, other, f.readChoice(t, other.ID))

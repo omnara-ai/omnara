@@ -50,7 +50,7 @@ func Lookup(id Kind) (Definition, bool) {
 			Provider:           ProviderSlack,
 			Tools:              []string{"read", "post_message"},
 			Subscription:       &SubscriptionDefinition{Provider: ProviderSlack, Events: []EventKind{EventMessage}},
-			Settings:           chatSettings,
+			Settings:           slackSettings,
 			Launcher:           newChatLauncher(ProviderSlack),
 			SubscribeOnLaunch:  true,
 			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderSlack},

@@ -96,13 +96,34 @@ func DecodeActionsEnvelope(raw []byte) (ActionsEnvelope, error) {
 }
 
 func ValidateActionIdentity(identity Identity, envelope ActionsEnvelope) bool {
-	if envelope.APIAppID != identity.AppID || envelope.Team.ID != identity.WorkspaceID {
+	if !ValidateActionInstallation(identity, envelope) {
 		return false
 	}
 	if envelope.User.TeamID != "" && envelope.User.TeamID != identity.WorkspaceID {
 		return false
 	}
 	return true
+}
+
+func ValidateActionInstallation(identity Identity, envelope ActionsEnvelope) bool {
+	// Slack's team identifies the installation; user.team_id identifies the actor.
+	// https://docs.slack.dev/reference/interaction-payloads/block_actions-payload/
+	return envelope.APIAppID == identity.AppID && envelope.Team.ID == identity.WorkspaceID
+}
+
+func ProfileChoiceParticipantAllowed(
+	workspaceID string, source EventsEnvelope, envelope ActionsEnvelope, allowExternal bool,
+) bool {
+	// A menu must not resurrect an external request after the integration opts out,
+	// even if the person selecting the profile belongs to the installed workspace.
+	if !MessageParticipantAllowed(workspaceID, source, allowExternal) {
+		return false
+	}
+	if envelope.User.TeamID == "" || envelope.User.TeamID == workspaceID {
+		return true
+	}
+	// Block actions omit sharing metadata; use the captured, verified source event.
+	return allowExternal && sharedChannelEvent(source) && source.Event.Channel == envelope.Channel.ID
 }
 
 func PromptActionFromActions(envelope ActionsEnvelope) (PromptActionValue, error) {

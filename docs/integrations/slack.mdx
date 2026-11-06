@@ -119,11 +119,35 @@ conversations. With no matching subscription or launcher, a mention or DM gets a
 saying the bot isn't available for requests; other messages receive no response.
 That reply is skipped when another integration uses the same bot.
 
+### External participants in shared channels
+
+Enable **Allow external participants in shared channels** on the Slack integration
+to let people from other Slack organizations mention the bot, choose a launch
+profile, and continue conversations in Slack Connect threads. This is off by
+default and applies only to that integration. Slack manages channel membership;
+invite the bot to the shared channels where it should respond.
+
+External requests use this project's configured profiles and resources. The
+setting does not grant access to Omnara, external DMs, or agent interaction forms
+and approval buttons. Those forms and approvals remain restricted to users in
+the connected workspace. Replies from external participants do not cancel pending
+questions or approvals; those wait for someone in your workspace.
+
+Disabling the setting blocks new external messages, including ones awaiting initial
+processing, and external profile selections. Unselected menus started by external participants
+can no longer launch their requests, even when someone in your workspace selects a
+profile. Messages already admitted for delivery continue to be delivered.
+
+For API clients, set `allow_external_participants` to `true` alongside `launcher`
+in the integration's `settings`. Preserve it when editing profiles. It also applies
+to replies in existing and scheduled threads when mention launches are disabled.
+
 A launch derives a config with read/post tools and a Slack interaction handler,
 and attaches a thread subscription before the first input. Existing explicit
 config entries are preserved. Thread
-replies steer the selected agent and cancel its outstanding interactions. Bot
-messages are ignored. Overlapping launchers using the same bot are discouraged.
+replies steer the selected agent. Replies from your workspace also cancel its
+outstanding interactions. Bot messages are ignored. Overlapping launchers using
+the same bot are discouraged.
 
 For API setup, send the settings to
 `PUT /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}`:

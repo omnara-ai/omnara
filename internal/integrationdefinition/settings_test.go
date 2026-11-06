@@ -52,11 +52,30 @@ func TestSettingsSchemasMatchGoStructs(t *testing.T) {
 		"GitHubIntegrationSettings": reflect.TypeOf(GitHubSettings{}),
 		"GitHubIntegrationLauncher": reflect.TypeOf(GitHubLauncherSettings{}),
 		"ChatIntegrationSettings":   reflect.TypeOf(ChatSettings{}),
+		"SlackIntegrationSettings":  reflect.TypeOf(SlackSettings{}),
 		"ChatIntegrationLauncher":   reflect.TypeOf(ChatLauncherSettings{}),
 	} {
 		schema, _ := schemas[name].(map[string]any)
 		testutil.AssertSchemaMatchesStruct(t, name, schema, structType)
 	}
+}
+
+func TestSlackExternalParticipantsSetting(t *testing.T) {
+	for _, raw := range []string{`{}`, `{"allow_external_participants":false}`, `{"allow_external_participants":true}`} {
+		_, err := ValidateSettings(SlackThread, json.RawMessage(raw))
+		require.NoError(t, err)
+		require.Equal(t, raw == `{"allow_external_participants":true}`, SlackAllowsExternalParticipants(json.RawMessage(raw)))
+	}
+	for _, kind := range []Kind{DiscordThread, GitHubPR} {
+		_, err := ValidateSettings(kind, json.RawMessage(`{"allow_external_participants":true}`))
+		require.Error(t, err, "external participants is a Slack-only setting")
+	}
+	for _, raw := range []string{`{"allow_external_participants":"true"}`, `{"allow_external_participants":null}`} {
+		_, err := ValidateSettings(SlackThread, json.RawMessage(raw))
+		require.Error(t, err)
+		require.False(t, SlackAllowsExternalParticipants(json.RawMessage(raw)))
+	}
+	require.False(t, SlackAllowsExternalParticipants(nil))
 }
 
 func TestIntegrationLaunchAuthorizationAndScope(t *testing.T) {
