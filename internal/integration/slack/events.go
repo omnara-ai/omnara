@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -21,6 +23,7 @@ var (
 	channelMentionPattern   = regexp.MustCompile(`<#([^>|]+)(?:\|([^>]+))?>`)
 	broadcastMentionPattern = regexp.MustCompile(`<!((?:here|channel|everyone))(?:\|[^>]*)?>`)
 	slackTextEntityReplacer = strings.NewReplacer("&amp;", "&", "&lt;", "<", "&gt;", ">")
+	attachmentTagPattern    = regexp.MustCompile(`(?i)(<|&lt;)(\s*/?\s*)slack_attachment`)
 )
 
 type Identity struct {
@@ -47,20 +50,37 @@ type Authorization struct {
 }
 
 type Event struct {
-	Type        string        `json:"type"`
-	Subtype     string        `json:"subtype"`
-	User        string        `json:"user"`
-	BotID       string        `json:"bot_id"`
-	Text        string        `json:"text"`
-	Channel     string        `json:"channel"`
-	ChannelType string        `json:"channel_type"`
-	TS          string        `json:"ts"`
-	ThreadTS    string        `json:"thread_ts"`
-	Team        string        `json:"team"`
-	SourceTeam  string        `json:"source_team"`
-	UserTeam    string        `json:"user_team"`
-	Tokens      RevokedTokens `json:"tokens"`
-	Files       []File        `json:"files"`
+	Type        string         `json:"type"`
+	Subtype     string         `json:"subtype"`
+	User        string         `json:"user"`
+	BotID       string         `json:"bot_id"`
+	Text        string         `json:"text"`
+	Channel     string         `json:"channel"`
+	ChannelType string         `json:"channel_type"`
+	TS          string         `json:"ts"`
+	ThreadTS    string         `json:"thread_ts"`
+	Team        string         `json:"team"`
+	SourceTeam  string         `json:"source_team"`
+	UserTeam    string         `json:"user_team"`
+	Tokens      RevokedTokens  `json:"tokens"`
+	Files       []File         `json:"files"`
+	Blocks      []HistoryBlock `json:"blocks"`
+	Attachments []Attachment   `json:"attachments"`
+}
+
+type Attachment struct {
+	Pretext       string          `json:"pretext,omitempty"`
+	AuthorName    string          `json:"author_name,omitempty"`
+	Title         string          `json:"title,omitempty"`
+	TitleLink     string          `json:"title_link,omitempty"`
+	Text          string          `json:"text,omitempty"`
+	Fields        json.RawMessage `json:"fields,omitempty"`
+	Blocks        []HistoryBlock  `json:"blocks,omitempty"`
+	MessageBlocks []struct {
+		Message struct {
+			Blocks []HistoryBlock `json:"blocks"`
+		} `json:"message"`
+	} `json:"message_blocks,omitempty"`
 }
 
 type RevokedTokens struct {
@@ -83,19 +103,25 @@ type historyResponse struct {
 }
 
 type HistoryMessage struct {
-	Channel  string         `json:"channel,omitempty"`
-	User     string         `json:"user"`
-	BotID    string         `json:"bot_id"`
-	Text     string         `json:"text"`
-	TS       string         `json:"ts"`
-	ThreadTS string         `json:"thread_ts"`
-	Blocks   []HistoryBlock `json:"blocks"`
+	Channel     string         `json:"channel,omitempty"`
+	User        string         `json:"user"`
+	BotID       string         `json:"bot_id"`
+	Text        string         `json:"text"`
+	TS          string         `json:"ts"`
+	ThreadTS    string         `json:"thread_ts"`
+	Blocks      []HistoryBlock `json:"blocks"`
+	Files       []File         `json:"files,omitempty"`
+	Attachments []Attachment   `json:"attachments,omitempty"`
 }
 
 type HistoryBlock struct {
-	BlockID  string         `json:"block_id"`
-	Element  *actionButton  `json:"element"`
-	Elements []actionButton `json:"elements"`
+	Type     string          `json:"type"`
+	BlockID  string          `json:"block_id"`
+	Element  *actionButton   `json:"element"`
+	Elements []actionButton  `json:"elements"`
+	Text     json.RawMessage `json:"text,omitempty"`
+	Fields   json.RawMessage `json:"fields,omitempty"`
+	Rows     json.RawMessage `json:"rows,omitempty"`
 }
 
 type DisplayLabels struct {
@@ -164,14 +190,20 @@ func FetchRecentContextMessages(
 func FormatRecentContext(messages []HistoryMessage, event Event, labels DisplayLabels) string {
 	lines := make([]string, 0, len(messages))
 	for _, message := range messages {
-		if message.TS == "" || message.TS == event.TS || strings.TrimSpace(message.Text) == "" {
+		var names []string
+		for _, file := range message.Files {
+			if file.Name != "" {
+				names = append(names, file.Name)
+			}
+		}
+		text := MessageText(message.Text, message.Blocks, message.Attachments)
+		if len(names) > 0 {
+			text = strings.TrimSpace(text + "\n[files: " + strings.Join(names, ", ") + "]")
+		}
+		if message.TS == "" || message.TS == event.TS || text == "" {
 			continue
 		}
-		lines = append(
-			lines,
-			labels.UserReference(message.User)+": "+
-				labels.RenderText(strings.TrimSpace(message.Text)),
-		)
+		lines = append(lines, labels.UserReference(message.User)+": "+labels.RenderText(text))
 	}
 	if len(lines) == 0 {
 		return ""
@@ -181,6 +213,154 @@ func FormatRecentContext(messages []HistoryMessage, event Event, labels DisplayL
 		heading = "Earlier Slack thread context (first page, oldest-first; newer replies may be omitted):"
 	}
 	return heading + "\n" + strings.Join(lines, "\n")
+}
+
+func MessageText(text string, blocks []HistoryBlock, attachments []Attachment) string {
+	var pieces, unwrapped []string
+	add := func(piece string) {
+		if piece = strings.TrimSpace(piece); piece != "" {
+			pieces = append(pieces, piece)
+			unwrapped = append(unwrapped, piece)
+		}
+	}
+	addBlocks := func(blocks []HistoryBlock) {
+		for _, block := range blocks {
+			add(block.plainText())
+		}
+	}
+	addBlocks(blocks)
+	for _, attachment := range attachments {
+		start := len(pieces)
+		add(attachment.plainText())
+		addBlocks(attachment.Blocks)
+		for _, shared := range attachment.MessageBlocks {
+			addBlocks(shared.Message.Blocks)
+		}
+		if len(pieces) > start {
+			body := attachmentTagPattern.ReplaceAllString(strings.Join(pieces[start:], "\n"), "${1}${2}slack-attachment")
+			pieces = append(pieces[:start], "<slack_attachment>\n"+body+"\n</slack_attachment>")
+		}
+	}
+	text = strings.TrimSpace(text)
+	rendered := strings.Join(pieces, "\n")
+	if strings.Join(unwrapped, "\n") == text {
+		return rendered
+	}
+	return strings.TrimSpace(text + "\n" + rendered)
+}
+
+func markdownLink(text, url string) string {
+	if url == "" || text == "" {
+		return text + url
+	}
+	return "[" + text + "](" + url + ")"
+}
+
+func (attachment Attachment) plainText() string {
+	text := attachment.Text
+	if attachment.AuthorName != "" && text != "" {
+		text = attachment.AuthorName + ": " + text
+	}
+	lines := []string{attachment.Pretext, markdownLink(attachment.Title, attachment.TitleLink), text}
+	var fields []struct {
+		Title string `json:"title"`
+		Value string `json:"value"`
+	}
+	if json.Unmarshal(attachment.Fields, &fields) == nil {
+		for _, field := range fields {
+			lines = append(lines, strings.TrimPrefix(field.Title+": "+field.Value, ": "))
+		}
+	}
+	return strings.Join(slices.DeleteFunc(lines, func(line string) bool { return line == "" }), "\n")
+}
+
+func (block HistoryBlock) plainText() string {
+	switch block.Type {
+	case "table":
+		var rows [][]tableCell
+		if json.Unmarshal(block.Rows, &rows) != nil {
+			return ""
+		}
+		lines := make([]string, len(rows))
+		for i, row := range rows {
+			cells := make([]string, len(row))
+			for j, cell := range row {
+				cells[j] = strings.ReplaceAll(cell.plainText(), "\n", " ")
+			}
+			lines[i] = strings.Join(cells, " | ")
+		}
+		return strings.Join(lines, "\n")
+	case "section", "header":
+		var lines []string
+		var text struct {
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(block.Text, &text) == nil {
+			lines = append(lines, text.Text)
+		}
+		var fields []struct {
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(block.Fields, &fields) == nil {
+			for _, field := range fields {
+				lines = append(lines, field.Text)
+			}
+		}
+		return strings.Join(lines, "\n")
+	case "markdown":
+		var text string
+		if json.Unmarshal(block.Text, &text) == nil {
+			return text
+		}
+	}
+	return ""
+}
+
+type tableCell struct {
+	Type        string          `json:"type"`
+	Text        string          `json:"text"`
+	URL         string          `json:"url"`
+	UserID      string          `json:"user_id"`
+	ChannelID   string          `json:"channel_id"`
+	UsergroupID string          `json:"usergroup_id"`
+	Range       string          `json:"range"`
+	Name        string          `json:"name"`
+	Timestamp   int64           `json:"timestamp"`
+	Value       json.RawMessage `json:"value"`
+	Elements    []tableCell     `json:"elements"`
+}
+
+func (cell tableCell) plainText() string {
+	switch cell.Type {
+	case "link":
+		return markdownLink(cell.Text, cell.URL)
+	case "user":
+		return "<@" + cell.UserID + ">"
+	case "channel":
+		return "<#" + cell.ChannelID + ">"
+	case "usergroup":
+		return "<!subteam^" + cell.UsergroupID + ">"
+	case "broadcast":
+		return "<!" + cell.Range + ">"
+	case "emoji":
+		return ":" + cell.Name + ":"
+	case "date":
+		return markdownLink(time.Unix(cell.Timestamp, 0).UTC().Format(time.RFC3339), cell.URL)
+	case "raw_number":
+		if cell.Text != "" {
+			return cell.Text
+		}
+		return string(cell.Value)
+	}
+	separator := ""
+	if cell.Type == "rich_text" || cell.Type == "rich_text_list" {
+		separator = " "
+	}
+	parts := make([]string, len(cell.Elements))
+	for i, element := range cell.Elements {
+		parts[i] = element.plainText()
+	}
+	return cell.Text + strings.Join(parts, separator)
 }
 
 func ShouldFetchRecentContext(route InboundRoute, newlyMapped bool) bool {
@@ -580,6 +760,10 @@ func ReferencedUserIDs(event Event, messages []HistoryMessage) []string {
 	for _, message := range messages {
 		ids = append(ids, userMentionIDs(message.Text)...)
 	}
+	ids = append(ids, userMentionIDs(MessageText(event.Text, event.Blocks, event.Attachments))...)
+	for _, message := range messages {
+		ids = append(ids, userMentionIDs(MessageText(message.Text, message.Blocks, message.Attachments))...)
+	}
 	return orderedReferencedIDs(event.User, ids...)
 }
 
@@ -591,6 +775,11 @@ func referencedChannelIDs(event Event, messages []HistoryMessage) []string {
 	ids = append(ids, mentionIDs(channelMentionPattern, event.Text)...)
 	for _, message := range messages {
 		ids = append(ids, mentionIDs(channelMentionPattern, message.Text)...)
+	}
+	ids = append(ids, mentionIDs(channelMentionPattern, MessageText(event.Text, event.Blocks, event.Attachments))...)
+	for _, message := range messages {
+		text := MessageText(message.Text, message.Blocks, message.Attachments)
+		ids = append(ids, mentionIDs(channelMentionPattern, text)...)
 	}
 	return orderedReferencedIDs("", ids...)
 }
