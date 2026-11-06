@@ -27,14 +27,11 @@ export type CustomToolOutcome =
 
 export interface CustomToolCheckOptions {
   cursor?: string
-  /** Maximum calls to read in this page, independent of execution concurrency. */
   limit?: number
 }
 
 export interface CustomToolCheckResult {
-  /** Includes retries of retained results on the first page. */
   results: { call: CustomToolCallRef; outcome: CustomToolOutcome }[]
-  /** Continue this pass with check({ cursor: nextCursor }); null ends the pass. */
   nextCursor: string | null
 }
 
@@ -45,19 +42,15 @@ export interface CreateCustomToolWorkerOptions {
   tools: Record<string, CustomToolHandler>
   concurrency?: number
   signal?: AbortSignal
-  /** Total time to finish shutdown, including result submissions. Defaults to 10 seconds. */
   shutdownGraceMs?: number
-  /** Observes errors without controlling delivery. Callback failures are ignored. */
   onError: (error: Error, call: CustomToolCallRef) => void | Promise<void>
 }
 
 export interface CustomToolWorker {
   /** Pass only authenticated SSE frames or signature-verified webhook updates. */
   handle: (update: ToolCallUpdate) => Promise<CustomToolOutcome>
-  /** Process one page, waiting for capacity. Listing errors and shutdown cancellation reject. */
   check: (options?: CustomToolCheckOptions) => Promise<CustomToolCheckResult>
   run: () => Promise<void>
-  /** Stop intake, cancel handlers, and try to deliver finished results within the grace period. */
   shutdown: () => Promise<void>
 }
 
@@ -100,16 +93,17 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     result?: SubmitToolCallResultRequest
   }
   const running = new Map<string, Task & { done: Promise<CustomToolOutcome> }>()
-  const parked = new Map<string, { call: CustomToolCallRef; result: SubmitToolCallResultRequest }>()
+  const retainedResults = new Map<
+    string,
+    { call: CustomToolCallRef; result: SubmitToolCallResultRequest }
+  >()
   let shutdownPromise: Promise<void> | undefined
   let runPromise: Promise<void> | undefined
-  function report(error: Error, call: CustomToolCallRef) {
+  async function reportErrorSafely(error: Error, call: CustomToolCallRef): Promise<void> {
     try {
-      void Promise.resolve(onError(error, call)).catch(() => {
-        // An asynchronous observer must not interrupt tool execution or delivery.
-      })
+      await onError(error, call)
     } catch {
-      // A synchronous observer must not interrupt tool execution or delivery.
+      return
     }
   }
   const capacityWaiters = new Set<() => void>()
@@ -117,14 +111,18 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     for (const resolve of capacityWaiters) resolve()
     capacityWaiters.clear()
   }
-  async function waitForSlot(call: CustomToolCallRef, waitForParked = false, until = Infinity) {
+  async function waitForSlot(
+    call: CustomToolCallRef,
+    waitForRetainedResults = false,
+    until = Infinity,
+  ) {
     while (
       !stop.signal.aborted &&
       Date.now() < until &&
       full() &&
       !running.has(call.toolCallID) &&
-      !parked.has(call.toolCallID) &&
-      (waitForParked || running.size > 0)
+      !retainedResults.has(call.toolCallID) &&
+      (waitForRetainedResults || running.size > 0)
     ) {
       await new Promise<void>((resolve) => {
         capacityWaiters.add(resolve)
@@ -132,8 +130,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     }
   }
 
-  // Race the entire request, including async authentication, against cancellation.
-  // Detach the listener even when custom auth/fetch never settles.
+  // Custom authentication can stall before fetch receives the abort signal.
   function requestUntilAborted<T>(request: () => Promise<T>, signal: AbortSignal): Promise<T> {
     return new Promise((resolve, reject) => {
       const abort = () => {
@@ -202,7 +199,6 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       )
       if (current.state !== 'ready')
         return { status: current.state === 'completed' ? 'completed' : 'ignored' }
-      // The current record determines the function and arguments, not a stale notification.
       const handler = current.type === 'custom' ? handlers.get(current.name) : undefined
       if (handler === undefined) return { status: 'ignored' }
       cancel.signal.throwIfAborted()
@@ -216,7 +212,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       } catch (cause) {
         cancel.signal.throwIfAborted()
         const error = asError(cause)
-        report(error, call)
+        void reportErrorSafely(error, call)
         task.result = failedResult(error)
       }
     }
@@ -229,7 +225,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       } catch (cause) {
         if (!(cause instanceof ApiError && (cause.status === 400 || cause.status === 413)))
           throw cause
-        report(cause, call)
+        void reportErrorSafely(cause, call)
         task.result = failedResult(cause)
         await post(task.result)
       }
@@ -240,7 +236,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
   }
 
   function full() {
-    return running.size + parked.size >= concurrency
+    return running.size + retainedResults.size >= concurrency
   }
 
   function start(call: CustomToolCallRef, draining = false): Promise<CustomToolOutcome> {
@@ -248,11 +244,11 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     const active = running.get(id)
     if (active !== undefined) return active.done
     if (stop.signal.aborted && !draining) return Promise.resolve({ status: 'stopped' })
-    const stored = parked.get(id)
+    const stored = retainedResults.get(id)
     if (stored === undefined && full()) {
       return Promise.resolve({ status: 'busy' })
     }
-    parked.delete(id)
+    retainedResults.delete(id)
     const task: Task = {
       call,
       cancel: new AbortController(),
@@ -260,8 +256,6 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       submit: new AbortController(),
       result: stored?.result,
     }
-    // Explicitly detach listeners when done. Combining a handler's signal with a
-    // lifetime signal can retain the handler's listeners for the worker's lifetime.
     let onDeadline: () => void
     const interrupted = new Promise<CustomToolOutcome>((_, reject) => {
       onDeadline = () => {
@@ -280,9 +274,9 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         if (stop.signal.aborted && task.result === undefined && !deadline.signal.aborted)
           return { status: 'stopped' }
         if (task.result !== undefined && !deadline.signal.aborted)
-          parked.set(id, { call, result: task.result })
+          retainedResults.set(id, { call, result: task.result })
         const error = asError(cause)
-        report(error, call)
+        void reportErrorSafely(error, call)
         return { status: 'failed', error }
       })
       .finally(() => {
@@ -324,7 +318,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     let nextCursor: string | null = null
     try {
       if (checkOptions.cursor === undefined) {
-        for (const { call } of parked.values())
+        for (const { call } of retainedResults.values())
           attempts.set(call.toolCallID, { call, done: start(call) })
       }
       if (handlers.size > 0) {
@@ -338,7 +332,6 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         }
       }
     } finally {
-      // Observe every started operation, even if listing fails.
       await Promise.all([...attempts.values()].map(({ done }) => done))
     }
     const results = await Promise.all(
@@ -356,15 +349,16 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       }, shutdownGraceMs)
       try {
         // onError may initiate shutdown while the failed task is still finishing.
-        const flushes = [...parked.values()].map(async ({ call }) => {
+        const flushes = [...retainedResults.values()].map(async ({ call }) => {
           await running.get(call.toolCallID)?.done
-          if (parked.has(call.toolCallID) && !deadline.signal.aborted) await start(call, true)
+          if (retainedResults.has(call.toolCallID) && !deadline.signal.aborted)
+            await start(call, true)
         })
         await Promise.all([...flushes, ...[...running.values()].map(({ done }) => done)])
       } finally {
         clearTimeout(timer)
         deadline.abort(new Error('custom tool worker has shut down'))
-        parked.clear()
+        retainedResults.clear()
         options.signal?.removeEventListener('abort', onAbort)
       }
     })
@@ -397,7 +391,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
           task.submit.abort()
           task.cancel.abort()
         }
-        parked.delete(id)
+        retainedResults.delete(id)
         capacityChanged()
         return task?.done ?? Promise.resolve({ status: 'completed' })
       }
@@ -409,14 +403,13 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     check,
     run() {
       runPromise ??= Promise.resolve().then(async () => {
-        // Retry retained results even while a forward scan waits for slow tools.
-        const resend = () => {
-          for (const { call } of parked.values()) void start(call)
+        const retryRetainedResults = () => {
+          for (const { call } of retainedResults.values()) void start(call)
           capacityChanged()
         }
-        const timer = setInterval(resend, sweepIntervalMs)
+        const timer = setInterval(retryRetainedResults, sweepIntervalMs)
         try {
-          resend()
+          retryRetainedResults()
           while (!stop.signal.aborted) {
             const until = Date.now() + sweepIntervalMs
             let cursor: string | undefined
@@ -429,8 +422,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
                   toolCallID: current.id,
                   name: current.name,
                 }
-                // The resend timer owns retained results in the continuous loop.
-                if (parked.has(call.toolCallID)) continue
+                if (retainedResults.has(call.toolCallID)) continue
                 await waitForSlot(call, true, until)
                 stop.signal.throwIfAborted()
                 if (Date.now() >= until) break scan

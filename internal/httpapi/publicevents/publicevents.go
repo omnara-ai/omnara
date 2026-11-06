@@ -802,8 +802,6 @@ func publicJSONValue(
 	return json.RawMessage(bytes.Clone(trimmed)), nil
 }
 
-// AgentContext is the immutable identity of the emitting agent. It is supplied
-// by the authenticated stream subscription or the webhook's agent lookup.
 type AgentContext struct {
 	OrgID          uuid.UUID
 	ProjectID      uuid.UUID
