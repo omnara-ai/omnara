@@ -349,9 +349,9 @@ Starts a subagent from a configured `subagents` key with a clean context. Requir
 
 ### `read_agent`
 
-Reads a subagent's timeline by `agent_id` in a compact format for the model. Agent identity and status appear once in the result. Events include their content and relevant details such as tool-call IDs, outcomes, and checkpoint summaries; API routing and bookkeeping fields are omitted.
+Reads a subagent's timeline by `agent_id`, including its current status, messages, tool calls, results, and checkpoint summaries.
 
-Without `turn_id` it returns the newest turns first, each with its opening events, latest event, and latest semantic event; `before_turn_sequence` pages older turns and `limit` defaults to 10. With `turn_id` it returns the latest page of that turn's events in chronological order; `before_sequence` pages older events and `limit` defaults to 20. Each result carries `next_before_turn_sequence` or `next_before_sequence` for the next page, or `null` when there are no older results.
+Without `turn_id` it returns the newest turns first, each with its opening events, latest event, and latest semantic event; `before_turn_sequence` pages older turns and `limit` defaults to 10. With `turn_id` it returns the latest page of that turn's events, oldest first; `before_sequence` pages older events and `limit` defaults to 20. Each result carries `next_before_turn_sequence` or `next_before_sequence` for the next page, or `null` when there are no older results.
 
 ### `send_agent_message`
 
