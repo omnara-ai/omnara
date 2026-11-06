@@ -75,7 +75,10 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
   const signal =
     options.signal === undefined ? stop.signal : AbortSignal.any([options.signal, stop.signal])
   const handlers = new Map(Object.entries(options.tools))
-  const running = new Map<string, { done: Promise<boolean>; cancel: AbortController }>()
+  const running = new Map<
+    string,
+    { done: Promise<boolean>; cancel: AbortController; completed: AbortController }
+  >()
   const parked = new Map<string, { call: CustomToolCallRef; result: SubmitToolCallResultRequest }>()
   const failed = new Set<string>()
   const grace = new AbortController()
@@ -124,8 +127,12 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     path: SubmitToolCallResultData['path'],
     body: SubmitToolCallResultRequest,
     call: CustomToolCallRef,
+    completed: AbortSignal,
   ) {
-    const deadline = signal.aborted ? AbortSignal.timeout(shutdownGraceMs) : grace.signal
+    const deadline = AbortSignal.any([
+      signal.aborted ? AbortSignal.timeout(shutdownGraceMs) : grace.signal,
+      completed,
+    ])
     const post = (result: SubmitToolCallResultRequest) =>
       withRetries(
         (fetch) => submitToolCallResult({ client, path, body: result, signal: deadline, fetch }),
@@ -142,47 +149,39 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         await post(failedResult(error))
       }
     } catch (error) {
-      if (
-        error instanceof ApiError &&
-        (error.code === 'tool_call_already_completed' || error.status === 404)
-      ) {
-        return
-      }
+      if (error instanceof ApiError && error.code === 'tool_call_already_completed') return
       throw error
     }
   }
 
   async function execute(
     call: CustomToolCallRef,
-    input: ToolInput | undefined,
     handler: CustomToolHandler,
     callSignal: AbortSignal,
+    completed: AbortSignal,
     stored: SubmitToolCallResultRequest | undefined,
   ) {
     const path = { ...options.path, agentID: call.agentID, toolCallID: call.toolCallID }
     let result = stored
     if (result === undefined) {
-      if (input === undefined) {
-        const current = await withRetries(
-          (fetch) => getToolCall({ client, path, signal: callSignal, fetch }),
+      const current = await withRetries(
+        (fetch) => getToolCall({ client, path, signal: callSignal, fetch }),
+        callSignal,
+      ).catch((cause: unknown) => {
+        if (cause instanceof ApiError && cause.status === 404) return undefined
+        throw cause
+      })
+      if (current?.data.state !== 'ready') return
+      if (options.agentProfileID !== undefined) {
+        const { data } = await withRetries(
+          (fetch) => getAgent({ client, path, signal: callSignal, fetch }),
           callSignal,
-        ).catch((cause: unknown) => {
-          if (cause instanceof ApiError && cause.status === 404) return undefined
-          throw cause
-        })
-        if (current?.data.state !== 'ready') return
-        if (options.agentProfileID !== undefined) {
-          const { data } = await withRetries(
-            (fetch) => getAgent({ client, path, signal: callSignal, fetch }),
-            callSignal,
-          )
-          if (data.agent.agent_profile_id !== options.agentProfileID) return
-        }
-        input = current.data.input
+        )
+        if (data.agent.agent_profile_id !== options.agentProfileID) return
       }
       callSignal.throwIfAborted()
       try {
-        result = await handler({ ...call, input, signal: callSignal })
+        result = await handler({ ...call, input: current.data.input, signal: callSignal })
       } catch (cause) {
         callSignal.throwIfAborted()
         const error = asError(cause)
@@ -191,14 +190,14 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       }
     }
     try {
-      await submit(path, result, call)
+      await submit(path, result, call, completed)
     } catch (error) {
       if (!callSignal.aborted) parked.set(call.toolCallID, { call, result })
       throw error
     }
   }
 
-  function start(call: CustomToolCallRef, input: ToolInput | undefined): boolean {
+  function start(call: CustomToolCallRef): boolean {
     const id = call.toolCallID
     const handler = handlers.get(call.name)
     if (handler === undefined || running.has(id) || failed.has(id)) return true
@@ -210,11 +209,13 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     }
     parked.delete(id)
     const cancel = new AbortController()
-    const done = execute(call, input, handler, cancel.signal, stored?.result)
+    const completed = new AbortController()
+    const done = execute(call, handler, cancel.signal, completed.signal, stored?.result)
       .then(
         () => true,
         (cause: unknown) => {
-          if (cancel.signal.aborted) return !signal.aborted
+          if (completed.signal.aborted) return true
+          if (signal.aborted) return false
           failed.add(id)
           onError(asError(cause), call)
           return false
@@ -224,7 +225,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         running.delete(id)
         if (skipped) wake?.()
       })
-    running.set(id, { done, cancel })
+    running.set(id, { done, cancel, completed })
     return true
   }
 
@@ -240,7 +241,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     if (Date.now() >= checkAt) {
       failed.clear()
       checkAt = Date.now() + sweepIntervalMs
-      for (const { call } of parked.values()) start(call, undefined)
+      for (const { call } of parked.values()) start(call)
     }
     skipped = false
     let cursor: string | undefined
@@ -257,7 +258,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         signal,
       )
       for (const call of page.data) {
-        if (!start({ agentID: call.agent_id, toolCallID: call.id, name: call.name }, call.input)) {
+        if (!start({ agentID: call.agent_id, toolCallID: call.id, name: call.name })) {
           return
         }
       }
@@ -269,7 +270,9 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     handle(update) {
       const id = update.tool_call_id
       if (update.state === 'completed') {
-        running.get(id)?.cancel.abort()
+        const entry = running.get(id)
+        entry?.cancel.abort()
+        entry?.completed.abort()
         parked.delete(id)
       } else if (
         update.state === 'ready' &&
@@ -278,7 +281,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       ) {
         failed.delete(id)
         const call = { agentID: update.agent_id, toolCallID: id, name: update.name }
-        if (!start(call, undefined)) return Promise.resolve(false)
+        if (!start(call)) return Promise.resolve(false)
       }
       return running.get(id)?.done ?? Promise.resolve(true)
     },

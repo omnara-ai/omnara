@@ -108,7 +108,11 @@ test('picks up ready calls that no webhook reported', async () => {
   const { worker } = receiver(async (url, init) => {
     const request = new Request(url, init)
     if (request.method === 'GET') {
-      return Response.json({ data: [readyCall()], next_cursor: null })
+      return Response.json(
+        new URL(request.url).pathname.endsWith('/tool-calls')
+          ? { data: [readyCall()], next_cursor: null }
+          : readyCall(),
+      )
     }
     assert.deepEqual(await request.json(), result)
     controller.abort()
