@@ -273,8 +273,11 @@ importers:
         specifier: 0.99.0
         version: 0.99.0(magicast@0.5.4)(typescript@5.9.3)
       '@tanstack/react-query':
-        specifier: ^5.59.0
+        specifier: ^5.101.0
         version: 5.101.0(react@19.3.0-canary-eb8feb71-20260814)
+      '@tanstack/react-query-minimum':
+        specifier: npm:@tanstack/react-query@5.62.0
+        version: '@tanstack/react-query@5.62.0(react@19.3.0-canary-eb8feb71-20260814)'
       tsup:
         specifier: ^9.0.0
         version: 9.0.0(jiti@2.7.0)(postcss@8.5.31)(tsx@4.23.15)(typescript@5.9.3)(yaml@2.9.0)
@@ -2631,6 +2634,9 @@ packages:
   '@tanstack/query-core@5.101.0':
     resolution: {integrity: sha512-cQetA74EB+seWySv1TTKr828TnP0u39m6LykwDXIo84SNortpDkp30TMEjkqtYCNP9c40uT/iwl6MLiufEt0Ow==}
 
+  '@tanstack/query-core@5.62.0':
+    resolution: {integrity: sha512-sx38bGrqF9bop92AXOvzDr0L9fWDas5zXdPglxa9cuqeVSWS7lY6OnVyl/oodfXjgOGRk79IfCpgVmxrbHuFHg==}
+
   '@tanstack/react-form@1.33.0':
     resolution: {integrity: sha512-unaee+VS4MvKo+s1dmgGUXI4902VeAhuaUbKsQbhFe3MceOpB3JpAUGCDpyzjQPXVFkFY0COKfLrUNX2XZYW4g==}
     peerDependencies:
@@ -2642,6 +2648,11 @@ packages:
 
   '@tanstack/react-query@5.101.0':
     resolution: {integrity: sha512-rLlJXSpkqfizLWgkR5+eLeIk0MvTx/meEIR7LRjxic+qxiQP8zVjq7BqQkiCMNLQBlLfuOLqqr6KO5GtrDlmSg==}
+    peerDependencies:
+      react: 19.3.0-canary-eb8feb71-20260814
+
+  '@tanstack/react-query@5.62.0':
+    resolution: {integrity: sha512-tj2ltjAn2a3fs+Dqonlvs6GyLQ/LKVJE2DVSYW+8pJ3P6/VCVGrfqv5UEchmlP7tLOvvtZcOuSyI2ooVlR5Yqw==}
     peerDependencies:
       react: 19.3.0-canary-eb8feb71-20260814
 
@@ -7100,6 +7111,8 @@ snapshots:
 
   '@tanstack/query-core@5.101.0': {}
 
+  '@tanstack/query-core@5.62.0': {}
+
   '@tanstack/react-form@1.33.0(react-dom@19.3.0-canary-eb8feb71-20260814(react@19.3.0-canary-eb8feb71-20260814))(react@19.3.0-canary-eb8feb71-20260814)':
     dependencies:
       '@tanstack/form-core': 1.33.0
@@ -7111,6 +7124,11 @@ snapshots:
   '@tanstack/react-query@5.101.0(react@19.3.0-canary-eb8feb71-20260814)':
     dependencies:
       '@tanstack/query-core': 5.101.0
+      react: 19.3.0-canary-eb8feb71-20260814
+
+  '@tanstack/react-query@5.62.0(react@19.3.0-canary-eb8feb71-20260814)':
+    dependencies:
+      '@tanstack/query-core': 5.62.0
       react: 19.3.0-canary-eb8feb71-20260814
 
   '@tanstack/react-router@1.170.15(react-dom@19.3.0-canary-eb8feb71-20260814(react@19.3.0-canary-eb8feb71-20260814))(react@19.3.0-canary-eb8feb71-20260814)':

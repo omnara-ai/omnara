@@ -100,7 +100,7 @@ func TestUnitCommitLifecycle(t *testing.T) {
 }
 
 func TestUnitFailuresSuppressPublication(t *testing.T) {
-	for _, scenario := range []string{"rollback", "deferred commit", "aborted SQL", "cancel"} {
+	for _, scenario := range []string{"rollback", "deferred commit", "aborted SQL", "cancel", "teardown cleanup"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			cell, pool := unitTestCell(
@@ -130,7 +130,14 @@ func TestUnitFailuresSuppressPublication(t *testing.T) {
 				cancel()
 				ctx = canceled
 			}
-			require.Error(t, u.Commit(ctx, scenario))
+			if scenario == "teardown cleanup" {
+				// This minimal fixture has no secret tables, so cleanup fails
+				// after execution finalization but before transaction commit.
+				require.ErrorContains(t, u.CommitTeardown(ctx, scenario, uuid.New()), "list deleted organization secrets")
+				require.ErrorIs(t, u.Commit(ctx, "retry failed cleanup"), ErrUnitAborted)
+			} else {
+				require.Error(t, u.Commit(ctx, scenario))
+			}
 			_ = u.Rollback(t.Context())
 			var count int
 			require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM unit_probe`).Scan(&count))

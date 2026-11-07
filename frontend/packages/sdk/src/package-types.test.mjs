@@ -11,7 +11,7 @@ import { expect, it } from 'vitest'
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const require = createRequire(import.meta.url)
 
-it('lets a packed-package consumer emit declarations for SDK, custom-tool and TanStack APIs', () => {
+it('supports packed-package consumers with current and minimum TanStack versions', () => {
   const consumer = mkdtempSync(join(tmpdir(), 'omnara-sdk-consumer-'))
   try {
     // Source imports bypass the published export map and cannot catch private declaration chunks.
@@ -30,7 +30,7 @@ it('lets a packed-package consumer emit declarations for SDK, custom-tool and Ta
 
     // Reuse installed dependencies without a network install or workspace link to the SDK source.
     const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'))
-    for (const dependency of [...Object.keys(manifest.dependencies), '@tanstack/react-query']) {
+    for (const dependency of Object.keys(manifest.dependencies)) {
       const destination = join(consumer, 'node_modules', dependency)
       mkdirSync(dirname(destination), { recursive: true })
       symlinkSync(join(packageRoot, 'node_modules', dependency), destination, 'dir')
@@ -67,14 +67,9 @@ assert.deepEqual(result, { data: [], next_cursor: null })
 queryClient.clear()
 `,
     )
-    execFileSync(process.execPath, ['tanstack-only.mjs'], {
-      cwd: consumer,
-      stdio: 'pipe',
-      timeout: 15_000,
-    })
     writeFileSync(
       join(consumer, 'consumer.ts'),
-      `import { createOmnaraClient, createCustomToolWorker, verifyEventWebhook, sdk, type ListAgentsResponse, type RequestObservation, type CustomToolObservation } from '@omnara/sdk'
+      `import { createOmnaraClient, createCustomToolWorker, verifyEventWebhook, sdk, type ListAgentsResponse, type ListAgentsError, type RequestObservation, type CustomToolObservation } from '@omnara/sdk'
 import { listAgentsOptions, listAgentsInfiniteOptions, createAgentInputMutation } from '@omnara/sdk/tanstack'
 import { QueryClient, useSuspenseInfiniteQuery, useSuspenseQuery, type InfiniteData } from '@tanstack/react-query'
 
@@ -88,6 +83,8 @@ export const useAgents = () => useSuspenseQuery(agents)
 export const useInfiniteAgents = () => useSuspenseInfiniteQuery({ ...infiniteAgents, initialPageParam: { path: infiniteAgents.queryKey[0].path }, getNextPageParam: (page) => page.next_cursor ?? undefined })
 export const cachedAgents: ListAgentsResponse | undefined = new QueryClient().getQueryData(agents.queryKey)
 export const cachedInfiniteAgents: InfiniteData<ListAgentsResponse> | undefined = new QueryClient().getQueryData(infiniteAgents.queryKey)
+export const cachedAgentsError: ListAgentsError | null | undefined = new QueryClient().getQueryState(agents.queryKey)?.error
+export const cachedInfiniteAgentsError: ListAgentsError | null | undefined = new QueryClient().getQueryState(infiniteAgents.queryKey)?.error
 // @ts-expect-error query keys retain their response-data type.
 export const incorrectCachedData: number = new QueryClient().getQueryData(agents.queryKey)
 // @ts-expect-error infinite query keys retain their paginated response-data type.
@@ -109,39 +106,58 @@ export const verify = verifyEventWebhook
 export const recover = () => worker.check()
 `,
     )
-    for (const moduleResolution of ['Bundler', 'NodeNext']) {
-      const config = join(consumer, 'tsconfig.json')
-      writeFileSync(
-        config,
-        JSON.stringify({
-          compilerOptions: {
-            strict: true,
-            target: 'ES2022',
-            module: moduleResolution === 'Bundler' ? 'ESNext' : 'NodeNext',
-            moduleResolution,
-            lib: ['ES2022', 'DOM'],
-            declaration: true,
-            emitDeclarationOnly: true,
-            skipLibCheck: false,
-            outDir: `dist-${moduleResolution}`,
-          },
-          include: ['consumer.ts'],
-        }),
-      )
-      const compiled = spawnSync(
-        process.execPath,
-        [require.resolve('typescript/bin/tsc'), '--project', config],
-        { cwd: consumer, encoding: 'utf8', timeout: 120_000 },
-      )
-      const diagnostics = [
-        compiled.stdout,
-        compiled.stderr,
-        compiled.error?.message,
-        compiled.signal,
-      ]
-        .filter(Boolean)
-        .join('\n')
-      expect(compiled.status, diagnostics).toBe(0)
+    // An exact dev-only alias makes the declared peer floor reproducible and
+    // keeps the lockfile's newer version from hiding incompatible declarations.
+    for (const dependency of ['@tanstack/react-query-minimum', '@tanstack/react-query']) {
+      const source = join(packageRoot, 'node_modules', dependency)
+      const { version } = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
+      if (dependency.endsWith('-minimum')) {
+        expect(manifest.peerDependencies['@tanstack/react-query']).toBe(`^${version}`)
+      }
+      const destination = join(consumer, 'node_modules', '@tanstack', 'react-query')
+      mkdirSync(dirname(destination), { recursive: true })
+      rmSync(destination, { force: true })
+      symlinkSync(source, destination, 'dir')
+      execFileSync(process.execPath, ['tanstack-only.mjs'], {
+        cwd: consumer,
+        stdio: 'pipe',
+        timeout: 15_000,
+      })
+      for (const moduleResolution of ['Bundler', 'NodeNext']) {
+        const config = join(consumer, 'tsconfig.json')
+        writeFileSync(
+          config,
+          JSON.stringify({
+            compilerOptions: {
+              strict: true,
+              target: 'ES2022',
+              module: moduleResolution === 'Bundler' ? 'ESNext' : 'NodeNext',
+              moduleResolution,
+              lib: ['ES2022', 'DOM'],
+              declaration: true,
+              emitDeclarationOnly: true,
+              skipLibCheck: false,
+              outDir: `dist-${version}-${moduleResolution}`,
+            },
+            include: ['consumer.ts'],
+          }),
+        )
+        const compiled = spawnSync(
+          process.execPath,
+          [require.resolve('typescript/bin/tsc'), '--project', config],
+          { cwd: consumer, encoding: 'utf8', timeout: 120_000 },
+        )
+        const diagnostics = [
+          `TanStack ${version}, ${moduleResolution}`,
+          compiled.stdout,
+          compiled.stderr,
+          compiled.error?.message,
+          compiled.signal,
+        ]
+          .filter(Boolean)
+          .join('\n')
+        expect(compiled.status, diagnostics).toBe(0)
+      }
     }
   } finally {
     rmSync(consumer, { recursive: true, force: true })

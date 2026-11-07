@@ -173,6 +173,69 @@ SET management_kind = 'cluster' WHERE provider_config_id = $1`, config.ID)
 	require.Error(t, err, "typed references cannot cross the parent or secret management boundary")
 }
 
+func TestProviderDeletionSerializesWithOrganizationDeletion(t *testing.T) {
+	t.Parallel()
+	for _, first := range []string{"provider", "organization"} {
+		t.Run(first, func(t *testing.T) {
+			t.Parallel()
+			f := newSecretConsumerFixture(t, "secret")
+			ctx := t.Context()
+			config, err := f.store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+				OrgID: testOrgID, Name: "gateway", APIFormat: modelprotocol.APIFormatOpenAIResponses,
+				BaseURL: "https://provider.example.test", CredentialSecretID: f.secret.ID,
+				SecretHeaders: json.RawMessage(`{"X-Gateway-Key":"` + f.secret.ID.String() + `"}`),
+			})
+			require.NoError(t, err)
+			deleteProvider := func() error {
+				return f.store.Models().DeleteModelProviderConfig(ctx, testOrgID, config.ID)
+			}
+			deleteOrganization := func() error {
+				_, deleteErr := f.store.Organizations().DeleteOrganizationOnceForIntegration(
+					ctx, testOrgID, userPrincipal(f.admin.ID),
+				)
+				return deleteErr
+			}
+			// Pause the first deletion at the child row. It must retain its
+			// lifecycle gate until the whole provider/header mutation commits.
+			blocker := integrationdb.BeginTx(t, ctx, f.store.pool)
+			_, err = blocker.Exec(ctx, `SELECT provider_config_id FROM model_provider_header_secrets
+WHERE provider_config_id = $1 FOR UPDATE`, config.ID)
+			require.NoError(t, err)
+			var providerDone, organizationDone <-chan error
+			if first == "provider" {
+				providerDone = integrationdb.RunAsyncError(deleteProvider)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, f.store.pool, "DeleteModelProviderHeaderSecrets", 1)
+				organizationDone = integrationdb.RunAsyncError(deleteOrganization)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, f.store.pool, "LockOrganizationLifecycleExclusive", 1)
+			} else {
+				organizationDone = integrationdb.RunAsyncError(deleteOrganization)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, f.store.pool, "DeleteOrganizationModelProviderHeaderSecrets", 1)
+				providerDone = integrationdb.RunAsyncError(deleteProvider)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, f.store.pool, "LockOrganizationLifecycleShared", 1)
+			}
+			require.NoError(t, blocker.Commit(ctx))
+			providerErr := integrationdb.Await(t, providerDone, "provider deletion")
+			if first == "provider" {
+				require.NoError(t, providerErr)
+			} else {
+				require.ErrorIs(t, providerErr, storeerr.ErrNotFound)
+			}
+			require.NoError(t, integrationdb.Await(t, organizationDone, "organization deletion"))
+			var retired bool
+			require.NoError(t, f.store.pool.QueryRow(ctx, `SELECT deleted_at IS NOT NULL AND credential_secret_id IS NULL
+FROM model_provider_configs WHERE id = $1`, config.ID).Scan(&retired))
+			require.True(t, retired)
+			var remaining int
+			require.NoError(t, f.store.pool.QueryRow(ctx,
+				"SELECT count(*) FROM model_provider_header_secrets WHERE org_id = $1", testOrgID).Scan(&remaining))
+			require.Zero(t, remaining)
+			require.NoError(t, f.store.pool.QueryRow(ctx,
+				"SELECT count(*) FROM secret_versions WHERE secret_id = $1", f.secret.ID).Scan(&remaining))
+			require.Zero(t, remaining)
+		})
+	}
+}
+
 func TestSecretReferenceGuardCoversForeignKeys(t *testing.T) {
 	t.Parallel()
 	pool := openIntegrationDB(t, t.Context())

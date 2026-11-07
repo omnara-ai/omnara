@@ -13,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -468,13 +467,7 @@ func (s *Service) deleteProjectOnce(
 		}
 		return nil, fmt.Errorf("load project for deletion: %w", err)
 	}
-	secretIDs, err := q.LockProjectOwnedSecretsForDeletion(ctx, dbsqlc.LockProjectOwnedSecretsForDeletionParams{
-		OrgID: orgID, ProjectID: projectID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("lock project secrets for deletion: %w", err)
-	}
-	if err := secretops.RequireUnreferenced(ctx, q, secretIDs, []uuid.UUID{projectID}); err != nil {
+	if err := unit.LockProjectSecretsForDeletion(ctx, orgID, projectID); err != nil {
 		return nil, err
 	}
 	agentIDs, err := prelockProjectMachineLifecycleTx(ctx, unit, q, orgID, projectID)
@@ -686,11 +679,8 @@ func (s *Service) deleteOrganizationOnce(
 		return nil, fmt.Errorf("delete organization api keys: %w", err)
 	}
 	// Ciphertext of secrets still referenced by pool rows awaiting machine
-	// teardown survives until teardown completion re-runs this inline.
-	if err := secretops.DestroyUnreferencedVersionsForDeletedOrg(ctx, q, orgID); err != nil {
-		return nil, fmt.Errorf("destroy organization secret versions: %w", err)
-	}
-	if err := unit.Commit(ctx, "delete organization"); err != nil {
+	// teardown survives until that teardown also commits with secret cleanup.
+	if err := unit.CommitTeardown(ctx, "delete organization", orgID); err != nil {
 		return nil, err
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)

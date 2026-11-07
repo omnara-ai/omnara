@@ -540,7 +540,7 @@ func (s *Store) deleteSecretOnce(
 	if err := management.RequireTenant(record.ManagementKind, "secrets"); err != nil {
 		return SecretRecord{}, err
 	}
-	if err := secretops.RequireUnreferenced(ctx, qtx, []uuid.UUID{input.SecretID}, nil); err != nil {
+	if err := secretops.RequireUnreferenced(ctx, tx, []uuid.UUID{input.SecretID}); err != nil {
 		return SecretRecord{}, err
 	}
 	if _, err := qtx.DeleteSecret(ctx, dbsqlc.DeleteSecretParams{

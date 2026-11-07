@@ -13,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -1165,10 +1164,7 @@ func (s *Store) completePoolMachineDeletion(
 			}); err != nil {
 				return struct{}{}, fmt.Errorf("release machine pool credential for deletion completion: %w", err)
 			}
-			if err := secretops.DestroyUnreferencedVersionsForDeletedOrg(ctx, qtx, orgID); err != nil {
-				return struct{}{}, fmt.Errorf("destroy deleted-org secret versions for deletion completion: %w", err)
-			}
-			if err := unit.Commit(ctx, "complete pool machine deletion"); err != nil {
+			if err := unit.CommitTeardown(ctx, "complete pool machine deletion", orgID); err != nil {
 				return struct{}{}, err
 			}
 			return struct{}{}, nil

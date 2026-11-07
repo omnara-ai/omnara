@@ -1,10 +1,12 @@
 package modelstore
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -271,40 +273,41 @@ func validateModelProviderReferencesTx(
 	ctx context.Context, tx pgx.Tx, orgID, credentialSecretID uuid.UUID,
 	managementKind management.Kind, authKind string, headers ModelProviderHeaders,
 ) error {
-	ids := []uuid.UUID{credentialSecretID}
-	for _, id := range headers.SecretHeaders {
-		ids = append(ids, id)
-	}
-	facts, err := secretops.LockReferences(ctx, tx, orgID, ids)
-	var referenceError *secretops.ReferenceError
-	if errors.As(err, &referenceError) && errors.Is(err, pgx.ErrNoRows) {
-		field := "credential_secret_id"
-		if referenceError.SecretID != credentialSecretID {
-			field = ""
-			for name, id := range headers.SecretHeaders {
-				if id == referenceError.SecretID && (field == "" || "secret_headers."+name < field) {
-					field = "secret_headers." + name
-				}
-			}
-		}
-		return unavailableModelProviderSecret(field)
-	}
-	if err != nil {
-		return err
-	}
 	kind, err := ModelProviderCredentialSecretKind(authKind)
 	if err != nil {
 		return err
 	}
-	if err := validateModelProviderSecret(
-		"credential_secret_id", facts[credentialSecretID], managementKind, kind,
-	); err != nil {
-		return err
+	type reference struct {
+		id    uuid.UUID
+		field string
+		kind  secrets.Kind
 	}
+	references := []reference{{credentialSecretID, "credential_secret_id", kind}}
 	for name, id := range headers.SecretHeaders {
-		if err := validateModelProviderSecret(
-			"secret_headers."+name, facts[id], managementKind, secrets.KindGeneric,
-		); err != nil {
+		references = append(references, reference{id, "secret_headers." + name, secrets.KindGeneric})
+	}
+	// Match owner deletion's UUID lock order. Field order makes errors stable
+	// when a credential is reused by multiple headers.
+	slices.SortFunc(references, func(a, b reference) int {
+		if order := bytes.Compare(a.id[:], b.id[:]); order != 0 {
+			return order
+		}
+		return strings.Compare(a.field, b.field)
+	})
+	var lockedID uuid.UUID
+	var secret secretops.Facts
+	for i, ref := range references {
+		if i == 0 || ref.id != lockedID {
+			secret, err = secretops.LockReference(ctx, tx, orgID, ref.id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return unavailableModelProviderSecret(ref.field)
+			}
+			if err != nil {
+				return err
+			}
+			lockedID = ref.id
+		}
+		if err := validateModelProviderSecret(ref.field, secret, managementKind, ref.kind); err != nil {
 			return err
 		}
 	}
@@ -587,6 +590,9 @@ func (s *Store) DeleteModelProviderConfig(
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
 
+	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, orgID); err != nil {
+		return err
+	}
 	lockedManagement, err := qtx.LockModelProviderConfigForMutation(
 		ctx,
 		dbsqlc.LockModelProviderConfigForMutationParams{OrgID: orgID, ID: id},

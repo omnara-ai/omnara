@@ -323,6 +323,11 @@ WHERE org_id = sqlc.arg(org_id) AND secret_id = sqlc.arg(secret_id);
 DELETE FROM secret_oauth_refresh_leases
 WHERE org_id = sqlc.arg(org_id) AND secret_id = sqlc.arg(secret_id);
 
+-- name: LockDeletedOrganizationSecretCleanup :exec
+SELECT pg_advisory_xact_lock(
+    hashtextextended('deleted_org_secret_cleanup:' || sqlc.arg(org_id)::uuid::text, 0)
+);
+
 -- name: ListReferencedSecretIDs :many
 -- @sqlc-vet-disable secrets-deleted-at model-provider-configs-deleted-at integrations-deleted-at machine-pools-deleted-at
 -- Deleted consumers release their references. Project consumers count only while

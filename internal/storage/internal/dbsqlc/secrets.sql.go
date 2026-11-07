@@ -1281,6 +1281,21 @@ func (q *Queries) ListVisibleOwnedSecrets(ctx context.Context, arg ListVisibleOw
 	return items, nil
 }
 
+const lockDeletedOrganizationSecretCleanup = `-- name: LockDeletedOrganizationSecretCleanup :exec
+SELECT pg_advisory_xact_lock(
+    hashtextextended('deleted_org_secret_cleanup:' || $1::uuid::text, 0)
+)
+`
+
+type LockDeletedOrganizationSecretCleanupParams struct {
+	OrgID uuid.UUID
+}
+
+func (q *Queries) LockDeletedOrganizationSecretCleanup(ctx context.Context, arg LockDeletedOrganizationSecretCleanupParams) error {
+	_, err := q.db.Exec(ctx, lockDeletedOrganizationSecretCleanup, arg.OrgID)
+	return err
+}
+
 const lockOrgMemberOwnedSecretsForDeletion = `-- name: LockOrgMemberOwnedSecretsForDeletion :many
 SELECT id FROM secrets
 WHERE org_id = $1 AND owner_user_id = $2::uuid AND deleted_at IS NULL

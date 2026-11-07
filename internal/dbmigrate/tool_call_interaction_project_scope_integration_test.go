@@ -3,10 +3,12 @@
 package dbmigrate_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
@@ -113,6 +115,39 @@ func TestToolCallInteractionProjectScopeMigration(t *testing.T) {
 		openID, agentID, pendingCallID, resolvedID, doneCallID)
 	exec(`UPDATE agent_interactions SET state='resolved',resolved_at=now() WHERE id=$1`, resolvedID)
 
+	// Expansion must commit independently: hold a historical row while the next
+	// transaction backfills it, and prove reads and active-agent writes still work.
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 70))
+	blocker := integrationdb.BeginTx(t, ctx, pool)
+	_, err = blocker.Exec(ctx, "SELECT id FROM tool_calls WHERE id = $1 FOR UPDATE", doneCallID)
+	require.NoError(t, err)
+	migrationConfig := pool.Config().ConnConfig.Copy()
+	migrationConfig.RuntimeParams["lock_timeout"] = "2s"
+	migrationDB := stdlib.OpenDB(*migrationConfig)
+	t.Cleanup(func() { _ = migrationDB.Close() })
+	migrated := integrationdb.RunAsyncError(func() error { return applyProductionPostgresMigrations(ctx, migrationDB) })
+	integrationdb.WaitForLockWaiters(t, ctx, pool, "UPDATE tool_calls tool_call", 1)
+	readCtx, cancelRead := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelRead()
+	var projectID uuid.UUID
+	require.NoError(t, pool.QueryRow(readCtx,
+		"SELECT project_id FROM tool_call_read_projection WHERE id = $1", doneCallID).Scan(&projectID))
+	require.Equal(t, ids.ProjectID, projectID)
+	_, err = pool.Exec(readCtx, "UPDATE agents SET updated_at = statement_timestamp() WHERE id = $1", agentID)
+	require.NoError(t, err, "the historical backfill must not take the active-agent write gate")
+	agentWriter := integrationdb.BeginTx(t, ctx, pool)
+	_, err = agentWriter.Exec(ctx, "LOCK TABLE agents IN ROW EXCLUSIVE MODE")
+	require.NoError(t, err)
+	require.NoError(t, blocker.Commit(ctx))
+	integrationdb.WaitForLockWaiters(t, ctx, pool, "LOCK TABLE agents IN EXCLUSIVE MODE", 1)
+	var lockErr *pgconn.PgError
+	require.ErrorAs(t, integrationdb.Await(t, migrated, "finalization lock timeout"), &lockErr)
+	require.Equal(t, "55P03", lockErr.Code)
+	require.EqualValues(t, 71, currentPostgresMigrationVersion(t, ctx, db),
+		"history must commit before finalization can fail")
+	require.NoError(t, pool.QueryRow(ctx, "SELECT project_id FROM tool_calls WHERE id=$1", doneCallID).Scan(&projectID))
+	require.Equal(t, ids.ProjectID, projectID, "finalization failure must not roll back the history backfill")
+	require.NoError(t, agentWriter.Commit(ctx))
 	require.NoError(t, applyProductionPostgresMigrations(ctx, db))
 
 	for _, table := range []string{"tool_calls", "agent_interactions"} {
@@ -151,4 +186,182 @@ SELECT tgenabled::text FROM pg_trigger WHERE tgname = 'agent_interactions_transi
 UPDATE agent_interactions SET state = 'canceled', resolved_at = now(), project_id = $2 WHERE id = $1
 `, openID, uuid.New())
 	require.ErrorContains(t, err, "agent_interaction lineage is immutable")
+}
+
+func TestCustomToolExpansionAllowsReaderWhileFirstLockWaits(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 68))
+	blocker := integrationdb.BeginTx(t, ctx, pool)
+	_, err := blocker.Exec(ctx, "LOCK TABLE agent_interactions IN ACCESS SHARE MODE")
+	require.NoError(t, err)
+	migrated := integrationdb.RunAsyncError(func() error {
+		return applyProductionPostgresMigrationsThrough(t, ctx, db, 69)
+	})
+	integrationdb.WaitForLockWaiters(t, ctx, pool, "ALTER TABLE agent_interactions", 1)
+	// The old tool view reads tool_calls before agents. Expansion must hold
+	// neither while waiting for interactions, so this reader finishes immediately.
+	_, err = pool.Exec(ctx, "SELECT count(*) FROM tool_call_read_projection")
+	require.NoError(t, err)
+	require.NoError(t, blocker.Commit(ctx))
+	require.NoError(t, integrationdb.Await(t, migrated, "expansion overlapping old tool view"))
+}
+
+func TestCustomToolExpansionAllowsAgentFirstCompletion(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 68))
+	writer := integrationdb.BeginTx(t, ctx, pool)
+	// CompleteTool and CompleteCustomTool hold an agent FOR UPDATE lock, then
+	// update tool_calls before closing interactions. Reproduce those table locks.
+	_, err := writer.Exec(ctx, "LOCK TABLE agents IN ROW SHARE MODE; LOCK TABLE tool_calls IN ROW EXCLUSIVE MODE")
+	require.NoError(t, err)
+	migrated := integrationdb.RunAsyncError(func() error {
+		return applyProductionPostgresMigrationsThrough(t, ctx, db, 70)
+	})
+	integrationdb.WaitForLockWaiters(t, ctx, pool, "ALTER TABLE tool_calls", 1)
+	_, err = writer.Exec(ctx, "LOCK TABLE agent_interactions IN ROW EXCLUSIVE MODE")
+	require.NoError(t, err, "interaction expansion must commit before migration waits for tool completion")
+	require.NoError(t, writer.Commit(ctx))
+	require.NoError(t, integrationdb.Await(t, migrated, "expansion after tool completion"))
+}
+
+func TestCustomToolExpansionAllowsPlanBeforeAgentLock(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 68))
+	writer := integrationdb.BeginTx(t, ctx, pool)
+	// Tool authorization plans read the call and interactions before apply takes
+	// the agent FOR UPDATE lock and mutates either child table.
+	_, err := writer.Exec(ctx, "SELECT count(*) FROM tool_call_read_projection; SELECT count(*) FROM agent_interactions")
+	require.NoError(t, err)
+	migrated := integrationdb.RunAsyncError(func() error {
+		return applyProductionPostgresMigrationsThrough(t, ctx, db, 70)
+	})
+	integrationdb.WaitForLockWaiters(t, ctx, pool, "ALTER TABLE agent_interactions", 1)
+	_, err = writer.Exec(ctx, `LOCK TABLE agents IN ROW SHARE MODE;
+LOCK TABLE tool_calls, agent_interactions IN ROW EXCLUSIVE MODE`)
+	require.NoError(t, err, "a planned tool must be able to acquire its mutation locks")
+	require.NoError(t, writer.Commit(ctx))
+	require.NoError(t, integrationdb.Await(t, migrated, "expansion after tool plan"))
+}
+
+func TestCustomToolProjectionMigrationsAllowReadAgentViewOrder(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 72))
+	reader := integrationdb.BeginTx(t, ctx, pool)
+	// read_agent reads events during planning, then its own tool call during
+	// completion, retaining the event-view lock until the transaction commits.
+	_, err := reader.Exec(ctx, "SELECT count(*) FROM agent_event_read_projection")
+	require.NoError(t, err)
+	migrated := integrationdb.RunAsyncError(func() error {
+		return applyProductionPostgresMigrationsThrough(t, ctx, db, 74)
+	})
+	integrationdb.WaitForLockWaiters(t, ctx, pool, "CREATE OR REPLACE VIEW agent_event_read_projection", 1)
+	_, err = reader.Exec(ctx, "SELECT count(*) FROM tool_call_read_projection")
+	require.NoError(t, err, "read_agent must finish while event-view replacement waits")
+	require.NoError(t, reader.Commit(ctx))
+	require.NoError(t, integrationdb.Await(t, migrated, "projection replacement after read_agent"))
+}
+
+func TestCustomToolMigrationsAllowInteractionReader(t *testing.T) {
+	t.Parallel()
+	for _, phase := range []struct {
+		name    string
+		version int64
+		waiter  string
+	}{
+		{"tool_expansion", 70, "ALTER TABLE tool_calls"},
+		{"finalization", 72, "LOCK TABLE"},
+		{"foreign_key_cleanup", 75, "LOCK TABLE"},
+	} {
+		t.Run(phase.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+			defer cancel()
+			pool := integrationdb.OpenUnmigratedPool(t, ctx)
+			db := stdlib.OpenDBFromPool(pool)
+			t.Cleanup(func() { _ = db.Close() })
+			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, phase.version-1))
+			blocker := integrationdb.BeginTx(t, ctx, pool)
+			_, err := blocker.Exec(ctx, "LOCK TABLE tool_calls IN ACCESS SHARE MODE")
+			require.NoError(t, err)
+			migrated := integrationdb.RunAsyncError(func() error {
+				return applyProductionPostgresMigrationsThrough(t, ctx, db, phase.version)
+			})
+			integrationdb.WaitForLockWaiters(t, ctx, pool, phase.waiter, 1)
+			// ListExecutionInteractions reads interactions before calls, then model
+			// outputs and contexts. Exercise that same relation acquisition order.
+			read := integrationdb.RunAsyncError(func() error {
+				_, err := pool.Exec(ctx, `SELECT i.id
+FROM agent_interactions i JOIN tool_calls c ON c.agent_id=i.agent_id AND c.id=i.tool_call_id
+JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
+JOIN model_call_contexts m ON m.agent_id=o.agent_id AND m.id=o.model_call_context_id
+WHERE i.agent_id=$1 AND i.state='open' AND m.turn_id=$2
+ORDER BY i.id /* custom_tool_interaction_reader */`, uuid.New(), uuid.New())
+				return err
+			})
+			integrationdb.WaitForLockWaiters(t, ctx, pool, "custom_tool_interaction_reader", 1)
+			require.NoError(t, blocker.Commit(ctx))
+			require.NoError(t, integrationdb.Await(t, read, "interaction reader overlapping migration"))
+			require.NoError(t, integrationdb.Await(t, migrated, "migration overlapping interaction reader"))
+		})
+	}
+}
+
+func TestCustomToolMigrationsAllowOverlappingViewReaders(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, toolCallInteractionProjectScopeMigration-1))
+
+	// Stop tool-call expansion after the interaction-table expansion has committed.
+	// Each reader then holds its view lock while waiting on underlying tables.
+	blocker := integrationdb.BeginTx(t, ctx, pool)
+	_, err := blocker.Exec(ctx, "LOCK TABLE tool_calls IN ACCESS SHARE MODE")
+	require.NoError(t, err)
+	migrated := integrationdb.RunAsyncError(func() error { return applyProductionPostgresMigrations(ctx, db) })
+	integrationdb.WaitForLockWaiters(t, ctx, pool, "ALTER TABLE tool_calls", 1)
+	readers := make([]<-chan error, 0, 2)
+	for _, view := range []string{"tool_call_read_projection", "agent_event_read_projection"} {
+		readers = append(readers, integrationdb.RunAsyncError(func() error {
+			var count int
+			return pool.QueryRow(ctx, "SELECT count(*) FROM "+view+" /* custom_tool_migration_reader */").Scan(&count)
+		}))
+	}
+	integrationdb.WaitForLockWaiters(t, ctx, pool, "custom_tool_migration_reader", len(readers))
+	var viewLocks int
+	require.NoError(t, pool.QueryRow(ctx, `
+SELECT count(*) FROM pg_locks
+WHERE granted AND mode = 'AccessShareLock'
+  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+  AND relation IN ('tool_call_read_projection'::regclass, 'agent_event_read_projection'::regclass)
+`).Scan(&viewLocks))
+	require.Equal(t, len(readers), viewLocks, "readers must hold the view locks that used to deadlock replacement")
+
+	require.NoError(t, blocker.Commit(ctx))
+	for _, reader := range readers {
+		require.NoError(t, integrationdb.Await(t, reader, "view reader overlapping migration"))
+	}
+	require.NoError(t, integrationdb.Await(t, migrated, "migration overlapping view readers"))
 }

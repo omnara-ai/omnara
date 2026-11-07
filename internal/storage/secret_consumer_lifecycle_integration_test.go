@@ -12,11 +12,30 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
+
+func TestProjectSecretDeletionRequiresItsExclusiveLifecycleGate(t *testing.T) {
+	t.Parallel()
+	f := newSecretConsumerFixture(t, "project")
+	_, err := f.createWebhook()
+	require.NoError(t, err)
+	ctx := t.Context()
+	unit, err := agentexecution.BeginTestUnit(ctx, agentexecution.NewCell(f.store.pool, nil, nil))
+	require.NoError(t, err)
+	defer func() { _ = unit.Rollback(ctx) }()
+	require.ErrorIs(t, unit.LockProjectSecretsForDeletion(ctx, testOrgID, testProjectID), agentexecution.ErrLockPlan)
+	require.NoError(t, unit.LockProjectDeletion(ctx, testOrgID, f.consumer.ID))
+	require.ErrorIs(t, unit.LockProjectSecretsForDeletion(ctx, testOrgID, testProjectID), agentexecution.ErrLockPlan,
+		"another project's gate cannot authorize excluding the secret owner's consumers")
+	require.NoError(t, unit.LockProjectDeletion(ctx, testOrgID, testProjectID))
+	require.ErrorIs(t, unit.LockProjectSecretsForDeletion(ctx, testOrgID, testProjectID), storeerr.ErrConflict,
+		"holding both gates must not exclude the other project's live consumer")
+}
 
 // Each owner-deletion entry point must preserve ciphertext while another project
 // can use it, but revoking that access must leave the owner free to delete it.

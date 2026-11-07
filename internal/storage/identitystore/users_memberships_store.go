@@ -660,7 +660,7 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 	if err != nil {
 		return fmt.Errorf("lock member secrets for deletion: %w", err)
 	}
-	if err := secretops.RequireUnreferenced(ctx, qtx, secretIDs, nil); err != nil {
+	if err := secretops.RequireUnreferenced(ctx, tx, secretIDs); err != nil {
 		return err
 	}
 	if _, err := qtx.RemoveUserOrgMembership(
@@ -961,7 +961,7 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("lock personal secrets for deletion: %w", err)
 	}
-	if err := secretops.RequireUnreferenced(ctx, q, secretIDs, nil); err != nil {
+	if err := secretops.RequireUnreferenced(ctx, tx, secretIDs); err != nil {
 		return err
 	}
 	if err := q.DeleteUserOrgMemberships(ctx, dbsqlc.DeleteUserOrgMembershipsParams{UserID: userID}); err != nil {

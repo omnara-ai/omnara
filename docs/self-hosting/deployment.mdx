@@ -31,6 +31,28 @@ do not use RDS Proxy or transaction-pooling PgBouncer. Long-running services
 may use a compatible proxy. See [database configuration](/self-hosting/configuration#database-and-redis)
 for connection-pool defaults.
 
+Schema upgrades are not guaranteed to be online. For migrations 69–76 (project-scoped
+tool recovery and grant/secret references), drain and stop the API, worker, and
+maintenance services before running the migrator, then start the new versions after it
+completes. Constraint validation and index creation block application work, and
+the column changes are incompatible with older writers. Rehearse the upgrade on
+a representative database to measure the required maintenance window.
+
+Take a database backup before upgrading. Reverting to the previous binaries
+requires restoring the pre-upgrade database.
+
+For Compose, stop the existing writers before starting the upgraded services:
+
+```sh
+docker compose -f compose.yaml --profile app stop api worker maintenance
+```
+
+With live traffic, migrations that change several related tables can abort with
+PostgreSQL `40P01` (deadlock) or `55P03` (lock timeout). Quiesce the traffic and rerun
+the migrator: the failed transaction rolls back, while previously committed
+migrations remain applied. The completed tool-call history backfill commits
+separately, so a later finalization failure does not repeat that rewrite.
+
 ## Memory storage
 
 Compose shares the persistent `memory-data` volume between API, worker, and maintenance at `/var/lib/omnara/memory`.

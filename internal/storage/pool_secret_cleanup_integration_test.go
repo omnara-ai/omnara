@@ -77,7 +77,7 @@ VALUES ($1, $2, $3, 'pool', 'Teardown Machine', 'test', 'deleting', statement_ti
 	secondAtCleanup := make(chan struct{}, 1)
 	config = f.store.pool.Config()
 	config.ConnConfig.Tracer = &integrationdb.QueryTrace{OnQuery: func(sql string) {
-		if strings.HasPrefix(sql, "-- name: LockResourceCreation ") {
+		if strings.HasPrefix(sql, "-- name: LockDeletedOrganizationSecretCleanup ") {
 			select {
 			case secondAtCleanup <- struct{}{}:
 			default:
@@ -96,7 +96,7 @@ VALUES ($1, $2, $3, 'pool', 'Teardown Machine', 'test', 'deleting', statement_ti
 	case <-secondAtCleanup:
 		// The cleanup lock must wait for the first commit before the second
 		// transaction obtains a fresh reference snapshot.
-		integrationdb.WaitForNamedLockWaiters(t, ctx, f.store.pool, "LockResourceCreation", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, f.store.pool, "LockDeletedOrganizationSecretCleanup", 1)
 	case secondErr = <-second:
 		// Without serialization both transactions can commit after observing
 		// the other's reference, permanently stranding the ciphertext.
