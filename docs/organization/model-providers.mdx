@@ -37,7 +37,7 @@ The dashboard guides you through this chain. The [CLI](/quickstart) and API expo
 
   <ModelProvidersCreate />
 
-  Presets are available for `openai`, `anthropic`, and `openrouter`. For a proxy, local vLLM server, or another compatible endpoint, set the API format, base URL, endpoint path, and authentication method yourself.
+  Presets are available for `openai`, `anthropic`, `openrouter`, and `openllm`. For a proxy, local vLLM server, or another compatible endpoint, set the API format, base URL, endpoint path, and authentication method yourself.
 
   Omnara fetches the provider's model catalog when it creates the provider, and on demand with `omnara model-providers catalog {model-provider-config-id}`, `GET …/model-provider-configs/{id}/model-catalog`, or `sdk.getModelCatalog`. The catalog probe can fail without failing the request, which allows private or air-gapped endpoints. Check `model_catalog.status`; you can configure models manually if needed.
 
@@ -66,6 +66,14 @@ Provider timeouts apply to each attempt, including reasoning and response stream
 Edit these settings in the provider dialog or through the API. Existing total deadlines are retained on upgrade.
 
 Use `headers` to send extra HTTP headers with every request to the provider, and `secret_headers` to take a header's value from a [secret](/organization/secrets); put keys and tokens in `secret_headers`. Set both in the provider dialog or through the API. If a referenced secret is deleted, requests omit that header.
+
+### OpenLLM
+
+[OpenLLM](https://www.openllm.sh) routes your API keys, subscription accounts, and local models through one endpoint. Pick **OpenLLM** in the provider dialog, or use `"preset": "openllm"` through the API. The preset uses OpenAI Chat Completions at `https://www.openllm.sh/v1` with bearer authentication.
+
+Create an API key (`sk-llm-…`) at [openllm.sh](https://www.openllm.sh) and store it as the provider's secret. Model slugs look like `<provider>/<model>`, and the aliases `ultra`, `plus`, and `lite` also work. See the [OpenLLM docs](https://docs.openllm.sh) for setup.
+
+The local OpenLLM daemon (`http://127.0.0.1:8787/v1`) is a loopback endpoint, so Omnara accepts it only when the API and worker run natively with `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1`. Private addresses such as `host.docker.internal` stay blocked, so containers can't reach a daemon on the host. Use the hosted endpoint for everything else.
 
 ## Configure models
 

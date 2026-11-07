@@ -10414,11 +10414,11 @@ components:
           $ref: '#/components/schemas/ResourceName'
         preset:
           description: >-
-            Built-in provider settings: openai, openrouter, or anthropic. A preset fills in api_format,
+            Built-in provider settings: openai, openrouter, openllm, or anthropic. A preset fills in api_format,
             api_variant, base_url, endpoint_path, auth_kind, and auth_options, so omit those when using
             one.
           type: string
-          enum: [openai, openrouter, anthropic]
+          enum: [openai, openrouter, openllm, anthropic]
         api_format:
           $ref: '#/components/schemas/ModelAPIFormat'
         api_variant:

@@ -1327,6 +1327,13 @@ func applyModelProviderPreset(
 		*endpointPath = modelstore.DefaultModelProviderEndpointPath(*apiFormat)
 		*authKind = modelstore.DefaultModelProviderAuthKind(*apiFormat)
 		*authOptions = modelstore.DefaultModelProviderAuthOptions(*apiFormat, *authKind)
+	case "openllm":
+		*apiFormat = modelprotocol.APIFormatOpenAIChatCompletions
+		*apiVariant = modelprotocol.APIVariantDefault
+		*baseURL = "https://www.openllm.sh/v1"
+		*endpointPath = modelstore.DefaultModelProviderEndpointPath(*apiFormat)
+		*authKind = modelstore.DefaultModelProviderAuthKind(*apiFormat)
+		*authOptions = modelstore.DefaultModelProviderAuthOptions(*apiFormat, *authKind)
 	case "anthropic":
 		*apiFormat = modelprotocol.APIFormatAnthropicMessages
 		*apiVariant = modelprotocol.APIVariantDefault
