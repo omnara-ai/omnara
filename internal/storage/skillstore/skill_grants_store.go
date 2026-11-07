@@ -130,6 +130,32 @@ func (s *Store) ListSkillGrants(ctx context.Context, input ListSkillGrantsInput)
 	return result, nil
 }
 
+func (s *Store) GetSkillGrant(ctx context.Context, input GetSkillGrantInput) (SkillGrantRecord, error) {
+	if input.OrgID == uuid.Nil || input.SkillID == uuid.Nil || input.GrantID == uuid.Nil || input.Actor.ID == uuid.Nil {
+		return SkillGrantRecord{}, invalidSkillRequest("org, skill, grant, and actor are required")
+	}
+	skill, err := s.getSkill(ctx, input.OrgID, input.SkillID)
+	if err != nil {
+		return SkillGrantRecord{}, err
+	}
+	if err := s.authorizeSkillManage(ctx, skill, input.Actor); err != nil {
+		if errors.Is(err, storeerr.ErrUnauthorized) {
+			return SkillGrantRecord{}, storeerr.ErrNotFound
+		}
+		return SkillGrantRecord{}, err
+	}
+	grant, err := s.q.GetSkillGrantForSourceSkill(ctx, dbsqlc.GetSkillGrantForSourceSkillParams{
+		OrgID: input.OrgID, SkillID: input.SkillID, ID: input.GrantID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SkillGrantRecord{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return SkillGrantRecord{}, fmt.Errorf("get skill grant: %w", err)
+	}
+	return skillGrantRecordFromSQLC(grant), nil
+}
+
 func (s *Store) DeleteSkillGrant(ctx context.Context, input DeleteSkillGrantInput) (SkillGrantRecord, error) {
 	if input.OrgID == uuid.Nil || input.SkillID == uuid.Nil || input.GrantID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return SkillGrantRecord{}, invalidSkillRequest("org, skill, grant, and actor are required")

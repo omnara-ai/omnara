@@ -14,6 +14,7 @@ import { Monitor } from '@/components/icons'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { machineStatusLabel } from '@/components/overview/machineFormat'
 import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
+import { ConnectMachineButton } from '@/components/projects/ConnectMachineButton'
 import { GrantMachineButton } from '@/components/projects/GrantMachineButton'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { usePagedQuery } from '@/hooks/use-paged-query'
@@ -102,6 +103,7 @@ function ProjectByoMachines({
           }
         >
           <GrantMachineButton />
+          <ConnectMachineButton />
         </SearchHeader>
         <DataTable
           columns={[

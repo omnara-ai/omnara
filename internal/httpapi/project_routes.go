@@ -68,6 +68,48 @@ func (s strictOpenAPIServer) CreateProject(
 	return s.createProject(ctx, org, request.Params, *request.Body)
 }
 
+func (s strictOpenAPIServer) GetProject(
+	ctx context.Context,
+	_ openapi.GetProjectRequestObject,
+) (openapi.GetProjectResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	response, err := projectResponse(scope.project)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.GetProject200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) UpdateProject(
+	ctx context.Context,
+	request openapi.UpdateProjectRequestObject,
+) (openapi.UpdateProjectResponseObject, error) {
+	if request.Body == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	org, err := orgScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	projectID, ok := parseOpenAPIPublicID(publicid.KindProject, request.ProjectID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	project, err := s.server.store.Identity().RenameProject(ctx, org.ID, projectID, request.Body.Name)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	logent.Project(ctx, project)
+	response, err := projectResponse(project)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.UpdateProject200JSONResponse(response), nil
+}
+
 func (s strictOpenAPIServer) DeleteProject(
 	ctx context.Context,
 	request openapi.DeleteProjectRequestObject,

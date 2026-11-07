@@ -12,6 +12,7 @@ import { type ReactNode, useId, useState } from 'react'
 
 import {
   AgentCard,
+  agentCardActionClass,
   agentCardLinkClass,
   AgentCardList,
   AgentCardStat,
@@ -247,7 +248,7 @@ function LaunchProfileButton({
       type="button"
       size="sm"
       variant="ghost"
-      className="text-primary hover:text-primary h-9 px-2 sm:h-7"
+      className={agentCardActionClass}
       disabled={disabled}
       loading={loading}
       onClick={() => {

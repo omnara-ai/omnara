@@ -791,6 +791,39 @@ func (s strictOpenAPIServer) ListSkillGrants(
 	return openapi.ListSkillGrants200JSONResponse{Data: data, NextCursor: nullableFromPtr(next)}, nil
 }
 
+func (s strictOpenAPIServer) GetSkillGrant(
+	ctx context.Context,
+	request openapi.GetSkillGrantRequestObject,
+) (openapi.GetSkillGrantResponseObject, error) {
+	org, err := orgScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	principal, principalErr := accountPrincipalFromContext(ctx)
+	if principalErr != nil {
+		return nil, *principalErr
+	}
+	skillID, ok := parseOpenAPIPublicID(publicid.KindSkill, request.SkillID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	grantID, ok := parseOpenAPIPublicID(publicid.KindSkillGrant, request.GrantID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	grant, err := s.server.skills.GetSkillGrant(ctx, skillstore.GetSkillGrantInput{
+		OrgID: org.ID, SkillID: skillID, GrantID: grantID, Actor: principal,
+	})
+	if err != nil {
+		return nil, skillAPIError(ctx, err)
+	}
+	response, err := skillGrantResponseFromRecord(grant)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.GetSkillGrant200JSONResponse(response), nil
+}
+
 func (s strictOpenAPIServer) DeleteSkillGrant(
 	ctx context.Context,
 	request openapi.DeleteSkillGrantRequestObject,

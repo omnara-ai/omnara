@@ -194,6 +194,13 @@ type CreateSecretGrantInput struct {
 	Actor           identitystore.PrincipalRecord
 }
 
+type GetSecretGrantForPrincipalInput struct {
+	OrgID    uuid.UUID
+	SecretID uuid.UUID
+	GrantID  uuid.UUID
+	Actor    identitystore.PrincipalRecord
+}
+
 type DeleteSecretGrantInput struct {
 	OrgID    uuid.UUID
 	SecretID uuid.UUID

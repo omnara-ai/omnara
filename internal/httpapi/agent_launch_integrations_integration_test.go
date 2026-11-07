@@ -459,8 +459,13 @@ func TestPublicSubscriptionOnlyLaunchPreservesConfigAndDetachedReplay(t *testing
 	require.Len(t, data, 1)
 	subscription := testutil.RequireType[map[string]any](t, data[0])
 	require.Equal(t, agent["id"], subscription["agent_id"])
-	requestJSONWithHeaders(t, f.handler, http.MethodDelete, path+"/"+testutil.RequireType[string](t, subscription["id"]),
+	subscriptionPath := path + "/" + testutil.RequireType[string](t, subscription["id"])
+	require.Equal(t, subscription, requestJSONWithHeaders(t, f.handler, http.MethodGet, subscriptionPath,
+		"", "", http.StatusOK, authHeaders(f.launchToken)))
+	requestJSONWithHeaders(t, f.handler, http.MethodDelete, subscriptionPath,
 		"", "", http.StatusNoContent, authHeaders(f.launchToken))
+	requestJSONWithHeaders(t, f.handler, http.MethodGet, subscriptionPath,
+		"", "", http.StatusNotFound, authHeaders(f.launchToken))
 	after = f.counts(t)
 	body["subscriptions"] = []any{
 		map[string]any{"integration_id": f.integrationID, "conversation": map[string]any{}},

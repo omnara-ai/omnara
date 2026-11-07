@@ -3023,6 +3023,10 @@ export const zCreateProjectRequest = z.object({
     name: zResourceName
 });
 
+export const zUpdateProjectRequest = z.object({
+    name: zResourceName
+});
+
 /**
  * Shared project fields composed into project response schemas. Composing schemas close their final shape with unevaluatedProperties.
  */
@@ -3857,6 +3861,17 @@ export const zDeleteEventWebhookPath = z.object({
  */
 export const zDeleteEventWebhookResponse = z.void();
 
+export const zGetEventWebhookPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    webhookID: zEventWebhookId
+});
+
+/**
+ * The event webhook.
+ */
+export const zGetEventWebhookResponse = zEventWebhook;
+
 export const zUpdateEventWebhookBody = zUpdateEventWebhookRequest;
 
 export const zUpdateEventWebhookPath = z.object({
@@ -4111,6 +4126,28 @@ export const zDeleteProjectPath = z.object({
  * Project deleted.
  */
 export const zDeleteProjectResponse = z.void();
+
+export const zGetProjectPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+});
+
+/**
+ * The project.
+ */
+export const zGetProjectResponse = zProject;
+
+export const zUpdateProjectBody = zUpdateProjectRequest;
+
+export const zUpdateProjectPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+});
+
+/**
+ * The updated project.
+ */
+export const zUpdateProjectResponse = zProject;
 
 export const zGetProjectUsagePath = z.object({
     orgID: zOrganizationId,
@@ -4430,6 +4467,17 @@ export const zDeleteSkillGrantPath = z.object({
  */
 export const zDeleteSkillGrantResponse = z.void();
 
+export const zGetSkillGrantPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    skillID: zSkillId,
+    grantID: zSkillGrantId
+});
+
+/**
+ * The skill grant.
+ */
+export const zGetSkillGrantResponse = zSkillGrant;
+
 export const zListProjectAvailableSkillsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
     projectID: zProjectId
@@ -4727,6 +4775,17 @@ export const zDeleteSecretGrantPath = z.object({
  * Secret grant deleted.
  */
 export const zDeleteSecretGrantResponse = z.void();
+
+export const zGetSecretGrantPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    secretID: z.string().regex(/^sec_[a-z2-7]{26}$/),
+    grantID: z.string().regex(/^sgr_[a-z2-7]{26}$/)
+});
+
+/**
+ * The secret grant.
+ */
+export const zGetSecretGrantResponse = zSecretGrant;
 
 export const zResolveAgentConfigToolsBody = zResolveAgentConfigToolsRequest;
 
@@ -5449,6 +5508,17 @@ export const zDeleteProjectMachineGrantPath = z.object({
  */
 export const zDeleteProjectMachineGrantResponse = z.void();
 
+export const zGetProjectMachineGrantPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    grantID: z.string().regex(/^pmg_[a-z2-7]{26}$/)
+});
+
+/**
+ * The machine grant and its machine.
+ */
+export const zGetProjectMachineGrantResponse = zCreateProjectMachineGrantResponse;
+
 export const zListProjectAvailableSecretsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
     projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
@@ -5709,6 +5779,17 @@ export const zDeleteConfiguredModelPath = z.object({
  */
 export const zDeleteConfiguredModelResponse = z.void();
 
+export const zGetConfiguredModelPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    modelProviderConfigID: z.string().regex(/^mpc_[a-z2-7]{26}$/),
+    configuredModelID: z.string().regex(/^mdl_[a-z2-7]{26}$/)
+});
+
+/**
+ * The configured model.
+ */
+export const zGetConfiguredModelResponse = zConfiguredModel;
+
 export const zUpdateConfiguredModelBody = zUpdateConfiguredModelRequest;
 
 export const zUpdateConfiguredModelPath = z.object({
@@ -5761,6 +5842,17 @@ export const zDeleteProjectModelGrantPath = z.object({
  * Project model grant deleted.
  */
 export const zDeleteProjectModelGrantResponse = z.void();
+
+export const zGetProjectModelGrantPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    modelGrantID: z.string().regex(/^pmog_[a-z2-7]{26}$/)
+});
+
+/**
+ * The model grant.
+ */
+export const zGetProjectModelGrantResponse = zProjectModelGrantEnvelope;
 
 export const zUpdateProjectModelGrantBody = zUpdateProjectModelGrantRequest;
 
@@ -6150,6 +6242,18 @@ export const zDeleteIntegrationSubscriptionPath = z.object({
  * Subscription removed or already absent.
  */
 export const zDeleteIntegrationSubscriptionResponse = z.void();
+
+export const zGetIntegrationSubscriptionPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    integrationID: zIntegrationId,
+    subscriptionID: zIntegrationSubscriptionId
+});
+
+/**
+ * The subscription.
+ */
+export const zGetIntegrationSubscriptionResponse = zIntegrationSubscription;
 
 export const zConfigureIntegrationBody = zConfigureIntegrationRequest;
 

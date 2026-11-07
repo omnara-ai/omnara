@@ -736,6 +736,22 @@ model:
 	if renamedCompiledModel["name"] != "gpt-renamed" || renamedCompiledModel["configured_model_id"] != configuredModelID {
 		t.Fatalf("renamed configured model projection mismatch: %+v", renamedCompiledModel)
 	}
+	configuredModelPath := "/api/v1/orgs/" + project.OrgID + "/model-provider-configs/" + providerConfigID + "/models/"
+	fetchedConfiguredModel := requestJSONWithHeaders(
+		t, handler, http.MethodGet, configuredModelPath+configuredModelID, "", "", http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if fetchedConfiguredModel["id"] != configuredModelID || fetchedConfiguredModel["name"] != "gpt-renamed" {
+		t.Fatalf("get configured model mismatch: %+v", fetchedConfiguredModel)
+	}
+	fetchedGrant := requestJSONWithHeaders(
+		t, handler, http.MethodGet, project.ProjectPath+"/model-grants/"+testutil.RequireType[string](t, grant["id"]),
+		"", "", http.StatusOK, authHeaders(project.AdminToken),
+	)
+	fetchedGrantBody := testutil.RequireType[map[string]any](t, fetchedGrant["grant"])
+	if fetchedGrantBody["id"] != grant["id"] || fetchedGrantBody["configured_model_id"] != configuredModelID {
+		t.Fatalf("get project model grant mismatch: %+v", fetchedGrant)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -745,6 +761,10 @@ model:
 		"",
 		http.StatusNoContent,
 		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t, handler, http.MethodGet, configuredModelPath+testutil.RequireType[string](t, ungrantedConfiguredModel["id"]),
+		"", "", http.StatusNotFound, authHeaders(project.AdminToken),
 	)
 	requestJSONWithHeaders(
 		t,
@@ -776,6 +796,10 @@ model:
 		"",
 		http.StatusNoContent,
 		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t, handler, http.MethodGet, project.ProjectPath+"/model-grants/"+testutil.RequireType[string](t, grant["id"]),
+		"", "", http.StatusNotFound, authHeaders(project.AdminToken),
 	)
 	requestJSONWithHeaders(
 		t,

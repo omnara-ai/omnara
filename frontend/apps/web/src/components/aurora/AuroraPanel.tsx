@@ -4,8 +4,17 @@ import { useAuroraSpecular } from '@/components/aurora/auroraStore'
 import { cn } from '@/lib/utils'
 
 /** A translucent card whose border lights up from the nearest aurora backdrop. */
-export function AuroraPanel({ className, children }: { className?: string; children: ReactNode }) {
-  const ringRef = useAuroraSpecular()
+export function AuroraPanel({
+  className,
+  source,
+  children,
+}: {
+  className?: string
+  /** Aurora channel whose backdrop lights the border (see auroraStore.ts). */
+  source?: string
+  children: ReactNode
+}) {
+  const ringRef = useAuroraSpecular(source)
   return (
     <div
       className={cn(

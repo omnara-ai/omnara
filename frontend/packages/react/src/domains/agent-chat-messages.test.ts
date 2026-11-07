@@ -642,9 +642,9 @@ describe('agentEventsToMessages', () => {
           toolCallId: 'call',
           state: 'output-available',
           output: {
-            outcome: 'denied',
             contentBlocks: [{ type: 'structured_data', value: { reason: 'tool call was denied' } }],
           },
+          toolOutcome: 'denied',
         },
         { type: 'step-start' },
         { type: 'text', text: 'Done' },

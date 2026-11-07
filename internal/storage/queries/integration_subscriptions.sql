@@ -14,6 +14,20 @@ SELECT id, project_id, agent_id, integration_id, scope_kind, scope_ref, created_
 FROM integration_subscriptions
 WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id) AND id = sqlc.arg(id);
 
+-- name: GetIntegrationSubscriptionDisplay :one
+SELECT subscription.id, subscription.project_id, subscription.agent_id, subscription.integration_id,
+       subscription.scope_kind, subscription.scope_ref,
+       subscription.created_at, agent.name AS agent_name,
+       COALESCE(target.display_name, '') AS conversation_name
+FROM integration_subscriptions subscription
+JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
+LEFT JOIN integration_targets target ON target.project_id = subscription.project_id
+  AND target.integration_id = subscription.integration_id AND target.agent_id = subscription.agent_id
+  AND target.scope_kind = subscription.scope_kind AND target.scope_ref = subscription.scope_ref
+  AND target.deleted_at IS NULL
+WHERE subscription.project_id = sqlc.arg(project_id) AND subscription.integration_id = sqlc.arg(integration_id)
+  AND subscription.id = sqlc.arg(id);
+
 -- name: ListIntegrationSubscriptions :many
 SELECT subscription.id, subscription.project_id, subscription.agent_id, subscription.integration_id,
        subscription.scope_kind, subscription.scope_ref,

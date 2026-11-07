@@ -1,12 +1,15 @@
 import { useAgentProfiles } from '@omnara/react'
 import { useState } from 'react'
 
+import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import {
   type BasicSubagent,
   newSubagent,
   subagentKeyError,
+  subagentModelSelection,
   type SubagentType,
+  withSubagentModel,
 } from '@/components/agents/agentConfigSubagents'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { ChevronRightIcon, PlusIcon, Trash2Icon } from '@/components/icons'
@@ -40,6 +43,7 @@ export function AgentConfigSubagentsField({
   orgId,
   projectId,
   subagents,
+  parentReasoningEffort,
   maxSubagents,
   maxDepth,
   onSubagentsChange,
@@ -49,6 +53,8 @@ export function AgentConfigSubagentsField({
   orgId: string
   projectId: string
   subagents: BasicSubagent[]
+  /** The agent's explicit reasoning effort, which clones keep unless they set their own. */
+  parentReasoningEffort: string
   maxSubagents: string
   maxDepth: string
   onSubagentsChange: (subagents: BasicSubagent[]) => void
@@ -104,6 +110,7 @@ export function AgentConfigSubagentsField({
                 orgId={orgId}
                 projectId={projectId}
                 subagent={subagent}
+                parentReasoningEffort={parentReasoningEffort}
                 expanded={expandedIds.has(subagent.id)}
                 onExpandedChange={(expanded) => {
                   setExpanded(subagent.id, expanded)
@@ -163,6 +170,7 @@ function SubagentFields({
   orgId,
   projectId,
   subagent,
+  parentReasoningEffort,
   expanded,
   onExpandedChange,
   nameError,
@@ -172,6 +180,7 @@ function SubagentFields({
   orgId: string
   projectId: string
   subagent: BasicSubagent
+  parentReasoningEffort: string
   expanded: boolean
   onExpandedChange: (expanded: boolean) => void
   nameError: string | undefined
@@ -204,6 +213,8 @@ function SubagentFields({
         <PillTabs
           value={subagent.type}
           onValueChange={(type) => {
+            // Both types accept a model override, so it carries over; profile subagents show
+            // the notice below instead of the picker.
             edit({ type })
           }}
           tabs={subagentTypeOptions}
@@ -297,10 +308,24 @@ function SubagentFields({
               />
             </Field>
           </div>
-          {subagent.modelOverride !== undefined && (
-            <p className="text-muted-foreground text-xs">
-              This subagent overrides the model in YAML; edit that in the YAML view.
-            </p>
+          {subagent.type === 'self' ? (
+            <AgentConfigModelField
+              orgId={orgId}
+              projectId={projectId}
+              id={fieldId('model')}
+              inheritLabel="Same as this agent"
+              inheritedReasoningEffort={parentReasoningEffort}
+              value={subagentModelSelection(subagent.modelOverride)}
+              onChange={(selection) => {
+                onChange({ modelOverride: withSubagentModel(subagent.modelOverride, selection) })
+              }}
+            />
+          ) : (
+            subagent.modelOverride !== undefined && (
+              <p className="text-muted-foreground text-xs">
+                This subagent overrides its profile’s model; edit or remove that in the YAML view.
+              </p>
+            )
           )}
         </div>
       </CollapseBody>

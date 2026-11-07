@@ -152,6 +152,27 @@ func (s *Store) GetSecretGrantForTargetProject(
 	return secretGrantFromGet(row), nil
 }
 
+func (s *Store) GetSecretGrantForPrincipal(
+	ctx context.Context,
+	input GetSecretGrantForPrincipalInput,
+) (SecretGrantRecord, error) {
+	if input.OrgID == uuid.Nil || input.SecretID == uuid.Nil || input.GrantID == uuid.Nil ||
+		input.Actor.ID == uuid.Nil {
+		return SecretGrantRecord{}, invalidSecretRequest("org, secret, grant, and actor are required")
+	}
+	secret, err := s.GetSecret(ctx, input.OrgID, input.SecretID)
+	if err != nil {
+		return SecretGrantRecord{}, err
+	}
+	if err := s.authorizeSecretManage(ctx, secret, input.Actor); err != nil {
+		if errors.Is(err, storeerr.ErrUnauthorized) {
+			return SecretGrantRecord{}, storeerr.ErrNotFound
+		}
+		return SecretGrantRecord{}, err
+	}
+	return s.GetSecretGrantForSourceSecret(ctx, input.OrgID, input.SecretID, input.GrantID)
+}
+
 func (s *Store) ListSecretGrants(ctx context.Context, input ListSecretGrantsInput) (ListSecretGrantsResult, error) {
 	if input.OrgID == uuid.Nil || input.SecretID == uuid.Nil || input.Actor.ID == uuid.Nil {
 		return ListSecretGrantsResult{}, invalidSecretRequest("org, secret, and actor are required")

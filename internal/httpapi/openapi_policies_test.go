@@ -32,13 +32,15 @@ func TestOpenAPIOperationPoliciesCoverEveryGeneratedOperation(t *testing.T) {
 	}
 }
 
-func TestDeleteProjectRequiresOrganizationManage(t *testing.T) {
-	policy := openAPIOperationPolicies[operationDeleteProject]
-	if policy.principal != principalKindAccount {
-		t.Fatalf("delete project principal = %v, want account", policy.principal)
-	}
-	if policy.scope.kind != scopeKindOrg || policy.scope.action != identitystore.OrgActionManage {
-		t.Fatalf("delete project scope = %+v, want organization manage", policy.scope)
+func TestProjectDeleteAndRenameRequireOrganizationManage(t *testing.T) {
+	for _, operation := range []operationID{operationDeleteProject, operationUpdateProject} {
+		policy := openAPIOperationPolicies[operation]
+		if policy.principal != principalKindAccount {
+			t.Fatalf("%s principal = %v, want account", operation, policy.principal)
+		}
+		if policy.scope.kind != scopeKindOrg || policy.scope.action != identitystore.OrgActionManage {
+			t.Fatalf("%s scope = %+v, want organization manage", operation, policy.scope)
+		}
 	}
 }
 
@@ -181,6 +183,8 @@ func TestProjectGrantReadsRequireOnlyProjectRead(t *testing.T) {
 		operationListProjectMachineGrants,
 		operationListProjectMachinePoolGrants,
 		operationGetProjectMachinePoolGrant,
+		operationGetProjectModelGrant,
+		operationGetProjectMachineGrant,
 	} {
 		policy := openAPIOperationPolicies[operation]
 		if policy.principal != principalKindAccount {
