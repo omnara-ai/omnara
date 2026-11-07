@@ -27,10 +27,12 @@ function nodeSource(source: string, path: (string | number)[]) {
   return source.slice(node.range[0], node.range[2])
 }
 
-it.each(['tools: {web_search: {}}\n', 'tools: {}\n'])(
+it.each(['tools: {web_search: {}}\n', 'tools:\n  web_search: {}\n', 'tools: {}\n'])(
   'applies managed removals, raw additions, then managed additions: %s',
   (tools) => {
-    const { session, draft } = draftFor(header + tools)
+    const { session, draft } = draftFor(
+      header + '# Keep tools here.\n' + tools + '# Keep skills here.\nskills: []\n',
+    )
     const result = session.evaluate({
       ...draft,
       tools: [{ name: 'web_fetch', permission: null }],
@@ -47,6 +49,8 @@ it.each(['tools: {web_search: {}}\n', 'tools: {}\n'])(
       web_fetch: { type: 'built_in' },
       example: { type: 'custom', description: 'Example.', input_schema: { type: 'object' } },
     })
+    expect(result.yaml).toContain(header + '# Keep tools here.\ntools:\n')
+    expect(result.yaml.endsWith('# Keep skills here.\nskills: []\n')).toBe(true)
   },
 )
 
@@ -73,15 +77,18 @@ it.each([
 })
 
 describe('document ownership', () => {
-  it('removes the first inline entry without adding whitespace or moving the next comment', () => {
-    const source = `${header}tools: {\n  web_search: {},\n  # Keep this tool comment.\n  web_fetch: {}\n}\n`
+  it.each([
+    'tools: {\n  web_search: {},\n  # Keep this tool comment.\n  web_fetch: {}\n}\n',
+    'tools: {web_search: {}, # Keep this tool comment.\n  web_fetch: {}}\n',
+  ])('preserves the next inline entry and its comment when deleting the first: %s', (tools) => {
+    const source = header + tools
     const { session, draft } = draftFor(source)
     const result = session.evaluate({
       ...draft,
       tools: draft.tools.filter((tool) => tool.name !== 'web_search'),
     })
     expect(result.issues).toEqual([])
-    expect(result.yaml).toBe(source.replace('  web_search: {},\n', ''))
+    expect(result.yaml).toBe(source.replace(/ *web_search: \{\},\n?/, ''))
   })
 
   it('keeps rename identity distinct from a new tool reusing its original name', () => {
