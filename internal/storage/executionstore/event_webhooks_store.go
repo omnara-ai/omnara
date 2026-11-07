@@ -163,15 +163,15 @@ func (s *Store) CreateEventWebhook(ctx context.Context, input CreateEventWebhook
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return EventWebhookRecord{}, err
 	}
-	if err := validateEventWebhookScopeTx(ctx, tx, input.ProjectID, input.Scope); err != nil {
-		return EventWebhookRecord{}, err
-	}
 	if err := lockResourceCreation(ctx, q, "event_webhooks",
 		fmt.Sprintf("%s/%s/%s", input.ProjectID, input.Scope.Type, input.Scope.ID)); err != nil {
 		return EventWebhookRecord{}, err
 	}
 	settings, err := s.validateEventWebhookSettingsTx(ctx, tx, project.OrgID, input.ProjectID, input.Settings)
 	if err != nil {
+		return EventWebhookRecord{}, err
+	}
+	if err := validateEventWebhookScopeTx(ctx, tx, input.ProjectID, input.Scope); err != nil {
 		return EventWebhookRecord{}, err
 	}
 	params := eventWebhookListParams(input.ProjectID, input.Scope)
@@ -270,11 +270,14 @@ func (s *Store) UpdateEventWebhook(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, record.OrgID, input.ProjectID); err != nil {
 		return EventWebhookRecord{}, err
 	}
-	if err := validateEventWebhookScopeTx(ctx, tx, input.ProjectID, record.Scope); err != nil {
+	q := dbsqlc.New(tx)
+	// Serialize partial updates before reading settings, without holding a
+	// webhook/profile row while waiting for the secret. Profile teardown locks
+	// the profile before its webhook rows.
+	if err := lockResourceCreation(ctx, q, "event_webhook_mutation", input.WebhookID.String()); err != nil {
 		return EventWebhookRecord{}, err
 	}
-	q := dbsqlc.New(tx)
-	current, err := q.GetEventWebhookForUpdate(ctx, dbsqlc.GetEventWebhookForUpdateParams{
+	current, err := q.GetEventWebhook(ctx, dbsqlc.GetEventWebhookParams{
 		ProjectID: input.ProjectID, ID: input.WebhookID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -295,6 +298,9 @@ func (s *Store) UpdateEventWebhook(
 	}
 	settings, err = s.validateEventWebhookSettingsTx(ctx, tx, record.OrgID, input.ProjectID, settings)
 	if err != nil {
+		return EventWebhookRecord{}, err
+	}
+	if err := validateEventWebhookScopeTx(ctx, tx, input.ProjectID, record.Scope); err != nil {
 		return EventWebhookRecord{}, err
 	}
 	row, err := q.UpdateEventWebhook(ctx, dbsqlc.UpdateEventWebhookParams{

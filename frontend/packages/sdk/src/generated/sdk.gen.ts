@@ -2512,7 +2512,7 @@ export const getToolCall = <ThrowOnError extends boolean = true>(options: Option
 /**
  * Submit a result for a ready custom tool call
  *
- * Only ready custom tool calls accept externally supplied results. The first accepted result completes the call. A later submission returns 409 with code tool_call_already_completed; a result for a call that isn't ready, or for a non-custom tool call, returns 409.
+ * Only ready custom tool calls accept externally supplied results. The first accepted result completes the call. A later submission returns 409 with code tool_call_already_completed; a result for a call that isn't ready, or for a non-custom tool call, returns 409. If the first response is lost, a safe retry can return tool_call_already_completed even when the original submission succeeded. This confirms that the call is terminal, not which submission completed it.
  */
 export const submitToolCallResult = <ThrowOnError extends boolean = true>(options: Options<SubmitToolCallResultData, ThrowOnError>): RequestResult<SubmitToolCallResultResponses, SubmitToolCallResultErrors, ThrowOnError> => (options.client ?? client).post<SubmitToolCallResultResponses, SubmitToolCallResultErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zSubmitToolCallResultResponse2),
@@ -2906,7 +2906,7 @@ export const listProjectMachineGrants = <ThrowOnError extends boolean = true>(op
 /**
  * Create project machine grant
  *
- * Lets a project's agent configs use one BYO machine by name and returns the grant with the machine's record. Pooled machines can't be granted this way and return 404.
+ * Lets a project's agent configs use one BYO machine by name and returns the grant with the machine's record. Pooled machines can't be granted this way and return 404. Replaying the original create with the same Idempotency-Key returns the current grant. The key remains consumed after revocation or resource cleanup: replay returns 409 idempotency_key_conflict and never restores access. Intentional re-granting needs a new key.
  */
 export const createProjectMachineGrant = <ThrowOnError extends boolean = true>(options: Options<CreateProjectMachineGrantData, ThrowOnError>): RequestResult<CreateProjectMachineGrantResponses, CreateProjectMachineGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectMachineGrantResponses, CreateProjectMachineGrantErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateProjectMachineGrantResponse2),
@@ -3774,7 +3774,7 @@ export const listProjectMachinePoolGrants = <ThrowOnError extends boolean = true
 /**
  * Create project machine pool grant
  *
- * Lets a project create machines from a machine pool, optionally with its own defaults and usage caps within the pool's limits, and returns the grant. No machines are created by this call.
+ * Lets a project create machines from a machine pool, optionally with its own defaults and usage caps within the pool's limits, and returns the grant. No machines are created by this call. Replaying the original create with the same Idempotency-Key returns the current grant, including later updates. The key remains consumed after revocation or resource cleanup: replay returns 409 idempotency_key_conflict and never restores access. Intentional re-granting needs a new key.
  */
 export const createProjectMachinePoolGrant = <ThrowOnError extends boolean = true>(options: Options<CreateProjectMachinePoolGrantData, ThrowOnError>): RequestResult<CreateProjectMachinePoolGrantResponses, CreateProjectMachinePoolGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectMachinePoolGrantResponses, CreateProjectMachinePoolGrantErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateProjectMachinePoolGrantResponse),

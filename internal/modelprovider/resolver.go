@@ -322,7 +322,8 @@ func ProviderHeaders(
 			Kind:           secrets.KindGeneric,
 		})
 		if storeerr.IsNotFound(err) {
-			continue
+			return nil, resolverError(model.ErrorKindInvalidRequest, "model_provider_header_secret_unavailable",
+				"A configured provider header secret is unavailable; restore it or update the provider configuration.", err)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("read secret for header %s: %w", name, err)

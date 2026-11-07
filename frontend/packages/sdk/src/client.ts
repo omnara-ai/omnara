@@ -2,10 +2,12 @@ import * as z from 'zod'
 
 import type { AuthStrategy } from './auth'
 import { ApiError } from './errors'
-import type { Client as OmnaraClient } from './generated/client'
+import type { Client as OmnaraClient, Config } from './generated/client'
 import { createClient, createConfig, formDataBodySerializer } from './generated/client'
 import { client as specDefaultClient } from './generated/client.gen'
 import type { BodySerializer } from './generated/core/bodySerializer.gen'
+import { normalizeHeaders, requestWithPolicy, validateClientRequestPolicy } from './request-policy'
+import type { RequestPolicyOptions } from './request-policy-options'
 
 export type {
   Client as OmnaraClient,
@@ -13,11 +15,11 @@ export type {
   ClientOptions as OmnaraClientConfigOptions,
 } from './generated/client'
 
-export interface OmnaraClientOptions {
+export interface OmnaraClientOptions extends RequestPolicyOptions {
   baseUrl?: string
   credentials?: RequestCredentials
   auth?: AuthStrategy
-  headers?: Record<string, string>
+  headers?: Config['headers']
   fetch?: typeof fetch
 }
 
@@ -67,22 +69,40 @@ function normalizeRequestOptions<O extends object>(options: O): O {
   return normalized
 }
 
-// Drop the reserved Request init key until https://github.com/hey-api/hey-api/issues/4177
-// is fixed upstream. Generated operations can bypass createOmnaraClient via the default client.
-function patchGeneratedRequests(client: OmnaraClient): void {
+// Generated HTTP methods close over request(), so install policy on each entry
+// point. Retry defaults and API-error mapping belong to each client's setup.
+// Normalization also drops the reserved Request init key until hey-api#4177 is fixed.
+function configureRequests(client: OmnaraClient): void {
+  const { setConfig } = client
+  client.setConfig = (config) => {
+    validateClientRequestPolicy(config)
+    return setConfig({ ...config, headers: normalizeHeaders(config.headers) })
+  }
   const { request } = client
-  client.request = (options) => request(normalizeRequestOptions(options))
+  client.request = (options) =>
+    requestWithPolicy(client.getConfig(), normalizeRequestOptions(options), (overrides) =>
+      request(normalizeRequestOptions({ ...options, ...overrides })),
+    )
   for (const method of httpMethods) {
     const dispatch = client[method]
-    client[method] = (options) => dispatch(normalizeRequestOptions(options))
+    // SAFETY: every entry is a generated HTTP method; casing preserves that union.
+    const requestMethod = method.toUpperCase() as Uppercase<HttpMethod>
+    client[method] = (options) =>
+      requestWithPolicy(
+        client.getConfig(),
+        normalizeRequestOptions({ ...options, method: requestMethod }),
+        (overrides) => dispatch(normalizeRequestOptions({ ...options, ...overrides })),
+      )
     const sseDispatch = client.sse[method]
     client.sse[method] = (options) => sseDispatch(normalizeRequestOptions(options))
   }
 }
 
-patchGeneratedRequests(specDefaultClient)
+specDefaultClient.setConfig({ maxRetries: 0, timeoutMs: 0 })
+configureRequests(specDefaultClient)
 
 export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraClient {
+  validateClientRequestPolicy(options)
   const client = createClient(
     createConfig({
       throwOnError: true,
@@ -91,8 +111,11 @@ export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraCli
   client.setConfig({
     baseUrl: options.baseUrl ?? specDefaultClient.getConfig().baseUrl,
     credentials: options.credentials,
-    headers: options.headers,
+    headers: normalizeHeaders(options.headers),
     fetch: options.fetch,
+    maxRetries: options.maxRetries,
+    timeoutMs: options.timeoutMs,
+    onRequestComplete: options.onRequestComplete,
   })
   const { auth } = options
   if (auth) {
@@ -105,6 +128,6 @@ export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraCli
     if (!response.ok) throw await ApiError.fromResponse(response)
     return response
   })
-  patchGeneratedRequests(client)
+  configureRequests(client)
   return client
 }

@@ -650,9 +650,6 @@ func TestCreateOrgForUserCreatesDefaultMachinePool(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get default project machine pool grant for %q: %v", defaultPool.Name, err)
 		}
-		if grant.IdempotencyKey != "" {
-			t.Fatalf("unexpected default project machine pool grant: %+v", grant)
-		}
 		assertDecodedJSONEqual(t, grant.Metadata, `{}`)
 	}
 	createdProject, err := store.Identity().CreateProjectForPrincipal(
@@ -7013,7 +7010,7 @@ func TestMemberRemovalFencesUserOwnedSecretAndSkillCreation(t *testing.T) {
 	}
 }
 
-func TestUserTeardownLocksMembershipsBeforeOwnedResources(t *testing.T) {
+func TestUserTeardownEarlySecretLockAllowsProjectDeletion(t *testing.T) {
 	t.Parallel()
 	for _, deleteAccount := range []bool{false, true} {
 		name := "remove member"
@@ -7065,9 +7062,9 @@ func TestUserTeardownLocksMembershipsBeforeOwnedResources(t *testing.T) {
 			}
 
 			var teardownDone <-chan error
-			waitQuery := "DeleteUserOwnedSecretsForOrgMember"
+			waitQuery := "LockOrgMemberOwnedSecretsForDeletion"
 			if deleteAccount {
-				waitQuery = "DeleteUserOwnedSecretsForUser"
+				waitQuery = "LockUserOwnedSecretsForDeletion"
 				teardownDone = integrationdb.RunAsyncError(func() error {
 					return store.Identity().DeleteUserAccount(context.Background(), member.ID)
 				})
@@ -7094,17 +7091,16 @@ func TestUserTeardownLocksMembershipsBeforeOwnedResources(t *testing.T) {
 				)
 				return deleteErr
 			})
-			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteProjectMemberships", 1)
+			// The early secret gate precedes membership deletion and its project
+			// cascades, so unrelated project teardown can finish while it waits.
+			if err := integrationdb.Await(t, projectDone, "delete project before releasing secret"); err != nil {
+				t.Fatalf("delete project: %v", err)
+			}
 			if err := controlTx.Commit(ctx); err != nil {
 				t.Fatalf("release teardown order control transaction: %v", err)
 			}
-			for operation, done := range map[string]<-chan error{
-				name:             teardownDone,
-				"delete project": projectDone,
-			} {
-				if err := integrationdb.Await(t, done, operation); err != nil {
-					t.Fatalf("%s: %v", operation, err)
-				}
+			if err := integrationdb.Await(t, teardownDone, name); err != nil {
+				t.Fatalf("%s: %v", name, err)
 			}
 		})
 	}

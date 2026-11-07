@@ -912,6 +912,64 @@ func (q *Queries) ListProjectAvailableSecrets(ctx context.Context, arg ListProje
 	return items, nil
 }
 
+const listReferencedSecretIDs = `-- name: ListReferencedSecretIDs :many
+SELECT secret.id FROM secrets secret
+  WHERE secret.id = ANY($1::uuid[])
+    AND (
+      EXISTS (SELECT 1 FROM model_provider_configs config
+        WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM model_provider_header_secrets header
+        WHERE header.org_id = secret.org_id AND header.secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM machine_pools pool
+        WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration
+        WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id
+          AND NOT (integration.project_id = ANY(coalesce($2::uuid[], '{}'::uuid[])))
+          AND (secret.owner_project_id = integration.project_id OR EXISTS (
+            SELECT 1 FROM secret_grants grant_row
+            WHERE grant_row.org_id = secret.org_id AND grant_row.secret_id = secret.id
+              AND grant_row.target_project_id = integration.project_id)))
+      OR EXISTS (SELECT 1 FROM event_webhooks webhook
+        WHERE webhook.org_id = secret.org_id AND webhook.signing_secret_id = secret.id
+          AND NOT (webhook.project_id = ANY(coalesce($2::uuid[], '{}'::uuid[])))
+          AND (secret.owner_project_id = webhook.project_id OR EXISTS (
+            SELECT 1 FROM secret_grants grant_row
+            WHERE grant_row.org_id = secret.org_id AND grant_row.secret_id = secret.id
+              AND grant_row.target_project_id = webhook.project_id)))
+    )
+ORDER BY secret.id
+`
+
+type ListReferencedSecretIDsParams struct {
+	SecretIds          []uuid.UUID
+	ExcludedProjectIds []uuid.UUID
+}
+
+// @sqlc-vet-disable secrets-deleted-at model-provider-configs-deleted-at integrations-deleted-at machine-pools-deleted-at
+// Deleted consumers release their references. Project consumers count only while
+// they still own or have a grant to the secret; revocation never traps the owner.
+// Deleted organization cleanup also checks tombstoned secrets retained for provider teardown.
+// Normal deletion callers lock candidates first and then use this fresh READ COMMITTED snapshot.
+func (q *Queries) ListReferencedSecretIDs(ctx context.Context, arg ListReferencedSecretIDsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listReferencedSecretIDs, arg.SecretIds, arg.ExcludedProjectIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSecretGrantsBySecret = `-- name: ListSecretGrantsBySecret :many
 WITH listed AS (
  SELECT g.id, g.org_id, g.secret_id, g.target_project_id, g.created_at,
@@ -1223,6 +1281,98 @@ func (q *Queries) ListVisibleOwnedSecrets(ctx context.Context, arg ListVisibleOw
 	return items, nil
 }
 
+const lockOrgMemberOwnedSecretsForDeletion = `-- name: LockOrgMemberOwnedSecretsForDeletion :many
+SELECT id FROM secrets
+WHERE org_id = $1 AND owner_user_id = $2::uuid AND deleted_at IS NULL
+ORDER BY id FOR UPDATE
+`
+
+type LockOrgMemberOwnedSecretsForDeletionParams struct {
+	OrgID  uuid.UUID
+	UserID uuid.UUID
+}
+
+func (q *Queries) LockOrgMemberOwnedSecretsForDeletion(ctx context.Context, arg LockOrgMemberOwnedSecretsForDeletionParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockOrgMemberOwnedSecretsForDeletion, arg.OrgID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockOrganizationSecretsForDeletion = `-- name: LockOrganizationSecretsForDeletion :many
+SELECT id FROM secrets
+WHERE org_id = $1 AND deleted_at IS NULL
+ORDER BY id FOR UPDATE
+`
+
+type LockOrganizationSecretsForDeletionParams struct {
+	OrgID uuid.UUID
+}
+
+func (q *Queries) LockOrganizationSecretsForDeletion(ctx context.Context, arg LockOrganizationSecretsForDeletionParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockOrganizationSecretsForDeletion, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockProjectOwnedSecretsForDeletion = `-- name: LockProjectOwnedSecretsForDeletion :many
+SELECT id FROM secrets
+WHERE org_id = $1 AND owner_project_id = $2::uuid AND deleted_at IS NULL
+ORDER BY id FOR UPDATE
+`
+
+type LockProjectOwnedSecretsForDeletionParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+}
+
+func (q *Queries) LockProjectOwnedSecretsForDeletion(ctx context.Context, arg LockProjectOwnedSecretsForDeletionParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockProjectOwnedSecretsForDeletion, arg.OrgID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockSecret = `-- name: LockSecret :one
 SELECT id
 FROM secrets
@@ -1292,6 +1442,36 @@ func (q *Queries) LockSecretOAuthRefreshLease(ctx context.Context, arg LockSecre
 	var secret_id uuid.UUID
 	err := row.Scan(&secret_id)
 	return secret_id, err
+}
+
+const lockUserOwnedSecretsForDeletion = `-- name: LockUserOwnedSecretsForDeletion :many
+SELECT id FROM secrets
+WHERE owner_user_id = $1::uuid AND deleted_at IS NULL
+ORDER BY id FOR UPDATE
+`
+
+type LockUserOwnedSecretsForDeletionParams struct {
+	UserID uuid.UUID
+}
+
+func (q *Queries) LockUserOwnedSecretsForDeletion(ctx context.Context, arg LockUserOwnedSecretsForDeletionParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockUserOwnedSecretsForDeletion, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const mCPOAuthFlowConsumed = `-- name: MCPOAuthFlowConsumed :one
@@ -1378,39 +1558,6 @@ func (q *Queries) SecretAvailableToProject(ctx context.Context, arg SecretAvaila
 	var available bool
 	err := row.Scan(&available)
 	return available, err
-}
-
-const secretIsReferenced = `-- name: SecretIsReferenced :one
-SELECT EXISTS (
-  SELECT 1 FROM model_provider_configs config
-  WHERE config.org_id = $1 AND config.credential_secret_id = $2::uuid
-  UNION ALL
-  SELECT 1 FROM machine_pools pool
-  WHERE pool.org_id = $1 AND pool.provider_auth_secret_id = $2::uuid
-  UNION ALL
-  SELECT 1 FROM integrations install
-  WHERE install.org_id = $1 AND install.credential_secret_id = $2::uuid
-  UNION ALL
-  SELECT 1 FROM event_webhooks webhook
-  WHERE webhook.org_id = $1 AND webhook.signing_secret_id = $2::uuid
-    AND webhook.deleted_at IS NULL
-) AS is_referenced
-`
-
-type SecretIsReferencedParams struct {
-	OrgID    uuid.UUID
-	SecretID uuid.UUID
-}
-
-// @sqlc-vet-disable model-provider-configs-deleted-at integrations-deleted-at machine-pools-deleted-at
-// Soft-deleted secrets no longer trip foreign keys, so referencing rows are
-// checked explicitly. Deleted configs, pools, and installs clear their
-// credential references. Deleted webhooks retain them but stop using secrets.
-func (q *Queries) SecretIsReferenced(ctx context.Context, arg SecretIsReferencedParams) (bool, error) {
-	row := q.db.QueryRow(ctx, secretIsReferenced, arg.OrgID, arg.SecretID)
-	var is_referenced bool
-	err := row.Scan(&is_referenced)
-	return is_referenced, err
 }
 
 const secretOAuthRefreshLeaseActive = `-- name: SecretOAuthRefreshLeaseActive :one

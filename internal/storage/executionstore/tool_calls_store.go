@@ -92,6 +92,29 @@ type ListToolCallsResult struct {
 	HasMore   bool
 }
 
+// ToolCallSummary describes a call and its current lifecycle without loading
+// result content. Tool results are separate resources in the public API.
+type ToolCallSummary struct {
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	TurnID         uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           string
+	State          ToolCallState
+	Outcome        ToolResultOutcome
+	CreatedAt      time.Time
+	CompletedAt    *time.Time
+}
+
+// ToolCallStatus supports a cheap preflight check. Mutations must still validate
+// the state in their transaction; reading it does not claim the call.
+type ToolCallStatus struct {
+	Type  string
+	State ToolCallState
+}
+
 type ToolCallState string
 
 const (
@@ -147,6 +170,14 @@ type ToolCallRecord struct {
 	SourceEventSequence     int64           `json:"source_event_sequence,omitempty"`
 	ToolResultEventSequence int64           `json:"tool_result_event_sequence,omitempty"`
 	ResultContentParts      json.RawMessage `json:"result_content_parts"`
+}
+
+func (r ToolCallRecord) Summary() ToolCallSummary {
+	return ToolCallSummary{
+		ID: r.ID, AgentID: r.AgentID, TurnID: r.TurnID, ProviderCallID: r.ProviderCallID,
+		Name: r.Name, Input: r.Input, Type: r.Type, State: r.State, Outcome: r.Outcome,
+		CreatedAt: r.CreatedAt, CompletedAt: r.CompletedAt,
+	}
 }
 
 func (s *Store) CompleteToolCall(

@@ -1389,21 +1389,21 @@ func TestCreatePoolMachineReplayMaxAndDeleteLifecycle(t *testing.T) {
 	if created.Machine.Machine.IdempotencyKey != "" {
 		t.Fatalf("created machine idempotency key = %q, want empty", created.Machine.Machine.IdempotencyKey)
 	}
-	var generatedGrantIdempotencyKey string
+	var generatedGrantReceipts int
 	var generatedGrantMetadata json.RawMessage
 	generatedGrant := getProjectMachineGrantByMachineForTest(
 		t, ctx, store, testOrgID, testProjectID, created.Machine.Machine.ID,
 	)
 	if err := pool.QueryRow(
 		ctx,
-		`SELECT coalesce(idempotency_key, ''), metadata FROM project_machine_grants WHERE project_id = $1 AND id = $2`,
+		`SELECT (SELECT count(*) FROM project_machine_grant_creations WHERE grant_id = g.id), metadata FROM project_machine_grants g WHERE project_id = $1 AND id = $2`,
 		testProjectID, generatedGrant.ID,
 	).
-		Scan(&generatedGrantIdempotencyKey, &generatedGrantMetadata); err != nil {
+		Scan(&generatedGrantReceipts, &generatedGrantMetadata); err != nil {
 		t.Fatalf("load generated grant fields: %v", err)
 	}
-	if generatedGrantIdempotencyKey != "" {
-		t.Fatalf("generated grant idempotency key = %q, want empty", generatedGrantIdempotencyKey)
+	if generatedGrantReceipts != 0 {
+		t.Fatalf("generated grant creation receipts = %d, want zero", generatedGrantReceipts)
 	}
 	if !sameJSON(generatedGrantMetadata, json.RawMessage(`{}`)) {
 		t.Fatalf("generated grant metadata = %s, want empty object", generatedGrantMetadata)

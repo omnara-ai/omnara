@@ -9,8 +9,10 @@ const (
 		"guess or predict a pending subagent's result. Its answer is not shown to the user, so relay what matters. " +
 		"`name` is a display label only; address the subagent by the `agent_id` in the result."
 	readAgentToolDescription = "Read a subagent's timeline by agent_id. " +
-		"Without `turn_id` it returns the newest turns first, each with its opening events and latest event; " +
-		"page older turns with `before_turn_sequence`. With `turn_id` it returns the latest page of that turn's events, " +
+		"Without `turn_id` it returns the newest turns first, each with opening_events, latest_event, and " +
+		"latest_semantic_event. Each event's content appears once: latest_event is omitted when already in " +
+		"opening_events; latest_semantic_event is omitted when already in either. " +
+		"Page older turns with `before_turn_sequence`. With `turn_id` it returns the latest page of that turn's events, " +
 		"oldest first; page older events with `before_sequence`. Use it to check on progress or to fetch a finished " +
 		"subagent's answer without waiting for its message. Never guess at a subagent's result; read it or wait " +
 		"for its message."

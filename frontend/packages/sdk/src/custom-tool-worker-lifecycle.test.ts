@@ -13,6 +13,7 @@ import {
   routing,
   toolCall,
   toolCallID,
+  toolPage,
 } from './custom-tool-worker-test-support'
 import type { SubmitToolCallResultRequest } from './generated/types.gen'
 
@@ -58,7 +59,7 @@ describe('createCustomToolWorker', () => {
         return accepted(body)
       }
       const calls = [toolCall(), toolCall(rankID)].filter((call) => !finished.has(call.id))
-      return Response.json({ data: calls, next_cursor: null })
+      return toolPage(request, calls)
     })
     const release = new Map<string, (result: SubmitToolCallResultRequest) => void>()
     const lookup = vi.fn<CustomToolHandler>(
@@ -159,7 +160,7 @@ describe('createCustomToolWorker', () => {
     await done
 
     expect(onError).not.toHaveBeenCalled()
-    expect(requests).toEqual([])
+    expect(requests).toEqual([`GET ${callPath}`])
   })
 
   it('bounds the entire shutdown and never submits after its deadline', async () => {
@@ -312,7 +313,7 @@ describe('createCustomToolWorker', () => {
         if (
           request.url.endsWith(
             kind === 'list'
-              ? '/tool-calls?state=ready&type=custom&names=lookup_customer'
+              ? '/tool-calls?state=ready&type=custom&names=lookup_customer&limit=10'
               : '/result',
           )
         ) {

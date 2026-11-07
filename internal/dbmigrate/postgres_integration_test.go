@@ -130,9 +130,10 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 	const expected = "agent_config_definitions,agent_configs,agent_machine_bindings,agents,configured_model_revisions," +
 		"configured_models,daemon_runtimes,event_webhook_deliveries,event_webhooks,integrations,machine_daemon_tokens," +
 		"machine_online_intervals,machine_pools,machines,mcp_server_catalogs,model_call_contexts," +
-		"model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission," +
+		"model_provider_configs,model_provider_header_secrets,org_api_keys,org_invitations,org_managed_work_admission," +
 		"org_memberships,org_resource_limit_overrides,process_actions,processes," +
-		"project_machine_grants,project_machine_pool_grants,project_memberships," +
+		"project_machine_grant_creations,project_machine_grants," +
+		"project_machine_pool_grant_creations,project_machine_pool_grants,project_memberships," +
 		"project_model_grants,projects,secret_grants,secret_oauth_refresh_leases," +
 		"secret_versions,secrets,skill_grants,skills"
 	var actual string
@@ -161,8 +162,10 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 		"agent_machine_bindings,agent_profile_versions," +
 		"agent_profiles,agents,cron_triggers,event_webhooks,integration_inbox,integration_runtime,integration_states," +
 		"integration_subscriptions,integration_targets,integrations," +
-		"memory_stores,model_call_contexts,process_actions,processes,project_machine_grants," +
-		"project_machine_pool_grants,project_memberships,project_model_grants,tool_calls"
+		"memory_stores,model_call_contexts,process_actions,processes," +
+		"project_machine_grant_creations,project_machine_grants," +
+		"project_machine_pool_grant_creations,project_machine_pool_grants," +
+		"project_memberships,project_model_grants,tool_calls"
 	var actual string
 	require.NoError(t, db.QueryRowContext(ctx, `
 	SELECT coalesce(string_agg(column_info.table_name, ',' ORDER BY column_info.table_name), '')

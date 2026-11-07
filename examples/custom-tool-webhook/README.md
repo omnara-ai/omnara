@@ -43,9 +43,11 @@ that profile. `OMNARA_API_URL` optionally overrides `https://api.omnara.com/v1`;
 The receiver awaits the SDK's `verifyEventWebhook` with the original request
 body, headers, and signing secret. It verifies the signature and timestamp
 before validating and returning the typed event. `worker.handle(payload.data)`
-then checks the organization, project, profile, and tool name. It uses the input
-in the event, fetching only when the input was omitted because it exceeded
-64 KiB. Recovery list pages already contain the input and need no per-call fetch.
+then checks the organization, project, profile, and tool name. Before invoking
+the handler, it fetches the call's current state and input, even when the event
+includes input. A delayed ready notification therefore cannot start a call that
+the read already reports completed. Recovery reserves execution capacity before
+reading a page and needs no per-call fetch.
 
 The receiver acknowledges immediately after accepting the work into this
 process. This example's tool is a repeatable calculation, and `run()` recovers
@@ -54,8 +56,8 @@ to your existing job queue before acknowledging it, then await `handle()` in
 the queue consumer. On serverless platforms, don't assume work will continue
 after sending the response; use the platform's supported job/lifecycle mechanism.
 
-The helper submits results and retries network errors and `408`, `429`, and
-`5xx` responses. Each API operation makes at most three attempts within 30
+The helper submits results and retries network errors and `408`, `429`, `500`,
+`502`, `503`, and `504` responses. With the default client policy, each API operation makes at most three attempts within 30
 seconds (`requestTimeoutMs` can extend this for large uploads). It respects
 `Retry-After`; if the wait would exceed that budget, it returns the failure
 instead of retrying early. The continuous `run()` loop
@@ -70,13 +72,16 @@ A `409` with code `tool_call_already_completed` counts as done. It means the cal
 has finished, including cancellation or another worker's result; it does not
 prove that this worker's result won.
 
-Once a function returns, the helper keeps its result in memory if submission
-fails temporarily. A later operation retries submission without running the function again.
-A permanent rejection, such as `404` or `409 conflict`, reports the error and
-releases the slot; recent rejected calls are remembered to avoid rerunning them.
-Authentication failures retain the result so credentials can be repaired.
+Once a function returns, the helper keeps its result in memory after access
+errors (including `404`) and unknown submission failures. A later operation
+retries the same result without running the function again. A typed not-ready
+conflict releases the result without remembering the call as completed. An
+invalid result is replaced with a generic failure once; if that fallback is also
+rejected, the helper remembers the rejection locally to avoid rerunning it.
 These results count against the concurrency limit, so an outage cannot grow an
 unbounded result queue. Retries of retained results also respect `Retry-After`.
+An unrecognized permanent failure can fill that capacity until it is resolved;
+watch `onError` and the optional `onObserve` capacity observations.
 The memory is lost on restart; use application-owned durable storage when that
 would be unacceptable.
 
@@ -125,12 +130,17 @@ do {
     if (outcome.status === 'failed') console.error(call.toolCallID, outcome.error)
   }
   await checkpoints.save(recoveryKey, page.nextCursor, { signal })
+  if (page.blocked) break // Retained results need delivery before more work can start.
   cursor = page.nextCursor ?? undefined
 } while (cursor !== undefined)
 ```
 
-Each page waits for its work and returns outcomes even for busy or failed calls.
-The cursor advances over that entire page. Here `checkpoints` is your existing
+Each check reserves capacity before reading and processes up to `limit` rows
+across smaller API pages. It waits for its work and returns the outcomes.
+When retained results occupy all slots, `blocked` is true and the cursor stays
+before any unread calls; stop the job and retry later. A blocked null cursor
+means resume from the beginning, not that the pass finished.
+Here `checkpoints` is your existing
 job storage, keyed by this worker's project, profile, and tools. Save the cursor
 after each completed page; reaching `null` resets the next invocation to the
 beginning so deferred and newly approved calls are revisited. An interrupted
@@ -169,7 +179,9 @@ use the tool-call ID to avoid launching the same job twice. Alternatively, your
 job can submit its result directly to Omnara when it completes. The helper does
 not require another service or a particular queue/database. Enable `run()` or
 schedule `check()` to revisit deferred calls; webhook handling alone does not
-poll them. The application owns cancellation of a job once its handler has
+poll them. Recovery also revisits notifications that returned `busy` while all
+slots were occupied or reserved; a durable queue can instead retry those jobs.
+The application owns cancellation of a job once its handler has
 returned `deferred`.
 
 ## Duplicates, cancellation, and shutdown
@@ -181,9 +193,10 @@ or coordinate instances. Use the tool-call ID as an idempotency key for external
 side effects, including starting deferred jobs.
 
 Events can arrive out of order. A `completed` event signals an active handler to
-stop through its `AbortSignal`. A late ready event can still start work if this
-process has not observed its completion; even a preliminary GET cannot eliminate
-that race. Cancellation cannot undo an external action already performed.
+stop through its `AbortSignal` on the receiving instance. The readiness read
+skips calls it observes as completed, but cancellation can happen after that
+read, and two workers can both read `ready`. Cancellation cannot undo an
+external action already performed.
 
 Call `await worker.shutdown()` when the application stops accepting work, or
 abort the `signal` passed at construction. Shutdown stops intake, signals active

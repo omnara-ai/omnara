@@ -18,6 +18,7 @@ import {
   routing,
   toolCall,
   toolCallID,
+  toolPage,
 } from './custom-tool-worker-test-support'
 import type { SubmitToolCallResultRequest } from './generated/types.gen'
 
@@ -50,7 +51,7 @@ describe('createCustomToolWorker', () => {
     expect(lookup).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ agentID, toolCallID, name: 'lookup_customer', input }),
     )
-    expect(requests).toEqual([`POST ${callPath}/result`])
+    expect(requests).toEqual([`GET ${callPath}`, `POST ${callPath}/result`])
     expect(onError).not.toHaveBeenCalled()
   })
 
@@ -73,7 +74,7 @@ describe('createCustomToolWorker', () => {
       expect(await worker.handle(update)).toEqual({ status: 'ignored' })
     expect(requests).toEqual([])
     expect(await worker.handle(ready)).toEqual({ status: 'completed' })
-    expect(requests).toEqual([`POST ${callPath}/result`])
+    expect(requests).toEqual([`GET ${callPath}`, `POST ${callPath}/result`])
     expect(lookup).toHaveBeenCalledOnce()
   })
 
@@ -164,7 +165,7 @@ describe('createCustomToolWorker', () => {
     void worker.handle(ready)
 
     await vi.waitFor(() => {
-      expect(requests).toHaveLength(3)
+      expect(requests).toHaveLength(4)
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(onError).not.toHaveBeenCalled()
@@ -226,7 +227,10 @@ describe('createCustomToolWorker', () => {
     const { client } = api((request, body) => {
       if (body === undefined) {
         const ids = [toolCallID, ...others].filter((id) => !finished.has(id))
-        return Response.json({ data: ids.map((id) => toolCall(id)), next_cursor: null })
+        return toolPage(
+          request,
+          ids.map((id) => toolCall(id)),
+        )
       }
       const id = /tool-calls\/([^/]+)\/result/.exec(request.url)?.[1] ?? ''
       if (id === toolCallID && rejections-- > 0) {
@@ -317,11 +321,12 @@ describe('createCustomToolWorker', () => {
 
   it('waits for the whole page and returns an explicit cursor for the next check', async () => {
     const release: ((result: SubmitToolCallResultRequest) => void)[] = []
+    const calls = [toolCall(), toolCall(`tcl_${'b'.repeat(26)}`)]
     const { client } = api((request, body) => {
       if (body !== undefined) return accepted(body)
       return new URL(request.url).searchParams.has('cursor')
         ? Response.json({ error: 'forbidden', code: 'forbidden' }, { status: 403 })
-        : Response.json({ data: [toolCall()], next_cursor: 'next' })
+        : toolPage(request, calls)
     })
     const worker = createCustomToolWorker({
       client,
@@ -335,7 +340,7 @@ describe('createCustomToolWorker', () => {
       onError: vi.fn(),
     })
 
-    const checked = worker.check()
+    const checked = worker.check({ limit: 1 })
     let done = false
     void checked.then(() => {
       done = true
@@ -346,10 +351,13 @@ describe('createCustomToolWorker', () => {
     expect(done).toBe(false)
     release[0]?.(found)
     expect(await checked).toMatchObject({
-      nextCursor: 'next',
+      nextCursor: `after:${toolCallID}`,
       results: [{ outcome: { status: 'completed' } }],
     })
-    await expect(worker.check({ cursor: 'next' })).rejects.toMatchObject({ status: 403 })
+    await expect(worker.check({ cursor: `after:${toolCallID}` })).rejects.toMatchObject({
+      status: 403,
+    })
+    await worker.shutdown()
   })
 
   it('stops taking work while results cannot be submitted, then resends them', async () => {
@@ -360,7 +368,10 @@ describe('createCustomToolWorker', () => {
     const { client } = api((request, body) => {
       if (body === undefined) {
         const ids = [toolCallID, rankID].filter((id) => !finished.has(id))
-        return Response.json({ data: ids.map((id) => toolCall(id)), next_cursor: null })
+        return toolPage(
+          request,
+          ids.map((id) => toolCall(id)),
+        )
       }
       if (rejectSubmits) {
         return Response.json({ error: 'forbidden', code: 'forbidden' }, { status: 403 })
@@ -549,6 +560,33 @@ describe('createCustomToolWorker', () => {
     }
   })
 
+  it.each([0, 101, 1.5])('rejects check limit %s before any I/O', async (limit) => {
+    const { client, requests } = api(() => Response.json({ data: [], next_cursor: null }))
+    const lookup = vi.fn<CustomToolHandler>(() => Promise.resolve(found))
+    const worker = createCustomToolWorker({
+      client,
+      path,
+      tools: { lookup_customer: lookup },
+      onError: vi.fn(),
+    })
+    await expect(worker.check({ limit })).rejects.toThrow(RangeError)
+    expect(requests).toEqual([])
+    expect(lookup).not.toHaveBeenCalled()
+    await worker.shutdown()
+  })
+
+  it('finishes an empty tool set without preserving an unrelated cursor', async () => {
+    const { client, requests } = api(() => Response.json({ data: [], next_cursor: null }))
+    const worker = createCustomToolWorker({ client, path, tools: {}, onError: vi.fn() })
+    expect(await worker.check({ cursor: 'saved-cursor' })).toEqual({
+      results: [],
+      nextCursor: null,
+      blocked: false,
+    })
+    expect(requests).toEqual([])
+    await worker.shutdown()
+  })
+
   it('sweeps ready calls for its tools until aborted', async () => {
     const controller = new AbortController()
     const { client, requests, submitted } = api((request, body) => {
@@ -556,11 +594,7 @@ describe('createCustomToolWorker', () => {
         controller.abort()
         return accepted(body)
       }
-      return Response.json(
-        new URL(request.url).searchParams.has('cursor')
-          ? { data: [toolCall()], next_cursor: null }
-          : { data: [], next_cursor: 'next' },
-      )
+      return toolPage(request, [toolCall()])
     })
     const worker = createCustomToolWorker({
       client,
@@ -574,65 +608,75 @@ describe('createCustomToolWorker', () => {
     await worker.run()
 
     const list = `GET ${projectPath}/tool-calls?state=ready&type=custom&names=lookup_customer&agent_profile_id=${profileID}`
-    expect(requests).toEqual([list, `${list}&cursor=next`, `POST ${callPath}/result`])
+    expect(requests).toEqual([`${list}&limit=10`, `POST ${callPath}/result`])
     expect(submitted).toEqual([found])
   })
-  it('processes every call in a recovery page even with concurrency one', async () => {
-    const calls = ['a', 'b', 'c', 'd'].map((letter) => toolCall(`tcl_${letter.repeat(26)}`))
+  it('returns an exact checkpoint after four rows and resumes with only rows five and six', async () => {
+    const calls = ['a', 'b', 'c', 'd', 'e', 'f'].map((letter) =>
+      toolCall(`tcl_${letter.repeat(26)}`),
+    )
     let active = 0
     let maximum = 0
-    const { client, requests, submitted } = api((_, body) =>
-      body === undefined
-        ? Response.json({ data: calls, next_cursor: 'next-page' })
-        : accepted(body),
+    const { client, requests, submitted } = api((request, body) =>
+      body === undefined ? toolPage(request, calls) : accepted(body),
     )
+    const lookup = vi.fn<CustomToolHandler>(async () => {
+      maximum = Math.max(maximum, ++active)
+      await Promise.resolve()
+      active--
+      return found
+    })
     const worker = createCustomToolWorker({
       client,
       path,
-      concurrency: 1,
+      concurrency: 2,
       onError: vi.fn(),
-      tools: {
-        lookup_customer: async () => {
-          maximum = Math.max(maximum, ++active)
-          await Promise.resolve()
-          active--
-          return found
-        },
-      },
+      tools: { lookup_customer: lookup },
     })
     const checked = await worker.check({ limit: 4 })
-    expect(maximum).toBe(1)
+    expect(maximum).toBe(2)
     expect(submitted).toHaveLength(4)
     expect(checked.results.map(({ call, outcome }) => [call.toolCallID, outcome.status])).toEqual(
-      calls.map((call) => [call.id, 'completed']),
+      calls.slice(0, 4).map((call) => [call.id, 'completed']),
     )
-    expect(checked.nextCursor).toBe('next-page')
-    expect(requests[0]).toContain('limit=4')
+    expect(checked).toMatchObject({ nextCursor: `after:${calls[3]?.id}`, blocked: false })
+    const resumed = await worker.check({ limit: 4, cursor: checked.nextCursor ?? undefined })
+    expect(resumed.results.map(({ call, outcome }) => [call.toolCallID, outcome.status])).toEqual(
+      calls.slice(4).map((call) => [call.id, 'completed']),
+    )
+    expect(resumed).toMatchObject({ nextCursor: null, blocked: false })
+    expect(lookup.mock.calls.map(([call]) => call.toolCallID)).toEqual(calls.map((call) => call.id))
+    expect(submitted).toHaveLength(6)
+    expect(requests.filter((request) => request.includes('/tool-calls?'))).toHaveLength(3)
+    expect(requests[0]).toContain('limit=2')
+    await worker.shutdown()
   })
 
-  it('scans forward past deferred calls without refetching their input', async () => {
-    const nextID = `tcl_${'b'.repeat(26)}`
+  it('reaches work after 100 permanently deferred calls in one pass without refetching input', async () => {
+    const deferred = Array.from({ length: 100 }, (_, i) =>
+      toolCall(
+        `tcl_${String.fromCharCode(97 + Math.floor(i / 26), 97 + (i % 26))}${'a'.repeat(24)}`,
+      ),
+    )
+    const last = toolCall(`tcl_${'z'.repeat(26)}`)
+    const calls = [...deferred, last]
     const cursors: (string | null)[] = []
     const { client, requests, submitted } = api((request, body) => {
       if (body !== undefined) return accepted(body)
       const cursor = new URL(request.url).searchParams.get('cursor')
       cursors.push(cursor)
-      return Response.json(
-        cursor === null
-          ? { data: [toolCall()], next_cursor: 'next-page' }
-          : { data: [toolCall(nextID)], next_cursor: null },
-      )
+      return toolPage(request, calls)
     })
     const onError = vi.fn()
+    const lookup = vi.fn<CustomToolHandler>((call) =>
+      Promise.resolve(call.toolCallID === last.id ? found : { outcome: 'deferred' }),
+    )
     const worker = createCustomToolWorker({
       client,
       path,
       concurrency: 1,
       onError,
-      tools: {
-        lookup_customer: (call) =>
-          Promise.resolve(call.toolCallID === toolCallID ? { outcome: 'deferred' } : found),
-      },
+      tools: { lookup_customer: lookup },
     })
     const done = worker.run()
     await vi.waitFor(() => {
@@ -640,16 +684,19 @@ describe('createCustomToolWorker', () => {
     })
     await worker.shutdown()
     await done
-    expect(cursors).toEqual([null, 'next-page'])
-    expect(requests.filter((request) => request === `GET ${callPath}`)).toEqual([])
+    expect(cursors).toEqual([null, ...deferred.map((call) => `after:${call.id}`)])
+    expect(lookup.mock.calls.map(([call]) => call.toolCallID)).toEqual(calls.map((call) => call.id))
+    expect(
+      requests.filter((request) => request.startsWith('GET ') && !request.includes('/tool-calls?')),
+    ).toEqual([])
     expect(onError).not.toHaveBeenCalled()
   })
 
   it('reports retained-result failure and capacity exhaustion independently', async () => {
     const nextID = `tcl_${'b'.repeat(26)}`
-    const { client } = api((_, body) =>
+    const { client } = api((request, body) =>
       body === undefined
-        ? Response.json({ data: [toolCall(), toolCall(nextID)], next_cursor: null })
+        ? toolPage(request, [toolCall(), toolCall(nextID)])
         : Response.json({ code: 'forbidden', error: 'forbidden' }, { status: 403 }),
     )
     const lookup = vi.fn<CustomToolHandler>(() => Promise.resolve(found))
@@ -661,7 +708,9 @@ describe('createCustomToolWorker', () => {
       tools: { lookup_customer: lookup },
     })
     const checked = await worker.check()
-    expect(checked.results.map(({ outcome }) => outcome.status)).toEqual(['failed', 'busy'])
+    expect(checked.results.map(({ outcome }) => outcome.status)).toEqual(['failed'])
+    expect(checked.blocked).toBe(true)
+    expect(checked.nextCursor).toBe(`after:${toolCallID}`)
     expect(lookup).toHaveBeenCalledOnce()
     await worker.check()
     expect(lookup).toHaveBeenCalledOnce()

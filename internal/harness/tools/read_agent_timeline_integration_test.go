@@ -4,6 +4,7 @@ package tools
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,7 +76,7 @@ func TestReadAgentDispatchReturnsCompactTimeline(t *testing.T) {
 				return
 			}
 			require.Equal(t, childID, value.Agent.AgentID)
-			require.Contains(t, string(result.ContentParts), "Investigate the failing build")
+			require.Equal(t, 1, strings.Count(string(result.ContentParts), "Investigate the failing build"))
 			events := value.Events
 			if call.ID == "read_turns" {
 				require.NotEmpty(t, value.Turns)

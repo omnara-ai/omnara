@@ -18,7 +18,6 @@ import {
 } from '@omnara/sdk/tanstack'
 import {
   type QueryClient,
-  skipToken,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -102,7 +101,7 @@ export function useMemoryFiles(
   return useInfiniteQuery({
     ...options,
     queryFn:
-      limitDirectoryRequests && queryFn && queryFn !== skipToken
+      limitDirectoryRequests && queryFn
         ? (context) => {
             const { signal } = context
             return limitDirectoryRequests(() => {

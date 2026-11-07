@@ -2877,6 +2877,7 @@ paths:
           $ref: '#/components/responses/ServerError'
     put:
       operationId: writeMemoryFile
+      x-omnara-idempotent: true
       tags: [Memory Stores]
       summary: Write memory file
       security:
@@ -4871,6 +4872,7 @@ paths:
           pattern: '^agt_[a-z2-7]{26}$'
     post:
       operationId: archiveAgent
+      x-omnara-idempotent: true
       tags: [Agents]
       summary: Archive agent
       description: >-
@@ -5277,13 +5279,16 @@ paths:
           $ref: '#/components/schemas/ToolCallID'
     post:
       operationId: submitToolCallResult
+      x-omnara-idempotent: true
       tags: [Agents]
       summary: Submit a result for a ready custom tool call
       description: >-
         Only ready custom tool calls accept externally supplied results.
         The first accepted result completes the call. A later submission returns 409 with code
         tool_call_already_completed; a result for a call that isn't ready, or for a non-custom
-        tool call, returns 409.
+        tool call, returns 409. If the first response is lost, a safe retry can return
+        tool_call_already_completed even when the original submission succeeded. This
+        confirms that the call is terminal, not which submission completed it.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6402,6 +6407,9 @@ paths:
       description: >-
         Lets a project's agent configs use one BYO machine by name and returns the grant with the
         machine's record. Pooled machines can't be granted this way and return 404.
+        Replaying the original create with the same Idempotency-Key returns the current grant.
+        The key remains consumed after revocation or resource cleanup: replay returns 409
+        idempotency_key_conflict and never restores access. Intentional re-granting needs a new key.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -8023,6 +8031,10 @@ paths:
         Lets a project create machines from a machine pool, optionally with its own defaults and
         usage caps within the pool's limits, and returns the grant. No machines are created by this
         call.
+        Replaying the original create with the same Idempotency-Key returns the current grant,
+        including later updates. The key remains consumed after revocation or resource cleanup:
+        replay returns 409 idempotency_key_conflict and never restores access. Intentional
+        re-granting needs a new key.
       security:
         - bearerAuth: []
         - browserSessionCookie: []

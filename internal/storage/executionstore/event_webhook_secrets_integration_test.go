@@ -110,3 +110,43 @@ func TestEventWebhookSigningGrantCanBeRevoked(t *testing.T) {
 	})
 	require.ErrorIs(t, err, storeerr.ErrNotFound, "updates must revalidate current secret access")
 }
+
+func TestEventWebhookPatchLocksSecretBeforeProfileTeardown(t *testing.T) {
+	t.Parallel()
+	f := newIntegrationActivationFixture(t)
+	ctx := t.Context()
+	secret, _, err := f.store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID: testOrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: testProjectID,
+		Name: "profile-signing-key", Actor: userPrincipal(f.user.ID),
+		Material: secrets.GenericMaterial{Value: "whsec_MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="},
+	})
+	require.NoError(t, err)
+	webhook, err := f.store.Execution().CreateEventWebhook(ctx, executionstore.CreateEventWebhookInput{
+		ProjectID: testProjectID,
+		Scope:     executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeAgentProfile, ID: f.profile.ID},
+		Settings: webhookconfig.Settings{
+			URL: "https://example.test/profile", EventTypes: []string{"tool_call_update"}, SigningSecretID: secret.ID,
+		},
+	})
+	require.NoError(t, err)
+	blocker := integrationdb.BeginTx(t, ctx, f.store.pool)
+	_, err = blocker.Exec(ctx, "SELECT id FROM secrets WHERE id = $1 FOR UPDATE", secret.ID)
+	require.NoError(t, err)
+	updated := integrationdb.RunAsync(func() (executionstore.EventWebhookRecord, error) {
+		return f.store.Execution().UpdateEventWebhook(ctx, executionstore.UpdateEventWebhookInput{
+			ProjectID: testProjectID, WebhookID: webhook.ID, EventTypes: []string{"model_output"},
+		})
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, f.store.pool, "LockSecretForReference", 1)
+	deleted := integrationdb.RunAsyncError(func() error {
+		return f.store.Execution().DeleteAgentProfile(ctx, testProjectID, f.profile.ID)
+	})
+	require.NoError(t, integrationdb.Await(t, deleted, "profile deletion while patch waits for secret"))
+	require.NoError(t, blocker.Commit(ctx))
+	require.ErrorIs(t, integrationdb.Await(t, updated, "patch after profile deletion").Err, storeerr.ErrNotFound)
+	var retired bool
+	require.NoError(t, f.store.pool.QueryRow(ctx,
+		"SELECT deleted_at IS NOT NULL AND signing_secret_id IS NULL FROM event_webhooks WHERE id = $1", webhook.ID,
+	).Scan(&retired))
+	require.True(t, retired)
+}

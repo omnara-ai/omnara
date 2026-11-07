@@ -52,6 +52,22 @@ export function toolCall(id = toolCallID) {
   }
 }
 
+/** Model the API's keyset pagination, including rows removed between requests. */
+export function toolPage(request: Request, calls: ReturnType<typeof toolCall>[]) {
+  const query = new URL(request.url).searchParams
+  const after = query.get('cursor')?.replace(/^after:/, '')
+  const available = calls.filter((call) => after === undefined || call.id > after)
+  const limit = Number(query.get('limit') ?? 50)
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return Response.json({ code: 'invalid_request', error: 'invalid limit' }, { status: 400 })
+  }
+  const data = available.slice(0, limit)
+  return Response.json({
+    data,
+    next_cursor: available.length > limit ? `after:${data.at(-1)?.id}` : null,
+  })
+}
+
 export function accepted(body: SubmitToolCallResultRequest): Response {
   return Response.json(
     {
@@ -70,7 +86,8 @@ export function accepted(body: SubmitToolCallResultRequest): Response {
 
 export function api(
   route: (request: Request, body?: SubmitToolCallResultRequest) => Response | Promise<Response>,
-  call: (request: Request) => Response = () => Response.json(toolCall()),
+  call: (request: Request) => Response = (request) =>
+    Response.json(toolCall(new URL(request.url).pathname.split('/').at(-1))),
 ) {
   const requests: string[] = []
   const submitted: SubmitToolCallResultRequest[] = []

@@ -16,7 +16,7 @@ import (
 const deleteProjectMachinePoolGrant = `-- name: DeleteProjectMachinePoolGrant :one
 DELETE FROM project_machine_pool_grants
 WHERE org_id = $1 AND project_id = $2 AND id = $3
-RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
+RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at
 `
 
 type DeleteProjectMachinePoolGrantParams struct {
@@ -45,7 +45,6 @@ type DeleteProjectMachinePoolGrantRow struct {
 	MaxMachineCpu                        *int32
 	MaxMachineMemoryMb                   *int32
 	DeleteAfterIdleMinutes               *int32
-	IdempotencyKey                       string
 	Metadata                             json.RawMessage
 	CreatedAt                            time.Time
 	UpdatedAt                            time.Time
@@ -74,7 +73,6 @@ func (q *Queries) DeleteProjectMachinePoolGrant(ctx context.Context, arg DeleteP
 		&i.MaxMachineCpu,
 		&i.MaxMachineMemoryMb,
 		&i.DeleteAfterIdleMinutes,
-		&i.IdempotencyKey,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -83,7 +81,7 @@ func (q *Queries) DeleteProjectMachinePoolGrant(ctx context.Context, arg DeleteP
 }
 
 const getActiveProjectMachinePoolGrantForMachinePool = `-- name: GetActiveProjectMachinePoolGrantForMachinePool :one
-SELECT pmpg.id, pmpg.org_id, pmpg.project_id, pmpg.machine_pool_id, pmpg.description, pmpg.default_machine_cpu, pmpg.default_machine_memory_mb, pmpg.default_machine_env_overlay, pmpg.default_machine_secret_env_overlay, pmpg.default_machine_provider_options_overlay, pmpg.default_cwd, pmpg.max_total_machines, pmpg.max_total_cpu, pmpg.max_total_memory_mb, pmpg.min_machine_cpu, pmpg.min_machine_memory_mb, pmpg.max_machine_cpu, pmpg.max_machine_memory_mb, pmpg.delete_after_idle_minutes, coalesce(pmpg.idempotency_key, '') AS idempotency_key, pmpg.metadata, pmpg.created_at, pmpg.updated_at, pool.name AS pool_name,
+SELECT pmpg.id, pmpg.org_id, pmpg.project_id, pmpg.machine_pool_id, pmpg.description, pmpg.default_machine_cpu, pmpg.default_machine_memory_mb, pmpg.default_machine_env_overlay, pmpg.default_machine_secret_env_overlay, pmpg.default_machine_provider_options_overlay, pmpg.default_cwd, pmpg.max_total_machines, pmpg.max_total_cpu, pmpg.max_total_memory_mb, pmpg.min_machine_cpu, pmpg.min_machine_memory_mb, pmpg.max_machine_cpu, pmpg.max_machine_memory_mb, pmpg.delete_after_idle_minutes, pmpg.metadata, pmpg.created_at, pmpg.updated_at, pool.name AS pool_name,
  pool.provider AS pool_provider,
  pool.default_machine_cpu AS pool_default_machine_cpu,
  pool.default_machine_memory_mb AS pool_default_machine_memory_mb,
@@ -121,7 +119,6 @@ type GetActiveProjectMachinePoolGrantForMachinePoolRow struct {
 	MaxMachineCpu                        *int32
 	MaxMachineMemoryMb                   *int32
 	DeleteAfterIdleMinutes               *int32
-	IdempotencyKey                       string
 	Metadata                             json.RawMessage
 	CreatedAt                            time.Time
 	UpdatedAt                            time.Time
@@ -158,7 +155,6 @@ func (q *Queries) GetActiveProjectMachinePoolGrantForMachinePool(ctx context.Con
 		&i.MaxMachineCpu,
 		&i.MaxMachineMemoryMb,
 		&i.DeleteAfterIdleMinutes,
-		&i.IdempotencyKey,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -175,7 +171,7 @@ func (q *Queries) GetActiveProjectMachinePoolGrantForMachinePool(ctx context.Con
 }
 
 const getProjectMachinePoolGrant = `-- name: GetProjectMachinePoolGrant :one
-SELECT id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
+SELECT id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at
 FROM project_machine_pool_grants
 WHERE org_id = $1 AND project_id = $2 AND id = $3
 `
@@ -206,7 +202,6 @@ type GetProjectMachinePoolGrantRow struct {
 	MaxMachineCpu                        *int32
 	MaxMachineMemoryMb                   *int32
 	DeleteAfterIdleMinutes               *int32
-	IdempotencyKey                       string
 	Metadata                             json.RawMessage
 	CreatedAt                            time.Time
 	UpdatedAt                            time.Time
@@ -235,76 +230,6 @@ func (q *Queries) GetProjectMachinePoolGrant(ctx context.Context, arg GetProject
 		&i.MaxMachineCpu,
 		&i.MaxMachineMemoryMb,
 		&i.DeleteAfterIdleMinutes,
-		&i.IdempotencyKey,
-		&i.Metadata,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getProjectMachinePoolGrantByIdempotency = `-- name: GetProjectMachinePoolGrantByIdempotency :one
-SELECT id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
-FROM project_machine_pool_grants
-WHERE org_id = $1 AND project_id = $2 AND idempotency_key = $3::text
-`
-
-type GetProjectMachinePoolGrantByIdempotencyParams struct {
-	OrgID          uuid.UUID
-	ProjectID      uuid.UUID
-	IdempotencyKey string
-}
-
-type GetProjectMachinePoolGrantByIdempotencyRow struct {
-	ID                                   uuid.UUID
-	OrgID                                uuid.UUID
-	ProjectID                            uuid.UUID
-	MachinePoolID                        uuid.UUID
-	Description                          string
-	DefaultMachineCpu                    *int32
-	DefaultMachineMemoryMb               *int32
-	DefaultMachineEnvOverlay             json.RawMessage
-	DefaultMachineSecretEnvOverlay       json.RawMessage
-	DefaultMachineProviderOptionsOverlay json.RawMessage
-	DefaultCwd                           string
-	MaxTotalMachines                     *int32
-	MaxTotalCpu                          *int32
-	MaxTotalMemoryMb                     *int32
-	MinMachineCpu                        *int32
-	MinMachineMemoryMb                   *int32
-	MaxMachineCpu                        *int32
-	MaxMachineMemoryMb                   *int32
-	DeleteAfterIdleMinutes               *int32
-	IdempotencyKey                       string
-	Metadata                             json.RawMessage
-	CreatedAt                            time.Time
-	UpdatedAt                            time.Time
-}
-
-func (q *Queries) GetProjectMachinePoolGrantByIdempotency(ctx context.Context, arg GetProjectMachinePoolGrantByIdempotencyParams) (GetProjectMachinePoolGrantByIdempotencyRow, error) {
-	row := q.db.QueryRow(ctx, getProjectMachinePoolGrantByIdempotency, arg.OrgID, arg.ProjectID, arg.IdempotencyKey)
-	var i GetProjectMachinePoolGrantByIdempotencyRow
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ProjectID,
-		&i.MachinePoolID,
-		&i.Description,
-		&i.DefaultMachineCpu,
-		&i.DefaultMachineMemoryMb,
-		&i.DefaultMachineEnvOverlay,
-		&i.DefaultMachineSecretEnvOverlay,
-		&i.DefaultMachineProviderOptionsOverlay,
-		&i.DefaultCwd,
-		&i.MaxTotalMachines,
-		&i.MaxTotalCpu,
-		&i.MaxTotalMemoryMb,
-		&i.MinMachineCpu,
-		&i.MinMachineMemoryMb,
-		&i.MaxMachineCpu,
-		&i.MaxMachineMemoryMb,
-		&i.DeleteAfterIdleMinutes,
-		&i.IdempotencyKey,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -560,7 +485,7 @@ func (q *Queries) ListProjectMachinePoolGrantRefsForProjectLifecycle(ctx context
 
 const listProjectMachinePoolGrants = `-- name: ListProjectMachinePoolGrants :many
 WITH listed AS (
- SELECT g.id, g.org_id, g.project_id, g.machine_pool_id, g.description, g.default_machine_cpu, g.default_machine_memory_mb, g.default_machine_env_overlay, g.default_machine_secret_env_overlay, g.default_machine_provider_options_overlay, g.default_cwd, g.max_total_machines, g.max_total_cpu, g.max_total_memory_mb, g.min_machine_cpu, g.min_machine_memory_mb, g.max_machine_cpu, g.max_machine_memory_mb, g.delete_after_idle_minutes, coalesce(g.idempotency_key, '') AS idempotency_key, g.metadata, g.created_at, g.updated_at,
+ SELECT g.id, g.org_id, g.project_id, g.machine_pool_id, g.description, g.default_machine_cpu, g.default_machine_memory_mb, g.default_machine_env_overlay, g.default_machine_secret_env_overlay, g.default_machine_provider_options_overlay, g.default_cwd, g.max_total_machines, g.max_total_cpu, g.max_total_memory_mb, g.min_machine_cpu, g.min_machine_memory_mb, g.max_machine_cpu, g.max_machine_memory_mb, g.delete_after_idle_minutes, g.metadata, g.created_at, g.updated_at,
  pool.name AS pool_name, pool.management_kind AS pool_management_kind, pool.description AS pool_description, pool.provider AS pool_provider, pool.created_at AS pool_created_at, pool.updated_at AS pool_updated_at,
  CASE $6::text WHEN 'name' THEN lower(pool.name) WHEN 'created_at' THEN to_char(g.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') WHEN 'updated_at' THEN to_char(g.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') END::text AS sort_key, false AS sort_is_null
  FROM project_machine_pool_grants g
@@ -573,7 +498,7 @@ SELECT id, org_id, project_id, machine_pool_id, description, default_machine_cpu
  default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay,
  default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu,
  max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes,
- idempotency_key, metadata, created_at, updated_at,
+ metadata, created_at, updated_at,
  pool_name, pool_management_kind, pool_description, pool_provider, pool_created_at, pool_updated_at,
  sort_key, sort_is_null
 FROM listed WHERE $1::boolean = false
@@ -617,7 +542,6 @@ type ListProjectMachinePoolGrantsRow struct {
 	MaxMachineCpu                        *int32
 	MaxMachineMemoryMb                   *int32
 	DeleteAfterIdleMinutes               *int32
-	IdempotencyKey                       string
 	Metadata                             json.RawMessage
 	CreatedAt                            time.Time
 	UpdatedAt                            time.Time
@@ -671,7 +595,6 @@ func (q *Queries) ListProjectMachinePoolGrants(ctx context.Context, arg ListProj
 			&i.MaxMachineCpu,
 			&i.MaxMachineMemoryMb,
 			&i.DeleteAfterIdleMinutes,
-			&i.IdempotencyKey,
 			&i.Metadata,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -851,7 +774,7 @@ SET description = $1,
     metadata = $16,
     updated_at = statement_timestamp()
 WHERE org_id = $17 AND project_id = $18 AND id = $19
-RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
+RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at
 `
 
 type UpdateProjectMachinePoolGrantParams struct {
@@ -896,7 +819,6 @@ type UpdateProjectMachinePoolGrantRow struct {
 	MaxMachineCpu                        *int32
 	MaxMachineMemoryMb                   *int32
 	DeleteAfterIdleMinutes               *int32
-	IdempotencyKey                       string
 	Metadata                             json.RawMessage
 	CreatedAt                            time.Time
 	UpdatedAt                            time.Time
@@ -945,7 +867,6 @@ func (q *Queries) UpdateProjectMachinePoolGrant(ctx context.Context, arg UpdateP
 		&i.MaxMachineCpu,
 		&i.MaxMachineMemoryMb,
 		&i.DeleteAfterIdleMinutes,
-		&i.IdempotencyKey,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -954,15 +875,15 @@ func (q *Queries) UpdateProjectMachinePoolGrant(ctx context.Context, arg UpdateP
 }
 
 const upsertProjectMachinePoolGrant = `-- name: UpsertProjectMachinePoolGrant :one
-INSERT INTO project_machine_pool_grants(org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, idempotency_key, metadata, created_at, updated_at)
-SELECT project.org_id, project.id, pool.id, $1, $2::integer, $3::integer, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8::integer, $9::integer, $10::integer, $11::integer, $12::integer, $13::integer, $14::integer, $15::integer, $16, $17, statement_timestamp(), statement_timestamp()
+INSERT INTO project_machine_pool_grants(org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at)
+SELECT project.org_id, project.id, pool.id, $1, $2::integer, $3::integer, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8::integer, $9::integer, $10::integer, $11::integer, $12::integer, $13::integer, $14::integer, $15::integer, $16, statement_timestamp(), statement_timestamp()
 FROM projects project
-JOIN machine_pools pool ON pool.org_id = project.org_id AND pool.id = $18 AND pool.deleted_at IS NULL
-WHERE project.org_id = $19
-  AND project.id = $20
+JOIN machine_pools pool ON pool.org_id = project.org_id AND pool.id = $17 AND pool.deleted_at IS NULL
+WHERE project.org_id = $18
+  AND project.id = $19
   AND project.deleted_at IS NULL
 ON CONFLICT (project_id, machine_pool_id) DO NOTHING
-RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
+RETURNING id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at
 `
 
 type UpsertProjectMachinePoolGrantParams struct {
@@ -981,7 +902,6 @@ type UpsertProjectMachinePoolGrantParams struct {
 	MaxMachineCpu                        *int32
 	MaxMachineMemoryMb                   *int32
 	DeleteAfterIdleMinutes               *int32
-	IdempotencyKey                       *string
 	Metadata                             json.RawMessage
 	MachinePoolID                        uuid.UUID
 	OrgID                                uuid.UUID
@@ -1008,7 +928,6 @@ type UpsertProjectMachinePoolGrantRow struct {
 	MaxMachineCpu                        *int32
 	MaxMachineMemoryMb                   *int32
 	DeleteAfterIdleMinutes               *int32
-	IdempotencyKey                       string
 	Metadata                             json.RawMessage
 	CreatedAt                            time.Time
 	UpdatedAt                            time.Time
@@ -1031,7 +950,6 @@ func (q *Queries) UpsertProjectMachinePoolGrant(ctx context.Context, arg UpsertP
 		arg.MaxMachineCpu,
 		arg.MaxMachineMemoryMb,
 		arg.DeleteAfterIdleMinutes,
-		arg.IdempotencyKey,
 		arg.Metadata,
 		arg.MachinePoolID,
 		arg.OrgID,
@@ -1058,7 +976,6 @@ func (q *Queries) UpsertProjectMachinePoolGrant(ctx context.Context, arg UpsertP
 		&i.MaxMachineCpu,
 		&i.MaxMachineMemoryMb,
 		&i.DeleteAfterIdleMinutes,
-		&i.IdempotencyKey,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,

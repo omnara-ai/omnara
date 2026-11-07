@@ -227,6 +227,83 @@ func (q *Queries) GetToolCallByProviderCall(ctx context.Context, arg GetToolCall
 	return i, err
 }
 
+const getToolCallStatus = `-- name: GetToolCallStatus :one
+SELECT type, state
+FROM tool_calls
+WHERE project_id = $1
+  AND agent_id = $2
+  AND id = $3
+`
+
+type GetToolCallStatusParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+type GetToolCallStatusRow struct {
+	Type  string
+	State string
+}
+
+func (q *Queries) GetToolCallStatus(ctx context.Context, arg GetToolCallStatusParams) (GetToolCallStatusRow, error) {
+	row := q.db.QueryRow(ctx, getToolCallStatus, arg.ProjectID, arg.AgentID, arg.ID)
+	var i GetToolCallStatusRow
+	err := row.Scan(&i.Type, &i.State)
+	return i, err
+}
+
+const getToolCallSummary = `-- name: GetToolCallSummary :one
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
+  call.name, call.input, call.type, call.state,
+  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at
+FROM tool_call_read_projection call
+LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
+  AND result.tool_call_id = call.id
+WHERE call.project_id = $1
+  AND call.agent_id = $2
+  AND call.id = $3
+`
+
+type GetToolCallSummaryParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+type GetToolCallSummaryRow struct {
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	TurnID         uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           string
+	State          string
+	Outcome        string
+	CreatedAt      time.Time
+	CompletedAt    *time.Time
+}
+
+func (q *Queries) GetToolCallSummary(ctx context.Context, arg GetToolCallSummaryParams) (GetToolCallSummaryRow, error) {
+	row := q.db.QueryRow(ctx, getToolCallSummary, arg.ProjectID, arg.AgentID, arg.ID)
+	var i GetToolCallSummaryRow
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.TurnID,
+		&i.ProviderCallID,
+		&i.Name,
+		&i.Input,
+		&i.Type,
+		&i.State,
+		&i.Outcome,
+		&i.CreatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
 const listCompletedToolCallsAtWatermark = `-- name: ListCompletedToolCallsAtWatermark :many
 WITH selected_calls AS MATERIALIZED (
   SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id, tc.source_event_id, tc.source_event_sequence,
@@ -476,12 +553,10 @@ WITH page AS (
       FROM agents agent
       WHERE agent.id = tool_call.agent_id
     )
-    AND (
-      $6::timestamptz IS NULL
-      OR (tool_call.created_at, tool_call.id) > (
-        $6::timestamptz,
-        $7::uuid
-      )
+    -- Keep the cursor indexable when PostgreSQL uses a generic prepared plan.
+    AND (tool_call.created_at, tool_call.id) > (
+      coalesce($6::timestamptz, '-infinity'::timestamptz),
+      coalesce($7::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
     )
   ORDER BY tool_call.created_at ASC, tool_call.id ASC
   LIMIT $8::bigint

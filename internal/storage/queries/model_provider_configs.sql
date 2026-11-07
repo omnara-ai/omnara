@@ -2,12 +2,12 @@
 INSERT INTO model_provider_configs(
   org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
   request_timeout_ms, idle_timeout_ms, auth_kind, auth_options, credential_secret_id,
-  headers, secret_headers, created_at, updated_at
+  headers, created_at, updated_at
 )
 SELECT org.id, sqlc.arg(management_kind), sqlc.arg(name), sqlc.arg(api_format), sqlc.arg(api_variant),
        sqlc.arg(base_url), sqlc.arg(endpoint_path),
        sqlc.arg(request_timeout_ms), sqlc.arg(idle_timeout_ms), sqlc.arg(auth_kind), sqlc.arg(auth_options),
-       sqlc.arg(credential_secret_id), sqlc.arg(headers), sqlc.arg(secret_headers),
+       sqlc.arg(credential_secret_id), sqlc.arg(headers),
        transaction_timestamp(), transaction_timestamp()
 FROM orgs org
 JOIN secrets credential ON credential.org_id = org.id
@@ -18,17 +18,19 @@ JOIN secrets credential ON credential.org_id = org.id
 WHERE org.id = sqlc.arg(org_id)
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
           request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, secret_headers;
+          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, sqlc.arg(secret_headers)::jsonb AS secret_headers;
 
 -- name: GetModelProviderConfig :one
-SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-       request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at,
-       created_at, updated_at, idle_timeout_ms, headers, secret_headers
-FROM model_provider_configs
-WHERE org_id = sqlc.arg(org_id)
-  AND id = sqlc.arg(id)
-  AND deleted_at IS NULL;
+SELECT config.id, config.org_id, config.management_kind, config.name, config.api_format, config.api_variant, config.base_url, config.endpoint_path,
+       config.request_timeout_ms, config.auth_kind, config.auth_options, config.credential_secret_id, config.deleted_at,
+       config.created_at, config.updated_at, config.idle_timeout_ms, config.headers,
+       coalesce((SELECT jsonb_object_agg(header.header_name, header.secret_id)
+         FROM model_provider_header_secrets header
+         WHERE header.org_id = config.org_id AND header.provider_config_id = config.id), '{}'::jsonb)::jsonb AS secret_headers
+FROM model_provider_configs config
+WHERE config.org_id = sqlc.arg(org_id)
+  AND config.id = sqlc.arg(id)
+  AND config.deleted_at IS NULL;
 
 -- name: LockModelProviderConfigForConfiguredModelCreate :one
 SELECT id, management_kind, api_format, api_variant
@@ -39,20 +41,22 @@ WHERE org_id = sqlc.arg(org_id)
 FOR SHARE;
 
 -- name: GetModelProviderConfigByName :one
-SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-       request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at,
-       created_at, updated_at, idle_timeout_ms, headers, secret_headers
-FROM model_provider_configs
-WHERE org_id = sqlc.arg(org_id)
-  AND name = sqlc.arg(name)
-  AND deleted_at IS NULL;
+SELECT config.id, config.org_id, config.management_kind, config.name, config.api_format, config.api_variant, config.base_url, config.endpoint_path,
+       config.request_timeout_ms, config.auth_kind, config.auth_options, config.credential_secret_id, config.deleted_at,
+       config.created_at, config.updated_at, config.idle_timeout_ms, config.headers,
+       coalesce((SELECT jsonb_object_agg(header.header_name, header.secret_id)
+         FROM model_provider_header_secrets header
+         WHERE header.org_id = config.org_id AND header.provider_config_id = config.id), '{}'::jsonb)::jsonb AS secret_headers
+FROM model_provider_configs config
+WHERE config.org_id = sqlc.arg(org_id)
+  AND config.name = sqlc.arg(name)
+  AND config.deleted_at IS NULL;
 
 -- name: LockModelProviderConfigForMutation :one
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
        credential_secret_id, deleted_at,
-       created_at, updated_at, idle_timeout_ms, headers, secret_headers
+       created_at, updated_at, idle_timeout_ms, headers
 FROM model_provider_configs
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
@@ -63,22 +67,25 @@ FOR UPDATE;
 WITH listed AS (
  SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
         request_timeout_ms, auth_kind, auth_options,
-        credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, secret_headers,
+        credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers,
         CASE sqlc.arg(sort_field)::text
           WHEN 'name' THEN lower(name)
           WHEN 'created_at' THEN to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
           WHEN 'updated_at' THEN to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
         END::text AS sort_key,
         false AS sort_is_null
- FROM model_provider_configs
- WHERE org_id = sqlc.arg(org_id)
+ FROM model_provider_configs config
+ WHERE config.org_id = sqlc.arg(org_id)
    AND deleted_at IS NULL
    AND (sqlc.arg(name_pattern)::text = '' OR name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
 )
-SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-       request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, secret_headers,
-       sort_key, sort_is_null
+SELECT listed.id, listed.org_id, listed.management_kind, listed.name, listed.api_format, listed.api_variant, listed.base_url, listed.endpoint_path,
+       listed.request_timeout_ms, listed.auth_kind, listed.auth_options,
+       listed.credential_secret_id, listed.deleted_at, listed.created_at, listed.updated_at, listed.idle_timeout_ms, listed.headers,
+       coalesce((SELECT jsonb_object_agg(header.header_name, header.secret_id)
+         FROM model_provider_header_secrets header
+         WHERE header.org_id = listed.org_id AND header.provider_config_id = listed.id), '{}'::jsonb)::jsonb AS secret_headers,
+       listed.sort_key, listed.sort_is_null
 FROM listed
 WHERE sqlc.arg(cursor_set)::boolean = false
    OR (sqlc.arg(sort_desc)::boolean = false AND (sort_key, id) > (sqlc.arg(cursor_key)::text, sqlc.arg(cursor_id)::uuid))
@@ -90,14 +97,17 @@ ORDER BY CASE WHEN NOT sqlc.arg(sort_desc)::boolean THEN sort_key END ASC,
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ListClusterManagedModelProviderConfigsByName :many
-SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-       request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, secret_headers
-FROM model_provider_configs
-WHERE name = sqlc.arg(name)
-  AND management_kind = 'cluster'
-  AND deleted_at IS NULL
-ORDER BY org_id, id;
+SELECT config.id, config.org_id, config.management_kind, config.name, config.api_format, config.api_variant, config.base_url, config.endpoint_path,
+       config.request_timeout_ms, config.auth_kind, config.auth_options, config.credential_secret_id, config.deleted_at,
+       config.created_at, config.updated_at, config.idle_timeout_ms, config.headers,
+       coalesce((SELECT jsonb_object_agg(header.header_name, header.secret_id)
+         FROM model_provider_header_secrets header
+         WHERE header.org_id = config.org_id AND header.provider_config_id = config.id), '{}'::jsonb)::jsonb AS secret_headers
+FROM model_provider_configs config
+WHERE config.name = sqlc.arg(name)
+  AND config.management_kind = 'cluster'
+  AND config.deleted_at IS NULL
+ORDER BY config.org_id, config.id;
 
 -- name: UpdateModelProviderConfig :one
 UPDATE model_provider_configs config
@@ -109,7 +119,6 @@ SET base_url = sqlc.arg(base_url),
     auth_options = sqlc.arg(auth_options),
     credential_secret_id = sqlc.arg(credential_secret_id),
     headers = sqlc.arg(headers),
-    secret_headers = sqlc.arg(secret_headers),
     updated_at = statement_timestamp()
 FROM secrets credential
 WHERE config.org_id = sqlc.arg(org_id)
@@ -127,7 +136,7 @@ RETURNING config.id, config.org_id, config.management_kind,
           config.request_timeout_ms, config.auth_kind,
           config.auth_options, config.credential_secret_id, config.deleted_at,
           config.created_at, config.updated_at, config.idle_timeout_ms,
-          config.headers, config.secret_headers;
+          config.headers, sqlc.arg(secret_headers)::jsonb AS secret_headers;
 
 -- name: DeleteModelProviderConfig :one
 -- Clearing the credential releases the secret for deletion.
@@ -148,7 +157,7 @@ WHERE model_provider_configs.org_id = sqlc.arg(org_id)
   )
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
           request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, secret_headers;
+          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, '{}'::jsonb AS secret_headers;
 
 -- name: ModelProviderConfigHasActiveModels :one
 SELECT EXISTS (
@@ -158,6 +167,18 @@ SELECT EXISTS (
     AND configured_model.model_provider_config_id = sqlc.arg(id)
     AND configured_model.deleted_at IS NULL
 ) AS has_active_models;
+
+-- name: DeleteModelProviderHeaderSecrets :exec
+DELETE FROM model_provider_header_secrets
+WHERE org_id = sqlc.arg(org_id) AND provider_config_id = sqlc.arg(provider_config_id);
+
+-- name: InsertModelProviderHeaderSecrets :exec
+INSERT INTO model_provider_header_secrets(org_id, provider_config_id, header_name, secret_id, management_kind)
+SELECT sqlc.arg(org_id), sqlc.arg(provider_config_id), header.key, header.value::uuid, sqlc.arg(management_kind)
+FROM jsonb_each_text(sqlc.arg(secret_headers)::jsonb) header;
+
+-- name: DeleteOrganizationModelProviderHeaderSecrets :exec
+DELETE FROM model_provider_header_secrets WHERE org_id = sqlc.arg(org_id);
 
 -- name: InsertConfiguredModel :one
 WITH ids AS (

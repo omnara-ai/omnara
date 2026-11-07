@@ -69,7 +69,12 @@ function conversations(currentIntegration: Integration = integration, canManage 
   )
 }
 function render(api: ReturnType<typeof fakeApi>, content = conversations()) {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
+  // These component tests exercise final API failures and explicit user retries.
+  const client = createOmnaraClient({
+    baseUrl: 'https://omnara.test/api/v1',
+    fetch: api.fetch,
+    maxRetries: 0,
+  })
   const cache = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
   })

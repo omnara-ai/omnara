@@ -51,6 +51,48 @@ func (s *Store) GetToolCall(
 	return toolCallRecordFromGetSQLC(row), nil
 }
 
+func (s *Store) GetToolCallSummary(
+	ctx context.Context,
+	projectID, agentID, id uuid.UUID,
+) (ToolCallSummary, error) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
+		return ToolCallSummary{}, errors.New("project, agent, and tool call id are required")
+	}
+	row, err := s.q.GetToolCallSummary(ctx, dbsqlc.GetToolCallSummaryParams{
+		ProjectID: projectID, AgentID: agentID, ID: id,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ToolCallSummary{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return ToolCallSummary{}, fmt.Errorf("get tool call summary: %w", err)
+	}
+	return ToolCallSummary{
+		ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
+		Name: row.Name, Input: row.Input, Type: row.Type, State: ToolCallState(row.State),
+		Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+	}, nil
+}
+
+func (s *Store) GetToolCallStatus(
+	ctx context.Context,
+	projectID, agentID, id uuid.UUID,
+) (ToolCallStatus, error) {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
+		return ToolCallStatus{}, errors.New("project, agent, and tool call id are required")
+	}
+	row, err := s.q.GetToolCallStatus(ctx, dbsqlc.GetToolCallStatusParams{
+		ProjectID: projectID, AgentID: agentID, ID: id,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ToolCallStatus{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return ToolCallStatus{}, fmt.Errorf("get tool call status: %w", err)
+	}
+	return ToolCallStatus{Type: row.Type, State: ToolCallState(row.State)}, nil
+}
+
 func (s *Store) GetCustomToolCallInput(
 	ctx context.Context,
 	projectID, agentID, id uuid.UUID,

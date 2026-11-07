@@ -1,5 +1,6 @@
 import * as z from 'zod'
 
+import { forwardAbort } from './abort'
 import type { OmnaraClient } from './client'
 import { ApiError, type ApiErrorCode, zErrorResponse } from './errors'
 import type {
@@ -125,8 +126,8 @@ async function* openConnection(
   callerSignal: AbortSignal | undefined,
 ): AsyncGenerator<ConnectionEvent, never> {
   const attempt = new AbortController()
-  const signal =
-    callerSignal == null ? attempt.signal : AbortSignal.any([callerSignal, attempt.signal])
+  const disposeCaller = forwardAbort(callerSignal, attempt)
+  const { signal } = attempt
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   try {
     const dispatch = { started: false }
@@ -197,7 +198,9 @@ async function* openConnection(
       ? error
       : streamError('transport', 'Agent event stream disconnected', { cause: error })
   } finally {
+    disposeCaller()
     await reader?.cancel().catch(() => undefined)
+    reader?.releaseLock()
   }
 }
 

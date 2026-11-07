@@ -38,6 +38,24 @@ LEFT JOIN LATERAL (
     AND block.owner_tool_call_result_id = result.id
 ) result_blocks ON true;
 
+-- name: GetToolCallSummary :one
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
+  call.name, call.input, call.type, call.state,
+  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at
+FROM tool_call_read_projection call
+LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
+  AND result.tool_call_id = call.id
+WHERE call.project_id = sqlc.arg(project_id)
+  AND call.agent_id = sqlc.arg(agent_id)
+  AND call.id = sqlc.arg(id);
+
+-- name: GetToolCallStatus :one
+SELECT type, state
+FROM tool_calls
+WHERE project_id = sqlc.arg(project_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND id = sqlc.arg(id);
+
 -- name: GetCustomToolCallInput :one
 SELECT tool_call.name, tool_call.input
 FROM tool_calls tool_call
@@ -128,12 +146,10 @@ WITH page AS (
       FROM agents agent
       WHERE agent.id = tool_call.agent_id
     )
-    AND (
-      sqlc.narg(cursor_created_at)::timestamptz IS NULL
-      OR (tool_call.created_at, tool_call.id) > (
-        sqlc.narg(cursor_created_at)::timestamptz,
-        sqlc.narg(cursor_id)::uuid
-      )
+    -- Keep the cursor indexable when PostgreSQL uses a generic prepared plan.
+    AND (tool_call.created_at, tool_call.id) > (
+      coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
+      coalesce(sqlc.narg(cursor_id)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
     )
   ORDER BY tool_call.created_at ASC, tool_call.id ASC
   LIMIT sqlc.arg(row_limit)::bigint

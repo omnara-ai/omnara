@@ -65,7 +65,9 @@ Provider timeouts apply to each attempt, including reasoning and response stream
 
 Edit these settings in the provider dialog or through the API. Existing total deadlines are retained on upgrade.
 
-Use `headers` to send extra HTTP headers with every request to the provider, and `secret_headers` to take a header's value from a [secret](/organization/secrets); put keys and tokens in `secret_headers`. Set both in the provider dialog or through the API. If a referenced secret is deleted, requests omit that header.
+Use `headers` to send extra HTTP headers with every request to the provider, and `secret_headers` to take a header's value from a [secret](/organization/secrets); put keys and tokens in `secret_headers`. Set both in the provider dialog or through the API. Provider credentials and header secrets are durable references: remove or replace them in the provider configuration before deleting the secret. If a required header secret is unavailable at request time, Omnara returns a configuration error and sends no request to the provider.
+
+Configuration updates validate every retained secret reference. If an older configuration references an unavailable secret, the API returns `400 invalid_request` naming `credential_secret_id` or the affected `secret_headers` entry, even when updating another setting. Replace the credential or replace/remove the header reference to repair the configuration.
 
 ## Configure models
 

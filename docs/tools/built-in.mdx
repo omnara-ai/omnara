@@ -353,6 +353,8 @@ Reads a subagent's timeline by `agent_id`, including its current status, message
 
 Without `turn_id` it returns the newest turns first, each with its opening events, latest event, and latest semantic event; `before_turn_sequence` pages older turns and `limit` defaults to 10. With `turn_id` it returns the latest page of that turn's events, oldest first; `before_sequence` pages older events and `limit` defaults to 20. Each result carries `next_before_turn_sequence` or `next_before_sequence` for the next page, or `null` when there are no older results.
 
+Each event's content appears once in a turn summary. `latest_event` is omitted when it is already in `opening_events`; `latest_semantic_event` is omitted when it is already in either field.
+
 ### `send_agent_message`
 
 Delivers `message` to the subagent identified by `agent_id` as a steering input. The subagent reads it once its current model call and tool batch finish, so running work is not stopped, but any open question or permission request is canceled. Parents cannot answer a subagent's questions; those wait for a human. The reply arrives as a message from the subagent.

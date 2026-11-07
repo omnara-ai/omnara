@@ -126,7 +126,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 export function render(api: FakeApi, node: ReactNode) {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
+  // These component tests exercise final API failures and explicit user retries.
+  const client = createOmnaraClient({
+    baseUrl: 'https://omnara.test/api/v1',
+    fetch: api.fetch,
+    maxRetries: 0,
+  })
   const router = createRouter({ routeTree: createRootRoute(), history: createMemoryHistory() })
   const rerender = (content: ReactNode) => {
     act(() => {

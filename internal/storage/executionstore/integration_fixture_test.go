@@ -186,7 +186,7 @@ func getProjectMachineGrantByMachineForTest(
 	var poolGrantID *uuid.UUID
 	if err := store.pool.QueryRow(ctx, `
 SELECT id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id,
-       description, coalesce(idempotency_key, ''), metadata, created_at, updated_at
+       description, metadata, created_at, updated_at
 FROM project_machine_grants
 WHERE org_id = $1 AND project_id = $2 AND machine_id = $3
 ORDER BY created_at DESC, id DESC
@@ -194,7 +194,6 @@ LIMIT 1
 `, orgID, projectID, machineID).Scan(
 		&grant.ID, &grant.OrgID, &grant.ProjectID, &grant.MachineID,
 		&grant.SourceKind, &poolGrantID, &grant.Description,
-		&grant.IdempotencyKey,
 		&grant.Metadata, &grant.CreatedAt, &grant.UpdatedAt,
 	); err != nil {
 		t.Fatalf("load project machine grant for machine %s: %v", machineID, err)

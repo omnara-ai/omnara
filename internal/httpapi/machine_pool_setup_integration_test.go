@@ -1000,16 +1000,19 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 		http.StatusNoContent,
 		authHeaders(project.AdminToken),
 	)
-	requestJSONWithHeaders(
+	archivedReplay := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/machine-pool-grants",
 		archivedGrantBody,
 		"idem-archived-pool-grant-replay",
-		http.StatusNotFound,
+		http.StatusConflict,
 		authHeaders(project.AdminToken),
 	)
+	if archivedReplay["code"] != "idempotency_key_conflict" {
+		t.Fatalf("deleted pool grant must retain its consumed creation key: %+v", archivedReplay)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,

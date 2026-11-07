@@ -46,13 +46,6 @@ JOIN orgs org ON org.id = webhook.org_id AND org.deleted_at IS NULL
 JOIN projects project ON project.id = webhook.project_id AND project.deleted_at IS NULL
 WHERE webhook.project_id = $1 AND webhook.id = $2 AND webhook.deleted_at IS NULL;
 
--- name: GetEventWebhookForUpdate :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
-       created_at, updated_at, deleted_at
-FROM event_webhooks
-WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
-FOR UPDATE;
-
 -- name: ListEventWebhooks :many
 SELECT id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
           created_at, updated_at, deleted_at FROM event_webhooks
@@ -69,13 +62,17 @@ RETURNING id, org_id, project_id, agent_profile_id, agent_id, url, event_types, 
           created_at, updated_at, deleted_at;
 
 -- name: DeleteEventWebhook :execrows
-UPDATE event_webhooks SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+UPDATE event_webhooks SET deleted_at = statement_timestamp(), signing_secret_id = NULL, updated_at = statement_timestamp()
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL;
 
 -- name: DeleteEventWebhooksForAgentProfile :exec
-UPDATE event_webhooks SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+UPDATE event_webhooks SET deleted_at = statement_timestamp(), signing_secret_id = NULL, updated_at = statement_timestamp()
 WHERE project_id = $1 AND agent_profile_id = $2 AND deleted_at IS NULL;
 
+
+-- name: DeleteEventWebhooksForProject :exec
+UPDATE event_webhooks SET deleted_at = statement_timestamp(), signing_secret_id = NULL, updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
 -- name: EnqueueEventWebhookDelivery :exec
 INSERT INTO event_webhook_deliveries (org_id, webhook_id, agent_id, event_sequence, tool_call_id, tool_state, interaction_update)

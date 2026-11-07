@@ -25,6 +25,7 @@ export {
   type CustomToolCheckResult,
   type CustomToolHandler,
   type CustomToolHandlerResult,
+  type CustomToolObservation,
   type CustomToolOperationOptions,
   type CustomToolOutcome,
   type CustomToolWorker,
@@ -55,3 +56,4 @@ export {
   profileIntegrationProfileUpdate,
   profileIntegrationSetup,
 } from './profile-integration'
+export type { RequestObservation, RequestPolicyOptions } from './request-policy-options'

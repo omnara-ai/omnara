@@ -92,38 +92,76 @@ You can also configure an [Event webhook](/agents/configuration#event-webhooks) 
 
 The SDK's `createCustomToolWorker` connects tool functions to this workflow.
 Choose a project, optionally an agent profile, and register the functions you
-handle. The helper uses inputs supplied by authenticated events and list pages,
-fetching a call only when its input was omitted. It submits results, retries
+handle. Before starting a handler from a webhook or SSE notification, it fetches
+the call and checks that it is still ready. This skips notifications for calls
+that have already completed or been canceled. Recovery reserves execution slots
+before listing calls, then starts those calls directly from the fresh page;
+it does not fetch each call again. The helper submits results, retries
 temporary API failures, and retains finished results in memory when submission
 fails. Its optional `run()` loop starts recovery immediately and repeats while
 running. Large scans continue across passes so older deferred jobs cannot hide
 newer calls.
 
 Use `handle(update)` inside a queue job, or `check()` in a scheduled task.
-`check()` processes one page and returns `nextCursor`; follow that cursor to
-finish the pass. For time-limited jobs, save the cursor after each completed
-page and resume it on the next invocation; restart from the beginning only
-after reaching the end. Both methods accept a per-operation `signal`, for example
-`AbortSignal.timeout(25_000)`, without shutting down the helper. API requests
-make at most three attempts within a 30-second budget, honoring `Retry-After`.
-Use `requestTimeoutMs` to allow more time for large result uploads.
+`check()` processes up to `limit` rows (50 by default, at most 100) using reads
+sized to available capacity and returns `nextCursor`; follow that cursor to
+finish the pass. If retained results occupy all slots, it returns `blocked: true`
+without advancing past unread calls. Save that cursor and retry later; a blocked
+check with a null cursor resumes from the beginning. Otherwise a null cursor
+means the pass reached its end. For time-limited jobs, save the cursor after each
+successful check and resume it on the next invocation. If a check is aborted or
+a listing request fails, it rejects; keep the previously saved cursor. Choose a
+small enough `limit` to finish a check within the job's deadline. Both methods accept a per-operation `signal`, for example
+`AbortSignal.timeout(25_000)`, without shutting down the helper. API requests use
+the client's retry policy (two retries by default) within a 30-second budget,
+honoring `Retry-After`. Set `maxRetries` on the client to change the retry count,
+and `requestTimeoutMs` on the helper to allow more time for large result uploads.
 A retry that cannot fit in the budget returns an error instead of waiting or
 retrying early. Tool functions receive cancellation through their `signal` and
 must cooperate with it; JavaScript cannot forcibly stop a running function.
+
+When submitting results directly through the SDK, a lost successful response
+can be followed by `409 tool_call_already_completed` on retry. That confirms
+the call has finished, but does not identify whose result completed it. The
+helper treats this response as completed.
+
+Finished results remain in memory after access errors (including a `404` that
+can hide an inaccessible project) and unknown submission failures. Recovery
+retries the same result without invoking the handler again. An explicit
+already-completed response settles the call; a not-ready conflict releases the
+result. Invalid results are replaced with a generic failure once, and a rejected
+fallback is remembered locally to avoid repeatedly executing the same tool.
+Retained results count toward concurrency. An unrecognized permanent failure
+can therefore fill the worker until it is resolved; `onError` and capacity
+observations make that condition visible.
 
 Tools that finish later can return `{ outcome: 'deferred' }`. This submits no
 result and releases the execution slot. A later event or recovery check invokes
 the function again, so it can check the application's durable job and return its
 saved result when ready. Start that job idempotently using the tool-call ID.
-Enable `run()` or schedule `check()` to revisit deferred calls; webhook handling
-alone does not poll them. The application can also submit the result directly
-when its job completes. It owns cancellation of jobs after their handlers return.
+Enable `run()` or schedule `check()` to revisit deferred calls and notifications
+that returned `busy` because all slots were occupied or reserved. Webhook handling
+alone does not revisit either; a durable queue can instead retry `busy` jobs.
+The application can also submit the result directly
+when its job completes; prefer this for long jobs, with recovery as a backstop.
+It owns cancellation of jobs after their handlers return. Run one recovery loop
+per project or partition loops by agent profile to avoid overlapping scans.
+Each pass revisits deferred calls. The loop's 60-second interval does not mean
+every call in a large backlog is revisited within 60 seconds.
 
 Unexpected handler errors produce a generic failed tool result; the original
 error goes only to `onError`. Return an explicit failed result when you intend
 the model to see a particular explanation. `onError` receives the call when one
 is involved, or `undefined` for a recovery-listing failure. `run()` reports
 listing failures and keeps checking on later passes until shut down.
+
+The optional `onObserve` hook reports local admission, readiness, handler,
+submission, capacity, and recovery observations. It distinguishes a failed tool
+result from failed delivery of that result. Observations contain no resource
+IDs, tool names, inputs, or results. Record cheap local counters and timings;
+the SDK sends no telemetry and ignores observer failures. Recovery page counts
+and scan duration show discovery cost, which grows with the backlog even when
+many calls are deferred or already running locally.
 
 Webhooks and SSE include the emitting agent's organization, project, agent ID,
 and nullable profile ID, plus its parent and root agent IDs. The parent is
@@ -137,8 +175,9 @@ Events can arrive late or more than once. The helper joins concurrent attempts
 for the same call and remembers the most recent 1,000 completed or permanently
 rejected call IDs. This is a bounded local optimization, not an execution
 guarantee across instances or restarts. A `completed` event signals an active
-handler to stop; cancellation
-cannot undo work already performed. Use the tool-call ID as an idempotency key
+handler to stop on the instance receiving it. The readiness read cannot prevent
+cancellation immediately afterward, and two workers can both read `ready`.
+Cancellation cannot undo work already performed. Use the tool-call ID as an idempotency key
 when a tool changes external state.
 
 See the [complete example](https://github.com/omnara-ai/omnara/tree/main/examples/custom-tool-webhook)

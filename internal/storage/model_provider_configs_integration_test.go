@@ -56,15 +56,15 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project credential: %v", err)
 	}
-	if _, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+	_, err = store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
 		OrgID:              testOrgID,
 		Name:               "project-secret-should-not-work",
 		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
 		BaseURL:            "https://api.openai.com/v1",
 		CredentialSecretID: projectSecret.ID,
-	}); err == nil {
-		t.Fatal("project-owned secret should not be accepted as provider config credential")
-	}
+	})
+	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+	require.ErrorContains(t, err, "credential_secret_id")
 	oauthSecret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:     testOrgID,
 		OwnerKind: secretstore.SecretOwnerOrg,

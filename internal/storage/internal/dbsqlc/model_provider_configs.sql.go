@@ -99,7 +99,7 @@ WHERE model_provider_configs.org_id = $1
   )
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
           request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, secret_headers
+          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, '{}'::jsonb AS secret_headers
 `
 
 type DeleteModelProviderConfigParams struct {
@@ -107,10 +107,31 @@ type DeleteModelProviderConfigParams struct {
 	ID    uuid.UUID
 }
 
+type DeleteModelProviderConfigRow struct {
+	ID                 uuid.UUID
+	OrgID              uuid.UUID
+	ManagementKind     string
+	Name               string
+	ApiFormat          string
+	ApiVariant         string
+	BaseUrl            string
+	EndpointPath       string
+	RequestTimeoutMs   int32
+	AuthKind           string
+	AuthOptions        json.RawMessage
+	CredentialSecretID *uuid.UUID
+	DeletedAt          *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	IdleTimeoutMs      int32
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
+}
+
 // Clearing the credential releases the secret for deletion.
-func (q *Queries) DeleteModelProviderConfig(ctx context.Context, arg DeleteModelProviderConfigParams) (ModelProviderConfig, error) {
+func (q *Queries) DeleteModelProviderConfig(ctx context.Context, arg DeleteModelProviderConfigParams) (DeleteModelProviderConfigRow, error) {
 	row := q.db.QueryRow(ctx, deleteModelProviderConfig, arg.OrgID, arg.ID)
-	var i ModelProviderConfig
+	var i DeleteModelProviderConfigRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -132,6 +153,34 @@ func (q *Queries) DeleteModelProviderConfig(ctx context.Context, arg DeleteModel
 		&i.SecretHeaders,
 	)
 	return i, err
+}
+
+const deleteModelProviderHeaderSecrets = `-- name: DeleteModelProviderHeaderSecrets :exec
+DELETE FROM model_provider_header_secrets
+WHERE org_id = $1 AND provider_config_id = $2
+`
+
+type DeleteModelProviderHeaderSecretsParams struct {
+	OrgID            uuid.UUID
+	ProviderConfigID uuid.UUID
+}
+
+func (q *Queries) DeleteModelProviderHeaderSecrets(ctx context.Context, arg DeleteModelProviderHeaderSecretsParams) error {
+	_, err := q.db.Exec(ctx, deleteModelProviderHeaderSecrets, arg.OrgID, arg.ProviderConfigID)
+	return err
+}
+
+const deleteOrganizationModelProviderHeaderSecrets = `-- name: DeleteOrganizationModelProviderHeaderSecrets :exec
+DELETE FROM model_provider_header_secrets WHERE org_id = $1
+`
+
+type DeleteOrganizationModelProviderHeaderSecretsParams struct {
+	OrgID uuid.UUID
+}
+
+func (q *Queries) DeleteOrganizationModelProviderHeaderSecrets(ctx context.Context, arg DeleteOrganizationModelProviderHeaderSecretsParams) error {
+	_, err := q.db.Exec(ctx, deleteOrganizationModelProviderHeaderSecrets, arg.OrgID)
+	return err
 }
 
 const deleteProjectModelGrant = `-- name: DeleteProjectModelGrant :one
@@ -682,14 +731,16 @@ func (q *Queries) GetConfiguredModelRevisionForUse(ctx context.Context, arg GetC
 }
 
 const getModelProviderConfig = `-- name: GetModelProviderConfig :one
-SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-       request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at,
-       created_at, updated_at, idle_timeout_ms, headers, secret_headers
-FROM model_provider_configs
-WHERE org_id = $1
-  AND id = $2
-  AND deleted_at IS NULL
+SELECT config.id, config.org_id, config.management_kind, config.name, config.api_format, config.api_variant, config.base_url, config.endpoint_path,
+       config.request_timeout_ms, config.auth_kind, config.auth_options, config.credential_secret_id, config.deleted_at,
+       config.created_at, config.updated_at, config.idle_timeout_ms, config.headers,
+       coalesce((SELECT jsonb_object_agg(header.header_name, header.secret_id)
+         FROM model_provider_header_secrets header
+         WHERE header.org_id = config.org_id AND header.provider_config_id = config.id), '{}'::jsonb)::jsonb AS secret_headers
+FROM model_provider_configs config
+WHERE config.org_id = $1
+  AND config.id = $2
+  AND config.deleted_at IS NULL
 `
 
 type GetModelProviderConfigParams struct {
@@ -697,9 +748,30 @@ type GetModelProviderConfigParams struct {
 	ID    uuid.UUID
 }
 
-func (q *Queries) GetModelProviderConfig(ctx context.Context, arg GetModelProviderConfigParams) (ModelProviderConfig, error) {
+type GetModelProviderConfigRow struct {
+	ID                 uuid.UUID
+	OrgID              uuid.UUID
+	ManagementKind     string
+	Name               string
+	ApiFormat          string
+	ApiVariant         string
+	BaseUrl            string
+	EndpointPath       string
+	RequestTimeoutMs   int32
+	AuthKind           string
+	AuthOptions        json.RawMessage
+	CredentialSecretID *uuid.UUID
+	DeletedAt          *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	IdleTimeoutMs      int32
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
+}
+
+func (q *Queries) GetModelProviderConfig(ctx context.Context, arg GetModelProviderConfigParams) (GetModelProviderConfigRow, error) {
 	row := q.db.QueryRow(ctx, getModelProviderConfig, arg.OrgID, arg.ID)
-	var i ModelProviderConfig
+	var i GetModelProviderConfigRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -724,14 +796,16 @@ func (q *Queries) GetModelProviderConfig(ctx context.Context, arg GetModelProvid
 }
 
 const getModelProviderConfigByName = `-- name: GetModelProviderConfigByName :one
-SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-       request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at,
-       created_at, updated_at, idle_timeout_ms, headers, secret_headers
-FROM model_provider_configs
-WHERE org_id = $1
-  AND name = $2
-  AND deleted_at IS NULL
+SELECT config.id, config.org_id, config.management_kind, config.name, config.api_format, config.api_variant, config.base_url, config.endpoint_path,
+       config.request_timeout_ms, config.auth_kind, config.auth_options, config.credential_secret_id, config.deleted_at,
+       config.created_at, config.updated_at, config.idle_timeout_ms, config.headers,
+       coalesce((SELECT jsonb_object_agg(header.header_name, header.secret_id)
+         FROM model_provider_header_secrets header
+         WHERE header.org_id = config.org_id AND header.provider_config_id = config.id), '{}'::jsonb)::jsonb AS secret_headers
+FROM model_provider_configs config
+WHERE config.org_id = $1
+  AND config.name = $2
+  AND config.deleted_at IS NULL
 `
 
 type GetModelProviderConfigByNameParams struct {
@@ -739,9 +813,30 @@ type GetModelProviderConfigByNameParams struct {
 	Name  string
 }
 
-func (q *Queries) GetModelProviderConfigByName(ctx context.Context, arg GetModelProviderConfigByNameParams) (ModelProviderConfig, error) {
+type GetModelProviderConfigByNameRow struct {
+	ID                 uuid.UUID
+	OrgID              uuid.UUID
+	ManagementKind     string
+	Name               string
+	ApiFormat          string
+	ApiVariant         string
+	BaseUrl            string
+	EndpointPath       string
+	RequestTimeoutMs   int32
+	AuthKind           string
+	AuthOptions        json.RawMessage
+	CredentialSecretID *uuid.UUID
+	DeletedAt          *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	IdleTimeoutMs      int32
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
+}
+
+func (q *Queries) GetModelProviderConfigByName(ctx context.Context, arg GetModelProviderConfigByNameParams) (GetModelProviderConfigByNameRow, error) {
 	row := q.db.QueryRow(ctx, getModelProviderConfigByName, arg.OrgID, arg.Name)
-	var i ModelProviderConfig
+	var i GetModelProviderConfigByNameRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -966,12 +1061,12 @@ const insertModelProviderConfig = `-- name: InsertModelProviderConfig :one
 INSERT INTO model_provider_configs(
   org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
   request_timeout_ms, idle_timeout_ms, auth_kind, auth_options, credential_secret_id,
-  headers, secret_headers, created_at, updated_at
+  headers, created_at, updated_at
 )
 SELECT org.id, $1, $2, $3, $4,
        $5, $6,
        $7, $8, $9, $10,
-       $11, $12, $13,
+       $11, $12,
        transaction_timestamp(), transaction_timestamp()
 FROM orgs org
 JOIN secrets credential ON credential.org_id = org.id
@@ -979,10 +1074,10 @@ JOIN secrets credential ON credential.org_id = org.id
   AND credential.deleted_at IS NULL
   AND credential.management_kind = $1
   AND credential.owner_kind = 'org'
-WHERE org.id = $14
+WHERE org.id = $13
 RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
           request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, secret_headers
+          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, $14::jsonb AS secret_headers
 `
 
 type InsertModelProviderConfigParams struct {
@@ -998,11 +1093,32 @@ type InsertModelProviderConfigParams struct {
 	AuthOptions        json.RawMessage
 	CredentialSecretID *uuid.UUID
 	Headers            json.RawMessage
-	SecretHeaders      json.RawMessage
 	OrgID              uuid.UUID
+	SecretHeaders      json.RawMessage
 }
 
-func (q *Queries) InsertModelProviderConfig(ctx context.Context, arg InsertModelProviderConfigParams) (ModelProviderConfig, error) {
+type InsertModelProviderConfigRow struct {
+	ID                 uuid.UUID
+	OrgID              uuid.UUID
+	ManagementKind     string
+	Name               string
+	ApiFormat          string
+	ApiVariant         string
+	BaseUrl            string
+	EndpointPath       string
+	RequestTimeoutMs   int32
+	AuthKind           string
+	AuthOptions        json.RawMessage
+	CredentialSecretID *uuid.UUID
+	DeletedAt          *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	IdleTimeoutMs      int32
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
+}
+
+func (q *Queries) InsertModelProviderConfig(ctx context.Context, arg InsertModelProviderConfigParams) (InsertModelProviderConfigRow, error) {
 	row := q.db.QueryRow(ctx, insertModelProviderConfig,
 		arg.ManagementKind,
 		arg.Name,
@@ -1016,10 +1132,10 @@ func (q *Queries) InsertModelProviderConfig(ctx context.Context, arg InsertModel
 		arg.AuthOptions,
 		arg.CredentialSecretID,
 		arg.Headers,
-		arg.SecretHeaders,
 		arg.OrgID,
+		arg.SecretHeaders,
 	)
-	var i ModelProviderConfig
+	var i InsertModelProviderConfigRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -1041,6 +1157,29 @@ func (q *Queries) InsertModelProviderConfig(ctx context.Context, arg InsertModel
 		&i.SecretHeaders,
 	)
 	return i, err
+}
+
+const insertModelProviderHeaderSecrets = `-- name: InsertModelProviderHeaderSecrets :exec
+INSERT INTO model_provider_header_secrets(org_id, provider_config_id, header_name, secret_id, management_kind)
+SELECT $1, $2, header.key, header.value::uuid, $3
+FROM jsonb_each_text($4::jsonb) header
+`
+
+type InsertModelProviderHeaderSecretsParams struct {
+	OrgID            uuid.UUID
+	ProviderConfigID uuid.UUID
+	ManagementKind   string
+	SecretHeaders    json.RawMessage
+}
+
+func (q *Queries) InsertModelProviderHeaderSecrets(ctx context.Context, arg InsertModelProviderHeaderSecretsParams) error {
+	_, err := q.db.Exec(ctx, insertModelProviderHeaderSecrets,
+		arg.OrgID,
+		arg.ProviderConfigID,
+		arg.ManagementKind,
+		arg.SecretHeaders,
+	)
+	return err
 }
 
 const insertProjectModelGrant = `-- name: InsertProjectModelGrant :one
@@ -1132,29 +1271,53 @@ func (q *Queries) InsertProjectModelGrant(ctx context.Context, arg InsertProject
 }
 
 const listClusterManagedModelProviderConfigsByName = `-- name: ListClusterManagedModelProviderConfigsByName :many
-SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-       request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, secret_headers
-FROM model_provider_configs
-WHERE name = $1
-  AND management_kind = 'cluster'
-  AND deleted_at IS NULL
-ORDER BY org_id, id
+SELECT config.id, config.org_id, config.management_kind, config.name, config.api_format, config.api_variant, config.base_url, config.endpoint_path,
+       config.request_timeout_ms, config.auth_kind, config.auth_options, config.credential_secret_id, config.deleted_at,
+       config.created_at, config.updated_at, config.idle_timeout_ms, config.headers,
+       coalesce((SELECT jsonb_object_agg(header.header_name, header.secret_id)
+         FROM model_provider_header_secrets header
+         WHERE header.org_id = config.org_id AND header.provider_config_id = config.id), '{}'::jsonb)::jsonb AS secret_headers
+FROM model_provider_configs config
+WHERE config.name = $1
+  AND config.management_kind = 'cluster'
+  AND config.deleted_at IS NULL
+ORDER BY config.org_id, config.id
 `
 
 type ListClusterManagedModelProviderConfigsByNameParams struct {
 	Name string
 }
 
-func (q *Queries) ListClusterManagedModelProviderConfigsByName(ctx context.Context, arg ListClusterManagedModelProviderConfigsByNameParams) ([]ModelProviderConfig, error) {
+type ListClusterManagedModelProviderConfigsByNameRow struct {
+	ID                 uuid.UUID
+	OrgID              uuid.UUID
+	ManagementKind     string
+	Name               string
+	ApiFormat          string
+	ApiVariant         string
+	BaseUrl            string
+	EndpointPath       string
+	RequestTimeoutMs   int32
+	AuthKind           string
+	AuthOptions        json.RawMessage
+	CredentialSecretID *uuid.UUID
+	DeletedAt          *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	IdleTimeoutMs      int32
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
+}
+
+func (q *Queries) ListClusterManagedModelProviderConfigsByName(ctx context.Context, arg ListClusterManagedModelProviderConfigsByNameParams) ([]ListClusterManagedModelProviderConfigsByNameRow, error) {
 	rows, err := q.db.Query(ctx, listClusterManagedModelProviderConfigsByName, arg.Name)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ModelProviderConfig{}
+	items := []ListClusterManagedModelProviderConfigsByNameRow{}
 	for rows.Next() {
-		var i ModelProviderConfig
+		var i ListClusterManagedModelProviderConfigsByNameRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -1300,22 +1463,25 @@ const listModelProviderConfigs = `-- name: ListModelProviderConfigs :many
 WITH listed AS (
  SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
         request_timeout_ms, auth_kind, auth_options,
-        credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, secret_headers,
+        credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers,
         CASE $6::text
           WHEN 'name' THEN lower(name)
           WHEN 'created_at' THEN to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
           WHEN 'updated_at' THEN to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
         END::text AS sort_key,
         false AS sort_is_null
- FROM model_provider_configs
- WHERE org_id = $7
+ FROM model_provider_configs config
+ WHERE config.org_id = $7
    AND deleted_at IS NULL
    AND ($8::text = '' OR name ILIKE $8::text ESCAPE '\')
 )
-SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-       request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, secret_headers,
-       sort_key, sort_is_null
+SELECT listed.id, listed.org_id, listed.management_kind, listed.name, listed.api_format, listed.api_variant, listed.base_url, listed.endpoint_path,
+       listed.request_timeout_ms, listed.auth_kind, listed.auth_options,
+       listed.credential_secret_id, listed.deleted_at, listed.created_at, listed.updated_at, listed.idle_timeout_ms, listed.headers,
+       coalesce((SELECT jsonb_object_agg(header.header_name, header.secret_id)
+         FROM model_provider_header_secrets header
+         WHERE header.org_id = listed.org_id AND header.provider_config_id = listed.id), '{}'::jsonb)::jsonb AS secret_headers,
+       listed.sort_key, listed.sort_is_null
 FROM listed
 WHERE $1::boolean = false
    OR ($2::boolean = false AND (sort_key, id) > ($3::text, $4::uuid))
@@ -1778,7 +1944,7 @@ const lockModelProviderConfigForMutation = `-- name: LockModelProviderConfigForM
 SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
        request_timeout_ms, auth_kind, auth_options,
        credential_secret_id, deleted_at,
-       created_at, updated_at, idle_timeout_ms, headers, secret_headers
+       created_at, updated_at, idle_timeout_ms, headers
 FROM model_provider_configs
 WHERE org_id = $1
   AND id = $2
@@ -1812,7 +1978,6 @@ func (q *Queries) LockModelProviderConfigForMutation(ctx context.Context, arg Lo
 		&i.UpdatedAt,
 		&i.IdleTimeoutMs,
 		&i.Headers,
-		&i.SecretHeaders,
 	)
 	return i, err
 }
@@ -2110,13 +2275,12 @@ SET base_url = $1,
     auth_options = $6,
     credential_secret_id = $7,
     headers = $8,
-    secret_headers = $9,
     updated_at = statement_timestamp()
 FROM secrets credential
-WHERE config.org_id = $10
-  AND config.id = $11
+WHERE config.org_id = $9
+  AND config.id = $10
   AND config.deleted_at IS NULL
-  AND config.management_kind = $12
+  AND config.management_kind = $11
   AND credential.org_id = config.org_id
   AND credential.id = $7
   AND credential.deleted_at IS NULL
@@ -2128,7 +2292,7 @@ RETURNING config.id, config.org_id, config.management_kind,
           config.request_timeout_ms, config.auth_kind,
           config.auth_options, config.credential_secret_id, config.deleted_at,
           config.created_at, config.updated_at, config.idle_timeout_ms,
-          config.headers, config.secret_headers
+          config.headers, $12::jsonb AS secret_headers
 `
 
 type UpdateModelProviderConfigParams struct {
@@ -2140,13 +2304,34 @@ type UpdateModelProviderConfigParams struct {
 	AuthOptions        json.RawMessage
 	CredentialSecretID *uuid.UUID
 	Headers            json.RawMessage
-	SecretHeaders      json.RawMessage
 	OrgID              uuid.UUID
 	ID                 uuid.UUID
 	ManagementKind     string
+	SecretHeaders      json.RawMessage
 }
 
-func (q *Queries) UpdateModelProviderConfig(ctx context.Context, arg UpdateModelProviderConfigParams) (ModelProviderConfig, error) {
+type UpdateModelProviderConfigRow struct {
+	ID                 uuid.UUID
+	OrgID              uuid.UUID
+	ManagementKind     string
+	Name               string
+	ApiFormat          string
+	ApiVariant         string
+	BaseUrl            string
+	EndpointPath       string
+	RequestTimeoutMs   int32
+	AuthKind           string
+	AuthOptions        json.RawMessage
+	CredentialSecretID *uuid.UUID
+	DeletedAt          *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	IdleTimeoutMs      int32
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
+}
+
+func (q *Queries) UpdateModelProviderConfig(ctx context.Context, arg UpdateModelProviderConfigParams) (UpdateModelProviderConfigRow, error) {
 	row := q.db.QueryRow(ctx, updateModelProviderConfig,
 		arg.BaseUrl,
 		arg.EndpointPath,
@@ -2156,12 +2341,12 @@ func (q *Queries) UpdateModelProviderConfig(ctx context.Context, arg UpdateModel
 		arg.AuthOptions,
 		arg.CredentialSecretID,
 		arg.Headers,
-		arg.SecretHeaders,
 		arg.OrgID,
 		arg.ID,
 		arg.ManagementKind,
+		arg.SecretHeaders,
 	)
-	var i ModelProviderConfig
+	var i UpdateModelProviderConfigRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,

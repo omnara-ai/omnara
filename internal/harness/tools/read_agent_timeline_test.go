@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,6 +147,74 @@ func TestReadAgentEmptyTimelinePages(t *testing.T) {
 	fields = readAgentJSONFields(t, readAgentStructuredValue(t, events))
 	require.JSONEq(t, `[]`, string(fields["events"]))
 	require.JSONEq(t, `null`, string(fields["next_before_sequence"]))
+}
+
+func TestReadAgentTurnSummaryIncludesEachEventOnce(t *testing.T) {
+	opening := readAgentEventFixture("agent_input")
+	opening.ContentBlocks = json.RawMessage(`[{"type":"text","text":"Opening request"}]`)
+	answer := readAgentEventFixture("model_output")
+	answer.Sequence = opening.Sequence + 1
+	answer.ContentBlocks = json.RawMessage(`[{"type":"text","text":"Finished answer"}]`)
+	checkpoint := readAgentEventFixture("context_checkpoint")
+	checkpoint.Sequence = answer.Sequence + 1
+	status := executionstore.SubagentStatus{AgentID: opening.AgentID}
+	for _, test := range []struct {
+		name             string
+		latest, semantic executionstore.AgentEventReadRecord
+		wantLatest       bool
+	}{
+		{name: "only opening", latest: opening, semantic: opening},
+		{name: "answer is latest and semantic", latest: answer, semantic: answer, wantLatest: true},
+		{name: "checkpoint follows opening", latest: checkpoint, semantic: opening, wantLatest: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			turn := executionstore.AgentTurnReadRecord{
+				AgentTurnRecord: executionstore.AgentTurnRecord{ID: opening.TurnID, AgentID: opening.AgentID},
+				OpeningEvents:   []executionstore.AgentEventReadRecord{opening},
+				LatestEvent:     test.latest, LatestSemanticEvent: test.semantic,
+			}
+			content, err := readAgentTurnsContent(status, []executionstore.AgentTurnReadRecord{turn}, 10)
+			require.NoError(t, err)
+			value := readAgentStructuredValue(t, content)
+			var result struct {
+				Turns []map[string]json.RawMessage `json:"turns"`
+			}
+			require.NoError(t, json.Unmarshal(value, &result))
+			require.Len(t, result.Turns, 1)
+			_, hasLatest := result.Turns[0]["latest_event"]
+			require.Equal(t, test.wantLatest, hasLatest)
+			require.NotContains(t, result.Turns[0], "latest_semantic_event")
+			require.Equal(t, 1, strings.Count(string(value), "Opening request"))
+			if test.latest.ID == answer.ID {
+				require.Equal(t, 1, strings.Count(string(value), "Finished answer"))
+			}
+		})
+	}
+}
+
+func TestReadAgentTurnSummaryKeepsDistinctEventsWithIdenticalContent(t *testing.T) {
+	first := readAgentEventFixture("agent_input")
+	first.ContentBlocks = json.RawMessage(`[{"type":"text","text":"Repeated request"}]`)
+	second := first
+	second.ID = uuid.New()
+	second.Sequence++
+	turn, err := readAgentTurnFromRecord(executionstore.AgentTurnReadRecord{
+		AgentTurnRecord: executionstore.AgentTurnRecord{ID: first.TurnID, AgentID: first.AgentID},
+		OpeningEvents:   []executionstore.AgentEventReadRecord{first, second},
+		LatestEvent:     second, LatestSemanticEvent: second,
+	})
+	require.NoError(t, err)
+	require.Len(t, turn.OpeningEvents, 2)
+	require.Nil(t, turn.LatestEvent)
+	require.Nil(t, turn.LatestSemanticEvent)
+	fields := readAgentJSONFields(t, turn)
+	require.Equal(t, 2, strings.Count(string(fields["opening_events"]), "Repeated request"))
+	var events []struct {
+		Sequence int64 `json:"sequence"`
+	}
+	require.NoError(t, json.Unmarshal(fields["opening_events"], &events))
+	require.Equal(t, first.Sequence, events[0].Sequence)
+	require.Equal(t, second.Sequence, events[1].Sequence)
 }
 
 func readAgentEventFixture(kind string) executionstore.AgentEventReadRecord {

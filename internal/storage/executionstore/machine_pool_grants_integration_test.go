@@ -1647,8 +1647,7 @@ func TestProjectMachinePoolGrantDoesNotMaterializeMachineGrants(t *testing.T) {
 	if _, err := store.Execution().DeleteMachinePool(ctx, testOrgID, machinePool.ID); err != nil {
 		t.Fatalf("archive machine pool: %v", err)
 	}
-	// The pool grant was hard-deleted with the pool, freeing its idempotency
-	// key; recreating against the deleted pool fails on the pool itself.
+	// Pool cleanup removes authorization but preserves the consumed create key.
 	if _, err := store.Execution().CreateProjectMachinePoolGrant(
 		ctx,
 		executionstore.CreateProjectMachinePoolGrantInput{
@@ -1656,12 +1655,12 @@ func TestProjectMachinePoolGrantDoesNotMaterializeMachineGrants(t *testing.T) {
 			ProjectID:      testProjectID,
 			MachinePoolID:  machinePool.ID,
 			IdempotencyKey: "idem-pmpg-pool-grants",
-		}); !storeerr.IsNotFound(err) {
-		t.Fatalf("recreate pool grant after pool delete error = %v, want not found", err)
+		}); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
+		t.Fatalf("recreate pool grant after pool delete error = %v, want idempotency conflict", err)
 	}
 }
 
-func TestProjectMachinePoolGrantKeyFreedAfterDelete(t *testing.T) {
+func TestProjectMachinePoolGrantKeyConsumedAfterDelete(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -1705,12 +1704,15 @@ func TestProjectMachinePoolGrantKeyFreedAfterDelete(t *testing.T) {
 	); err != nil {
 		t.Fatalf("revoke pool grant: %v", err)
 	}
-	recreated, err := store.Execution().CreateProjectMachinePoolGrant(ctx, createInput)
-	if err != nil {
-		t.Fatalf("recreate pool grant after delete: %v", err)
+	if _, err := store.Execution().CreateProjectMachinePoolGrant(ctx, createInput); !errors.Is(
+		err, storeerr.ErrIdempotencyConflict,
+	) {
+		t.Fatalf("replay revoked pool grant: %v, want idempotency conflict", err)
 	}
-	if !recreated.Created || recreated.ID == poolGrant.ID {
-		t.Fatalf("hard-deleted grant should free its idempotency key, got %+v (original %s)", recreated, poolGrant.ID)
+	createInput.IdempotencyKey = "intentional-regrant"
+	recreated, err := store.Execution().CreateProjectMachinePoolGrant(ctx, createInput)
+	if err != nil || !recreated.Created || recreated.ID == poolGrant.ID {
+		t.Fatalf("regrant with new key = %+v, %v", recreated, err)
 	}
 }
 

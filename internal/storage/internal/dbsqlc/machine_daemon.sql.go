@@ -386,7 +386,7 @@ func (q *Queries) DeleteMachine(ctx context.Context, arg DeleteMachineParams) (D
 const deleteProjectMachineGrant = `-- name: DeleteProjectMachineGrant :one
 DELETE FROM project_machine_grants
 WHERE org_id = $1 AND project_id = $2 AND id = $3 AND source_kind = 'explicit'
-RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
+RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at
 `
 
 type DeleteProjectMachineGrantParams struct {
@@ -395,23 +395,9 @@ type DeleteProjectMachineGrantParams struct {
 	ID        uuid.UUID
 }
 
-type DeleteProjectMachineGrantRow struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	MachineID                 uuid.UUID
-	SourceKind                string
-	ProjectMachinePoolGrantID *uuid.UUID
-	Description               string
-	IdempotencyKey            string
-	Metadata                  json.RawMessage
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
-}
-
-func (q *Queries) DeleteProjectMachineGrant(ctx context.Context, arg DeleteProjectMachineGrantParams) (DeleteProjectMachineGrantRow, error) {
+func (q *Queries) DeleteProjectMachineGrant(ctx context.Context, arg DeleteProjectMachineGrantParams) (ProjectMachineGrant, error) {
 	row := q.db.QueryRow(ctx, deleteProjectMachineGrant, arg.OrgID, arg.ProjectID, arg.ID)
-	var i DeleteProjectMachineGrantRow
+	var i ProjectMachineGrant
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -420,7 +406,6 @@ func (q *Queries) DeleteProjectMachineGrant(ctx context.Context, arg DeleteProje
 		&i.SourceKind,
 		&i.ProjectMachinePoolGrantID,
 		&i.Description,
-		&i.IdempotencyKey,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -651,7 +636,7 @@ func (q *Queries) ForceEndDaemonRuntime(ctx context.Context, arg ForceEndDaemonR
 }
 
 const getActiveProjectMachineGrantForMachine = `-- name: GetActiveProjectMachineGrantForMachine :one
-SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, coalesce(pmg.idempotency_key, '') AS idempotency_key, pmg.metadata, pmg.created_at, pmg.updated_at,
+SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, pmg.metadata, pmg.created_at, pmg.updated_at,
        machine.env AS machine_env, machine.secret_env AS machine_secret_env
 FROM project_machine_grants pmg
 JOIN machines machine ON machine.org_id = pmg.org_id
@@ -677,7 +662,6 @@ type GetActiveProjectMachineGrantForMachineRow struct {
 	SourceKind                string
 	ProjectMachinePoolGrantID *uuid.UUID
 	Description               string
-	IdempotencyKey            string
 	Metadata                  json.RawMessage
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
@@ -696,7 +680,6 @@ func (q *Queries) GetActiveProjectMachineGrantForMachine(ctx context.Context, ar
 		&i.SourceKind,
 		&i.ProjectMachinePoolGrantID,
 		&i.Description,
-		&i.IdempotencyKey,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -707,7 +690,7 @@ func (q *Queries) GetActiveProjectMachineGrantForMachine(ctx context.Context, ar
 }
 
 const getActiveProjectMachineGrantForMachineName = `-- name: GetActiveProjectMachineGrantForMachineName :one
-SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, coalesce(pmg.idempotency_key, '') AS idempotency_key, pmg.metadata, pmg.created_at, pmg.updated_at
+SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, pmg.metadata, pmg.created_at, pmg.updated_at
 FROM project_machine_grants pmg
 JOIN machines machine ON machine.org_id = pmg.org_id
   AND machine.id = pmg.machine_id
@@ -724,23 +707,9 @@ type GetActiveProjectMachineGrantForMachineNameParams struct {
 	MachineName string
 }
 
-type GetActiveProjectMachineGrantForMachineNameRow struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	MachineID                 uuid.UUID
-	SourceKind                string
-	ProjectMachinePoolGrantID *uuid.UUID
-	Description               string
-	IdempotencyKey            string
-	Metadata                  json.RawMessage
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
-}
-
-func (q *Queries) GetActiveProjectMachineGrantForMachineName(ctx context.Context, arg GetActiveProjectMachineGrantForMachineNameParams) (GetActiveProjectMachineGrantForMachineNameRow, error) {
+func (q *Queries) GetActiveProjectMachineGrantForMachineName(ctx context.Context, arg GetActiveProjectMachineGrantForMachineNameParams) (ProjectMachineGrant, error) {
 	row := q.db.QueryRow(ctx, getActiveProjectMachineGrantForMachineName, arg.ProjectID, arg.MachineName)
-	var i GetActiveProjectMachineGrantForMachineNameRow
+	var i ProjectMachineGrant
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -749,7 +718,6 @@ func (q *Queries) GetActiveProjectMachineGrantForMachineName(ctx context.Context
 		&i.SourceKind,
 		&i.ProjectMachinePoolGrantID,
 		&i.Description,
-		&i.IdempotencyKey,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -846,7 +814,7 @@ func (q *Queries) GetMachineWakeState(ctx context.Context, arg GetMachineWakeSta
 }
 
 const getProjectMachineGrant = `-- name: GetProjectMachineGrant :one
-SELECT id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
+SELECT id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at
 FROM project_machine_grants
 WHERE org_id = $1 AND project_id = $2 AND id = $3
 `
@@ -857,23 +825,9 @@ type GetProjectMachineGrantParams struct {
 	ID        uuid.UUID
 }
 
-type GetProjectMachineGrantRow struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	MachineID                 uuid.UUID
-	SourceKind                string
-	ProjectMachinePoolGrantID *uuid.UUID
-	Description               string
-	IdempotencyKey            string
-	Metadata                  json.RawMessage
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
-}
-
-func (q *Queries) GetProjectMachineGrant(ctx context.Context, arg GetProjectMachineGrantParams) (GetProjectMachineGrantRow, error) {
+func (q *Queries) GetProjectMachineGrant(ctx context.Context, arg GetProjectMachineGrantParams) (ProjectMachineGrant, error) {
 	row := q.db.QueryRow(ctx, getProjectMachineGrant, arg.OrgID, arg.ProjectID, arg.ID)
-	var i GetProjectMachineGrantRow
+	var i ProjectMachineGrant
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -882,51 +836,6 @@ func (q *Queries) GetProjectMachineGrant(ctx context.Context, arg GetProjectMach
 		&i.SourceKind,
 		&i.ProjectMachinePoolGrantID,
 		&i.Description,
-		&i.IdempotencyKey,
-		&i.Metadata,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getProjectMachineGrantByIdempotency = `-- name: GetProjectMachineGrantByIdempotency :one
-SELECT id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
-FROM project_machine_grants
-WHERE project_id = $1 AND idempotency_key = $2::text
-`
-
-type GetProjectMachineGrantByIdempotencyParams struct {
-	ProjectID      uuid.UUID
-	IdempotencyKey string
-}
-
-type GetProjectMachineGrantByIdempotencyRow struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	MachineID                 uuid.UUID
-	SourceKind                string
-	ProjectMachinePoolGrantID *uuid.UUID
-	Description               string
-	IdempotencyKey            string
-	Metadata                  json.RawMessage
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
-}
-
-func (q *Queries) GetProjectMachineGrantByIdempotency(ctx context.Context, arg GetProjectMachineGrantByIdempotencyParams) (GetProjectMachineGrantByIdempotencyRow, error) {
-	row := q.db.QueryRow(ctx, getProjectMachineGrantByIdempotency, arg.ProjectID, arg.IdempotencyKey)
-	var i GetProjectMachineGrantByIdempotencyRow
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ProjectID,
-		&i.MachineID,
-		&i.SourceKind,
-		&i.ProjectMachinePoolGrantID,
-		&i.Description,
-		&i.IdempotencyKey,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -1137,7 +1046,7 @@ func (q *Queries) ListActiveDaemonRuntimesForUpdate(ctx context.Context, arg Lis
 }
 
 const listActiveProjectMachineGrantsForMachine = `-- name: ListActiveProjectMachineGrantsForMachine :many
-SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, coalesce(pmg.idempotency_key, '') AS idempotency_key, pmg.metadata, pmg.created_at, pmg.updated_at
+SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, pmg.metadata, pmg.created_at, pmg.updated_at
 FROM project_machine_grants pmg
 JOIN machines machine ON machine.org_id = pmg.org_id AND machine.id = pmg.machine_id AND machine.deleted_at IS NULL AND machine.lifecycle_state = 'active'
 WHERE pmg.org_id = $1 AND pmg.machine_id = $2
@@ -1149,29 +1058,15 @@ type ListActiveProjectMachineGrantsForMachineParams struct {
 	MachineID uuid.UUID
 }
 
-type ListActiveProjectMachineGrantsForMachineRow struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	MachineID                 uuid.UUID
-	SourceKind                string
-	ProjectMachinePoolGrantID *uuid.UUID
-	Description               string
-	IdempotencyKey            string
-	Metadata                  json.RawMessage
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
-}
-
-func (q *Queries) ListActiveProjectMachineGrantsForMachine(ctx context.Context, arg ListActiveProjectMachineGrantsForMachineParams) ([]ListActiveProjectMachineGrantsForMachineRow, error) {
+func (q *Queries) ListActiveProjectMachineGrantsForMachine(ctx context.Context, arg ListActiveProjectMachineGrantsForMachineParams) ([]ProjectMachineGrant, error) {
 	rows, err := q.db.Query(ctx, listActiveProjectMachineGrantsForMachine, arg.OrgID, arg.MachineID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListActiveProjectMachineGrantsForMachineRow{}
+	items := []ProjectMachineGrant{}
 	for rows.Next() {
-		var i ListActiveProjectMachineGrantsForMachineRow
+		var i ProjectMachineGrant
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -1180,7 +1075,6 @@ func (q *Queries) ListActiveProjectMachineGrantsForMachine(ctx context.Context, 
 			&i.SourceKind,
 			&i.ProjectMachinePoolGrantID,
 			&i.Description,
-			&i.IdempotencyKey,
 			&i.Metadata,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -1339,7 +1233,7 @@ func (q *Queries) ListExpiredDaemonRuntimeCandidates(ctx context.Context, arg Li
 
 const listProjectMachineGrants = `-- name: ListProjectMachineGrants :many
 WITH listed AS (
- SELECT g.id, g.org_id, g.project_id, g.machine_id, g.source_kind, g.project_machine_pool_grant_id, g.description, coalesce(g.idempotency_key, '') AS idempotency_key, g.metadata, g.created_at, g.updated_at,
+ SELECT g.id, g.org_id, g.project_id, g.machine_id, g.source_kind, g.project_machine_pool_grant_id, g.description, g.metadata, g.created_at, g.updated_at,
  m.source_kind AS machine_source_kind, m.display_name, m.description AS machine_description, m.provider, m.lifecycle_state, c.connection_state, m.last_observed_at, m.deleted_at, m.created_at AS machine_created_at, m.updated_at AS machine_updated_at,
  CASE $6::text WHEN 'name' THEN lower(m.display_name) WHEN 'created_at' THEN to_char(g.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') WHEN 'updated_at' THEN to_char(g.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') WHEN 'source_kind' THEN g.source_kind WHEN 'provider' THEN m.provider WHEN 'lifecycle_state' THEN m.lifecycle_state WHEN 'connection_state' THEN c.connection_state END::text AS sort_key, false AS sort_is_null
  FROM project_machine_grants g JOIN machines m ON m.org_id = g.org_id AND m.id = g.machine_id
@@ -1353,7 +1247,7 @@ WITH listed AS (
   AND (COALESCE(cardinality($14::text[]), 0) = 0 OR c.connection_state = ANY($14::text[]))
 )
 SELECT id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id,
- description, idempotency_key, metadata, created_at,
+ description, metadata, created_at,
  updated_at, machine_source_kind, display_name, machine_description, provider, lifecycle_state,
  connection_state, last_observed_at, deleted_at, machine_created_at, machine_updated_at,
  sort_key, sort_is_null
@@ -1390,7 +1284,6 @@ type ListProjectMachineGrantsRow struct {
 	SourceKind                string
 	ProjectMachinePoolGrantID *uuid.UUID
 	Description               string
-	IdempotencyKey            string
 	Metadata                  json.RawMessage
 	CreatedAt                 time.Time
 	UpdatedAt                 time.Time
@@ -1440,7 +1333,6 @@ func (q *Queries) ListProjectMachineGrants(ctx context.Context, arg ListProjectM
 			&i.SourceKind,
 			&i.ProjectMachinePoolGrantID,
 			&i.Description,
-			&i.IdempotencyKey,
 			&i.Metadata,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -2334,14 +2226,14 @@ func (q *Queries) UpdateMachineObservation(ctx context.Context, arg UpdateMachin
 }
 
 const upsertProjectMachineGrant = `-- name: UpsertProjectMachineGrant :one
-INSERT INTO project_machine_grants(org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, idempotency_key, metadata, created_at, updated_at)
-SELECT project.org_id, project.id, machine.id, $1, $2::uuid, $3, $4, $5, statement_timestamp(), statement_timestamp()
+INSERT INTO project_machine_grants(org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at)
+SELECT project.org_id, project.id, machine.id, $1, $2::uuid, $3, $4, statement_timestamp(), statement_timestamp()
 FROM projects project
 JOIN machines machine ON machine.org_id = project.org_id
-  AND machine.id = $6
+  AND machine.id = $5
   AND machine.deleted_at IS NULL
-WHERE project.org_id = $7
-  AND project.id = $8
+WHERE project.org_id = $6
+  AND project.id = $7
   AND project.deleted_at IS NULL
   AND (
     (
@@ -2361,46 +2253,30 @@ WHERE project.org_id = $7
     )
   )
 ON CONFLICT (project_id, machine_id) DO NOTHING
-RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
+RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at
 `
 
 type UpsertProjectMachineGrantParams struct {
 	SourceKind                string
 	ProjectMachinePoolGrantID *uuid.UUID
 	Description               string
-	IdempotencyKey            *string
 	Metadata                  json.RawMessage
 	MachineID                 uuid.UUID
 	OrgID                     uuid.UUID
 	ProjectID                 uuid.UUID
 }
 
-type UpsertProjectMachineGrantRow struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	MachineID                 uuid.UUID
-	SourceKind                string
-	ProjectMachinePoolGrantID *uuid.UUID
-	Description               string
-	IdempotencyKey            string
-	Metadata                  json.RawMessage
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
-}
-
-func (q *Queries) UpsertProjectMachineGrant(ctx context.Context, arg UpsertProjectMachineGrantParams) (UpsertProjectMachineGrantRow, error) {
+func (q *Queries) UpsertProjectMachineGrant(ctx context.Context, arg UpsertProjectMachineGrantParams) (ProjectMachineGrant, error) {
 	row := q.db.QueryRow(ctx, upsertProjectMachineGrant,
 		arg.SourceKind,
 		arg.ProjectMachinePoolGrantID,
 		arg.Description,
-		arg.IdempotencyKey,
 		arg.Metadata,
 		arg.MachineID,
 		arg.OrgID,
 		arg.ProjectID,
 	)
-	var i UpsertProjectMachineGrantRow
+	var i ProjectMachineGrant
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -2409,7 +2285,6 @@ func (q *Queries) UpsertProjectMachineGrant(ctx context.Context, arg UpsertProje
 		&i.SourceKind,
 		&i.ProjectMachinePoolGrantID,
 		&i.Description,
-		&i.IdempotencyKey,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,

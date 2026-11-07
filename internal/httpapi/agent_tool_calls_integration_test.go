@@ -461,6 +461,13 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 			t.Fatalf("tool call %s = %+v, want ready", providerCallID, readyByProviderID[providerCallID])
 		}
 	}
+	readyCall := requestJSONWithHeaders(
+		t, handler, http.MethodGet, toolCallsPath+"/"+publicToolCallIDs[0],
+		"", "", http.StatusOK, authHeaders(project.AdminToken),
+	)
+	if !reflect.DeepEqual(readyCall, readyByProviderID["call_lookup_customer"]) {
+		t.Fatalf("ready GET = %+v, list = %+v", readyCall, readyByProviderID["call_lookup_customer"])
+	}
 	if _, err := store.Execution().CompleteToolCall(
 		ctx,
 		executionstore.CompleteToolCallInput{
@@ -665,8 +672,13 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if fetched["id"] != toolCallID || fetched["name"] != "lookup_customer" || fetched["state"] != "completed" {
-		t.Fatalf("fetched tool call = %+v", fetched)
+	if !reflect.DeepEqual(fetched, completedCall) {
+		t.Fatalf("completed GET = %+v, submitted call = %+v", fetched, completedCall)
+	}
+	for _, key := range []string{"content_blocks", "result_content_parts"} {
+		if _, exists := fetched[key]; exists {
+			t.Fatalf("GET tool call contains result content %q: %+v", key, fetched)
+		}
 	}
 	requestJSONWithHeaders(
 		t,

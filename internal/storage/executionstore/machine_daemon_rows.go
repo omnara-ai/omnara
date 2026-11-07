@@ -10,7 +10,7 @@ import (
 )
 
 func projectMachineGrantFromUpsert(
-	row dbsqlc.UpsertProjectMachineGrantRow,
+	row dbsqlc.ProjectMachineGrant,
 ) ProjectMachineGrantRecord {
 	return projectMachineGrantRecord(
 		row.ID,
@@ -20,7 +20,6 @@ func projectMachineGrantFromUpsert(
 		row.SourceKind,
 		row.ProjectMachinePoolGrantID,
 		row.Description,
-		row.IdempotencyKey,
 		row.Metadata,
 		row.CreatedAt,
 		row.UpdatedAt,
@@ -28,7 +27,7 @@ func projectMachineGrantFromUpsert(
 }
 
 func projectMachineGrantFromActiveMachine(
-	row dbsqlc.ListActiveProjectMachineGrantsForMachineRow,
+	row dbsqlc.ProjectMachineGrant,
 ) ProjectMachineGrantRecord {
 	return projectMachineGrantRecord(
 		row.ID,
@@ -38,14 +37,13 @@ func projectMachineGrantFromActiveMachine(
 		row.SourceKind,
 		row.ProjectMachinePoolGrantID,
 		row.Description,
-		row.IdempotencyKey,
 		row.Metadata,
 		row.CreatedAt,
 		row.UpdatedAt,
 	)
 }
 
-func projectMachineGrantFromGet(row dbsqlc.GetProjectMachineGrantRow) ProjectMachineGrantRecord {
+func projectMachineGrantFromGet(row dbsqlc.ProjectMachineGrant) ProjectMachineGrantRecord {
 	return projectMachineGrantRecord(
 		row.ID,
 		row.OrgID,
@@ -54,25 +52,6 @@ func projectMachineGrantFromGet(row dbsqlc.GetProjectMachineGrantRow) ProjectMac
 		row.SourceKind,
 		row.ProjectMachinePoolGrantID,
 		row.Description,
-		row.IdempotencyKey,
-		row.Metadata,
-		row.CreatedAt,
-		row.UpdatedAt,
-	)
-}
-
-func projectMachineGrantFromIdempotency(
-	row dbsqlc.GetProjectMachineGrantByIdempotencyRow,
-) ProjectMachineGrantRecord {
-	return projectMachineGrantRecord(
-		row.ID,
-		row.OrgID,
-		row.ProjectID,
-		row.MachineID,
-		row.SourceKind,
-		row.ProjectMachinePoolGrantID,
-		row.Description,
-		row.IdempotencyKey,
 		row.Metadata,
 		row.CreatedAt,
 		row.UpdatedAt,
@@ -80,7 +59,7 @@ func projectMachineGrantFromIdempotency(
 }
 
 func projectMachineGrantFromDelete(
-	row dbsqlc.DeleteProjectMachineGrantRow,
+	row dbsqlc.ProjectMachineGrant,
 ) ProjectMachineGrantRecord {
 	return projectMachineGrantRecord(
 		row.ID,
@@ -90,7 +69,6 @@ func projectMachineGrantFromDelete(
 		row.SourceKind,
 		row.ProjectMachinePoolGrantID,
 		row.Description,
-		row.IdempotencyKey,
 		row.Metadata,
 		row.CreatedAt,
 		row.UpdatedAt,
@@ -102,7 +80,6 @@ func projectMachineGrantRecord(
 	sourceKind string,
 	projectMachinePoolGrantID *uuid.UUID,
 	description string,
-	idempotencyKey string,
 	metadata []byte,
 	createdAt, updatedAt time.Time,
 ) ProjectMachineGrantRecord {
@@ -114,7 +91,6 @@ func projectMachineGrantRecord(
 		SourceKind:                ProjectMachineGrantSourceKind(sourceKind),
 		ProjectMachinePoolGrantID: storeutil.IDFromPtr(projectMachinePoolGrantID),
 		Description:               description,
-		IdempotencyKey:            idempotencyKey,
 		Metadata:                  json.RawMessage(metadata),
 		CreatedAt:                 createdAt,
 		UpdatedAt:                 updatedAt,

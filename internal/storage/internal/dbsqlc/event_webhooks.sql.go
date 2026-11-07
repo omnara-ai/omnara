@@ -98,7 +98,7 @@ func (q *Queries) CompleteEventWebhookDelivery(ctx context.Context, arg Complete
 }
 
 const deleteEventWebhook = `-- name: DeleteEventWebhook :execrows
-UPDATE event_webhooks SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+UPDATE event_webhooks SET deleted_at = statement_timestamp(), signing_secret_id = NULL, updated_at = statement_timestamp()
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 `
 
@@ -116,7 +116,7 @@ func (q *Queries) DeleteEventWebhook(ctx context.Context, arg DeleteEventWebhook
 }
 
 const deleteEventWebhooksForAgentProfile = `-- name: DeleteEventWebhooksForAgentProfile :exec
-UPDATE event_webhooks SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+UPDATE event_webhooks SET deleted_at = statement_timestamp(), signing_secret_id = NULL, updated_at = statement_timestamp()
 WHERE project_id = $1 AND agent_profile_id = $2 AND deleted_at IS NULL
 `
 
@@ -127,6 +127,20 @@ type DeleteEventWebhooksForAgentProfileParams struct {
 
 func (q *Queries) DeleteEventWebhooksForAgentProfile(ctx context.Context, arg DeleteEventWebhooksForAgentProfileParams) error {
 	_, err := q.db.Exec(ctx, deleteEventWebhooksForAgentProfile, arg.ProjectID, arg.AgentProfileID)
+	return err
+}
+
+const deleteEventWebhooksForProject = `-- name: DeleteEventWebhooksForProject :exec
+UPDATE event_webhooks SET deleted_at = statement_timestamp(), signing_secret_id = NULL, updated_at = statement_timestamp()
+WHERE project_id = $1 AND deleted_at IS NULL
+`
+
+type DeleteEventWebhooksForProjectParams struct {
+	ProjectID uuid.UUID
+}
+
+func (q *Queries) DeleteEventWebhooksForProject(ctx context.Context, arg DeleteEventWebhooksForProjectParams) error {
+	_, err := q.db.Exec(ctx, deleteEventWebhooksForProject, arg.ProjectID)
 	return err
 }
 
@@ -257,38 +271,6 @@ func (q *Queries) GetEventWebhookEndpoint(ctx context.Context, arg GetEventWebho
 		&i.AgentProfileID,
 		&i.ParentAgentID,
 		&i.RootAgentID,
-	)
-	return i, err
-}
-
-const getEventWebhookForUpdate = `-- name: GetEventWebhookForUpdate :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
-       created_at, updated_at, deleted_at
-FROM event_webhooks
-WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
-FOR UPDATE
-`
-
-type GetEventWebhookForUpdateParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) GetEventWebhookForUpdate(ctx context.Context, arg GetEventWebhookForUpdateParams) (EventWebhook, error) {
-	row := q.db.QueryRow(ctx, getEventWebhookForUpdate, arg.ProjectID, arg.ID)
-	var i EventWebhook
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ProjectID,
-		&i.AgentProfileID,
-		&i.AgentID,
-		&i.Url,
-		&i.EventTypes,
-		&i.SigningSecretID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
 	)
 	return i, err
 }

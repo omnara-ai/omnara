@@ -1,32 +1,12 @@
-import { ApiError } from '@omnara/sdk'
 import { QueryClient } from '@tanstack/react-query'
-import { ZodError } from 'zod'
 
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      retry: (failureCount, error) => {
-        if (
-          error instanceof ApiError &&
-          error.status >= 400 &&
-          error.status < 500 &&
-          error.status !== 429
-        ) {
-          return false
-        }
-        // A response that fails schema validation will keep failing; retrying
-        // only hides the contract violation.
-        if (error instanceof ZodError) {
-          return false
-        }
-        return failureCount < 2
-      },
-      retryDelay: (failureCount, error) =>
-        Math.max(
-          Math.min(1000 * 2 ** failureCount, 30_000),
-          error instanceof ApiError ? (error.retryAfterMs ?? 0) : 0,
-        ),
+      // The SDK owns short transport retries, including browser bootstrap GETs.
+      // Query refetch-on-reconnect remains responsible for coming back online.
+      retry: false,
     },
   },
 })

@@ -11,7 +11,7 @@ import { expect, it } from 'vitest'
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const require = createRequire(import.meta.url)
 
-it('lets a packed-package consumer emit declarations for the public custom-tool APIs', () => {
+it('lets a packed-package consumer emit declarations for SDK, custom-tool and TanStack APIs', () => {
   const consumer = mkdtempSync(join(tmpdir(), 'omnara-sdk-consumer-'))
   try {
     // Source imports bypass the published export map and cannot catch private declaration chunks.
@@ -30,23 +30,80 @@ it('lets a packed-package consumer emit declarations for the public custom-tool 
 
     // Reuse installed dependencies without a network install or workspace link to the SDK source.
     const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'))
-    for (const dependency of Object.keys(manifest.dependencies)) {
+    for (const dependency of [...Object.keys(manifest.dependencies), '@tanstack/react-query']) {
       const destination = join(consumer, 'node_modules', dependency)
       mkdirSync(dirname(destination), { recursive: true })
       symlinkSync(join(packageRoot, 'node_modules', dependency), destination, 'dir')
     }
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ type: 'module' }))
+    // A separate process importing only this entry must install the shared-client policy too.
+    writeFileSync(
+      join(consumer, 'tanstack-only.mjs'),
+      `import assert from 'node:assert/strict'
+import { listAgentsOptions } from '@omnara/sdk/tanstack'
+import { QueryClient } from '@tanstack/react-query'
+
+let attempts = 0
+Math.random = () => 0
+const queryClient = new QueryClient()
+const result = await queryClient.fetchQuery({
+  ...listAgentsOptions({
+    path: { orgID: 'org_test', projectID: 'proj_test' },
+    headers: [['X-Test', 'tuple-header']],
+    maxRetries: 1,
+    timeoutMs: 1000,
+    fetch: async (request) => {
+      assert.equal(request.headers.get('X-Test'), 'tuple-header')
+      attempts++
+      return attempts === 1
+        ? Response.json({ error: 'try later' }, { status: 503 })
+        : Response.json({ data: [], next_cursor: null })
+    },
+  }),
+  retry: false,
+})
+assert.equal(attempts, 2)
+assert.deepEqual(result, { data: [], next_cursor: null })
+queryClient.clear()
+`,
+    )
+    execFileSync(process.execPath, ['tanstack-only.mjs'], {
+      cwd: consumer,
+      stdio: 'pipe',
+      timeout: 15_000,
+    })
     writeFileSync(
       join(consumer, 'consumer.ts'),
-      `import { createOmnaraClient, createCustomToolWorker, verifyEventWebhook } from '@omnara/sdk'
+      `import { createOmnaraClient, createCustomToolWorker, verifyEventWebhook, sdk, type ListAgentsResponse, type RequestObservation, type CustomToolObservation } from '@omnara/sdk'
+import { listAgentsOptions, listAgentsInfiniteOptions, createAgentInputMutation } from '@omnara/sdk/tanstack'
+import { QueryClient, useSuspenseInfiniteQuery, useSuspenseQuery, type InfiniteData } from '@tanstack/react-query'
 
-export const client = createOmnaraClient()
+export const observations: RequestObservation[] = []
+export const client = createOmnaraClient({ maxRetries: 2, timeoutMs: 30_000, onRequestComplete: (observation) => { observations.push(observation) } })
 export const config = client.getConfig()
+client.setConfig({ maxRetries: 0, timeoutMs: 0 })
+export const agents = listAgentsOptions({ client, path: { orgID: 'org_test', projectID: 'proj_test' }, maxRetries: 1, timeoutMs: 5000, onRequestComplete: (observation) => { observations.push(observation) } })
+export const infiniteAgents = listAgentsInfiniteOptions({ client, path: { orgID: 'org_test', projectID: 'proj_test' }, maxRetries: 1, timeoutMs: 5000 })
+export const useAgents = () => useSuspenseQuery(agents)
+export const useInfiniteAgents = () => useSuspenseInfiniteQuery({ ...infiniteAgents, initialPageParam: { path: infiniteAgents.queryKey[0].path }, getNextPageParam: (page) => page.next_cursor ?? undefined })
+export const cachedAgents: ListAgentsResponse | undefined = new QueryClient().getQueryData(agents.queryKey)
+export const cachedInfiniteAgents: InfiniteData<ListAgentsResponse> | undefined = new QueryClient().getQueryData(infiniteAgents.queryKey)
+// @ts-expect-error query keys retain their response-data type.
+export const incorrectCachedData: number = new QueryClient().getQueryData(agents.queryKey)
+// @ts-expect-error infinite query keys retain their paginated response-data type.
+export const incorrectInfiniteData: number = new QueryClient().getQueryData(infiniteAgents.queryKey)
+export const inputMutation = createAgentInputMutation({ client, maxRetries: 0, timeoutMs: 1000 })
+export const input = () => sdk.createAgentInput({ client, path: { orgID: 'org_test', projectID: 'proj_test', agentID: 'agt_test' }, body: { content_blocks: [{ type: 'text', text: 'hello' }] }, maxRetries: 0, timeoutMs: 1000 })
+// @ts-expect-error timeoutMs is a numeric duration, not a duration string.
+createOmnaraClient({ timeoutMs: '5s' })
+// @ts-expect-error per-request retry options are typed too.
+listAgentsOptions({ maxRetries: 'always' })
 export const worker = createCustomToolWorker({
   client,
   path: { orgID: 'org_test', projectID: 'proj_test' },
   tools: { example: async () => ({ outcome: 'deferred' }) },
   onError: (error, call) => console.error(error, call?.toolCallID),
+  onObserve: (observation: CustomToolObservation) => { console.info(observation.stage) },
 })
 export const verify = verifyEventWebhook
 export const recover = () => worker.check()

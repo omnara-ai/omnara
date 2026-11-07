@@ -130,13 +130,19 @@ func readAgentTurnFromRecord(record executionstore.AgentTurnReadRecord) (readAge
 		ID: id, TurnSequence: record.TurnSequence, EventCount: record.EventCount,
 		OpeningEvents: opening, StartedAt: record.StartedAt, UpdatedAt: record.UpdatedAt,
 	}
-	if record.LatestEvent.ID != uuid.Nil {
+	// Keep each event's content once, preferring opening events and then latest_event.
+	seen := make(map[uuid.UUID]struct{}, len(record.OpeningEvents)+1)
+	for _, event := range record.OpeningEvents {
+		seen[event.ID] = struct{}{}
+	}
+	if _, duplicate := seen[record.LatestEvent.ID]; record.LatestEvent.ID != uuid.Nil && !duplicate {
 		turn.LatestEvent, err = readAgentEventFromRecord(record.LatestEvent)
 		if err != nil {
 			return readAgentTurn{}, err
 		}
+		seen[record.LatestEvent.ID] = struct{}{}
 	}
-	if record.LatestSemanticEvent.ID != uuid.Nil {
+	if _, duplicate := seen[record.LatestSemanticEvent.ID]; record.LatestSemanticEvent.ID != uuid.Nil && !duplicate {
 		turn.LatestSemanticEvent, err = readAgentEventFromRecord(record.LatestSemanticEvent)
 		if err != nil {
 			return readAgentTurn{}, err

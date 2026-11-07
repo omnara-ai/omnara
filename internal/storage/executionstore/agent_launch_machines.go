@@ -405,10 +405,7 @@ func allocateNewPoolMachineForAgentTx(
 		SourceKind:                string(ProjectMachineGrantSourceKindPool),
 		ProjectMachinePoolGrantID: &poolGrant.ID,
 		Description:               poolGrant.Description,
-		IdempotencyKey: storeutil.TextFromEmpty(
-			machineSourceSlotChildIdempotencyKey(agentID, source.Index, binding.PoolSlotIndex, "machine-grant"),
-		),
-		Metadata: json.RawMessage(`{}`),
+		Metadata:                  json.RawMessage(`{}`),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

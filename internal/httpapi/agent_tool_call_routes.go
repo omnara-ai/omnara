@@ -119,7 +119,7 @@ func toolCallsListResponse(page executionstore.ListToolCallsResult) (openapi.Lis
 	data := make([]openapi.ToolCall, 0, len(page.ToolCalls))
 	var last executionstore.ToolCallRecord
 	for _, toolCall := range page.ToolCalls {
-		response, err := publicToolCallFromRecord(toolCall)
+		response, err := publicToolCallFromSummary(toolCall.Summary())
 		if err != nil {
 			return openapi.ListToolCallsResponse{}, err
 		}
@@ -153,11 +153,11 @@ func (s strictOpenAPIServer) GetToolCall(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	record, err := s.server.store.Execution().GetToolCall(ctx, scope.project.ID, scope.agent.ID, toolCallID)
+	record, err := s.server.store.Execution().GetToolCallSummary(ctx, scope.project.ID, scope.agent.ID, toolCallID)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	toolCall, err := publicToolCallFromRecord(record)
+	toolCall, err := publicToolCallFromSummary(record)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +179,7 @@ func (s strictOpenAPIServer) SubmitToolCallResult(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	existing, err := s.server.store.Execution().GetToolCall(
+	existing, err := s.server.store.Execution().GetToolCallStatus(
 		ctx,
 		scope.project.ID,
 		scope.agent.ID,
@@ -229,7 +229,7 @@ func (s strictOpenAPIServer) SubmitToolCallResult(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	toolCall, err := publicToolCallFromRecord(result.ToolCall)
+	toolCall, err := publicToolCallFromSummary(result.ToolCall.Summary())
 	if err != nil {
 		return nil, err
 	}

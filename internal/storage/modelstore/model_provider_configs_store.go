@@ -2,6 +2,7 @@ package modelstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -128,16 +129,6 @@ func (s *Store) createModelProviderConfigTx(
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	if err := validateModelProviderCredentialTx(
-		ctx,
-		tx,
-		input.OrgID,
-		input.CredentialSecretID,
-		input.managementKind,
-		input.AuthKind,
-	); err != nil {
-		return ModelProviderConfigRecord{}, err
-	}
 	input.Headers = storeutil.NormalizeJSON(input.Headers)
 	input.SecretHeaders = storeutil.NormalizeJSON(input.SecretHeaders)
 	headers, err := ModelProviderHeadersFromColumns(
@@ -148,8 +139,16 @@ func (s *Store) createModelProviderConfigTx(
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	if err := validateModelProviderHeaderSecretsTx(ctx, qtx, input.OrgID, input.managementKind, headers); err != nil {
+	if err := validateModelProviderReferencesTx(
+		ctx, tx, input.OrgID, input.CredentialSecretID, input.managementKind, input.AuthKind, headers,
+	); err != nil {
 		return ModelProviderConfigRecord{}, err
+	}
+	// Serialize the typed IDs once so write responses and hydrated child rows
+	// expose the same UUID representation, including callers using uppercase IDs.
+	input.SecretHeaders, err = json.Marshal(headers.SecretHeaders)
+	if err != nil {
+		return ModelProviderConfigRecord{}, fmt.Errorf("encode provider header references: %w", err)
 	}
 	row, err := qtx.InsertModelProviderConfig(
 		ctx,
@@ -178,7 +177,12 @@ func (s *Store) createModelProviderConfigTx(
 		}
 		return ModelProviderConfigRecord{}, fmt.Errorf("insert model provider config: %w", err)
 	}
-	return modelProviderConfigRecordFromSQLC(row), nil
+	if err := replaceModelProviderHeaderSecrets(
+		ctx, qtx, input.OrgID, row.ID, input.managementKind, input.SecretHeaders,
+	); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	return modelProviderConfigRecordFromSQLC(dbsqlc.GetModelProviderConfigRow(row)), nil
 }
 
 func (s *Store) GetModelProviderConfig(ctx context.Context, orgID, id uuid.UUID) (ModelProviderConfigRecord, error) {
@@ -205,7 +209,7 @@ func (s *Store) GetModelProviderConfigByName(
 	if err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("get model provider config by name: %w", err)
 	}
-	return modelProviderConfigRecordFromSQLC(row), nil
+	return modelProviderConfigRecordFromSQLC(dbsqlc.GetModelProviderConfigRow(row)), nil
 }
 
 type ListModelProviderConfigsInput struct {
@@ -261,16 +265,27 @@ func (s *Store) ListModelProviderConfigs(
 	return result, nil
 }
 
-func validateModelProviderCredentialTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	orgID, credentialSecretID uuid.UUID,
-	managementKind management.Kind,
-	authKind string,
+func validateModelProviderReferencesTx(
+	ctx context.Context, tx pgx.Tx, orgID, credentialSecretID uuid.UUID,
+	managementKind management.Kind, authKind string, headers ModelProviderHeaders,
 ) error {
-	credential, err := secretops.LockReference(ctx, tx, orgID, credentialSecretID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return storeerr.ErrNotFound
+	ids := []uuid.UUID{credentialSecretID}
+	for _, id := range headers.SecretHeaders {
+		ids = append(ids, id)
+	}
+	facts, err := secretops.LockReferences(ctx, tx, orgID, ids)
+	var referenceError *secretops.ReferenceError
+	if errors.As(err, &referenceError) && errors.Is(err, pgx.ErrNoRows) {
+		field := "credential_secret_id"
+		if referenceError.SecretID != credentialSecretID {
+			field = ""
+			for name, id := range headers.SecretHeaders {
+				if id == referenceError.SecretID && (field == "" || "secret_headers."+name < field) {
+					field = "secret_headers." + name
+				}
+			}
+		}
+		return unavailableModelProviderSecret(field)
 	}
 	if err != nil {
 		return err
@@ -279,31 +294,34 @@ func validateModelProviderCredentialTx(
 	if err != nil {
 		return err
 	}
-	return validateModelProviderSecret("credential_secret_id", credential, managementKind, kind)
+	if err := validateModelProviderSecret(
+		"credential_secret_id", facts[credentialSecretID], managementKind, kind,
+	); err != nil {
+		return err
+	}
+	for name, id := range headers.SecretHeaders {
+		if err := validateModelProviderSecret(
+			"secret_headers."+name, facts[id], managementKind, secrets.KindGeneric,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func validateModelProviderHeaderSecretsTx(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	orgID uuid.UUID,
-	managementKind management.Kind,
-	headers ModelProviderHeaders,
+func replaceModelProviderHeaderSecrets(
+	ctx context.Context, q *dbsqlc.Queries, orgID, configID uuid.UUID, kind management.Kind, headers json.RawMessage,
 ) error {
-	for name, secretID := range headers.SecretHeaders {
-		field := "secret_headers." + name
-		secret, err := secretops.GetFacts(ctx, qtx, orgID, secretID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return storeerr.Tag(storeerr.ErrNotFound, fmt.Errorf(
-				"the secret for header %s no longer exists; remove the header or choose another secret",
-				name,
-			))
-		}
-		if err != nil {
-			return err
-		}
-		if err := validateModelProviderSecret(field, secret, managementKind, secrets.KindGeneric); err != nil {
-			return err
-		}
+	if err := q.DeleteModelProviderHeaderSecrets(ctx, dbsqlc.DeleteModelProviderHeaderSecretsParams{
+		OrgID: orgID, ProviderConfigID: configID,
+	}); err != nil {
+		return fmt.Errorf("delete provider header references: %w", err)
+	}
+	if err := q.InsertModelProviderHeaderSecrets(ctx, dbsqlc.InsertModelProviderHeaderSecretsParams{
+		OrgID: orgID, ProviderConfigID: configID, ManagementKind: string(kind),
+		SecretHeaders: storeutil.NormalizeJSON(headers),
+	}); err != nil {
+		return fmt.Errorf("insert provider header references: %w", err)
 	}
 	return nil
 }
@@ -315,7 +333,7 @@ func validateModelProviderSecret(
 	kind secrets.Kind,
 ) error {
 	if secret.OwnerKind != secretstore.SecretOwnerOrg {
-		return fmt.Errorf("%s secret is not found or not org-owned: %w", field, storeerr.ErrNotFound)
+		return unavailableModelProviderSecret(field)
 	}
 	if secret.Kind != kind {
 		return fmt.Errorf(
@@ -336,6 +354,12 @@ func validateModelProviderSecret(
 	return nil
 }
 
+func unavailableModelProviderSecret(field string) error {
+	return storeerr.InvalidRequest(fmt.Errorf(
+		"%s must reference an available organization-owned secret; remove or replace this reference", field,
+	))
+}
+
 func (s *Store) PatchModelProviderConfig(
 	ctx context.Context,
 	input PatchModelProviderConfigInput,
@@ -352,7 +376,7 @@ func (s *Store) PatchModelProviderConfig(
 	if err := lifecyclelock.EnterActiveOrganization(ctx, tx, input.OrgID); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	currentRow, err := qtx.LockModelProviderConfigForMutation(
+	_, err = qtx.LockModelProviderConfigForMutation(
 		ctx,
 		dbsqlc.LockModelProviderConfigForMutationParams{OrgID: input.OrgID, ID: input.ID},
 	)
@@ -365,21 +389,19 @@ func (s *Store) PatchModelProviderConfig(
 	if err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("lock model provider config for mutation: %w", err)
 	}
+	// Child references must be read in a fresh snapshot after the parent lock.
+	currentRow, err := qtx.GetModelProviderConfig(ctx, dbsqlc.GetModelProviderConfigParams{
+		OrgID: input.OrgID, ID: input.ID,
+	})
+	if err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
 	current := modelProviderConfigRecordFromSQLC(currentRow)
 	if err := management.RequireTenant(current.ManagementKind, "model providers"); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
 	update := updateModelProviderConfigInputFromCurrent(current)
 	applyModelProviderConfigPatch(&update, current, input)
-	if input.SecretHeaders != nil {
-		headers, err := ModelProviderHeadersFromColumns(update.Headers, update.SecretHeaders)
-		if err != nil {
-			return ModelProviderConfigRecord{}, err
-		}
-		if err := validateModelProviderHeaderSecretsTx(ctx, qtx, input.OrgID, management.Tenant, headers); err != nil {
-			return ModelProviderConfigRecord{}, err
-		}
-	}
 	record, err := updateModelProviderConfigTx(ctx, tx, qtx, update, management.Tenant)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
@@ -401,14 +423,11 @@ func updateModelProviderConfigTx(
 		ctx,
 		input,
 		func(ctx context.Context, orgID, credentialSecretID uuid.UUID, authKind string) error {
-			return validateModelProviderCredentialTx(
-				ctx,
-				tx,
-				orgID,
-				credentialSecretID,
-				managementKind,
-				authKind,
-			)
+			headers, err := ModelProviderHeadersFromColumns(input.Headers, input.SecretHeaders)
+			if err != nil {
+				return err
+			}
+			return validateModelProviderReferencesTx(ctx, tx, orgID, credentialSecretID, managementKind, authKind, headers)
 		},
 	)
 	if err != nil {
@@ -440,7 +459,12 @@ func updateModelProviderConfigTx(
 	if err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("update model provider config: %w", err)
 	}
-	return modelProviderConfigRecordFromSQLC(row), nil
+	if err := replaceModelProviderHeaderSecrets(
+		ctx, qtx, update.OrgID, update.ID, managementKind, update.SecretHeaders,
+	); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	return modelProviderConfigRecordFromSQLC(dbsqlc.GetModelProviderConfigRow(row)), nil
 }
 
 func normalizeModelProviderConfigUpdate(
@@ -471,12 +495,14 @@ func normalizeModelProviderConfigUpdate(
 	}
 	input.Headers = storeutil.NormalizeJSON(input.Headers)
 	input.SecretHeaders = storeutil.NormalizeJSON(input.SecretHeaders)
-	if _, err := ModelProviderHeadersFromColumns(
-		input.Headers,
-		input.SecretHeaders,
-		modelProviderAuthHeaders(input.AuthKind, input.AuthOptions)...,
-	); err != nil {
+	headers, err := ModelProviderHeadersFromColumns(input.Headers, input.SecretHeaders,
+		modelProviderAuthHeaders(input.AuthKind, input.AuthOptions)...)
+	if err != nil {
 		return modelProviderConfigUpdate{}, err
+	}
+	input.SecretHeaders, err = json.Marshal(headers.SecretHeaders)
+	if err != nil {
+		return modelProviderConfigUpdate{}, fmt.Errorf("encode provider header references: %w", err)
 	}
 	if err := validateModelProviderTimeoutMS("request_timeout_ms", input.RequestTimeoutMS); err != nil {
 		return modelProviderConfigUpdate{}, err
@@ -594,6 +620,11 @@ func (s *Store) DeleteModelProviderConfig(
 	if hasModels {
 		return ModelProviderConfigRecord{}, fmt.Errorf("model provider config has active models: %w", storeerr.ErrConflict)
 	}
+	if err := qtx.DeleteModelProviderHeaderSecrets(ctx, dbsqlc.DeleteModelProviderHeaderSecretsParams{
+		OrgID: orgID, ProviderConfigID: id,
+	}); err != nil {
+		return ModelProviderConfigRecord{}, fmt.Errorf("delete provider header references: %w", err)
+	}
 	row, err := qtx.DeleteModelProviderConfig(
 		ctx,
 		dbsqlc.DeleteModelProviderConfigParams{OrgID: orgID, ID: id},
@@ -604,10 +635,10 @@ func (s *Store) DeleteModelProviderConfig(
 	if err := tx.Commit(ctx); err != nil {
 		return ModelProviderConfigRecord{}, fmt.Errorf("commit delete model provider config: %w", err)
 	}
-	return modelProviderConfigRecordFromSQLC(row), nil
+	return modelProviderConfigRecordFromSQLC(dbsqlc.GetModelProviderConfigRow(row)), nil
 }
 
-func modelProviderConfigRecordFromSQLC(row dbsqlc.ModelProviderConfig) ModelProviderConfigRecord {
+func modelProviderConfigRecordFromSQLC(row dbsqlc.GetModelProviderConfigRow) ModelProviderConfigRecord {
 	return ModelProviderConfigRecord{
 		ID:                 row.ID,
 		OrgID:              row.OrgID,
