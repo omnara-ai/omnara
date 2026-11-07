@@ -123,7 +123,7 @@ func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 	}
 	store.endpoint.OrgID = delivery.OrgID
 	store.endpoint.RootAgentID = delivery.AgentID
-	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7), store, delivery
+	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7, nil), store, delivery
 }
 
 func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
@@ -259,10 +259,12 @@ func TestSenderUsesExistingTimelinePayload(t *testing.T) {
 		require.JSONEq(t, string(encoded), string(body.Data))
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 	})}
-	require.NoError(t, sender.send(t.Context(), delivery))
+	_, err := sender.send(t.Context(), delivery)
+	require.NoError(t, err)
 	sequence := int64(18)
 	delivery.EventSequence = &sequence
-	require.ErrorIs(t, sender.send(t.Context(), delivery), storeerr.ErrNotFound)
+	_, err = sender.send(t.Context(), delivery)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
 }
 
 func TestSenderSkipsRemovedWebhookAndRetriesSigningErrors(t *testing.T) {
@@ -303,14 +305,16 @@ func TestSenderBlocksPrivateDestinationsAndRedirects(t *testing.T) {
 	defer destination.Close()
 	sender, store, delivery := testSender()
 	store.endpoint.URL = destination.URL
-	require.Error(t, sender.send(t.Context(), delivery))
+	_, err := sender.send(t.Context(), delivery)
+	require.Error(t, err)
 	redirect := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, destination.URL, http.StatusTemporaryRedirect)
 	}))
 	defer redirect.Close()
 	store.endpoint.URL = redirect.URL
 	sender.client = outboundhttp.CloneWithoutRedirects(redirect.Client())
-	require.ErrorContains(t, sender.send(t.Context(), delivery), "HTTP 307")
+	_, err = sender.send(t.Context(), delivery)
+	require.ErrorContains(t, err, "HTTP 307")
 	require.Zero(t, calls.Load())
 }
 

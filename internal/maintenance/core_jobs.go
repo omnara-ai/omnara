@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 const (
@@ -53,11 +54,15 @@ func expireProcessTools(
 func deleteExpiredWebhookDeliveries(
 	log *slog.Logger,
 	deleteExpired func(context.Context, int32) (int64, error),
+	recorder *metrics.EventWebhookBacklogRecorder,
 ) func(context.Context) maintenanceResult {
 	return func(ctx context.Context) maintenanceResult {
 		cleanupCtx, cancel := context.WithTimeout(ctx, eventWebhookDeliveryCleanupTimeout)
 		defer cancel()
 		count, err := deleteExpired(cleanupCtx, eventWebhookDeliveryCleanupBatchSize)
+		if err == nil {
+			recorder.RecordExpired(count)
+		}
 		result := reportMaintenanceCount(
 			ctx, log, "cleanup expired event webhook deliveries", "cleaned expired event webhook deliveries", count, err,
 		)

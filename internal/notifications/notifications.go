@@ -262,6 +262,7 @@ type PostCommitPublisher interface {
 
 type Recorder interface {
 	RecordNotification(intent, result, reason string)
+	RecordPublisherQueue(capacity int, depth func() int)
 }
 
 type AgentEventReference struct {

@@ -63,13 +63,7 @@ func (s *subagentStreamSubscriptions) refresh(ctx context.Context) error {
 					},
 				}:
 				default:
-					if s.server.log != nil {
-						s.server.log.Debug(
-							"drop subagent tool call update because subscriber buffer is full",
-							"agent_id",
-							agentID,
-						)
-					}
+					s.server.agentStreamRecorder.RecordDrop("tool_call_update")
 				}
 			},
 		)

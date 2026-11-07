@@ -742,13 +742,7 @@ func (s *Server) streamAgentEvents(
 				},
 			}:
 			default:
-				if s.log != nil {
-					s.log.Debug(
-						"drop tool call update because subscriber buffer is full",
-						"agent_id",
-						agent.ID,
-					)
-				}
+				s.agentStreamRecorder.RecordDrop("tool_call_update")
 			}
 		},
 	)
@@ -770,13 +764,7 @@ func (s *Server) streamAgentEvents(
 				select {
 				case streamDeltas <- payload:
 				default:
-					if s.log != nil {
-						s.log.Debug(
-							"drop agent stream delta because subscriber buffer is full",
-							"agent_id",
-							agent.ID,
-						)
-					}
+					s.agentStreamRecorder.RecordDrop("model_output_delta")
 				}
 			},
 		)

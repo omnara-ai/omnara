@@ -79,6 +79,10 @@ func NewRoutedPublisher(
 		cancelRun:                 cancelRun,
 		closed:                    make(chan struct{}),
 	}
+	if recorder != nil {
+		queue := p.queue
+		recorder.RecordPublisherQueue(cap(queue), func() int { return len(queue) })
+	}
 	go p.run(runCtx)
 	return p, nil
 }
@@ -111,14 +115,8 @@ func (p *RoutedPublisher) PublishPostCommit(ctx context.Context, intent PostComm
 		p.record(intent, "queued", "none")
 	case <-ctx.Done():
 		p.record(intent, "dropped", "context_canceled")
-		if p.log != nil {
-			p.log.Warn("drop notification intent after context cancellation", "error", ctx.Err())
-		}
 	default:
 		p.record(intent, "dropped", "queue_full")
-		if p.log != nil {
-			p.log.Warn("drop notification intent because publisher queue is full")
-		}
 	}
 }
 

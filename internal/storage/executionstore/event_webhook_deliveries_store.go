@@ -77,6 +77,8 @@ type EventWebhookDelivery struct {
 	ToolCallID        *uuid.UUID
 	ToolState         *string
 	InteractionUpdate *notifications.AgentInteractionUpdate
+	CreatedAt         time.Time
+	NextAttemptAt     time.Time
 	AttemptCount      int32
 	ClaimToken        uuid.UUID
 }
@@ -104,7 +106,8 @@ func (s *Store) ClaimEventWebhookDelivery(
 		ID: row.ID, WebhookID: row.WebhookID, AgentID: row.AgentID, OrgID: row.OrgID,
 		EventSequence: row.EventSequence, ToolCallID: row.ToolCallID, ToolState: row.ToolState,
 		InteractionUpdate: interactionUpdate,
-		AttemptCount:      row.AttemptCount, ClaimToken: *row.ClaimToken,
+		CreatedAt:         row.CreatedAt, NextAttemptAt: row.NextAttemptAt,
+		AttemptCount: row.AttemptCount, ClaimToken: *row.ClaimToken,
 	}, nil
 }
 

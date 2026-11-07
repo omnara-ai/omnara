@@ -462,6 +462,8 @@ type recordingEntry struct {
 	Reason string
 }
 
+func (r *recordingRecorder) RecordPublisherQueue(int, func() int) {}
+
 func (r *recordingRecorder) RecordNotification(intent, result, reason string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -39,7 +39,8 @@ SET attempt_count = attempt_count + 1,
 FROM candidate
 WHERE delivery.id = candidate.id
 RETURNING delivery.id, delivery.webhook_id, delivery.agent_id, delivery.org_id, delivery.event_sequence, delivery.tool_call_id,
-    delivery.tool_state, delivery.interaction_update, delivery.attempt_count, delivery.claim_token
+    delivery.tool_state, delivery.interaction_update, delivery.attempt_count, delivery.claim_token, delivery.created_at,
+    delivery.next_attempt_at
 `
 
 type ClaimEventWebhookDeliveryParams struct {
@@ -58,6 +59,8 @@ type ClaimEventWebhookDeliveryRow struct {
 	InteractionUpdate *json.RawMessage
 	AttemptCount      int32
 	ClaimToken        *uuid.UUID
+	CreatedAt         time.Time
+	NextAttemptAt     time.Time
 }
 
 func (q *Queries) ClaimEventWebhookDelivery(ctx context.Context, arg ClaimEventWebhookDeliveryParams) (ClaimEventWebhookDeliveryRow, error) {
@@ -74,6 +77,8 @@ func (q *Queries) ClaimEventWebhookDelivery(ctx context.Context, arg ClaimEventW
 		&i.InteractionUpdate,
 		&i.AttemptCount,
 		&i.ClaimToken,
+		&i.CreatedAt,
+		&i.NextAttemptAt,
 	)
 	return i, err
 }
@@ -465,6 +470,56 @@ func (q *Queries) RetryEventWebhookDelivery(ctx context.Context, arg RetryEventW
 	)
 	var i RetryEventWebhookDeliveryRow
 	err := row.Scan(&i.NextAttemptAt, &i.GaveUp)
+	return i, err
+}
+
+const sampleEventWebhookBacklog = `-- name: SampleEventWebhookBacklog :one
+WITH queue AS (
+    SELECT created_at, next_attempt_at,
+        CASE
+            WHEN claim_expires_at > statement_timestamp() THEN 'in_flight'
+            WHEN created_at <= statement_timestamp()
+                - $1::double precision * interval '1 second' THEN 'expired'
+            WHEN next_attempt_at <= statement_timestamp() THEN 'due'
+            ELSE 'delayed'
+        END AS state
+    FROM event_webhook_deliveries
+)
+SELECT count(*) FILTER (WHERE state = 'due') AS due_count,
+       count(*) FILTER (WHERE state = 'delayed') AS delayed_count,
+       count(*) FILTER (WHERE state = 'in_flight') AS in_flight_count,
+       count(*) FILTER (WHERE state = 'expired') AS expired_count,
+       coalesce(max(extract(epoch FROM statement_timestamp() - created_at))
+           FILTER (WHERE state = 'due'), 0)::double precision AS oldest_due_age_seconds,
+       coalesce(max(extract(epoch FROM statement_timestamp() - next_attempt_at))
+           FILTER (WHERE state = 'due'), 0)::double precision AS oldest_due_lag_seconds
+FROM queue
+`
+
+type SampleEventWebhookBacklogParams struct {
+	DeliveryWindowSeconds float64
+}
+
+type SampleEventWebhookBacklogRow struct {
+	DueCount            int64
+	DelayedCount        int64
+	InFlightCount       int64
+	ExpiredCount        int64
+	OldestDueAgeSeconds float64
+	OldestDueLagSeconds float64
+}
+
+func (q *Queries) SampleEventWebhookBacklog(ctx context.Context, arg SampleEventWebhookBacklogParams) (SampleEventWebhookBacklogRow, error) {
+	row := q.db.QueryRow(ctx, sampleEventWebhookBacklog, arg.DeliveryWindowSeconds)
+	var i SampleEventWebhookBacklogRow
+	err := row.Scan(
+		&i.DueCount,
+		&i.DelayedCount,
+		&i.InFlightCount,
+		&i.ExpiredCount,
+		&i.OldestDueAgeSeconds,
+		&i.OldestDueLagSeconds,
+	)
 	return i, err
 }
 

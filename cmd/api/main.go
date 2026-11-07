@@ -413,6 +413,7 @@ func apiOptions(
 	}
 	opts := []httpapi.Option{
 		httpapi.WithHTTPRecorder(metrics.NewHTTPRecorder(metricSet, metrics.SubsystemAPI)),
+		httpapi.WithAgentStreamRecorder(metrics.NewAgentStreamRecorder(metricSet)),
 		httpapi.WithIntegrationInboxIntakeRecorder(metrics.NewIntegrationInboxIntakeRecorder(metricSet)),
 		httpapi.WithDaemonRecorder(daemonRecorder),
 		httpapi.WithDaemonNotifications(redisBus, presence, replicaID),

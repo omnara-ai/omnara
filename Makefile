@@ -92,6 +92,13 @@ verify: verify-go web-check ## Run the fast repository gate
 
 verify-go: verify-static unit race-unit
 
+.PHONY: prometheus-check
+prometheus-check: ## Validate and test event-delivery alert rules (requires Docker)
+	docker run --rm --entrypoint /bin/promtool \
+		-v "$(CURDIR)/observability/prometheus:/rules:ro" \
+		prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996 \
+		test rules /rules/delivery.test.yml
+
 verify-static: fmt-check go-modules-check golangci-version-check goose-version-check golangci-lint integration-packages-check tagged-packages-check openapi-check openapi-compat-fixture-check docs-openapi-check migration-check sqlite-libc-check sqlc-check sql-rules sqlc-vet
 
 fmt-check:
