@@ -76,7 +76,12 @@ during a request raises a `TimeoutError`; caller cancellation preserves
 fit a 32-bit timer. The existing `throwOnError: false` response modes still apply.
 
 Authentication, serialization, and interceptors run once per logical call, not
-once per attempt. A custom `fetch` still sees each attempt. Retries stop at the
+once per attempt. If a validator changes the method, route template, or base URL,
+or an interceptor changes the constructed request's method or URL, the SDK makes
+one attempt because the original replay contract no longer applies.
+Clearing the client's request interceptors also disables retries.
+Header changes and clones that preserve the destination remain retryable.
+A custom `fetch` still sees each attempt. Retries stop at the
 fetch boundary: a failure while reading or parsing a JSON response body is
 returned without another attempt. Streamed request bodies and `parseAs: 'stream'`
 requests are not retried. For a successful streamed response, the deadline ends

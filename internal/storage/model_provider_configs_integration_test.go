@@ -910,7 +910,7 @@ model:
 	if secondGrant.ID == grant.ID {
 		t.Fatalf("grant after delete mismatch: old=%+v new=%+v", grant, secondGrant)
 	}
-	if _, err := store.Models().DeleteModelProviderConfig(
+	if err := store.Models().DeleteModelProviderConfig(
 		ctx,
 		testOrgID,
 		config.ID,
@@ -933,7 +933,7 @@ model:
 	require.NotEqual(t, configuredModel.CurrentRevisionID, recreatedModel.CurrentRevisionID)
 	_, err = store.Models().DeleteConfiguredModel(ctx, testOrgID, recreatedModel.ID)
 	require.NoError(t, err)
-	if _, err := store.Models().DeleteModelProviderConfig(ctx, testOrgID, config.ID); err != nil {
+	if err := store.Models().DeleteModelProviderConfig(ctx, testOrgID, config.ID); err != nil {
 		t.Fatalf("archive provider config: %v", err)
 	}
 	modelsAfterArchivePage, err := store.Models().ListConfiguredModels(

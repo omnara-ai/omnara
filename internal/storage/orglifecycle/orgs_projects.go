@@ -585,8 +585,7 @@ func (s *Service) deleteOrganizationOnce(
 	if err := q.LockOrganizationMembershipsForDeletion(ctx, dbsqlc.LockOrganizationMembershipsForDeletionParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("lock organization memberships for deletion: %w", err)
 	}
-	_, err = q.LockOrganizationSecretsForDeletion(ctx, dbsqlc.LockOrganizationSecretsForDeletionParams{OrgID: orgID})
-	if err != nil {
+	if err := q.LockOrganizationSecretsForDeletion(ctx, dbsqlc.LockOrganizationSecretsForDeletionParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("lock organization secrets for deletion: %w", err)
 	}
 	plan, err := prelockOrganizationMachineLifecycleTx(ctx, unit, q, orgID)

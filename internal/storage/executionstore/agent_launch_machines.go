@@ -409,7 +409,9 @@ func allocateNewPoolMachineForAgentTx(
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return AgentMachineBindingRecord{}, storeerr.ErrIdempotencyConflict
+			// The machine was created in this transaction and the pool grant is
+			// locked. No public create key participates in this derived edge.
+			return AgentMachineBindingRecord{}, errors.New("generated machine grant insertion returned no row")
 		}
 		return AgentMachineBindingRecord{}, fmt.Errorf(
 			"insert generated project machine grant: %w",

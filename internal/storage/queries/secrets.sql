@@ -370,7 +370,7 @@ SELECT id FROM secrets
 WHERE org_id = sqlc.arg(org_id) AND owner_user_id = sqlc.arg(user_id)::uuid AND deleted_at IS NULL
 ORDER BY id FOR UPDATE;
 
--- name: LockOrganizationSecretsForDeletion :many
+-- name: LockOrganizationSecretsForDeletion :exec
 SELECT id FROM secrets
 WHERE org_id = sqlc.arg(org_id) AND deleted_at IS NULL
 ORDER BY id FOR UPDATE;

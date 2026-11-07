@@ -61,6 +61,25 @@ it.each(['request', 'client'] as const)('honors explicit %s retries', async (sco
   expect(fetch).toHaveBeenCalledTimes(2)
 })
 
+it('does not replay an intercepted destination on the shared client', async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(failure()))
+  const interceptor = client.interceptors.request.use(
+    (request) =>
+      new Request('https://external.example.test/write', {
+        method: 'POST',
+        signal: request.signal,
+      }),
+  )
+  try {
+    const result = sdk.listAgents({ path, fetch, maxRetries: 2, throwOnError: false })
+    await vi.runAllTimersAsync()
+    await expect(result).resolves.toMatchObject({ error, response: { status: 503 } })
+    expect(fetch).toHaveBeenCalledOnce()
+  } finally {
+    client.interceptors.request.eject(interceptor)
+  }
+})
+
 it.each(['request', 'client'] as const)(
   'honors explicit %s deadlines in both error modes',
   async (scope) => {

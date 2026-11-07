@@ -16,9 +16,7 @@ JOIN secrets credential ON credential.org_id = org.id
   AND credential.management_kind = sqlc.arg(management_kind)
   AND credential.owner_kind = 'org'
 WHERE org.id = sqlc.arg(org_id)
-RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-          request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, sqlc.arg(secret_headers)::jsonb AS secret_headers;
+RETURNING id;
 
 -- name: GetModelProviderConfig :one
 SELECT config.id, config.org_id, config.management_kind, config.name, config.api_format, config.api_variant, config.base_url, config.endpoint_path,
@@ -53,10 +51,7 @@ WHERE config.org_id = sqlc.arg(org_id)
   AND config.deleted_at IS NULL;
 
 -- name: LockModelProviderConfigForMutation :one
-SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-       request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at,
-       created_at, updated_at, idle_timeout_ms, headers
+SELECT management_kind
 FROM model_provider_configs
 WHERE org_id = sqlc.arg(org_id)
   AND id = sqlc.arg(id)
@@ -109,7 +104,7 @@ WHERE config.name = sqlc.arg(name)
   AND config.deleted_at IS NULL
 ORDER BY config.org_id, config.id;
 
--- name: UpdateModelProviderConfig :one
+-- name: UpdateModelProviderConfig :execrows
 UPDATE model_provider_configs config
 SET base_url = sqlc.arg(base_url),
     endpoint_path = sqlc.arg(endpoint_path),
@@ -129,16 +124,9 @@ WHERE config.org_id = sqlc.arg(org_id)
   AND credential.id = sqlc.arg(credential_secret_id)
   AND credential.deleted_at IS NULL
   AND credential.management_kind = config.management_kind
-  AND credential.owner_kind = 'org'
-RETURNING config.id, config.org_id, config.management_kind,
-          config.name, config.api_format,
-          config.api_variant, config.base_url, config.endpoint_path,
-          config.request_timeout_ms, config.auth_kind,
-          config.auth_options, config.credential_secret_id, config.deleted_at,
-          config.created_at, config.updated_at, config.idle_timeout_ms,
-          config.headers, sqlc.arg(secret_headers)::jsonb AS secret_headers;
+  AND credential.owner_kind = 'org';
 
--- name: DeleteModelProviderConfig :one
+-- name: DeleteModelProviderConfig :execrows
 -- Clearing the credential releases the secret for deletion.
 UPDATE model_provider_configs
 SET deleted_at = statement_timestamp(),
@@ -154,10 +142,7 @@ WHERE model_provider_configs.org_id = sqlc.arg(org_id)
     WHERE configured_model.org_id = model_provider_configs.org_id
       AND configured_model.model_provider_config_id = model_provider_configs.id
       AND configured_model.deleted_at IS NULL
-  )
-RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-          request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, '{}'::jsonb AS secret_headers;
+  );
 
 -- name: ModelProviderConfigHasActiveModels :one
 SELECT EXISTS (

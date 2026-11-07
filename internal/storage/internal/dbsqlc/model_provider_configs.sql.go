@@ -81,7 +81,7 @@ func (q *Queries) DeleteConfiguredModel(ctx context.Context, arg DeleteConfigure
 	return i, err
 }
 
-const deleteModelProviderConfig = `-- name: DeleteModelProviderConfig :one
+const deleteModelProviderConfig = `-- name: DeleteModelProviderConfig :execrows
 UPDATE model_provider_configs
 SET deleted_at = statement_timestamp(),
     credential_secret_id = NULL,
@@ -97,9 +97,6 @@ WHERE model_provider_configs.org_id = $1
       AND configured_model.model_provider_config_id = model_provider_configs.id
       AND configured_model.deleted_at IS NULL
   )
-RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-          request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, '{}'::jsonb AS secret_headers
 `
 
 type DeleteModelProviderConfigParams struct {
@@ -107,52 +104,13 @@ type DeleteModelProviderConfigParams struct {
 	ID    uuid.UUID
 }
 
-type DeleteModelProviderConfigRow struct {
-	ID                 uuid.UUID
-	OrgID              uuid.UUID
-	ManagementKind     string
-	Name               string
-	ApiFormat          string
-	ApiVariant         string
-	BaseUrl            string
-	EndpointPath       string
-	RequestTimeoutMs   int32
-	AuthKind           string
-	AuthOptions        json.RawMessage
-	CredentialSecretID *uuid.UUID
-	DeletedAt          *time.Time
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	IdleTimeoutMs      int32
-	Headers            json.RawMessage
-	SecretHeaders      json.RawMessage
-}
-
 // Clearing the credential releases the secret for deletion.
-func (q *Queries) DeleteModelProviderConfig(ctx context.Context, arg DeleteModelProviderConfigParams) (DeleteModelProviderConfigRow, error) {
-	row := q.db.QueryRow(ctx, deleteModelProviderConfig, arg.OrgID, arg.ID)
-	var i DeleteModelProviderConfigRow
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ManagementKind,
-		&i.Name,
-		&i.ApiFormat,
-		&i.ApiVariant,
-		&i.BaseUrl,
-		&i.EndpointPath,
-		&i.RequestTimeoutMs,
-		&i.AuthKind,
-		&i.AuthOptions,
-		&i.CredentialSecretID,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.IdleTimeoutMs,
-		&i.Headers,
-		&i.SecretHeaders,
-	)
-	return i, err
+func (q *Queries) DeleteModelProviderConfig(ctx context.Context, arg DeleteModelProviderConfigParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteModelProviderConfig, arg.OrgID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteModelProviderHeaderSecrets = `-- name: DeleteModelProviderHeaderSecrets :exec
@@ -1075,9 +1033,7 @@ JOIN secrets credential ON credential.org_id = org.id
   AND credential.management_kind = $1
   AND credential.owner_kind = 'org'
 WHERE org.id = $13
-RETURNING id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-          request_timeout_ms, auth_kind, auth_options,
-          credential_secret_id, deleted_at, created_at, updated_at, idle_timeout_ms, headers, $14::jsonb AS secret_headers
+RETURNING id
 `
 
 type InsertModelProviderConfigParams struct {
@@ -1094,31 +1050,9 @@ type InsertModelProviderConfigParams struct {
 	CredentialSecretID *uuid.UUID
 	Headers            json.RawMessage
 	OrgID              uuid.UUID
-	SecretHeaders      json.RawMessage
 }
 
-type InsertModelProviderConfigRow struct {
-	ID                 uuid.UUID
-	OrgID              uuid.UUID
-	ManagementKind     string
-	Name               string
-	ApiFormat          string
-	ApiVariant         string
-	BaseUrl            string
-	EndpointPath       string
-	RequestTimeoutMs   int32
-	AuthKind           string
-	AuthOptions        json.RawMessage
-	CredentialSecretID *uuid.UUID
-	DeletedAt          *time.Time
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	IdleTimeoutMs      int32
-	Headers            json.RawMessage
-	SecretHeaders      json.RawMessage
-}
-
-func (q *Queries) InsertModelProviderConfig(ctx context.Context, arg InsertModelProviderConfigParams) (InsertModelProviderConfigRow, error) {
+func (q *Queries) InsertModelProviderConfig(ctx context.Context, arg InsertModelProviderConfigParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, insertModelProviderConfig,
 		arg.ManagementKind,
 		arg.Name,
@@ -1133,30 +1067,10 @@ func (q *Queries) InsertModelProviderConfig(ctx context.Context, arg InsertModel
 		arg.CredentialSecretID,
 		arg.Headers,
 		arg.OrgID,
-		arg.SecretHeaders,
 	)
-	var i InsertModelProviderConfigRow
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ManagementKind,
-		&i.Name,
-		&i.ApiFormat,
-		&i.ApiVariant,
-		&i.BaseUrl,
-		&i.EndpointPath,
-		&i.RequestTimeoutMs,
-		&i.AuthKind,
-		&i.AuthOptions,
-		&i.CredentialSecretID,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.IdleTimeoutMs,
-		&i.Headers,
-		&i.SecretHeaders,
-	)
-	return i, err
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertModelProviderHeaderSecrets = `-- name: InsertModelProviderHeaderSecrets :exec
@@ -1941,10 +1855,7 @@ func (q *Queries) LockModelProviderConfigForConfiguredModelCreate(ctx context.Co
 }
 
 const lockModelProviderConfigForMutation = `-- name: LockModelProviderConfigForMutation :one
-SELECT id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path,
-       request_timeout_ms, auth_kind, auth_options,
-       credential_secret_id, deleted_at,
-       created_at, updated_at, idle_timeout_ms, headers
+SELECT management_kind
 FROM model_provider_configs
 WHERE org_id = $1
   AND id = $2
@@ -1957,29 +1868,11 @@ type LockModelProviderConfigForMutationParams struct {
 	ID    uuid.UUID
 }
 
-func (q *Queries) LockModelProviderConfigForMutation(ctx context.Context, arg LockModelProviderConfigForMutationParams) (ModelProviderConfig, error) {
+func (q *Queries) LockModelProviderConfigForMutation(ctx context.Context, arg LockModelProviderConfigForMutationParams) (string, error) {
 	row := q.db.QueryRow(ctx, lockModelProviderConfigForMutation, arg.OrgID, arg.ID)
-	var i ModelProviderConfig
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ManagementKind,
-		&i.Name,
-		&i.ApiFormat,
-		&i.ApiVariant,
-		&i.BaseUrl,
-		&i.EndpointPath,
-		&i.RequestTimeoutMs,
-		&i.AuthKind,
-		&i.AuthOptions,
-		&i.CredentialSecretID,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.IdleTimeoutMs,
-		&i.Headers,
-	)
-	return i, err
+	var management_kind string
+	err := row.Scan(&management_kind)
+	return management_kind, err
 }
 
 const modelProviderConfigHasActiveModels = `-- name: ModelProviderConfigHasActiveModels :one
@@ -2265,7 +2158,7 @@ func (q *Queries) UpdateConfiguredModel(ctx context.Context, arg UpdateConfigure
 	return i, err
 }
 
-const updateModelProviderConfig = `-- name: UpdateModelProviderConfig :one
+const updateModelProviderConfig = `-- name: UpdateModelProviderConfig :execrows
 UPDATE model_provider_configs config
 SET base_url = $1,
     endpoint_path = $2,
@@ -2286,13 +2179,6 @@ WHERE config.org_id = $9
   AND credential.deleted_at IS NULL
   AND credential.management_kind = config.management_kind
   AND credential.owner_kind = 'org'
-RETURNING config.id, config.org_id, config.management_kind,
-          config.name, config.api_format,
-          config.api_variant, config.base_url, config.endpoint_path,
-          config.request_timeout_ms, config.auth_kind,
-          config.auth_options, config.credential_secret_id, config.deleted_at,
-          config.created_at, config.updated_at, config.idle_timeout_ms,
-          config.headers, $12::jsonb AS secret_headers
 `
 
 type UpdateModelProviderConfigParams struct {
@@ -2307,32 +2193,10 @@ type UpdateModelProviderConfigParams struct {
 	OrgID              uuid.UUID
 	ID                 uuid.UUID
 	ManagementKind     string
-	SecretHeaders      json.RawMessage
 }
 
-type UpdateModelProviderConfigRow struct {
-	ID                 uuid.UUID
-	OrgID              uuid.UUID
-	ManagementKind     string
-	Name               string
-	ApiFormat          string
-	ApiVariant         string
-	BaseUrl            string
-	EndpointPath       string
-	RequestTimeoutMs   int32
-	AuthKind           string
-	AuthOptions        json.RawMessage
-	CredentialSecretID *uuid.UUID
-	DeletedAt          *time.Time
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	IdleTimeoutMs      int32
-	Headers            json.RawMessage
-	SecretHeaders      json.RawMessage
-}
-
-func (q *Queries) UpdateModelProviderConfig(ctx context.Context, arg UpdateModelProviderConfigParams) (UpdateModelProviderConfigRow, error) {
-	row := q.db.QueryRow(ctx, updateModelProviderConfig,
+func (q *Queries) UpdateModelProviderConfig(ctx context.Context, arg UpdateModelProviderConfigParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateModelProviderConfig,
 		arg.BaseUrl,
 		arg.EndpointPath,
 		arg.RequestTimeoutMs,
@@ -2344,30 +2208,11 @@ func (q *Queries) UpdateModelProviderConfig(ctx context.Context, arg UpdateModel
 		arg.OrgID,
 		arg.ID,
 		arg.ManagementKind,
-		arg.SecretHeaders,
 	)
-	var i UpdateModelProviderConfigRow
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ManagementKind,
-		&i.Name,
-		&i.ApiFormat,
-		&i.ApiVariant,
-		&i.BaseUrl,
-		&i.EndpointPath,
-		&i.RequestTimeoutMs,
-		&i.AuthKind,
-		&i.AuthOptions,
-		&i.CredentialSecretID,
-		&i.DeletedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.IdleTimeoutMs,
-		&i.Headers,
-		&i.SecretHeaders,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateProjectModelGrant = `-- name: UpdateProjectModelGrant :one

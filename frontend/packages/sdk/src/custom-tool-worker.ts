@@ -14,7 +14,6 @@ import type {
   CustomToolOutcome,
   CustomToolWorker,
 } from './custom-tool-worker-types'
-import { ApiError } from './errors'
 import { listProjectToolCalls } from './generated/sdk.gen'
 import type { ToolInput } from './generated/types.gen'
 import { notifyObserver } from './observer'
@@ -36,11 +35,19 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new RangeError('concurrency must be a positive integer')
   }
-  if (!Number.isInteger(shutdownGraceMs) || shutdownGraceMs < 0) {
-    throw new RangeError('shutdownGraceMs must be a non-negative integer')
+  if (
+    !Number.isInteger(shutdownGraceMs) ||
+    shutdownGraceMs < 0 ||
+    shutdownGraceMs > 2_147_483_647
+  ) {
+    throw new RangeError('shutdownGraceMs must be an integer between 0 and 2147483647')
   }
-  if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1) {
-    throw new RangeError('requestTimeoutMs must be a positive integer')
+  if (
+    !Number.isInteger(requestTimeoutMs) ||
+    requestTimeoutMs < 1 ||
+    requestTimeoutMs > 2_147_483_647
+  ) {
+    throw new RangeError('requestTimeoutMs must be an integer between 1 and 2147483647')
   }
   const stop = new AbortController()
   const deadline = new AbortController()
@@ -217,7 +224,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       : untilAborted(() => done, signal).catch((): CustomToolOutcome => ({ status: 'stopped' }))
   }
 
-  function readPage(page: CustomToolCheckOptions, signal = stop.signal) {
+  function readPage(page: CustomToolCheckOptions, signal: AbortSignal) {
     return requestToolAPI(
       client,
       (fetch, signal, timeoutMs) =>
@@ -246,18 +253,24 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     done: Promise<CustomToolOutcome>
   }
 
-  async function readAndStart(
-    cursor: string | undefined,
-    limit: number,
-    signal: AbortSignal,
-    operationSignal: AbortSignal | undefined,
-    waitForRetained: boolean,
-    onAttempt: (attempt: Attempt) => void,
-  ) {
+  async function readAndStart({
+    cursor,
+    limit,
+    readSignal,
+    handlerSignal,
+    waitForRetained,
+    onAttempt,
+  }: {
+    cursor?: string
+    limit: number
+    readSignal: AbortSignal
+    handlerSignal?: AbortSignal
+    waitForRetained: boolean
+    onAttempt?: (attempt: Attempt) => void
+  }) {
     const started = performance.now()
-    let remaining = await reserveSlots(limit, signal, waitForRetained)
+    let remaining = await reserveSlots(limit, readSignal, waitForRetained)
     const waitMs = performance.now() - started
-    const requested = remaining
     if (remaining === 0) {
       observe({
         stage: 'recovery',
@@ -270,8 +283,8 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       return undefined
     }
     try {
-      const { data: page } = await readPage({ cursor, limit: remaining }, signal)
-      signal.throwIfAborted()
+      const { data: page } = await readPage({ cursor, limit: remaining }, readSignal)
+      readSignal.throwIfAborted()
       if (page.data.length > remaining)
         throw new Error('tool-call page exceeded its requested limit')
       let admitted = 0
@@ -284,10 +297,12 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         const call = { agentID: current.agent_id, toolCallID: current.id, name: current.name }
         if (retainedResults.has(call.toolCallID)) continue
         if (!running.has(call.toolCallID) && !settledCalls.has(call.toolCallID)) admitted++
-        onAttempt({
-          call,
-          done: start(call, { source: 'recovery', input: current.input, signal: operationSignal }),
+        const done = start(call, {
+          source: 'recovery',
+          input: current.input,
+          signal: handlerSignal,
         })
+        onAttempt?.({ call, done })
       }
       observe({
         stage: 'recovery',
@@ -297,7 +312,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         rows: page.data.length,
         started: admitted,
       })
-      return { page, requested }
+      return page
     } catch (cause) {
       observe({
         stage: 'recovery',
@@ -336,21 +351,21 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         })
       let remaining = limit
       while (handlers.size > 0 && remaining > 0) {
-        const batch = await readAndStart(
-          nextCursor ?? undefined,
-          remaining,
-          signal,
-          checkOptions.signal,
-          false,
-          (attempt) => attempts.set(attempt.call.toolCallID, attempt),
-        )
-        if (batch === undefined) {
+        const page = await readAndStart({
+          cursor: nextCursor ?? undefined,
+          limit: remaining,
+          readSignal: signal,
+          handlerSignal: checkOptions.signal,
+          waitForRetained: false,
+          onAttempt: (attempt) => attempts.set(attempt.call.toolCallID, attempt),
+        })
+        if (page === undefined) {
           blocked = true
           break
         }
-        nextCursor = batch.page.next_cursor
-        remaining -= batch.page.data.length
-        if (nextCursor === null || batch.page.data.length < batch.requested) break
+        nextCursor = page.next_cursor
+        remaining -= page.data.length
+        if (nextCursor === null) break
       }
     } catch (cause) {
       throw toolError(cause)
@@ -449,7 +464,6 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       runPromise ??= Promise.resolve().then(async () => {
         const retryRetainedResults = () => {
           for (const { call } of retainedResults.values()) void start(call)
-          capacityChanged()
         }
         const timer = setInterval(retryRetainedResults, sweepIntervalMs)
         try {
@@ -462,12 +476,15 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
             do {
               if (handlers.size === 0) break
               try {
-                const batch = await readAndStart(cursor, 100, stop.signal, undefined, true, () => {
-                  /* The continuous loop reports failures through onError. */
+                const page = await readAndStart({
+                  cursor,
+                  limit: 100,
+                  readSignal: stop.signal,
+                  waitForRetained: true,
                 })
                 // The continuous loop waits for retained submissions to free capacity.
-                if (batch === undefined) break
-                cursor = batch.page.next_cursor ?? undefined
+                if (page === undefined) break
+                cursor = page.next_cursor ?? undefined
                 if (cursor === undefined) {
                   observe({
                     stage: 'recovery',
@@ -477,10 +494,12 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
                 }
               } catch (cause) {
                 stop.signal.throwIfAborted()
-                const error = toolError(cause)
-                void reportErrorSafely(error)
-                const delay = error instanceof ApiError ? (error.retryAfterMs ?? 0) : 0
-                await abortableDelay(Math.max(0, until - Date.now(), delay), stop.signal)
+                void reportErrorSafely(toolError(cause))
+                const retryAt = cause instanceof ToolRequestError ? cause.retryAt : 0
+                await abortableDelay(
+                  Math.max(0, Math.max(until, retryAt) - Date.now()),
+                  stop.signal,
+                )
                 break
               }
             } while (cursor !== undefined && Date.now() < until)
@@ -498,17 +517,3 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     shutdown,
   }
 }
-
-export type {
-  CreateCustomToolWorkerOptions,
-  CustomToolCall,
-  CustomToolCallRef,
-  CustomToolCheckOptions,
-  CustomToolCheckResult,
-  CustomToolHandler,
-  CustomToolHandlerResult,
-  CustomToolObservation,
-  CustomToolOperationOptions,
-  CustomToolOutcome,
-  CustomToolWorker,
-} from './custom-tool-worker-types'

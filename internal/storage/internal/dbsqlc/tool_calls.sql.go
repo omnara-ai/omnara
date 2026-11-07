@@ -254,10 +254,13 @@ func (q *Queries) GetToolCallStatus(ctx context.Context, arg GetToolCallStatusPa
 }
 
 const getToolCallSummary = `-- name: GetToolCallSummary :one
-SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
+SELECT call.id, call.agent_id, source_event.turn_id, call.provider_call_id,
   call.name, call.input, call.type, call.state,
   coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at
-FROM tool_call_read_projection call
+FROM tool_calls call
+JOIN agent_events source_event ON source_event.agent_id = call.agent_id
+  AND source_event.model_output_id = call.model_output_id
+  AND source_event.event_kind = 'model_output'
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
   AND result.tool_call_id = call.id
 WHERE call.project_id = $1

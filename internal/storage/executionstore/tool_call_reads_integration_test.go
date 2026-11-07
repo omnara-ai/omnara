@@ -50,7 +50,8 @@ func TestToolCallNarrowReads(t *testing.T) {
 	}
 
 	// Check the database work as well as the values: a completed tool's result
-	// blocks must not be visited by either preflight path.
+	// blocks and its source model output must not be visited by either preflight
+	// path; the source event directly supplies the public summary's turn ID.
 	tx := integrationdb.BeginTx(t, ctx, f.Store.pool)
 	for _, queryName := range []string{"GetToolCallSummary", "GetToolCallStatus"} {
 		query := integrationdb.GeneratedQuery(t, "../internal/dbsqlc/tool_calls.sql.go", queryName)
@@ -61,6 +62,7 @@ func TestToolCallNarrowReads(t *testing.T) {
 		require.EqualValues(t, 1, plan.Rows)
 		plan.Walk(func(node integrationdb.PlanNode) {
 			require.NotEqual(t, "content_blocks", node.Relation, "%s: %s", queryName, raw)
+			require.NotEqual(t, "model_outputs", node.Relation, "%s: %s", queryName, raw)
 			if queryName == "GetToolCallStatus" && node.Relation != "" {
 				require.Equal(t, "tool_calls", node.Relation, "%s", raw)
 			}

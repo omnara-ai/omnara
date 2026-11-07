@@ -16,20 +16,20 @@ export type {
   OmnaraClientOptions,
 } from './client'
 export { createOmnaraClient } from './client'
-export {
-  createCustomToolWorker,
-  type CreateCustomToolWorkerOptions,
-  type CustomToolCall,
-  type CustomToolCallRef,
-  type CustomToolCheckOptions,
-  type CustomToolCheckResult,
-  type CustomToolHandler,
-  type CustomToolHandlerResult,
-  type CustomToolObservation,
-  type CustomToolOperationOptions,
-  type CustomToolOutcome,
-  type CustomToolWorker,
-} from './custom-tool-worker'
+export { createCustomToolWorker } from './custom-tool-worker'
+export type {
+  CreateCustomToolWorkerOptions,
+  CustomToolCall,
+  CustomToolCallRef,
+  CustomToolCheckOptions,
+  CustomToolCheckResult,
+  CustomToolHandler,
+  CustomToolHandlerResult,
+  CustomToolObservation,
+  CustomToolOperationOptions,
+  CustomToolOutcome,
+  CustomToolWorker,
+} from './custom-tool-worker-types'
 export {
   DeviceAuthError,
   type DeviceAuthFailureCode,

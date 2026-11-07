@@ -1312,7 +1312,7 @@ func (q *Queries) LockOrgMemberOwnedSecretsForDeletion(ctx context.Context, arg 
 	return items, nil
 }
 
-const lockOrganizationSecretsForDeletion = `-- name: LockOrganizationSecretsForDeletion :many
+const lockOrganizationSecretsForDeletion = `-- name: LockOrganizationSecretsForDeletion :exec
 SELECT id FROM secrets
 WHERE org_id = $1 AND deleted_at IS NULL
 ORDER BY id FOR UPDATE
@@ -1322,24 +1322,9 @@ type LockOrganizationSecretsForDeletionParams struct {
 	OrgID uuid.UUID
 }
 
-func (q *Queries) LockOrganizationSecretsForDeletion(ctx context.Context, arg LockOrganizationSecretsForDeletionParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, lockOrganizationSecretsForDeletion, arg.OrgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []uuid.UUID{}
-	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) LockOrganizationSecretsForDeletion(ctx context.Context, arg LockOrganizationSecretsForDeletionParams) error {
+	_, err := q.db.Exec(ctx, lockOrganizationSecretsForDeletion, arg.OrgID)
+	return err
 }
 
 const lockProjectOwnedSecretsForDeletion = `-- name: LockProjectOwnedSecretsForDeletion :many

@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  createCustomToolWorker,
-  type CustomToolHandler,
-  type CustomToolObservation,
-} from './custom-tool-worker'
+import { createCustomToolWorker } from './custom-tool-worker'
 import {
   accepted,
   api,
@@ -17,6 +13,7 @@ import {
   toolCallID,
   toolPage,
 } from './custom-tool-worker-test-support'
+import type { CustomToolHandler, CustomToolObservation } from './custom-tool-worker-types'
 import type { SubmitToolCallResultRequest } from './generated/types.gen'
 
 afterEach(() => {

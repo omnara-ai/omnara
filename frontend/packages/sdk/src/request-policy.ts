@@ -12,7 +12,7 @@ import type { RequestObservation, RequestPolicyOptions } from './request-policy-
 import { responseWithStreamLifetime, streamWithLifetime } from './response-stream'
 import { abortableDelay, retryAfterMaximumDelayMs, retryDelay } from './retry'
 
-export function validateRequestPolicy(options: RequestPolicyOptions): void {
+function validateRequestPolicy(options: RequestPolicyOptions): void {
   for (const name of ['maxRetries', 'timeoutMs'] as const) {
     const value = options[name]
     if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
@@ -56,7 +56,27 @@ function oneShotBody(body: unknown): boolean {
 
 const retryableStatuses = new Set([408, 429, 500, 502, 503, 504])
 type Overrides = Pick<RequestOptions, 'fetch' | 'signal' | 'headers' | 'bodySerializer'>
-type PolicyRequest = Omit<Config, 'baseUrl'> & Pick<RequestOptions, 'url' | 'body'>
+type PolicyRequest = Omit<Config, 'baseUrl'> & Pick<RequestOptions, 'url' | 'body' | 'baseUrl'>
+type RequestDestination = Pick<Request, 'method' | 'url'> &
+  Pick<RequestOptions, 'baseUrl'> & { operation: string }
+const originalRequests = new WeakMap<typeof globalThis.fetch, RequestDestination | undefined>()
+
+/** Capture the generated destination before caller interceptors can replace the Request. */
+export function captureRequestDestination(
+  request: Request,
+  options: Pick<RequestOptions, 'fetch' | 'method' | 'url' | 'baseUrl'>,
+): Request {
+  if (options.fetch !== undefined && originalRequests.has(options.fetch)) {
+    originalRequests.set(options.fetch, {
+      method: request.method,
+      url: request.url,
+      baseUrl: options.baseUrl,
+      operation: `${(options.method ?? 'GET').toUpperCase()} ${options.url}`,
+    })
+  }
+  return request
+}
+
 interface BackoffTiming {
   elapsedMs: number
   startedAt?: number
@@ -82,6 +102,7 @@ export async function requestWithPolicy<T>(
   const observer = options.onRequestComplete ?? config.onRequestComplete
   const method = (options.method ?? 'GET').toUpperCase()
   const operation = `${method} ${options.url}`
+  const baseUrl = 'baseUrl' in options ? options.baseUrl : config.baseUrl
   const keyed = keyedOperations.has(operation)
   // Forward request overrides, including null removals, rather than merging the
   // config twice. The generated client performs the final merge.
@@ -122,11 +143,11 @@ export async function requestWithPolicy<T>(
     : serializer
   let lastRequest: Request | undefined
   let lastResponse: Response | undefined
-  let streamReturned = false
-  let responseReturned = false
+  let handoff: 'none' | 'response' | 'stream' = 'none'
   let attempts = 0
   const backoff: BackoffTiming = { elapsedMs: 0 }
   let status: number | undefined
+  let observationOperation = knownOperations.has(operation) ? operation : 'unknown'
   let outcome: RequestObservation['outcome'] = 'returned'
 
   async function wait(delayMs: number) {
@@ -142,7 +163,6 @@ export async function requestWithPolicy<T>(
 
   function exposeResponse(response: Response): Response {
     if (parseAs === 'stream' && response.ok) clearTimeout(timer)
-    lastResponse = response
     return response
   }
 
@@ -151,11 +171,20 @@ export async function requestWithPolicy<T>(
     signal.throwIfAborted()
     const template =
       input instanceof Request && init === undefined ? input : new Request(input, init)
+    const original = originalRequests.get(retryingFetch)
+    const sameDestination =
+      original?.operation === operation &&
+      original.baseUrl === baseUrl &&
+      template.method === method &&
+      original.method === template.method &&
+      original.url === template.url
+    if (!sameDestination) observationOperation = 'unknown'
     const safe =
+      sameDestination &&
       replayable &&
       parseAs !== 'stream' &&
-      (method === 'GET' ||
-        method === 'HEAD' ||
+      (template.method === 'GET' ||
+        template.method === 'HEAD' ||
         idempotentOperations.has(operation) ||
         (keyed && Boolean(template.headers.get('Idempotency-Key')?.trim())))
     const retries = safe ? maxRetries : 0
@@ -204,6 +233,7 @@ export async function requestWithPolicy<T>(
     }
   }
 
+  originalRequests.set(retryingFetch, undefined)
   try {
     const result = await untilAborted(
       () => dispatch({ fetch: retryingFetch, signal, headers, bodySerializer }),
@@ -213,7 +243,7 @@ export async function requestWithPolicy<T>(
       // Wrap the final returned stream: response interceptors can clone or replace it.
       if (result instanceof ReadableStream) {
         const stream = callerSignal ? streamWithLifetime(result, signal, disposeCaller) : result
-        streamReturned = true
+        handoff = 'stream'
         // SAFETY: generated data mode returns the raw stream; wrapping preserves that contract.
         return stream as T
       }
@@ -225,7 +255,7 @@ export async function requestWithPolicy<T>(
         'response' in result &&
         result.response instanceof Response
       ) {
-        responseReturned = result.response === lastResponse
+        handoff = result.response === lastResponse ? 'response' : 'none'
         if (
           result.response.body !== null &&
           'data' in result &&
@@ -234,7 +264,7 @@ export async function requestWithPolicy<T>(
           const response = callerSignal
             ? responseWithStreamLifetime(result.response, signal, disposeCaller)
             : result.response
-          streamReturned = true
+          handoff = 'stream'
           return { ...result, data: response.body, response }
         }
       }
@@ -248,22 +278,23 @@ export async function requestWithPolicy<T>(
       throw error
     }
     const dataOnly = (options.responseStyle ?? config.responseStyle) === 'data'
-    responseReturned = !dataOnly && lastResponse !== undefined
+    handoff = !dataOnly && lastResponse !== undefined ? 'response' : 'none'
     // SAFETY: dispatch returns the generated RequestResult; these are exactly its
     // two non-throwing failure shapes selected by the same responseStyle option.
     return (dataOnly ? undefined : { error, request: lastRequest, response: lastResponse }) as T
   } finally {
+    originalRequests.delete(retryingFetch)
     clearTimeout(timer)
-    if (!streamReturned) {
+    if (handoff !== 'stream') {
       disposeCaller()
       // Fields-mode errors expose their Response for inspection. Cancellation still
       // releases the body when the caller/deadline has explicitly ended the request.
-      if (parseAs === 'stream' && (!responseReturned || signal.aborted))
+      if (parseAs === 'stream' && (handoff === 'none' || signal.aborted))
         void lastResponse?.body?.cancel().catch(() => undefined)
     }
     if (observer !== undefined) {
       notifyObserver(observer, {
-        operation: knownOperations.has(operation) ? operation : 'unknown',
+        operation: observationOperation,
         durationMs: Math.max(0, Date.now() - startedAt),
         attempts,
         // Cancellation can settle the outer call before wait() reaches its finally block.

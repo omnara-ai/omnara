@@ -48,16 +48,18 @@ func TestProviderHeaderReferencesLifecycle(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-	_, err = f.store.Models().PatchModelProviderConfig(ctx, modelstore.PatchModelProviderConfigInput{
+	patched, err := f.store.Models().PatchModelProviderConfig(ctx, modelstore.PatchModelProviderConfigInput{
 		OrgID: testOrgID, ID: config.ID,
 	})
 	require.NoError(t, err, "an unrelated patch preserves normalized references")
+	require.JSONEq(t, string(headers), string(patched.SecretHeaders))
 	require.ErrorIs(t, f.deleteOwner(), storeerr.ErrConflict)
 	empty := json.RawMessage(`{}`)
-	_, err = f.store.Models().PatchModelProviderConfig(ctx, modelstore.PatchModelProviderConfigInput{
+	patched, err = f.store.Models().PatchModelProviderConfig(ctx, modelstore.PatchModelProviderConfigInput{
 		OrgID: testOrgID, ID: config.ID, SecretHeaders: &empty,
 	})
 	require.NoError(t, err)
+	require.JSONEq(t, `{}`, string(patched.SecretHeaders))
 	require.NoError(t, f.deleteOwner(), "removing the header releases its secret")
 	// Reuse the credential as a header to prove provider deletion removes both
 	// kinds of reference rather than merely clearing its credential column.
@@ -66,8 +68,13 @@ func TestProviderHeaderReferencesLifecycle(t *testing.T) {
 		OrgID: testOrgID, ID: config.ID, SecretHeaders: &headers,
 	})
 	require.NoError(t, err)
-	_, err = f.store.Models().DeleteModelProviderConfig(ctx, testOrgID, config.ID)
+	err = f.store.Models().DeleteModelProviderConfig(ctx, testOrgID, config.ID)
 	require.NoError(t, err)
+	require.ErrorIs(t, f.store.Models().DeleteModelProviderConfig(ctx, testOrgID, config.ID), storeerr.ErrNotFound)
+	_, err = f.store.Models().PatchModelProviderConfig(ctx, modelstore.PatchModelProviderConfigInput{
+		OrgID: testOrgID, ID: config.ID,
+	})
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	_, err = f.store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
 		OrgID: testOrgID, SecretID: credential.ID, Actor: userPrincipal(f.admin.ID),
 	})

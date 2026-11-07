@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createOmnaraClient } from './client'
-import { createCustomToolWorker, type CustomToolHandler } from './custom-tool-worker'
+import { createCustomToolWorker } from './custom-tool-worker'
 import {
   accepted,
   agentID,
@@ -20,6 +20,7 @@ import {
   toolCallID,
   toolPage,
 } from './custom-tool-worker-test-support'
+import type { CustomToolHandler } from './custom-tool-worker-types'
 import type { SubmitToolCallResultRequest } from './generated/types.gen'
 
 afterEach(() => {
@@ -162,13 +163,10 @@ describe('createCustomToolWorker', () => {
       onError,
     })
 
-    void worker.handle(ready)
-
-    await vi.waitFor(() => {
-      expect(requests).toHaveLength(4)
-    })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(await worker.handle(ready)).toEqual({ status: 'completed' })
+    expect(requests).toHaveLength(4)
     expect(onError).not.toHaveBeenCalled()
+    await worker.shutdown()
   })
 
   it('reports a request that never reached the API instead of retrying it', async () => {
@@ -546,17 +544,39 @@ describe('createCustomToolWorker', () => {
     expect(await next).toMatchObject({ status: 'completed' })
   })
 
-  it('rejects a concurrency that is not a positive integer', () => {
-    for (const concurrency of [0, -1, 1.5, Number.NaN]) {
+  it.each([
+    ['concurrency', [0, -1, 1.5, Number.NaN], [1]],
+    [
+      'shutdownGraceMs',
+      [-1, 1.5, Number.NaN, 2_147_483_648, Number.MAX_SAFE_INTEGER + 1],
+      [0, 2_147_483_647],
+    ],
+    [
+      'requestTimeoutMs',
+      [0, -1, 1.5, Number.NaN, 2_147_483_648, Number.MAX_SAFE_INTEGER + 1],
+      [1, 2_147_483_647],
+    ],
+  ] as const)('validates %s at construction', async (option, invalid, valid) => {
+    for (const value of invalid) {
       expect(() =>
         createCustomToolWorker({
           client: createOmnaraClient(),
           path,
           tools: {},
-          concurrency,
+          [option]: value,
           onError: vi.fn(),
         }),
       ).toThrow(RangeError)
+    }
+    for (const value of valid) {
+      const worker = createCustomToolWorker({
+        client: createOmnaraClient(),
+        path,
+        tools: {},
+        [option]: value,
+        onError: vi.fn(),
+      })
+      await worker.shutdown()
     }
   })
 

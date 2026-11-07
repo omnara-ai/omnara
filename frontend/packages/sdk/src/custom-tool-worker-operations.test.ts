@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  createCustomToolWorker,
-  type CustomToolHandler,
-  type CustomToolHandlerResult,
-} from './custom-tool-worker'
+import { createCustomToolWorker } from './custom-tool-worker'
 import {
   accepted,
   api,
@@ -16,6 +12,7 @@ import {
   toolCallID,
   toolPage,
 } from './custom-tool-worker-test-support'
+import type { CustomToolHandler, CustomToolHandlerResult } from './custom-tool-worker-types'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -34,7 +31,7 @@ function fakeTime() {
 }
 
 describe('custom tool operations', () => {
-  it('fetches omitted input and skips work that has already completed', async () => {
+  it('reads authoritative state and input before handling a notification', async () => {
     let completed = true
     const { client, requests } = api(
       (_, body) => accepted(body ?? found),
@@ -353,6 +350,55 @@ describe('custom tool operations', () => {
     await done
   })
 
+  it('preserves the list retry deadline when response processing times out', async () => {
+    fakeTime()
+    const startedAt = Date.now()
+    const reads: number[] = []
+    const { client, submitted } = api(async (request, body) => {
+      if (body !== undefined) return accepted(body)
+      reads.push(Date.now() - startedAt)
+      if (reads.length > 1) return toolPage(request, [toolCall()])
+      await new Promise((resolve) => setTimeout(resolve, 20_000))
+      return new Response(
+        new ReadableStream({
+          async start(controller) {
+            await new Promise((resolve) => setTimeout(resolve, 20_000))
+            controller.enqueue(
+              new TextEncoder().encode(
+                JSON.stringify({ code: 'rate_limit_exceeded', error: 'slow down' }),
+              ),
+            )
+            controller.close()
+          },
+        }),
+        { status: 429, headers: { 'Retry-After': '120', 'Content-Type': 'application/json' } },
+      )
+    })
+    const lookup = vi.fn<CustomToolHandler>(() => Promise.resolve(found))
+    const onError = vi.fn()
+    const worker = createCustomToolWorker({
+      client,
+      path,
+      tools: { lookup_customer: lookup },
+      onError,
+    })
+    const running = worker.run()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(onError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: 'TimeoutError' }),
+      undefined,
+    )
+    await vi.advanceTimersByTimeAsync(109_999)
+    expect(reads).toEqual([0])
+    expect(lookup).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(2)
+    expect(reads).toEqual([0, 140_001])
+    expect(lookup).toHaveBeenCalledOnce()
+    expect(submitted).toEqual([found])
+    await worker.shutdown()
+    await running
+  })
+
   it('bounds stalled authentication by default and prevents a late dispatch', async () => {
     fakeTime()
     const { client, requests } = api((_, body) => accepted(body ?? found))
@@ -448,32 +494,35 @@ describe('custom tool operations', () => {
     expect(lookup).toHaveBeenCalledOnce()
   })
 
-  it('reports a retained result when Retry-After exceeds the shutdown grace', async () => {
-    fakeTime()
-    const { client, submitted } = api(() =>
-      Response.json(
-        { code: 'rate_limit_exceeded', error: 'slow down' },
-        { status: 429, headers: { 'Retry-After': '120' } },
-      ),
-    )
-    const onError = vi.fn()
-    const worker = createCustomToolWorker({
-      client,
-      path,
-      shutdownGraceMs: 1_000,
-      tools: { lookup_customer: () => Promise.resolve(found) },
-      onError,
-    })
-    expect(await worker.handle(ready)).toMatchObject({ status: 'failed' })
-    const shutdown = worker.shutdown()
-    await vi.advanceTimersByTimeAsync(1_000)
-    await shutdown
-    expect(submitted).toHaveLength(1)
-    expect(onError).toHaveBeenLastCalledWith(
-      expect.objectContaining({ message: 'custom tool shutdown grace period expired' }),
-      expect.objectContaining({ toolCallID }),
-    )
-  })
+  it.each(['120', '2147484'])(
+    'reports a retained result when Retry-After %s exceeds the shutdown grace',
+    async (retryAfter) => {
+      fakeTime()
+      const { client, submitted } = api(() =>
+        Response.json(
+          { code: 'rate_limit_exceeded', error: 'slow down' },
+          { status: 429, headers: { 'Retry-After': retryAfter } },
+        ),
+      )
+      const onError = vi.fn()
+      const worker = createCustomToolWorker({
+        client,
+        path,
+        shutdownGraceMs: 1_000,
+        tools: { lookup_customer: () => Promise.resolve(found) },
+        onError,
+      })
+      expect(await worker.handle(ready)).toMatchObject({ status: 'failed' })
+      const shutdown = worker.shutdown()
+      await vi.advanceTimersByTimeAsync(1_000)
+      await shutdown
+      expect(submitted).toHaveLength(1)
+      expect(onError).toHaveBeenLastCalledWith(
+        expect.objectContaining({ message: 'custom tool shutdown grace period expired' }),
+        expect.objectContaining({ toolCallID }),
+      )
+    },
+  )
 
   it('preserves Retry-After when the operation is canceled while waiting to retry', async () => {
     fakeTime()

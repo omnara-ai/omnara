@@ -6,7 +6,12 @@ import type { Client as OmnaraClient, Config } from './generated/client'
 import { createClient, createConfig, formDataBodySerializer } from './generated/client'
 import { client as specDefaultClient } from './generated/client.gen'
 import type { BodySerializer } from './generated/core/bodySerializer.gen'
-import { normalizeHeaders, requestWithPolicy, validateClientRequestPolicy } from './request-policy'
+import {
+  captureRequestDestination,
+  normalizeHeaders,
+  requestWithPolicy,
+  validateClientRequestPolicy,
+} from './request-policy'
 import type { RequestPolicyOptions } from './request-policy-options'
 
 export type {
@@ -69,10 +74,10 @@ function normalizeRequestOptions<O extends object>(options: O): O {
   return normalized
 }
 
-// Generated HTTP methods close over request(), so install policy on each entry
-// point. Retry defaults and API-error mapping belong to each client's setup.
+// Generated HTTP methods close over request(), so route them through our policy entry.
 // Normalization also drops the reserved Request init key until hey-api#4177 is fixed.
 function configureRequests(client: OmnaraClient): void {
+  client.interceptors.request.use(captureRequestDestination)
   const { setConfig } = client
   client.setConfig = (config) => {
     validateClientRequestPolicy(config)
@@ -84,15 +89,9 @@ function configureRequests(client: OmnaraClient): void {
       request(normalizeRequestOptions({ ...options, ...overrides })),
     )
   for (const method of httpMethods) {
-    const dispatch = client[method]
     // SAFETY: every entry is a generated HTTP method; casing preserves that union.
     const requestMethod = method.toUpperCase() as Uppercase<HttpMethod>
-    client[method] = (options) =>
-      requestWithPolicy(
-        client.getConfig(),
-        normalizeRequestOptions({ ...options, method: requestMethod }),
-        (overrides) => dispatch(normalizeRequestOptions({ ...options, ...overrides })),
-      )
+    client[method] = (options) => client.request({ ...options, method: requestMethod })
     const sseDispatch = client.sse[method]
     client.sse[method] = (options) => sseDispatch(normalizeRequestOptions(options))
   }
@@ -102,16 +101,16 @@ specDefaultClient.setConfig({ maxRetries: 0, timeoutMs: 0 })
 configureRequests(specDefaultClient)
 
 export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraClient {
-  validateClientRequestPolicy(options)
   const client = createClient(
     createConfig({
       throwOnError: true,
     }),
   )
+  configureRequests(client)
   client.setConfig({
     baseUrl: options.baseUrl ?? specDefaultClient.getConfig().baseUrl,
     credentials: options.credentials,
-    headers: normalizeHeaders(options.headers),
+    headers: options.headers,
     fetch: options.fetch,
     maxRetries: options.maxRetries,
     timeoutMs: options.timeoutMs,
@@ -128,6 +127,5 @@ export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraCli
     if (!response.ok) throw await ApiError.fromResponse(response)
     return response
   })
-  configureRequests(client)
   return client
 }

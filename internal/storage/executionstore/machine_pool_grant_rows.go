@@ -9,34 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-func projectMachinePoolGrantFromUpsert(row dbsqlc.UpsertProjectMachinePoolGrantRow) ProjectMachinePoolGrantRecord {
-	return projectMachinePoolGrantRecord(
-		row.ID,
-		row.OrgID,
-		row.ProjectID,
-		row.MachinePoolID,
-		row.Description,
-		row.DefaultMachineCpu,
-		row.DefaultMachineMemoryMb,
-		row.DefaultMachineEnvOverlay,
-		row.DefaultMachineSecretEnvOverlay,
-		row.DefaultMachineProviderOptionsOverlay,
-		row.DefaultCwd,
-		row.MaxTotalMachines,
-		row.MaxTotalCpu,
-		row.MaxTotalMemoryMb,
-		row.MinMachineCpu,
-		row.MinMachineMemoryMb,
-		row.MaxMachineCpu,
-		row.MaxMachineMemoryMb,
-		row.DeleteAfterIdleMinutes,
-		row.Metadata,
-		row.CreatedAt,
-		row.UpdatedAt,
-	)
-}
-
-func projectMachinePoolGrantFromGet(row dbsqlc.GetProjectMachinePoolGrantRow) ProjectMachinePoolGrantRecord {
+func projectMachinePoolGrantFromSQLC(row dbsqlc.GetProjectMachinePoolGrantRow) ProjectMachinePoolGrantRecord {
 	return projectMachinePoolGrantRecord(
 		row.ID,
 		row.OrgID,
@@ -93,60 +66,6 @@ func projectMachinePoolGrantFromActiveMachinePool(
 }
 
 func projectMachinePoolGrantFromList(row dbsqlc.ListProjectMachinePoolGrantsRow) ProjectMachinePoolGrantRecord {
-	return projectMachinePoolGrantRecord(
-		row.ID,
-		row.OrgID,
-		row.ProjectID,
-		row.MachinePoolID,
-		row.Description,
-		row.DefaultMachineCpu,
-		row.DefaultMachineMemoryMb,
-		row.DefaultMachineEnvOverlay,
-		row.DefaultMachineSecretEnvOverlay,
-		row.DefaultMachineProviderOptionsOverlay,
-		row.DefaultCwd,
-		row.MaxTotalMachines,
-		row.MaxTotalCpu,
-		row.MaxTotalMemoryMb,
-		row.MinMachineCpu,
-		row.MinMachineMemoryMb,
-		row.MaxMachineCpu,
-		row.MaxMachineMemoryMb,
-		row.DeleteAfterIdleMinutes,
-		row.Metadata,
-		row.CreatedAt,
-		row.UpdatedAt,
-	)
-}
-
-func projectMachinePoolGrantFromUpdate(row dbsqlc.UpdateProjectMachinePoolGrantRow) ProjectMachinePoolGrantRecord {
-	return projectMachinePoolGrantRecord(
-		row.ID,
-		row.OrgID,
-		row.ProjectID,
-		row.MachinePoolID,
-		row.Description,
-		row.DefaultMachineCpu,
-		row.DefaultMachineMemoryMb,
-		row.DefaultMachineEnvOverlay,
-		row.DefaultMachineSecretEnvOverlay,
-		row.DefaultMachineProviderOptionsOverlay,
-		row.DefaultCwd,
-		row.MaxTotalMachines,
-		row.MaxTotalCpu,
-		row.MaxTotalMemoryMb,
-		row.MinMachineCpu,
-		row.MinMachineMemoryMb,
-		row.MaxMachineCpu,
-		row.MaxMachineMemoryMb,
-		row.DeleteAfterIdleMinutes,
-		row.Metadata,
-		row.CreatedAt,
-		row.UpdatedAt,
-	)
-}
-
-func projectMachinePoolGrantFromDelete(row dbsqlc.DeleteProjectMachinePoolGrantRow) ProjectMachinePoolGrantRecord {
 	return projectMachinePoolGrantRecord(
 		row.ID,
 		row.OrgID,

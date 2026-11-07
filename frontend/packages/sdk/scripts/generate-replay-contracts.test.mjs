@@ -17,41 +17,28 @@ describe('OpenAPI replay contracts', () => {
           },
           '/inherited': { parameters: [{ in: 'header', name: 'idempotency-key' }], put: {} },
           '/natural': { post: { 'x-omnara-idempotent': true } },
-          '/read': { get: {} },
-          '/unclassified': { post: {}, put: {} },
-        },
-      }),
-    ).toEqual({
-      known: [
-        'DELETE /keyed',
-        'GET /read',
-        'POST /keyed',
-        'POST /natural',
-        'POST /unclassified',
-        'PUT /inherited',
-        'PUT /unclassified',
-      ],
-      keyed: ['POST /keyed', 'PUT /inherited'],
-      idempotent: ['POST /natural'],
-    })
-  })
-
-  it('records templates for read and unsafe write labels without granting replay safety', () => {
-    expect(
-      replayContracts({
-        paths: {
           '/orgs/{orgID}/agents': {
             summary: 'Agents',
             parameters: [{ in: 'path', name: 'orgID' }],
             get: {},
             post: {},
           },
+          '/unclassified': { post: {}, put: {} },
         },
       }),
     ).toEqual({
-      known: ['GET /orgs/{orgID}/agents', 'POST /orgs/{orgID}/agents'],
-      keyed: [],
-      idempotent: [],
+      known: [
+        'DELETE /keyed',
+        'GET /orgs/{orgID}/agents',
+        'POST /keyed',
+        'POST /natural',
+        'POST /orgs/{orgID}/agents',
+        'POST /unclassified',
+        'PUT /inherited',
+        'PUT /unclassified',
+      ],
+      keyed: ['POST /keyed', 'PUT /inherited'],
+      idempotent: ['POST /natural'],
     })
   })
 

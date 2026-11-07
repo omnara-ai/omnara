@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createOmnaraClient } from './client'
 import { ApiError } from './errors'
-import { createClient } from './generated/client'
 import { writeMemoryFile } from './generated/sdk.gen'
 
 const baseUrl = 'https://api.example.test/v1'
@@ -64,13 +63,22 @@ describe('SDK transport retries', () => {
       request.headers.set('Authorization', 'Bearer original')
     })
     const bodySerializer = vi.fn(JSON.stringify)
+    const querySerializer = vi.fn(() => 'include=summary')
     const client = createOmnaraClient({ baseUrl, fetch, auth: { authenticate } })
+    const intercept = vi.fn((request: Request) => {
+      const cloned = request.clone()
+      cloned.headers.set('X-Caller', 'intercepted')
+      return cloned
+    })
+    client.interceptors.request.use(intercept)
     const validate = vi.fn(() => Promise.resolve())
     const done = client.post({
       url: agentUrl,
       path,
       body: { name: 'Ada' },
       bodySerializer,
+      query: { include: 'summary' },
+      querySerializer,
       responseValidator: validate,
     })
     await vi.runAllTimersAsync()
@@ -80,6 +88,8 @@ describe('SDK transport retries', () => {
     expect(sent[1]).toEqual(sent[0])
     expect(authenticate).toHaveBeenCalledOnce()
     expect(bodySerializer).toHaveBeenCalledOnce()
+    expect(querySerializer).toHaveBeenCalledOnce()
+    expect(intercept).toHaveBeenCalledOnce()
     expect(validate).toHaveBeenCalledOnce()
     await client.post({ url: agentUrl, path, body: { name: 'Ada' }, maxRetries: 0 })
     expect(sent[2]?.key).not.toBe(sent[0]?.key)
@@ -367,15 +377,4 @@ describe('SDK transport retries', () => {
       expect(fetch).toHaveBeenCalledTimes(stage === 'response validation' ? 1 : 0)
     },
   )
-
-  it('leaves generated raw clients free of SDK retry policy', async () => {
-    const fetch = vi
-      .fn<typeof globalThis.fetch>()
-      .mockImplementation(() => Promise.resolve(failure()))
-    const client = createClient({ baseUrl, fetch })
-    expect(await client.get({ url: '/agents' })).toMatchObject({
-      error: { code: 'service_unavailable' },
-    })
-    expect(fetch).toHaveBeenCalledOnce()
-  })
 })

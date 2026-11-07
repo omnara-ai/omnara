@@ -1,133 +1,26 @@
 package executionstore
 
 import (
-	"encoding/json"
-	"time"
-
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-func projectMachineGrantFromUpsert(
-	row dbsqlc.ProjectMachineGrant,
-) ProjectMachineGrantRecord {
-	return projectMachineGrantRecord(
-		row.ID,
-		row.OrgID,
-		row.ProjectID,
-		row.MachineID,
-		row.SourceKind,
-		row.ProjectMachinePoolGrantID,
-		row.Description,
-		row.Metadata,
-		row.CreatedAt,
-		row.UpdatedAt,
-	)
-}
-
-func projectMachineGrantFromActiveMachine(
-	row dbsqlc.ProjectMachineGrant,
-) ProjectMachineGrantRecord {
-	return projectMachineGrantRecord(
-		row.ID,
-		row.OrgID,
-		row.ProjectID,
-		row.MachineID,
-		row.SourceKind,
-		row.ProjectMachinePoolGrantID,
-		row.Description,
-		row.Metadata,
-		row.CreatedAt,
-		row.UpdatedAt,
-	)
-}
-
-func projectMachineGrantFromGet(row dbsqlc.ProjectMachineGrant) ProjectMachineGrantRecord {
-	return projectMachineGrantRecord(
-		row.ID,
-		row.OrgID,
-		row.ProjectID,
-		row.MachineID,
-		row.SourceKind,
-		row.ProjectMachinePoolGrantID,
-		row.Description,
-		row.Metadata,
-		row.CreatedAt,
-		row.UpdatedAt,
-	)
-}
-
-func projectMachineGrantFromDelete(
-	row dbsqlc.ProjectMachineGrant,
-) ProjectMachineGrantRecord {
-	return projectMachineGrantRecord(
-		row.ID,
-		row.OrgID,
-		row.ProjectID,
-		row.MachineID,
-		row.SourceKind,
-		row.ProjectMachinePoolGrantID,
-		row.Description,
-		row.Metadata,
-		row.CreatedAt,
-		row.UpdatedAt,
-	)
-}
-
-func projectMachineGrantRecord(
-	id, orgID, projectID, machineID uuid.UUID,
-	sourceKind string,
-	projectMachinePoolGrantID *uuid.UUID,
-	description string,
-	metadata []byte,
-	createdAt, updatedAt time.Time,
-) ProjectMachineGrantRecord {
+func projectMachineGrantFromSQLC(row dbsqlc.ProjectMachineGrant) ProjectMachineGrantRecord {
 	return ProjectMachineGrantRecord{
-		ID:                        id,
-		OrgID:                     orgID,
-		ProjectID:                 projectID,
-		MachineID:                 machineID,
-		SourceKind:                ProjectMachineGrantSourceKind(sourceKind),
-		ProjectMachinePoolGrantID: storeutil.IDFromPtr(projectMachinePoolGrantID),
-		Description:               description,
-		Metadata:                  json.RawMessage(metadata),
-		CreatedAt:                 createdAt,
-		UpdatedAt:                 updatedAt,
+		ID:                        row.ID,
+		OrgID:                     row.OrgID,
+		ProjectID:                 row.ProjectID,
+		MachineID:                 row.MachineID,
+		SourceKind:                ProjectMachineGrantSourceKind(row.SourceKind),
+		ProjectMachinePoolGrantID: storeutil.IDFromPtr(row.ProjectMachinePoolGrantID),
+		Description:               row.Description,
+		Metadata:                  row.Metadata,
+		CreatedAt:                 row.CreatedAt,
+		UpdatedAt:                 row.UpdatedAt,
 	}
 }
 
-func machineDaemonTokenFromCreate(row dbsqlc.MachineDaemonToken) MachineDaemonTokenRecord {
-	return MachineDaemonTokenRecord{
-		ID:           row.ID,
-		OrgID:        row.OrgID,
-		MachineID:    row.MachineID,
-		Name:         row.Name,
-		TokenHash:    row.TokenHash,
-		Metadata:     row.Metadata,
-		CreatedAt:    row.CreatedAt,
-		LastUsedAt:   row.LastUsedAt,
-		RevokedAt:    row.RevokedAt,
-		RevokeReason: row.RevokeReason,
-	}
-}
-
-func machineDaemonTokenFromList(row dbsqlc.MachineDaemonToken) MachineDaemonTokenRecord {
-	return MachineDaemonTokenRecord{
-		ID:           row.ID,
-		OrgID:        row.OrgID,
-		MachineID:    row.MachineID,
-		Name:         row.Name,
-		TokenHash:    row.TokenHash,
-		Metadata:     row.Metadata,
-		CreatedAt:    row.CreatedAt,
-		LastUsedAt:   row.LastUsedAt,
-		RevokedAt:    row.RevokedAt,
-		RevokeReason: row.RevokeReason,
-	}
-}
-
-func machineDaemonTokenFromRevoke(row dbsqlc.MachineDaemonToken) MachineDaemonTokenRecord {
+func machineDaemonTokenFromSQLC(row dbsqlc.MachineDaemonToken) MachineDaemonTokenRecord {
 	return MachineDaemonTokenRecord{
 		ID:           row.ID,
 		OrgID:        row.OrgID,

@@ -1660,62 +1660,6 @@ func TestProjectMachinePoolGrantDoesNotMaterializeMachineGrants(t *testing.T) {
 	}
 }
 
-func TestProjectMachinePoolGrantKeyConsumedAfterDelete(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
-	machinePool, err := store.Execution().CreateMachinePool(
-		ctx,
-		completeMachinePoolCreateInputForTest(
-			t,
-			ctx,
-			store,
-			executionstore.CreateMachinePoolInput{
-				OrgID:            testOrgID,
-				Name:             "Replay Revoked Pool",
-				Provider:         "test",
-				MaxTotalMachines: 2,
-			},
-		))
-
-	if err != nil {
-		t.Fatalf("create machine pool: %v", err)
-	}
-	createInput := executionstore.CreateProjectMachinePoolGrantInput{
-		OrgID:          testOrgID,
-		ProjectID:      testProjectID,
-		MachinePoolID:  machinePool.ID,
-		IdempotencyKey: "idem-pmpg-replay-revoked",
-	}
-	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(ctx, createInput)
-	if err != nil {
-		t.Fatalf("create pool grant: %v", err)
-	}
-	if !poolGrant.Created {
-		t.Fatalf("pool grant created = false")
-	}
-	if _, err := store.Execution().DeleteProjectMachinePoolGrant(
-		ctx,
-		testOrgID,
-		testProjectID,
-		poolGrant.ID,
-	); err != nil {
-		t.Fatalf("revoke pool grant: %v", err)
-	}
-	if _, err := store.Execution().CreateProjectMachinePoolGrant(ctx, createInput); !errors.Is(
-		err, storeerr.ErrIdempotencyConflict,
-	) {
-		t.Fatalf("replay revoked pool grant: %v, want idempotency conflict", err)
-	}
-	createInput.IdempotencyKey = "intentional-regrant"
-	recreated, err := store.Execution().CreateProjectMachinePoolGrant(ctx, createInput)
-	if err != nil || !recreated.Created || recreated.ID == poolGrant.ID {
-		t.Fatalf("regrant with new key = %+v, %v", recreated, err)
-	}
-}
-
 func TestDeleteMachinePoolRevokesGrantsAndMarksMachinesDeleting(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

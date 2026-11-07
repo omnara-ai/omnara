@@ -94,17 +94,15 @@ The SDK's `createCustomToolWorker` connects tool functions to this workflow.
 Choose a project, optionally an agent profile, and register the functions you
 handle. Before starting a handler from a webhook or SSE notification, it fetches
 the call and checks that it is still ready. This skips notifications for calls
-that have already completed or been canceled. Recovery reserves execution slots
-before listing calls, then starts those calls directly from the fresh page;
-it does not fetch each call again. The helper submits results, retries
+that have already completed or been canceled. The helper submits results, retries
 temporary API failures, and retains finished results in memory when submission
 fails. Its optional `run()` loop starts recovery immediately and repeats while
-running. Large scans continue across passes so older deferred jobs cannot hide
-newer calls.
+running, respecting the worker's concurrency limit. Large scans continue across
+passes so older deferred jobs cannot hide newer calls.
 
 Use `handle(update)` inside a queue job, or `check()` in a scheduled task.
-`check()` processes up to `limit` rows (50 by default, at most 100) using reads
-sized to available capacity and returns `nextCursor`; follow that cursor to
+`check()` processes up to `limit` rows (50 by default, at most 100)
+and returns `nextCursor`; follow that cursor to
 finish the pass. If retained results occupy all slots, it returns `blocked: true`
 without advancing past unread calls. Save that cursor and retry later; a blocked
 check with a null cursor resumes from the beginning. Otherwise a null cursor
@@ -160,8 +158,7 @@ submission, capacity, and recovery observations. It distinguishes a failed tool
 result from failed delivery of that result. Observations contain no resource
 IDs, tool names, inputs, or results. Record cheap local counters and timings;
 the SDK sends no telemetry and ignores observer failures. Recovery page counts
-and scan duration show discovery cost, which grows with the backlog even when
-many calls are deferred or already running locally.
+and scan duration help you monitor the cost of scanning a growing backlog.
 
 Webhooks and SSE include the emitting agent's organization, project, agent ID,
 and nullable profile ID, plus its parent and root agent IDs. The parent is
