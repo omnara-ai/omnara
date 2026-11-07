@@ -57,7 +57,8 @@ const customTool = z
   })
 
 export function parseConfigDocument(source: string, format: ConfigSourceFormat = 'yaml') {
-  const doc = parseDocument(source, configYamlOptions)
+  const doc = parseDocument(source, { keepSourceTokens: true })
+  doc.schema.compat = configYamlOptions.compat
   const diagnostics: ConfigDiagnostic[] = doc.errors.map((error) => ({
     path: [],
     kind: 'fatal',
