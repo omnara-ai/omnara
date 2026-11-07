@@ -2590,6 +2590,14 @@ export type ToolCallUpdate = {
      * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
      */
     agent_profile_id: AgentProfileId | null;
+    /**
+     * The emitting agent's immediate parent, or null for a top-level agent.
+     */
+    parent_agent_id: AgentId | null;
+    /**
+     * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+     */
+    root_agent_id: AgentId;
     state: ToolCallState;
     /**
      * The tool name. Present when a custom tool call becomes ready.
@@ -2650,6 +2658,14 @@ export type AgentInputEvent = {
      * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
      */
     agent_profile_id: AgentProfileId | null;
+    /**
+     * The emitting agent's immediate parent, or null for a top-level agent.
+     */
+    parent_agent_id: AgentId | null;
+    /**
+     * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+     */
+    root_agent_id: AgentId;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: boolean;
@@ -2690,6 +2706,14 @@ export type ModelOutputEvent = {
      * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
      */
     agent_profile_id: AgentProfileId | null;
+    /**
+     * The emitting agent's immediate parent, or null for a top-level agent.
+     */
+    parent_agent_id: AgentId | null;
+    /**
+     * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+     */
+    root_agent_id: AgentId;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: false;
@@ -2717,6 +2741,14 @@ export type ToolResultEvent = {
      * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
      */
     agent_profile_id: AgentProfileId | null;
+    /**
+     * The emitting agent's immediate parent, or null for a top-level agent.
+     */
+    parent_agent_id: AgentId | null;
+    /**
+     * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+     */
+    root_agent_id: AgentId;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: false;
@@ -2737,6 +2769,14 @@ export type ContextCheckpointEvent = {
      * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
      */
     agent_profile_id: AgentProfileId | null;
+    /**
+     * The emitting agent's immediate parent, or null for a top-level agent.
+     */
+    parent_agent_id: AgentId | null;
+    /**
+     * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+     */
+    root_agent_id: AgentId;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: false;

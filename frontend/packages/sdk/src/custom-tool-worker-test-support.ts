@@ -15,6 +15,8 @@ export const routing = {
   org_id: path.orgID,
   project_id: path.projectID,
   agent_profile_id: profileID,
+  parent_agent_id: null,
+  root_agent_id: agentID,
 }
 export const ready: ToolCallUpdate = {
   ...routing,

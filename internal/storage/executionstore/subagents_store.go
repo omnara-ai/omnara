@@ -838,6 +838,8 @@ func (s *Store) ListSubagents(
 type AgentDescendant struct {
 	ID             uuid.UUID
 	AgentProfileID uuid.UUID
+	ParentAgentID  uuid.UUID
+	RootAgentID    uuid.UUID
 }
 
 func (s *Store) ListAgentDescendantIDs(ctx context.Context, projectID, agentID uuid.UUID) ([]uuid.UUID, error) {
@@ -867,7 +869,10 @@ func (s *Store) ListAgentDescendants(
 	}
 	out := make([]AgentDescendant, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, AgentDescendant{ID: row.ID, AgentProfileID: storeutil.IDFromPtr(row.AgentProfileID)})
+		out = append(out, AgentDescendant{
+			ID: row.ID, AgentProfileID: storeutil.IDFromPtr(row.AgentProfileID),
+			ParentAgentID: storeutil.IDFromPtr(row.ParentAgentID), RootAgentID: row.RootAgentID,
+		})
 	}
 	return out, nil
 }

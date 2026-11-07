@@ -122,6 +122,7 @@ func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 		ClaimToken: uuid.New(), AttemptCount: 1,
 	}
 	store.endpoint.OrgID = delivery.OrgID
+	store.endpoint.RootAgentID = delivery.AgentID
 	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7), store, delivery
 }
 
@@ -236,7 +237,8 @@ func TestSenderRetryUsesCurrentWebhookConfiguration(t *testing.T) {
 func TestSenderUsesExistingTimelinePayload(t *testing.T) {
 	sender, store, delivery := testSender()
 	store.record = executionstore.AgentEventReadRecord{
-		ID: uuid.New(), OrgID: uuid.New(), ProjectID: store.endpoint.ProjectID, AgentID: delivery.AgentID,
+		ID: uuid.New(), OrgID: uuid.New(), ProjectID: store.endpoint.ProjectID,
+		AgentID: delivery.AgentID, RootAgentID: delivery.AgentID,
 		TurnID: uuid.New(), Sequence: 17, EventKind: "context_checkpoint",
 		ContextCheckpointID: uuid.New(), CheckpointSummary: "summary", CreatedAt: time.Now(),
 	}

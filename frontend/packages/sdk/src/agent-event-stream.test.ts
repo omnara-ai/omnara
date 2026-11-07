@@ -15,6 +15,8 @@ const toolUpdate: ToolCallUpdate = {
   project_id: `proj_${idSuffix}`,
   agent_id: `agt_${idSuffix}`,
   agent_profile_id: null,
+  parent_agent_id: null,
+  root_agent_id: `agt_${idSuffix}`,
   tool_call_id: `tcl_${idSuffix}`,
   state: 'running',
 }
@@ -29,6 +31,8 @@ function durableEvent(
     project_id: `proj_${idSuffix}`,
     agent_id: `agt_${idSuffix}`,
     agent_profile_id: null,
+    parent_agent_id: null,
+    root_agent_id: `agt_${idSuffix}`,
     turn_id: `trn_${idSuffix}`,
     turn_sequence: 1,
     is_opening_event: false,

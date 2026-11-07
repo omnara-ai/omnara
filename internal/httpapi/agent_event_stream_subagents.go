@@ -17,28 +17,28 @@ type subagentStreamSubscriptions struct {
 	orgID         uuid.UUID
 	server        *Server
 	projectID     uuid.UUID
-	rootAgentID   uuid.UUID
+	streamAgentID uuid.UUID
 	updates       chan<- toolCallStreamUpdate
 	subscriptions map[uuid.UUID]notifications.Subscription
 }
 
 func newSubagentStreamSubscriptions(
 	server *Server,
-	orgID, projectID, rootAgentID uuid.UUID,
+	orgID, projectID, streamAgentID uuid.UUID,
 	updates chan<- toolCallStreamUpdate,
 ) *subagentStreamSubscriptions {
 	return &subagentStreamSubscriptions{
 		server:        server,
 		orgID:         orgID,
 		projectID:     projectID,
-		rootAgentID:   rootAgentID,
+		streamAgentID: streamAgentID,
 		updates:       updates,
 		subscriptions: map[uuid.UUID]notifications.Subscription{},
 	}
 }
 
 func (s *subagentStreamSubscriptions) refresh(ctx context.Context) error {
-	descendants, err := s.server.store.Execution().ListAgentDescendants(ctx, s.projectID, s.rootAgentID)
+	descendants, err := s.server.store.Execution().ListAgentDescendants(ctx, s.projectID, s.streamAgentID)
 	if err != nil {
 		return err
 	}
@@ -59,6 +59,7 @@ func (s *subagentStreamSubscriptions) refresh(ctx context.Context) error {
 					agent: publicevents.AgentContext{
 						OrgID: s.orgID, ProjectID: s.projectID,
 						AgentID: agentID, AgentProfileID: agent.AgentProfileID,
+						ParentAgentID: agent.ParentAgentID, RootAgentID: agent.RootAgentID,
 					},
 				}:
 				default:

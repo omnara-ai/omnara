@@ -14057,7 +14057,7 @@ components:
         for the current rows.
       type: object
       additionalProperties: false
-      required: [org_id, project_id, agent_id, agent_profile_id, tool_call_id, state]
+      required: [org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, tool_call_id, state]
       properties:
         org_id:
           $ref: '#/components/schemas/OrganizationID'
@@ -14073,6 +14073,14 @@ components:
           anyOf:
             - $ref: '#/components/schemas/AgentProfileID'
             - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+          $ref: '#/components/schemas/AgentID'
         state:
           $ref: '#/components/schemas/ToolCallState'
         name:
@@ -14155,7 +14163,7 @@ components:
     AgentInputEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, agent_profile_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, agent_input_id, input_kind, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, agent_input_id, input_kind, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -14170,6 +14178,14 @@ components:
           anyOf:
             - $ref: '#/components/schemas/AgentProfileID'
             - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+          $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
         turn_sequence:
@@ -14209,7 +14225,7 @@ components:
     ModelOutputEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, agent_profile_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -14224,6 +14240,14 @@ components:
           anyOf:
             - $ref: '#/components/schemas/AgentProfileID'
             - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+          $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
         turn_sequence:
@@ -14261,7 +14285,7 @@ components:
     ToolResultEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, agent_profile_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, tool_call_id, outcome, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, tool_call_id, outcome, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -14276,6 +14300,14 @@ components:
           anyOf:
             - $ref: '#/components/schemas/AgentProfileID'
             - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+          $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
         turn_sequence:
@@ -14302,7 +14334,7 @@ components:
     ContextCheckpointEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, agent_profile_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, context_checkpoint_id, summarized_through_event_sequence, summary, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, context_checkpoint_id, summarized_through_event_sequence, summary, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -14317,6 +14349,14 @@ components:
           anyOf:
             - $ref: '#/components/schemas/AgentProfileID'
             - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+          $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
         turn_sequence:

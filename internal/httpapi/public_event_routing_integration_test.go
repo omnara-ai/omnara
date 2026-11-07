@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPublicEventRoutingUsesEmittingAgentProfileAcrossTransports(t *testing.T) {
+func TestPublicEventRoutingUsesEmittingAgentContextAcrossTransports(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
@@ -68,6 +68,13 @@ func TestPublicEventRoutingUsesEmittingAgentProfileAcrossTransports(t *testing.T
 	noProfile := spawnHTTPSubagentForTest(
 		t, ctx, store, parent.Agent, parent.AgentConfig.ID, "routing-no-profile", "no-profile-child",
 	)
+	grandchild := spawnHTTPSubagentForTest(
+		t, ctx, store, child.Agent, child.AgentConfig.ID, "routing-grandchild", "grandchild",
+	)
+	require.Equal(t, parent.Agent.ID, parent.Agent.RootAgentID)
+	require.Equal(t, parent.Agent.ID, child.Agent.RootAgentID)
+	require.Equal(t, child.Agent.ID, grandchild.ParentAgentID)
+	require.Equal(t, parent.Agent.ID, grandchild.RootAgentID)
 	require.NotEqual(t, uuid.Nil, parent.Agent.AgentProfileID)
 	require.NotEqual(t, parent.Agent.AgentProfileID, child.Agent.AgentProfileID)
 	require.Equal(t, uuid.Nil, noProfile.AgentProfileID)
@@ -105,6 +112,13 @@ func TestPublicEventRoutingUsesEmittingAgentProfileAcrossTransports(t *testing.T
 		require.Equal(t, project.OrgID, data["org_id"])
 		require.Equal(t, project.ProjectID, data["project_id"])
 		require.Equal(t, testPublicID(t, publicid.KindAgent, agent.ID), data["agent_id"])
+		require.Equal(t, testPublicID(t, publicid.KindAgent, agent.RootAgentID), data["root_agent_id"])
+		require.Contains(t, data, "parent_agent_id")
+		if agent.ParentAgentID == uuid.Nil {
+			require.Nil(t, data["parent_agent_id"])
+		} else {
+			require.Equal(t, testPublicID(t, publicid.KindAgent, agent.ParentAgentID), data["parent_agent_id"])
+		}
 		require.Contains(t, data, "agent_profile_id", "an agent without a profile must emit explicit null")
 		if agent.AgentProfileID == uuid.Nil {
 			require.Nil(t, data["agent_profile_id"])
@@ -114,7 +128,9 @@ func TestPublicEventRoutingUsesEmittingAgentProfileAcrossTransports(t *testing.T
 	}
 	parentStream, parentScanner := openStream(parent.Agent.ID)
 	defer parentStream.Body.Close()
-	agents := []executionstore.AgentRecord{parent.Agent, child.Agent, noProfile}
+	childStream, childScanner := openStream(child.Agent.ID)
+	defer childStream.Body.Close()
+	agents := []executionstore.AgentRecord{parent.Agent, child.Agent, noProfile, grandchild}
 	for _, agent := range agents {
 		toolCallID := createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, agent)
 		publicToolCallID := testPublicID(t, publicid.KindToolCall, toolCallID)
@@ -127,13 +143,19 @@ func TestPublicEventRoutingUsesEmittingAgentProfileAcrossTransports(t *testing.T
 				})
 				require.NoError(t, err)
 			}
-			for {
-				event, data := nextRoutingEventFrame(t, parentScanner)
-				if event != "tool_call_update" || data["tool_call_id"] != publicToolCallID || data["state"] != state {
-					continue
+			scanners := []*bufio.Scanner{parentScanner}
+			if agent.ID == grandchild.ID {
+				scanners = append(scanners, childScanner)
+			}
+			for _, scanner := range scanners {
+				for {
+					event, data := nextRoutingEventFrame(t, scanner)
+					if event != "tool_call_update" || data["tool_call_id"] != publicToolCallID || data["state"] != state {
+						continue
+					}
+					assertRouting(data, agent)
+					break
 				}
-				assertRouting(data, agent)
-				break
 			}
 		}
 	}
@@ -151,6 +173,8 @@ func TestPublicEventRoutingUsesEmittingAgentProfileAcrossTransports(t *testing.T
 		require.Equal(t, project.ProjectUUID, endpoint.ProjectID)
 		require.Equal(t, agent.AgentProfileID, endpoint.AgentProfileID,
 			"a project webhook must use its emitting agent's profile, not its subscription's null profile")
+		require.Equal(t, agent.ParentAgentID, endpoint.ParentAgentID)
+		require.Equal(t, agent.RootAgentID, endpoint.RootAgentID)
 		response, scanner := openStream(agent.ID)
 		for _, raw := range events {
 			event := testutil.RequireType[map[string]any](t, raw)
@@ -165,6 +189,8 @@ func TestPublicEventRoutingUsesEmittingAgentProfileAcrossTransports(t *testing.T
 			)
 			require.NoError(t, err)
 			require.Equal(t, agent.AgentProfileID, webhookEvent.AgentProfileID)
+			require.Equal(t, agent.ParentAgentID, webhookEvent.ParentAgentID)
+			require.Equal(t, agent.RootAgentID, webhookEvent.RootAgentID)
 		}
 		require.NoError(t, response.Body.Close())
 		for _, kind := range []string{"agent_input", "model_output", "tool_result"} {

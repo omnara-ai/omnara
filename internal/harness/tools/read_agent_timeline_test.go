@@ -18,6 +18,7 @@ func TestReadAgentTimelinePreservesEventContent(t *testing.T) {
 	for _, kind := range []string{"agent_input", "model_output", "tool_result", "context_checkpoint"} {
 		t.Run(kind, func(t *testing.T) {
 			record := readAgentEventFixture(kind)
+			record.RootAgentID = record.AgentID
 			switch kind {
 			case "agent_input":
 				record.ContentBlocks = json.RawMessage(`[{"type":"text","text":"Please investigate"},` +

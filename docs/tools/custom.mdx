@@ -104,7 +104,9 @@ See the [complete example and one-off operations](https://github.com/omnara-ai/o
 for signature verification, scope filters, retries, and shutdown.
 
 Webhooks and SSE include the emitting agent's organization, project, agent ID,
-and nullable profile ID. The SDK uses those fields for filtering without fetching
+and nullable profile ID, plus its parent and root agent IDs. The parent is
+`null` for a top-level agent; the root is that agent itself. The SDK uses the
+organization, project, and profile fields for filtering without fetching
 the whole agent; it still fetches the tool call to avoid starting work that has
 already finished. This check is not an exclusive claim: use the tool-call ID as
 an idempotency key when your tool changes external state.

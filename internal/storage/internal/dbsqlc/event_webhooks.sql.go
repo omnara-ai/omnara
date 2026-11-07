@@ -214,7 +214,8 @@ func (q *Queries) GetEventWebhook(ctx context.Context, arg GetEventWebhookParams
 }
 
 const getEventWebhookEndpoint = `-- name: GetEventWebhookEndpoint :one
-SELECT webhook.org_id, webhook.project_id, webhook.url, webhook.signing_secret_id, agent.agent_profile_id
+SELECT webhook.org_id, webhook.project_id, webhook.url, webhook.signing_secret_id,
+       agent.agent_profile_id, agent.parent_agent_id, agent.root_agent_id
 FROM event_webhooks webhook
 JOIN orgs org ON org.id = webhook.org_id AND org.deleted_at IS NULL
 JOIN agents agent ON agent.project_id = webhook.project_id AND agent.id = $1
@@ -236,6 +237,8 @@ type GetEventWebhookEndpointRow struct {
 	Url             string
 	SigningSecretID *uuid.UUID
 	AgentProfileID  *uuid.UUID
+	ParentAgentID   *uuid.UUID
+	RootAgentID     uuid.UUID
 }
 
 func (q *Queries) GetEventWebhookEndpoint(ctx context.Context, arg GetEventWebhookEndpointParams) (GetEventWebhookEndpointRow, error) {
@@ -247,6 +250,8 @@ func (q *Queries) GetEventWebhookEndpoint(ctx context.Context, arg GetEventWebho
 		&i.Url,
 		&i.SigningSecretID,
 		&i.AgentProfileID,
+		&i.ParentAgentID,
+		&i.RootAgentID,
 	)
 	return i, err
 }

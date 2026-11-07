@@ -23,7 +23,8 @@ GROUP BY id, org_id
 ORDER BY id;
 
 -- name: GetEventWebhookEndpoint :one
-SELECT webhook.org_id, webhook.project_id, webhook.url, webhook.signing_secret_id, agent.agent_profile_id
+SELECT webhook.org_id, webhook.project_id, webhook.url, webhook.signing_secret_id,
+       agent.agent_profile_id, agent.parent_agent_id, agent.root_agent_id
 FROM event_webhooks webhook
 JOIN orgs org ON org.id = webhook.org_id AND org.deleted_at IS NULL
 JOIN agents agent ON agent.project_id = webhook.project_id AND agent.id = sqlc.arg(agent_id)

@@ -106,6 +106,8 @@ describe('AgentChatSession input lifecycle', () => {
         project_id: 'project',
         agent_id: 'agent',
         agent_profile_id: null,
+        parent_agent_id: null,
+        root_agent_id: 'agent',
         tool_call_id: 'tcl_123',
         state: 'ready',
       },

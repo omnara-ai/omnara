@@ -16,6 +16,8 @@ const payload = {
     org_id: 'org_5n6a2bfgik7mv4qtrwz3jehcyd',
     project_id: 'proj_5n6a2bfgik7mv4qtrwz3jehcyd',
     agent_profile_id: null,
+    parent_agent_id: null,
+    root_agent_id: agentID,
     agent_id: agentID,
     tool_call_id: toolCallID,
     state: 'ready',

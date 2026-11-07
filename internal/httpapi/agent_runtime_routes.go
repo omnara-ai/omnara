@@ -738,6 +738,7 @@ func (s *Server) streamAgentEvents(
 				agent: publicevents.AgentContext{
 					OrgID: agent.OrgID, ProjectID: project.ID,
 					AgentID: agent.ID, AgentProfileID: agent.AgentProfileID,
+					ParentAgentID: agent.ParentAgentID, RootAgentID: agent.RootAgentID,
 				},
 			}:
 			default:

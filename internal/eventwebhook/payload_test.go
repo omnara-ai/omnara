@@ -23,12 +23,15 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			sender, store, delivery := testSender()
 			store.endpoint.AgentProfileID = uuid.New()
+			store.endpoint.ParentAgentID = uuid.New()
+			store.endpoint.RootAgentID = uuid.New()
 			if kind != "tool_call_update" {
 				store.record = executionstore.AgentEventReadRecord{
 					ID: uuid.New(), OrgID: store.endpoint.OrgID, ProjectID: store.endpoint.ProjectID,
 					AgentProfileID: store.endpoint.AgentProfileID,
-					AgentID:        delivery.AgentID,
-					TurnID:         uuid.New(), TurnSequence: 1, Sequence: 17, EventKind: kind,
+					ParentAgentID:  store.endpoint.ParentAgentID, RootAgentID: store.endpoint.RootAgentID,
+					AgentID: delivery.AgentID,
+					TurnID:  uuid.New(), TurnSequence: 1, Sequence: 17, EventKind: kind,
 					AgentInputID: uuid.New(), InputKind: "content",
 					ModelCallContextID: uuid.New(), ModelStopReason: "end_turn",
 					ToolCallID: uuid.New(), ToolOutcome: "succeeded",
@@ -60,6 +63,8 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 					"project_id":       {publicid.KindProject, store.endpoint.ProjectID},
 					"agent_id":         {publicid.KindAgent, delivery.AgentID},
 					"agent_profile_id": {publicid.KindAgentProfile, store.endpoint.AgentProfileID},
+					"parent_agent_id":  {publicid.KindAgent, store.endpoint.ParentAgentID},
+					"root_agent_id":    {publicid.KindAgent, store.endpoint.RootAgentID},
 				} {
 					encoded, err := publicid.Encode(expected.kind, expected.id)
 					require.NoError(t, err)

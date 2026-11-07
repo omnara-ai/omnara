@@ -9,6 +9,8 @@ const base = {
   project_id: 'project',
   agent_id: 'agent',
   agent_profile_id: null,
+  parent_agent_id: null,
+  root_agent_id: 'agent',
   turn_id: 'turn',
   turn_sequence: 2,
   is_opening_event: false as const,

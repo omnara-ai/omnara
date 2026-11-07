@@ -851,6 +851,7 @@ func TestPublicEventResponseExposesModelCallContextOnlyForModelOutput(t *testing
 		OrgID:              httpTestOrgID,
 		ProjectID:          httpTestProjectID,
 		AgentID:            httpTestAgentID,
+		RootAgentID:        httpTestAgentID,
 		TurnID:             httpTestTurnID,
 		TurnSequence:       1,
 		Sequence:           9,
@@ -898,6 +899,7 @@ func TestPublicEventResponseExposesModelCallContextOnlyForModelOutput(t *testing
 		OrgID:              httpTestOrgID,
 		ProjectID:          httpTestProjectID,
 		AgentID:            httpTestAgentID,
+		RootAgentID:        httpTestAgentID,
 		TurnID:             httpTestTurnID,
 		TurnSequence:       1,
 		Sequence:           11,
@@ -918,6 +920,7 @@ func TestPublicEventResponseExposesModelCallContextOnlyForModelOutput(t *testing
 		OrgID:              httpTestOrgID,
 		ProjectID:          httpTestProjectID,
 		AgentID:            httpTestAgentID,
+		RootAgentID:        httpTestAgentID,
 		TurnID:             httpTestTurnID,
 		TurnSequence:       1,
 		Sequence:           10,
@@ -951,6 +954,7 @@ func TestPublicModelOutputEventAcceptsEveryDurableStopReason(t *testing.T) {
 				OrgID:              httpTestOrgID,
 				ProjectID:          httpTestProjectID,
 				AgentID:            httpTestAgentID,
+				RootAgentID:        httpTestAgentID,
 				TurnID:             httpTestTurnID,
 				TurnSequence:       1,
 				Sequence:           11,
@@ -1046,6 +1050,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			OrgID:         httpTestOrgID,
 			ProjectID:     httpTestProjectID,
 			AgentID:       httpTestAgentID,
+			RootAgentID:   httpTestAgentID,
 			TurnID:        httpTestTurnID,
 			TurnSequence:  1,
 			Sequence:      4,
@@ -1060,6 +1065,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			OrgID:         httpTestOrgID,
 			ProjectID:     httpTestProjectID,
 			AgentID:       httpTestAgentID,
+			RootAgentID:   httpTestAgentID,
 			TurnID:        httpTestTurnID,
 			TurnSequence:  1,
 			Sequence:      5,
@@ -1075,6 +1081,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			OrgID:               httpTestOrgID,
 			ProjectID:           httpTestProjectID,
 			AgentID:             httpTestAgentID,
+			RootAgentID:         httpTestAgentID,
 			TurnID:              httpTestTurnID,
 			TurnSequence:        1,
 			Sequence:            6,
@@ -1092,6 +1099,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			OrgID:              httpTestOrgID,
 			ProjectID:          httpTestProjectID,
 			AgentID:            httpTestAgentID,
+			RootAgentID:        httpTestAgentID,
 			TurnID:             httpTestTurnID,
 			TurnSequence:       1,
 			Sequence:           7,
@@ -1106,6 +1114,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			OrgID:               httpTestOrgID,
 			ProjectID:           httpTestProjectID,
 			AgentID:             httpTestAgentID,
+			RootAgentID:         httpTestAgentID,
 			TurnID:              httpTestTurnID,
 			TurnSequence:        1,
 			Sequence:            8,
@@ -2124,7 +2133,9 @@ func TestWriteToolCallUpdateFrameIncludesInteraction(t *testing.T) {
 		if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
 			AgentID: httpTestAgentID, ToolCallID: httpTestToolCallID, State: "awaiting_permission",
 			InteractionUpdate: interaction,
-		}, publicevents.AgentContext{OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID}) {
+		}, publicevents.AgentContext{
+			OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID, RootAgentID: httpTestAgentID,
+		}) {
 			t.Fatal("writeToolCallUpdateFrame returned false")
 		}
 		body := rec.Body.String()
@@ -2173,7 +2184,9 @@ func TestWriteToolCallUpdateFrameIncludesReadyCustomCall(t *testing.T) {
 		if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
 			AgentID: httpTestAgentID, ToolCallID: httpTestToolCallID, State: tc.state,
 			Name: "lookup_customer", Input: tc.input,
-		}, publicevents.AgentContext{OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID}) {
+		}, publicevents.AgentContext{
+			OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID, RootAgentID: httpTestAgentID,
+		}) {
 			t.Fatal("writeToolCallUpdateFrame returned false")
 		}
 		var payload openapi.ToolCallUpdate
@@ -2197,7 +2210,9 @@ func TestWriteToolCallUpdateFrameSkipsUnknownState(t *testing.T) {
 	if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
 		ToolCallID: httpTestToolCallID,
 		State:      "unknown",
-	}, publicevents.AgentContext{OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID}) {
+	}, publicevents.AgentContext{
+		OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID, RootAgentID: httpTestAgentID,
+	}) {
 		t.Fatal("writeToolCallUpdateFrame returned false for unknown state")
 	}
 	if rec.Body.Len() != 0 {
