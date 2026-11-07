@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/calltrace"
 	"github.com/omnara-ai/omnara/internal/modelretry"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -193,7 +194,11 @@ func (r Runner) RunClaimed(
 	}
 
 	response, err := summaryClient.Respond(
-		ctx,
+		calltrace.WithScope(ctx, calltrace.Scope{
+			Purpose:            calltrace.PurposeCompaction,
+			ModelCallContextID: claim.Context.ID.String(),
+			Attempt:            claim.Context.AttemptNumber,
+		}),
 		model.Request{
 			ProviderRequest: prepared.Body,
 		},

@@ -357,7 +357,16 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 	}, nil
 }
 
+// RespondStream sends one provider attempt and reports it as a model.call
+// record once a request has been handed to the transport.
 func (c Client) RespondStream(ctx context.Context, input model.Request) (model.Response, error) {
+	attempt := newCallAttempt(ctx, c, input)
+	response, err := c.respondStream(attempt.tracker.WithClientTrace(ctx), input, attempt)
+	attempt.finish(ctx, response, err)
+	return response, err
+}
+
+func (c Client) respondStream(ctx context.Context, input model.Request, attempt *callAttempt) (model.Response, error) {
 	if c.Protocol == nil {
 		return model.Response{}, SetupError{Err: errors.New("model route protocol is required")}
 	}
@@ -376,6 +385,7 @@ func (c Client) RespondStream(ctx context.Context, input model.Request) (model.R
 	if strings.TrimSpace(streamMediaType) == "" {
 		return model.Response{}, SetupError{Err: errors.New("model stream media type is required")}
 	}
+	attempt.sent = true
 	resp, err := c.Transport.StreamingDo(
 		ctx,
 		endpoint,
@@ -386,10 +396,14 @@ func (c Client) RespondStream(ctx context.Context, input model.Request) (model.R
 	if err != nil {
 		var setupErr SetupError
 		if errors.As(err, &setupErr) {
+			attempt.sent = false
 			return model.Response{}, setupErr
 		}
+		attempt.record.StatusCode = resp.StatusCode
 		return model.Response{}, ambiguousTransportError(endpoint, resp.StatusCode, resp.Header, err)
 	}
+	attempt.tracker.MarkHeaders()
+	attempt.record.StatusCode = resp.StatusCode
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, exceeded, readErr := ReadAllAndClose(resp, c.Transport.errorResponseByteLimit())
 		if readErr != nil {
@@ -439,12 +453,18 @@ func (c Client) RespondStream(ctx context.Context, input model.Request) (model.R
 				"The model provider returned a response larger than the supported limit.",
 			))
 		}
-		return c.parseResponse(ctx, endpoint, Response{
+		parsed, parseErr := c.parseResponse(ctx, endpoint, Response{
 			StatusCode: resp.StatusCode,
 			Header:     resp.Header,
 			Body:       respBody,
 		})
+		if parseErr == nil {
+			attempt.markBufferedContent(parsed)
+			attempt.tracker.MarkComplete()
+		}
+		return parsed, parseErr
 	}
+	attempt.record.Streamed = true
 	defer func() { _ = resp.Body.Close() }()
 	limitedBody := &responseLimitReader{
 		reader:    resp.Body,
@@ -455,8 +475,11 @@ func (c Client) RespondStream(ctx context.Context, input model.Request) (model.R
 		limitedBody,
 		resp.StatusCode,
 		resp.Header,
-		input.DeltaSink,
+		attempt.sink(input.DeltaSink),
 	)
+	if consumeErr == nil {
+		attempt.tracker.MarkComplete()
+	}
 	response.ProviderRequestID = model.RequestIDFromHeader(resp.Header)
 	if limitedBody.exceeded || errors.Is(consumeErr, ErrProviderResponseTooLarge) {
 		return response, model.AmbiguousProviderOutcome(oversizedProviderResponseError(

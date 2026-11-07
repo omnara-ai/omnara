@@ -260,6 +260,7 @@ func main() {
 	})
 	kernelWorker := workerpkg.NewWorker(store.Execution(), executor, workerpkg.Options{
 		Metrics:           metrics.NewWorkerRecorder(metricSet),
+		ModelCallMetrics:  metrics.NewModelCallRecorder(metricSet),
 		Log:               log,
 		Capacity:          cfg.WorkerCapacity,
 		ClaimConcurrency:  cfg.WorkerClaimConcurrency,

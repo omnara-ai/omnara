@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/log/logent"
+	"github.com/omnara-ai/omnara/internal/model/calltrace"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -46,6 +47,7 @@ type Store interface {
 
 type Worker struct {
 	metrics                  *metrics.WorkerRecorder
+	modelCallMetrics         *metrics.ModelCallRecorder
 	store                    Store
 	executor                 AgentWorkExecutor
 	log                      *slog.Logger
@@ -63,6 +65,7 @@ type Worker struct {
 
 type Options struct {
 	Metrics                  *metrics.WorkerRecorder
+	ModelCallMetrics         *metrics.ModelCallRecorder
 	Log                      *slog.Logger
 	RuntimeLockLeaseDuration time.Duration
 	Capacity                 int
@@ -108,6 +111,7 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 	}
 	return &Worker{
 		metrics:                  opts.Metrics,
+		modelCallMetrics:         opts.ModelCallMetrics,
 		store:                    store,
 		executor:                 executor,
 		log:                      log,
@@ -300,6 +304,7 @@ func (w *Worker) executeClaimedWork(
 	projectID, agentID := claim.ProjectID, claim.AgentID
 	logent.AgentWorkScope(ctx, claim.OrgID, claim.ProjectID, claim.AgentID)
 	logent.RuntimeLock(ctx, runtime)
+	ctx = calltrace.WithRecorder(ctx, w.modelCallMetrics)
 	leaseBudgetStartedAt := claim.LocalLeaseBudgetStartedAt
 	turnCtx, active, stopRenewal, err := w.startRuntimeRenewal(
 		ctx,

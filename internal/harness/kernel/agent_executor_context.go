@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/calltrace"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelretry"
@@ -279,7 +280,11 @@ func (e AgentExecutor) executeModelStep(
 			defer streamSink.Close()
 		}
 	}
-	response, err := client.Respond(ctx, request)
+	response, err := client.Respond(calltrace.WithScope(ctx, calltrace.Scope{
+		Purpose:            calltrace.PurposeAgentTurn,
+		ModelCallContextID: claim.Context.ID.String(),
+		Attempt:            claim.Context.AttemptNumber,
+	}), request)
 	if err != nil {
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return modelStep{}, err
