@@ -7,11 +7,10 @@ import {
   createOmnaraClient,
   type CustomToolHandler,
   type OmnaraClient,
+  verifyEventWebhook,
 } from '@omnara/sdk'
-import { zEventWebhookPayload } from '@omnara/sdk/zod'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
-import { Webhook } from 'standardwebhooks'
 
 const textLength: CustomToolHandler = async ({ input }) =>
   typeof input.text === 'string'
@@ -37,7 +36,6 @@ export function createWebhookApp(options: {
   signingSecret: string
   signal?: AbortSignal
 }) {
-  const verifier = new Webhook(options.signingSecret)
   const worker = createCustomToolWorker({
     client: options.client,
     path: { orgID: options.orgID, projectID: options.projectID },
@@ -45,7 +43,10 @@ export function createWebhookApp(options: {
     tools: { text_length: textLength },
     signal: options.signal,
     onError: (error, call) => {
-      console.error(`${call.name} ${call.toolCallID} failed:`, error)
+      console.error(
+        call ? `${call.name} ${call.toolCallID} failed:` : 'Recovery check failed:',
+        error,
+      )
     },
   })
 
@@ -53,8 +54,11 @@ export function createWebhookApp(options: {
   app.post('/webhook', bodyLimit({ maxSize: 128 * 1024 }), async (c) => {
     let payload
     try {
-      const verified = verifier.verify(await c.req.text(), c.req.header())
-      payload = zEventWebhookPayload.parse(verified)
+      payload = await verifyEventWebhook({
+        body: await c.req.text(),
+        headers: c.req.raw.headers,
+        signingSecret: options.signingSecret,
+      })
     } catch {
       return c.text('invalid webhook', 400)
     }

@@ -102,45 +102,29 @@ describe('createCustomToolWorker', () => {
     expect(finished.has(rankID)).toBe(true)
   })
 
-  it('waits for running tools and stops taking work when polling fails', async () => {
-    const { client } = api(() =>
-      Response.json({ error: 'forbidden', code: 'forbidden' }, { status: 403 }),
+  it('reports a listing failure without stopping webhook handling', async () => {
+    const { client } = api((_, body) =>
+      body === undefined
+        ? Response.json({ error: 'forbidden', code: 'forbidden' }, { status: 403 })
+        : accepted(body),
     )
-    const authenticated: string[] = []
-    client.interceptors.request.use((request) => {
-      authenticated.push(request.url)
-      return request
-    })
-    const release: ((result: SubmitToolCallResultRequest) => void)[] = []
-    const lookup = vi.fn<CustomToolHandler>(
-      () =>
-        new Promise((resolve) => {
-          release.push(resolve)
-        }),
-    )
+    const onError = vi.fn()
     const worker = createCustomToolWorker({
       client,
       path,
-      tools: { lookup_customer: lookup },
-      onError: vi.fn(),
+      tools: { lookup_customer: () => Promise.resolve(found) },
+      onError,
     })
-
-    void worker.handle(ready)
+    const run = worker.run()
     await vi.waitFor(() => {
-      expect(release).toHaveLength(1)
+      expect(onError).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ status: 403 }),
+        undefined,
+      )
     })
-    let outcome: unknown
-    const stopped = worker.run().catch((cause: unknown) => {
-      outcome = cause
-    })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(outcome).toBeUndefined()
-    void worker.handle({ ...ready, tool_call_id: `tcl_${'b'.repeat(26)}` })
-    release[0]?.(found)
-    await stopped
-    expect(outcome).toMatchObject({ status: 403 })
-    expect(lookup).toHaveBeenCalledTimes(1)
-    expect(authenticated.filter((url) => url.includes('tcl_bbbb'))).toEqual([])
+    expect(await worker.handle(ready)).toEqual({ status: 'completed' })
+    await worker.shutdown()
+    await run
   })
 
   it('stops a running tool when its call is canceled', async () => {
@@ -175,7 +159,7 @@ describe('createCustomToolWorker', () => {
     await done
 
     expect(onError).not.toHaveBeenCalled()
-    expect(requests).toEqual([`GET ${callPath}`])
+    expect(requests).toEqual([])
   })
 
   it('bounds the entire shutdown and never submits after its deadline', async () => {
@@ -417,9 +401,7 @@ describe('createCustomToolWorker', () => {
           },
         })
         expect(await worker.handle(ready)).toEqual({ status: 'completed' })
-        expect(submitted).toEqual(
-          failure === 'handler' ? [failed(failure)] : [found, failed(failure)],
-        )
+        expect(submitted).toEqual(failure === 'handler' ? [failed()] : [found, failed()])
         expect(onError).toHaveBeenCalledOnce()
         await worker.shutdown()
       }

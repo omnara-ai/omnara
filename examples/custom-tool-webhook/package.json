@@ -14,8 +14,7 @@
   "dependencies": {
     "@hono/node-server": "^1.19.14",
     "@omnara/sdk": "link:../../frontend/packages/sdk",
-    "hono": "^4.12.27",
-    "standardwebhooks": "1.1.1"
+    "hono": "^4.12.27"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

@@ -50,7 +50,7 @@ describe('createCustomToolWorker', () => {
     expect(lookup).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ agentID, toolCallID, name: 'lookup_customer', input }),
     )
-    expect(requests).toEqual([`GET ${callPath}`, `POST ${callPath}/result`])
+    expect(requests).toEqual([`POST ${callPath}/result`])
     expect(onError).not.toHaveBeenCalled()
   })
 
@@ -73,7 +73,7 @@ describe('createCustomToolWorker', () => {
       expect(await worker.handle(update)).toEqual({ status: 'ignored' })
     expect(requests).toEqual([])
     expect(await worker.handle(ready)).toEqual({ status: 'completed' })
-    expect(requests).toEqual([`GET ${callPath}`, `POST ${callPath}/result`])
+    expect(requests).toEqual([`POST ${callPath}/result`])
     expect(lookup).toHaveBeenCalledOnce()
   })
 
@@ -120,13 +120,7 @@ describe('createCustomToolWorker', () => {
     await vi.waitFor(() => {
       expect(submitted).toHaveLength(5)
     })
-    expect(submitted).toEqual(
-      expect.arrayContaining([
-        failed('crm unavailable'),
-        failed('invalid result'),
-        failed('request too large'),
-      ]),
-    )
+    expect(submitted).toEqual(expect.arrayContaining([failed(), failed(), failed()]))
     expect(onError).toHaveBeenCalledWith(crashed, {
       agentID,
       toolCallID,
@@ -170,7 +164,7 @@ describe('createCustomToolWorker', () => {
     void worker.handle(ready)
 
     await vi.waitFor(() => {
-      expect(requests).toHaveLength(4)
+      expect(requests).toHaveLength(3)
     })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(onError).not.toHaveBeenCalled()
@@ -403,7 +397,7 @@ describe('createCustomToolWorker', () => {
     let rejectSubmits = true
     const { client, requests } = api((_, body = found) =>
       rejectSubmits
-        ? Response.json({ error: 'not found', code: 'not_found' }, { status: 404 })
+        ? Response.json({ error: 'forbidden', code: 'forbidden' }, { status: 403 })
         : accepted(body),
     )
     const onError = vi.fn()
@@ -415,7 +409,7 @@ describe('createCustomToolWorker', () => {
     })
 
     expect(await worker.handle(ready)).toMatchObject({ status: 'failed' })
-    expect(onError).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 404 }), {
+    expect(onError).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 403 }), {
       agentID,
       toolCallID,
       name: 'lookup_customer',
@@ -580,12 +574,7 @@ describe('createCustomToolWorker', () => {
     await worker.run()
 
     const list = `GET ${projectPath}/tool-calls?state=ready&type=custom&names=lookup_customer&agent_profile_id=${profileID}`
-    expect(requests).toEqual([
-      list,
-      `${list}&cursor=next`,
-      `GET ${callPath}`,
-      `POST ${callPath}/result`,
-    ])
+    expect(requests).toEqual([list, `${list}&cursor=next`, `POST ${callPath}/result`])
     expect(submitted).toEqual([found])
   })
   it('processes every call in a recovery page even with concurrency one', async () => {
@@ -621,32 +610,29 @@ describe('createCustomToolWorker', () => {
     expect(requests[0]).toContain('limit=4')
   })
 
-  it('scans forward past a failed admission without repeatedly reading the oldest page', async () => {
+  it('scans forward past deferred calls without refetching their input', async () => {
     const nextID = `tcl_${'b'.repeat(26)}`
     const cursors: (string | null)[] = []
-    const { client, requests, submitted } = api(
-      (request, body) => {
-        if (body !== undefined) return accepted(body)
-        const cursor = new URL(request.url).searchParams.get('cursor')
-        cursors.push(cursor)
-        return Response.json(
-          cursor === null
-            ? { data: [toolCall()], next_cursor: 'next-page' }
-            : { data: [toolCall(nextID)], next_cursor: null },
-        )
-      },
-      (request) =>
-        request.url.endsWith(toolCallID)
-          ? Response.json({ code: 'forbidden', error: 'forbidden' }, { status: 403 })
-          : Response.json(toolCall(nextID)),
-    )
+    const { client, requests, submitted } = api((request, body) => {
+      if (body !== undefined) return accepted(body)
+      const cursor = new URL(request.url).searchParams.get('cursor')
+      cursors.push(cursor)
+      return Response.json(
+        cursor === null
+          ? { data: [toolCall()], next_cursor: 'next-page' }
+          : { data: [toolCall(nextID)], next_cursor: null },
+      )
+    })
     const onError = vi.fn()
     const worker = createCustomToolWorker({
       client,
       path,
       concurrency: 1,
       onError,
-      tools: { lookup_customer: () => Promise.resolve(found) },
+      tools: {
+        lookup_customer: (call) =>
+          Promise.resolve(call.toolCallID === toolCallID ? { outcome: 'deferred' } : found),
+      },
     })
     const done = worker.run()
     await vi.waitFor(() => {
@@ -655,8 +641,8 @@ describe('createCustomToolWorker', () => {
     await worker.shutdown()
     await done
     expect(cursors).toEqual([null, 'next-page'])
-    expect(requests.filter((request) => request === `GET ${callPath}`)).toHaveLength(1)
-    expect(onError).toHaveBeenCalledOnce()
+    expect(requests.filter((request) => request === `GET ${callPath}`)).toEqual([])
+    expect(onError).not.toHaveBeenCalled()
   })
 
   it('reports retained-result failure and capacity exhaustion independently', async () => {
@@ -704,10 +690,13 @@ describe('createCustomToolWorker', () => {
         onError,
         tools: { lookup_customer: lookup },
       })
-      expect(await worker.handle(ready)).toMatchObject({ status: 'failed', error: { status } })
+      expect(await worker.handle({ ...ready, input: undefined })).toMatchObject({
+        status: 'failed',
+        error: { status },
+      })
       expect(lookup).not.toHaveBeenCalled()
       allowed = true
-      expect(await worker.handle(ready)).toEqual({ status: 'completed' })
+      expect(await worker.handle({ ...ready, input: undefined })).toEqual({ status: 'completed' })
       expect(onError).toHaveBeenCalledOnce()
     },
   )
@@ -731,6 +720,6 @@ describe('createCustomToolWorker', () => {
     expect(await worker.handle(ready)).toMatchObject({ status: 'failed' })
     expect(await worker.handle(ready)).toEqual({ status: 'completed' })
     expect(lookup).toHaveBeenCalledOnce()
-    expect(submitted).toEqual([found, failed('bad result'), failed('bad result')])
+    expect(submitted).toEqual([found, failed(), failed()])
   })
 })

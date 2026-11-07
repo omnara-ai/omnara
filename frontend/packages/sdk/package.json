@@ -72,6 +72,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "standardwebhooks": "1.1.1",
     "zod": "^4.4.3"
   },
   "peerDependencies": {

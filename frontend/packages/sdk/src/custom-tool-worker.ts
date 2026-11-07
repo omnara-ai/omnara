@@ -1,4 +1,5 @@
 import type { OmnaraClient } from './client'
+import { requestToolAPI, toolError, ToolRequestError, untilAborted } from './custom-tool-request'
 import { ApiError } from './errors'
 import { getToolCall, listProjectToolCalls, submitToolCallResult } from './generated/sdk.gen'
 import type {
@@ -7,9 +8,11 @@ import type {
   ToolCallUpdate,
   ToolInput,
 } from './generated/types.gen'
-import { abortableDelay, retryAfterMaximumDelayMs, retryDelay } from './retry'
+import { zSubmitToolCallResultRequest } from './generated/zod.gen'
+import { abortableDelay } from './retry'
 
 const sweepIntervalMs = 60_000
+const settledCallLimit = 1_000
 
 export interface CustomToolCall {
   agentID: string
@@ -20,12 +23,18 @@ export interface CustomToolCall {
 }
 
 export type CustomToolCallRef = Omit<CustomToolCall, 'input' | 'signal'>
-export type CustomToolHandler = (call: CustomToolCall) => Promise<SubmitToolCallResultRequest>
+export type CustomToolHandlerResult = SubmitToolCallResultRequest | { outcome: 'deferred' }
+export type CustomToolHandler = (call: CustomToolCall) => Promise<CustomToolHandlerResult>
 
 export type CustomToolOutcome =
-  { status: 'completed' | 'ignored' | 'busy' | 'stopped' } | { status: 'failed'; error: Error }
+  | { status: 'completed' | 'deferred' | 'ignored' | 'busy' | 'stopped' }
+  | { status: 'failed'; error: Error }
 
-export interface CustomToolCheckOptions {
+export interface CustomToolOperationOptions {
+  signal?: AbortSignal
+}
+
+export interface CustomToolCheckOptions extends CustomToolOperationOptions {
   cursor?: string
   limit?: number
 }
@@ -43,32 +52,25 @@ export interface CreateCustomToolWorkerOptions {
   concurrency?: number
   signal?: AbortSignal
   shutdownGraceMs?: number
-  onError: (error: Error, call: CustomToolCallRef) => void | Promise<void>
+  requestTimeoutMs?: number
+  onError: (error: Error, call?: CustomToolCallRef) => void | Promise<void>
 }
 
 export interface CustomToolWorker {
   /** Pass only authenticated SSE frames or signature-verified webhook updates. */
-  handle: (update: ToolCallUpdate) => Promise<CustomToolOutcome>
+  handle: (
+    update: ToolCallUpdate,
+    options?: CustomToolOperationOptions,
+  ) => Promise<CustomToolOutcome>
   check: (options?: CustomToolCheckOptions) => Promise<CustomToolCheckResult>
   run: () => Promise<void>
   shutdown: () => Promise<void>
 }
 
-function asError(cause: unknown): Error {
-  return cause instanceof Error ? cause : new Error(String(cause))
-}
-
-function retryable(cause: unknown, dispatched: boolean): boolean {
-  if (cause instanceof ApiError) {
-    return cause.status === 408 || cause.status === 429 || cause.status >= 500
-  }
-  return dispatched && cause instanceof TypeError
-}
-
-function failedResult(error: Error): SubmitToolCallResultRequest {
+function failedResult(): SubmitToolCallResultRequest {
   return {
     outcome: 'failed',
-    content_blocks: [{ type: 'structured_data', value: { error: error.message } }],
+    content_blocks: [{ type: 'text', text: 'The tool could not complete the request.' }],
   }
 }
 
@@ -76,17 +78,22 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
   const { client, onError } = options
   const concurrency = options.concurrency ?? 10
   const shutdownGraceMs = options.shutdownGraceMs ?? 10_000
+  const requestTimeoutMs = options.requestTimeoutMs ?? 30_000
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new RangeError('concurrency must be a positive integer')
   }
   if (!Number.isInteger(shutdownGraceMs) || shutdownGraceMs < 0) {
     throw new RangeError('shutdownGraceMs must be a non-negative integer')
   }
+  if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1) {
+    throw new RangeError('requestTimeoutMs must be a positive integer')
+  }
   const stop = new AbortController()
   const deadline = new AbortController()
   const handlers = new Map(Object.entries(options.tools))
   interface Task {
     call: CustomToolCallRef
+    input?: ToolInput
     cancel: AbortController
     completed: boolean
     submit: AbortController
@@ -95,11 +102,18 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
   const running = new Map<string, Task & { done: Promise<CustomToolOutcome> }>()
   const retainedResults = new Map<
     string,
-    { call: CustomToolCallRef; result: SubmitToolCallResultRequest }
+    { call: CustomToolCallRef; result: SubmitToolCallResultRequest; retryAt: number }
   >()
+  const settledCalls = new Map<string, CustomToolOutcome>()
+  function rememberSettled(id: string, outcome: CustomToolOutcome) {
+    settledCalls.delete(id)
+    settledCalls.set(id, outcome)
+    const oldest = settledCalls.keys().next().value
+    if (settledCalls.size > settledCallLimit && oldest !== undefined) settledCalls.delete(oldest)
+  }
   let shutdownPromise: Promise<void> | undefined
   let runPromise: Promise<void> | undefined
-  async function reportErrorSafely(error: Error, call: CustomToolCallRef): Promise<void> {
+  async function reportErrorSafely(error: Error, call?: CustomToolCallRef): Promise<void> {
     try {
       await onError(error, call)
     } catch {
@@ -113,79 +127,26 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
   }
   async function waitForSlot(
     call: CustomToolCallRef,
+    signal: AbortSignal,
     waitForRetainedResults = false,
-    until = Infinity,
   ) {
     while (
       !stop.signal.aborted &&
-      Date.now() < until &&
+      !signal.aborted &&
       full() &&
       !running.has(call.toolCallID) &&
       !retainedResults.has(call.toolCallID) &&
       (waitForRetainedResults || running.size > 0)
     ) {
       await new Promise<void>((resolve) => {
-        capacityWaiters.add(resolve)
+        function finish() {
+          signal.removeEventListener('abort', finish)
+          capacityWaiters.delete(finish)
+          resolve()
+        }
+        capacityWaiters.add(finish)
+        signal.addEventListener('abort', finish, { once: true })
       })
-    }
-  }
-
-  // Custom authentication can stall before fetch receives the abort signal.
-  function requestUntilAborted<T>(request: () => Promise<T>, signal: AbortSignal): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const abort = () => {
-        signal.removeEventListener('abort', abort)
-        reject(asError(signal.reason))
-      }
-      if (signal.aborted) {
-        abort()
-        return
-      }
-      signal.addEventListener('abort', abort, { once: true })
-      Promise.resolve()
-        .then(() => {
-          signal.throwIfAborted()
-          return request()
-        })
-        .then(
-          (value) => {
-            signal.removeEventListener('abort', abort)
-            resolve(value)
-          },
-          (cause: unknown) => {
-            signal.removeEventListener('abort', abort)
-            reject(asError(cause))
-          },
-        )
-    })
-  }
-
-  async function withRetries<T>(
-    request: (fetch: typeof globalThis.fetch) => Promise<T>,
-    signal: AbortSignal,
-  ): Promise<T> {
-    for (let attempt = 1; ; attempt++) {
-      signal.throwIfAborted()
-      const dispatch = { started: false }
-      try {
-        return await requestUntilAborted(
-          () =>
-            request((input, init) => {
-              signal.throwIfAborted()
-              dispatch.started = true
-              return (client.getConfig().fetch ?? globalThis.fetch)(input, init)
-            }),
-          signal,
-        )
-      } catch (cause) {
-        if (!retryable(cause, dispatch.started)) throw cause
-        const retryAfterMs = cause instanceof ApiError ? (cause.retryAfterMs ?? 0) : 0
-        const delayMs = Math.max(
-          retryDelay(attempt),
-          Math.min(retryAfterMs, retryAfterMaximumDelayMs),
-        )
-        if (!(await abortableDelay(delayMs, signal))) throw cause
-      }
     }
   }
 
@@ -193,44 +154,59 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     const { call, cancel } = task
     const path = { ...options.path, agentID: call.agentID, toolCallID: call.toolCallID }
     if (task.result === undefined) {
-      const { data: current } = await withRetries(
-        (fetch) => getToolCall({ client, path, signal: cancel.signal, fetch }),
-        cancel.signal,
-      )
-      if (current.state !== 'ready')
-        return { status: current.state === 'completed' ? 'completed' : 'ignored' }
-      const handler = current.type === 'custom' ? handlers.get(current.name) : undefined
+      if (task.input === undefined) {
+        const { data: current } = await requestToolAPI(
+          client,
+          (fetch, signal) => getToolCall({ client, path, signal, fetch }),
+          cancel.signal,
+          requestTimeoutMs,
+        )
+        if (current.state !== 'ready')
+          return { status: current.state === 'completed' ? 'completed' : 'ignored' }
+        if (current.type !== 'custom' || current.name !== call.name) return { status: 'ignored' }
+        task.input = current.input
+      }
+      const handler = handlers.get(call.name)
       if (handler === undefined) return { status: 'ignored' }
       cancel.signal.throwIfAborted()
       try {
-        task.result = await handler({
+        const result = await handler({
           ...call,
-          name: current.name,
-          input: current.input,
+          input: task.input,
           signal: cancel.signal,
         })
+        if (task.completed) return { status: 'completed' }
+        if (result.outcome === 'deferred') return { status: 'deferred' }
+        task.result = zSubmitToolCallResultRequest.parse(result)
       } catch (cause) {
         cancel.signal.throwIfAborted()
-        const error = asError(cause)
+        const error = toolError(cause)
         void reportErrorSafely(error, call)
-        task.result = failedResult(error)
+        task.result = failedResult()
       }
     }
     const signal = task.submit.signal
     const post = (body: SubmitToolCallResultRequest) =>
-      withRetries((fetch) => submitToolCallResult({ client, path, body, signal, fetch }), signal)
+      requestToolAPI(
+        client,
+        (fetch, signal) => submitToolCallResult({ client, path, body, signal, fetch }),
+        signal,
+        requestTimeoutMs,
+      )
     try {
       try {
         await post(task.result)
       } catch (cause) {
-        if (!(cause instanceof ApiError && (cause.status === 400 || cause.status === 413)))
+        const error = toolError(cause)
+        if (!(error instanceof ApiError && (error.status === 400 || error.status === 413)))
           throw cause
-        void reportErrorSafely(cause, call)
-        task.result = failedResult(cause)
+        void reportErrorSafely(error, call)
+        task.result = failedResult()
         await post(task.result)
       }
     } catch (cause) {
-      if (!(cause instanceof ApiError && cause.code === 'tool_call_already_completed')) throw cause
+      const error = toolError(cause)
+      if (!(error instanceof ApiError && error.code === 'tool_call_already_completed')) throw cause
     }
     return { status: 'completed' }
   }
@@ -239,28 +215,44 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     return running.size + retainedResults.size >= concurrency
   }
 
-  function start(call: CustomToolCallRef, draining = false): Promise<CustomToolOutcome> {
+  function start(
+    call: CustomToolCallRef,
+    input?: ToolInput,
+    operationSignal?: AbortSignal,
+    draining = false,
+  ): Promise<CustomToolOutcome> {
     const id = call.toolCallID
+    if (operationSignal?.aborted) return Promise.resolve({ status: 'stopped' })
     const active = running.get(id)
-    if (active !== undefined) return active.done
+    if (active !== undefined) return waitForTask(active.done, operationSignal)
     if (stop.signal.aborted && !draining) return Promise.resolve({ status: 'stopped' })
+    const settled = settledCalls.get(id)
+    if (settled !== undefined) return Promise.resolve(settled)
     const stored = retainedResults.get(id)
+    if (stored !== undefined && stored.retryAt > Date.now())
+      return Promise.resolve({ status: 'busy' })
     if (stored === undefined && full()) {
       return Promise.resolve({ status: 'busy' })
     }
     retainedResults.delete(id)
     const task: Task = {
       call,
+      input,
       cancel: new AbortController(),
       completed: false,
       submit: new AbortController(),
       result: stored?.result,
     }
+    const abortOperation = () => {
+      task.cancel.abort(operationSignal?.reason)
+      task.submit.abort(operationSignal?.reason)
+    }
+    operationSignal?.addEventListener('abort', abortOperation, { once: true })
     let onDeadline: () => void
     const interrupted = new Promise<CustomToolOutcome>((_, reject) => {
       onDeadline = () => {
         task.submit.abort(deadline.signal.reason)
-        reject(asError(deadline.signal.reason))
+        reject(toolError(deadline.signal.reason))
       }
       deadline.signal.addEventListener('abort', onDeadline, { once: true })
     })
@@ -269,70 +261,109 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       Promise.resolve().then(() => execute(task)),
       interrupted,
     ])
+      .then((outcome) => {
+        if (outcome.status === 'completed') rememberSettled(id, outcome)
+        return outcome
+      })
       .catch((cause: unknown): CustomToolOutcome => {
         if (task.completed) return { status: 'completed' }
         if (stop.signal.aborted && task.result === undefined && !deadline.signal.aborted)
           return { status: 'stopped' }
-        if (task.result !== undefined && !deadline.signal.aborted)
-          retainedResults.set(id, { call, result: task.result })
-        const error = asError(cause)
+        const error = toolError(cause)
+        const rejected =
+          error instanceof ApiError &&
+          error.status >= 400 &&
+          error.status < 500 &&
+          ![401, 403, 408, 429].includes(error.status)
+        if (task.result !== undefined && !deadline.signal.aborted && !rejected)
+          retainedResults.set(id, {
+            call,
+            result: task.result,
+            retryAt: cause instanceof ToolRequestError ? cause.retryAt : 0,
+          })
+        if (rejected && task.result !== undefined) rememberSettled(id, { status: 'failed', error })
+        if (operationSignal?.aborted && !deadline.signal.aborted) return { status: 'stopped' }
         void reportErrorSafely(error, call)
         return { status: 'failed', error }
       })
       .finally(() => {
         deadline.signal.removeEventListener('abort', onDeadline)
+        operationSignal?.removeEventListener('abort', abortOperation)
         running.delete(id)
         capacityChanged()
       })
     running.set(id, Object.assign(task, { done }))
-    return done
+    return waitForTask(done, operationSignal)
   }
 
-  function readPage(page: CustomToolCheckOptions) {
-    return withRetries(
-      (fetch) =>
+  function waitForTask(
+    done: Promise<CustomToolOutcome>,
+    signal?: AbortSignal,
+  ): Promise<CustomToolOutcome> {
+    return signal === undefined
+      ? done
+      : untilAborted(() => done, signal).catch((): CustomToolOutcome => ({ status: 'stopped' }))
+  }
+
+  function readPage(page: CustomToolCheckOptions, signal = stop.signal) {
+    return requestToolAPI(
+      client,
+      (fetch, signal) =>
         listProjectToolCalls({
           client,
           path: options.path,
-          signal: stop.signal,
+          signal,
           fetch,
           query: {
             state: 'ready',
             type: 'custom',
-            names: [...handlers.keys()],
+            names: handlers.size <= 100 ? [...handlers.keys()] : undefined,
             agent_profile_id: options.agentProfileID,
             cursor: page.cursor,
             limit: page.limit,
           },
         }),
-      stop.signal,
+      signal,
+      requestTimeoutMs,
     )
   }
 
   async function check(checkOptions: CustomToolCheckOptions = {}): Promise<CustomToolCheckResult> {
     stop.signal.throwIfAborted()
+    const signal = AbortSignal.any([
+      stop.signal,
+      ...(checkOptions.signal ? [checkOptions.signal] : []),
+    ])
+    signal.throwIfAborted()
     const attempts = new Map<
       string,
       { call: CustomToolCallRef; done: Promise<CustomToolOutcome> }
     >()
     let nextCursor: string | null = null
     try {
-      if (checkOptions.cursor === undefined) {
-        for (const { call } of retainedResults.values())
-          attempts.set(call.toolCallID, { call, done: start(call) })
-      }
+      for (const { call } of retainedResults.values())
+        attempts.set(call.toolCallID, { call, done: start(call, undefined, checkOptions.signal) })
       if (handlers.size > 0) {
-        const { data: page } = await readPage(checkOptions)
+        const { data: page } = await readPage(checkOptions, signal)
         nextCursor = page.next_cursor
         for (const current of page.data) {
+          if (!handlers.has(current.name)) continue
           const call = { agentID: current.agent_id, toolCallID: current.id, name: current.name }
           if (attempts.has(call.toolCallID)) continue
-          await waitForSlot(call)
-          attempts.set(call.toolCallID, { call, done: start(call) })
+          await waitForSlot(call, signal)
+          checkOptions.signal?.throwIfAborted()
+          attempts.set(call.toolCallID, {
+            call,
+            done: start(call, current.input, checkOptions.signal),
+          })
         }
       }
+    } catch (cause) {
+      throw toolError(cause)
     } finally {
-      await Promise.all([...attempts.values()].map(({ done }) => done))
+      const settled = () => Promise.all([...attempts.values()].map(({ done }) => done))
+      if (checkOptions.signal) await untilAborted(settled, checkOptions.signal)
+      else await settled()
     }
     const results = await Promise.all(
       [...attempts.values()].map(async ({ call, done }) => ({ call, outcome: await done })),
@@ -351,8 +382,16 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         // onError may initiate shutdown while the failed task is still finishing.
         const flushes = [...retainedResults.values()].map(async ({ call }) => {
           await running.get(call.toolCallID)?.done
-          if (retainedResults.has(call.toolCallID) && !deadline.signal.aborted)
-            await start(call, true)
+          const stored = retainedResults.get(call.toolCallID)
+          if (stored === undefined) return
+          if (stored.retryAt > Date.now())
+            await abortableDelay(stored.retryAt - Date.now(), deadline.signal)
+          if (!retainedResults.has(call.toolCallID)) return
+          if (deadline.signal.aborted) {
+            void reportErrorSafely(toolError(deadline.signal.reason), call)
+            return
+          }
+          await start(call, undefined, undefined, true)
         })
         await Promise.all([...flushes, ...[...running.values()].map(({ done }) => done)])
       } finally {
@@ -375,7 +414,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
   else options.signal?.addEventListener('abort', onAbort, { once: true })
 
   return {
-    handle(update) {
+    handle(update, operation = {}) {
       if (
         update.org_id !== options.path.orgID ||
         update.project_id !== options.path.projectID ||
@@ -385,6 +424,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       }
       const id = update.tool_call_id
       if (update.state === 'completed') {
+        rememberSettled(id, { status: 'completed' })
         const task = running.get(id)
         if (task !== undefined) {
           task.completed = true
@@ -393,12 +433,18 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         }
         retainedResults.delete(id)
         capacityChanged()
-        return task?.done ?? Promise.resolve({ status: 'completed' })
+        return task === undefined
+          ? Promise.resolve({ status: 'completed' })
+          : waitForTask(task.done, operation.signal)
       }
       if (update.state !== 'ready' || update.name === undefined || !handlers.has(update.name)) {
         return Promise.resolve({ status: 'ignored' })
       }
-      return start({ agentID: update.agent_id, toolCallID: id, name: update.name })
+      return start(
+        { agentID: update.agent_id, toolCallID: id, name: update.name },
+        update.input,
+        operation.signal,
+      )
     },
     check,
     run() {
@@ -410,27 +456,36 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         const timer = setInterval(retryRetainedResults, sweepIntervalMs)
         try {
           retryRetainedResults()
+          let cursor: string | undefined
           while (!stop.signal.aborted) {
             const until = Date.now() + sweepIntervalMs
-            let cursor: string | undefined
-            scan: do {
+            do {
               if (handlers.size === 0) break
-              const { data: page } = await readPage({ cursor })
+              let page
+              try {
+                page = (await readPage({ cursor })).data
+              } catch (cause) {
+                stop.signal.throwIfAborted()
+                const error = toolError(cause)
+                void reportErrorSafely(error)
+                const delay = error instanceof ApiError ? (error.retryAfterMs ?? 0) : 0
+                await abortableDelay(Math.max(0, until - Date.now(), delay), stop.signal)
+                break
+              }
               for (const current of page.data) {
+                if (!handlers.has(current.name)) continue
                 const call = {
                   agentID: current.agent_id,
                   toolCallID: current.id,
                   name: current.name,
                 }
                 if (retainedResults.has(call.toolCallID)) continue
-                await waitForSlot(call, true, until)
+                await waitForSlot(call, stop.signal, true)
                 stop.signal.throwIfAborted()
-                if (Date.now() >= until) break scan
-                void start(call)
+                void start(call, current.input)
               }
               cursor = page.next_cursor ?? undefined
             } while (cursor !== undefined && Date.now() < until)
-            // Restart periodically so older calls approved during this pass are seen.
             await abortableDelay(Math.max(0, until - Date.now()), stop.signal)
           }
         } catch (error) {

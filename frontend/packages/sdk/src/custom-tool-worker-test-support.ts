@@ -31,8 +31,11 @@ export const found: SubmitToolCallResultRequest = {
   content_blocks: [{ type: 'text', text: 'found' }],
 }
 
-export function failed(error: string): SubmitToolCallResultRequest {
-  return { outcome: 'failed', content_blocks: [{ type: 'structured_data', value: { error } }] }
+export function failed(): SubmitToolCallResultRequest {
+  return {
+    outcome: 'failed',
+    content_blocks: [{ type: 'text', text: 'The tool could not complete the request.' }],
+  }
 }
 
 export function toolCall(id = toolCallID) {

@@ -96,12 +96,13 @@ test('rejects bad signatures and invalid payloads before calling the API', async
   })
   assert.equal((await post(payload, false)).status, 400)
   assert.equal((await post(payload, true, 600)).status, 400)
-  assert.equal((await post({ event: 'unknown', data: {} })).status, 400)
+  assert.equal((await post({ event: 'tool_call_update', data: {} })).status, 400)
+  assert.equal((await post({ event: 'unknown', data: {} })).status, 204)
 })
 
-test('acknowledges before execution finishes, then submits the result', async () => {
-  let release: (response: Response) => void = () => {}
-  const currentCall = new Promise<Response>((resolve) => {
+test('acknowledges without waiting for result submission', async () => {
+  let release: () => void = () => {}
+  const acceptedLater = new Promise<void>((resolve) => {
     release = resolve
   })
   let completed = false
@@ -109,17 +110,20 @@ test('acknowledges before execution finishes, then submits the result', async ()
   const submitted = new Promise((resolve) => {
     submit = resolve
   })
-  const { post } = receiver(async (url, init) => {
+  const { post, worker } = receiver(async (url, init) => {
     const request = new Request(url, init)
-    if (request.method === 'GET') return currentCall
+    assert.equal(request.method, 'POST')
     submit(await request.json())
+    await acceptedLater
     completed = true
     return accepted()
   })
   assert.equal((await post()).status, 204)
   assert.equal(completed, false)
-  release(Response.json(readyCall()))
   assert.deepEqual(await submitted, result)
+  release()
+  await worker.shutdown()
+  assert.equal(completed, true)
 })
 
 test('picks up ready calls that no webhook reported', async () => {
