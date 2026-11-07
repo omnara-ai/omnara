@@ -12,7 +12,6 @@ import {
   type ConfigPath,
   patchConfigSource,
 } from '@/components/agents/agentConfigSourcePatch'
-import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 
 export type ConfigValue =
   string | number | boolean | null | undefined | ConfigValue[] | ConfigObject
@@ -248,7 +247,7 @@ export function editConfigDocument(
         (format === 'json' ? JSON.stringify(document.toJS(), null, 2) : document.toString())
       result = patchConfigSource(
         initial,
-        source === '' ? parseDocument(initial, configYamlOptions) : original,
+        source === '' ? parseDocument(initial, { keepSourceTokens: true }) : original,
         source === ''
           ? edits.filter((edit) => edit.type === 'set' && edit.raw !== undefined)
           : edits,

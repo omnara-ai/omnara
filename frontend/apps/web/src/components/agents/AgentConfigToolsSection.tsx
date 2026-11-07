@@ -145,12 +145,7 @@ function CustomToolRow({
         permissionDisabled={issues.length > 0 || !definition}
         onPermissionChange={(mode) => {
           try {
-            const transaction = editConfigDocument(
-              entry.source,
-              doc,
-              [['input_schema']],
-              form.sourceFormat,
-            )
+            const transaction = editConfigDocument(entry.source, doc, [], form.sourceFormat)
             if (mode === 'disabled') transaction.set(['enabled'], false)
             else {
               if (definition?.enabled === false) transaction.remove(['enabled'])

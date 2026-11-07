@@ -10,7 +10,7 @@ const compat = new Schema({ schema: 'yaml-1.1' }).tags.filter(
 )
 const backendSchema = new Schema({ schema: 'core', customTags: (tags) => [...compat, ...tags] })
 
-export const configYamlOptions = { keepSourceTokens: true, compat }
+export const configYamlOptions = { compat }
 
 export function scalarPreservationReason(node: Scalar) {
   if (Number.isInteger(node.value) && !Number.isSafeInteger(node.value))

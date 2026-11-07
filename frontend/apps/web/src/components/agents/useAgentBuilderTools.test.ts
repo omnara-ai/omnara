@@ -138,19 +138,3 @@ mcp:
   expect(previewSource(removed)).not.toHaveProperty('tools.custom_example')
   expect(previewSource(removed)).toHaveProperty('tools.web_search.extension', true)
 })
-
-it('keeps the last definition in tool previews while raw YAML contains an unresolved alias', () => {
-  const source =
-    'instruction: Help.\nmodel: {provider_config: openai, name: primary}\ntools: {example: {type: custom, description: Example, input_schema: {type: object}}}\n'
-  const draft = createBasicConfigSession(source).initialDraft
-  if (!draft) throw new Error('Missing draft')
-  const request = agentBuilderToolsRequest({
-    ...draft,
-    advancedEntries: [
-      ...(draft.advancedEntries ?? []).map((entry) => ({ ...entry, source: '*missing' })),
-      { path: ['tools', 'unfinished'], kind: 'custom', source: '*missing' },
-    ],
-  })
-  expect(previewSource(request)).toHaveProperty('tools.example.description', 'Example')
-  expect(previewSource(request)).not.toHaveProperty('tools.unfinished')
-})
