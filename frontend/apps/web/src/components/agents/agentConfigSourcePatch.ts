@@ -34,7 +34,11 @@ export function patchConfigSource(
     if (!CST.isCollection(token)) throw new Error('The configuration must be a mapping.')
     token = applyEdit(token, edit.path, edit, json, newline)
   }
-  return source.slice(0, root.range[0]) + CST.stringify(token) + source.slice(root.range[2])
+  return (
+    source.slice(0, root.range[0]) +
+    CST.stringify(finalizeCollection(token, newline)) +
+    source.slice(root.range[2])
+  )
 }
 
 function applyEdit(
@@ -54,17 +58,7 @@ function applyEdit(
   if (path.length > 1) {
     if (!previous?.value || !CST.isCollection(previous.value))
       throw new Error(`Cannot edit missing collection ${String(key)}.`)
-    const wasBlock = previous.value.type !== 'flow-collection'
     previous.value = applyEdit(previous.value, path.slice(1), edit, json, newline)
-    if (
-      wasBlock &&
-      previous.key &&
-      previous.value.type === 'flow-collection' &&
-      previous.value.items.length === 0 &&
-      previous.sep?.every((token) => ['map-value-ind', 'space', 'newline'].includes(token.type))
-    ) {
-      previous.sep = [sourceToken('map-value-ind', ':'), sourceToken('space', ' ')]
-    }
   } else if (edit.type === 'rename') {
     if (!previous?.value || !CST.isCollection(previous.value) || isSequence(previous.value))
       throw new Error('Cannot rename entries in a missing mapping.')
@@ -139,6 +133,24 @@ function applyEdit(
       }
       parent.items[index] = replacement
     } else appendItem(parent, replacement, newline)
+  }
+  return parent
+}
+
+function finalizeCollection(parent: Collection, newline: string): Collection {
+  for (const item of parent.items) {
+    if (!item.value || !CST.isCollection(item.value)) continue
+    const wasBlock = item.value.type !== 'flow-collection'
+    item.value = finalizeCollection(item.value, newline)
+    if (
+      wasBlock &&
+      item.key &&
+      item.value.type === 'flow-collection' &&
+      item.value.items.length === 0 &&
+      item.sep?.every((token) => ['map-value-ind', 'space', 'newline'].includes(token.type))
+    ) {
+      item.sep = [sourceToken('map-value-ind', ':'), sourceToken('space', ' ')]
+    }
   }
   if (parent.type !== 'flow-collection' && parent.items.length === 0) {
     const empty = parseDocument((isSequence(parent) ? '[]' : '{}') + newline, {
@@ -380,7 +392,14 @@ function removeItem(parent: Collection, index: number) {
     const gap = removed.start.filter((token) => token.type !== 'comma')
     if (next && index === 0) {
       const comment = next.start.findIndex((token) => token.type === 'comment')
-      next.start = [...gap, ...(comment < 0 ? [] : next.start.slice(comment))]
+      next.start = [
+        ...gap,
+        ...(comment < 0
+          ? []
+          : next.start.slice(
+              gap.length === 0 && next.start[comment - 1]?.type === 'space' ? comment - 1 : comment,
+            )),
+      ]
     } else if (next) next.start = [...gap, ...next.start]
     else parent.end.unshift(...gap)
     if (parent.items[0])
