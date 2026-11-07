@@ -172,7 +172,7 @@ function analyzeConfigSource(
     return parseBasicConfigSource(source, format)
   } catch {
     return {
-      doc: parseDocument('{}', configYamlOptions),
+      doc: parseDocument('{}'),
       initialDraft: null,
       advancedEntries: [],
       diagnostics: [

@@ -292,7 +292,11 @@ export function parseBasicConfigSource(source: string, format: ConfigSourceForma
       projection[key] = managed
       continue
     }
-    if (hasOpaqueScalar([key])) {
+    if (
+      key === 'model'
+        ? ['provider_config', 'name', 'reasoning'].some((field) => hasOpaqueScalar([key, field]))
+        : hasOpaqueScalar([key])
+    ) {
       preserve([key])
       continue
     }
