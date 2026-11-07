@@ -479,9 +479,9 @@ export type ModelCacheRetention = 'none' | 'short' | 'long';
 export type CreateModelProviderConfigRequest = {
     name: ResourceName;
     /**
-     * Built-in provider settings: openai, openrouter, or anthropic. A preset fills in api_format, api_variant, base_url, endpoint_path, auth_kind, and auth_options, so omit those when using one.
+     * Built-in provider settings: openai, openrouter, openllm, or anthropic. A preset fills in api_format, api_variant, base_url, endpoint_path, auth_kind, and auth_options, so omit those when using one.
      */
-    preset?: 'openai' | 'openrouter' | 'anthropic';
+    preset?: 'openai' | 'openrouter' | 'openllm' | 'anthropic';
     api_format?: ModelApiFormat;
     api_variant?: ModelProviderApiVariant;
     /**

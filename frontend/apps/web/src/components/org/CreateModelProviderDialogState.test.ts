@@ -5,6 +5,8 @@ import {
   createModelProviderFormValid,
   modelProviderEndpointDefaults,
   modelProviderKind,
+  modelProviderLabel,
+  modelProviderOption,
 } from './CreateModelProviderDialogState'
 
 describe('createModelProviderFormValid', () => {
@@ -78,6 +80,15 @@ describe('modelProviderKind', () => {
     ).toBe('bedrock')
   })
 
+  it('recognizes OpenLLM on openllm.sh and www.openllm.sh', () => {
+    expect(modelProviderKind({ ...config, base_url: 'https://www.openllm.sh/v1' })).toBe('openllm')
+    expect(modelProviderKind({ ...config, base_url: 'https://openllm.sh/v1' })).toBe('openllm')
+    expect(modelProviderKind({ ...config, base_url: 'https://notopenllm.sh/v1' })).toBe('custom')
+    expect(modelProviderKind({ ...config, base_url: 'https://openllm.sh.evil.example/v1' })).toBe(
+      'custom',
+    )
+  })
+
   it('prefers the API variant and SigV4 auth over the host', () => {
     expect(modelProviderKind({ ...config, api_variant: 'openrouter' })).toBe('openrouter')
     expect(modelProviderKind({ ...config, auth_kind: 'sigv4' })).toBe('bedrock')
@@ -87,5 +98,31 @@ describe('modelProviderKind', () => {
     expect(modelProviderKind({ ...config, base_url: 'https://llm.example.com/v1' })).toBe('custom')
     expect(modelProviderKind({ ...config, base_url: 'https://notopenai.com/v1' })).toBe('custom')
     expect(modelProviderKind({ ...config, base_url: 'not a url' })).toBe('custom')
+  })
+})
+
+describe('OpenLLM preset', () => {
+  it('uses the OpenLLM cloud endpoint over Chat Completions with an sk-llm key hint', () => {
+    expect(modelProviderOption('openllm')).toMatchObject({
+      label: 'OpenLLM',
+      keyPlaceholder: 'sk-llm-…',
+      endpoint: { baseUrl: 'https://www.openllm.sh/v1', apiFormat: 'openai-chat-completions' },
+    })
+    expect(modelProviderEndpointDefaults('openllm')).toEqual({
+      baseUrl: 'https://www.openllm.sh/v1',
+      apiFormat: 'openai-chat-completions',
+    })
+    expect(modelProviderLabel('openllm')).toBe('OpenLLM')
+  })
+
+  it('validates the preset form once a name and secret are set', () => {
+    const values = {
+      ...createModelProviderFormDefaults,
+      ...modelProviderEndpointDefaults('openllm'),
+      provider: 'openllm' as const,
+      name: 'openllm',
+      secretId: 'sec_123',
+    }
+    expect(createModelProviderFormValid(values)).toBe(true)
   })
 })

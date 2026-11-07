@@ -82,6 +82,23 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		openRouterConfig["auth_kind"] != "bearer_token" {
 		t.Fatalf("preset did not materialize OpenRouter provider config: %+v", openRouterConfig)
 	}
+	openLLMConfig := createdModelProviderConfig(t, requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+		`{"name":"openllm-secondary","preset":"openllm","credential_secret_id":"`+secretID+`"}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	))
+	if openLLMConfig["api_format"] != "openai-chat-completions" ||
+		openLLMConfig["api_variant"] != "default" ||
+		openLLMConfig["base_url"] != "https://www.openllm.sh/v1" ||
+		openLLMConfig["endpoint_path"] != "/chat/completions" ||
+		openLLMConfig["auth_kind"] != "bearer_token" {
+		t.Fatalf("preset did not materialize OpenLLM provider config: %+v", openLLMConfig)
+	}
 	gatewaySecretID := testutil.RequireType[string](t, requestJSONWithHeaders(
 		t,
 		handler,

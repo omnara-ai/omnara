@@ -22,6 +22,12 @@ export const modelProviderOptions = [
     endpoint: { baseUrl: 'https://openrouter.ai/api/v1', apiFormat: 'openai-chat-completions' },
   },
   {
+    value: 'openllm',
+    label: 'OpenLLM',
+    keyPlaceholder: 'sk-llm-…',
+    endpoint: { baseUrl: 'https://www.openllm.sh/v1', apiFormat: 'openai-chat-completions' },
+  },
+  {
     value: 'anthropic',
     label: 'Anthropic',
     keyPlaceholder: 'sk-ant-…',
@@ -65,6 +71,7 @@ export function modelProviderKind(
   if (matches('openrouter.ai')) return 'openrouter'
   if (matches('anthropic.com')) return 'anthropic'
   if (matches('openai.com')) return 'openai'
+  if (matches('openllm.sh')) return 'openllm'
   if (host.startsWith('bedrock') && host.endsWith('.api.aws')) return 'bedrock'
   return 'custom'
 }
