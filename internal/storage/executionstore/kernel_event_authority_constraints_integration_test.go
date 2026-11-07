@@ -42,11 +42,11 @@ func TestKernelEventLineageFieldsAreImmutable(t *testing.T) {
 	)
 	if _, err := fixture.Store.pool.Exec(ctx, `
 INSERT INTO agent_interactions(
-  agent_id, tool_call_id, interaction_kind, state,
+  project_id, agent_id, tool_call_id, interaction_kind, state,
   request, resolution, created_at, resolved_at
 )
-VALUES ($1, $2, 'permission', 'resolved', '{}', '{}', statement_timestamp(), statement_timestamp())
-`, fixture.AgentID, interactionToolCallID); !isPgCheckViolation(err) {
+VALUES ($3, $1, $2, 'permission', 'resolved', '{}', '{}', statement_timestamp(), statement_timestamp())
+`, fixture.AgentID, interactionToolCallID, testProjectID); !isPgCheckViolation(err) {
 		t.Fatalf("insert terminal interaction error = %v, want check violation", err)
 	}
 
@@ -170,12 +170,12 @@ func TestKernelToolCallTransitionGraph(t *testing.T) {
 			var id uuid.UUID
 			if err := tx.QueryRow(ctx, `
 INSERT INTO tool_calls(
-  agent_id, model_output_id, provider_call_id,
+  project_id, agent_id, model_output_id, provider_call_id,
   name, input, type, state, created_at
 )
-VALUES ($1, $2, $3, 'read_process', '{}', 'built_in', 'awaiting_authorization', statement_timestamp())
+VALUES ($4, $1, $2, $3, 'read_process', '{}', 'built_in', 'awaiting_authorization', statement_timestamp())
 RETURNING id
-`, fixture.AgentID, modelOutputID, "graph_"+transition.from+"_"+transition.to).Scan(&id); err != nil {
+`, fixture.AgentID, modelOutputID, "graph_"+transition.from+"_"+transition.to, testProjectID).Scan(&id); err != nil {
 				t.Fatalf("insert transition tool call: %v", err)
 			}
 
@@ -226,11 +226,11 @@ WHERE agent_id = $1 AND id = $2
 
 	if _, err := fixture.Store.pool.Exec(ctx, `
 INSERT INTO tool_calls(
-  agent_id, model_output_id, provider_call_id,
+  project_id, agent_id, model_output_id, provider_call_id,
   name, input, type, state, created_at
 )
-VALUES ($1, $2, 'graph_invalid_initial_state', 'read_process', '{}', 'built_in', 'ready', statement_timestamp())
-`, fixture.AgentID, modelOutputID); !isPgCheckViolation(err) {
+VALUES ($3, $1, $2, 'graph_invalid_initial_state', 'read_process', '{}', 'built_in', 'ready', statement_timestamp())
+`, fixture.AgentID, modelOutputID, testProjectID); !isPgCheckViolation(err) {
 		t.Fatalf("invalid initial tool call state error = %v, want check violation", err)
 	}
 

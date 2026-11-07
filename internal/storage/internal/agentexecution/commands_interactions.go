@@ -121,7 +121,8 @@ func (h *Handle) OpenInteraction(ctx context.Context, input OpenInteractionInput
 			ctx,
 			h.unit.DB(),
 			executiondb.InsertExecutionInteractionParams{
-				AgentID: h.route.AgentID, ToolID: call.ID, Kind: kind, Request: request, Destination: destination},
+				ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, ToolID: call.ID, Kind: kind, Request: request,
+				Destination: destination},
 		)
 		if err != nil {
 			return Interaction{}, err
@@ -283,7 +284,7 @@ func (h *Handle) applyInteraction(
 				if err = h.transitionTool(ctx, m, call, "ready", uuid.Nil, uuid.Nil); err != nil {
 					return err
 				}
-				h.interactionNotification(i, "ready")
+				h.readyToolUpdate(call, &notifications.AgentInteractionUpdate{ID: i.ID, InteractionKind: i.Kind, State: i.State})
 				return nil
 			}
 			reason = decision.Reason

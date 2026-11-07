@@ -10,6 +10,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
 	openapispec "github.com/omnara-ai/omnara/api/openapi"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
@@ -21,9 +22,14 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 	for _, kind := range []string{"agent_input", "model_output", "tool_result", "context_checkpoint", "tool_call_update"} {
 		t.Run(kind, func(t *testing.T) {
 			sender, store, delivery := testSender()
+			store.endpoint.AgentProfileID = uuid.New()
+			store.endpoint.ParentAgentID = uuid.New()
+			store.endpoint.RootAgentID = uuid.New()
 			if kind != "tool_call_update" {
 				store.record = executionstore.AgentEventReadRecord{
-					ID: uuid.New(), OrgID: uuid.New(), ProjectID: store.endpoint.ProjectID,
+					ID: uuid.New(), OrgID: store.endpoint.OrgID, ProjectID: store.endpoint.ProjectID,
+					AgentProfileID: store.endpoint.AgentProfileID,
+					ParentAgentID:  store.endpoint.ParentAgentID, RootAgentID: store.endpoint.RootAgentID,
 					AgentID: delivery.AgentID,
 					TurnID:  uuid.New(), TurnSequence: 1, Sequence: 17, EventKind: kind,
 					AgentInputID: uuid.New(), InputKind: "content",
@@ -35,6 +41,10 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 				}
 				delivery.EventSequence = &store.record.Sequence
 				delivery.ToolCallID, delivery.ToolState = nil, nil
+			} else {
+				store.toolCall = &executionstore.CustomToolCallInput{
+					Name: "lookup_customer", Input: json.RawMessage(`{"email":"ada@example.com"}`),
+				}
 			}
 			requests := 0
 			sender.client = &http.Client{Transport: testTransport(func(req *http.Request) (*http.Response, error) {
@@ -43,6 +53,29 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 				require.NoError(t, json.NewDecoder(req.Body).Decode(&payload))
 				require.Equal(t, kind, payload["event"])
 				require.NoError(t, schema.VisitJSON(payload))
+				data, ok := payload["data"].(map[string]any)
+				require.True(t, ok)
+				for key, expected := range map[string]struct {
+					kind publicid.Kind
+					id   uuid.UUID
+				}{
+					"org_id":           {publicid.KindOrganization, store.endpoint.OrgID},
+					"project_id":       {publicid.KindProject, store.endpoint.ProjectID},
+					"agent_id":         {publicid.KindAgent, delivery.AgentID},
+					"agent_profile_id": {publicid.KindAgentProfile, store.endpoint.AgentProfileID},
+					"parent_agent_id":  {publicid.KindAgent, store.endpoint.ParentAgentID},
+					"root_agent_id":    {publicid.KindAgent, store.endpoint.RootAgentID},
+				} {
+					encoded, err := publicid.Encode(expected.kind, expected.id)
+					require.NoError(t, err)
+					require.Equal(t, encoded, data[key], key)
+				}
+				if kind == "tool_call_update" {
+					data, ok := payload["data"].(map[string]any)
+					require.True(t, ok)
+					require.Equal(t, "lookup_customer", data["name"])
+					require.Equal(t, map[string]any{"email": "ada@example.com"}, data["input"])
+				}
 				payload["event"] = "unknown"
 				require.Error(t, schema.VisitJSON(payload))
 				payload["event"] = "tool_call_update"

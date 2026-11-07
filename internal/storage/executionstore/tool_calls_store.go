@@ -72,6 +72,21 @@ type ListToolCallsInput struct {
 	After     listing.KeysetCursor
 }
 
+type ListUnfinishedProjectToolCallsInput struct {
+	ProjectID      uuid.UUID
+	AgentProfileID *uuid.UUID
+	State          ToolCallState
+	Type           string
+	Names          []string
+	Limit          int
+	After          listing.KeysetCursor
+}
+
+type CustomToolCallInput struct {
+	Name  string
+	Input json.RawMessage
+}
+
 type ListToolCallsResult struct {
 	ToolCalls []ToolCallRecord
 	HasMore   bool

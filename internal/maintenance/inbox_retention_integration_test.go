@@ -215,7 +215,7 @@ func TestInboxRetentionJobResumesAfterBatchTimeout(t *testing.T) {
 func runRetentionJobs(ctx context.Context, logger *slog.Logger, store *storage.Store) {
 	cleanupCompletedInbox(logger, store.Integrations().CleanupTerminalIntegrationInbox)(ctx)
 	cleanupDeletedInbox(logger, store.Integrations().CleanupDeletedIntegrationInbox)(ctx)
-	deleteExpiredWebhookDeliveries(logger, store.Execution().DeleteExpiredEventWebhookDeliveries)(ctx)
+	deleteExpiredWebhookDeliveries(logger, store.Execution().DeleteExpiredEventWebhookDeliveries, nil)(ctx)
 }
 
 func newMaintenanceInboxStore(t *testing.T, pool *pgxpool.Pool, ids storagefixture.ProjectIDs) *storage.Store {

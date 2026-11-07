@@ -5043,6 +5043,84 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/tool-calls:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+    get:
+      operationId: listProjectToolCalls
+      tags: [Agents]
+      summary: List unfinished tool calls across agents
+      description: >-
+        Lists unfinished tool calls from every agent in the project, including subagents.
+        Archived agents are excluded. Items are ordered by created_at ascending, then id ascending.
+        Submit custom tool results against each call's agent_id.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: Same values as each call's `state`, except `completed`, which is never listed.
+          schema:
+            type: string
+            enum: [awaiting_authorization, awaiting_permission, ready, running, waiting]
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ToolCallType'
+        - name: names
+          in: query
+          required: false
+          description: Return only calls to these tools.
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              type: string
+              minLength: 1
+              maxLength: 64
+        - name: agent_profile_id
+          in: query
+          required: false
+          description: Return only calls from agents launched from this agent profile.
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Unfinished tool calls in the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListToolCallsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls:
     parameters:
       - name: orgID
@@ -5113,6 +5191,61 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: agentID
+        in: path
+        description: Agent ID (agt_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^agt_[a-z2-7]{26}$'
+      - name: toolCallID
+        in: path
+        description: Tool call ID (tcl_...).
+        required: true
+        schema:
+          $ref: '#/components/schemas/ToolCallID'
+    get:
+      operationId: getToolCall
+      tags: [Agents]
+      summary: Get a tool call
+      description: Returns one tool call, including its name and input.
+      responses:
+        '200':
+          description: Tool call.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolCall'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result:
     parameters:
       - name: orgID
@@ -5148,8 +5281,9 @@ paths:
       summary: Submit a result for a ready custom tool call
       description: >-
         Only ready custom tool calls accept externally supplied results.
-        The first accepted result completes the call. Any later submission,
-        or a result for a non-custom tool call, returns 409.
+        The first accepted result completes the call. A later submission returns 409 with code
+        tool_call_already_completed; a result for a call that isn't ready, or for a non-custom
+        tool call, returns 409.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -5558,6 +5692,65 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/interactions:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+    get:
+      operationId: listProjectInteractions
+      tags: [Interactions]
+      summary: List open interactions across agents
+      description: >-
+        Lists open permission prompts and ask_question questions from every agent in the project,
+        including subagents, oldest first. Archived agents are excluded. Resolve each one against
+        its agent_id.
+      parameters:
+        - name: interaction_kind
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgentInteractionKind'
+        - name: agent_profile_id
+          in: query
+          required: false
+          description: Return only interactions from agents launched from this agent profile.
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Open interactions in the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAgentInteractionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -10046,6 +10239,7 @@ components:
             - idempotency_key_conflict
             - agent_backlog_full
             - state_transition_conflict
+            - tool_call_already_completed
             - managed_work_admission_denied
             - pending_work
             - not_wake_capable
@@ -10077,6 +10271,7 @@ components:
         - idempotency_key_conflict
         - agent_backlog_full
         - state_transition_conflict
+        - tool_call_already_completed
         - managed_work_admission_denied
         - pending_work
         - not_wake_capable
@@ -10102,6 +10297,7 @@ components:
         - idempotency_key_conflict
         - agent_backlog_full
         - state_transition_conflict
+        - tool_call_already_completed
         - pending_work
         - not_wake_capable
         - gone
@@ -13861,15 +14057,38 @@ components:
         for the current rows.
       type: object
       additionalProperties: false
-      required: [tool_call_id, state]
+      required: [org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, tool_call_id, state]
       properties:
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
         tool_call_id:
           $ref: '#/components/schemas/ToolCallID'
         agent_id:
           description: The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
           $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+          $ref: '#/components/schemas/AgentID'
         state:
           $ref: '#/components/schemas/ToolCallState'
+        name:
+          type: string
+          description: The tool name. Present when a custom tool call becomes ready.
+        input:
+          description: The tool arguments. Present with name when the JSON-encoded input is at most 64 KiB; for larger inputs, fetch the tool call.
+          $ref: '#/components/schemas/ToolInput'
         interaction_update:
           description: Only present when this transition opens, resolves, or cancels an interaction.
           $ref: '#/components/schemas/AgentInteractionUpdate'
@@ -13944,7 +14163,7 @@ components:
     AgentInputEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, agent_input_id, input_kind, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, agent_input_id, input_kind, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -13953,6 +14172,19 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
+          $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
           $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
@@ -13993,7 +14225,7 @@ components:
     ModelOutputEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -14002,6 +14234,19 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
+          $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
           $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
@@ -14040,7 +14285,7 @@ components:
     ToolResultEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, tool_call_id, outcome, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, tool_call_id, outcome, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -14049,6 +14294,19 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
+          $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
           $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
@@ -14076,7 +14334,7 @@ components:
     ContextCheckpointEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, context_checkpoint_id, summarized_through_event_sequence, summary, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, context_checkpoint_id, summarized_through_event_sequence, summary, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -14085,6 +14343,19 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
+          $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
           $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
@@ -14690,10 +14961,11 @@ components:
           type: string
           description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
         agent_name:
+          description: Present on project lists, and when the interaction belongs to a subagent of the listed agent.
           $ref: '#/components/schemas/AgentName'
         subagent_key:
           type: string
-          description: Present when the interaction belongs to a subagent of the listed agent.
+          description: Present when the interaction belongs to a subagent and was listed for its project or an ancestor agent.
         interaction_kind:
           $ref: '#/components/schemas/AgentInteractionKind'
         state:

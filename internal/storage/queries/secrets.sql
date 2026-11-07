@@ -327,7 +327,7 @@ WHERE org_id = sqlc.arg(org_id) AND secret_id = sqlc.arg(secret_id);
 -- @sqlc-vet-disable model-provider-configs-deleted-at integrations-deleted-at machine-pools-deleted-at
 -- Soft-deleted secrets no longer trip foreign keys, so referencing rows are
 -- checked explicitly. Deleted configs, pools, and installs clear their
--- credential references; any row still holding one blocks deletion.
+-- credential references. Deleted webhooks retain them but stop using secrets.
 SELECT EXISTS (
   SELECT 1 FROM model_provider_configs config
   WHERE config.org_id = sqlc.arg(org_id) AND config.credential_secret_id = sqlc.arg(secret_id)::uuid
@@ -337,6 +337,10 @@ SELECT EXISTS (
   UNION ALL
   SELECT 1 FROM integrations install
   WHERE install.org_id = sqlc.arg(org_id) AND install.credential_secret_id = sqlc.arg(secret_id)::uuid
+  UNION ALL
+  SELECT 1 FROM event_webhooks webhook
+  WHERE webhook.org_id = sqlc.arg(org_id) AND webhook.signing_secret_id = sqlc.arg(secret_id)::uuid
+    AND webhook.deleted_at IS NULL
 ) AS is_referenced;
 
 -- name: InsertSecretGrant :one

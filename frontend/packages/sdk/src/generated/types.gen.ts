@@ -289,7 +289,7 @@ export type Error = {
 /**
  * Known error codes.
  */
-export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
+export type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'file_content_conflict' | 'file_read_only' | 'expected_digest_required' | 'not_a_file' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'upstream_unavailable' | 'rate_limited' | 'internal_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'agent_backlog_full' | 'state_transition_conflict' | 'tool_call_already_completed' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
@@ -2579,12 +2579,34 @@ export type ToolCall = {
  * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export type ToolCallUpdate = {
+    org_id: OrganizationId;
+    project_id: ProjectId;
     tool_call_id: ToolCallId;
     /**
      * The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
      */
-    agent_id?: AgentId;
+    agent_id: AgentId;
+    /**
+     * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+     */
+    agent_profile_id: AgentProfileId | null;
+    /**
+     * The emitting agent's immediate parent, or null for a top-level agent.
+     */
+    parent_agent_id: AgentId | null;
+    /**
+     * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+     */
+    root_agent_id: AgentId;
     state: ToolCallState;
+    /**
+     * The tool name. Present when a custom tool call becomes ready.
+     */
+    name?: string;
+    /**
+     * The tool arguments. Present with name when the JSON-encoded input is at most 64 KiB; for larger inputs, fetch the tool call.
+     */
+    input?: ToolInput;
     /**
      * Only present when this transition opens, resolves, or cancels an interaction.
      */
@@ -2632,6 +2654,18 @@ export type AgentInputEvent = {
     org_id: OrganizationId;
     project_id: ProjectId;
     agent_id: AgentId;
+    /**
+     * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+     */
+    agent_profile_id: AgentProfileId | null;
+    /**
+     * The emitting agent's immediate parent, or null for a top-level agent.
+     */
+    parent_agent_id: AgentId | null;
+    /**
+     * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+     */
+    root_agent_id: AgentId;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: boolean;
@@ -2668,6 +2702,18 @@ export type ModelOutputEvent = {
     org_id: OrganizationId;
     project_id: ProjectId;
     agent_id: AgentId;
+    /**
+     * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+     */
+    agent_profile_id: AgentProfileId | null;
+    /**
+     * The emitting agent's immediate parent, or null for a top-level agent.
+     */
+    parent_agent_id: AgentId | null;
+    /**
+     * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+     */
+    root_agent_id: AgentId;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: false;
@@ -2691,6 +2737,18 @@ export type ToolResultEvent = {
     org_id: OrganizationId;
     project_id: ProjectId;
     agent_id: AgentId;
+    /**
+     * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+     */
+    agent_profile_id: AgentProfileId | null;
+    /**
+     * The emitting agent's immediate parent, or null for a top-level agent.
+     */
+    parent_agent_id: AgentId | null;
+    /**
+     * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+     */
+    root_agent_id: AgentId;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: false;
@@ -2707,6 +2765,18 @@ export type ContextCheckpointEvent = {
     org_id: OrganizationId;
     project_id: ProjectId;
     agent_id: AgentId;
+    /**
+     * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+     */
+    agent_profile_id: AgentProfileId | null;
+    /**
+     * The emitting agent's immediate parent, or null for a top-level agent.
+     */
+    parent_agent_id: AgentId | null;
+    /**
+     * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+     */
+    root_agent_id: AgentId;
     turn_id: AgentTurnId;
     turn_sequence: AgentSequence;
     is_opening_event: false;
@@ -3066,9 +3136,12 @@ export type AgentInteraction = {
      * The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
      */
     tool_name?: string;
+    /**
+     * Present on project lists, and when the interaction belongs to a subagent of the listed agent.
+     */
     agent_name?: AgentName;
     /**
-     * Present when the interaction belongs to a subagent of the listed agent.
+     * Present when the interaction belongs to a subagent and was listed for its project or an ancestor agent.
      */
     subagent_key?: string;
     interaction_kind: AgentInteractionKind;
@@ -13179,6 +13252,98 @@ export type CreateAgentInputResponses = {
 
 export type CreateAgentInputResponse = CreateAgentInputResponses[keyof CreateAgentInputResponses];
 
+export type ListProjectToolCallsData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+    };
+    query?: {
+        /**
+         * Same values as each call's `state`, except `completed`, which is never listed.
+         */
+        state?: 'awaiting_authorization' | 'awaiting_permission' | 'ready' | 'running' | 'waiting';
+        type?: ToolCallType;
+        /**
+         * Return only calls to these tools.
+         */
+        names?: Array<string>;
+        /**
+         * Return only calls from agents launched from this agent profile.
+         */
+        agent_profile_id?: AgentProfileId;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/tool-calls';
+};
+
+export type ListProjectToolCallsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListProjectToolCallsError = ListProjectToolCallsErrors[keyof ListProjectToolCallsErrors];
+
+export type ListProjectToolCallsResponses = {
+    /**
+     * Unfinished tool calls in the project.
+     */
+    200: ListToolCallsResponse;
+};
+
+export type ListProjectToolCallsResponse = ListProjectToolCallsResponses[keyof ListProjectToolCallsResponses];
+
 export type ListToolCallsData = {
     body?: never;
     path: {
@@ -13267,6 +13432,84 @@ export type ListToolCallsResponses = {
 };
 
 export type ListToolCallsResponse2 = ListToolCallsResponses[keyof ListToolCallsResponses];
+
+export type GetToolCallData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+        /**
+         * Agent ID (agt_...).
+         */
+        agentID: string;
+        /**
+         * Tool call ID (tcl_...).
+         */
+        toolCallID: ToolCallId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}';
+};
+
+export type GetToolCallErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetToolCallError = GetToolCallErrors[keyof GetToolCallErrors];
+
+export type GetToolCallResponses = {
+    /**
+     * Tool call.
+     */
+    200: ToolCall;
+};
+
+export type GetToolCallResponse = GetToolCallResponses[keyof GetToolCallResponses];
 
 export type SubmitToolCallResultData = {
     body: SubmitToolCallResultRequest;
@@ -13767,6 +14010,90 @@ export type CancelAgentResponses = {
 };
 
 export type CancelAgentResponse2 = CancelAgentResponses[keyof CancelAgentResponses];
+
+export type ListProjectInteractionsData = {
+    body?: never;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: string;
+        /**
+         * Project ID (proj_...).
+         */
+        projectID: string;
+    };
+    query?: {
+        interaction_kind?: AgentInteractionKind;
+        /**
+         * Return only interactions from agents launched from this agent profile.
+         */
+        agent_profile_id?: AgentProfileId;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/interactions';
+};
+
+export type ListProjectInteractionsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListProjectInteractionsError = ListProjectInteractionsErrors[keyof ListProjectInteractionsErrors];
+
+export type ListProjectInteractionsResponses = {
+    /**
+     * Open interactions in the project.
+     */
+    200: ListAgentInteractionsResponse;
+};
+
+export type ListProjectInteractionsResponse = ListProjectInteractionsResponses[keyof ListProjectInteractionsResponses];
 
 export type ListAgentInteractionsData = {
     body?: never;

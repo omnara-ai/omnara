@@ -48,6 +48,9 @@ jobs:
 
       - run: make verify-static
 
+      - name: Validate delivery alert rules
+        run: make prometheus-check
+
       - name: Protect released migrations and check API compatibility
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         env:

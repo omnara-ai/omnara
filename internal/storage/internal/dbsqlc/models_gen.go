@@ -68,6 +68,9 @@ type AgentEventReadProjection struct {
 	OutputTokensTotal              *int32
 	ReasoningOutputTokens          *int32
 	ProviderMetadata               *json.RawMessage
+	AgentProfileID                 *uuid.UUID
+	ParentAgentID                  *uuid.UUID
+	RootAgentID                    uuid.UUID
 }
 
 type AgentInteractionReadProjection struct {

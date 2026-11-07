@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/google/uuid"
+	"github.com/oapi-codegen/nullable"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -29,15 +30,11 @@ func EventFromReadRecord(record executionstore.AgentEventReadRecord) (openapi.Ag
 	if err != nil {
 		return openapi.AgentEvent{}, err
 	}
-	orgID, err := publicID(publicid.KindOrganization, record.OrgID)
-	if err != nil {
-		return openapi.AgentEvent{}, err
-	}
-	projectID, err := publicID(publicid.KindProject, record.ProjectID)
-	if err != nil {
-		return openapi.AgentEvent{}, err
-	}
-	agentID, err := publicID(publicid.KindAgent, record.AgentID)
+	agent, err := (AgentContext{
+		OrgID: record.OrgID, ProjectID: record.ProjectID, AgentID: record.AgentID,
+		AgentProfileID: record.AgentProfileID, ParentAgentID: record.ParentAgentID,
+		RootAgentID: record.RootAgentID,
+	}).encode()
 	if err != nil {
 		return openapi.AgentEvent{}, err
 	}
@@ -47,13 +44,13 @@ func EventFromReadRecord(record executionstore.AgentEventReadRecord) (openapi.Ag
 	}
 	switch record.EventKind {
 	case "agent_input":
-		return publicAgentInputEvent(record, id, orgID, projectID, agentID, turnID)
+		return publicAgentInputEvent(record, id, turnID, agent)
 	case "model_output":
-		return publicModelOutputEvent(record, id, orgID, projectID, agentID, turnID)
+		return publicModelOutputEvent(record, id, turnID, agent)
 	case "tool_result":
-		return publicToolResultEvent(record, id, orgID, projectID, agentID, turnID)
+		return publicToolResultEvent(record, id, turnID, agent)
 	case "context_checkpoint":
-		return publicContextCheckpointEvent(record, id, orgID, projectID, agentID, turnID)
+		return publicContextCheckpointEvent(record, id, turnID, agent)
 	default:
 		return openapi.AgentEvent{}, fmt.Errorf("unsupported agent event kind %q", record.EventKind)
 	}
@@ -61,7 +58,8 @@ func EventFromReadRecord(record executionstore.AgentEventReadRecord) (openapi.Ag
 
 func publicContextCheckpointEvent(
 	record executionstore.AgentEventReadRecord,
-	id, orgID, projectID, agentID, turnID string,
+	id, turnID string,
+	agent encodedAgentContext,
 ) (openapi.AgentEvent, error) {
 	if record.IsOpeningEvent {
 		return openapi.AgentEvent{}, errors.New("context checkpoint cannot open a turn")
@@ -74,10 +72,13 @@ func publicContextCheckpointEvent(
 		return openapi.AgentEvent{}, err
 	}
 	event := openapi.ContextCheckpointEvent{
+		AgentProfileId:                 agent.profileID,
+		ParentAgentId:                  agent.parentID,
+		RootAgentId:                    agent.rootID,
 		Id:                             id,
-		OrgId:                          orgID,
-		ProjectId:                      projectID,
-		AgentId:                        agentID,
+		OrgId:                          agent.orgID,
+		ProjectId:                      agent.projectID,
+		AgentId:                        agent.agentID,
 		TurnId:                         turnID,
 		TurnSequence:                   record.TurnSequence,
 		IsOpeningEvent:                 openapi.ContextCheckpointEventIsOpeningEventFalse,
@@ -96,7 +97,8 @@ func publicContextCheckpointEvent(
 
 func publicAgentInputEvent(
 	record executionstore.AgentEventReadRecord,
-	id, orgID, projectID, agentID, turnID string,
+	id, turnID string,
+	agent encodedAgentContext,
 ) (openapi.AgentEvent, error) {
 	agentInputID, err := publicID(publicid.KindAgentInput, record.AgentInputID)
 	if err != nil {
@@ -111,10 +113,13 @@ func publicAgentInputEvent(
 		return openapi.AgentEvent{}, err
 	}
 	event := openapi.AgentInputEvent{
+		AgentProfileId: agent.profileID,
+		ParentAgentId:  agent.parentID,
+		RootAgentId:    agent.rootID,
 		Id:             id,
-		OrgId:          orgID,
-		ProjectId:      projectID,
-		AgentId:        agentID,
+		OrgId:          agent.orgID,
+		ProjectId:      agent.projectID,
+		AgentId:        agent.agentID,
 		TurnId:         turnID,
 		TurnSequence:   record.TurnSequence,
 		IsOpeningEvent: record.IsOpeningEvent,
@@ -164,7 +169,8 @@ func publicAgentInputEvent(
 
 func publicModelOutputEvent(
 	record executionstore.AgentEventReadRecord,
-	id, orgID, projectID, agentID, turnID string,
+	id, turnID string,
+	agent encodedAgentContext,
 ) (openapi.AgentEvent, error) {
 	if record.IsOpeningEvent {
 		return openapi.AgentEvent{}, errors.New("model output cannot open a turn")
@@ -188,10 +194,13 @@ func publicModelOutputEvent(
 		return openapi.AgentEvent{}, err
 	}
 	event := openapi.ModelOutputEvent{
+		AgentProfileId:     agent.profileID,
+		ParentAgentId:      agent.parentID,
+		RootAgentId:        agent.rootID,
 		Id:                 id,
-		OrgId:              orgID,
-		ProjectId:          projectID,
-		AgentId:            agentID,
+		OrgId:              agent.orgID,
+		ProjectId:          agent.projectID,
+		AgentId:            agent.agentID,
 		TurnId:             turnID,
 		TurnSequence:       record.TurnSequence,
 		IsOpeningEvent:     openapi.ModelOutputEventIsOpeningEventFalse,
@@ -218,7 +227,8 @@ func publicModelOutputEvent(
 
 func publicToolResultEvent(
 	record executionstore.AgentEventReadRecord,
-	id, orgID, projectID, agentID, turnID string,
+	id, turnID string,
+	agent encodedAgentContext,
 ) (openapi.AgentEvent, error) {
 	if record.IsOpeningEvent {
 		return openapi.AgentEvent{}, errors.New("tool result cannot open a turn")
@@ -236,10 +246,13 @@ func publicToolResultEvent(
 		return openapi.AgentEvent{}, err
 	}
 	event := openapi.ToolResultEvent{
+		AgentProfileId: agent.profileID,
+		ParentAgentId:  agent.parentID,
+		RootAgentId:    agent.rootID,
 		Id:             id,
-		OrgId:          orgID,
-		ProjectId:      projectID,
-		AgentId:        agentID,
+		OrgId:          agent.orgID,
+		ProjectId:      agent.projectID,
+		AgentId:        agent.agentID,
 		TurnId:         turnID,
 		TurnSequence:   record.TurnSequence,
 		IsOpeningEvent: openapi.ToolResultEventIsOpeningEventFalse,
@@ -789,7 +802,66 @@ func publicJSONValue(
 	return json.RawMessage(bytes.Clone(trimmed)), nil
 }
 
-func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted) (openapi.ToolCallUpdate, error) {
+type AgentContext struct {
+	OrgID          uuid.UUID
+	ProjectID      uuid.UUID
+	AgentID        uuid.UUID
+	AgentProfileID uuid.UUID
+	ParentAgentID  uuid.UUID
+	RootAgentID    uuid.UUID
+}
+
+type encodedAgentContext struct {
+	orgID     openapi.OrganizationID
+	projectID openapi.ProjectID
+	agentID   openapi.AgentID
+	profileID nullable.Nullable[openapi.AgentProfileID]
+	parentID  nullable.Nullable[openapi.AgentID]
+	rootID    openapi.AgentID
+}
+
+func (agent AgentContext) encode() (encodedAgentContext, error) {
+	var result encodedAgentContext
+	if (agent.ParentAgentID == uuid.Nil) != (agent.RootAgentID == agent.AgentID) {
+		return result, errors.New("agent lineage must have no parent exactly when the agent is its own root")
+	}
+	var err error
+	result.orgID, err = publicID(publicid.KindOrganization, agent.OrgID)
+	if err != nil {
+		return result, err
+	}
+	result.projectID, err = publicID(publicid.KindProject, agent.ProjectID)
+	if err != nil {
+		return result, err
+	}
+	result.agentID, err = publicID(publicid.KindAgent, agent.AgentID)
+	if err != nil {
+		return result, err
+	}
+	result.rootID, err = publicID(publicid.KindAgent, agent.RootAgentID)
+	if err != nil {
+		return result, err
+	}
+	result.profileID = nullable.NewNullNullable[openapi.AgentProfileID]()
+	if agent.AgentProfileID != uuid.Nil {
+		profileID, err := publicID(publicid.KindAgentProfile, agent.AgentProfileID)
+		if err != nil {
+			return result, err
+		}
+		result.profileID.Set(profileID)
+	}
+	result.parentID = nullable.NewNullNullable[openapi.AgentID]()
+	if agent.ParentAgentID != uuid.Nil {
+		parentID, err := publicID(publicid.KindAgent, agent.ParentAgentID)
+		if err != nil {
+			return result, err
+		}
+		result.parentID.Set(parentID)
+	}
+	return result, nil
+}
+
+func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted, agent AgentContext) (openapi.ToolCallUpdate, error) {
 	state := openapi.ToolCallState(update.State)
 	if !state.Valid() {
 		return openapi.ToolCallUpdate{}, fmt.Errorf("invalid tool call state %q", update.State)
@@ -798,11 +870,22 @@ func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted) (openapi.Tool
 	if err != nil {
 		return openapi.ToolCallUpdate{}, err
 	}
-	agentID, err := publicID(publicid.KindAgent, update.AgentID)
+	if update.AgentID != agent.AgentID {
+		return openapi.ToolCallUpdate{}, errors.New("tool call update agent does not match routing context")
+	}
+	context, err := agent.encode()
 	if err != nil {
 		return openapi.ToolCallUpdate{}, err
 	}
-	response := openapi.ToolCallUpdate{ToolCallId: toolCallID, AgentId: &agentID, State: state}
+	response := openapi.ToolCallUpdate{
+		ToolCallId: toolCallID, State: state,
+		OrgId: context.orgID, ProjectId: context.projectID, AgentId: context.agentID,
+		AgentProfileId: context.profileID, ParentAgentId: context.parentID, RootAgentId: context.rootID,
+	}
+	if state == openapi.ToolCallStateReady && update.Name != "" {
+		response.Name = &update.Name
+		response.Input = notifications.ToolCallUpdateInput(update.Input)
+	}
 	if interaction := update.InteractionUpdate; interaction != nil {
 		kind := openapi.AgentInteractionKind(interaction.InteractionKind)
 		interactionState := openapi.AgentInteractionState(interaction.State)

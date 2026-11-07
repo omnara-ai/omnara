@@ -23,7 +23,8 @@ GROUP BY id, org_id
 ORDER BY id;
 
 -- name: GetEventWebhookEndpoint :one
-SELECT webhook.org_id, webhook.project_id, webhook.url, webhook.signing_secret_id
+SELECT webhook.org_id, webhook.project_id, webhook.url, webhook.signing_secret_id,
+       agent.agent_profile_id, agent.parent_agent_id, agent.root_agent_id
 FROM event_webhooks webhook
 JOIN orgs org ON org.id = webhook.org_id AND org.deleted_at IS NULL
 JOIN agents agent ON agent.project_id = webhook.project_id AND agent.id = sqlc.arg(agent_id)
@@ -106,7 +107,8 @@ SET attempt_count = attempt_count + 1,
 FROM candidate
 WHERE delivery.id = candidate.id
 RETURNING delivery.id, delivery.webhook_id, delivery.agent_id, delivery.org_id, delivery.event_sequence, delivery.tool_call_id,
-    delivery.tool_state, delivery.interaction_update, delivery.attempt_count, delivery.claim_token;
+    delivery.tool_state, delivery.interaction_update, delivery.attempt_count, delivery.claim_token, delivery.created_at,
+    delivery.next_attempt_at;
 
 -- name: CompleteEventWebhookDelivery :exec
 DELETE FROM event_webhook_deliveries WHERE id = $1 AND claim_token = $2;
@@ -132,3 +134,25 @@ WITH candidates AS (
 DELETE FROM event_webhook_deliveries delivery
 USING candidates
 WHERE delivery.id = candidates.id;
+
+-- name: SampleEventWebhookBacklog :one
+WITH queue AS (
+    SELECT created_at, next_attempt_at,
+        CASE
+            WHEN claim_expires_at > statement_timestamp() THEN 'in_flight'
+            WHEN created_at <= statement_timestamp()
+                - sqlc.arg(delivery_window_seconds)::double precision * interval '1 second' THEN 'expired'
+            WHEN next_attempt_at <= statement_timestamp() THEN 'due'
+            ELSE 'delayed'
+        END AS state
+    FROM event_webhook_deliveries
+)
+SELECT count(*) FILTER (WHERE state = 'due') AS due_count,
+       count(*) FILTER (WHERE state = 'delayed') AS delayed_count,
+       count(*) FILTER (WHERE state = 'in_flight') AS in_flight_count,
+       count(*) FILTER (WHERE state = 'expired') AS expired_count,
+       coalesce(max(extract(epoch FROM statement_timestamp() - created_at))
+           FILTER (WHERE state = 'due'), 0)::double precision AS oldest_due_age_seconds,
+       coalesce(max(extract(epoch FROM statement_timestamp() - next_attempt_at))
+           FILTER (WHERE state = 'due'), 0)::double precision AS oldest_due_lag_seconds
+FROM queue;

@@ -2378,7 +2378,7 @@ func TestPublicEventStreamDeliversSubagentToolCallUpdates(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("load subagent question: found=%v err=%v", found, err)
 	}
-	awaitToolCallUpdate := func(toolCallPublicID, agentPublicID, state string) {
+	awaitToolCallUpdate := func(toolCallPublicID, agentPublicID, state string) map[string]any {
 		t.Helper()
 		for {
 			frame := nextFrame("tool_call_update")
@@ -2389,7 +2389,7 @@ func TestPublicEventStreamDeliversSubagentToolCallUpdates(t *testing.T) {
 				t.Fatalf("tool call update = %+v, want agent %s", frame, agentPublicID)
 			}
 			if state == "" || frame["state"] == state {
-				return
+				return frame
 			}
 		}
 	}
@@ -2397,7 +2397,11 @@ func TestPublicEventStreamDeliversSubagentToolCallUpdates(t *testing.T) {
 
 	toolCallID := createHTTPCustomToolCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, user.ID, caller)
 	toolCallPublicID := testPublicID(t, publicid.KindToolCall, toolCallID)
-	awaitToolCallUpdate(toolCallPublicID, callerPublicID, "ready")
+	readyFrame := awaitToolCallUpdate(toolCallPublicID, callerPublicID, "ready")
+	if readyFrame["name"] != "lookup_customer" ||
+		!reflect.DeepEqual(readyFrame["input"], map[string]any{"email": "ada@example.com"}) {
+		t.Fatalf("ready custom tool call update = %+v, want name and input", readyFrame)
+	}
 
 	grandchild := spawnHTTPSubagentForTest(t, ctx, store, caller, parentLaunch.AgentConfig.ID, "grandchild", "helper")
 	grandchildPublicID := testPublicID(t, publicid.KindAgent, grandchild.ID)

@@ -51,12 +51,13 @@ func Run(ctx context.Context, options Options) {
 	integrations := options.Store.Integrations()
 	runtimeRecorder := metrics.NewProviderRuntimeRecorder(options.Metrics)
 	jobRecorder := metrics.NewJobRecorder(options.Metrics, metrics.SubsystemMaintenance)
+	webhookRecorder := metrics.NewEventWebhookBacklogRecorder(options.Metrics)
 	jobs := []maintenanceJob{
 		{"reap_runtime_locks", interval, reapRuntimeLocks(log, execution.ReapExpiredAgentRuntimeLocks)},
 		{"expire_daemon_runtimes", interval, expireDaemonRuntimes(log, execution.EndExpiredDaemonRuntimes)},
 		{"expire_process_tools", interval, expireProcessTools(log, execution.ExpireProcessToolCallsForAllProjects)},
 		{"delete_expired_webhook_deliveries", webhookDeliveryCleanupInterval,
-			deleteExpiredWebhookDeliveries(log, execution.DeleteExpiredEventWebhookDeliveries)},
+			deleteExpiredWebhookDeliveries(log, execution.DeleteExpiredEventWebhookDeliveries, webhookRecorder)},
 		{"cleanup_auth_state", expiredDataCleanupInterval,
 			cleanupAuthState(log, options.Store.Identity().CleanupInactiveAuthState)},
 		{"cleanup_integration_states", expiredDataCleanupInterval,
@@ -90,6 +91,9 @@ func Run(ctx context.Context, options Options) {
 		)},
 		{"sample_discord_demand", discordRuntimeMetricsInterval, recordDiscordRuntimeDemand(
 			log, integrations.CountUnclaimedDiscordIntegrations, metrics.NewDiscordRuntimeDemandRecorder(options.Metrics),
+		)},
+		{"sample_event_webhook_backlog", eventWebhookBacklogInterval, recordEventWebhookBacklog(
+			log, execution.SampleEventWebhookBacklog, webhookRecorder,
 		)},
 		{"sample_agent_backlog", agentBacklogInterval, recordAgentBacklog(
 			log, execution.SampleReadyAgentBacklog, metrics.NewAgentBacklogRecorder(options.Metrics),

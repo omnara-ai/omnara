@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
+	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -123,6 +124,12 @@ func (s *Store) validateEventWebhookSettingsTx(
 	if settings.SigningSecretID != uuid.Nil {
 		if s.secrets == nil {
 			return webhookconfig.Settings{}, errors.New("secret store is required")
+		}
+		if _, err := secretops.LockReference(ctx, tx, orgID, settings.SigningSecretID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return webhookconfig.Settings{}, storeerr.ErrNotFound
+			}
+			return webhookconfig.Settings{}, err
 		}
 		secret, err := s.secrets.ReadProjectAvailableSecretPayloadTx(ctx, tx,
 			secretstore.ReadProjectAvailableSecretPayloadInput{

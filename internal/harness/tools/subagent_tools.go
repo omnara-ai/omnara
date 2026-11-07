@@ -394,24 +394,7 @@ func readAgentTurns(
 	if err != nil {
 		return failSubagentTransactionForStorageError("read_agent_failed", err)
 	}
-	summary, err := subagentSummaryFromStatus(status)
-	if err != nil {
-		return nil, err
-	}
-	var nextBeforeTurnSequence *int64
-	if len(turns) > int(limit) {
-		turns = turns[:limit]
-		nextBeforeTurnSequence = &turns[len(turns)-1].TurnSequence
-	}
-	response, err := publicevents.TurnsFromReadRecords(turns)
-	if err != nil {
-		return nil, err
-	}
-	content, err := structuredToolResultContent(map[string]any{
-		"agent":                     summary,
-		"turns":                     response,
-		"next_before_turn_sequence": nextBeforeTurnSequence,
-	})
+	content, err := readAgentTurnsContent(status, turns, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -435,21 +418,7 @@ func readAgentTurnEvents(
 	if err != nil {
 		return failSubagentTransactionForStorageError("read_agent_failed", err)
 	}
-	summary, err := subagentSummaryFromStatus(status)
-	if err != nil {
-		return nil, err
-	}
-	events, nextBeforeSequence := publicevents.TrimEventsBeforePage(events, limit)
-	response, err := publicevents.EventsFromReadRecords(events)
-	if err != nil {
-		return nil, err
-	}
-	content, err := structuredToolResultContent(map[string]any{
-		"agent":                summary,
-		"turn_id":              input.TurnID,
-		"events":               response,
-		"next_before_sequence": nextBeforeSequence,
-	})
+	content, err := readAgentTurnEventsContent(status, input.TurnID, events, limit)
 	if err != nil {
 		return nil, err
 	}

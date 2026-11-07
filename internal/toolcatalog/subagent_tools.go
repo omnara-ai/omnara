@@ -8,10 +8,10 @@ const (
 		"background and its final answer arrives later as a message from it; read_agent shows its progress. Never " +
 		"guess or predict a pending subagent's result. Its answer is not shown to the user, so relay what matters. " +
 		"`name` is a display label only; address the subagent by the `agent_id` in the result."
-	readAgentToolDescription = "Read a subagent's timeline by agent_id, in the same shape as the agent turns API. " +
+	readAgentToolDescription = "Read a subagent's timeline by agent_id. " +
 		"Without `turn_id` it returns the newest turns first, each with its opening events and latest event; " +
-		"page older turns with `before_turn_sequence`. With `turn_id` it returns that turn's events, newest " +
-		"first, and pages older ones with `before_sequence`. Use it to check on progress or to fetch a finished " +
+		"page older turns with `before_turn_sequence`. With `turn_id` it returns the latest page of that turn's events, " +
+		"oldest first; page older events with `before_sequence`. Use it to check on progress or to fetch a finished " +
 		"subagent's answer without waiting for its message. Never guess at a subagent's result; read it or wait " +
 		"for its message."
 	sendAgentMessageToolDescription = "Send a message to one of your subagents by agent_id. Your plain text " +
@@ -80,7 +80,7 @@ func readAgentTool() (Entry, error) {
 			"before_sequence": map[string]any{
 				"type":        "integer",
 				"minimum":     0,
-				"description": "With turn_id: return events before this sequence, newest first. Omit or pass 0 for the latest events. Use next_before_sequence from the previous result to page.",
+				"description": "With turn_id: return events before this sequence. Omit or pass 0 for the latest page. Use next_before_sequence from the previous result to page older events.",
 			},
 			"limit": map[string]any{
 				"type":        "integer",

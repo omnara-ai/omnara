@@ -140,8 +140,8 @@ func insertToolCallForTest(
 	defer func() { _ = tx.Rollback(ctx) }()
 	var callID uuid.UUID
 	err = tx.QueryRow(ctx, `
-INSERT INTO tool_calls(agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
-SELECT event.agent_id,output.id,$6,$7,$8,$9,'awaiting_authorization',output.created_at
+INSERT INTO tool_calls(project_id,agent_id,model_output_id,provider_call_id,name,input,type,state,created_at)
+SELECT agent.project_id,event.agent_id,output.id,$6,$7,$8,$9,'awaiting_authorization',output.created_at
 FROM agent_events event
 JOIN agents agent ON agent.id=event.agent_id
 JOIN model_outputs output ON output.agent_id=event.agent_id AND output.id=event.model_output_id

@@ -2,8 +2,11 @@ package notifications
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -459,6 +462,8 @@ type recordingEntry struct {
 	Reason string
 }
 
+func (r *recordingRecorder) RecordPublisherQueue(int, func() int) {}
+
 func (r *recordingRecorder) RecordNotification(intent, result, reason string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -583,8 +588,35 @@ func TestRoutedPublisherPreservesToolCallUpdates(t *testing.T) {
 		{AgentID: agentID, ToolCallID: toolCallID, State: "awaiting_authorization"},
 		{AgentID: agentID, ToolCallID: toolCallID, State: "ready"},
 	}
-	if got := bus.toolCallSnapshot(); !slices.Equal(got, want) {
+	if got := bus.toolCallSnapshot(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tool call updates = %+v, want %+v", got, want)
+	}
+}
+
+func TestAddReadyCustomToolCallUpdateCarriesEncodedInputWithinLimit(t *testing.T) {
+	agentID, toolCallID := uuid.New(), uuid.New()
+	ones := MaxToolCallUpdateInputBytes/2 - 1
+	for _, tc := range []struct {
+		name  string
+		input json.RawMessage
+		want  json.RawMessage
+	}{
+		{"small", json.RawMessage(`{"email": "ada@example.com"}`), json.RawMessage(`{"email":"ada@example.com"}`)},
+		{
+			"spaced",
+			json.RawMessage("[" + strings.Repeat("1, ", ones-1) + "1]"),
+			json.RawMessage("[" + strings.Repeat("1,", ones-1) + "1]"),
+		},
+		{"escaped", json.RawMessage(`"` + strings.Repeat("<", MaxToolCallUpdateInputBytes/4) + `"`), nil},
+	} {
+		tx := NewTxNotifications()
+		tx.AddReadyCustomToolCallUpdate(agentID, toolCallID, "lookup_customer", tc.input, nil)
+		want := ToolCallUpdatedCommitted{
+			AgentID: agentID, ToolCallID: toolCallID, State: "ready", Name: "lookup_customer", Input: tc.want,
+		}
+		if got := tx.ToolCallUpdates(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+			t.Fatalf("%s update = %+v, want %+v", tc.name, got, want)
+		}
 	}
 }
 

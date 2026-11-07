@@ -851,6 +851,7 @@ func TestPublicEventResponseExposesModelCallContextOnlyForModelOutput(t *testing
 		OrgID:              httpTestOrgID,
 		ProjectID:          httpTestProjectID,
 		AgentID:            httpTestAgentID,
+		RootAgentID:        httpTestAgentID,
 		TurnID:             httpTestTurnID,
 		TurnSequence:       1,
 		Sequence:           9,
@@ -898,6 +899,7 @@ func TestPublicEventResponseExposesModelCallContextOnlyForModelOutput(t *testing
 		OrgID:              httpTestOrgID,
 		ProjectID:          httpTestProjectID,
 		AgentID:            httpTestAgentID,
+		RootAgentID:        httpTestAgentID,
 		TurnID:             httpTestTurnID,
 		TurnSequence:       1,
 		Sequence:           11,
@@ -918,6 +920,7 @@ func TestPublicEventResponseExposesModelCallContextOnlyForModelOutput(t *testing
 		OrgID:              httpTestOrgID,
 		ProjectID:          httpTestProjectID,
 		AgentID:            httpTestAgentID,
+		RootAgentID:        httpTestAgentID,
 		TurnID:             httpTestTurnID,
 		TurnSequence:       1,
 		Sequence:           10,
@@ -951,6 +954,7 @@ func TestPublicModelOutputEventAcceptsEveryDurableStopReason(t *testing.T) {
 				OrgID:              httpTestOrgID,
 				ProjectID:          httpTestProjectID,
 				AgentID:            httpTestAgentID,
+				RootAgentID:        httpTestAgentID,
 				TurnID:             httpTestTurnID,
 				TurnSequence:       1,
 				Sequence:           11,
@@ -1046,6 +1050,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			OrgID:         httpTestOrgID,
 			ProjectID:     httpTestProjectID,
 			AgentID:       httpTestAgentID,
+			RootAgentID:   httpTestAgentID,
 			TurnID:        httpTestTurnID,
 			TurnSequence:  1,
 			Sequence:      4,
@@ -1060,6 +1065,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			OrgID:         httpTestOrgID,
 			ProjectID:     httpTestProjectID,
 			AgentID:       httpTestAgentID,
+			RootAgentID:   httpTestAgentID,
 			TurnID:        httpTestTurnID,
 			TurnSequence:  1,
 			Sequence:      5,
@@ -1075,6 +1081,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			OrgID:               httpTestOrgID,
 			ProjectID:           httpTestProjectID,
 			AgentID:             httpTestAgentID,
+			RootAgentID:         httpTestAgentID,
 			TurnID:              httpTestTurnID,
 			TurnSequence:        1,
 			Sequence:            6,
@@ -1092,6 +1099,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			OrgID:              httpTestOrgID,
 			ProjectID:          httpTestProjectID,
 			AgentID:            httpTestAgentID,
+			RootAgentID:        httpTestAgentID,
 			TurnID:             httpTestTurnID,
 			TurnSequence:       1,
 			Sequence:           7,
@@ -1106,6 +1114,7 @@ func TestPublicResourceResponsesHideInternalExecutionAuthority(t *testing.T) {
 			OrgID:               httpTestOrgID,
 			ProjectID:           httpTestProjectID,
 			AgentID:             httpTestAgentID,
+			RootAgentID:         httpTestAgentID,
 			TurnID:              httpTestTurnID,
 			TurnSequence:        1,
 			Sequence:            8,
@@ -2124,6 +2133,8 @@ func TestWriteToolCallUpdateFrameIncludesInteraction(t *testing.T) {
 		if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
 			AgentID: httpTestAgentID, ToolCallID: httpTestToolCallID, State: "awaiting_permission",
 			InteractionUpdate: interaction,
+		}, publicevents.AgentContext{
+			OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID, RootAgentID: httpTestAgentID,
 		}) {
 			t.Fatal("writeToolCallUpdateFrame returned false")
 		}
@@ -2151,11 +2162,56 @@ func TestWriteToolCallUpdateFrameIncludesInteraction(t *testing.T) {
 	}
 }
 
+func TestWriteToolCallUpdateFrameIncludesReadyCustomCall(t *testing.T) {
+	input := json.RawMessage(`{"email":"ada@example.com"}`)
+	blob := func(size int) json.RawMessage {
+		return json.RawMessage(`{"blob":"` + strings.Repeat("x", size-len(`{"blob":""}`)) + `"}`)
+	}
+	escaped := json.RawMessage(`{"html":"` + strings.Repeat("<", notifications.MaxToolCallUpdateInputBytes/4) + `"}`)
+	for _, tc := range []struct {
+		state     string
+		input     json.RawMessage
+		wantInput bool
+	}{
+		{"ready", input, true},
+		{"ready", blob(notifications.MaxToolCallUpdateInputBytes), true},
+		{"ready", blob(notifications.MaxToolCallUpdateInputBytes + 1), false},
+		{"ready", escaped, false},
+		{"ready", nil, false},
+		{"completed", input, false},
+	} {
+		rec := httptest.NewRecorder()
+		if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
+			AgentID: httpTestAgentID, ToolCallID: httpTestToolCallID, State: tc.state,
+			Name: "lookup_customer", Input: tc.input,
+		}, publicevents.AgentContext{
+			OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID, RootAgentID: httpTestAgentID,
+		}) {
+			t.Fatal("writeToolCallUpdateFrame returned false")
+		}
+		var payload openapi.ToolCallUpdate
+		body := strings.TrimPrefix(rec.Body.String(), "event: tool_call_update\ndata: ")
+		if err := json.Unmarshal([]byte(body), &payload); err != nil {
+			t.Fatal(err)
+		}
+		var wantInput json.RawMessage
+		if tc.wantInput {
+			wantInput = tc.input
+		}
+		gotName := payload.Name != nil && *payload.Name == "lookup_customer"
+		if gotName != (tc.state == "ready") || string(payload.Input) != string(wantInput) {
+			t.Fatalf("%s update = %+v, want input %v", tc.state, payload, tc.wantInput)
+		}
+	}
+}
+
 func TestWriteToolCallUpdateFrameSkipsUnknownState(t *testing.T) {
 	rec := httptest.NewRecorder()
 	if !writeToolCallUpdateFrame(rec, notifications.ToolCallUpdatedCommitted{
 		ToolCallID: httpTestToolCallID,
 		State:      "unknown",
+	}, publicevents.AgentContext{
+		OrgID: httpTestOrgID, ProjectID: httpTestProjectID, AgentID: httpTestAgentID, RootAgentID: httpTestAgentID,
 	}) {
 		t.Fatal("writeToolCallUpdateFrame returned false for unknown state")
 	}

@@ -51,6 +51,23 @@ func (s *Store) GetToolCall(
 	return toolCallRecordFromGetSQLC(row), nil
 }
 
+func (s *Store) GetCustomToolCallInput(
+	ctx context.Context,
+	projectID, agentID, id uuid.UUID,
+) (CustomToolCallInput, bool, error) {
+	row, err := s.q.GetCustomToolCallInput(
+		ctx,
+		dbsqlc.GetCustomToolCallInputParams{ProjectID: projectID, AgentID: agentID, ID: id},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CustomToolCallInput{}, false, nil
+	}
+	if err != nil {
+		return CustomToolCallInput{}, false, fmt.Errorf("get custom tool call input: %w", err)
+	}
+	return CustomToolCallInput(row), true, nil
+}
+
 func (s *Store) ListToolCalls(
 	ctx context.Context,
 	input ListToolCallsInput,
@@ -100,16 +117,55 @@ func (s *Store) ListToolCalls(
 	if err != nil {
 		return ListToolCallsResult{}, fmt.Errorf("list tool calls: %w", err)
 	}
+	return toolCallsPage(rows, input.Limit), nil
+}
+
+func (s *Store) ListUnfinishedProjectToolCalls(
+	ctx context.Context,
+	input ListUnfinishedProjectToolCallsInput,
+) (ListToolCallsResult, error) {
+	if input.ProjectID == uuid.Nil {
+		return ListToolCallsResult{}, errors.New("project is required")
+	}
+	if input.Limit <= 0 {
+		return ListToolCallsResult{}, errors.New("limit must be positive")
+	}
+	params := dbsqlc.ListUnfinishedToolCallsForProjectParams{
+		ProjectID:      input.ProjectID,
+		AgentProfileID: input.AgentProfileID,
+		State:          string(input.State),
+		Type:           input.Type,
+		Names:          input.Names,
+		RowLimit:       int64(input.Limit) + 1,
+	}
+	if input.After.Set {
+		createdAt := input.After.CreatedAt
+		id := input.After.ID
+		params.CursorCreatedAt = &createdAt
+		params.CursorID = &id
+	}
+	rows, err := s.q.ListUnfinishedToolCallsForProject(ctx, params)
+	if err != nil {
+		return ListToolCallsResult{}, fmt.Errorf("list unfinished project tool calls: %w", err)
+	}
+	converted := make([]dbsqlc.ListToolCallsForAgentRow, 0, len(rows))
+	for _, row := range rows {
+		converted = append(converted, dbsqlc.ListToolCallsForAgentRow(row))
+	}
+	return toolCallsPage(converted, input.Limit), nil
+}
+
+func toolCallsPage(rows []dbsqlc.ListToolCallsForAgentRow, limit int) ListToolCallsResult {
 	result := ListToolCallsResult{}
-	if len(rows) > input.Limit {
+	if len(rows) > limit {
 		result.HasMore = true
-		rows = rows[:input.Limit]
+		rows = rows[:limit]
 	}
 	result.ToolCalls = make([]ToolCallRecord, 0, len(rows))
 	for _, row := range rows {
 		result.ToolCalls = append(result.ToolCalls, toolCallRecordFromAgentListSQLC(row))
 	}
-	return result, nil
+	return result
 }
 
 func (s *Store) NextRunnableToolCall(

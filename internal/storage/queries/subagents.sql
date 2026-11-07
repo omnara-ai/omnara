@@ -65,20 +65,20 @@ SELECT count(*)::integer
 FROM ancestors
 WHERE ancestors.parent_agent_id IS NOT NULL;
 
--- name: ListAgentDescendantIDs :many
+-- name: ListAgentDescendants :many
 WITH RECURSIVE descendants AS (
-  SELECT agent.id, 1 AS depth
+  SELECT agent.id, agent.agent_profile_id, agent.parent_agent_id, agent.root_agent_id, 1 AS depth
   FROM agents agent
   WHERE agent.project_id = sqlc.arg(project_id)
     AND agent.parent_agent_id = sqlc.arg(agent_id)
   UNION ALL
-  SELECT child.id, descendants.depth + 1
+  SELECT child.id, child.agent_profile_id, child.parent_agent_id, child.root_agent_id, descendants.depth + 1
   FROM agents child
   JOIN descendants ON child.parent_agent_id = descendants.id
   WHERE child.project_id = sqlc.arg(project_id)
     AND descendants.depth < 64
 )
-SELECT descendants.id
+SELECT descendants.id, descendants.agent_profile_id, descendants.parent_agent_id, descendants.root_agent_id
 FROM descendants
 ORDER BY descendants.depth, descendants.id;
 
@@ -120,6 +120,38 @@ WHERE interaction.project_id = sqlc.arg(project_id)
   )
 ORDER BY interaction.created_at ASC, interaction.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
+
+-- name: ListOpenAgentInteractionsForProject :many
+WITH page AS (
+  SELECT interaction.agent_id, interaction.id
+  FROM agent_interactions interaction
+  WHERE interaction.project_id = sqlc.arg(project_id)
+    AND interaction.state = 'open'
+    AND (sqlc.arg(interaction_kind)::text = '' OR interaction.interaction_kind = sqlc.arg(interaction_kind))
+    AND (
+      SELECT agent.state = 'active'
+        AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
+      FROM agents agent
+      WHERE agent.id = interaction.agent_id
+    )
+    AND (
+      sqlc.narg(cursor_created_at)::timestamptz IS NULL
+      OR (interaction.created_at, interaction.id) > (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
+    )
+  ORDER BY interaction.created_at ASC, interaction.id ASC
+  LIMIT sqlc.arg(row_limit)::bigint
+)
+SELECT interaction.id, interaction.project_id, interaction.agent_id, interaction.turn_id,
+       interaction.model_call_context_id, interaction.tool_call_id, interaction.provider_call_id,
+       interaction.interaction_kind, interaction.state, interaction.request, interaction.resolution,
+       interaction.resolved_by_input_id, interaction.created_at, interaction.resolved_at,
+       interaction.destination, interaction.presentation_receipt,
+       agent.name AS agent_name, agent.subagent_key
+FROM page
+JOIN agent_interaction_read_projection interaction ON interaction.agent_id = page.agent_id
+  AND interaction.id = page.id
+JOIN agents agent ON agent.id = page.agent_id
+ORDER BY interaction.created_at ASC, interaction.id ASC;
 
 -- name: ListIdleAgentsForArchive :many
 WITH candidate AS (

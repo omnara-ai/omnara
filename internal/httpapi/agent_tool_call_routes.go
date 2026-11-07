@@ -54,12 +54,74 @@ func (s strictOpenAPIServer) ListToolCalls(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
+	response, err := toolCallsListResponse(page)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListToolCalls200JSONResponse(response), nil
+}
+
+func (s strictOpenAPIServer) ListProjectToolCalls(
+	ctx context.Context,
+	request openapi.ListProjectToolCallsRequestObject,
+) (openapi.ListProjectToolCallsResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	limit, after, err := parseOpenAPIPageParams(request.Params.Limit, request.Params.Cursor, publicid.KindToolCall)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	var state executionstore.ToolCallState
+	if request.Params.State != nil {
+		state = executionstore.ToolCallState(*request.Params.State)
+	}
+	toolType := ""
+	if request.Params.Type != nil {
+		toolType = string(*request.Params.Type)
+	}
+	var names []string
+	if request.Params.Names != nil {
+		names = *request.Params.Names
+	}
+	var agentProfileID *uuid.UUID
+	if request.Params.AgentProfileId != nil {
+		id, err := publicid.Decode(publicid.KindAgentProfile, *request.Params.AgentProfileId)
+		if err != nil {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent profile filter")
+		}
+		agentProfileID = &id
+	}
+	page, err := s.server.store.Execution().ListUnfinishedProjectToolCalls(
+		ctx,
+		executionstore.ListUnfinishedProjectToolCallsInput{
+			ProjectID:      scope.project.ID,
+			AgentProfileID: agentProfileID,
+			State:          state,
+			Type:           toolType,
+			Names:          names,
+			Limit:          limit,
+			After:          after,
+		},
+	)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	response, err := toolCallsListResponse(page)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListProjectToolCalls200JSONResponse(response), nil
+}
+
+func toolCallsListResponse(page executionstore.ListToolCallsResult) (openapi.ListToolCallsResponse, error) {
 	data := make([]openapi.ToolCall, 0, len(page.ToolCalls))
 	var last executionstore.ToolCallRecord
 	for _, toolCall := range page.ToolCalls {
 		response, err := publicToolCallFromRecord(toolCall)
 		if err != nil {
-			return nil, err
+			return openapi.ListToolCallsResponse{}, err
 		}
 		data = append(data, response)
 		last = toolCall
@@ -71,12 +133,35 @@ func (s strictOpenAPIServer) ListToolCalls(
 		last.ID,
 	)
 	if err != nil {
-		return nil, err
+		return openapi.ListToolCallsResponse{}, err
 	}
-	return openapi.ListToolCalls200JSONResponse(openapi.ListToolCallsResponse{
+	return openapi.ListToolCallsResponse{
 		Data:       data,
 		NextCursor: nullableFromPtr(nextCursor),
-	}), nil
+	}, nil
+}
+
+func (s strictOpenAPIServer) GetToolCall(
+	ctx context.Context,
+	request openapi.GetToolCallRequestObject,
+) (openapi.GetToolCallResponseObject, error) {
+	scope, err := agentScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	toolCallID, ok := parseOpenAPIPublicID(publicid.KindToolCall, request.ToolCallID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
+	}
+	record, err := s.server.store.Execution().GetToolCall(ctx, scope.project.ID, scope.agent.ID, toolCallID)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	toolCall, err := publicToolCallFromRecord(record)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.GetToolCall200JSONResponse(toolCall), nil
 }
 
 func (s strictOpenAPIServer) SubmitToolCallResult(
@@ -102,6 +187,9 @@ func (s strictOpenAPIServer) SubmitToolCallResult(
 	)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
+	}
+	if existing.Type == toolcatalog.ToolTypeCustom && existing.State == executionstore.ToolCallStateCompleted {
+		return nil, apierror.FromCode(openapi.ErrorCodeToolCallAlreadyCompleted, "custom tool call is already completed")
 	}
 	if existing.Type != toolcatalog.ToolTypeCustom ||
 		existing.State != executionstore.ToolCallStateReady {

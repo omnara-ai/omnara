@@ -35,6 +35,8 @@ type testStore struct {
 	retryResult executionstore.EventWebhookDeliveryRetryResult
 	endpoint    executionstore.EventWebhookEndpoint
 	record      executionstore.AgentEventReadRecord
+	toolCall    *executionstore.CustomToolCallInput
+	toolCallErr error
 	secret      string
 	secretErr   error
 	pending     chan executionstore.EventWebhookDelivery
@@ -57,6 +59,18 @@ func (s *testStore) GetAgentEventForWebhook(
 		return executionstore.AgentEventReadRecord{}, storeerr.ErrNotFound
 	}
 	return s.record, nil
+}
+
+func (s *testStore) GetCustomToolCallInput(
+	context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
+) (executionstore.CustomToolCallInput, bool, error) {
+	if s.toolCallErr != nil {
+		return executionstore.CustomToolCallInput{}, false, s.toolCallErr
+	}
+	if s.toolCall == nil {
+		return executionstore.CustomToolCallInput{}, false, nil
+	}
+	return *s.toolCall, true, nil
 }
 
 func (s *testStore) ReadEventWebhookSigningSecret(
@@ -107,7 +121,9 @@ func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 		OrgID: uuid.New(), ToolCallID: &toolID, ToolState: &state,
 		ClaimToken: uuid.New(), AttemptCount: 1,
 	}
-	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7), store, delivery
+	store.endpoint.OrgID = delivery.OrgID
+	store.endpoint.RootAgentID = delivery.AgentID
+	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7, nil), store, delivery
 }
 
 func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
@@ -158,6 +174,40 @@ func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 	}, payload.Data.InteractionUpdate)
 }
 
+func TestSenderRetriesToolCallUpdateWhenInputLookupFails(t *testing.T) {
+	sender, store, delivery := testSender()
+	store.toolCallErr = errors.New("tool call lookup failed")
+	requests := 0
+	sender.client = &http.Client{Transport: testTransport(func(*http.Request) (*http.Response, error) {
+		requests++
+		return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
+	})}
+	sender.deliver(t.Context(), delivery)
+	require.Zero(t, requests)
+	require.Zero(t, store.completed.Load())
+	require.EqualValues(t, 1, store.retried.Load())
+}
+
+func TestSenderKeepsLargestToolCallUpdateUnderReceiverLimit(t *testing.T) {
+	const expressDefaultBodyLimit = 100 * 1024
+	sender, store, delivery := testSender()
+	input := `{"blob":"` + strings.Repeat("x", notifications.MaxToolCallUpdateInputBytes-len(`{"blob":""}`)) + `"}`
+	store.toolCall = &executionstore.CustomToolCallInput{Name: strings.Repeat("t", 64), Input: json.RawMessage(input)}
+	delivery.InteractionUpdate = &notifications.AgentInteractionUpdate{
+		ID: uuid.New(), InteractionKind: "permission", State: "resolved",
+	}
+	var body []byte
+	sender.client = &http.Client{Transport: testTransport(func(req *http.Request) (*http.Response, error) {
+		var err error
+		body, err = io.ReadAll(req.Body)
+		require.NoError(t, err)
+		return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
+	})}
+	sender.deliver(t.Context(), delivery)
+	require.Contains(t, string(body), input)
+	require.LessOrEqual(t, len(body), expressDefaultBodyLimit)
+}
+
 func TestSenderRetryUsesCurrentWebhookConfiguration(t *testing.T) {
 	sender, store, delivery := testSender()
 	store.endpoint.SigningSecretID = uuid.New()
@@ -187,7 +237,8 @@ func TestSenderRetryUsesCurrentWebhookConfiguration(t *testing.T) {
 func TestSenderUsesExistingTimelinePayload(t *testing.T) {
 	sender, store, delivery := testSender()
 	store.record = executionstore.AgentEventReadRecord{
-		ID: uuid.New(), OrgID: uuid.New(), ProjectID: store.endpoint.ProjectID, AgentID: delivery.AgentID,
+		ID: uuid.New(), OrgID: uuid.New(), ProjectID: store.endpoint.ProjectID,
+		AgentID: delivery.AgentID, RootAgentID: delivery.AgentID,
 		TurnID: uuid.New(), Sequence: 17, EventKind: "context_checkpoint",
 		ContextCheckpointID: uuid.New(), CheckpointSummary: "summary", CreatedAt: time.Now(),
 	}
@@ -208,10 +259,12 @@ func TestSenderUsesExistingTimelinePayload(t *testing.T) {
 		require.JSONEq(t, string(encoded), string(body.Data))
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 	})}
-	require.NoError(t, sender.send(t.Context(), delivery))
+	_, err := sender.send(t.Context(), delivery)
+	require.NoError(t, err)
 	sequence := int64(18)
 	delivery.EventSequence = &sequence
-	require.ErrorIs(t, sender.send(t.Context(), delivery), storeerr.ErrNotFound)
+	_, err = sender.send(t.Context(), delivery)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
 }
 
 func TestSenderSkipsRemovedWebhookAndRetriesSigningErrors(t *testing.T) {
@@ -252,14 +305,16 @@ func TestSenderBlocksPrivateDestinationsAndRedirects(t *testing.T) {
 	defer destination.Close()
 	sender, store, delivery := testSender()
 	store.endpoint.URL = destination.URL
-	require.Error(t, sender.send(t.Context(), delivery))
+	_, err := sender.send(t.Context(), delivery)
+	require.Error(t, err)
 	redirect := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, destination.URL, http.StatusTemporaryRedirect)
 	}))
 	defer redirect.Close()
 	store.endpoint.URL = redirect.URL
 	sender.client = outboundhttp.CloneWithoutRedirects(redirect.Client())
-	require.ErrorContains(t, sender.send(t.Context(), delivery), "HTTP 307")
+	_, err = sender.send(t.Context(), delivery)
+	require.ErrorContains(t, err, "HTTP 307")
 	require.Zero(t, calls.Load())
 }
 

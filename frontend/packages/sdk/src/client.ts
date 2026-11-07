@@ -2,11 +2,16 @@ import * as z from 'zod'
 
 import type { AuthStrategy } from './auth'
 import { ApiError } from './errors'
+import type { Client as OmnaraClient } from './generated/client'
 import { createClient, createConfig, formDataBodySerializer } from './generated/client'
 import { client as specDefaultClient } from './generated/client.gen'
 import type { BodySerializer } from './generated/core/bodySerializer.gen'
 
-export type OmnaraClient = ReturnType<typeof createClient>
+export type {
+  Client as OmnaraClient,
+  Config as OmnaraClientConfig,
+  ClientOptions as OmnaraClientConfigOptions,
+} from './generated/client'
 
 export interface OmnaraClientOptions {
   baseUrl?: string

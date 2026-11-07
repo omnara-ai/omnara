@@ -13,12 +13,13 @@ import (
 )
 
 const insertExecutionInteraction = `-- name: InsertExecutionInteraction :one
-INSERT INTO agent_interactions(agent_id,tool_call_id,interaction_kind,state,request,destination,created_at)
-VALUES($1,$2,$3,'open',$4::jsonb,
- $5::jsonb,statement_timestamp()) RETURNING id
+INSERT INTO agent_interactions(project_id,agent_id,tool_call_id,interaction_kind,state,request,destination,created_at)
+VALUES($1,$2,$3,$4,'open',$5::jsonb,
+ $6::jsonb,statement_timestamp()) RETURNING id
 `
 
 type InsertExecutionInteractionParams struct {
+	ProjectID   uuid.UUID
 	AgentID     uuid.UUID
 	ToolID      uuid.UUID
 	Kind        string
@@ -28,6 +29,7 @@ type InsertExecutionInteractionParams struct {
 
 func (q *Queries) InsertExecutionInteraction(ctx context.Context, db DBTX, arg InsertExecutionInteractionParams) (uuid.UUID, error) {
 	row := db.QueryRow(ctx, insertExecutionInteraction,
+		arg.ProjectID,
 		arg.AgentID,
 		arg.ToolID,
 		arg.Kind,

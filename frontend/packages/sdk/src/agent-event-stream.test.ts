@@ -6,11 +6,20 @@ import {
   openAgentEventStream,
 } from './agent-event-stream'
 import { createOmnaraClient } from './client'
-import type { ModelOutputEvent } from './generated/types.gen'
+import type { ModelOutputEvent, ToolCallUpdate } from './generated/types.gen'
 
 const path = { orgID: 'org', projectID: 'project', agentID: 'agent' }
 const idSuffix = 'a'.repeat(26)
-const toolUpdate = { tool_call_id: `tcl_${idSuffix}`, state: 'running' as const }
+const toolUpdate: ToolCallUpdate = {
+  org_id: `org_${idSuffix}`,
+  project_id: `proj_${idSuffix}`,
+  agent_id: `agt_${idSuffix}`,
+  agent_profile_id: null,
+  parent_agent_id: null,
+  root_agent_id: `agt_${idSuffix}`,
+  tool_call_id: `tcl_${idSuffix}`,
+  state: 'running',
+}
 
 function durableEvent(
   sequence: number,
@@ -21,6 +30,9 @@ function durableEvent(
     org_id: `org_${idSuffix}`,
     project_id: `proj_${idSuffix}`,
     agent_id: `agt_${idSuffix}`,
+    agent_profile_id: null,
+    parent_agent_id: null,
+    root_agent_id: `agt_${idSuffix}`,
     turn_id: `trn_${idSuffix}`,
     turn_sequence: 1,
     is_opening_event: false,
