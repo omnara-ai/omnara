@@ -630,7 +630,7 @@ it.each([includedSource, 'instruction: [', JSON.stringify(parse(includedSource))
 )
 
 it.each([
-  ['instruction: [', 'yaml', true, 'line 1'],
+  ['instruction: [\n', 'yaml', true, 'line 2'],
   [
     customFixture.replace('type: object', 'type: array'),
     'builder',
@@ -650,6 +650,7 @@ it.each([
     expect(editor().yaml).toBe(yaml)
     expect(editor().saveBlocked).toBe(true)
     expect(diagnostics(editor())).toContain(reason)
+    expect(diagnostics(editor())).not.toContain('Cannot read properties')
   },
 )
 
