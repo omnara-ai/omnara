@@ -1,7 +1,7 @@
 import { useAgentConfigTools } from '@omnara/react'
 import { type AgentConfigToolsDefinition, ApiError } from '@omnara/sdk'
 import { useMemo } from 'react'
-import { Document, isMap, isSeq, parseDocument } from 'yaml'
+import { Document, isMap, isSeq } from 'yaml'
 
 import type { McpEntry } from '@/components/agents/agentConfigBasicExtract'
 import { toolWire } from '@/components/agents/agentConfigBasicWrite'
@@ -23,11 +23,10 @@ type ToolPreviewDraft = Pick<
   | 'subagents'
   | 'gitCredentials'
   | 'advancedEntries'
-  | 'originalSource'
 >
 
 export function agentBuilderToolsDefinition(source: ToolPreviewDraft): AgentConfigToolsDefinition {
-  const definition: AgentConfigToolsDefinition = {
+  return {
     interaction_handlers: source.interactionHandlers,
     tools: Object.fromEntries(source.tools.map((tool) => [tool.name, toolWire(tool)])),
     mcp: Object.fromEntries(
@@ -50,7 +49,6 @@ export function agentBuilderToolsDefinition(source: ToolPreviewDraft): AgentConf
       }),
     ),
   }
-  return definition
 }
 
 export function agentBuilderToolsRequest(source: ToolPreviewDraft) {
@@ -63,12 +61,8 @@ export function agentBuilderToolsRequest(source: ToolPreviewDraft) {
   const preview = new Document(definition, configYamlOptions)
   for (const entry of advanced) {
     const parsed = parseConfigDocument(entry.source)
-    const value = !parsed.diagnostics.some((issue) => issue.kind === 'fatal')
-      ? parsed.doc.contents
-      : parseDocument(source.originalSource ?? '', configYamlOptions).getIn(
-          entry.originalPath ?? entry.path,
-          true,
-        )
+    if (parsed.diagnostics.some((issue) => issue.kind === 'fatal')) continue
+    const value = parsed.doc.contents
     if (value == null) continue
     if (entry.path[0] === 'machine_sources' && entry.path.length === 2) {
       const sources = preview.get('machine_sources', true)
@@ -109,7 +103,6 @@ export function useAgentBuilderTools(
     subagents,
     gitCredentials,
     advancedEntries,
-    originalSource,
   }: ToolPreviewDraft,
   scope: { orgId: string; projectId: string },
 ) {
@@ -125,7 +118,6 @@ export function useAgentBuilderTools(
         subagents,
         gitCredentials,
         advancedEntries,
-        originalSource,
       }),
     [
       interactionHandlers,
@@ -137,7 +129,6 @@ export function useAgentBuilderTools(
       subagents,
       gitCredentials,
       advancedEntries,
-      originalSource,
     ],
   )
   const query = useAgentConfigTools(scope.orgId, scope.projectId, request)

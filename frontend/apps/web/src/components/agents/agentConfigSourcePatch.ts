@@ -1,10 +1,6 @@
 import { CST, Document, isMap, isNode, isScalar, type Node, parseDocument } from 'yaml'
 
-import {
-  type ConfigSourceFormat,
-  configSourceFormat,
-  isJsonSource,
-} from '@/components/agents/agentConfigSourceFormat'
+import { type ConfigSourceFormat, isJsonSource } from '@/components/agents/agentConfigSourceFormat'
 import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 
 export type ConfigPath = (string | number)[]
@@ -20,7 +16,7 @@ export function patchConfigSource(
   source: string,
   original: Document,
   edits: ConfigEdit[],
-  format: ConfigSourceFormat = configSourceFormat(source),
+  format: ConfigSourceFormat,
 ) {
   if (edits.length === 0) return source
   const root = original.contents
@@ -392,14 +388,8 @@ function removeItem(parent: Collection, index: number) {
     const gap = removed.start.filter((token) => token.type !== 'comma')
     if (next && index === 0) {
       const comment = next.start.findIndex((token) => token.type === 'comment')
-      next.start = [
-        ...gap,
-        ...(comment < 0
-          ? []
-          : next.start.slice(
-              gap.length === 0 && next.start[comment - 1]?.type === 'space' ? comment - 1 : comment,
-            )),
-      ]
+      const retained = comment < 0 ? [] : next.start.slice(gap.length === 0 ? 0 : comment)
+      next.start = [...gap, ...retained.filter((token) => token.type !== 'comma')]
     } else if (next) next.start = [...gap, ...next.start]
     else parent.end.unshift(...gap)
     if (parent.items[0])

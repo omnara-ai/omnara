@@ -80,6 +80,8 @@ describe('document ownership', () => {
   it.each([
     'tools: {\n  web_search: {},\n  # Keep this tool comment.\n  web_fetch: {}\n}\n',
     'tools: {web_search: {}, # Keep this tool comment.\n  web_fetch: {}}\n',
+    'tools: {web_search: {},\n# Keep this tool comment.\n  web_fetch: {}}\n',
+    'tools: {web_search: {},\n  # Keep this tool comment.\n  web_fetch: {}}\n',
   ])('preserves the next inline entry and its comment when deleting the first: %s', (tools) => {
     const source = header + tools
     const { session, draft } = draftFor(source)
@@ -88,7 +90,9 @@ describe('document ownership', () => {
       tools: draft.tools.filter((tool) => tool.name !== 'web_search'),
     })
     expect(result.issues).toEqual([])
-    expect(result.yaml).toBe(source.replace(/ *web_search: \{\},\n?/, ''))
+    expect(result.yaml).toBe(
+      source.replace('  web_search: {},\n', '').replace('web_search: {},', ''),
+    )
   })
 
   it('keeps rename identity distinct from a new tool reusing its original name', () => {
@@ -286,6 +290,38 @@ it('keeps explicit empty collections unchanged on a no-op save', () => {
   expect(session.apply(draft)).toBe(source)
 })
 
+it('keeps model controls available beside an opaque model option', () => {
+  const source = `instruction: Help.
+model:
+  provider_config: example
+  name: primary
+  reasoning: {effort: high}
+  context_window_tokens: 200_000
+`
+  const { session, draft } = draftFor(source)
+  expect(draft).toMatchObject({
+    providerConfig: 'example',
+    modelName: 'primary',
+    reasoningEffort: 'high',
+  })
+  expect(draft.advancedEntries?.map((entry) => entry.path)).toEqual([
+    ['model', 'context_window_tokens'],
+  ])
+  const result = session.evaluate({ ...draft, modelName: 'secondary', reasoningEffort: 'low' })
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toBe(source.replace('primary', 'secondary').replace('high', 'low'))
+})
+
+it('keeps the model opaque when a managed field has version-dependent meaning', () => {
+  const source = header.replace('name: primary', 'name: 2026-01-02')
+  const { session, draft } = draftFor(source)
+  expect(draft.advancedEntries?.map((entry) => entry.path)).toEqual([['model']])
+  expect(draft.modelName).toBe('')
+  expect(session.apply({ ...draft, instruction: 'Changed.' })).toBe(
+    source.replace('Help.', 'Changed.'),
+  )
+})
+
 it('reorders managed machine rows without moving or rewriting an opaque row', () => {
   const { session, draft } = draftFor(sources.trimEnd())
   const result = session.evaluate({ ...draft, machineSources: [...draft.machineSources].reverse() })
@@ -475,7 +511,7 @@ it.each([undefined, 2, 4])('keeps JSON layout stable across edits (indent: %s)',
     const transaction = editConfigDocument(
       entry.source,
       parseConfigDocument(entry.source).doc,
-      [['input_schema']],
+      [],
       'json',
     )
     transaction.set(['permission', 'mode'], mode)

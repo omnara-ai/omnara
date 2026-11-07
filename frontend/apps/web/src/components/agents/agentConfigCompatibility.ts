@@ -3,7 +3,7 @@ import { type Document, isAlias, isMap, isNode, isScalar, isSeq, parseDocument }
 import { z } from 'zod'
 
 import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
-import { configYamlOptions, scalarPreservationReason } from '@/components/agents/agentConfigYaml'
+import { scalarPreservationReason } from '@/components/agents/agentConfigYaml'
 
 export interface ConfigDiagnostic {
   path: string[]
@@ -58,7 +58,6 @@ const customTool = z
 
 export function parseConfigDocument(source: string, format: ConfigSourceFormat = 'yaml') {
   const doc = parseDocument(source, { keepSourceTokens: true })
-  doc.schema.compat = configYamlOptions.compat
   const diagnostics: ConfigDiagnostic[] = doc.errors.map((error) => ({
     path: [],
     kind: 'fatal',
