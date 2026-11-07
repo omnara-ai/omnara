@@ -10,6 +10,7 @@ import { mcpWire } from '@/components/agents/agentConfigMcp'
 import { subagentValid, subagentWire } from '@/components/agents/agentConfigSubagents'
 import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 import type { BasicConfig, BasicMcpServer } from '@/components/agents/useAgentBuilderForm'
+import { formatIssue } from '@/lib/agent-config-issues'
 
 type ToolPreviewDraft = Pick<
   BasicConfig,
@@ -142,8 +143,6 @@ export function useAgentBuilderTools(
   const query = useAgentConfigTools(scope.orgId, scope.projectId, request)
   const error = query.error
   const detail =
-    error instanceof ApiError
-      ? error.issues.map((issue) => `${issue.path}: ${issue.message}`).join('; ') || error.message
-      : ''
+    error instanceof ApiError ? error.issues.map(formatIssue).join('; ') || error.message : ''
   return { ...query, errorMessage: `Couldn’t load built-in tools${detail ? ': ' + detail : '.'}` }
 }

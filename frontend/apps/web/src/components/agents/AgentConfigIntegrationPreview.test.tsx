@@ -57,7 +57,7 @@ it('sends integration selection to preview and exposes the resolver issue to the
     })
     await waitForUI(() => {
       expect(container.textContent).toContain(
-        '/tools/int__chat__post_message: Integration not found',
+        'tools.int__chat__post_message: Integration not found',
       )
     })
     expect(api.requests).toHaveLength(1)

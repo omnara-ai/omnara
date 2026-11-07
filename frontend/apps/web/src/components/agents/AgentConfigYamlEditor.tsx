@@ -155,6 +155,7 @@ export function AgentConfigYamlEditor({
       automaticLayout: true,
       ...editorAppearance(monaco, editorElementRef.current),
       minimap: { enabled: false },
+      occurrencesHighlight: 'off',
       padding: { top: 12, bottom: 12 },
       placeholder:
         format === 'yaml'
