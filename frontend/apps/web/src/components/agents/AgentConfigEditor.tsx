@@ -2,6 +2,7 @@ import type { AgentConfigErrorIssue } from '@omnara/sdk'
 import type { ReactNode } from 'react'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
+import { AgentConfigDiagnostics } from '@/components/agents/AgentConfigDiagnostics'
 import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
@@ -26,23 +27,23 @@ export function AgentConfigEditorFields({
   yamlFieldClassName: string
   issues?: readonly AgentConfigErrorIssue[]
 }) {
-  const { builderSession, canManage, dispatchMode, mode, showBuilder, source } = editor
+  const { builderSession, canManage, dispatchMode, mode, showBuilder } = editor
   return (
     <>
-      {(header != null || builderSession != null) && (
+      {(header != null || canManage) && (
         <div
           className={
             header != null ? 'flex items-center justify-between gap-3' : 'flex justify-end'
           }
         >
           {header}
-          {builderSession != null && (
+          {canManage && (
             <PillTabs
               value={mode.mode}
               onValueChange={editor.switchMode}
               tabs={[
                 { value: 'builder', label: 'Builder' },
-                { value: 'yaml', label: 'YAML' },
+                { value: 'yaml', label: editor.editorFormat.toUpperCase() },
               ]}
             />
           )}
@@ -50,13 +51,15 @@ export function AgentConfigEditorFields({
       )}
       {builderSession != null && (
         <div className={showBuilder ? 'flex flex-col gap-5' : 'hidden'}>
-          <AgentConfigModelField
-            orgId={orgId}
-            projectId={projectId}
-            value={editor.form.model}
-            onChange={editor.form.setModel}
-            onUnavailableChange={editor.form.reportModelUnavailable}
-          />
+          {editor.form.isManaged('model') && (
+            <AgentConfigModelField
+              orgId={orgId}
+              projectId={projectId}
+              value={editor.form.model}
+              onChange={editor.form.setModel}
+              onUnavailableChange={editor.form.reportModelUnavailable}
+            />
+          )}
           <AgentConfigBasicForm
             orgId={orgId}
             projectId={projectId}
@@ -70,6 +73,7 @@ export function AgentConfigEditorFields({
         <AgentConfigYamlField
           id={yamlFieldId}
           value={editor.editorYaml}
+          format={editor.editorFormat}
           onChange={(value) => {
             dispatchMode({
               type: 'editor-yaml-changed',
@@ -82,11 +86,7 @@ export function AgentConfigEditorFields({
           issues={issues}
         />
       )}
-      {canManage && builderSession == null && source !== '' && (
-        <p className="text-muted-foreground text-sm">
-          This configuration can’t be shown in the builder, so it’s editable as YAML only.
-        </p>
-      )}
+      {canManage && <AgentConfigDiagnostics issues={editor.compatibility} />}
       <ConfirmDiscardYamlDialog
         open={mode.confirmDiscard}
         onOpenChange={(open) => {

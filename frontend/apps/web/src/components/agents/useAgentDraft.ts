@@ -1,11 +1,6 @@
 import type { ConfiguredModelSummary, MachinePoolSummary, ToolCatalog } from '@omnara/sdk'
-import { useReducer, useState } from 'react'
+import { useState } from 'react'
 
-import {
-  type AgentConfigMode,
-  agentConfigModeReducer,
-  initialAgentConfigModeState,
-} from '@/components/agents/agentConfigModeMachine'
 import {
   type AgentTemplate,
   agentTemplateBasicConfig,
@@ -19,6 +14,7 @@ import {
   emptyBasicConfig,
   useAgentBuilderForm,
 } from '@/components/agents/useAgentBuilderForm'
+import { useAgentConfigMode } from '@/components/agents/useAgentConfigMode'
 import { useAgentUnsavedChangesWarning } from '@/components/agents/useAgentUnsavedChangesWarning'
 
 export function useAgentDraft(
@@ -28,12 +24,10 @@ export function useAgentDraft(
   initialTemplate: AgentTemplate | undefined,
   scope: { orgId: string; projectId: string },
 ) {
-  const [mode, dispatchMode] = useReducer(
-    agentConfigModeReducer,
-    initialAgentConfigModeState('builder'),
-  )
   const [restored] = useState(takeMcpBuilderOAuthRestore)
-  const [session, setSession] = useState(() => createBasicConfigSession(''))
+  const [session, setSession] = useState(() =>
+    createBasicConfigSession(restored?.draft.originalSource ?? ''),
+  )
   const [initial] = useState(() => {
     const draft = initialTemplate
       ? agentTemplateBasicConfig(initialTemplate, catalog, defaultPool, defaultModel)
@@ -42,24 +36,24 @@ export function useAgentDraft(
           tools: defaultAgentTools(catalog),
           machineSources: defaultAgentMachineSources(defaultPool),
         }
-    return { name: initialTemplate?.name ?? '', draft, yaml: session.apply(draft) }
+    return {
+      name: initialTemplate?.name ?? '',
+      draft,
+      yaml: createBasicConfigSession('').apply(draft),
+    }
   })
   const [name, setName] = useState(restored?.agentName ?? initial.name)
   const form = useAgentBuilderForm(session, restored?.draft ?? initial.draft, scope)
-  const dirty = name !== initial.name || (mode.editorYaml ?? form.yaml) !== initial.yaml
+  const controller = useAgentConfigMode({
+    session,
+    setSession,
+    form,
+    source: '',
+    builderAvailable: true,
+    initialMode: 'builder',
+  })
+  const dirty = name !== initial.name || controller.yaml !== initial.yaml || form.dirty
   const suppressUnsavedChangesWarning = useAgentUnsavedChangesWarning(dirty)
-  const switchMode = (nextMode: AgentConfigMode) => {
-    if (nextMode === 'builder' && mode.editorYaml !== null) {
-      const adopted = createBasicConfigSession(mode.editorYaml)
-      if (adopted.initialDraft != null) {
-        setSession(adopted)
-        form.reset(adopted.initialDraft)
-        dispatchMode({ type: 'adopt-yaml-edits' })
-        return
-      }
-    }
-    dispatchMode({ type: 'switch-mode', mode: nextMode })
-  }
 
   function applyTemplate(template: AgentTemplate) {
     const next = agentTemplateBasicConfig(template, catalog, defaultPool, defaultModel)
@@ -67,17 +61,17 @@ export function useAgentDraft(
       next.providerConfig = form.model.providerConfig
       next.modelName = form.model.modelName
     }
-    form.reset(next)
+    setSession(createBasicConfigSession(''))
+    form.reset({ ...next, originalSource: '', advancedEntries: [] })
+    controller.dispatchMode({ type: 'adopt-yaml-edits' })
     setName((prev) => agentTemplateName(prev, template))
   }
 
   return {
     name,
+    ...controller,
     setName,
-    mode,
-    dispatchMode,
     form,
-    switchMode,
     applyTemplate,
     suppressUnsavedChangesWarning,
   }

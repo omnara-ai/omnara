@@ -3,6 +3,8 @@ import {
   zAgentConfigDefinition,
   zAgentConfigDefinitionGitCredentials,
   zAgentConfigDefinitionInteractionHandler,
+  zAgentConfigDefinitionMachineSource,
+  zAgentConfigDefinitionMcpServer,
   zAgentConfigDefinitionMcpTool,
   zAgentConfigDefinitionMemoryStore,
   zAgentConfigDefinitionModel,
@@ -12,9 +14,17 @@ import {
   zAgentConfigDefinitionTool,
   zAgentConfigDefinitionToolPermission,
 } from '@omnara/sdk/zod'
-import { type Document, isAlias, isMap, isScalar, parseDocument, visit } from 'yaml'
+import { isMap } from 'yaml'
 import { z } from 'zod'
 
+import {
+  type AdvancedConfigEntry,
+  type ConfigDiagnostic,
+  parseConfigDocument,
+  validateAdvancedEntry,
+} from '@/components/agents/agentConfigCompatibility'
+import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
+import { configNodeSource } from '@/components/agents/agentConfigSourcePatch'
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import type {
@@ -31,8 +41,6 @@ import {
 } from '@/components/machines/machineOverrides'
 import { machinePoolProviderDefinitions } from '@/components/org/machinePoolProviders'
 import { memoryGbDraft } from '@/lib/machine-memory'
-
-// Strict objects keep configs the builder cannot show in YAML mode; free text accepts unfinished rows.
 
 const permissionParameters = z.record(z.string(), z.json())
 
@@ -168,56 +176,165 @@ const basicDocument = z.looseObject({
   mcp: z.record(z.string(), mcpEntry).nullish(),
   subagents: z.record(z.string(), subagentEntry).nullish(),
   max_subagents: definitionFields.max_subagents,
-  // Out-of-range depths still load so the form can flag them; maxDepthValid enforces the limit.
   max_depth: positiveCount,
 })
 
-export function parseBasicConfigSource(source: string) {
-  const doc = parseSourceDocument(source)
-  return { doc, initialDraft: doc == null ? null : extractBasicConfig(doc) }
-}
-
-function parseSourceDocument(source: string): Document | null {
-  try {
-    const doc = parseDocument(source)
-    if (doc.errors.length > 0 || doc.contents == null || !isMap(doc.contents)) return null
-    return doc
-  } catch {
-    return null
+export function parseBasicConfigSource(source: string, format: ConfigSourceFormat = 'yaml') {
+  const { doc, diagnostics } = parseConfigDocument(source, format)
+  if (!isMap(doc.contents) && !diagnostics.some((issue) => issue.kind === 'fatal')) {
+    diagnostics.push({
+      path: [],
+      kind: 'fatal',
+      error: true,
+      message: 'The configuration must be a YAML or JSON mapping.',
+    })
   }
-}
-
-function extractBasicConfig(document: Document): BasicConfig | null {
-  const sharedYaml = { found: false }
-  visit(document, {
-    Node(key, node) {
-      if (
-        isAlias(node) ||
-        node.anchor ||
-        (key === 'key' &&
-          isScalar(node) &&
-          node.value === '<<' &&
-          (node.type === 'PLAIN' || node.tag === 'tag:yaml.org,2002:merge'))
-      ) {
-        sharedYaml.found = true
-        return visit.BREAK
-      }
-      return undefined
-    },
-  })
-  if (sharedYaml.found) return null
-
-  const parsed = basicDocument.safeParse(document.toJS())
-  if (!parsed.success) return null
-  const doc = parsed.data
+  if (diagnostics.some((issue) => issue.kind === 'fatal'))
+    return { doc, initialDraft: null, diagnostics, advancedEntries: [] }
+  const scalarDiagnostics = diagnostics.filter((issue) => issue.kind === 'opaque')
+  const hasOpaqueScalar = (path: string[]) =>
+    scalarDiagnostics.some((issue) => path.every((part, index) => part === issue.path[index]))
+  const advancedEntries: AdvancedConfigEntry[] = []
+  const rawResult = z.record(z.string(), z.json()).safeParse(doc.toJS())
+  if (!rawResult.success) {
+    diagnostics.push(
+      ...rawResult.error.issues.map((issue): ConfigDiagnostic => ({
+        path: issue.path.map(String),
+        kind: 'fatal',
+        error: true,
+        message: 'This value cannot be represented as JSON configuration: ' + issue.message,
+      })),
+    )
+    return { doc, initialDraft: null, diagnostics, advancedEntries }
+  }
+  const raw = rawResult.data
+  const projection: typeof raw = {}
   const machineSources: BasicMachineSource[] = []
-  for (const entry of doc.machine_sources ?? []) {
-    const source = machineSourceDraft(entry)
-    if (source == null) return null
-    machineSources.push(source)
+  const preserve = (path: string[], kind: AdvancedConfigEntry['kind'] = 'opaque') => {
+    const entry = { path, originalPath: path, kind, source: configNodeSource(source, doc, path) }
+    advancedEntries.push(entry)
+    if (kind === 'custom') diagnostics.push(...validateAdvancedEntry(entry, format))
+    else
+      diagnostics.push({
+        path,
+        kind: 'opaque',
+        message: 'Preserved without changes. Edit this definition in the source editor.',
+      })
   }
-
+  const invalid = (path: string[], result: z.ZodSafeParseResult<unknown>) => {
+    if (result.success) return
+    diagnostics.push(
+      ...result.error.issues
+        .filter((issue) => issue.code !== 'unrecognized_keys')
+        .map((issue): ConfigDiagnostic => ({
+          path: [...path, ...issue.path.map(String)],
+          kind: 'opaque',
+          error: true,
+          message: issue.message,
+        })),
+    )
+  }
+  const authoritativeEntries = new Map<string, z.ZodType>([
+    ['tools', zAgentConfigDefinitionTool],
+    ['mcp', zAgentConfigDefinitionMcpServer],
+    ['subagents', zAgentConfigDefinitionSubagent],
+    ['interaction_handlers', zAgentConfigDefinitionInteractionHandler],
+  ])
+  const namedSchemas = new Map<string, z.ZodType>([
+    ['tools', toolEntry],
+    ['mcp', mcpEntry],
+    ['subagents', subagentEntry],
+    ['interaction_handlers', zAgentConfigDefinitionInteractionHandler],
+  ])
+  for (const [key, value] of Object.entries(raw)) {
+    if (key === 'machine_sources' && Array.isArray(value)) {
+      value.forEach((entry, index) => {
+        const parsed = z.union([poolEntry, machineEntry]).safeParse(entry)
+        const ambiguous = hasOpaqueScalar([key, String(index)])
+        const draft = parsed.success && !ambiguous ? machineSourceDraft(parsed.data) : null
+        if (draft)
+          machineSources.push({ ...draft, id: `machine-source-${index}`, sourceIndex: index })
+        else {
+          preserve([key, String(index)])
+          if (!ambiguous)
+            invalid([key, String(index)], zAgentConfigDefinitionMachineSource.safeParse(entry))
+        }
+      })
+      continue
+    }
+    const namedSchema = namedSchemas.get(key)
+    const entries = z.record(z.string(), z.json()).safeParse(value)
+    if (namedSchema && entries.success) {
+      const managed: typeof raw = {}
+      for (const [name, entry] of Object.entries(entries.data)) {
+        if (key === 'tools' && z.object({ type: z.literal('custom') }).safeParse(entry).success) {
+          preserve([key, name], 'custom')
+        } else if (hasOpaqueScalar([key, name])) preserve([key, name])
+        else if (namedSchema.safeParse(entry).success) managed[name] = entry
+        else {
+          preserve([key, name])
+          const authoritative = authoritativeEntries.get(key)
+          if (authoritative) invalid([key, name], authoritative.safeParse(entry))
+          const projected = namedSchema.safeParse(entry)
+          if (!projected.success)
+            diagnostics.push(
+              ...projected.error.issues
+                .filter((issue) => issue.code === 'custom')
+                .map((issue): ConfigDiagnostic => ({
+                  path: [key, name, ...issue.path.map(String)],
+                  kind: 'opaque',
+                  error: true,
+                  message: issue.message,
+                })),
+            )
+        }
+      }
+      projection[key] = managed
+      continue
+    }
+    if (
+      key === 'model'
+        ? ['provider_config', 'name', 'reasoning'].some((field) => hasOpaqueScalar([key, field]))
+        : hasOpaqueScalar([key])
+    ) {
+      preserve([key])
+      continue
+    }
+    const field = Object.entries(basicDocument.shape).find(([name]) => name === key)?.[1]
+    if (field?.safeParse(value).success) projection[key] = value
+    else {
+      preserve([key])
+      const authoritative = Object.entries(definitionFields).find(([name]) => name === key)?.[1]
+      if (authoritative) invalid([key], authoritative.safeParse(value))
+    }
+  }
+  const parsed = basicDocument.parse(projection)
+  const model = z.record(z.string(), z.unknown()).safeParse(projection.model)
+  if (model.success) {
+    for (const key of Object.keys(model.data)) {
+      if (!['provider_config', 'name', 'reasoning'].includes(key)) {
+        preserve(['model', key])
+      }
+    }
+  }
   return {
+    doc,
+    initialDraft: {
+      ...extractBasicConfig(parsed, machineSources, advancedEntries),
+      originalSource: source,
+    },
+    diagnostics,
+    advancedEntries,
+  }
+}
+
+function extractBasicConfig(
+  doc: z.infer<typeof basicDocument>,
+  machineSources: BasicMachineSource[],
+  advancedEntries: AdvancedConfigEntry[],
+): BasicConfig {
+  return {
+    advancedEntries,
     instruction: normalizeMultiline(doc.instruction ?? ''),
     providerConfig: doc.model?.provider_config ?? '',
     modelName: doc.model?.name ?? '',

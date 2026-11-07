@@ -58,8 +58,8 @@ export function AgentConfigSubagentsField({
   maxSubagents: string
   maxDepth: string
   onSubagentsChange: (subagents: BasicSubagent[]) => void
-  onMaxSubagentsChange: (value: string) => void
-  onMaxDepthChange: (value: string) => void
+  onMaxSubagentsChange?: (value: string) => void
+  onMaxDepthChange?: (value: string) => void
 }) {
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set())
   function setExpanded(id: string, expanded: boolean) {
@@ -139,9 +139,10 @@ export function AgentConfigSubagentsField({
                 id="agent-config-max-subagents"
                 inputMode="numeric"
                 value={maxSubagents}
-                placeholder="Unlimited"
+                disabled={!onMaxSubagentsChange}
+                placeholder={onMaxSubagentsChange ? 'Unlimited' : 'Preserved in source'}
                 onChange={(event) => {
-                  onMaxSubagentsChange(event.target.value.trim())
+                  onMaxSubagentsChange?.(event.target.value.trim())
                 }}
               />
             </Field>
@@ -151,9 +152,10 @@ export function AgentConfigSubagentsField({
                 id="agent-config-max-depth"
                 inputMode="numeric"
                 value={maxDepth}
-                placeholder="1"
+                disabled={!onMaxDepthChange}
+                placeholder={onMaxDepthChange ? '1' : 'Preserved in source'}
                 onChange={(event) => {
-                  onMaxDepthChange(event.target.value.trim())
+                  onMaxDepthChange?.(event.target.value.trim())
                 }}
               />
             </Field>

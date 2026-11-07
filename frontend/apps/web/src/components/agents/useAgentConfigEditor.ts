@@ -1,16 +1,14 @@
-import { useEffect, useReducer, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import {
-  type AgentConfigMode,
-  agentConfigModeReducer,
-  initialAgentConfigModeState,
-  yamlDiverged,
-} from '@/components/agents/agentConfigModeMachine'
+import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
+import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
 import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import {
   createBasicConfigSession,
+  emptyBasicConfig,
   useAgentBuilderForm,
 } from '@/components/agents/useAgentBuilderForm'
+import { useAgentConfigMode } from '@/components/agents/useAgentConfigMode'
 import { useAgentUnsavedChangesWarning } from '@/components/agents/useAgentUnsavedChangesWarning'
 
 export type AgentConfigEditorState = ReturnType<typeof useAgentConfigEditor>
@@ -19,6 +17,7 @@ export function useAgentConfigEditor({
   orgId,
   projectId,
   source,
+  sourceFormat,
   canManage,
   preferredMode,
   onModeChange,
@@ -27,42 +26,38 @@ export function useAgentConfigEditor({
   orgId: string
   projectId: string
   source: string
+  sourceFormat?: ConfigSourceFormat
   canManage: boolean
   preferredMode: AgentConfigMode
   onModeChange: (mode: AgentConfigMode) => void
   onDirtyChange: (dirty: boolean) => void
 }) {
-  const [session, setSession] = useState(() => createBasicConfigSession(source))
-  const builderSession = canManage && session.initialDraft != null ? session : null
   const [restored] = useState(takeMcpBuilderOAuthRestore)
-  const form = useAgentBuilderForm(session, restored?.draft, { orgId, projectId })
-  const [mode, dispatchMode] = useReducer(
-    agentConfigModeReducer,
-    initialAgentConfigModeState(builderSession ? preferredMode : 'yaml'),
+  const [session, setSession] = useState(() =>
+    createBasicConfigSession(restored?.draft.originalSource ?? source, sourceFormat),
   )
-
-  const switchMode = (nextMode: AgentConfigMode) => {
-    if (nextMode === 'builder' && mode.editorYaml !== null) {
-      const adopted = createBasicConfigSession(mode.editorYaml)
-      if (adopted.initialDraft != null) {
-        setSession(adopted)
-        form.reset(adopted.initialDraft)
-        dispatchMode({ type: 'adopt-yaml-edits' })
-        return
-      }
-    }
-    dispatchMode({ type: 'switch-mode', mode: nextMode })
-  }
-
-  const showBuilder = mode.mode === 'builder'
-  const builderYaml = builderSession ? form.yaml : source
-  const editorYaml = mode.editorYaml ?? builderYaml
-  const yaml = showBuilder ? builderYaml : editorYaml
-  const dirty = yaml !== source
+  const builderSession = canManage && session.initialDraft != null ? session : null
+  const restoredSource = restored?.draft.savedSource ?? restored?.draft.originalSource
+  const restoreConflict = restoredSource !== undefined && restoredSource !== source
+  const form = useAgentBuilderForm(
+    session,
+    {
+      ...(restored?.draft ?? session.initialDraft ?? emptyBasicConfig),
+      savedSource: restored?.draft.savedSource ?? source,
+    },
+    { orgId, projectId },
+  )
+  const controller = useAgentConfigMode({
+    session,
+    setSession,
+    form,
+    source,
+    builderAvailable: builderSession != null,
+    initialMode: builderSession ? preferredMode : 'yaml',
+  })
+  const { mode, yaml } = controller
+  const dirty = yaml !== source || form.dirty
   const suppressUnsavedChangesWarning = useAgentUnsavedChangesWarning(dirty)
-  const saveBlocked =
-    yaml.trim() === '' ||
-    (builderSession != null && form.blocked && (showBuilder || !yamlDiverged(mode)))
 
   useEffect(() => {
     onModeChange(mode.mode)
@@ -74,18 +69,24 @@ export function useAgentConfigEditor({
 
   return {
     source,
+    ...controller,
+    saveBlocked: controller.saveBlocked || restoreConflict,
+    compatibility: restoreConflict
+      ? [
+          ...controller.compatibility,
+          {
+            path: [],
+            kind: 'fatal' as const,
+            error: true,
+            message:
+              'The configuration changed during OAuth authorization. This restored draft cannot be saved. Review your pending changes, reload the latest configuration, and reapply only your intended edits.',
+          },
+        ]
+      : controller.compatibility,
     canManage,
     builderSession,
     form,
-    mode,
-    dispatchMode,
-    switchMode,
-    builderYaml,
-    editorYaml,
-    yaml,
     dirty,
     suppressUnsavedChangesWarning,
-    saveBlocked,
-    showBuilder,
   }
 }

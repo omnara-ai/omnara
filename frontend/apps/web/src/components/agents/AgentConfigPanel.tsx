@@ -49,6 +49,7 @@ export function AgentConfigPanel({
           agentId={agent.id}
           configId={snapshot.id}
           source={source}
+          sourceFormat={snapshot.source_format}
           compiledDefinition={snapshot.compiled_definition}
           canManage={canManage && agent.state !== 'archived'}
           preferredMode={preferredMode}
@@ -116,6 +117,7 @@ function AgentConfigPanelEditor({
   agentId,
   configId,
   source,
+  sourceFormat,
   compiledDefinition,
   canManage,
   preferredMode,
@@ -129,6 +131,7 @@ function AgentConfigPanelEditor({
   agentId: string
   configId: string
   source: string
+  sourceFormat?: AgentConfig['source_format']
   compiledDefinition: AgentConfig['compiled_definition']
   canManage: boolean
   preferredMode: AgentConfigMode
@@ -142,6 +145,7 @@ function AgentConfigPanelEditor({
     orgId,
     projectId,
     source,
+    sourceFormat,
     canManage,
     preferredMode,
     onModeChange,
@@ -151,11 +155,12 @@ function AgentConfigPanelEditor({
 
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (editor.saveBlocked) return
     setError(noConfigError)
     try {
       await updateConfig.mutateAsync({
         source: editor.yaml,
-        source_format: 'yaml',
+        source_format: editor.sourceFormat,
         expected_current_config_id: configId,
       })
       onClose()

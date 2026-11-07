@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
+import { parse } from 'yaml'
+import { z } from 'zod'
 
 import { createBasicConfigSession, emptyBasicConfig } from '@/components/agents/useAgentBuilderForm'
-import { agentBuilderToolsDefinition } from '@/components/agents/useAgentBuilderTools'
+import {
+  agentBuilderToolsDefinition,
+  agentBuilderToolsRequest,
+} from '@/components/agents/useAgentBuilderTools'
+
+function previewSource(request: ReturnType<typeof agentBuilderToolsRequest>) {
+  const text = z.string().safeParse(request.source)
+  return z.json().parse(text.success ? parse(text.data) : request.source)
+}
 
 describe('agentBuilderToolsDefinition', () => {
   it('forwards tool overrides and MCP loading settings without auth', () => {
@@ -90,4 +100,41 @@ describe('agentBuilderToolsDefinition', () => {
     expect(restored?.reasoningEffort).toBe('medium')
     expect(restored?.tools).toEqual(changed.tools)
   })
+})
+
+it('includes preserved custom tools and opaque sources in tool resolution', () => {
+  const session = createBasicConfigSession(`
+instruction: Help.
+model: {provider_config: openai, name: primary}
+tools:
+  custom_example:
+    type: custom
+    description: Example
+    deferred: true
+    input_schema: {type: object}
+  web_search: {permission: {mode: always_ask}, extension: true}
+machine_sources:
+  - machine_pool_name: shared-pool
+    extension: {value: retained}
+mcp:
+  docs: {url: 'https://example.com', extension: true, auth: {type: bearer, secret: example}}
+`)
+  if (!session.initialDraft) throw new Error('Missing draft')
+  const request = agentBuilderToolsRequest(session.initialDraft)
+  const preview = previewSource(request)
+  expect(preview).toHaveProperty('tools.custom_example.deferred', true)
+  expect(preview).toHaveProperty('tools.custom_example.input_schema.type', 'object')
+  expect(preview).toHaveProperty('tools.web_search.extension', true)
+  expect(preview).toHaveProperty('machine_sources.0.machine_pool_name', 'shared-pool')
+  expect(preview).toHaveProperty('machine_sources.0.extension.value', 'retained')
+  expect(preview).toHaveProperty('mcp.docs.extension', true)
+  expect(preview).not.toHaveProperty('mcp.docs.auth')
+  const removed = agentBuilderToolsRequest({
+    ...session.initialDraft,
+    advancedEntries: session.initialDraft.advancedEntries?.map((entry) =>
+      entry.kind === 'custom' ? { ...entry, removed: true } : entry,
+    ),
+  })
+  expect(previewSource(removed)).not.toHaveProperty('tools.custom_example')
+  expect(previewSource(removed)).toHaveProperty('tools.web_search.extension', true)
 })
