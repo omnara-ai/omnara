@@ -1390,6 +1390,10 @@ SELECT EXISTS (
   UNION ALL
   SELECT 1 FROM integrations install
   WHERE install.org_id = $1 AND install.credential_secret_id = $2::uuid
+  UNION ALL
+  SELECT 1 FROM event_webhooks webhook
+  WHERE webhook.org_id = $1 AND webhook.signing_secret_id = $2::uuid
+    AND webhook.deleted_at IS NULL
 ) AS is_referenced
 `
 
@@ -1401,7 +1405,7 @@ type SecretIsReferencedParams struct {
 // @sqlc-vet-disable model-provider-configs-deleted-at integrations-deleted-at machine-pools-deleted-at
 // Soft-deleted secrets no longer trip foreign keys, so referencing rows are
 // checked explicitly. Deleted configs, pools, and installs clear their
-// credential references; any row still holding one blocks deletion.
+// credential references. Deleted webhooks retain them but stop using secrets.
 func (q *Queries) SecretIsReferenced(ctx context.Context, arg SecretIsReferencedParams) (bool, error) {
 	row := q.db.QueryRow(ctx, secretIsReferenced, arg.OrgID, arg.SecretID)
 	var is_referenced bool
