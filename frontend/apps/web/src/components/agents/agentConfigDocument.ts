@@ -16,10 +16,10 @@ import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 
 export type ConfigValue =
   string | number | boolean | null | undefined | ConfigValue[] | ConfigObject
-export interface ConfigObject {
+interface ConfigObject {
   [key: string]: ConfigValue
 }
-export type ConfigNodeInput = ConfigValue | Node | ConfigNodeInput[]
+type ConfigNodeInput = ConfigValue | Node | ConfigNodeInput[]
 
 export class ConfigEditError extends Error {
   constructor(
@@ -42,6 +42,7 @@ export function editConfigDocument(
     return document
   }
   const edits: ConfigEdit[] = []
+  const emptiedParents: ConfigPath[] = []
   const protectedPaths: ConfigPath[] = preservedPaths.map((path) => [...path])
 
   function protectedPathAt(path: ConfigPath) {
@@ -147,8 +148,7 @@ export function editConfigDocument(
       }
     }
     if (path.length === 2 && isMap(parent) && parent.items.length === 0) {
-      document.deleteIn(parentPath)
-      edits.push({ type: 'delete', path: parentPath })
+      emptiedParents.push(parentPath)
     }
   }
 
@@ -219,7 +219,7 @@ export function editConfigDocument(
     if (needsConversion)
       throw new ConfigEditError(
         path,
-        'This inline collection requires a flow definition using { ... }. To use block YAML, cancel this edit and change the collection in Source.',
+        'This inline collection requires a flow definition using { ... }. To use block YAML, cancel this edit and change the collection in the source editor.',
       )
     if (parsed.errors.length > 0 || !parsed.contents)
       throw new ConfigEditError(path, 'Invalid advanced definition.')
@@ -237,6 +237,10 @@ export function editConfigDocument(
 
   function serialize() {
     if (edits.length === 0) return source
+    for (const path of emptiedParents) {
+      const parent = document.getIn(path, true)
+      if (isMap(parent) && parent.items.length === 0) deleteAt(path)
+    }
     let result: string
     try {
       const initial =
