@@ -176,7 +176,13 @@ func main() {
 		httpRecorder,
 		metrics.WithHTTPClientPathLabel("/search"),
 	)
-	searchProvider := webaccess.ExaProvider{APIKey: cfg.ExaAPIKey, HTTPClient: searchHTTPClient}
+	var searchProvider webaccess.SearchProvider = webaccess.ExaProvider{
+		APIKey:     cfg.ExaAPIKey,
+		HTTPClient: searchHTTPClient,
+	}
+	if cfg.OutcrawlAPIKey != "" {
+		searchProvider = webaccess.OutcrawlProvider{APIKey: cfg.OutcrawlAPIKey, HTTPClient: searchHTTPClient}
+	}
 	webFetcher := webaccess.NewFetcher(webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev})
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder)
 	backgroundRunner, err := tools.NewBackgroundExecutionRunner(

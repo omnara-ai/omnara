@@ -378,8 +378,9 @@ The credential service contract has these invariants:
 
 ## Web tools
 
-Web tools work out of the box: `web_fetch` has no vendor dependency, and `web_search` defaults to Exa's keyless endpoint.
+Web tools work out of the box: `web_fetch` has no vendor dependency, and `web_search` defaults to Exa's keyless endpoint. Set `OUTCRAWL_API_KEY` to use [Outcrawl](https://outcrawl.ai) for `web_search` instead; it takes precedence over `EXA_API_KEY`. Outcrawl search has no recency window, so a `web_search` call with `recency` returns an error that asks the model to retry without it. Create a key in the [Outcrawl console](https://outcrawl.ai/console); the free plan includes 1,000 credits a month.
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
 | `EXA_API_KEY` | Upgrades `web_search` to the direct Exa API; recommended for hosted or multi-tenant deployments | — | No |
+| `OUTCRAWL_API_KEY` | Switches `web_search` to the Outcrawl search API | None | No |

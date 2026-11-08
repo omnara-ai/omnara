@@ -79,6 +79,7 @@ type Config struct {
 	DaemonSocketFallbackDrainJitter   time.Duration
 	MaintenanceInterval               time.Duration
 	ExaAPIKey                         string
+	OutcrawlAPIKey                    string
 	AuthClientRateLimits              authn.ClientRateLimits
 	AuthSignupEnabled                 bool
 	AuthPasswordResetEnabled          bool
@@ -306,6 +307,7 @@ func Load() (Config, error) {
 		DaemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
 		MaintenanceInterval:               time.Second,
 		ExaAPIKey:                         getenv("EXA_API_KEY", ""),
+		OutcrawlAPIKey:                    getenv("OUTCRAWL_API_KEY", ""),
 		AuthClientRateLimits:              authClientRateLimits,
 		AuthSignupEnabled:                 authSignupEnabled,
 		AuthPasswordResetEnabled:          authPasswordResetEnabled,

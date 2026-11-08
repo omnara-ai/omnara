@@ -68,6 +68,36 @@ func assertLiveExaSearchResponse(t *testing.T, response SearchResponse) {
 	t.Fatalf("live search results had no usable title, snippet, or URL: %+v", response.Results)
 }
 
+func TestOutcrawlProviderLiveSearch(t *testing.T) {
+	apiKey := strings.TrimSpace(os.Getenv("OUTCRAWL_API_KEY"))
+	if apiKey == "" {
+		t.Skip("OUTCRAWL_API_KEY is not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	response, err := (OutcrawlProvider{APIKey: apiKey}).Search(ctx, SearchRequest{
+		Query:      "Go programming language release notes",
+		NumResults: 3,
+		Domains:    []string{"go.dev"},
+	})
+	if err != nil {
+		t.Fatalf("live outcrawl search: %v", err)
+	}
+	if response.Provider != "outcrawl" {
+		t.Fatalf("provider = %q, want outcrawl", response.Provider)
+	}
+	if len(response.Results) == 0 {
+		t.Fatal("expected at least one live search result")
+	}
+	for _, result := range response.Results {
+		if strings.TrimSpace(result.URL) == "" || strings.TrimSpace(result.Title) == "" {
+			t.Fatalf("live search result missing url or title: %+v", result)
+		}
+	}
+}
+
 func TestFetcherLiveFetchesOmnaraDocs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
