@@ -115,6 +115,12 @@ for (const destination of [devicePath, oauthPath]) {
         url.pathname === '/onboarding' &&
         url.searchParams.get('return_to') === returnURL.pathname + returnURL.search,
     )
+    await expect
+      .poll(() => page.evaluate(() => window.omnaraBrowserContext))
+      .toEqual({
+        userId: fakeId('usr'),
+        organizationIds: [],
+      })
     await page.getByLabel('Organization name').fill('Browser organization')
     await page.getByRole('button', { name: 'Create organization', exact: true }).click()
     await expect(page).toHaveURL(returnURL.href)
@@ -123,6 +129,12 @@ for (const destination of [devicePath, oauthPath]) {
         name: destination === devicePath ? 'Approve device login' : 'Authorize access to Omnara',
       }),
     ).toBeVisible()
+    await expect
+      .poll(() => page.evaluate(() => window.omnaraBrowserContext))
+      .toEqual({
+        userId: fakeId('usr'),
+        organizationIds: [fakeId('org')],
+      })
     await page.getByRole('button', { name: 'Approve', exact: true }).click()
 
     if (destination === devicePath) {

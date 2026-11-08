@@ -7,6 +7,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
+import { installBrowserContext } from '@/lib/browser-context'
 import { installFileDropGuard } from '@/lib/file-drop-guard'
 import { queryClient } from '@/lib/query'
 import { installTranslationGuard } from '@/lib/translation-guard'
@@ -15,6 +16,7 @@ import { omnaraClient } from '@/transport'
 
 installFileDropGuard(window)
 installTranslationGuard(window)
+installBrowserContext(window, queryClient, omnaraClient)
 
 const rootElement = document.getElementById('root')
 if (!rootElement) {
