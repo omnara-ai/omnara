@@ -311,13 +311,7 @@ describe('createCustomToolWorker', () => {
           : accepted(body),
       )
       client.interceptors.request.use(async (request) => {
-        if (
-          request.url.endsWith(
-            kind === 'list'
-              ? '/tool-calls?state=ready&type=custom&names=lookup_customer&limit=10'
-              : '/result',
-          )
-        ) {
+        if (new URL(request.url).pathname.endsWith(kind === 'list' ? '/tool-calls' : '/result')) {
           await new Promise<void>((resolve) => {
             authenticate = resolve
           })

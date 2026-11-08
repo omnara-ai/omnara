@@ -193,27 +193,3 @@ it('allows a request to disable the client deadline', async () => {
   response.resolve(Response.json({ ok: true }))
   expect(await done).toMatchObject({ data: { ok: true } })
 })
-
-it('never retries streaming responses and stops the deadline when headers arrive', async () => {
-  const signal = new AbortController()
-  let requestSignal: AbortSignal | undefined
-  const fetch = vi.fn<typeof globalThis.fetch>((input) => {
-    requestSignal = new Request(input).signal
-    return Promise.resolve(
-      new Response(new ReadableStream(), { headers: { 'Content-Type': 'text/event-stream' } }),
-    )
-  })
-  const client = createOmnaraClient({ baseUrl, fetch, timeoutMs: 10 })
-  const response = await client.get({ url: '/stream', parseAs: 'stream', signal: signal.signal })
-  expect(response.data).toBeInstanceOf(ReadableStream)
-  await vi.advanceTimersByTimeAsync(100)
-  expect(requestSignal?.aborted).toBe(false)
-  signal.abort()
-  expect(requestSignal?.aborted).toBe(true)
-  fetch.mockResolvedValue(Response.json({ error: 'unavailable' }, { status: 503 }))
-  await expect(client.get({ url: '/stream', parseAs: 'stream' })).rejects.toMatchObject({
-    status: 503,
-  })
-  expect(fetch).toHaveBeenCalledTimes(2)
-  expect(vi.getTimerCount()).toBe(0)
-})

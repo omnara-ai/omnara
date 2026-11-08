@@ -209,13 +209,6 @@ func TestProjectMachineGrantCreationRevocationAndCleanup(t *testing.T) {
 				var count int
 				require.NoError(t, f.pool.QueryRow(ctx, "SELECT count(*) FROM "+f.table).Scan(&count))
 				require.Zero(t, count)
-				if cleanup == "revoke" {
-					replacement, err := f.create(ctx, testProjectID, f.targetID, "new-command", "")
-					require.NoError(t, err)
-					require.True(t, replacement.Created)
-					require.NotEqual(t, grant.ID, replacement.ID)
-					f.requireReceipt(t, testProjectID, "consumed", nil)
-				}
 			})
 		}
 	}

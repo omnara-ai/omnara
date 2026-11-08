@@ -43,6 +43,25 @@ function streamFixture() {
   return { client, source, listeners, cancel, controller, requestSignal: () => requestSignal }
 }
 
+it('does not retry failed stream connections or leave a deadline timer behind', async () => {
+  vi.useFakeTimers()
+  vi.spyOn(Math, 'random').mockReturnValue(0.5)
+  const fetch = vi
+    .fn<typeof globalThis.fetch>()
+    .mockImplementation(() =>
+      Promise.resolve(Response.json({ error: 'unavailable' }, { status: 503 })),
+    )
+  const client = createOmnaraClient({ baseUrl, fetch, timeoutMs: 60_000 })
+  const done = expect(client.get({ url: '/stream', parseAs: 'stream' })).rejects.toMatchObject({
+    status: 503,
+  })
+  // Allow both retry backoffs to elapse without letting the deadline suppress a retry.
+  await vi.advanceTimersByTimeAsync(3_000)
+  await done
+  expect(fetch).toHaveBeenCalledOnce()
+  expect(vi.getTimerCount()).toBe(0)
+})
+
 it('keeps the caller linked after headers, clears the deadline, and disposes at EOF', async () => {
   vi.useFakeTimers()
   const { client, source, listeners, controller, requestSignal } = streamFixture()

@@ -627,8 +627,19 @@ describe('createCustomToolWorker', () => {
 
     await worker.run()
 
-    const list = `GET ${projectPath}/tool-calls?state=ready&type=custom&names=lookup_customer&agent_profile_id=${profileID}`
-    expect(requests).toEqual([`${list}&limit=10`, `POST ${callPath}/result`])
+    expect(requests.map((request) => request.split('?')[0])).toEqual([
+      `GET ${projectPath}/tool-calls`,
+      `POST ${callPath}/result`,
+    ])
+    const params = new URLSearchParams(requests[0]?.split('?')[1])
+    expect(params.size).toBe(5)
+    expect(Object.fromEntries(params)).toEqual({
+      state: 'ready',
+      type: 'custom',
+      names: 'lookup_customer',
+      agent_profile_id: profileID,
+      limit: '10',
+    })
     expect(submitted).toEqual([found])
   })
   it('returns an exact checkpoint after four rows and resumes with only rows five and six', async () => {

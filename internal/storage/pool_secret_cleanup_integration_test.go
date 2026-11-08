@@ -20,25 +20,9 @@ func TestConcurrentPoolTeardownDestroysSharedDeletedOrgSecret(t *testing.T) {
 	f := newSecretConsumerFixture(t, "secret")
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	machines := []uuid.UUID{uuid.New(), uuid.New()}
-	for _, machineID := range machines {
-		poolID := uuid.New()
-		_, err := f.store.pool.Exec(ctx, `INSERT INTO machine_pools(
-  id, org_id, name, management_kind, provider, default_machine_memory_mb,
-  max_total_machines, max_total_memory_mb, max_machine_memory_mb,
-  provider_auth_secret_id, deleted_at, created_at, updated_at)
-VALUES ($1, $2, $1::uuid::text, 'tenant', 'test', 1024, 1, 1024, 1024, $3, statement_timestamp(),
-statement_timestamp(), statement_timestamp())`,
-			poolID, testOrgID, f.secret.ID)
-		require.NoError(t, err)
-		_, err = f.store.pool.Exec(ctx, `INSERT INTO machines(
-  id, org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
-  lifecycle_changed_at, memory_mb, provider_options, next_reconcile_after, delete_attempts, delete_reason_code,
-  created_at, updated_at)
-VALUES ($1, $2, $3, 'pool', 'Teardown Machine', 'test', 'deleting', statement_timestamp(),
-  1024, '{}'::jsonb, statement_timestamp(), 1, 'test_cleanup', statement_timestamp(), statement_timestamp())`,
-			machineID, testOrgID, poolID)
-		require.NoError(t, err)
+	machines := []uuid.UUID{
+		seedDeletedPoolWithMachine(t, ctx, f.store.pool, f.secret.ID),
+		seedDeletedPoolWithMachine(t, ctx, f.store.pool, f.secret.ID),
 	}
 	_, err := f.store.pool.Exec(ctx, "UPDATE orgs SET deleted_at = statement_timestamp() WHERE id = $1", testOrgID)
 	require.NoError(t, err)
@@ -124,22 +108,7 @@ func TestPoolTeardownCompletionSerializesWithOrganizationDeletion(t *testing.T) 
 			f := newSecretConsumerFixture(t, "secret")
 			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 			defer cancel()
-			poolID, machineID := uuid.New(), uuid.New()
-			_, err := f.store.pool.Exec(ctx, `INSERT INTO machine_pools(
-  id, org_id, name, management_kind, provider, default_machine_memory_mb,
-  max_total_machines, max_total_memory_mb, max_machine_memory_mb,
-  provider_auth_secret_id, deleted_at, created_at, updated_at)
-VALUES ($1, $2, $1::uuid::text, 'tenant', 'test', 1024, 1, 1024, 1024, $3, statement_timestamp(),
-statement_timestamp(), statement_timestamp())`, poolID, testOrgID, f.secret.ID)
-			require.NoError(t, err)
-			_, err = f.store.pool.Exec(ctx, `INSERT INTO machines(
-  id, org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
-  lifecycle_changed_at, memory_mb, provider_options, next_reconcile_after, delete_attempts, delete_reason_code,
-  created_at, updated_at)
-VALUES ($1, $2, $3, 'pool', 'Teardown Machine', 'test', 'deleting', statement_timestamp(),
-  1024, '{}'::jsonb, statement_timestamp(), 1, 'test_cleanup', statement_timestamp(), statement_timestamp())`,
-				machineID, testOrgID, poolID)
-			require.NoError(t, err)
+			machineID := seedDeletedPoolWithMachine(t, ctx, f.store.pool, f.secret.ID)
 
 			// Pause after the first reference check while its writes are still
 			// uncommitted. The pool was already deleted, so organization deletion
@@ -204,4 +173,25 @@ VALUES ($1, $2, $3, 'pool', 'Teardown Machine', 'test', 'deleting', statement_ti
 			require.Zero(t, versions, "organization deletion and final completion must not strand ciphertext")
 		})
 	}
+}
+
+func seedDeletedPoolWithMachine(t *testing.T, ctx context.Context, pool *pgxpool.Pool, secretID uuid.UUID) uuid.UUID {
+	t.Helper()
+	poolID, machineID := uuid.New(), uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO machine_pools(
+  id, org_id, name, management_kind, provider, default_machine_memory_mb,
+  max_total_machines, max_total_memory_mb, max_machine_memory_mb,
+  provider_auth_secret_id, deleted_at, created_at, updated_at)
+VALUES ($1, $2, $1::uuid::text, 'tenant', 'test', 1024, 1, 1024, 1024, $3, statement_timestamp(),
+statement_timestamp(), statement_timestamp())`, poolID, testOrgID, secretID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO machines(
+  id, org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
+  lifecycle_changed_at, memory_mb, provider_options, next_reconcile_after, delete_attempts, delete_reason_code,
+  created_at, updated_at)
+VALUES ($1, $2, $3, 'pool', 'Teardown Machine', 'test', 'deleting', statement_timestamp(),
+  1024, '{}'::jsonb, statement_timestamp(), 1, 'test_cleanup', statement_timestamp(), statement_timestamp())`,
+		machineID, testOrgID, poolID)
+	require.NoError(t, err)
+	return machineID
 }
