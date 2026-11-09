@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
@@ -72,7 +73,7 @@ func newProgramToolFixture(t *testing.T, ctx context.Context, label string, with
 	scope, found, err := execution.GetDaemonProgramToolScope(ctx, toolsTestOrgID, fixture.Machine.MachineID, process.ID)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, parentID, scope.ParentToolCallID)
+	require.Equal(t, process.ID, scope.ProcessID)
 	return programToolFixture{integrationToolFixture: fixture, ProcessID: process.ID, ParentID: parentID,
 		Authority: authority}
 }
@@ -86,7 +87,7 @@ func (f programToolFixture) create(
 		toolType = toolcatalog.ToolTypeMCP
 	}
 	record, err := f.Store.Execution().CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{
-		ProjectID: toolsTestProjectID, AgentID: f.Agent.ID, ProcessID: f.ProcessID, Key: key, Name: name,
+		ProjectID: toolsTestProjectID, AgentID: f.Agent.ID, ProcessID: f.ProcessID, Key: programKey(key), Name: name,
 		Type: toolType, Input: json.RawMessage(input)})
 	require.NoError(t, err)
 	return record
@@ -135,7 +136,10 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	}
 	eventsBefore := events()
 
-	specs, err := ProgramToolSpecs(ctx, fixture.Store, toolsTestProjectID, fixture.Agent.ID, fixture.AgentConfig.ID)
+	specs, contract, err := AgentConfigToolSpecs(
+		ctx, fixture.Store, toolsTestProjectID, fixture.Agent.ID, fixture.AgentConfig.ID)
+	require.NoError(t, err)
+	specs, err = modelcontext.ProgramCallableTools(contract, specs)
 	require.NoError(t, err)
 	var names []string
 	for _, spec := range specs {
@@ -158,11 +162,9 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	_, err = ProgramToolSearch(specs, json.RawMessage(`{"pattern":"("}`))
 	require.Error(t, err)
 
-	// always_allow runs to completion through both phases.
+	// always_allow runs to completion under its authorization claim.
 	list := fixture.create(t, ctx, "list", toolcatalog.ToolNameStorageList, `{"pattern":"/memory"}`)
 	fixture.run(t, ctx, executor, fixture.claim(t, ctx, list.ID, executionstore.ProgramToolCallPhaseAuthorize))
-	require.Equal(t, executionstore.ToolCallStateReady, fixture.get(t, ctx, list.ID).State)
-	fixture.run(t, ctx, executor, fixture.claim(t, ctx, list.ID, executionstore.ProgramToolCallPhaseExecute))
 	listed := fixture.get(t, ctx, list.ID)
 	require.Equal(t, executionstore.ToolCallStateCompleted, listed.State)
 	require.Equal(t, executionstore.ToolResultOutcomeSucceeded, listed.Outcome)
@@ -212,6 +214,16 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 		require.Contains(t, string(rejected.ResultContentParts), "not enabled", name)
 	}
 
+	// An internal failure fails the call without showing the command its cause.
+	broken := fixture.create(t, ctx, "internal-error", toolcatalog.ToolNameStorageList, `{}`)
+	brokenClaim := fixture.claim(t, ctx, broken.ID, executionstore.ProgramToolCallPhaseAuthorize)
+	brokenClaim.ModelCallContextID = uuid.New()
+	require.ErrorContains(t, executor.RunProgramToolCall(ctx, brokenClaim, time.Minute), "model call context")
+	failed := fixture.get(t, ctx, broken.ID)
+	require.Equal(t, executionstore.ToolResultOutcomeFailed, failed.Outcome)
+	require.Contains(t, string(failed.ResultContentParts), programToolCallInternalError)
+	require.NotContains(t, string(failed.ResultContentParts), "model call context")
+
 	require.Equal(t, eventsBefore, events(), "program tool calls must not write agent events")
 	parent, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, fixture.ParentID)
 	require.NoError(t, err)
@@ -237,8 +249,7 @@ func TestProgramMCPToolCallRunsAsyncUnderRenewedClaim(t *testing.T) {
 	executor := Executor{Store: fixture.Store, MCP: client}
 	name := toolcatalog.MCPRuntimeToolName("docs", "greet")
 	call := fixture.create(t, ctx, "greet", name, `{"name":"Ada"}`)
-	fixture.run(t, ctx, executor, fixture.claim(t, ctx, call.ID, executionstore.ProgramToolCallPhaseAuthorize))
-	claim := fixture.claim(t, ctx, call.ID, executionstore.ProgramToolCallPhaseExecute)
+	claim := fixture.claim(t, ctx, call.ID, executionstore.ProgramToolCallPhaseAuthorize)
 	scope := NewAsyncExecutionScope(NewAsyncExecutionLimiter(1))
 	require.NoError(t, executor.RunProgramToolCall(WithAsyncExecutionScope(ctx, scope), claim, time.Minute))
 	select {
@@ -261,8 +272,7 @@ func TestProgramMCPToolCallRunsAsyncUnderRenewedClaim(t *testing.T) {
 
 	// When the process exits, the claim is lost and the reaper cancels the call.
 	blocked := fixture.create(t, ctx, "blocked", name, `{"name":"Grace"}`)
-	fixture.run(t, ctx, executor, fixture.claim(t, ctx, blocked.ID, executionstore.ProgramToolCallPhaseAuthorize))
-	claim = fixture.claim(t, ctx, blocked.ID, executionstore.ProgramToolCallPhaseExecute)
+	claim = fixture.claim(t, ctx, blocked.ID, executionstore.ProgramToolCallPhaseAuthorize)
 	release = make(chan struct{})
 	scope = NewAsyncExecutionScope(nil)
 	require.NoError(t, executor.RunProgramToolCall(WithAsyncExecutionScope(ctx, scope), claim, time.Minute))
@@ -291,3 +301,6 @@ func TestProgramMCPToolCallRunsAsyncUnderRenewedClaim(t *testing.T) {
 		`SELECT outcome FROM tool_call_results WHERE tool_call_id = $1`, blocked.ID).Scan(&outcome))
 	require.Equal(t, string(executionstore.ToolResultOutcomeCanceled), outcome)
 }
+
+// programKey is a stable idempotency key for a test label.
+func programKey(label string) uuid.UUID { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)) }

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/programoutput"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -135,7 +136,7 @@ func runGitHubTool(
 			if found {
 				review = &pending
 			}
-			result = githubPendingReviewResult{Review: review}
+			result = programoutput.GitHubPendingReview{Review: review}
 		case "review_threads":
 			result, err = client.ListReviewThreads(ctx, providerScope, github.ReviewThreadsOptions{
 				Cursor: input.Cursor, Limit: input.Limit,

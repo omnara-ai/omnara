@@ -135,6 +135,43 @@ func TestAgentToolCallUpdateBusPublishSubscribeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestProgramToolWakeupFollowsClaimableProgramCalls(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bus, err := NewRedisBus(integrationredis.OpenClient(t), nil)
+	if err != nil {
+		t.Fatalf("create redis bus: %v", err)
+	}
+	wakeups := make(chan struct{}, 8)
+	sub, err := bus.SubscribeProgramToolWakeups(ctx, func(context.Context) { wakeups <- struct{}{} })
+	if err != nil {
+		t.Fatalf("subscribe program tool wakeups: %v", err)
+	}
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+
+	// Only the last update is a program call a worker can claim.
+	for _, update := range []ToolCallUpdatedCommitted{
+		{AgentID: uuid.New(), ToolCallID: uuid.New(), State: "ready"},
+		{AgentID: uuid.New(), ToolCallID: uuid.New(), ParentToolCallID: uuid.New(), State: "completed"},
+		{AgentID: uuid.New(), ToolCallID: uuid.New(), ParentToolCallID: uuid.New(), State: "awaiting_authorization"},
+	} {
+		if err := bus.PublishAgentToolCallUpdate(ctx, update); err != nil {
+			t.Fatalf("publish tool call update: %v", err)
+		}
+	}
+	select {
+	case <-wakeups:
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for program tool wakeup: %v", ctx.Err())
+	}
+	select {
+	case <-wakeups:
+		t.Fatal("a tool call update no worker can claim woke workers")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 func TestAgentEventWakeupBusMultiplexesSameAgentSubscriptions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

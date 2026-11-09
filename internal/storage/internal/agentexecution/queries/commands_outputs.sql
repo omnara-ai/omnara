@@ -16,12 +16,12 @@ SELECT sqlc.arg(id),sqlc.arg(project_id),sqlc.arg(agent_id),o.id,sqlc.arg(provid
 
 -- name: ReadExecutionProposals :many
 SELECT id,provider_call_id,name,input,type FROM tool_calls
-WHERE agent_id=sqlc.arg(agent_id) AND model_output_id=sqlc.arg(output_id) AND caller='model' ORDER BY provider_call_id;
+WHERE agent_id=sqlc.arg(agent_id) AND model_output_id=sqlc.arg(output_id)::uuid ORDER BY provider_call_id;
 
 -- name: ValidateExecutionCheckpoint :one
 SELECT (SELECT count(*) FROM agent_events e WHERE e.agent_id=sqlc.arg(agent_id)
  AND e.sequence BETWEEN sqlc.arg(start_sequence) AND sqlc.arg(end_sequence))::bigint AS events,
- EXISTS(SELECT 1 FROM agent_events e JOIN tool_calls c ON c.agent_id=e.agent_id AND c.model_output_id=e.model_output_id AND c.caller='model'
+ EXISTS(SELECT 1 FROM agent_events e JOIN tool_calls c ON c.agent_id=e.agent_id AND c.model_output_id=e.model_output_id
  LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
  LEFT JOIN agent_events re ON re.agent_id=r.agent_id AND re.tool_call_result_id=r.id
  WHERE e.agent_id=sqlc.arg(agent_id) AND e.sequence BETWEEN sqlc.arg(start_sequence) AND sqlc.arg(end_sequence)

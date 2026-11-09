@@ -1830,7 +1830,7 @@ export const zToolCall = z.object({
 });
 
 export const zDaemonProgramToolCallRequest = z.object({
-    key: z.string().min(1).max(200),
+    key: z.uuid(),
     name: z.string().min(1).max(128),
     input: zToolInput
 });
@@ -1854,7 +1854,6 @@ export const zDaemonProgramToolCall = z.object({
         'completed'
     ]),
     outcome: zToolCallOutcome.optional(),
-    structured: z.unknown().optional(),
     content: z.array(zDaemonProgramToolCallContent).optional()
 });
 
@@ -2200,9 +2199,7 @@ export const zToolCallUpdate = z.object({
     project_id: zProjectId,
     tool_call_id: zToolCallId,
     agent_id: zAgentId,
-    agent_profile_id: zAgentProfileId.nullable(),
-    parent_agent_id: zAgentId.nullable(),
-    root_agent_id: zAgentId,
+    parent_tool_call_id: zToolCallId.optional(),
     state: zToolCallState,
     name: z.string().optional(),
     input: zToolInput.optional(),

@@ -39,7 +39,9 @@ export function AgentConfigProgrammaticToolCallsField({
         }
         checked={enabled}
         onChange={(event) => {
-          onChange(event.target.checked ? programmaticToolCalls(exclude) : undefined)
+          // A disabled section keeps its excluded tools for when it is enabled again.
+          if (event.target.checked) onChange(programmaticToolCalls(exclude))
+          else onChange(exclude.length > 0 ? { enabled: false, exclude } : undefined)
         }}
       />
       {enabled && (

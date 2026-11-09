@@ -107,7 +107,7 @@ func (q *Queries) InsertExecutionToolResult(ctx context.Context, db DBTX, arg In
 }
 
 const readExecutionTool = `-- name: ReadExecutionTool :one
-SELECT c.id,c.agent_id,c.model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
+SELECT c.id,c.agent_id,o.id AS model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
  m.turn_id,m.id AS context_id,e.id AS source_event_id,e.sequence AS source_sequence,
  r.id AS result_id,r.outcome,r.completed_at,re.id AS result_event_id,re.sequence AS result_sequence
 FROM tool_calls c JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
@@ -115,7 +115,7 @@ JOIN model_call_contexts m ON m.agent_id=o.agent_id AND m.id=o.model_call_contex
 JOIN agent_events e ON e.agent_id=o.agent_id AND e.model_output_id=o.id
 LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
 LEFT JOIN agent_events re ON re.agent_id=r.agent_id AND re.tool_call_result_id=r.id
-WHERE c.agent_id=$1 AND c.id=$2 AND c.caller='model'
+WHERE c.agent_id=$1 AND c.id=$2
 `
 
 type ReadExecutionToolParams struct {

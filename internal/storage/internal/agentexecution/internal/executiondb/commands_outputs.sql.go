@@ -189,7 +189,7 @@ func (q *Queries) FindExecutionOutput(ctx context.Context, db DBTX, arg FindExec
 
 const readExecutionProposals = `-- name: ReadExecutionProposals :many
 SELECT id,provider_call_id,name,input,type FROM tool_calls
-WHERE agent_id=$1 AND model_output_id=$2 AND caller='model' ORDER BY provider_call_id
+WHERE agent_id=$1 AND model_output_id=$2::uuid ORDER BY provider_call_id
 `
 
 type ReadExecutionProposalsParams struct {
@@ -234,7 +234,7 @@ func (q *Queries) ReadExecutionProposals(ctx context.Context, db DBTX, arg ReadE
 const validateExecutionCheckpoint = `-- name: ValidateExecutionCheckpoint :one
 SELECT (SELECT count(*) FROM agent_events e WHERE e.agent_id=$1
  AND e.sequence BETWEEN $2 AND $3)::bigint AS events,
- EXISTS(SELECT 1 FROM agent_events e JOIN tool_calls c ON c.agent_id=e.agent_id AND c.model_output_id=e.model_output_id AND c.caller='model'
+ EXISTS(SELECT 1 FROM agent_events e JOIN tool_calls c ON c.agent_id=e.agent_id AND c.model_output_id=e.model_output_id
  LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
  LEFT JOIN agent_events re ON re.agent_id=r.agent_id AND re.tool_call_result_id=r.id
  WHERE e.agent_id=$1 AND e.sequence BETWEEN $2 AND $3

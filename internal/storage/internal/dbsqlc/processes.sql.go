@@ -734,12 +734,7 @@ func (q *Queries) GetDaemonProcessForProjectReport(ctx context.Context, arg GetD
 }
 
 const getDaemonProgramToolScope = `-- name: GetDaemonProgramToolScope :one
-SELECT process.project_id, process.agent_id, process.id AS process_id,
-       tool_call.id AS parent_tool_call_id, output.id AS model_output_id,
-       context.id AS model_call_context_id, source_event.turn_id, source_event.id AS source_event_id,
-       original_config.id AS agent_config_id,
-       (original_definition.compiled_definition->'programmatic_tool_calls')::jsonb AS programmatic_tool_calls,
-       machine.programmatic_tool_calls AS machine_programmatic_tool_calls
+SELECT process.project_id, process.agent_id, process.id AS process_id, current_config.id AS agent_config_id
 FROM processes process
 JOIN orgs org ON org.id = process.org_id AND org.deleted_at IS NULL
 JOIN projects project ON project.org_id = process.org_id AND project.id = process.project_id
@@ -755,12 +750,9 @@ JOIN agent_machine_bindings binding ON binding.org_id = process.org_id
 JOIN project_machine_grants pmgrant ON pmgrant.org_id = process.org_id
   AND pmgrant.project_id = process.project_id AND pmgrant.machine_id = process.machine_id
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
-  AND tool_call.caller = 'model'
 JOIN model_outputs output ON output.agent_id = tool_call.agent_id AND output.id = tool_call.model_output_id
 JOIN model_call_contexts context ON context.agent_id = output.agent_id
   AND context.id = output.model_call_context_id
-JOIN agent_events source_event ON source_event.agent_id = output.agent_id
-  AND source_event.model_output_id = output.id AND source_event.event_kind = 'model_output'
 JOIN agent_configs original_config ON original_config.project_id = process.project_id
   AND original_config.id = context.agent_config_id
 JOIN agent_configs current_config ON current_config.project_id = process.project_id
@@ -777,8 +769,7 @@ WHERE process.org_id = $1
   AND process.state IN ('starting', 'running')
   AND machine.programmatic_tool_calls
   AND original_definition.compiled_definition->'programmatic_tool_calls' IS NOT NULL
-  AND original_definition.compiled_definition->'programmatic_tool_calls'
-    IS NOT DISTINCT FROM current_definition.compiled_definition->'programmatic_tool_calls'
+  AND current_definition.compiled_definition->'programmatic_tool_calls' IS NOT NULL
 `
 
 type GetDaemonProgramToolScopeParams struct {
@@ -788,17 +779,10 @@ type GetDaemonProgramToolScopeParams struct {
 }
 
 type GetDaemonProgramToolScopeRow struct {
-	ProjectID                    uuid.UUID
-	AgentID                      uuid.UUID
-	ProcessID                    uuid.UUID
-	ParentToolCallID             uuid.UUID
-	ModelOutputID                uuid.UUID
-	ModelCallContextID           uuid.UUID
-	TurnID                       uuid.UUID
-	SourceEventID                uuid.UUID
-	AgentConfigID                uuid.UUID
-	ProgrammaticToolCalls        json.RawMessage
-	MachineProgrammaticToolCalls bool
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	ProcessID     uuid.UUID
+	AgentConfigID uuid.UUID
 }
 
 func (q *Queries) GetDaemonProgramToolScope(ctx context.Context, arg GetDaemonProgramToolScopeParams) (GetDaemonProgramToolScopeRow, error) {
@@ -808,14 +792,7 @@ func (q *Queries) GetDaemonProgramToolScope(ctx context.Context, arg GetDaemonPr
 		&i.ProjectID,
 		&i.AgentID,
 		&i.ProcessID,
-		&i.ParentToolCallID,
-		&i.ModelOutputID,
-		&i.ModelCallContextID,
-		&i.TurnID,
-		&i.SourceEventID,
 		&i.AgentConfigID,
-		&i.ProgrammaticToolCalls,
-		&i.MachineProgrammaticToolCalls,
 	)
 	return i, err
 }

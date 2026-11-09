@@ -59,6 +59,12 @@ type WorkerControlSubscriber interface {
 	) (Subscription, error)
 }
 
+// ProgramToolWakeupSubscriber hears when a program tool call becomes
+// claimable. Wakeups are hints: workers also poll for claimable calls.
+type ProgramToolWakeupSubscriber interface {
+	SubscribeProgramToolWakeups(ctx context.Context, handler func(context.Context)) (Subscription, error)
+}
+
 type DaemonWakeupPublisher interface {
 	PublishDaemonReplicaWakeup(ctx context.Context, replicaID uuid.UUID, msg WakeupMessage) error
 }
@@ -132,8 +138,10 @@ func ToolCallUpdateInput(input json.RawMessage) json.RawMessage {
 }
 
 type ToolCallUpdatedCommitted struct {
-	AgentID           uuid.UUID               `json:"-"`
-	ToolCallID        uuid.UUID               `json:"tool_call_id"`
+	AgentID    uuid.UUID `json:"-"`
+	ToolCallID uuid.UUID `json:"tool_call_id"`
+	// ParentToolCallID is the run_command call of a program tool call.
+	ParentToolCallID  uuid.UUID               `json:"parent_tool_call_id,omitzero"`
 	State             string                  `json:"state"`
 	Name              string                  `json:"name,omitempty"`
 	Input             json.RawMessage         `json:"input,omitempty"`
@@ -141,6 +149,12 @@ type ToolCallUpdatedCommitted struct {
 }
 
 func (ToolCallUpdatedCommitted) postCommitIntent() {}
+
+// programToolClaimable reports whether the update leaves a program tool call
+// for a worker to claim.
+func (u ToolCallUpdatedCommitted) programToolClaimable() bool {
+	return u.ParentToolCallID != uuid.Nil && (u.State == "awaiting_authorization" || u.State == "ready")
+}
 
 type AgentInteractionUpdate struct {
 	ID              uuid.UUID `json:"id"`
@@ -335,9 +349,23 @@ func (n *TxNotifications) AddToolCallUpdate(
 	state string,
 	interactionUpdate *AgentInteractionUpdate,
 ) {
-	n.addToolCallUpdate(ToolCallUpdatedCommitted{
+	n.AddProgramToolCallUpdate(agentID, toolCallID, uuid.Nil, state, interactionUpdate)
+}
+
+// AddProgramToolCallUpdate is AddToolCallUpdate for a program tool call of
+// the run_command call parentID.
+func (n *TxNotifications) AddProgramToolCallUpdate(
+	agentID, toolCallID, parentID uuid.UUID,
+	state string,
+	interactionUpdate *AgentInteractionUpdate,
+) {
+	if n == nil || agentID == uuid.Nil || toolCallID == uuid.Nil || state == "" {
+		return
+	}
+	n.toolCallUpdates = append(n.toolCallUpdates, ToolCallUpdatedCommitted{
 		AgentID:           agentID,
 		ToolCallID:        toolCallID,
+		ParentToolCallID:  parentID,
 		State:             state,
 		InteractionUpdate: interactionUpdate,
 	})
