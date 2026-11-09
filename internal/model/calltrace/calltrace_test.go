@@ -11,16 +11,16 @@ func TestTrackerTTFTIsFirstNonemptyOutputOfAnyKind(t *testing.T) {
 	advance := func(d time.Duration) { now = now.Add(d) }
 
 	advance(time.Second)
-	tracker.MarkToken(TokenText, "")
+	tracker.MarkToken("")
 	advance(time.Second)
-	tracker.MarkToken(TokenReasoning, "thinking")
+	tracker.MarkToken("thinking")
 	advance(time.Second)
-	tracker.MarkToken(TokenText, "Hi")
+	tracker.MarkToken("Hi")
 
 	var record Record
 	tracker.Fill(&record)
-	if record.TTFT == nil || *record.TTFT != 2*time.Second || record.FirstTokenKind != TokenReasoning {
-		t.Fatalf("ttft = %v %q", record.TTFT, record.FirstTokenKind)
+	if record.TTFT == nil || *record.TTFT != 2*time.Second {
+		t.Fatalf("ttft = %v", record.TTFT)
 	}
 	if record.UploadComplete != nil || record.Headers != nil || record.StreamComplete != nil {
 		t.Fatalf("unreached phases must stay nil: %+v", record)
@@ -34,9 +34,9 @@ func TestTrackerTTFTCountsWhitespaceTokens(t *testing.T) {
 	now := time.Unix(0, 0)
 	tracker := Start(func() time.Time { return now })
 	now = now.Add(time.Second)
-	tracker.MarkToken(TokenText, "\n")
+	tracker.MarkToken("\n")
 	now = now.Add(time.Second)
-	tracker.MarkToken(TokenText, "Hi")
+	tracker.MarkToken("Hi")
 
 	var record Record
 	tracker.Fill(&record)

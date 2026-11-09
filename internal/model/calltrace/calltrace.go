@@ -66,15 +66,6 @@ const (
 	OutcomeCanceled Outcome = "canceled"
 )
 
-// TokenKind is the kind of model output that carried the first token.
-type TokenKind string
-
-const (
-	TokenText      TokenKind = "text"
-	TokenReasoning TokenKind = "reasoning"
-	TokenToolCall  TokenKind = "tool_call"
-)
-
 // Usage holds provider-reported token counts. InputTokens includes cached
 // and cache-write input tokens.
 type Usage struct {
@@ -110,7 +101,6 @@ type Record struct {
 	UploadComplete *time.Duration
 	Headers        *time.Duration
 	TTFT           *time.Duration
-	FirstTokenKind TokenKind
 	StreamComplete *time.Duration
 	Duration       time.Duration
 }
@@ -158,7 +148,6 @@ type Tracker struct {
 	upload     *time.Duration
 	headers    *time.Duration
 	firstToken *time.Duration
-	tokenKind  TokenKind
 	complete   *time.Duration
 }
 
@@ -204,7 +193,7 @@ func (t *Tracker) MarkHeaders() {
 // MarkToken records the first token: the first frame whose payload is model
 // output of any kind, whitespace included. An empty payload is stream
 // metadata (role, heartbeat, block markers) and does not count.
-func (t *Tracker) MarkToken(kind TokenKind, payload string) {
+func (t *Tracker) MarkToken(payload string) {
 	if payload == "" {
 		return
 	}
@@ -212,7 +201,6 @@ func (t *Tracker) MarkToken(kind TokenKind, payload string) {
 	defer t.mu.Unlock()
 	if t.firstToken == nil {
 		t.firstToken = t.elapsed()
-		t.tokenKind = kind
 	}
 }
 
@@ -232,7 +220,6 @@ func (t *Tracker) Fill(record *Record) {
 	record.UploadComplete = t.upload
 	record.Headers = t.headers
 	record.TTFT = t.firstToken
-	record.FirstTokenKind = t.tokenKind
 	record.StreamComplete = t.complete
 	record.Duration = *t.elapsed()
 }

@@ -101,7 +101,6 @@ func ModelCall(ctx context.Context, r calltrace.Record) {
 		"model_call.usage.input_tokens":    nil,
 		"model_call.usage.cached_tokens":   nil,
 		"model_call.usage.output_tokens":   nil,
-		"model_call.first_token_kind":      nil,
 		"model_call.model_call_context_id": nil,
 	}
 	if r.Scope.ModelCallContextID != "" {
@@ -109,9 +108,6 @@ func ModelCall(ctx context.Context, r calltrace.Record) {
 	}
 	if ratio, ok := r.CacheRatio(); ok {
 		fields["model_call.cache_ratio"] = ratio
-	}
-	if r.FirstTokenKind != "" {
-		fields["model_call.first_token_kind"] = string(r.FirstTokenKind)
 	}
 	if r.ServedModel != "" {
 		fields["model_call.served_model"] = r.ServedModel

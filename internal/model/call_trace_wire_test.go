@@ -196,7 +196,6 @@ func TestRespondEmitsOneModelCallRecordPerAttemptWithPhaseTimings(t *testing.T) 
 					"model_call.upload_complete_ms":    float64(100),
 					"model_call.headers_ms":            float64(500),
 					"model_call.ttft_ms":               float64(2000),
-					"model_call.first_token_kind":      "text",
 					"model_call.stream_complete_ms":    float64(3000),
 					"model_call.duration_ms":           float64(3000),
 				} {
@@ -263,7 +262,7 @@ func TestRespondRecordsFailedAttemptWithNullTokenTimings(t *testing.T) {
 			t.Fatalf("event = %+v", event)
 		}
 		for _, field := range []string{
-			"model_call.ttft_ms", "model_call.first_token_kind", "model_call.stream_complete_ms",
+			"model_call.ttft_ms", "model_call.stream_complete_ms",
 			"model_call.upload_complete_ms", "model_call.usage.input_tokens",
 		} {
 			value, ok := event[field]
@@ -291,8 +290,8 @@ func TestRespondTTFTCountsToolCallName(t *testing.T) {
 					t.Fatalf("events = %d", len(events))
 				}
 				event := events[0]
-				if event["model_call.ttft_ms"] != float64(2000) || event["model_call.first_token_kind"] != "tool_call" {
-					t.Fatalf("ttft = %#v kind = %#v", event["model_call.ttft_ms"], event["model_call.first_token_kind"])
+				if event["model_call.ttft_ms"] != float64(2000) {
+					t.Fatalf("ttft = %#v", event["model_call.ttft_ms"])
 				}
 				if line, _ := json.Marshal(event); strings.Contains(string(line), "lookup") {
 					t.Fatalf("model.call event leaked the tool name: %s", line)

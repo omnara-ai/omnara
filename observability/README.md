@@ -40,9 +40,8 @@ reached is logged as `null` and not observed in metrics:
 
 A token is a nonempty text, reasoning, or tool-argument delta, or the frame
 that names a tool call (the model generates the name before the arguments);
-whitespace counts. `first_token_kind` says which (`text`, `reasoning`,
-`tool_call`). Role-only chunks, heartbeats, pings, text and thinking block
-starts, and usage frames are metadata and never count. TTFT is `null` for a
+whitespace counts. Role-only chunks, heartbeats, pings, text and thinking
+block starts, and usage frames are metadata and never count. TTFT is `null` for a
 non-streamed body, where every token arrives at once. When a provider hides
 reasoning (encrypted or omitted thinking), the first observable token comes
 after it, so TTFT includes reasoning time; `usage.reasoning_tokens` shows how

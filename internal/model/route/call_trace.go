@@ -97,15 +97,11 @@ type timingSink struct {
 
 func (s timingSink) Emit(ctx context.Context, event model.StreamEvent) {
 	switch event.Kind {
-	case model.StreamEventTextDelta:
-		s.tracker.MarkToken(calltrace.TokenText, event.Delta)
-	case model.StreamEventThinkingDelta:
-		s.tracker.MarkToken(calltrace.TokenReasoning, event.Delta)
-	case model.StreamEventToolArgsDelta:
-		s.tracker.MarkToken(calltrace.TokenToolCall, event.Delta)
+	case model.StreamEventTextDelta, model.StreamEventThinkingDelta, model.StreamEventToolArgsDelta:
+		s.tracker.MarkToken(event.Delta)
 	case model.StreamEventBlockStart:
 		if event.Block != nil && event.Block.Kind == model.StreamBlockToolUse {
-			s.tracker.MarkToken(calltrace.TokenToolCall, event.Block.ToolName)
+			s.tracker.MarkToken(event.Block.ToolName)
 		}
 	case model.StreamEventBlockStop, model.StreamEventMessageStop, model.StreamEventError:
 	}
