@@ -64,7 +64,7 @@ func TestOutcrawlProviderSearchMapsRequestAndResponse(t *testing.T) {
 		resp.Results[0].Title != "Go Blog" || resp.Results[0].Snippet != "snippet text" {
 		t.Fatalf("unexpected results: %+v", resp.Results)
 	}
-	if captured["query"] != "go generics site:go.dev -site:example.com" {
+	if captured["query"] != "(go generics) site:go.dev -site:example.com" {
 		t.Fatalf("query = %v", captured["query"])
 	}
 	if captured["limit"] != float64(3) {
@@ -266,5 +266,49 @@ func TestOutcrawlProviderRejectsInvalidJSON(t *testing.T) {
 	providerErr, ok := AsProviderError(err)
 	if !ok || providerErr.Code != ErrorCodeProviderFailed || !strings.Contains(providerErr.Message, "decode outcrawl") {
 		t.Fatalf("expected decode failure, got %v", err)
+	}
+}
+
+func TestOutcrawlQueryGroupsDomainFilters(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		domains []string
+		want    string
+	}{
+		{name: "no filters", query: "a OR b", want: "a OR b"},
+		{name: "blank filters", query: "go", domains: []string{" ", "-"}, want: "go"},
+		{name: "single include", query: "go", domains: []string{"go.dev"}, want: "(go) site:go.dev"},
+		{
+			name:    "multiple includes are a union",
+			query:   "go generics",
+			domains: []string{"go.dev", "github.com"},
+			want:    "(go generics) (site:go.dev OR site:github.com)",
+		},
+		{
+			name:    "query operators stay inside the group",
+			query:   "a OR b",
+			domains: []string{"go.dev", "github.com"},
+			want:    "(a OR b) (site:go.dev OR site:github.com)",
+		},
+		{
+			name:    "excludes only",
+			query:   "go",
+			domains: []string{"-example.com", "-spam.net"},
+			want:    "(go) -site:example.com -site:spam.net",
+		},
+		{
+			name:    "mixed includes and excludes",
+			query:   "go",
+			domains: []string{"go.dev", "github.com", "-example.com"},
+			want:    "(go) (site:go.dev OR site:github.com) -site:example.com",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := outcrawlQuery(tc.query, tc.domains); got != tc.want {
+				t.Fatalf("outcrawlQuery = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

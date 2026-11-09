@@ -185,15 +185,35 @@ func outcrawlStatusMessage(status int, body []byte) string {
 	return fmt.Sprintf("outcrawl request failed (status %d)", status)
 }
 
-// outcrawlQuery appends domain filters as site: operators; a "-" prefix excludes
-// a domain.
+// outcrawlQuery encodes domain filters as search operators. With any filter the
+// original query is wrapped in parentheses so operators inside it cannot bind
+// to the domain limit, included domains are OR-ed in one group (a union, as the
+// Exa provider treats them), and each excluded domain gets a -site: prefix. A
+// "-" prefix on a domain excludes it.
 func outcrawlQuery(query string, domains []string) string {
 	include, exclude := splitDomains(domains)
+	if len(include) == 0 && len(exclude) == 0 {
+		return query
+	}
 	var b strings.Builder
+	b.WriteString("(")
 	b.WriteString(query)
-	for _, domain := range include {
+	b.WriteString(")")
+	switch len(include) {
+	case 0:
+	case 1:
 		b.WriteString(" site:")
-		b.WriteString(domain)
+		b.WriteString(include[0])
+	default:
+		b.WriteString(" (")
+		for i, domain := range include {
+			if i > 0 {
+				b.WriteString(" OR ")
+			}
+			b.WriteString("site:")
+			b.WriteString(domain)
+		}
+		b.WriteString(")")
 	}
 	for _, domain := range exclude {
 		b.WriteString(" -site:")
