@@ -831,6 +831,7 @@ func TestUsageFromResponseIgnoresMalformedCacheTelemetry(t *testing.T) {
 	for _, body := range []string{
 		`{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":"unknown","cached_tokens":{"n":1}}`,
 		`{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":-3}`,
+		`{"prompt_tokens":283,"completion_tokens":2,"prompt_cache_hit_tokens":null,"cached_tokens":null}`,
 	} {
 		var usage chatUsage
 		if err := json.Unmarshal([]byte(body), &usage); err != nil {

@@ -131,40 +131,43 @@ func ModelCall(ctx context.Context, r ModelCallRecord) {
 	if ratio, ok := r.CacheRatio(); ok {
 		cacheRatio = ratio
 	}
-	event := log.NewEvent(ctx, "model.call", log.Fields{
-		"model_call.id":                       r.CallID,
-		"model_call.purpose":                  r.Purpose,
-		"model_call.attempt":                  r.Attempt,
-		"model_call.model_call_context_id":    optional(r.ModelCallContextID),
-		"model_call.api_format":               r.APIFormat,
-		"model_call.api_variant":              r.APIVariant,
-		"model_call.model":                    r.Model,
-		"model_call.served_model":             optional(r.ServedModel),
-		"model_call.endpoint_host":            r.EndpointHost,
-		"model_call.provider_request_id":      optional(r.ProviderRequestID),
-		"model_call.streamed":                 r.Streamed,
-		"model_call.outcome":                  string(r.Outcome),
-		"model_call.status_code":              optional(r.StatusCode),
-		"model_call.error_kind":               optional(r.ErrorKind),
-		"model_call.error_code":               optional(r.ErrorCode),
-		"model_call.request_bytes":            r.RequestBytes,
-		"model_call.cache_ratio":              cacheRatio,
-		"model_call.usage.reported":           r.UsageReported(),
-		"model_call.usage.input_tokens":       input,
-		"model_call.usage.cached_tokens":      cached,
-		"model_call.usage.cache_write_tokens": cacheWrite,
-		"model_call.usage.output_tokens":      output,
-		"model_call.usage.reasoning_tokens":   reasoning,
-		"model_call.started_at":               r.StartedAt.UTC(),
-		"model_call.headers_ms":               optionalMilliseconds(r.Headers),
-		"model_call.ttft_ms":                  optionalMilliseconds(r.TTFT),
-		"model_call.stream_complete_ms":       optionalMilliseconds(r.StreamComplete),
-		"model_call.duration_ms":              r.Duration.Milliseconds(),
-	})
-	if r.Outcome == ModelCallError {
-		event.Level(log.WarnLevel)
+	fields := log.Fields{
+		"id":                       r.CallID,
+		"attempt":                  r.Attempt,
+		"model_call_context_id":    optional(r.ModelCallContextID),
+		"api_format":               r.APIFormat,
+		"api_variant":              r.APIVariant,
+		"model":                    r.Model,
+		"served_model":             optional(r.ServedModel),
+		"endpoint_host":            r.EndpointHost,
+		"provider_request_id":      optional(r.ProviderRequestID),
+		"streamed":                 r.Streamed,
+		"outcome":                  string(r.Outcome),
+		"status_code":              optional(r.StatusCode),
+		"error_kind":               optional(r.ErrorKind),
+		"error_code":               optional(r.ErrorCode),
+		"request_bytes":            r.RequestBytes,
+		"cache_ratio":              cacheRatio,
+		"usage.reported":           r.UsageReported(),
+		"usage.input_tokens":       input,
+		"usage.cached_tokens":      cached,
+		"usage.cache_write_tokens": cacheWrite,
+		"usage.output_tokens":      output,
+		"usage.reasoning_tokens":   reasoning,
+		"started_at":               r.StartedAt.UTC(),
+		"headers_ms":               optionalMilliseconds(r.Headers),
+		"ttft_ms":                  optionalMilliseconds(r.TTFT),
+		"stream_complete_ms":       optionalMilliseconds(r.StreamComplete),
+		"duration_ms":              r.Duration.Milliseconds(),
 	}
-	event.Done(ctx)
+	prefixed := make(log.Fields, len(fields))
+	for key, value := range fields {
+		prefixed["model_call."+r.Purpose+"."+key] = value
+	}
+	log.Attach(ctx, prefixed)
+	if r.Outcome == ModelCallError {
+		log.Escalate(ctx, log.WarnLevel)
+	}
 }
 
 func optional[T comparable](value T) any {

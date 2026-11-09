@@ -400,7 +400,7 @@ func (c Client) RespondStream(ctx context.Context, input model.Request) (model.R
 		recorder.Observe(metrics.ModelCallSample{
 			APIFormat:         record.APIFormat,
 			APIVariant:        record.APIVariant,
-			Provider:          host,
+			EndpointHost:      host,
 			Model:             record.Model,
 			Purpose:           record.Purpose,
 			Outcome:           string(outcome),

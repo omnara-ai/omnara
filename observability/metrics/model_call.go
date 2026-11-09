@@ -10,13 +10,13 @@ import (
 const SubsystemModelCall = "model_call"
 
 type ModelCallSample struct {
-	APIFormat  string
-	APIVariant string
-	Provider   string
-	Model      string
-	Purpose    string
-	Outcome    string
-	ErrorKind  string
+	APIFormat    string
+	APIVariant   string
+	EndpointHost string
+	Model        string
+	Purpose      string
+	Outcome      string
+	ErrorKind    string
 
 	RequestBytes      int
 	UsageReported     bool
@@ -45,11 +45,11 @@ type ModelCallRecorder struct {
 	usageMissingTotal      *prometheus.CounterVec
 }
 
-var modelCallLatencyBuckets = []float64{0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 8, 13, 21, 34, 60, 120}
+var modelCallLatencyBuckets = []float64{0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 8, 13, 21, 34, 60, 120, 300, 600}
 
 func NewModelCallRecorder(set *Set) *ModelCallRecorder {
 	namespace := set.Namespace()
-	model := []string{"api_format", "api_variant", "provider", "model"}
+	model := []string{"api_format", "api_variant", "endpoint_host", "model"}
 	counter := func(name, help string, labels ...string) *prometheus.CounterVec {
 		return prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Subsystem: SubsystemModelCall, Name: name, Help: help,
@@ -92,7 +92,7 @@ func (m *ModelCallRecorder) Observe(s ModelCallSample) {
 	if m == nil {
 		return
 	}
-	model := []string{labelOr(s.APIFormat), labelOr(s.APIVariant), labelOr(s.Provider), labelOr(s.Model)}
+	model := []string{labelOr(s.APIFormat), labelOr(s.APIVariant), labelOr(s.EndpointHost), labelOr(s.Model)}
 	m.attemptsTotal.WithLabelValues(append(model, labelOr(s.Purpose), labelOr(s.Outcome), s.ErrorKind)...).Inc()
 	if s.TTFT != nil {
 		m.ttftSeconds.WithLabelValues(model...).Observe(s.TTFT.Seconds())

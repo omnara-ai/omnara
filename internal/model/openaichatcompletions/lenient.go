@@ -9,7 +9,7 @@ type lenientCount struct {
 
 func (n *lenientCount) UnmarshalJSON(data []byte) error {
 	var value int
-	valid := json.Unmarshal(data, &value) == nil && value >= 0
+	valid := string(data) != "null" && json.Unmarshal(data, &value) == nil && value >= 0
 	if !valid {
 		value = 0
 	}

@@ -3,12 +3,14 @@ package model_test
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -126,11 +128,28 @@ func modelCallEvents(t *testing.T, buf *bytes.Buffer) []map[string]any {
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
 			t.Fatalf("decode log line %q: %v", scanner.Text(), err)
 		}
-		if event["event.name"] == "model.call" {
-			events = append(events, event)
+		if event["event.name"] != "test.loop" {
+			continue
+		}
+		call := map[string]any{"level": event["level"]}
+		for key, value := range event {
+			purpose, field, ok := strings.Cut(strings.TrimPrefix(key, "model_call."), ".")
+			if ok && strings.HasPrefix(key, "model_call.") {
+				call["model_call.purpose"] = purpose
+				call["model_call."+field] = value
+			}
+		}
+		if len(call) > 1 {
+			events = append(events, call)
 		}
 	}
 	return events
+}
+
+func respondInLoop(ctx context.Context, client model.Client, request model.Request) (model.Response, error) {
+	ctx, event := log.Start(ctx, "test.loop")
+	defer event.Done(ctx)
+	return client.Respond(ctx, request)
 }
 
 func scrapeModelCallMetrics(t *testing.T, set *metrics.Set) string {
@@ -154,7 +173,7 @@ func TestRespondEmitsOneModelCallRecordPerAttemptWithPhaseTimings(t *testing.T) 
 				})
 				client := clientNamed(t, name, &http.Client{Transport: scriptedTransport(frames)})
 
-				response, err := client.Respond(ctx, model.Request{ProviderRequest: body})
+				response, err := respondInLoop(ctx, client, model.Request{ProviderRequest: body})
 				if err != nil {
 					t.Fatalf("respond: %v", err)
 				}
@@ -201,12 +220,12 @@ func TestRespondEmitsOneModelCallRecordPerAttemptWithPhaseTimings(t *testing.T) 
 				scraped := scrapeModelCallMetrics(t, set)
 				for _, want := range []string{
 					`omnara_model_call_attempts_total{api_format="` + string(client.APIFormat()) +
-						`",api_variant="default",error_kind="",model="test-model",outcome="success",` +
-						`provider="example.test",purpose="agent_turn"} 1`,
+						`",api_variant="default",endpoint_host="example.test",error_kind="",model="test-model",` +
+						`outcome="success",purpose="agent_turn"} 1`,
 					`omnara_model_call_ttft_seconds_sum{api_format="` + string(client.APIFormat()) +
-						`",api_variant="default",model="test-model",provider="example.test"} 2`,
+						`",api_variant="default",endpoint_host="example.test",model="test-model"} 2`,
 					`omnara_model_call_input_tokens_total{api_format="` + string(client.APIFormat()) +
-						`",api_variant="default",model="test-model",provider="example.test"} 100`,
+						`",api_variant="default",endpoint_host="example.test",model="test-model"} 100`,
 				} {
 					if !strings.Contains(scraped, want) {
 						t.Errorf("metrics missing %q", want)
@@ -234,7 +253,7 @@ func TestRespondRecordsFailedAttemptWithNullTokenTimings(t *testing.T) {
 		})
 		client := clientNamed(t, "chat", &http.Client{Transport: transport})
 		for range 2 {
-			if _, err := client.Respond(ctx, model.Request{ProviderRequest: []byte(`{}`)}); err == nil {
+			if _, err := respondInLoop(ctx, client, model.Request{ProviderRequest: []byte(`{}`)}); err == nil {
 				t.Fatal("expected provider error")
 			}
 		}
@@ -268,7 +287,7 @@ func TestRespondTTFTCountsToolCallName(t *testing.T) {
 				var buf bytes.Buffer
 				ctx := log.WithLogger(t.Context(), slog.New(log.NewJSONHandler(&buf, nil)))
 				client := clientNamed(t, name, &http.Client{Transport: scriptedTransport(frames)})
-				if _, err := client.Respond(ctx, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
+				if _, err := respondInLoop(ctx, client, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
 					t.Fatalf("respond: %v", err)
 				}
 				events := modelCallEvents(t, &buf)
@@ -344,8 +363,8 @@ func TestRespondCacheRatioNeedsReportedCacheCount(t *testing.T) {
 						t.Fatalf("input = %#v ratio = %#v cached = %#v", event["model_call.usage.input_tokens"],
 							event["model_call.cache_ratio"], event["model_call.usage.cached_tokens"])
 					}
-					if !strings.Contains(scraped, `omnara_model_call_cache_reported_input_tokens_total{`) ||
-						!strings.Contains(scraped, `provider="example.test"} `+tc.measuredInput+"\n") {
+					measured := regexp.MustCompile(`omnara_model_call_cache_reported_input_tokens_total\{[^}]*\} (\d+)`)
+					if match := measured.FindStringSubmatch(scraped); match == nil || match[1] != tc.measuredInput {
 						t.Fatalf("cache_reported_input_tokens_total != %s:\n%s", tc.measuredInput, scraped)
 					}
 				})
@@ -367,7 +386,7 @@ func TestRespondKeepsCacheWritesWithoutCacheReadCount(t *testing.T) {
 				event["model_call.usage.cached_tokens"], event["model_call.cache_ratio"])
 		}
 		if !strings.Contains(scraped, `omnara_model_call_cache_write_input_tokens_total{api_format="anthropic-messages",`+
-			`api_variant="default",model="test-model",provider="example.test"} 40`) {
+			`api_variant="default",endpoint_host="example.test",model="test-model"} 40`) {
 			t.Fatalf("cache writes not recorded:\n%s", scraped)
 		}
 	})
@@ -380,7 +399,7 @@ func respondOnce(t *testing.T, name string, frames [3]string) (map[string]any, s
 	ctx := log.WithLogger(t.Context(), slog.New(log.NewJSONHandler(&buf, nil)))
 	ctx = route.WithModelCallMetrics(ctx, metrics.NewModelCallRecorder(set))
 	client := clientNamed(t, name, &http.Client{Transport: scriptedTransport(frames)})
-	if _, err := client.Respond(ctx, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
+	if _, err := respondInLoop(ctx, client, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
 		t.Fatalf("respond: %v", err)
 	}
 	events := modelCallEvents(t, &buf)
@@ -404,7 +423,7 @@ func TestRespondLeavesTTFTNullForNonStreamedBody(t *testing.T) {
 			}, nil
 		})
 		client := clientNamed(t, "chat", &http.Client{Transport: transport})
-		if _, err := client.Respond(ctx, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
+		if _, err := respondInLoop(ctx, client, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
 			t.Fatalf("respond: %v", err)
 		}
 		events := modelCallEvents(t, &buf)
@@ -426,7 +445,7 @@ func TestRespondSkipsRecordWhenRequestIsNeverSent(t *testing.T) {
 		t.Fatal("request must not be sent")
 		return nil, errors.New("unreachable")
 	})})
-	if _, err := client.Respond(ctx, model.Request{ProviderRequest: []byte(`not json`)}); err == nil {
+	if _, err := respondInLoop(ctx, client, model.Request{ProviderRequest: []byte(`not json`)}); err == nil {
 		t.Fatal("expected setup error")
 	}
 	if events := modelCallEvents(t, &buf); len(events) != 0 {
@@ -444,7 +463,7 @@ func TestRespondRecordsTimingsFromRealTransport(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := log.WithLogger(t.Context(), slog.New(log.NewJSONHandler(&buf, nil)))
 	client := adapterWireClients(wireClientConfig{baseURL: server.URL, httpClient: server.Client()})[0].client
-	if _, err := client.Respond(ctx, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
+	if _, err := respondInLoop(ctx, client, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
 		t.Fatalf("respond: %v", err)
 	}
 	events := modelCallEvents(t, &buf)
