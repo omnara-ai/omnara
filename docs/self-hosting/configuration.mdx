@@ -168,19 +168,6 @@ timeout. Explicit values in `OMNARA_DATABASE_URL` take precedence.
 | `OMNARA_WEB_SERVING` | `embedded` serves a SPA compiled into `cmd/api`; `disabled` leaves web assets to a separate service. The official cluster API image contains no frontend assets and sets this to `disabled`; the cluster web image serves only static assets and does not proxy API traffic. | `disabled` | No |
 | `OMNARA_TRUSTED_PROXY_CIDRS` | Comma-separated proxy/load-balancer hop CIDRs whose `X-Forwarded-For`/`X-Real-IP` are trusted for auth rate limiting. Only hops you control. | — | No |
 
-### Browser context
-
-Console integrations can read `window.omnaraBrowserContext`, an immutable snapshot
-with `userId` and a sorted `organizationIds` array. Subscribe to the
-`omnara:browser-context` event on `window`, then read the current snapshot so the
-integration also works when loaded after the console initializes.
-
-The snapshot follows the console's existing current-user query without making
-extra requests. It starts undefined, updates after successful queries, and clears
-on HTTP 401 until a query succeeds again. Transient errors and cache removal retain
-the last published snapshot. Events fire only when the published IDs change.
-This is browser context, not proof of authorization; servers must authorize requests.
-
 ## API rate limits
 
 Limits apply per user, per org for org API keys, and per machine for machine daemons.
