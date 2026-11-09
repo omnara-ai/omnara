@@ -7,7 +7,6 @@ package calltrace
 import (
 	"context"
 	"net/http/httptrace"
-	"strings"
 	"sync"
 	"time"
 
@@ -67,20 +66,13 @@ const (
 	OutcomeCanceled Outcome = "canceled"
 )
 
-type ContentKind string
+// TokenKind is the kind of model output that carried the first token.
+type TokenKind string
 
 const (
-	ContentText          ContentKind = "text"
-	ContentReasoning     ContentKind = "reasoning"
-	ContentToolArguments ContentKind = "tool_arguments"
-)
-
-type Cache string
-
-const (
-	CacheHit     Cache = "hit"
-	CacheMiss    Cache = "miss"
-	CacheUnknown Cache = "unknown"
+	TokenText      TokenKind = "text"
+	TokenReasoning TokenKind = "reasoning"
+	TokenToolCall  TokenKind = "tool_call"
 )
 
 // Usage holds provider-reported token counts. InputTokens includes cached
@@ -94,7 +86,9 @@ type Usage struct {
 }
 
 // Record is one provider attempt. Timings are offsets from StartedAt; a nil
-// timing means the phase was never reached.
+// timing means the phase was never reached. TTFT is the offset of the first
+// stream frame that carries model-generated output; it stays nil for a
+// non-streamed body, where every token arrives at once.
 type Record struct {
 	CallID            string
 	Scope             Scope
@@ -112,42 +106,36 @@ type Record struct {
 	RequestBytes      int
 	Usage             *Usage
 
-	StartedAt        time.Time
-	UploadComplete   *time.Duration
-	Headers          *time.Duration
-	FirstContent     *time.Duration
-	FirstContentKind ContentKind
-	FirstText        *time.Duration
-	StreamComplete   *time.Duration
-	Duration         time.Duration
+	StartedAt      time.Time
+	UploadComplete *time.Duration
+	Headers        *time.Duration
+	TTFT           *time.Duration
+	FirstTokenKind TokenKind
+	StreamComplete *time.Duration
+	Duration       time.Duration
 }
 
-func (r Record) Cache() Cache {
+// CacheRatio is the share of input tokens read from the provider's prompt
+// cache. It is unknown without reported input tokens.
+func (r Record) CacheRatio() (float64, bool) {
 	if r.Usage == nil || r.Usage.InputTokens <= 0 {
-		return CacheUnknown
+		return 0, false
 	}
-	if r.Usage.CachedInputTokens > 0 {
-		return CacheHit
-	}
-	return CacheMiss
+	return float64(r.Usage.CachedInputTokens) / float64(r.Usage.InputTokens), true
 }
 
 func (r Record) MetricsSample() metrics.ModelCallSample {
 	sample := metrics.ModelCallSample{
-		APIFormat:      r.APIFormat,
-		APIVariant:     r.APIVariant,
-		Model:          r.Model,
-		Purpose:        string(r.Scope.Purpose),
-		Outcome:        string(r.Outcome),
-		ErrorKind:      r.ErrorKind,
-		Cache:          string(r.Cache()),
-		RequestBytes:   r.RequestBytes,
-		UploadComplete: r.UploadComplete,
-		Headers:        r.Headers,
-		FirstContent:   r.FirstContent,
-		FirstText:      r.FirstText,
-		StreamComplete: r.StreamComplete,
-		Duration:       r.Duration,
+		APIFormat:    r.APIFormat,
+		APIVariant:   r.APIVariant,
+		Provider:     r.EndpointHost,
+		Model:        r.Model,
+		Purpose:      string(r.Scope.Purpose),
+		Outcome:      string(r.Outcome),
+		ErrorKind:    r.ErrorKind,
+		RequestBytes: r.RequestBytes,
+		TTFT:         r.TTFT,
+		Duration:     r.Duration,
 	}
 	if r.Usage != nil {
 		sample.UsageReported = true
@@ -167,12 +155,11 @@ type Tracker struct {
 	now     func() time.Time
 	started time.Time
 
-	upload       *time.Duration
-	headers      *time.Duration
-	firstContent *time.Duration
-	contentKind  ContentKind
-	firstText    *time.Duration
-	complete     *time.Duration
+	upload     *time.Duration
+	headers    *time.Duration
+	firstToken *time.Duration
+	tokenKind  TokenKind
+	complete   *time.Duration
 }
 
 func Start(now func() time.Time) *Tracker {
@@ -214,20 +201,18 @@ func (t *Tracker) MarkHeaders() {
 	}
 }
 
-// MarkContent records the first nonempty content of any kind and the first
-// non-whitespace visible text. Empty deltas are stream metadata and ignored.
-func (t *Tracker) MarkContent(kind ContentKind, delta string) {
-	if delta == "" {
+// MarkToken records the first token: the first frame whose payload is model
+// output of any kind, whitespace included. An empty payload is stream
+// metadata (role, heartbeat, block markers) and does not count.
+func (t *Tracker) MarkToken(kind TokenKind, payload string) {
+	if payload == "" {
 		return
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.firstContent == nil {
-		t.firstContent = t.elapsed()
-		t.contentKind = kind
-	}
-	if kind == ContentText && t.firstText == nil && strings.TrimSpace(delta) != "" {
-		t.firstText = t.elapsed()
+	if t.firstToken == nil {
+		t.firstToken = t.elapsed()
+		t.tokenKind = kind
 	}
 }
 
@@ -246,9 +231,8 @@ func (t *Tracker) Fill(record *Record) {
 	record.StartedAt = t.started
 	record.UploadComplete = t.upload
 	record.Headers = t.headers
-	record.FirstContent = t.firstContent
-	record.FirstContentKind = t.contentKind
-	record.FirstText = t.firstText
+	record.TTFT = t.firstToken
+	record.FirstTokenKind = t.tokenKind
 	record.StreamComplete = t.complete
 	record.Duration = *t.elapsed()
 }

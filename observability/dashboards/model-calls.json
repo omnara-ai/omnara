@@ -1,7 +1,7 @@
 {
   "title": "Model calls",
   "uid": "omnara-model-calls",
-  "description": "Per-attempt model provider latency (TTFT and phases), size, tokens, and outcomes from omnara_model_call_* metrics. Exact per-attempt values are in model.call log events.",
+  "description": "Per-attempt model provider latency (TTFT and duration), request size, tokens, cache hit ratio, and outcomes from omnara_model_call_* metrics. Exact per-attempt values are in model.call log events.",
   "tags": [
     "omnara",
     "model"
@@ -43,7 +43,7 @@
         "sort": 1
       },
       {
-        "name": "api_variant",
+        "name": "provider",
         "label": "Provider",
         "type": "query",
         "datasource": {
@@ -51,10 +51,10 @@
           "uid": "${datasource}"
         },
         "query": {
-          "query": "label_values(omnara_model_call_attempts_total{api_format=~\"$api_format\"}, api_variant)",
-          "refId": "api_variant"
+          "query": "label_values(omnara_model_call_attempts_total{api_format=~\"$api_format\"}, provider)",
+          "refId": "provider"
         },
-        "definition": "label_values(omnara_model_call_attempts_total{api_format=~\"$api_format\"}, api_variant)",
+        "definition": "label_values(omnara_model_call_attempts_total{api_format=~\"$api_format\"}, provider)",
         "multi": true,
         "includeAll": true,
         "allValue": ".*",
@@ -74,33 +74,10 @@
           "uid": "${datasource}"
         },
         "query": {
-          "query": "label_values(omnara_model_call_attempts_total{api_format=~\"$api_format\",api_variant=~\"$api_variant\"}, model)",
+          "query": "label_values(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\"}, model)",
           "refId": "model"
         },
-        "definition": "label_values(omnara_model_call_attempts_total{api_format=~\"$api_format\",api_variant=~\"$api_variant\"}, model)",
-        "multi": true,
-        "includeAll": true,
-        "allValue": ".*",
-        "current": {
-          "text": "All",
-          "value": "$__all"
-        },
-        "refresh": 2,
-        "sort": 1
-      },
-      {
-        "name": "cache",
-        "label": "Cache",
-        "type": "query",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${datasource}"
-        },
-        "query": {
-          "query": "label_values(omnara_model_call_phase_seconds_count, cache)",
-          "refId": "cache"
-        },
-        "definition": "label_values(omnara_model_call_phase_seconds_count, cache)",
+        "definition": "label_values(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\"}, model)",
         "multi": true,
         "includeAll": true,
         "allValue": ".*",
@@ -117,7 +94,7 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "Attempts / s by model and outcome",
+      "title": "Attempts / s by model, provider, and outcome",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -131,12 +108,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (model, api_variant, outcome) (rate(omnara_model_call_attempts_total{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\"}[$__rate_interval]))",
+          "expr": "sum by (model, provider, outcome) (rate(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__rate_interval]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "legendFormat": "{{model}} / {{api_variant}} / {{outcome}}"
+          "legendFormat": "{{model}} / {{provider}} / {{outcome}}"
         }
       ],
       "fieldConfig": {
@@ -164,12 +141,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (model, error_kind) (rate(omnara_model_call_attempts_total{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",outcome=\"error\"}[$__rate_interval]))",
+          "expr": "sum by (model, provider, error_kind) (rate(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\",outcome=\"error\"}[$__rate_interval]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "legendFormat": "{{model}} / {{error_kind}}"
+          "legendFormat": "{{model}} / {{provider}} / {{error_kind}}"
         }
       ],
       "fieldConfig": {
@@ -182,7 +159,7 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "p50 TTFT by model / provider / cache",
+      "title": "p50 TTFT by model / provider",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -196,12 +173,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le, model, api_variant, cache) (rate(omnara_model_call_phase_seconds_bucket{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\",phase=\"first_content\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le, model, provider) (rate(omnara_model_call_ttft_seconds_bucket{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__rate_interval])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "legendFormat": "{{model}} / {{api_variant}} / {{cache}}"
+          "legendFormat": "{{model}} / {{provider}}"
         }
       ],
       "fieldConfig": {
@@ -210,12 +187,12 @@
         },
         "overrides": []
       },
-      "description": "Request start to first nonempty text, reasoning, or tool-argument delta. Unlike http.subrequests total_ms, which stops at response headers."
+      "description": "Request start to the first streamed token: text, reasoning, tool-call name, or arguments. Unlike http.subrequests total_ms, which stops at response headers."
     },
     {
       "id": 4,
       "type": "timeseries",
-      "title": "p90 TTFT by model / provider / cache",
+      "title": "p90 TTFT by model / provider",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -229,12 +206,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.9, sum by (le, model, api_variant, cache) (rate(omnara_model_call_phase_seconds_bucket{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\",phase=\"first_content\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.9, sum by (le, model, provider) (rate(omnara_model_call_ttft_seconds_bucket{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__rate_interval])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "legendFormat": "{{model}} / {{api_variant}} / {{cache}}"
+          "legendFormat": "{{model}} / {{provider}}"
         }
       ],
       "fieldConfig": {
@@ -243,12 +220,12 @@
         },
         "overrides": []
       },
-      "description": "Request start to first nonempty text, reasoning, or tool-argument delta. Unlike http.subrequests total_ms, which stops at response headers."
+      "description": "Request start to the first streamed token: text, reasoning, tool-call name, or arguments. Unlike http.subrequests total_ms, which stops at response headers."
     },
     {
       "id": 5,
-      "type": "barchart",
-      "title": "p50 TTFT vs input tokens",
+      "type": "timeseries",
+      "title": "Cache hit ratio by provider",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -257,61 +234,33 @@
         "x": 0,
         "y": 16,
         "w": 12,
-        "h": 9
+        "h": 8
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "label_join(histogram_quantile(0.5, sum by (le, model, api_variant, cache, input_tokens_le) (increase(omnara_model_call_ttft_by_input_tokens_seconds_bucket{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range]))), \"series\", \" / \", \"model\", \"api_variant\", \"cache\")",
+          "expr": "sum by (provider) (rate(omnara_model_call_cached_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__rate_interval])) / sum by (provider) (rate(omnara_model_call_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__rate_interval]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "instant": true,
-          "range": false,
-          "format": "table"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "groupingToMatrix",
-          "options": {
-            "columnField": "series",
-            "rowField": "input_tokens_le",
-            "valueField": "Value"
-          }
-        },
-        {
-          "id": "sortBy",
-          "options": {
-            "sort": [
-              {
-                "field": "input_tokens_le\\series"
-              }
-            ]
-          }
+          "legendFormat": "{{provider}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       },
-      "options": {
-        "xField": "input_tokens_le\\series",
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "description": "Median seconds from request start to first nonempty content, bucketed by input tokens (inclusive upper bound). Sample counts are in the table to the right."
+      "description": "Share of provider-reported input tokens read from the prompt cache."
     },
     {
       "id": 6,
       "type": "table",
-      "title": "TTFT vs input tokens (with sample counts)",
+      "title": "Average TTFT and duration",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -320,12 +269,12 @@
         "x": 12,
         "y": 16,
         "w": 12,
-        "h": 9
+        "h": 8
       },
       "targets": [
         {
-          "refId": "p50",
-          "expr": "histogram_quantile(0.5, sum by (le, model, api_variant, cache, input_tokens_le) (increase(omnara_model_call_ttft_by_input_tokens_seconds_bucket{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range])))",
+          "refId": "ttft",
+          "expr": "sum by (model, provider) (increase(omnara_model_call_ttft_seconds_sum{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / sum by (model, provider) (increase(omnara_model_call_ttft_seconds_count{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -335,19 +284,8 @@
           "format": "table"
         },
         {
-          "refId": "p90",
-          "expr": "histogram_quantile(0.9, sum by (le, model, api_variant, cache, input_tokens_le) (increase(omnara_model_call_ttft_by_input_tokens_seconds_bucket{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range])))",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "avg",
-          "expr": "sum by (model, api_format, api_variant, cache, input_tokens_le) (increase(omnara_model_call_ttft_by_input_tokens_seconds_sum{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range])) / sum by (model, api_format, api_variant, cache, input_tokens_le) (increase(omnara_model_call_ttft_by_input_tokens_seconds_count{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range]))",
+          "refId": "duration",
+          "expr": "sum by (model, provider) (increase(omnara_model_call_duration_seconds_sum{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / sum by (model, provider) (increase(omnara_model_call_duration_seconds_count{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -358,7 +296,7 @@
         },
         {
           "refId": "samples",
-          "expr": "round(sum by (model, api_format, api_variant, cache, input_tokens_le) (increase(omnara_model_call_ttft_by_input_tokens_seconds_count{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range])))",
+          "expr": "round(sum by (model, provider) (increase(omnara_model_call_ttft_seconds_count{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -377,51 +315,39 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true,
-              "api_format": true
+              "Time": true
             },
             "indexByName": {
               "model": 0,
-              "api_variant": 1,
-              "cache": 2,
-              "input_tokens_le": 3,
-              "Value #samples": 4,
-              "Value #p50": 5,
-              "Value #p90": 6,
-              "Value #avg": 7
+              "provider": 1,
+              "Value #samples": 2,
+              "Value #ttft": 3,
+              "Value #duration": 4
             },
             "renameByName": {
-              "api_variant": "provider",
-              "input_tokens_le": "input_tokens \u2264",
-              "Value #p50": "p50 s",
-              "Value #p90": "p90 s",
-              "Value #avg": "avg s",
-              "Value #samples": "samples"
+              "Value #samples": "TTFT samples",
+              "Value #ttft": "avg TTFT",
+              "Value #duration": "avg duration"
             }
-          }
-        },
-        {
-          "id": "sortBy",
-          "options": {
-            "sort": [
-              {
-                "field": "input_tokens \u2264"
-              }
-            ]
           }
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "unit": "s",
           "decimals": 2
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "samples"
+              "options": "TTFT samples"
             },
             "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
               {
                 "id": "decimals",
                 "value": 0
@@ -429,263 +355,11 @@
             ]
           }
         ]
-      }
+      },
+      "description": "Mean seconds from request start to the first streamed token and to the end of the attempt."
     },
     {
       "id": 7,
-      "type": "barchart",
-      "title": "p50 TTFT vs request bytes",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 25,
-        "w": 12,
-        "h": 9
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "label_join(histogram_quantile(0.5, sum by (le, model, api_variant, cache, request_bytes_le) (increase(omnara_model_call_ttft_by_request_bytes_seconds_bucket{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range]))), \"series\", \" / \", \"model\", \"api_variant\", \"cache\")",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "instant": true,
-          "range": false,
-          "format": "table"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "groupingToMatrix",
-          "options": {
-            "columnField": "series",
-            "rowField": "request_bytes_le",
-            "valueField": "Value"
-          }
-        },
-        {
-          "id": "sortBy",
-          "options": {
-            "sort": [
-              {
-                "field": "request_bytes_le\\series"
-              }
-            ]
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "options": {
-        "xField": "request_bytes_le\\series",
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "description": "Median seconds from request start to first nonempty content, bucketed by request bytes (inclusive upper bound). Sample counts are in the table to the right."
-    },
-    {
-      "id": 8,
-      "type": "table",
-      "title": "TTFT vs request bytes (with sample counts)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 25,
-        "w": 12,
-        "h": 9
-      },
-      "targets": [
-        {
-          "refId": "p50",
-          "expr": "histogram_quantile(0.5, sum by (le, model, api_variant, cache, request_bytes_le) (increase(omnara_model_call_ttft_by_request_bytes_seconds_bucket{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range])))",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "p90",
-          "expr": "histogram_quantile(0.9, sum by (le, model, api_variant, cache, request_bytes_le) (increase(omnara_model_call_ttft_by_request_bytes_seconds_bucket{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range])))",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "avg",
-          "expr": "sum by (model, api_format, api_variant, cache, request_bytes_le) (increase(omnara_model_call_ttft_by_request_bytes_seconds_sum{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range])) / sum by (model, api_format, api_variant, cache, request_bytes_le) (increase(omnara_model_call_ttft_by_request_bytes_seconds_count{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range]))",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "samples",
-          "expr": "round(sum by (model, api_format, api_variant, cache, request_bytes_le) (increase(omnara_model_call_ttft_by_request_bytes_seconds_count{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range])))",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "instant": true,
-          "range": false,
-          "format": "table"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "api_format": true
-            },
-            "indexByName": {
-              "model": 0,
-              "api_variant": 1,
-              "cache": 2,
-              "request_bytes_le": 3,
-              "Value #samples": 4,
-              "Value #p50": 5,
-              "Value #p90": 6,
-              "Value #avg": 7
-            },
-            "renameByName": {
-              "api_variant": "provider",
-              "request_bytes_le": "request_bytes \u2264",
-              "Value #p50": "p50 s",
-              "Value #p90": "p90 s",
-              "Value #avg": "avg s",
-              "Value #samples": "samples"
-            }
-          }
-        },
-        {
-          "id": "sortBy",
-          "options": {
-            "sort": [
-              {
-                "field": "request_bytes \u2264"
-              }
-            ]
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "decimals": 2
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "samples"
-            },
-            "properties": [
-              {
-                "id": "decimals",
-                "value": 0
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": 9,
-      "type": "barchart",
-      "title": "Average phase latency by model",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 34,
-        "w": 12,
-        "h": 9
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (model, phase) (increase(omnara_model_call_phase_seconds_sum{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range])) / sum by (model, phase) (increase(omnara_model_call_phase_seconds_count{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",cache=~\"$cache\"}[$__range]))",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "instant": true,
-          "range": false,
-          "format": "table"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "groupingToMatrix",
-          "options": {
-            "columnField": "phase",
-            "rowField": "model",
-            "valueField": "Value"
-          }
-        },
-        {
-          "id": "organize",
-          "options": {
-            "indexByName": {
-              "model\\phase": 0,
-              "upload_complete": 1,
-              "headers": 2,
-              "first_content": 3,
-              "first_text": 4,
-              "stream_complete": 5,
-              "end": 6
-            }
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "options": {
-        "xField": "model\\phase",
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "description": "Mean seconds from request start to each phase. Phases an attempt never reached are not averaged in."
-    },
-    {
-      "id": 10,
       "type": "table",
       "title": "Per-attempt averages",
       "datasource": {
@@ -693,15 +367,15 @@
         "uid": "${datasource}"
       },
       "gridPos": {
-        "x": 12,
-        "y": 34,
-        "w": 12,
-        "h": 9
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 8
       },
       "targets": [
         {
           "refId": "bytes",
-          "expr": "sum by (model, api_format, api_variant) (increase(omnara_model_call_request_bytes_sum{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\"}[$__range])) / sum by (model, api_format, api_variant) (increase(omnara_model_call_request_bytes_count{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\"}[$__range]))",
+          "expr": "sum by (model, provider) (increase(omnara_model_call_request_bytes_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -712,7 +386,7 @@
         },
         {
           "refId": "input",
-          "expr": "sum by (model, api_format, api_variant) (increase(omnara_model_call_tokens_total{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",kind=\"input\"}[$__range])) / sum by (model, api_format, api_variant) (increase(omnara_model_call_input_tokens_count{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\"}[$__range]))",
+          "expr": "sum by (model, provider) (increase(omnara_model_call_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / (sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) - (sum by (model, provider) (increase(omnara_model_call_usage_missing_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) or sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) * 0))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -723,7 +397,7 @@
         },
         {
           "refId": "cached",
-          "expr": "sum by (model, api_format, api_variant) (increase(omnara_model_call_tokens_total{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",kind=\"cached_input\"}[$__range])) / sum by (model, api_format, api_variant) (increase(omnara_model_call_tokens_total{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",kind=\"input\"}[$__range]))",
+          "expr": "sum by (model, provider) (increase(omnara_model_call_cached_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / sum by (model, provider) (increase(omnara_model_call_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -734,7 +408,7 @@
         },
         {
           "refId": "output",
-          "expr": "sum by (model, api_format, api_variant) (increase(omnara_model_call_tokens_total{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\",kind=\"output\"}[$__range])) / sum by (model, api_format, api_variant) (increase(omnara_model_call_input_tokens_count{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\"}[$__range]))",
+          "expr": "sum by (model, provider) (increase(omnara_model_call_output_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / (sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) - (sum by (model, provider) (increase(omnara_model_call_usage_missing_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) or sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) * 0))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -745,7 +419,7 @@
         },
         {
           "refId": "attempts",
-          "expr": "round(sum by (model, api_format, api_variant) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",api_variant=~\"$api_variant\",model=~\"$model\"}[$__range])))",
+          "expr": "round(sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -764,14 +438,12 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true,
-              "api_format": true
+              "Time": true
             },
             "renameByName": {
-              "api_variant": "provider",
               "Value #bytes": "avg request bytes",
               "Value #input": "avg input tokens",
-              "Value #cached": "cached input share",
+              "Value #cached": "cache hit ratio",
               "Value #output": "avg output tokens",
               "Value #attempts": "attempts"
             }
@@ -786,7 +458,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "cached input share"
+              "options": "cache hit ratio"
             },
             "properties": [
               {
@@ -800,7 +472,8 @@
             ]
           }
         ]
-      }
+      },
+      "description": "Token averages are over attempts that reported usage."
     }
   ]
 }

@@ -89,27 +89,29 @@ func ModelCall(ctx context.Context, r calltrace.Record) {
 		"model_call.endpoint_host":         r.EndpointHost,
 		"model_call.streamed":              r.Streamed,
 		"model_call.outcome":               string(r.Outcome),
-		"model_call.cache":                 string(r.Cache()),
+		"model_call.cache_ratio":           nil,
 		"model_call.request_bytes":         r.RequestBytes,
 		"model_call.started_at":            r.StartedAt.UTC(),
 		"model_call.upload_complete_ms":    optionalMilliseconds(r.UploadComplete),
 		"model_call.headers_ms":            optionalMilliseconds(r.Headers),
-		"model_call.first_content_ms":      optionalMilliseconds(r.FirstContent),
-		"model_call.first_text_ms":         optionalMilliseconds(r.FirstText),
+		"model_call.ttft_ms":               optionalMilliseconds(r.TTFT),
 		"model_call.stream_complete_ms":    optionalMilliseconds(r.StreamComplete),
 		"model_call.duration_ms":           r.Duration.Milliseconds(),
 		"model_call.usage.reported":        r.Usage != nil,
 		"model_call.usage.input_tokens":    nil,
 		"model_call.usage.cached_tokens":   nil,
 		"model_call.usage.output_tokens":   nil,
-		"model_call.first_content_kind":    nil,
+		"model_call.first_token_kind":      nil,
 		"model_call.model_call_context_id": nil,
 	}
 	if r.Scope.ModelCallContextID != "" {
 		fields["model_call.model_call_context_id"] = r.Scope.ModelCallContextID
 	}
-	if r.FirstContentKind != "" {
-		fields["model_call.first_content_kind"] = string(r.FirstContentKind)
+	if ratio, ok := r.CacheRatio(); ok {
+		fields["model_call.cache_ratio"] = ratio
+	}
+	if r.FirstTokenKind != "" {
+		fields["model_call.first_token_kind"] = string(r.FirstTokenKind)
 	}
 	if r.ServedModel != "" {
 		fields["model_call.served_model"] = r.ServedModel

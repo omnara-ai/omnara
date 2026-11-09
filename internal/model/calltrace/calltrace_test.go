@@ -5,50 +5,60 @@ import (
 	"time"
 )
 
-func TestTrackerSeparatesFirstContentFromFirstVisibleText(t *testing.T) {
+func TestTrackerTTFTIsFirstNonemptyOutputOfAnyKind(t *testing.T) {
 	now := time.Unix(0, 0)
 	tracker := Start(func() time.Time { return now })
 	advance := func(d time.Duration) { now = now.Add(d) }
 
 	advance(time.Second)
-	tracker.MarkContent(ContentText, "")
+	tracker.MarkToken(TokenText, "")
 	advance(time.Second)
-	tracker.MarkContent(ContentReasoning, "thinking")
+	tracker.MarkToken(TokenReasoning, "thinking")
 	advance(time.Second)
-	tracker.MarkContent(ContentText, "\n ")
-	advance(time.Second)
-	tracker.MarkContent(ContentText, "Hi")
-	advance(time.Second)
-	tracker.MarkContent(ContentText, "again")
+	tracker.MarkToken(TokenText, "Hi")
 
 	var record Record
 	tracker.Fill(&record)
-	if record.FirstContent == nil || *record.FirstContent != 2*time.Second || record.FirstContentKind != ContentReasoning {
-		t.Fatalf("first content = %v %q", record.FirstContent, record.FirstContentKind)
-	}
-	if record.FirstText == nil || *record.FirstText != 4*time.Second {
-		t.Fatalf("first text = %v", record.FirstText)
+	if record.TTFT == nil || *record.TTFT != 2*time.Second || record.FirstTokenKind != TokenReasoning {
+		t.Fatalf("ttft = %v %q", record.TTFT, record.FirstTokenKind)
 	}
 	if record.UploadComplete != nil || record.Headers != nil || record.StreamComplete != nil {
 		t.Fatalf("unreached phases must stay nil: %+v", record)
 	}
-	if record.Duration != 5*time.Second {
+	if record.Duration != 3*time.Second {
 		t.Fatalf("duration = %s", record.Duration)
 	}
 }
 
-func TestRecordCache(t *testing.T) {
+func TestTrackerTTFTCountsWhitespaceTokens(t *testing.T) {
+	now := time.Unix(0, 0)
+	tracker := Start(func() time.Time { return now })
+	now = now.Add(time.Second)
+	tracker.MarkToken(TokenText, "\n")
+	now = now.Add(time.Second)
+	tracker.MarkToken(TokenText, "Hi")
+
+	var record Record
+	tracker.Fill(&record)
+	if record.TTFT == nil || *record.TTFT != time.Second {
+		t.Fatalf("ttft = %v", record.TTFT)
+	}
+}
+
+func TestRecordCacheRatio(t *testing.T) {
 	for _, tc := range []struct {
 		usage *Usage
-		want  Cache
+		ratio float64
+		known bool
 	}{
-		{nil, CacheUnknown},
-		{&Usage{OutputTokens: 3}, CacheUnknown},
-		{&Usage{InputTokens: 10}, CacheMiss},
-		{&Usage{InputTokens: 10, CachedInputTokens: 4}, CacheHit},
+		{nil, 0, false},
+		{&Usage{OutputTokens: 3}, 0, false},
+		{&Usage{InputTokens: 10}, 0, true},
+		{&Usage{InputTokens: 10, CachedInputTokens: 4}, 0.4, true},
 	} {
-		if got := (Record{Usage: tc.usage}).Cache(); got != tc.want {
-			t.Errorf("Cache(%+v) = %s, want %s", tc.usage, got, tc.want)
+		ratio, known := (Record{Usage: tc.usage}).CacheRatio()
+		if ratio != tc.ratio || known != tc.known {
+			t.Errorf("CacheRatio(%+v) = %v, %v; want %v, %v", tc.usage, ratio, known, tc.ratio, tc.known)
 		}
 	}
 }

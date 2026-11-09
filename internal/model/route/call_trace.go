@@ -10,7 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/calltrace"
-	"github.com/omnara-ai/omnara/internal/modelenvelope"
 )
 
 // callAttempt accumulates the model.call record for one RespondStream. Only
@@ -45,22 +44,6 @@ func newCallAttempt(ctx context.Context, c Client, input model.Request) *callAtt
 
 func (a *callAttempt) sink(next model.StreamSink) model.StreamSink {
 	return timingSink{next: next, tracker: a.tracker}
-}
-
-// markBufferedContent times content from a non-streamed body, which becomes
-// available all at once when the body has been read.
-func (a *callAttempt) markBufferedContent(response model.Response) {
-	for _, part := range response.Content {
-		switch part.Type {
-		case model.ResponsePartTypeText:
-			a.tracker.MarkContent(calltrace.ContentText, part.Text)
-		case model.ResponsePartTypeReasoning:
-			a.tracker.MarkContent(calltrace.ContentReasoning, part.Text)
-		case model.ResponsePartTypeToolCall:
-			a.tracker.MarkContent(calltrace.ContentToolArguments, string(part.ToolInput))
-		case modelenvelope.ResponsePartTypeError:
-		}
-	}
 }
 
 func (a *callAttempt) finish(ctx context.Context, response model.Response, err error) {
@@ -103,8 +86,10 @@ func (a *callAttempt) finish(ctx context.Context, response model.Response, err e
 	calltrace.RecorderFromContext(ctx).Observe(record.MetricsSample())
 }
 
-// timingSink times content deltas before forwarding them. Block starts, stops,
-// and empty deltas are stream metadata and do not count as content.
+// timingSink marks the first token before forwarding events. A token is any
+// nonempty text, reasoning, or tool-argument delta, or a tool call's name,
+// which the model generates before its arguments. Text and thinking block
+// starts, stops, and empty deltas are stream metadata.
 type timingSink struct {
 	next    model.StreamSink
 	tracker *calltrace.Tracker
@@ -113,12 +98,16 @@ type timingSink struct {
 func (s timingSink) Emit(ctx context.Context, event model.StreamEvent) {
 	switch event.Kind {
 	case model.StreamEventTextDelta:
-		s.tracker.MarkContent(calltrace.ContentText, event.Delta)
+		s.tracker.MarkToken(calltrace.TokenText, event.Delta)
 	case model.StreamEventThinkingDelta:
-		s.tracker.MarkContent(calltrace.ContentReasoning, event.Delta)
+		s.tracker.MarkToken(calltrace.TokenReasoning, event.Delta)
 	case model.StreamEventToolArgsDelta:
-		s.tracker.MarkContent(calltrace.ContentToolArguments, event.Delta)
-	case model.StreamEventBlockStart, model.StreamEventBlockStop, model.StreamEventMessageStop, model.StreamEventError:
+		s.tracker.MarkToken(calltrace.TokenToolCall, event.Delta)
+	case model.StreamEventBlockStart:
+		if event.Block != nil && event.Block.Kind == model.StreamBlockToolUse {
+			s.tracker.MarkToken(calltrace.TokenToolCall, event.Block.ToolName)
+		}
+	case model.StreamEventBlockStop, model.StreamEventMessageStop, model.StreamEventError:
 	}
 	if s.next != nil {
 		s.next.Emit(ctx, event)

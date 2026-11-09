@@ -59,6 +59,41 @@ var callTraceStreams = map[string][3]string{
 	},
 }
 
+// Each tool-call stream sends metadata at 1s, the tool name (with empty
+// arguments where the API sends them) at 2s, and the arguments at 3s.
+var callTraceToolStreams = map[string][3]string{
+	"chat": {
+		`data: {"id":"c1","model":"test-model","choices":[{"index":0,"delta":{"role":"assistant"}}]}` + "\n\n",
+		`data: {"id":"c1","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,` +
+			`"id":"call_1","type":"function","function":{"name":"lookup","arguments":""}}]}}]}` + "\n\n",
+		`data: {"id":"c1","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,` +
+			`"function":{"arguments":"{\"q\":1}"}}]},"finish_reason":"tool_calls"}]}` + "\n\n" +
+			"data: [DONE]\n\n",
+	},
+	"responses": {
+		sseFrame("response.created", `{"type":"response.created","response":{"id":"r1","status":"in_progress"}}`),
+		sseFrame("response.output_item.added", `{"type":"response.output_item.added","item":{"id":"fc1",`+
+			`"type":"function_call","call_id":"call_1","name":"lookup","arguments":""}}`),
+		sseFrame("response.function_call_arguments.delta", `{"type":"response.function_call_arguments.delta",`+
+			`"item_id":"fc1","delta":"{\"q\":1}"}`) +
+			sseFrame("response.completed", `{"type":"response.completed","response":{"id":"r1","model":"test-model",`+
+				`"status":"completed","output":[{"id":"fc1","type":"function_call","call_id":"call_1",`+
+				`"name":"lookup","arguments":"{\"q\":1}"}]}}`),
+	},
+	"anthropic": {
+		sseFrame("message_start", `{"type":"message_start","message":{"id":"m1","model":"test-model"}}`),
+		sseFrame("content_block_start", `{"type":"content_block_start","index":0,`+
+			`"content_block":{"type":"tool_use","id":"toolu_1","name":"lookup","input":{}}}`) +
+			sseFrame("content_block_delta", `{"type":"content_block_delta","index":0,`+
+				`"delta":{"type":"input_json_delta","partial_json":""}}`),
+		sseFrame("content_block_delta", `{"type":"content_block_delta","index":0,`+
+			`"delta":{"type":"input_json_delta","partial_json":"{\"q\":1}"}}`) +
+			sseFrame("content_block_stop", `{"type":"content_block_stop","index":0}`) +
+			sseFrame("message_delta", `{"type":"message_delta","delta":{"stop_reason":"tool_use"}}`) +
+			sseFrame("message_stop", `{"type":"message_stop"}`),
+	},
+}
+
 func sseFrame(event, data string) string {
 	return "event: " + event + "\ndata: " + data + "\n\n"
 }
@@ -157,12 +192,11 @@ func TestRespondEmitsOneModelCallRecordPerAttemptWithPhaseTimings(t *testing.T) 
 					"model_call.usage.input_tokens":    float64(100),
 					"model_call.usage.cached_tokens":   float64(40),
 					"model_call.usage.output_tokens":   float64(5),
-					"model_call.cache":                 "hit",
+					"model_call.cache_ratio":           0.4,
 					"model_call.upload_complete_ms":    float64(100),
 					"model_call.headers_ms":            float64(500),
-					"model_call.first_content_ms":      float64(2000),
-					"model_call.first_content_kind":    "text",
-					"model_call.first_text_ms":         float64(2000),
+					"model_call.ttft_ms":               float64(2000),
+					"model_call.first_token_kind":      "text",
 					"model_call.stream_complete_ms":    float64(3000),
 					"model_call.duration_ms":           float64(3000),
 				} {
@@ -180,11 +214,12 @@ func TestRespondEmitsOneModelCallRecordPerAttemptWithPhaseTimings(t *testing.T) 
 				scraped := scrapeModelCallMetrics(t, set)
 				for _, want := range []string{
 					`omnara_model_call_attempts_total{api_format="` + string(client.APIFormat()) +
-						`",api_variant="default",error_kind="",model="test-model",outcome="success",purpose="agent_turn"} 1`,
-					`omnara_model_call_ttft_by_input_tokens_seconds_count{api_format="` + string(client.APIFormat()) +
-						`",api_variant="default",cache="hit",input_tokens_le="0004k",model="test-model"} 1`,
-					`omnara_model_call_ttft_by_input_tokens_seconds_sum{api_format="` + string(client.APIFormat()) +
-						`",api_variant="default",cache="hit",input_tokens_le="0004k",model="test-model"} 2`,
+						`",api_variant="default",error_kind="",model="test-model",outcome="success",` +
+						`provider="example.test",purpose="agent_turn"} 1`,
+					`omnara_model_call_ttft_seconds_sum{api_format="` + string(client.APIFormat()) +
+						`",api_variant="default",model="test-model",provider="example.test"} 2`,
+					`omnara_model_call_input_tokens_total{api_format="` + string(client.APIFormat()) +
+						`",api_variant="default",model="test-model",provider="example.test"} 100`,
 				} {
 					if !strings.Contains(scraped, want) {
 						t.Errorf("metrics missing %q", want)
@@ -198,7 +233,7 @@ func TestRespondEmitsOneModelCallRecordPerAttemptWithPhaseTimings(t *testing.T) 
 	}
 }
 
-func TestRespondRecordsFailedAttemptWithNullContentTimings(t *testing.T) {
+func TestRespondRecordsFailedAttemptWithNullTokenTimings(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var buf bytes.Buffer
 		ctx := log.WithLogger(t.Context(), slog.New(log.NewJSONHandler(&buf, nil)))
@@ -228,13 +263,71 @@ func TestRespondRecordsFailedAttemptWithNullContentTimings(t *testing.T) {
 			t.Fatalf("event = %+v", event)
 		}
 		for _, field := range []string{
-			"model_call.first_content_ms", "model_call.first_text_ms", "model_call.stream_complete_ms",
+			"model_call.ttft_ms", "model_call.first_token_kind", "model_call.stream_complete_ms",
 			"model_call.upload_complete_ms", "model_call.usage.input_tokens",
 		} {
 			value, ok := event[field]
 			if !ok || value != nil {
 				t.Errorf("%s = %#v (present %v), want null", field, value, ok)
 			}
+		}
+	})
+}
+
+// The model generates a tool call's name before its arguments, so TTFT is the
+// frame that names the tool, not the first argument delta.
+func TestRespondTTFTCountsToolCallName(t *testing.T) {
+	for name, frames := range callTraceToolStreams {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var buf bytes.Buffer
+				ctx := log.WithLogger(t.Context(), slog.New(log.NewJSONHandler(&buf, nil)))
+				client := clientNamed(t, name, &http.Client{Transport: scriptedTransport(frames)})
+				if _, err := client.Respond(ctx, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
+					t.Fatalf("respond: %v", err)
+				}
+				events := modelCallEvents(t, &buf)
+				if len(events) != 1 {
+					t.Fatalf("events = %d", len(events))
+				}
+				event := events[0]
+				if event["model_call.ttft_ms"] != float64(2000) || event["model_call.first_token_kind"] != "tool_call" {
+					t.Fatalf("ttft = %#v kind = %#v", event["model_call.ttft_ms"], event["model_call.first_token_kind"])
+				}
+				if line, _ := json.Marshal(event); strings.Contains(string(line), "lookup") {
+					t.Fatalf("model.call event leaked the tool name: %s", line)
+				}
+			})
+		})
+	}
+}
+
+// A non-streamed body delivers every token at once, so it has no TTFT.
+func TestRespondLeavesTTFTNullForNonStreamedBody(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var buf bytes.Buffer
+		ctx := log.WithLogger(t.Context(), slog.New(log.NewJSONHandler(&buf, nil)))
+		transport := timeoutRoundTrip(func(*http.Request) (*http.Response, error) {
+			time.Sleep(time.Second) //nolint:omnaralint // Advance synctest's virtual clock.
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": {"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{"id":"c1","model":"test-model","choices":[{"index":0,` +
+					`"message":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}]}`)),
+			}, nil
+		})
+		client := clientNamed(t, "chat", &http.Client{Transport: transport})
+		if _, err := client.Respond(ctx, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
+			t.Fatalf("respond: %v", err)
+		}
+		events := modelCallEvents(t, &buf)
+		if len(events) != 1 {
+			t.Fatalf("events = %d", len(events))
+		}
+		event := events[0]
+		if event["model_call.streamed"] != false || event["model_call.ttft_ms"] != nil ||
+			event["model_call.stream_complete_ms"] != float64(1000) {
+			t.Fatalf("event = %+v", event)
 		}
 	})
 }
@@ -272,8 +365,8 @@ func TestRespondRecordsUploadCompleteFromRealTransport(t *testing.T) {
 		t.Fatalf("events = %d", len(events))
 	}
 	for _, field := range []string{
-		"model_call.upload_complete_ms", "model_call.headers_ms", "model_call.first_content_ms",
-		"model_call.first_text_ms", "model_call.stream_complete_ms",
+		"model_call.upload_complete_ms", "model_call.headers_ms", "model_call.ttft_ms",
+		"model_call.stream_complete_ms",
 	} {
 		if events[0][field] == nil {
 			t.Errorf("%s is null", field)

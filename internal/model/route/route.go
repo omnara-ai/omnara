@@ -459,7 +459,6 @@ func (c Client) respondStream(ctx context.Context, input model.Request, attempt 
 			Body:       respBody,
 		})
 		if parseErr == nil {
-			attempt.markBufferedContent(parsed)
 			attempt.tracker.MarkComplete()
 		}
 		return parsed, parseErr
