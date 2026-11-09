@@ -175,16 +175,29 @@ it('hands back a late computed result after cooperative cancellation instead of 
   const controller = new AbortController()
   const reason = new Error('caller finished')
   const { client, submitted } = api((_request, body) => accepted(body ?? found))
-  const handler = vi.fn(() => {
-    controller.abort(reason)
-    return Promise.resolve(found)
-  })
+  let finishHandler!: (result: SubmitToolCallResultRequest) => void
+  const handler = vi.fn(
+    () =>
+      new Promise<SubmitToolCallResultRequest>((resolve) => {
+        finishHandler = resolve
+      }),
+  )
   const worker = createCustomToolWorker({ client, path, tools: { lookup_customer: handler } })
-  await expect(worker.handle(ready, { signal: controller.signal })).rejects.toMatchObject({
-    name: 'CustomToolDeliveryError',
-    result: found,
-    cause: reason,
+  const done = worker.handle(ready, { signal: controller.signal }).catch(toolError)
+  const settled = vi.fn()
+  void done.then(settled)
+  await vi.waitFor(() => {
+    expect(handler).toHaveBeenCalledOnce()
   })
+  controller.abort(reason)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(settled).not.toHaveBeenCalled()
+  finishHandler(found)
+  const error = await done
+  if (!(error instanceof CustomToolDeliveryError))
+    throw new Error('Expected a delivery failure', { cause: error })
+  expect(error.result).toEqual(found)
+  expect(error.cause).toBe(reason)
   expect(submitted).toEqual([])
 })
 

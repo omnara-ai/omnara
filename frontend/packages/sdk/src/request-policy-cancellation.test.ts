@@ -165,6 +165,7 @@ it('does not return a discarded response when canceled during backoff', async ()
   const result = await done
   expect(result.error).toBe(reason)
   expect(result.response).toBeUndefined()
+  expect(vi.getTimerCount()).toBe(0)
 })
 
 it('cancels a response that arrives after the caller has already stopped waiting', async () => {
