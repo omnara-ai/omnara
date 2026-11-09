@@ -68,7 +68,7 @@ export function useServerInfoLookup() {
   return async (url: string): Promise<McpRegistryServer | null> => {
     const remoteUrl = normalizeRemoteUrl(url)
     if (remoteUrl === '') return null
-    const page = await queryClient.fetchQuery(serverInfoQueryOptions(client, remoteUrl))
+    const page = await queryClient.query(serverInfoQueryOptions(client, remoteUrl))
     return findServerByRemoteUrl(page.data, remoteUrl)
   }
 }

@@ -55,6 +55,8 @@ function AssistantMarkdown({ children }: { children: string }) {
   return (
     <Streamdown
       className="type-body-small leading-prose max-w-3xl py-0.5 text-pretty"
+      codeBlockMaxHeight={0}
+      tableMaxHeight={0}
       components={{
         a: ({ children: linkChildren, ...props }) => (
           <a {...props} target="_blank" rel="noreferrer">

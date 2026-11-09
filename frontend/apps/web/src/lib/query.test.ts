@@ -35,7 +35,7 @@ it.each([true, false])(
         ),
       )
     const client = createOmnaraClient({ baseUrl: 'https://api.example.test/v1', fetch })
-    const pending = queryClient.fetchQuery({
+    const pending = queryClient.query({
       queryKey: ['sdk-query'],
       queryFn: () => client.get({ url: '/agents' }),
     })
@@ -67,7 +67,7 @@ it.each([
     )
     .mockImplementation(() => Promise.resolve(Response.json(data)))
   vi.stubGlobal('fetch', fetch)
-  const done = queryClient.fetchQuery({ queryKey: [name], queryFn: async () => read() })
+  const done = queryClient.query({ queryKey: [name], queryFn: async () => read() })
   await vi.runAllTimersAsync()
   expect(await done).toMatchObject(expected)
   expect(fetch).toHaveBeenCalledTimes(3)

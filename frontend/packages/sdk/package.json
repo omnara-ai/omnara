@@ -73,7 +73,7 @@
   },
   "dependencies": {
     "standardwebhooks": "1.1.1",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.62.0"
@@ -85,11 +85,11 @@
   },
   "devDependencies": {
     "@hey-api/openapi-ts": "0.99.0",
-    "@tanstack/react-query": "^5.101.0",
+    "@tanstack/react-query": "^5.105.2",
     "@tanstack/react-query-minimum": "npm:@tanstack/react-query@5.62.0",
     "tsup": "^9.0.0",
     "typescript": "^5.6.0",
     "vitest": "5.1.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.1"
   }
 }

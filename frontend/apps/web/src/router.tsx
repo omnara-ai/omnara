@@ -27,11 +27,11 @@ export interface RouterContext {
 
 async function ensureMe(
   queryClient: QueryClient,
-  omnaraClient: OmnaraClient,
+  client: OmnaraClient,
   returnTo: string,
 ): Promise<CurrentUser> {
   try {
-    return await queryClient.ensureQueryData(getCurrentUserOptions({ client: omnaraClient }))
+    return await queryClient.query({ ...getCurrentUserOptions({ client }), staleTime: 'static' })
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
       // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
@@ -42,7 +42,7 @@ async function ensureMe(
 }
 
 export async function redirectSignedInStaleCallback({
-  context: { queryClient, omnaraClient },
+  context: { queryClient, omnaraClient: client },
   location,
 }: {
   context: RouterContext
@@ -51,7 +51,7 @@ export async function redirectSignedInStaleCallback({
   const authError = new URL(location.href, window.location.origin).searchParams.get('auth_error')
   if (authError !== 'invalid_state') return
   try {
-    await queryClient.ensureQueryData(getCurrentUserOptions({ client: omnaraClient }))
+    await queryClient.query({ ...getCurrentUserOptions({ client }), staleTime: 'static' })
   } catch {
     return
   }

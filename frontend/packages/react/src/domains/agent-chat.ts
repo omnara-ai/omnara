@@ -442,9 +442,10 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
   const inputBacklog = useAgentInputBacklog(scope)
   const { source } = options
   const resolveHint = useCallback(async () => {
-    const { agent } = await queryClient.ensureQueryData(
-      getAgentOptions({ path: { orgID, projectID, agentID }, client }),
-    )
+    const { agent } = await queryClient.query({
+      ...getAgentOptions({ path: { orgID, projectID, agentID }, client }),
+      staleTime: 'static',
+    })
     return agent.integration_target == null ? undefined : sourceHint(source)
   }, [agentID, client, orgID, projectID, queryClient, source])
 

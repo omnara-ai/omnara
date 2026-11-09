@@ -92,6 +92,7 @@ async function renderAt(path: string, role: 'owner' | 'member') {
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+  return router
 }
 
 const projectPath = `/projects/proj_${'a'.repeat(26)}`
@@ -124,11 +125,11 @@ const adminLabels = [
 const projectLabels = [...adminLabels.slice(0, 3), 'Webhooks', ...adminLabels.slice(3)]
 
 it('adds project webhooks while preserving shared sections and the way back', async () => {
-  await renderAt('/', 'owner')
+  const router = await renderAt('/', 'owner')
   await waitForUI(() => {
     expect(labels()).toEqual(adminLabels)
   })
-  await renderAt(projectPath, 'owner')
+  await act(() => router.navigate({ to: projectPath }))
   await waitForUI(() => {
     expect(labels()).toEqual(['Back to organization', ...projectLabels])
   })
