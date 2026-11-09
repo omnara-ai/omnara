@@ -20,7 +20,6 @@ import (
 	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
-// Frames arrive at 1s (metadata), 2s (first token), and 3s (terminal); usage is 100 input, 40 cached.
 var callTraceStreams = map[string][3]string{
 	"chat": {
 		": OPENROUTER PROCESSING\n\n" +
@@ -57,7 +56,6 @@ var callTraceStreams = map[string][3]string{
 	},
 }
 
-// Frames arrive at 1s (metadata), 2s (tool name), and 3s (arguments).
 var callTraceToolStreams = map[string][3]string{
 	"chat": {
 		`data: {"id":"c1","model":"test-model","choices":[{"index":0,"delta":{"role":"assistant"}}]}` + "\n\n",
@@ -95,7 +93,6 @@ func sseFrame(event, data string) string {
 	return "event: " + event + "\ndata: " + data + "\n\n"
 }
 
-// scriptedTransport returns headers at 500ms.
 func scriptedTransport(frames [3]string) http.RoundTripper {
 	return timeoutRoundTrip(func(req *http.Request) (*http.Response, error) {
 		_, _ = io.Copy(io.Discard, req.Body)
@@ -355,6 +352,25 @@ func TestRespondCacheRatioNeedsReportedCacheCount(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestRespondKeepsCacheWritesWithoutCacheReadCount(t *testing.T) {
+	var frames [3]string
+	for i, frame := range callTraceStreams["anthropic"] {
+		frames[i] = strings.Replace(frame, `"cache_read_input_tokens":40`, `"cache_creation_input_tokens":40`, 1)
+	}
+	synctest.Test(t, func(t *testing.T) {
+		event, scraped := respondOnce(t, "anthropic", frames)
+		if event["model_call.usage.cache_write_tokens"] != float64(40) || event["model_call.usage.cached_tokens"] != nil ||
+			event["model_call.cache_ratio"] != nil {
+			t.Fatalf("cache write = %#v cached = %#v ratio = %#v", event["model_call.usage.cache_write_tokens"],
+				event["model_call.usage.cached_tokens"], event["model_call.cache_ratio"])
+		}
+		if !strings.Contains(scraped, `omnara_model_call_cache_write_input_tokens_total{api_format="anthropic-messages",`+
+			`api_variant="default",model="test-model",provider="example.test"} 40`) {
+			t.Fatalf("cache writes not recorded:\n%s", scraped)
+		}
+	})
 }
 
 func respondOnce(t *testing.T, name string, frames [3]string) (map[string]any, string) {

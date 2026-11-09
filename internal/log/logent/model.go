@@ -123,9 +123,9 @@ func (r ModelCallRecord) CacheRatio() (float64, bool) {
 func ModelCall(ctx context.Context, r ModelCallRecord) {
 	var input, cached, cacheWrite, output, reasoning, cacheRatio any
 	if u := r.Usage; r.UsageReported() {
-		input, output, reasoning = u.InputTokens, u.OutputTokens, u.ReasoningTokens
+		input, cacheWrite, output, reasoning = u.InputTokens, u.CacheWriteTokens, u.OutputTokens, u.ReasoningTokens
 		if u.CacheReported {
-			cached, cacheWrite = u.CacheReadTokens, u.CacheWriteTokens
+			cached = u.CacheReadTokens
 		}
 	}
 	if ratio, ok := r.CacheRatio(); ok {

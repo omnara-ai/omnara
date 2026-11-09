@@ -311,8 +311,8 @@ type chatUsage struct {
 	// Cache reads on OpenAI-compatible hosts that predate prompt_tokens_details:
 	// https://api-docs.deepseek.com/guides/kv_cache (prompt_cache_hit_tokens) and
 	// https://platform.kimi.ai/docs/api/chat (cached_tokens).
-	PromptCacheHitTokens    *lenientInt      `json:"prompt_cache_hit_tokens,omitempty"`
-	CachedTokens            *lenientInt      `json:"cached_tokens,omitempty"`
+	PromptCacheHitTokens    lenientCount     `json:"prompt_cache_hit_tokens,omitzero"`
+	CachedTokens            lenientCount     `json:"cached_tokens,omitzero"`
 	CompletionTokens        int              `json:"completion_tokens"`
 	OpenRouterCost          json.RawMessage  `json:"cost,omitempty"`
 	OpenRouterCostDetails   json.RawMessage  `json:"cost_details,omitempty"`
@@ -380,11 +380,11 @@ func usageFromResponse(usage chatUsage) model.Usage {
 		return model.Usage{}
 	}
 	cache := usage.PromptTokensDetails
-	if usage.PromptCacheHitTokens != nil || usage.CachedTokens != nil {
+	if usage.PromptCacheHitTokens.valid || usage.CachedTokens.valid {
 		cache.CachedTokens.Reported = true
 	}
 	if cache.CachedTokens.Count == 0 {
-		cache.CachedTokens.Count = max(usage.PromptCacheHitTokens.value(), usage.CachedTokens.value())
+		cache.CachedTokens.Count = max(usage.PromptCacheHitTokens.count, usage.CachedTokens.count)
 	}
 	if cache.CachedTokens.Count < 0 || cache.CacheWriteTokens < 0 ||
 		cache.CachedTokens.Count > usage.PromptTokens ||

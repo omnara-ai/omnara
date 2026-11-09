@@ -501,7 +501,6 @@ func (s *chatStreamChoiceState) applyToolDelta(
 	acc *chatStreamAccumulator,
 	delta chatStreamToolCallDelta,
 ) {
-	// Arguments can arrive before the ID and name and are held back from the sink until then.
 	route.MarkToken(ctx, delta.Function.Name+delta.Function.Arguments)
 	tool := s.tool(delta.Index)
 	if delta.ID != "" {

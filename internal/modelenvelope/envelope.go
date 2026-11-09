@@ -220,12 +220,11 @@ type Usage struct {
 	InputTokens         int `json:"input_tokens_total,omitempty"`
 	UncachedInputTokens int `json:"uncached_input_tokens,omitempty"`
 	// OutputTokens includes visible output and reasoning tokens.
-	OutputTokens     int `json:"output_tokens_total,omitempty"`
-	ReasoningTokens  int `json:"reasoning_output_tokens,omitempty"`
-	CacheReadTokens  int `json:"cache_read_input_tokens,omitempty"`
-	CacheWriteTokens int `json:"cache_write_input_tokens,omitempty"`
-	// Without a reported cache-read count, CacheReadTokens is unmeasured rather than zero.
-	CacheReported bool `json:"-"`
+	OutputTokens     int  `json:"output_tokens_total,omitempty"`
+	ReasoningTokens  int  `json:"reasoning_output_tokens,omitempty"`
+	CacheReadTokens  int  `json:"cache_read_input_tokens,omitempty"`
+	CacheWriteTokens int  `json:"cache_write_input_tokens,omitempty"`
+	CacheReported    bool `json:"-"`
 }
 
 type ReportedCount struct {

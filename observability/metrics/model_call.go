@@ -100,14 +100,13 @@ func (m *ModelCallRecorder) Observe(s ModelCallSample) {
 	m.durationSeconds.WithLabelValues(model...).Observe(s.Duration.Seconds())
 	var usageMissing, input, cached, cacheWrite, cacheMeasured, output, reasoning int
 	if s.UsageReported {
-		input, output, reasoning = s.InputTokens, s.OutputTokens, s.ReasoningTokens
+		input, cacheWrite, output, reasoning = s.InputTokens, s.CacheWriteTokens, s.OutputTokens, s.ReasoningTokens
 		if s.CacheReported {
-			cached, cacheWrite, cacheMeasured = s.CachedInputTokens, s.CacheWriteTokens, s.InputTokens
+			cached, cacheMeasured = s.CachedInputTokens, s.InputTokens
 		}
 	} else {
 		usageMissing = 1
 	}
-	// Touch every counter so they all appear together and increase() ratios cover the same attempts.
 	for _, c := range []struct {
 		vec   *prometheus.CounterVec
 		value int

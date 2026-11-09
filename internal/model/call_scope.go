@@ -10,7 +10,6 @@ const (
 	CallPurposeUnknown    CallPurpose = "unknown"
 )
 
-// CallScope identifies the logical model call that a provider attempt belongs to.
 type CallScope struct {
 	Purpose            CallPurpose
 	ModelCallContextID string

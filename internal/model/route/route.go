@@ -676,7 +676,6 @@ func MatchesMediaType(contentType, expected string) bool {
 	return strings.TrimSpace(mediaType) == strings.ToLower(strings.TrimSpace(expected))
 }
 
-// callAttempt holds what route measures while one provider attempt runs.
 type callAttempt struct {
 	started        time.Time
 	statusCode     int
@@ -709,7 +708,6 @@ type callAttemptKey struct{}
 
 type modelCallMetricsKey struct{}
 
-// WithModelCallMetrics makes model calls under ctx report to recorder.
 func WithModelCallMetrics(ctx context.Context, recorder *metrics.ModelCallRecorder) context.Context {
 	if recorder == nil {
 		return ctx
@@ -717,8 +715,6 @@ func WithModelCallMetrics(ctx context.Context, recorder *metrics.ModelCallRecord
 	return context.WithValue(ctx, modelCallMetricsKey{}, recorder)
 }
 
-// MarkToken lets a decoder that holds output back from the stream sink mark
-// the first token when it arrives.
 func MarkToken(ctx context.Context, payload string) {
 	if attempt, ok := ctx.Value(callAttemptKey{}).(*callAttempt); ok {
 		attempt.markToken(payload)
@@ -753,7 +749,6 @@ func modelCallOutcome(ctx context.Context, err error) (logent.ModelCallOutcome, 
 	return logent.ModelCallError, model.ProviderError{Kind: model.ErrorKindUnknown}
 }
 
-// A tool call's name counts as its first token: the model generates it before the arguments.
 type timingSink struct {
 	next    model.StreamSink
 	attempt *callAttempt
