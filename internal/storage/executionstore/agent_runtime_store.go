@@ -53,6 +53,7 @@ type AgentRecord struct {
 	UpdatedAt           time.Time  `json:"updated_at"`
 	ArchivedAt          *time.Time `json:"archived_at,omitempty"`
 	ParentAgentID       uuid.UUID  `json:"parent_agent_id,omitempty"`
+	RootAgentID         uuid.UUID  `json:"root_agent_id"`
 	SubagentKey         string     `json:"subagent_key,omitempty"`
 	Activity            *AgentActivity
 	Created             bool `json:"-"`

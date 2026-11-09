@@ -170,8 +170,8 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 		result := AcceptedOutput{ID: output.ID, Event: event, Created: true}
 		for _, call := range proposals {
 			if err = q.CreateExecutionToolProposal(ctx, h.unit.DB(), executiondb.CreateExecutionToolProposalParams{
-				ID: call.ID, AgentID: h.route.AgentID, OutputID: output.ID, ProviderCallID: call.ProviderCallID,
-				Name: call.Name, Input: call.Input, Type: call.Type}); err != nil {
+				ID: call.ID, ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, OutputID: output.ID,
+				ProviderCallID: call.ProviderCallID, Name: call.Name, Input: call.Input, Type: call.Type}); err != nil {
 				return AcceptedOutput{}, err
 			}
 			h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, call.ID, "awaiting_authorization", nil)

@@ -64,6 +64,7 @@ type Server struct {
 	recorder                            *metrics.HTTPRecorder
 	integrationInboxIntake              *metrics.IntegrationInboxIntakeRecorder
 	daemonRecorder                      *metrics.DaemonRecorder
+	agentStreamRecorder                 *metrics.AgentStreamRecorder
 	agentConfigOptions                  agentconfig.CompileOptions
 	allowInsecureModelProviderEndpoints bool
 	modelDiscoverer                     modelprovider.DiscoverFunc
@@ -249,6 +250,10 @@ func WithMCPRegistry(registry *mcpregistry.Registry) Option {
 	return func(s *Server) {
 		s.mcpRegistry = registry
 	}
+}
+
+func WithAgentStreamRecorder(recorder *metrics.AgentStreamRecorder) Option {
+	return func(s *Server) { s.agentStreamRecorder = recorder }
 }
 
 func WithHTTPRecorder(recorder *metrics.HTTPRecorder) Option {

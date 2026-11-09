@@ -22,7 +22,11 @@ export function renderIntegration(
     publicURL: 'https://omnara.test',
   },
 ) {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
+  const client = createOmnaraClient({
+    baseUrl: 'https://omnara.test/api/v1',
+    fetch: api.fetch,
+    maxRetries: 0,
+  })
   const cache = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
   })

@@ -153,8 +153,8 @@ func publicArtifactResponseFromRecord(
 	return response, nil
 }
 
-func publicToolCallFromRecord(
-	record executionstore.ToolCallRecord,
+func publicToolCallFromSummary(
+	record executionstore.ToolCallSummary,
 ) (openapi.ToolCall, error) {
 	toolCallID, err := publicID(publicid.KindToolCall, record.ID)
 	if err != nil {

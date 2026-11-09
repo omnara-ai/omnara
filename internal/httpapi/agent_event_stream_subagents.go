@@ -4,38 +4,47 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/notifications"
 )
 
+type toolCallStreamUpdate struct {
+	notifications.ToolCallUpdatedCommitted
+	agent publicevents.AgentContext
+}
+
 type subagentStreamSubscriptions struct {
+	orgID         uuid.UUID
 	server        *Server
 	projectID     uuid.UUID
-	rootAgentID   uuid.UUID
-	updates       chan<- notifications.ToolCallUpdatedCommitted
+	streamAgentID uuid.UUID
+	updates       chan<- toolCallStreamUpdate
 	subscriptions map[uuid.UUID]notifications.Subscription
 }
 
 func newSubagentStreamSubscriptions(
 	server *Server,
-	projectID, rootAgentID uuid.UUID,
-	updates chan<- notifications.ToolCallUpdatedCommitted,
+	orgID, projectID, streamAgentID uuid.UUID,
+	updates chan<- toolCallStreamUpdate,
 ) *subagentStreamSubscriptions {
 	return &subagentStreamSubscriptions{
 		server:        server,
+		orgID:         orgID,
 		projectID:     projectID,
-		rootAgentID:   rootAgentID,
+		streamAgentID: streamAgentID,
 		updates:       updates,
 		subscriptions: map[uuid.UUID]notifications.Subscription{},
 	}
 }
 
 func (s *subagentStreamSubscriptions) refresh(ctx context.Context) error {
-	descendants, err := s.server.store.Execution().ListAgentDescendantIDs(ctx, s.projectID, s.rootAgentID)
+	descendants, err := s.server.store.Execution().ListAgentDescendants(ctx, s.projectID, s.streamAgentID)
 	if err != nil {
 		return err
 	}
 	current := make(map[uuid.UUID]struct{}, len(descendants))
-	for _, agentID := range descendants {
+	for _, agent := range descendants {
+		agentID := agent.ID
 		current[agentID] = struct{}{}
 		if _, ok := s.subscriptions[agentID]; ok {
 			continue
@@ -45,15 +54,16 @@ func (s *subagentStreamSubscriptions) refresh(ctx context.Context) error {
 			agentID,
 			func(_ context.Context, update notifications.ToolCallUpdatedCommitted) {
 				select {
-				case s.updates <- update:
+				case s.updates <- toolCallStreamUpdate{
+					ToolCallUpdatedCommitted: update,
+					agent: publicevents.AgentContext{
+						OrgID: s.orgID, ProjectID: s.projectID,
+						AgentID: agentID, AgentProfileID: agent.AgentProfileID,
+						ParentAgentID: agent.ParentAgentID, RootAgentID: agent.RootAgentID,
+					},
+				}:
 				default:
-					if s.server.log != nil {
-						s.server.log.Debug(
-							"drop subagent tool call update because subscriber buffer is full",
-							"agent_id",
-							agentID,
-						)
-					}
+					s.server.agentStreamRecorder.RecordDrop("tool_call_update")
 				}
 			},
 		)

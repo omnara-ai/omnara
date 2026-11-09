@@ -3,6 +3,7 @@ import type { EventWebhook, EventWebhookEventType, EventWebhookScope } from '@om
 import { useForm } from '@tanstack/react-form'
 import { useId, useState } from 'react'
 
+import { EventWebhookScopeField } from '@/components/projects/EventWebhookScopeField'
 import { SecretSelect } from '@/components/secrets/SecretTypeaheadField'
 import { Button } from '@/components/ui/button'
 import {
@@ -45,13 +46,11 @@ function urlError(value: string) {
 export function EventWebhookDialog({
   orgId,
   projectId,
-  scope,
   webhook,
   onClose,
 }: {
   orgId: string
   projectId: string
-  scope: EventWebhookScope
   webhook?: EventWebhook
   onClose: () => void
 }) {
@@ -61,17 +60,32 @@ export function EventWebhookDialog({
   const [error, setError] = useState('')
   const id = useId()
   const eventTypes: EventWebhookEventType[] = webhook?.event_types ?? ['tool_call_update']
+  const initialScope: EventWebhookScope = webhook?.scope ?? { type: 'project' }
+  const initialSelectionId =
+    initialScope.type === 'project'
+      ? undefined
+      : initialScope.type === 'agent'
+        ? initialScope.agent_id
+        : initialScope.agent_profile_id
   const form = useForm({
     defaultValues: {
+      scope: initialScope,
       url: webhook?.url ?? '',
       eventTypes,
       signingSecretId: webhook?.signing_secret_id ?? '',
     },
     onSubmit: async ({ value }) => {
-      if (pending || urlError(value.url) || value.eventTypes.length === 0) return
+      if (
+        pending ||
+        urlError(value.url) ||
+        value.eventTypes.length === 0 ||
+        !hasWebhookSelection(value.scope)
+      )
+        return
       setError('')
       try {
         const settings = {
+          scope: value.scope,
           url: value.url.trim(),
           event_types: value.eventTypes,
         }
@@ -84,7 +98,6 @@ export function EventWebhookDialog({
         else
           await create.mutateAsync({
             ...settings,
-            scope,
             signing_secret_id: value.signingSecretId || undefined,
           })
         onClose()
@@ -105,9 +118,8 @@ export function EventWebhookDialog({
         <DialogHeader>
           <DialogTitle>{webhook ? 'Edit webhook' : 'Add webhook'}</DialogTitle>
           <DialogDescription>
-            {scope.type === 'profile'
-              ? 'Receive future events from existing and new agents of this profile.'
-              : 'Receive future events from this agent only, not its descendants.'}
+            Choose the events to send to your endpoint. Notifications already queued can still
+            arrive after an edit.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -118,6 +130,24 @@ export function EventWebhookDialog({
         >
           <fieldset disabled={pending}>
             <FieldGroup>
+              <form.Field name="scope">
+                {(field) => (
+                  <EventWebhookScopeField
+                    orgId={orgId}
+                    projectId={projectId}
+                    value={field.state.value}
+                    initialSelection={
+                      initialSelectionId
+                        ? {
+                            id: initialSelectionId,
+                            name: webhook?.scope_name ?? initialSelectionId,
+                          }
+                        : undefined
+                    }
+                    onChange={field.handleChange}
+                  />
+                )}
+              </form.Field>
               <form.Field name="url">
                 {(field) => (
                   <Field>
@@ -199,7 +229,12 @@ export function EventWebhookDialog({
                   <Button
                     type="submit"
                     loading={pending}
-                    disabled={pending || !!urlError(value.url) || value.eventTypes.length === 0}
+                    disabled={
+                      pending ||
+                      !!urlError(value.url) ||
+                      value.eventTypes.length === 0 ||
+                      !hasWebhookSelection(value.scope)
+                    }
                   >
                     {webhook ? 'Save changes' : 'Create webhook'}
                   </Button>
@@ -210,5 +245,12 @@ export function EventWebhookDialog({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function hasWebhookSelection(scope: EventWebhookScope) {
+  return (
+    scope.type === 'project' ||
+    (scope.type === 'profile' ? !!scope.agent_profile_id : !!scope.agent_id)
   )
 }

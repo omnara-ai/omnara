@@ -72,6 +72,11 @@ async function renderAt(path: string, role: 'owner' | 'member') {
         path: '/projects/$projectId/models',
         component: shell,
       }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/projects/$projectId/webhooks',
+        component: shell,
+      }),
     ]),
     history: createMemoryHistory({ initialEntries: [path] }),
   })
@@ -116,41 +121,49 @@ const adminLabels = [
   'Members',
   'API Tokens',
 ]
+const projectLabels = [...adminLabels.slice(0, 3), 'Webhooks', ...adminLabels.slice(3)]
 
-it('keeps every item in place, with a way back above the project items', async () => {
+it('adds project webhooks while preserving shared sections and the way back', async () => {
   await renderAt('/', 'owner')
   await waitForUI(() => {
     expect(labels()).toEqual(adminLabels)
   })
   await renderAt(projectPath, 'owner')
   await waitForUI(() => {
-    expect(labels()).toEqual(['Back to organization', ...adminLabels])
+    expect(labels()).toEqual(['Back to organization', ...projectLabels])
   })
 })
 
-it('points scoped items at the project and org-wide items at the organization', async () => {
-  await renderAt(`${projectPath}/models`, 'owner')
-  await waitForUI(() => {
-    expect(links()).toEqual(
-      expect.arrayContaining([
-        { label: 'Back to organization', href: '/models' },
-        { label: 'Overview', href: projectPath },
-        { label: 'Models', href: `${projectPath}/models` },
-        { label: 'Members', href: '/members' },
-        { label: 'API Tokens', href: '/api-tokens' },
-      ]),
-    )
-  })
-  const active = container.querySelector('[data-active="true"]')
-  expect(active?.textContent).toBe('Models')
-})
+it.each([
+  { section: 'models', label: 'Models', back: '/models' },
+  { section: 'webhooks', label: 'Webhooks', back: '/' },
+])(
+  'navigates from project $section and back to the organization',
+  async ({ section, label, back }) => {
+    await renderAt(`${projectPath}/${section}`, 'owner')
+    await waitForUI(() => {
+      expect(links()).toEqual(
+        expect.arrayContaining([
+          { label: 'Back to organization', href: back },
+          { label: 'Overview', href: projectPath },
+          { label: 'Models', href: `${projectPath}/models` },
+          { label: 'Webhooks', href: `${projectPath}/webhooks` },
+          { label: 'Members', href: '/members' },
+          { label: 'API Tokens', href: '/api-tokens' },
+        ]),
+      )
+    })
+    const active = container.querySelector('[data-active="true"]')
+    expect(active?.textContent).toBe(label)
+  },
+)
 
 it('hides API tokens and credits from members', async () => {
   await renderAt(projectPath, 'member')
   await waitForUI(() => {
     expect(labels()).toEqual([
       'Back to organization',
-      ...adminLabels.filter((label) => label !== 'API Tokens' && label !== 'Credits'),
+      ...projectLabels.filter((label) => label !== 'API Tokens' && label !== 'Credits'),
     ])
   })
 })

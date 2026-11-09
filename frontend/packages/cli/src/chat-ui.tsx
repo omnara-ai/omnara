@@ -406,6 +406,7 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
         <InteractionPrompt
           key={interaction.id}
           interaction={interaction}
+          agentID={scope.agentID}
           onAnswer={(answers) => {
             void resolveInteraction
               .mutateAsync({

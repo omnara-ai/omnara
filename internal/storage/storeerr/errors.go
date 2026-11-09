@@ -62,6 +62,7 @@ var (
 		"process action report is blocked by earlier non-terminal action",
 	)
 	ErrStateTransitionConflict      = errors.New("state transition conflict")
+	ErrToolCallCompleted            = fmt.Errorf("tool call already completed: %w", ErrStateTransitionConflict)
 	ErrMachineProviderUnavailable   = errors.New("machine provider unavailable")
 	ErrPermanentEnvironment         = errors.New("permanent environment resolution error")
 	ErrModelGrantUnavailable        = errors.New("model grant unavailable")

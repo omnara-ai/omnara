@@ -430,7 +430,7 @@ func (s *Store) CreateProjectMachinePoolGrant(
 			},
 		)
 		if replayErr == nil {
-			grant := projectMachinePoolGrantFromIdempotency(replay)
+			grant := projectMachinePoolGrantFromSQLC(dbsqlc.GetProjectMachinePoolGrantRow(replay))
 			if !sameProjectMachinePoolGrantCreateIntent(grant, input, config) {
 				return ProjectMachinePoolGrantRecord{}, storeerr.ErrIdempotencyConflict
 			}
@@ -523,7 +523,7 @@ func (s *Store) CreateProjectMachinePoolGrant(
 		}
 		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("upsert project machine pool grant: %w", err)
 	}
-	grant := projectMachinePoolGrantFromUpsert(row)
+	grant := projectMachinePoolGrantFromSQLC(dbsqlc.GetProjectMachinePoolGrantRow(row))
 	grant.Created = true
 	if err := tx.Commit(ctx); err != nil {
 		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("commit create project machine pool grant: %w", err)
@@ -606,7 +606,7 @@ func (s *Store) UpdateProjectMachinePoolGrant(
 		}
 		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("get project machine pool grant for update: %w", err)
 	}
-	current := projectMachinePoolGrantFromGet(row)
+	current := projectMachinePoolGrantFromSQLC(row)
 	description := current.Description
 	if input.Description != nil {
 		description = *input.Description
@@ -670,7 +670,7 @@ func (s *Store) UpdateProjectMachinePoolGrant(
 	if err := tx.Commit(ctx); err != nil {
 		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("commit update project machine pool grant: %w", err)
 	}
-	return projectMachinePoolGrantFromUpdate(updated), nil
+	return projectMachinePoolGrantFromSQLC(dbsqlc.GetProjectMachinePoolGrantRow(updated)), nil
 }
 
 func (s *Store) GetProjectMachinePoolGrant(
@@ -684,7 +684,7 @@ func (s *Store) GetProjectMachinePoolGrant(
 	if err != nil {
 		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("get project machine pool grant: %w", err)
 	}
-	return projectMachinePoolGrantFromGet(row), nil
+	return projectMachinePoolGrantFromSQLC(row), nil
 }
 
 func (s *Store) GetActiveProjectMachinePoolGrantForMachinePool(
@@ -903,7 +903,7 @@ func (s *Store) deleteProjectMachinePoolGrantOnce(
 		return DeleteProjectMachinePoolGrantResult{}, err
 	}
 	result := DeleteProjectMachinePoolGrantResult{
-		Grant:    projectMachinePoolGrantFromDelete(row),
+		Grant:    projectMachinePoolGrantFromSQLC(dbsqlc.GetProjectMachinePoolGrantRow(row)),
 		Machines: make([]MachineRecord, 0, len(machineRows)),
 	}
 	for _, machineRow := range machineRows {

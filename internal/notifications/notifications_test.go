@@ -2,13 +2,19 @@ package notifications
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 type fakePresenceStore struct {
@@ -459,6 +465,8 @@ type recordingEntry struct {
 	Reason string
 }
 
+func (r *recordingRecorder) RecordPublisherQueue(int, func() int) {}
+
 func (r *recordingRecorder) RecordNotification(intent, result, reason string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -583,8 +591,35 @@ func TestRoutedPublisherPreservesToolCallUpdates(t *testing.T) {
 		{AgentID: agentID, ToolCallID: toolCallID, State: "awaiting_authorization"},
 		{AgentID: agentID, ToolCallID: toolCallID, State: "ready"},
 	}
-	if got := bus.toolCallSnapshot(); !slices.Equal(got, want) {
+	if got := bus.toolCallSnapshot(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tool call updates = %+v, want %+v", got, want)
+	}
+}
+
+func TestAddReadyCustomToolCallUpdateCarriesEncodedInputWithinLimit(t *testing.T) {
+	agentID, toolCallID := uuid.New(), uuid.New()
+	ones := MaxToolCallUpdateInputBytes/2 - 1
+	for _, tc := range []struct {
+		name  string
+		input json.RawMessage
+		want  json.RawMessage
+	}{
+		{"small", json.RawMessage(`{"email": "ada@example.com"}`), json.RawMessage(`{"email":"ada@example.com"}`)},
+		{
+			"spaced",
+			json.RawMessage("[" + strings.Repeat("1, ", ones-1) + "1]"),
+			json.RawMessage("[" + strings.Repeat("1,", ones-1) + "1]"),
+		},
+		{"escaped", json.RawMessage(`"` + strings.Repeat("<", MaxToolCallUpdateInputBytes/4) + `"`), nil},
+	} {
+		tx := NewTxNotifications()
+		tx.AddReadyCustomToolCallUpdate(agentID, toolCallID, "lookup_customer", tc.input, nil)
+		want := ToolCallUpdatedCommitted{
+			AgentID: agentID, ToolCallID: toolCallID, State: "ready", Name: "lookup_customer", Input: tc.want,
+		}
+		if got := tx.ToolCallUpdates(); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+			t.Fatalf("%s update = %+v, want %+v", tc.name, got, want)
+		}
 	}
 }
 
@@ -1071,6 +1106,11 @@ func TestRoutedPublisherRecordsIntentLabelPerType(t *testing.T) {
 }
 
 func TestNotificationIntentLabels(t *testing.T) {
+	set := metrics.New()
+	metrics.NewNotificationRecorder(set)
+	response := httptest.NewRecorder()
+	set.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+	initial := response.Body.String()
 	cases := []struct {
 		intent PostCommitIntent
 		want   string
@@ -1085,6 +1125,11 @@ func TestNotificationIntentLabels(t *testing.T) {
 	for _, tc := range cases {
 		if got := notificationIntentLabel(tc.intent); got != tc.want {
 			t.Errorf("notificationIntentLabel(%T) = %q, want %q", tc.intent, got, tc.want)
+		}
+		series := `omnara_notifications_total{intent="` + tc.want + `",reason="queue_full",result="dropped"} 0`
+		_, direct := tc.intent.(WorkerControlCommitted)
+		if present := strings.Contains(initial, series); present == direct {
+			t.Errorf("initial overflow metric for %T: present=%t, want %t", tc.intent, present, !direct)
 		}
 	}
 }

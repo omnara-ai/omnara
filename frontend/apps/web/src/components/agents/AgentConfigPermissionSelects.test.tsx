@@ -144,7 +144,7 @@ function testProviders(routes: FakeRoute[] = []) {
         }),
     },
   ])
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', maxRetries: 0 })
   client.setConfig({ fetch: api.fetch })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createRouter({

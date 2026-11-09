@@ -525,23 +525,6 @@ func (q *Queries) ConsumeUserAuthToken(ctx context.Context, arg ConsumeUserAuthT
 	return result.RowsAffected(), nil
 }
 
-const countOrgMemberships = `-- name: CountOrgMemberships :one
-SELECT count(*)::bigint
-FROM org_memberships
-WHERE org_id = $1
-`
-
-type CountOrgMembershipsParams struct {
-	OrgID uuid.UUID
-}
-
-func (q *Queries) CountOrgMemberships(ctx context.Context, arg CountOrgMembershipsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countOrgMemberships, arg.OrgID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const countOrgMembershipsForUser = `-- name: CountOrgMembershipsForUser :one
 SELECT count(*)::bigint
 FROM org_memberships om

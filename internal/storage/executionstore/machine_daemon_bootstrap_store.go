@@ -125,7 +125,7 @@ func createBYOMachineDaemonTokenTx(
 	track(resourceguard.Creation{
 		Kind: resourceguard.MachineDaemonTokens, OrgID: input.OrgID, MachineID: input.MachineID,
 	})
-	return machineDaemonTokenFromCreate(row), nil
+	return machineDaemonTokenFromSQLC(row), nil
 }
 
 type BeginPoolMachineProviderProvisioningInput struct {
@@ -288,7 +288,7 @@ func (s *Store) ListBYOMachineDaemonTokens(
 	}
 	result.Tokens = make([]MachineDaemonTokenRecord, 0, len(rows))
 	for _, row := range rows {
-		result.Tokens = append(result.Tokens, machineDaemonTokenFromList(row))
+		result.Tokens = append(result.Tokens, machineDaemonTokenFromSQLC(row))
 	}
 	return result, nil
 }
@@ -306,7 +306,7 @@ func (s *Store) ListAllMachineDaemonTokens(
 	}
 	out := make([]MachineDaemonTokenRecord, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, machineDaemonTokenFromList(row))
+		out = append(out, machineDaemonTokenFromSQLC(row))
 	}
 	return out, nil
 }
@@ -408,7 +408,7 @@ func (s *Store) RevokeBYOMachineDaemonTokenInUnit(
 			return MachineDaemonTokenRecord{}, err
 		}
 	}
-	return machineDaemonTokenFromRevoke(row), nil
+	return machineDaemonTokenFromSQLC(row), nil
 }
 
 func (s *Store) AuthenticateMachineDaemonToken(

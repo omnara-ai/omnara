@@ -48,6 +48,9 @@ jobs:
 
       - run: make verify-static
 
+      - name: Validate delivery alert rules
+        run: make prometheus-check
+
       - name: Protect released migrations and check API compatibility
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         env:
@@ -214,6 +217,14 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
           make install-chroot-sandbox
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        if: matrix.target == 'test-integration-httpapi'
+        with:
+          node-version-file: .node-version
+
+      - run: corepack enable
+        if: matrix.target == 'test-integration-httpapi'
 
       - uses: ./.github/actions/setup-test-db
 

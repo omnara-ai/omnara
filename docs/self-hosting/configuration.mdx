@@ -62,6 +62,10 @@ Alert on sustained `omnara_agent_oldest_ready_age_seconds` with a fresh sample. 
 utilization alongside the backlog means workers are at capacity; low utilization points to
 a claiming or scheduling problem instead.
 
+### Monitoring event delivery
+
+See the [event-delivery monitoring guide](https://github.com/omnara-ai/omnara/blob/main/observability/README.md#event-delivery) for metrics and Prometheus alert setup.
+
 ### Integration inbox operation
 
 Inbox concurrency is independent of agent-turn concurrency. All worker activity

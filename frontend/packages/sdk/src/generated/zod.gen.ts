@@ -272,6 +272,7 @@ export const zErrorCode = z.enum([
     'idempotency_key_conflict',
     'agent_backlog_full',
     'state_transition_conflict',
+    'tool_call_already_completed',
     'managed_work_admission_denied',
     'pending_work',
     'not_wake_capable',
@@ -574,6 +575,7 @@ export const zMemoryStoreId = z.string().regex(/^mst_[a-z2-7]{26}$/);
 export const zSecretId = z.string().regex(/^sec_[a-z2-7]{26}$/);
 
 export const zUpdateEventWebhookRequest = z.object({
+    scope: zEventWebhookScope.optional(),
     url: z.string().min(1).max(2048).optional(),
     event_types: z.array(zEventWebhookEventType).min(1).optional(),
     signing_secret_id: zSecretId.nullish()
@@ -591,6 +593,7 @@ export const zEventWebhook = z.object({
     event_types: z.array(zEventWebhookEventType).min(1),
     signing_secret_id: zSecretId.optional(),
     scope: zEventWebhookScope,
+    scope_name: zResourceName.optional(),
     id: zEventWebhookId,
     org_id: zOrganizationId,
     project_id: zProjectId,
@@ -599,7 +602,8 @@ export const zEventWebhook = z.object({
 });
 
 export const zListEventWebhooksResponse = z.object({
-    data: z.array(zEventWebhook)
+    data: z.array(zEventWebhook),
+    next_cursor: z.string().nullable()
 });
 
 /**
@@ -1812,6 +1816,9 @@ export const zAgentInputEvent = z.object({
     org_id: zOrganizationId,
     project_id: zProjectId,
     agent_id: zAgentId,
+    agent_profile_id: zAgentProfileId.nullable(),
+    parent_agent_id: zAgentId.nullable(),
+    root_agent_id: zAgentId,
     turn_id: zAgentTurnId,
     turn_sequence: zAgentSequence,
     is_opening_event: z.boolean(),
@@ -1833,6 +1840,9 @@ export const zToolResultEvent = z.object({
     org_id: zOrganizationId,
     project_id: zProjectId,
     agent_id: zAgentId,
+    agent_profile_id: zAgentProfileId.nullable(),
+    parent_agent_id: zAgentId.nullable(),
+    root_agent_id: zAgentId,
     turn_id: zAgentTurnId,
     turn_sequence: zAgentSequence,
     is_opening_event: z.literal(false),
@@ -1849,6 +1859,9 @@ export const zContextCheckpointEvent = z.object({
     org_id: zOrganizationId,
     project_id: zProjectId,
     agent_id: zAgentId,
+    agent_profile_id: zAgentProfileId.nullable(),
+    parent_agent_id: zAgentId.nullable(),
+    root_agent_id: zAgentId,
     turn_id: zAgentTurnId,
     turn_sequence: zAgentSequence,
     is_opening_event: z.literal(false),
@@ -1941,6 +1954,9 @@ export const zModelOutputEvent = z.object({
     org_id: zOrganizationId,
     project_id: zProjectId,
     agent_id: zAgentId,
+    agent_profile_id: zAgentProfileId.nullable(),
+    parent_agent_id: zAgentId.nullable(),
+    root_agent_id: zAgentId,
     turn_id: zAgentTurnId,
     turn_sequence: zAgentSequence,
     is_opening_event: z.literal(false),
@@ -2109,9 +2125,16 @@ export const zAgentInteractionUpdate = z.object({
  * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export const zToolCallUpdate = z.object({
+    org_id: zOrganizationId,
+    project_id: zProjectId,
     tool_call_id: zToolCallId,
-    agent_id: zAgentId.optional(),
+    agent_id: zAgentId,
+    agent_profile_id: zAgentProfileId.nullable(),
+    parent_agent_id: zAgentId.nullable(),
+    root_agent_id: zAgentId,
     state: zToolCallState,
+    name: z.string().optional(),
+    input: zToolInput.optional(),
     interaction_update: zAgentInteractionUpdate.optional()
 });
 
@@ -3828,13 +3851,15 @@ export const zListEventWebhooksPath = z.object({
 });
 
 export const zListEventWebhooksQuery = z.object({
-    scope_type: zEventWebhookScopeType,
+    scope_type: zEventWebhookScopeType.optional(),
     agent_profile_id: zAgentProfileId.optional(),
-    agent_id: zAgentId.optional()
+    agent_id: zAgentId.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
 });
 
 /**
- * Webhooks for the requested scope.
+ * Webhooks matching the requested selection.
  */
 export const zListEventWebhooksResponse2 = zListEventWebhooksResponse;
 
@@ -5205,6 +5230,31 @@ export const zCreateAgentInputPath = z.object({
  */
 export const zCreateAgentInputResponse = zAgentInputEnvelope;
 
+export const zListProjectToolCallsPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+});
+
+export const zListProjectToolCallsQuery = z.object({
+    state: z.enum([
+        'awaiting_authorization',
+        'awaiting_permission',
+        'ready',
+        'running',
+        'waiting'
+    ]).optional(),
+    type: zToolCallType.optional(),
+    names: z.array(z.string().min(1).max(64)).min(1).max(100).optional(),
+    agent_profile_id: zAgentProfileId.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Unfinished tool calls in the project.
+ */
+export const zListProjectToolCallsResponse = zListToolCallsResponse;
+
 export const zListToolCallsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
     projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
@@ -5223,6 +5273,18 @@ export const zListToolCallsQuery = z.object({
  * Current tool calls.
  */
 export const zListToolCallsResponse2 = zListToolCallsResponse;
+
+export const zGetToolCallPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    agentID: z.string().regex(/^agt_[a-z2-7]{26}$/),
+    toolCallID: zToolCallId
+});
+
+/**
+ * Tool call.
+ */
+export const zGetToolCallResponse = zToolCall;
 
 export const zSubmitToolCallResultBody = zSubmitToolCallResultRequest;
 
@@ -5320,6 +5382,23 @@ export const zCancelAgentPath = z.object({
  * Agent canceled.
  */
 export const zCancelAgentResponse2 = zCancelAgentResponse;
+
+export const zListProjectInteractionsPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/)
+});
+
+export const zListProjectInteractionsQuery = z.object({
+    interaction_kind: zAgentInteractionKind.optional(),
+    agent_profile_id: zAgentProfileId.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Open interactions in the project.
+ */
+export const zListProjectInteractionsResponse = zListAgentInteractionsResponse;
 
 export const zListAgentInteractionsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

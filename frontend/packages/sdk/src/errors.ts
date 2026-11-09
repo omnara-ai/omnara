@@ -56,7 +56,7 @@ export class ApiError extends Error {
   }
 }
 
-function parseRetryAfter(value: string | null): number | undefined {
+export function parseRetryAfter(value: string | null): number | undefined {
   if (value == null) return undefined
   const trimmed = value.trim()
   if (/^\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10) * 1_000

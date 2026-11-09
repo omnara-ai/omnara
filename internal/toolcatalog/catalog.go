@@ -21,6 +21,17 @@ const (
 	ToolInputSchemaObject = "object"
 )
 
+type Type string
+
+func (t Type) Valid() bool {
+	switch t {
+	case ToolTypeBuiltIn, ToolTypeCustom, ToolTypeMCP:
+		return true
+	default:
+		return false
+	}
+}
+
 const (
 	FilePageBytes                      = 4 * 1024
 	MaxReadableArtifactBytes           = 48 * 1024 * 1024
