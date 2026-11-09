@@ -269,6 +269,7 @@ func main() {
 		// Program tool calls from `omnarad call` run beside agent work.
 		ProgramToolStore:    store.Execution(),
 		ProgramToolExecutor: executor,
+		ProgramToolWakeups:  redisBus,
 		ProgramToolCapacity: cfg.WorkerProgramToolCapacity,
 	})
 	workerErr := make(chan error, 1)

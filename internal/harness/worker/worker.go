@@ -77,6 +77,9 @@ type Options struct {
 	// calls alongside agent work, sharing the async tool capacity.
 	ProgramToolStore    ProgramToolStore
 	ProgramToolExecutor ProgramToolExecutor
+	// ProgramToolWakeups, when set, has the worker claim a program tool call
+	// as soon as it is claimable instead of at its next poll.
+	ProgramToolWakeups  notifications.ProgramToolWakeupSubscriber
 	ProgramToolCapacity int
 	ProgramToolLease    time.Duration
 }

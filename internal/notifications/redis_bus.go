@@ -187,7 +187,31 @@ func (b *RedisBus) PublishAgentToolCallUpdate(
 	if err != nil {
 		return err
 	}
-	return b.client.Publish(ctx, agentToolCallUpdateChannel(update.AgentID), payload)
+	if err := b.client.Publish(ctx, agentToolCallUpdateChannel(update.AgentID), payload); err != nil {
+		return err
+	}
+	if update.programToolClaimable() {
+		return b.client.Publish(ctx, programToolWakeupChannel, []byte{1})
+	}
+	return nil
+}
+
+func (b *RedisBus) SubscribeProgramToolWakeups(
+	ctx context.Context,
+	handler func(context.Context),
+) (Subscription, error) {
+	if b == nil || b.client == nil {
+		return nil, errors.New("redis bus is closed")
+	}
+	if handler == nil {
+		return nil, errors.New("program tool wakeup handler is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return b.client.Subscribe(ctx, programToolWakeupChannel, b.log, func(ctx context.Context, _ string, _ []byte) {
+		handler(ctx)
+	})
 }
 
 func (b *RedisBus) PublishAgentStreamDelta(
@@ -499,6 +523,10 @@ func agentStreamDeltaChannel(agentID uuid.UUID) string {
 func agentToolCallUpdateChannel(agentID uuid.UUID) string {
 	return "omnara:agent_tool_call_updates:" + agentID.String()
 }
+
+// programToolWakeupChannel reaches every worker: any of them may claim a
+// program tool call.
+const programToolWakeupChannel = "omnara:program_tool_wakeups"
 
 func workerControlChannel(workerProcessID uuid.UUID) string {
 	return "omnara:worker_control:" + workerProcessID.String()

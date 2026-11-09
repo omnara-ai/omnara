@@ -12,9 +12,9 @@ WHERE a.project_id=sqlc.arg(project_id) AND a.id=sqlc.arg(agent_id);
 
 -- name: LoadExecutionFacts :batchone
 WITH batch AS (
-SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id) AND c.caller='model') AS has_tools,
-EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id) AND c.caller='model' AND c.state<>'completed') AS incomplete,
-EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id) AND c.caller='model'
+SELECT EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id)) AS has_tools,
+EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id) AND c.state<>'completed') AS incomplete,
+EXISTS(SELECT 1 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id)
 AND (c.state='awaiting_authorization' OR (c.state='ready' AND c.type IN ('built_in','mcp')))) AS runnable FROM (SELECT 1 WHERE sqlc.narg(tool_output_id)::uuid IS NOT NULL) present
 ), tool_batch AS (
 SELECT b.has_tools,b.incomplete,b.runnable,coalesce(r.calls,0)::bigint AS calls,coalesce(r.results,0)::bigint AS results,
@@ -25,7 +25,7 @@ SELECT count(c.id)::bigint AS calls,count(r.id)::bigint AS results,count(e.id)::
 max(e.sequence)::bigint AS last_sequence,max(r.completed_at)::timestamptz AS ready_at
 FROM tool_calls c LEFT JOIN tool_call_results r ON r.agent_id=c.agent_id AND r.tool_call_id=c.id
 LEFT JOIN agent_events e ON e.agent_id=r.agent_id AND e.tool_call_result_id=r.id
-WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id) AND c.caller='model' AND NOT b.incomplete
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.model_output_id=sqlc.narg(tool_output_id) AND NOT b.incomplete
 ) r ON NOT b.incomplete
 ), scope AS MATERIALIZED (
  SELECT a.id,a.root_agent_id,a.state,statement_timestamp()::timestamptz AS database_now,t.id AS turn_id,

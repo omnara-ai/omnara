@@ -125,18 +125,18 @@ type daemonBootstrap struct {
 type daemonReportedEvent = daemonprotocol.ReportedEvent
 
 type ProcessAssignment struct {
-	GitCredentials      bool                 `json:"git_credentials,omitempty"`
-	GitCredentialHelper *gitCredentialHelper `json:"git_credential_helper,omitempty"`
+	GitCredentials      bool                  `json:"git_credentials,omitempty"`
+	GitCredentialHelper *processServiceHelper `json:"git_credential_helper,omitempty"`
 	// ProgrammaticToolCalls is optional: without a helper the shell runs without `omnarad call`.
-	ProgrammaticToolCalls bool               `json:"programmatic_tool_calls,omitempty"`
-	ProgramToolHelper     *programToolHelper `json:"program_tool_helper,omitempty"`
-	Process               Process            `json:"process"`
-	ID                    string             `json:"process_id"`
-	Env                   map[string]string  `json:"env,omitempty"`
-	PreparationError      string             `json:"preparation_error,omitempty"`
-	WaitMs                int                `json:"wait_ms,omitempty"`
-	TimeoutSeconds        int                `json:"timeout_seconds"`
-	OutputBytes           int                `json:"output_bytes,omitempty"`
+	ProgrammaticToolCalls bool                  `json:"programmatic_tool_calls,omitempty"`
+	ProgramToolHelper     *processServiceHelper `json:"program_tool_helper,omitempty"`
+	Process               Process               `json:"process"`
+	ID                    string                `json:"process_id"`
+	Env                   map[string]string     `json:"env,omitempty"`
+	PreparationError      string                `json:"preparation_error,omitempty"`
+	WaitMs                int                   `json:"wait_ms,omitempty"`
+	TimeoutSeconds        int                   `json:"timeout_seconds"`
+	OutputBytes           int                   `json:"output_bytes,omitempty"`
 	processaction.OutputWait
 }
 

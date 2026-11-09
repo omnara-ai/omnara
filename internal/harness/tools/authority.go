@@ -158,7 +158,7 @@ func (a programClaimAuthority) markReady(
 	if err != nil {
 		return executionstore.ToolCallRecord{}, err
 	}
-	record, err := e.Store.Execution().MarkProgramToolCallReady(ctx, ref)
+	record, err := e.Store.Execution().AuthorizeProgramToolCall(ctx, ref, a.lease)
 	return record.ToolCallRecord, programAuthorityError(err)
 }
 

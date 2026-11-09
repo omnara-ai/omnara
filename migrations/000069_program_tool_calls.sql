@@ -1,29 +1,28 @@
 -- +goose Up
 
 -- Programmatic tool calls: a shell process started by run_command calls other
--- tools through `omnarad call`. Each nested call is a child tool_calls row that
--- shares the owning run_command call's model output, has no tool_call content
--- block or agent events, never holds the runtime lock, and stays outside the
--- model context. Workers execute children under a claim lease instead.
+-- tools through `omnarad call`. Each nested call is a child tool_calls row of
+-- the owning run_command call. Children have no model output, so every query
+-- that reaches tool calls through a model output skips them; they also have no
+-- content block or agent events, never hold the runtime lock, and run under a
+-- worker claim lease instead. provider_call_id holds the client's idempotency
+-- key, unique per parent.
 --
 -- tool_calls is large, so this migration only changes metadata under its
 -- ACCESS EXCLUSIVE lock: new constraints start NOT VALID (enforced for new
--- rows, no scan). 000070 builds the unique indexes concurrently, and 000071
--- attaches them and validates every constraint under weaker locks.
+-- rows, no scan). 000070 builds indexes and validates outside a transaction.
 ALTER TABLE tool_calls
+    ALTER COLUMN model_output_id DROP NOT NULL,
     ADD COLUMN caller text NOT NULL DEFAULT 'model',
     ADD COLUMN parent_tool_call_id uuid,
-    ADD COLUMN program_key text,
     ADD COLUMN program_claim_id uuid,
     ADD COLUMN program_claim_expires_at timestamptz,
-    ADD CONSTRAINT tool_calls_caller_check CHECK (caller IN ('model', 'program')) NOT VALID,
     -- Authorization leases are re-claimable after expiry; execution leases
     -- (waiting) are not, so a child body runs at most once.
-    ADD CONSTRAINT tool_calls_program_shape CHECK (
-        (caller = 'model' AND parent_tool_call_id IS NULL AND program_key IS NULL
+    ADD CONSTRAINT tool_calls_caller_shape CHECK (
+        (caller = 'model' AND model_output_id IS NOT NULL AND parent_tool_call_id IS NULL
             AND program_claim_id IS NULL AND program_claim_expires_at IS NULL)
-        OR (caller = 'program' AND parent_tool_call_id IS NOT NULL AND program_key IS NOT NULL
-            AND program_key <> '' AND octet_length(program_key) <= 200
+        OR (caller = 'program' AND model_output_id IS NULL AND parent_tool_call_id IS NOT NULL
             AND state <> 'running'
             AND (program_claim_id IS NULL) = (program_claim_expires_at IS NULL)
             AND (program_claim_id IS NOT NULL OR state <> 'waiting')
@@ -60,7 +59,7 @@ DROP TRIGGER tool_call_facts_immutable ON tool_calls;
 CREATE TRIGGER tool_call_facts_immutable
 BEFORE UPDATE OF
     id, agent_id, model_output_id, provider_call_id,
-    name, input, type, created_at, caller, parent_tool_call_id, program_key
+    name, input, type, created_at, caller, parent_tool_call_id
 OR DELETE ON tool_calls
 FOR EACH ROW EXECUTE FUNCTION prevent_tool_call_fact_mutation();
 
@@ -135,6 +134,9 @@ END;
 $$;
 -- +goose StatementEnd
 
+-- Program calls have no model output; they read as acting in their parent's
+-- turn and model call context. The parent lookup is gated (and kept from being
+-- flattened by LIMIT) so model calls never probe for a parent.
 CREATE OR REPLACE VIEW tool_call_read_projection AS
 SELECT tool_call.id,
        agent.project_id,
@@ -155,10 +157,16 @@ SELECT tool_call.id,
        tool_call.parent_tool_call_id
 FROM tool_calls tool_call
 JOIN agents agent ON agent.id = tool_call.agent_id
+LEFT JOIN LATERAL (
+    SELECT parent.model_output_id FROM tool_calls parent
+    WHERE tool_call.parent_tool_call_id IS NOT NULL
+      AND parent.agent_id = tool_call.agent_id AND parent.id = tool_call.parent_tool_call_id
+    LIMIT 1
+) parent ON true
 JOIN model_outputs model_output ON model_output.agent_id = tool_call.agent_id
-  AND model_output.id = tool_call.model_output_id
-JOIN agent_events source_event ON source_event.agent_id = tool_call.agent_id
-  AND source_event.model_output_id = tool_call.model_output_id
+  AND model_output.id = coalesce(tool_call.model_output_id, parent.model_output_id)
+JOIN agent_events source_event ON source_event.agent_id = model_output.agent_id
+  AND source_event.model_output_id = model_output.id
   AND source_event.event_kind = 'model_output';
 
 -- Program-call interactions are resolved directly by an actor, without an

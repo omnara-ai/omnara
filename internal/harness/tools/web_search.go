@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/programoutput"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
@@ -142,7 +143,7 @@ func runWebSearch(
 		if results == nil {
 			results = []webaccess.SearchResult{}
 		}
-		content, err := structuredToolResultContent(webSearchProgramResult{Query: resolved.Query, Results: results})
+		content, err := structuredToolResultContent(programoutput.WebSearch{Query: resolved.Query, Results: results})
 		if err != nil {
 			return nil, err
 		}

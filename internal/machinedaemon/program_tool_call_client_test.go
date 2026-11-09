@@ -100,8 +100,8 @@ func reply(status int, body string) func(int, fakeToolCallRequest) (int, http.He
 
 func TestProgramToolCallCLIPrintsStructuredResult(t *testing.T) {
 	daemon := startFakeToolCallDaemon(t, reply(http.StatusOK,
-		`{"state":"completed","outcome":"succeeded","structured":{ "files": [ "a", "b" ] },`+
-			`"content":[{"type":"text","text":"ignored"}]}`))
+		`{"state":"completed","outcome":"succeeded","content":[{"type":"text","text":"ignored"},`+
+			`{"type":"structured_data","value":{ "files": [ "a", "b" ] }},{"type":"structured_data","value":2}]}`))
 	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{
 		Tool: "storage_list", Input: `{ "prefix": "docs/" }`,
 	}, "")
@@ -151,7 +151,7 @@ func TestProgramToolCallCLIPrintsTextOutput(t *testing.T) {
 	require.Equal(t, "hello\nworld\n", stdout)
 
 	startFakeToolCallDaemon(t, reply(http.StatusOK,
-		`{"state":"completed","outcome":"succeeded","structured":{"a":1}}`))
+		`{"state":"completed","outcome":"succeeded","content":[{"type":"structured_data","value":{"a":1}}]}`))
 	code, stdout, _ = runToolCallCLI(t, ProgramToolCallOptions{Tool: "list", Output: ProgramToolCallOutputText}, "")
 	require.Equal(t, ProgramToolCallExitSucceeded, code)
 	require.Equal(t, `{"a":1}`+"\n", stdout, "text output falls back to the result without text")
@@ -168,11 +168,10 @@ func TestProgramToolCallCLIRejectsUnknownOutput(t *testing.T) {
 
 func TestProgramToolCallCLIPrintsContentWithoutText(t *testing.T) {
 	startFakeToolCallDaemon(t, reply(http.StatusOK, `{"state":"completed","outcome":"succeeded",`+
-		`"content":[{"type":"structured_data","value":{"a":1}},{"type":"media_ref","artifact_id":"art_1"}]}`))
+		`"content":[{"type":"media_ref","artifact_id":"art_1"}]}`))
 	code, stdout, _ := runToolCallCLI(t, ProgramToolCallOptions{Tool: "render"}, "")
 	require.Equal(t, ProgramToolCallExitSucceeded, code)
-	require.JSONEq(t, `[{"type":"structured_data","value":{"a":1}},{"type":"media_ref","artifact_id":"art_1"}]`,
-		stdout)
+	require.JSONEq(t, `[{"type":"media_ref","artifact_id":"art_1"}]`, stdout)
 	require.True(t, strings.HasSuffix(stdout, "\n"))
 }
 
@@ -197,7 +196,8 @@ func TestProgramToolCallCLIReportsToolFailure(t *testing.T) {
 }
 
 func TestProgramToolCallCLIPrintsEnvelope(t *testing.T) {
-	envelope := `{"tool_call_id":"tc_1","state":"completed","outcome":"succeeded","structured":{"a":1}}`
+	envelope := `{"tool_call_id":"tc_1","state":"completed","outcome":"succeeded",` +
+		`"content":[{"type":"structured_data","value":{"a":1}}]}`
 	startFakeToolCallDaemon(t, reply(http.StatusOK, envelope))
 	code, stdout, _ := runToolCallCLI(t,
 		ProgramToolCallOptions{Tool: "storage_list", Output: ProgramToolCallOutputEnvelope}, "")
@@ -331,7 +331,7 @@ func TestProgramToolCallCLIReportsUnreachableDaemon(t *testing.T) {
 
 func TestReadProgramToolCallInputLimitsSize(t *testing.T) {
 	_, err := readProgramToolCallInput("-", strings.NewReader(`{"a":"`+
-		strings.Repeat("x", programToolCallMaxRequestBytes)+`"}`))
+		strings.Repeat("x", daemonprotocol.ProgramToolCallMaxInputBytes)+`"}`))
 	require.ErrorContains(t, err, "exceeds 1 MiB")
 	_, err = readProgramToolCallInput("-", errReader{})
 	require.ErrorContains(t, err, "stdin")

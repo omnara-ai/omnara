@@ -13,94 +13,58 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 // Program tool calls are tools a run_command process calls through
 // `omnarad call`. They run under a worker claim with the permissions of the
-// config the process's model call ran under, and never enter model context.
-
-// programReadOnlyBuiltInTools are the built-in tools commands may call in v1.
-var programReadOnlyBuiltInTools = map[string]bool{
-	toolcatalog.ToolNameStorageRead:   true,
-	toolcatalog.ToolNameStorageList:   true,
-	toolcatalog.ToolNameStorageSearch: true,
-	toolcatalog.ToolNameWebSearch:     true,
-	toolcatalog.ToolNameWebFetch:      true,
-}
-
-// ProgramToolCallable reports whether commands may call spec: the config opts
-// in and does not exclude it, and it is an MCP tool, a read-only built-in, or
-// an integration read.
-func ProgramToolCallable(contract agentconfig.RuntimeContract, spec modelcontext.ToolSpec) bool {
-	if contract.ProgrammaticToolExcluded(spec.Name) {
-		return false
-	}
-	switch spec.Type {
-	case toolcatalog.ToolTypeMCP:
-		return toolcatalog.IsMCPRuntimeToolName(spec.Name)
-	case toolcatalog.ToolTypeBuiltIn:
-		if _, operation, ok := toolcatalog.SplitIntegrationToolName(spec.Name); ok {
-			return operation == toolcatalog.IntegrationOperationRead
-		}
-		return programReadOnlyBuiltInTools[spec.Name]
-	default:
-		return false
-	}
-}
+// agent's current config, and never enter model context.
 
 // AgentConfigToolSpecs returns the runtime tools of an agent config, as its
 // model calls see them.
 func AgentConfigToolSpecs(
 	ctx context.Context, store *storage.Store, projectID, agentID, agentConfigID uuid.UUID,
 ) ([]modelcontext.ToolSpec, agentconfig.RuntimeContract, error) {
-	config, found, err := store.Execution().GetAgentConfig(ctx, projectID, agentConfigID)
+	contract, err := agentConfigContract(ctx, store, projectID, agentConfigID)
 	if err != nil {
-		return nil, agentconfig.RuntimeContract{}, err
+		return nil, contract, err
 	}
-	if !found {
-		return nil, agentconfig.RuntimeContract{}, fmt.Errorf("agent config %s not found", agentConfigID)
-	}
-	contract, err := agentconfig.RuntimeContractFromCompiled(config.CompiledDefinition, config.EffectiveDefinitionHash)
-	if err != nil {
-		return nil, agentconfig.RuntimeContract{}, err
-	}
-	specs, err := modelcontext.RuntimeContractToolSpecs(ctx,
-		modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
-		projectID, agentID, contract, time.Now())
+	specs, err := modelcontext.RuntimeContractToolSpecs(ctx, modelContextStore(store), projectID, agentID, contract,
+		time.Now())
 	return specs, contract, err
 }
 
-// ProgramToolSpecs returns the tools commands may call under the agent config
-// a process's model call ran with, with the output schemas of their results.
-func ProgramToolSpecs(
-	ctx context.Context, store *storage.Store, projectID, agentID, agentConfigID uuid.UUID,
-) ([]modelcontext.ToolSpec, error) {
-	specs, contract, err := AgentConfigToolSpecs(ctx, store, projectID, agentID, agentConfigID)
+// AgentConfigToolSpec is AgentConfigToolSpecs for the tool name alone. It
+// loads only what that tool needs.
+func AgentConfigToolSpec(
+	ctx context.Context, store *storage.Store, projectID, agentID, agentConfigID uuid.UUID, name string,
+) (modelcontext.ToolSpec, agentconfig.RuntimeContract, bool, error) {
+	contract, err := agentConfigContract(ctx, store, projectID, agentConfigID)
 	if err != nil {
-		return nil, err
+		return modelcontext.ToolSpec{}, contract, false, err
 	}
-	return ProgramCallableToolSpecs(contract, specs)
+	spec, found, err := modelcontext.RuntimeContractToolSpec(ctx, modelContextStore(store), projectID, agentID,
+		contract, time.Now(), name)
+	return spec, contract, found, err
 }
 
-// ProgramCallableToolSpecs keeps the specs commands may call under contract,
-// with the output schemas of their results. It does not modify specs.
-func ProgramCallableToolSpecs(
-	contract agentconfig.RuntimeContract, specs []modelcontext.ToolSpec,
-) ([]modelcontext.ToolSpec, error) {
-	callable := make([]modelcontext.ToolSpec, 0, len(specs))
-	var err error
-	for _, spec := range specs {
-		if !ProgramToolCallable(contract, spec) {
-			continue
-		}
-		if spec.OutputSchema, err = programOutputSchema(spec); err != nil {
-			return nil, err
-		}
-		callable = append(callable, spec)
+func agentConfigContract(
+	ctx context.Context, store *storage.Store, projectID, agentConfigID uuid.UUID,
+) (agentconfig.RuntimeContract, error) {
+	config, found, err := store.Execution().GetAgentConfig(ctx, projectID, agentConfigID)
+	if err != nil {
+		return agentconfig.RuntimeContract{}, err
 	}
-	return callable, nil
+	if !found {
+		return agentconfig.RuntimeContract{}, fmt.Errorf("agent config %s not found", agentConfigID)
+	}
+	return agentconfig.RuntimeContractFromCompiled(config.CompiledDefinition, config.EffectiveDefinitionHash)
 }
+
+func modelContextStore(store *storage.Store) modelcontext.Store {
+	return modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations())
+}
+
+const programToolCallInternalError = "The tool call failed because of an internal error."
 
 // ProgramToolSearch answers `omnarad call tool_search`. It takes tool_search's
 // input but returns every match unless max_results is set.
@@ -137,7 +101,12 @@ func (e Executor) RunProgramToolCall(
 	if err == nil {
 		switch claim.Phase {
 		case executionstore.ProgramToolCallPhaseAuthorize:
-			_, err = e.PrepareRecordedToolCallPermission(ctx, turn, record)
+			// An allowed call is left waiting under this claim: run it now.
+			var authorized executionstore.ToolCallRecord
+			authorized, err = e.PrepareRecordedToolCallPermission(ctx, turn, record)
+			if err == nil && authorized.State == executionstore.ToolCallStateWaiting {
+				_, err = e.DispatchRecordedToolCall(ctx, turn, authorized)
+			}
 		case executionstore.ProgramToolCallPhaseExecute:
 			_, err = e.DispatchRecordedToolCall(ctx, turn, record)
 		default:
@@ -148,8 +117,9 @@ func (e Executor) RunProgramToolCall(
 		return err
 	}
 	// Fail the call rather than leave it to be re-claimed into the same error.
+	// The command gets a fixed message; the caller logs the error.
 	content, contentErr := structuredToolResultContent(map[string]any{
-		"error_code": "tool_call_failed", "error": err.Error(),
+		"error_code": "tool_call_failed", "error": programToolCallInternalError,
 	})
 	if contentErr != nil {
 		return errors.Join(err, contentErr)
@@ -158,7 +128,7 @@ func (e Executor) RunProgramToolCall(
 	if contentErr != nil {
 		return errors.Join(err, contentErr)
 	}
-	authority := programClaimAuthority{ref: programToolCallRef(claim), lease: lease}
+	authority := programClaimAuthority{ref: claim.Ref(), lease: lease}
 	if _, completeErr := authority.complete(ctx, e, turn, record.ID, executionstore.ToolResultOutcomeFailed,
 		parts); completeErr != nil && !errors.Is(completeErr, storeerr.ErrRuntimeLockInactive) {
 		return errors.Join(err, completeErr)
@@ -166,19 +136,15 @@ func (e Executor) RunProgramToolCall(
 	return err
 }
 
-func programToolCallRef(claim executionstore.ProgramToolCallClaim) executionstore.ProgramToolCallRef {
-	return executionstore.ProgramToolCallRef{ProjectID: claim.ProjectID, AgentID: claim.AgentID,
-		ProcessID: claim.ProcessID, ToolCallID: claim.ID, ClaimID: claim.ClaimID}
-}
-
 // programTurn is the turn a program call acts in: the parent's model call
-// context, the tools commands may call, and the claim as its authority.
+// context, the called tool if commands may call it under the agent's current
+// config, and the claim as its authority.
 func (e Executor) programTurn(
 	ctx context.Context, claim executionstore.ProgramToolCallClaim, lease time.Duration,
 ) (Turn, error) {
 	turn := Turn{ProjectID: claim.ProjectID, AgentID: claim.AgentID, SourceEventID: claim.SourceEventID,
 		ModelCallContextID: claim.ModelCallContextID,
-		authority:          programClaimAuthority{ref: programToolCallRef(claim), lease: lease}}
+		authority:          programClaimAuthority{ref: claim.Ref(), lease: lease}}
 	contextRecord, found, err := e.Store.Execution().
 		GetModelCallContext(ctx, claim.ProjectID, claim.AgentID, claim.ModelCallContextID)
 	if err != nil {
@@ -188,12 +154,17 @@ func (e Executor) programTurn(
 		return turn, fmt.Errorf("model call context %s not found", claim.ModelCallContextID)
 	}
 	turn.OrgID = contextRecord.OrgID
-	specs, err := ProgramToolSpecs(ctx, e.Store, claim.ProjectID, claim.AgentID, contextRecord.AgentConfigID)
+	agent, err := e.Store.Execution().GetAgentInProject(ctx, claim.ProjectID, claim.AgentID)
 	if err != nil {
 		return turn, err
 	}
-	turn.Tools = make(map[string]ToolSpec, len(specs))
-	for _, spec := range specs {
+	spec, contract, found, err := AgentConfigToolSpec(
+		ctx, e.Store, claim.ProjectID, claim.AgentID, agent.CurrentConfigID, claim.Name)
+	if err != nil {
+		return turn, err
+	}
+	turn.Tools = map[string]ToolSpec{}
+	if found && modelcontext.ProgramCallable(contract, spec) {
 		turn.Tools[spec.Name] = ToolSpec{Type: spec.Type, Permission: spec.Permission,
 			Description: spec.Description, InputSchema: spec.InputSchema, Deferred: spec.Deferred}
 	}

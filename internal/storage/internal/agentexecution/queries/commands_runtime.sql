@@ -42,7 +42,7 @@ WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(id) AND runtime_lock_id=sqlc.a
 -- name: ListExecutionUnfinishedTools :many
 SELECT c.id FROM tool_calls c JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
 JOIN model_call_contexts m ON m.agent_id=o.agent_id AND m.id=o.model_call_context_id
-WHERE c.agent_id=sqlc.arg(agent_id) AND c.state<>'completed' AND c.caller='model'
+WHERE c.agent_id=sqlc.arg(agent_id) AND c.state<>'completed'
  AND (sqlc.narg(turn_id)::uuid IS NULL OR m.turn_id=sqlc.narg(turn_id))
  AND (sqlc.narg(runtime_id)::uuid IS NULL OR (c.state='running' AND c.runtime_lock_id=sqlc.narg(runtime_id))) ORDER BY c.id;
 

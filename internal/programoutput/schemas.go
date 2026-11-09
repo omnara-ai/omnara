@@ -24,7 +24,7 @@ import (
 // storageReadSchema covers the text pages readFileLines and
 // readFileChars return and completeImageRead's metadata.
 const storageReadSchema = `{
-	"description": "One page of a text file, or an image file's metadata (the image is a media_ref in --json content).",
+	"description": "One page of a text file, or an image file's metadata (the image is a media_ref in --output=envelope content).",
 	"anyOf": [
 		{
 			"title": "text page by lines",
@@ -120,12 +120,44 @@ type GitHubPendingReview struct {
 	Review *github.Review `json:"review"`
 }
 
+// builtInSchemas and integrationReadSchemas are the tools commands may call,
+// besides MCP tools: each one's result type is part of its contract.
+var (
+	builtInSchemas = map[string]func() (json.RawMessage, error){
+		toolcatalog.ToolNameStorageRead: func() (json.RawMessage, error) {
+			return json.RawMessage(storageReadSchema), nil
+		},
+		toolcatalog.ToolNameStorageList:   reflectOutputSchema[listing.FilePage],
+		toolcatalog.ToolNameStorageSearch: reflectOutputSchema[StorageSearch],
+		toolcatalog.ToolNameWebSearch:     reflectOutputSchema[WebSearch],
+		toolcatalog.ToolNameWebFetch:      reflectOutputSchema[WebFetch],
+	}
+	integrationReadSchemas = map[integrationdefinition.Kind]func() (json.RawMessage, error){
+		integrationdefinition.SlackThread:   reflectOutputSchema[slack.MessagePage],
+		integrationdefinition.GitHubPR:      githubReadOutputSchema,
+		integrationdefinition.DiscordThread: reflectOutputSchema[discord.MessagePage],
+	}
+)
+
 type schemaSet struct {
 	builtIns     map[string]json.RawMessage
 	integrations map[integrationdefinition.Kind]json.RawMessage
 }
 
 var schemas = sync.OnceValues(buildSchemas)
+
+// HasBuiltIn reports whether commands may call the built-in tool name.
+func HasBuiltIn(name string) bool {
+	_, ok := builtInSchemas[name]
+	return ok
+}
+
+// HasIntegrationRead reports whether commands may call the read tool of an
+// integration of kind.
+func HasIntegrationRead(kind integrationdefinition.Kind) bool {
+	_, ok := integrationReadSchemas[kind]
+	return ok
+}
 
 // BuiltIn returns the schema of what commands get from the built-in tool
 // name, or nil when commands cannot call it.
@@ -135,7 +167,7 @@ func BuiltIn(name string) (json.RawMessage, error) {
 }
 
 // IntegrationRead returns the schema of what commands get from the read tool
-// of an integration of kind, or nil when it has none.
+// of an integration of kind, or nil when commands cannot call it.
 func IntegrationRead(kind integrationdefinition.Kind) (json.RawMessage, error) {
 	set, err := schemas()
 	return set.integrations[kind], err
@@ -143,26 +175,17 @@ func IntegrationRead(kind integrationdefinition.Kind) (json.RawMessage, error) {
 
 func buildSchemas() (schemaSet, error) {
 	set := schemaSet{
-		builtIns:     map[string]json.RawMessage{toolcatalog.ToolNameStorageRead: json.RawMessage(storageReadSchema)},
-		integrations: map[integrationdefinition.Kind]json.RawMessage{},
+		builtIns:     make(map[string]json.RawMessage, len(builtInSchemas)),
+		integrations: make(map[integrationdefinition.Kind]json.RawMessage, len(integrationReadSchemas)),
 	}
 	var err error
-	for name, schema := range map[string]func() (*jsonschema.Schema, error){
-		toolcatalog.ToolNameStorageList:   reflectOutputSchema[listing.FilePage],
-		toolcatalog.ToolNameStorageSearch: reflectOutputSchema[StorageSearch],
-		toolcatalog.ToolNameWebSearch:     reflectOutputSchema[WebSearch],
-		toolcatalog.ToolNameWebFetch:      reflectOutputSchema[WebFetch],
-	} {
-		if set.builtIns[name], err = encodeOutputSchema(schema()); err != nil {
+	for name, schema := range builtInSchemas {
+		if set.builtIns[name], err = schema(); err != nil {
 			return schemaSet{}, fmt.Errorf("%s output schema: %w", name, err)
 		}
 	}
-	for kind, schema := range map[integrationdefinition.Kind]func() (*jsonschema.Schema, error){
-		integrationdefinition.SlackThread:   reflectOutputSchema[slack.MessagePage],
-		integrationdefinition.GitHubPR:      githubReadOutputSchema,
-		integrationdefinition.DiscordThread: reflectOutputSchema[discord.MessagePage],
-	} {
-		if set.integrations[kind], err = encodeOutputSchema(schema()); err != nil {
+	for kind, schema := range integrationReadSchemas {
+		if set.integrations[kind], err = schema(); err != nil {
 			return schemaSet{}, fmt.Errorf("%s read output schema: %w", kind, err)
 		}
 	}
@@ -170,20 +193,20 @@ func buildSchemas() (schemaSet, error) {
 }
 
 // githubReadOutputSchema is one alternative per read section, titled with it.
-func githubReadOutputSchema() (*jsonschema.Schema, error) {
+func githubReadOutputSchema() (json.RawMessage, error) {
 	sections := []struct {
 		section string
 		schema  func() (*jsonschema.Schema, error)
 	}{
-		{"pull_request", reflectOutputSchema[github.PullRequest]},
-		{"discussion_comments", reflectOutputSchema[github.DiscussionCommentsPage]},
-		{"review_comments", reflectOutputSchema[github.ReviewCommentsPage]},
-		{"reviews", reflectOutputSchema[github.ReviewsPage]},
-		{"review", reflectOutputSchema[github.Review]},
-		{"pending_review", reflectOutputSchema[GitHubPendingReview]},
-		{"review_threads", reflectOutputSchema[github.ReviewThreadsPage]},
-		{"files", reflectOutputSchema[github.FilesPage]},
-		{"diff", reflectOutputSchema[github.Diff]},
+		{"pull_request", reflectSchema[github.PullRequest]},
+		{"discussion_comments", reflectSchema[github.DiscussionCommentsPage]},
+		{"review_comments", reflectSchema[github.ReviewCommentsPage]},
+		{"reviews", reflectSchema[github.ReviewsPage]},
+		{"review", reflectSchema[github.Review]},
+		{"pending_review", reflectSchema[GitHubPendingReview]},
+		{"review_threads", reflectSchema[github.ReviewThreadsPage]},
+		{"files", reflectSchema[github.FilesPage]},
+		{"diff", reflectSchema[github.Diff]},
 	}
 	schema := &jsonschema.Schema{Description: "The shape depends on the section read; each alternative is titled " +
 		"with its section."}
@@ -195,19 +218,20 @@ func githubReadOutputSchema() (*jsonschema.Schema, error) {
 		alternative.Title = "section=" + section.section
 		schema.AnyOf = append(schema.AnyOf, alternative)
 	}
-	return schema, nil
+	return json.Marshal(schema)
 }
 
-func reflectOutputSchema[T any]() (*jsonschema.Schema, error) {
-	// Raw JSON fields, such as a Discord message nonce, may hold any value.
-	return jsonschema.For[T](&jsonschema.ForOptions{
-		TypeSchemas: map[reflect.Type]*jsonschema.Schema{reflect.TypeFor[json.RawMessage](): {}},
-	})
-}
-
-func encodeOutputSchema(schema *jsonschema.Schema, err error) (json.RawMessage, error) {
+func reflectOutputSchema[T any]() (json.RawMessage, error) {
+	schema, err := reflectSchema[T]()
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(schema)
+}
+
+func reflectSchema[T any]() (*jsonschema.Schema, error) {
+	// Raw JSON fields, such as a Discord message nonce, may hold any value.
+	return jsonschema.For[T](&jsonschema.ForOptions{
+		TypeSchemas: map[reflect.Type]*jsonschema.Schema{reflect.TypeFor[json.RawMessage](): {}},
+	})
 }

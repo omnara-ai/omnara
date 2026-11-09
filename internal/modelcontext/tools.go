@@ -22,31 +22,69 @@ func RuntimeContractToolSpecs(
 	contract agentconfig.RuntimeContract,
 	now time.Time,
 ) ([]ToolSpec, error) {
+	return runtimeContractToolSpecs(ctx, store, projectID, agentID, contract, now, "")
+}
+
+// RuntimeContractToolSpec returns the spec RuntimeContractToolSpecs gives the
+// tool name, loading only what that tool needs. The run_command spec lacks its
+// programmatic tool call description.
+func RuntimeContractToolSpec(
+	ctx context.Context,
+	store Store,
+	projectID, agentID uuid.UUID,
+	contract agentconfig.RuntimeContract,
+	now time.Time,
+	name string,
+) (ToolSpec, bool, error) {
+	if name == "" {
+		return ToolSpec{}, false, nil
+	}
+	specs, err := runtimeContractToolSpecs(ctx, store, projectID, agentID, contract, now, name)
+	if err != nil {
+		return ToolSpec{}, false, err
+	}
+	spec, found := ToolSpecByName(specs, name)
+	return spec, found, nil
+}
+
+// runtimeContractToolSpecs builds every spec, or only the kind of tool that
+// only names when it is set.
+func runtimeContractToolSpecs(
+	ctx context.Context,
+	store Store,
+	projectID, agentID uuid.UUID,
+	contract agentconfig.RuntimeContract,
+	now time.Time,
+	only string,
+) ([]ToolSpec, error) {
 	out := make([]ToolSpec, 0, len(contract.Tools))
 	catalog, err := toolcatalog.Default()
 	if err != nil {
 		return nil, err
 	}
-	integrations, err := store.ResolveIntegrationDefinitions(ctx, projectID, contract.ReferencedIntegrationIDs())
-	if err != nil {
-		return nil, err
+	runtimeTools := append([]agentconfig.RuntimeTool(nil), contract.Tools...)
+	if _, _, integration := toolcatalog.SplitIntegrationToolName(only); only == "" || integration {
+		integrations, err := store.ResolveIntegrationDefinitions(ctx, projectID, contract.ReferencedIntegrationIDs())
+		if err != nil {
+			return nil, err
+		}
+		prepared, err := agentconfig.PrepareIntegrationTools(
+			agentconfig.Compiled{
+				Tools:               contract.IntegrationTools,
+				InteractionHandlers: contract.InteractionHandlers,
+			},
+			integrations,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := describeIntegrationToolConversations(
+			ctx, store, projectID, agentID, contract, integrations, prepared,
+		); err != nil {
+			return nil, err
+		}
+		runtimeTools = append(runtimeTools, prepared...)
 	}
-	prepared, err := agentconfig.PrepareIntegrationTools(
-		agentconfig.Compiled{
-			Tools:               contract.IntegrationTools,
-			InteractionHandlers: contract.InteractionHandlers,
-		},
-		integrations,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if err := describeIntegrationToolConversations(
-		ctx, store, projectID, agentID, contract, integrations, prepared,
-	); err != nil {
-		return nil, err
-	}
-	runtimeTools := append(append([]agentconfig.RuntimeTool(nil), contract.Tools...), prepared...)
 	for _, tool := range runtimeTools {
 		if tool.Name == "" {
 			return nil, fmt.Errorf(
@@ -87,12 +125,14 @@ func RuntimeContractToolSpecs(
 		}
 		out = append(out, spec)
 	}
-	mcpSpecs, err := runtimeMCPToolSpecs(ctx, store, projectID, agentID, contract)
-	if err != nil {
-		return nil, err
+	if only == "" || toolcatalog.IsMCPRuntimeToolName(only) {
+		mcpSpecs, err := runtimeMCPToolSpecs(ctx, store, projectID, agentID, contract)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, mcpSpecs...)
 	}
-	out = append(out, mcpSpecs...)
-	if contract.ProgrammaticToolCallsEnabled() {
+	if only == "" && contract.ProgrammaticToolCallsEnabled() {
 		if index := slices.IndexFunc(out, func(spec ToolSpec) bool {
 			return spec.Name == toolcatalog.ToolNameRunCommand
 		}); index >= 0 {

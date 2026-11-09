@@ -8,20 +8,22 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 // Program tool calls are tools run_command processes call through
 // `omnarad call`. Workers claim them independently of agent work: they never
-// hold the agent runtime lock, only a renewed per-call claim.
+// hold the agent runtime lock, only a renewed per-call claim. A worker looks
+// for a call when a wakeup says one is claimable, and polls in case it missed
+// one.
 
 type ProgramToolStore interface {
 	ClaimNextProgramToolCall(
 		context.Context, uuid.UUID, time.Duration,
 	) (executionstore.ProgramToolCallClaim, bool, error)
 	RenewProgramToolCallClaim(context.Context, executionstore.ProgramToolCallRef, time.Duration) (time.Time, error)
-	ReapProgramToolCalls(context.Context, int) (int, error)
 }
 
 type ProgramToolExecutor interface {
@@ -31,13 +33,12 @@ type ProgramToolExecutor interface {
 const (
 	defaultProgramToolCapacity = 16
 	defaultProgramToolLease    = time.Minute
-	programToolReapInterval    = 5 * time.Second
-	programToolReapBatch       = 100
 )
 
 type programToolRunner struct {
 	store    ProgramToolStore
 	executor ProgramToolExecutor
+	wakeups  notifications.ProgramToolWakeupSubscriber
 	capacity int
 	lease    time.Duration
 }
@@ -47,7 +48,7 @@ func newProgramToolRunner(opts Options) *programToolRunner {
 		return nil
 	}
 	runner := &programToolRunner{store: opts.ProgramToolStore, executor: opts.ProgramToolExecutor,
-		capacity: opts.ProgramToolCapacity, lease: opts.ProgramToolLease}
+		wakeups: opts.ProgramToolWakeups, capacity: opts.ProgramToolCapacity, lease: opts.ProgramToolLease}
 	if runner.capacity <= 0 {
 		runner.capacity = defaultProgramToolCapacity
 	}
@@ -58,24 +59,27 @@ func newProgramToolRunner(opts Options) *programToolRunner {
 }
 
 // runProgramTools claims program tool calls until claimCtx ends, running each
-// with executionCtx, and reaps calls whose process or claim is gone.
+// with executionCtx. Maintenance reaps calls whose process or claim is gone.
 func (w *Worker) runProgramTools(claimCtx, executionCtx context.Context, calls *sync.WaitGroup) {
-	runner := w.programTools
-	var loops sync.WaitGroup
-	loops.Add(2)
-	go func() {
-		defer loops.Done()
-		w.programReapLoop(claimCtx, runner)
-	}()
-	go func() {
-		defer loops.Done()
-		w.programClaimLoop(claimCtx, executionCtx, runner, calls)
-	}()
-	loops.Wait()
+	wake := make(chan struct{}, 1)
+	if w.programTools.wakeups != nil {
+		subscription, err := w.programTools.wakeups.SubscribeProgramToolWakeups(claimCtx, func(context.Context) {
+			select {
+			case wake <- struct{}{}:
+			default:
+			}
+		})
+		if err != nil {
+			w.log.WarnContext(claimCtx, "subscribe program tool wakeups; polling only", "error", err)
+		} else {
+			defer func() { _ = subscription.Unsubscribe() }()
+		}
+	}
+	w.programClaimLoop(claimCtx, executionCtx, w.programTools, calls, wake)
 }
 
 func (w *Worker) programClaimLoop(
-	claimCtx, executionCtx context.Context, runner *programToolRunner, calls *sync.WaitGroup,
+	claimCtx, executionCtx context.Context, runner *programToolRunner, calls *sync.WaitGroup, wake <-chan struct{},
 ) {
 	slots := make(chan struct{}, runner.capacity)
 	idleDelay := minIdleClaimDelay
@@ -111,8 +115,17 @@ func (w *Worker) programClaimLoop(
 			delay = idleDelay
 			idleDelay = min(idleDelay*2, maxIdleClaimDelay)
 		}
-		if !waitForDelay(claimCtx, delay) {
+		timer := time.NewTimer(delay)
+		select {
+		case <-claimCtx.Done():
+			timer.Stop()
 			return
+		case <-wake:
+			timer.Stop()
+			if err == nil {
+				idleDelay = minIdleClaimDelay
+			}
+		case <-timer.C:
 		}
 	}
 }
@@ -134,8 +147,7 @@ func (w *Worker) runProgramToolCall(
 	ctx context.Context, runner *programToolRunner, claim executionstore.ProgramToolCallClaim,
 ) {
 	defer w.recoverPanic("program tool call panicked", "tool_call_id", claim.ID)
-	ref := executionstore.ProgramToolCallRef{ProjectID: claim.ProjectID, AgentID: claim.AgentID,
-		ProcessID: claim.ProcessID, ToolCallID: claim.ID, ClaimID: claim.ClaimID}
+	ref := claim.Ref()
 	callCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stopRenewal := w.startProgramRenewal(callCtx, cancel, runner, ref)
@@ -188,30 +200,6 @@ func (w *Worker) startProgramRenewal(
 		stop()
 		<-done
 	}
-}
-
-func (w *Worker) programReapLoop(ctx context.Context, runner *programToolRunner) {
-	for {
-		reaped, err := w.reapProgramToolCalls(ctx, runner)
-		if err != nil && ctx.Err() == nil {
-			w.log.ErrorContext(ctx, "reap program tool calls", "error", err)
-		}
-		if err == nil && reaped >= programToolReapBatch {
-			continue
-		}
-		if !waitForDelay(ctx, programToolReapInterval) {
-			return
-		}
-	}
-}
-
-func (w *Worker) reapProgramToolCalls(ctx context.Context, runner *programToolRunner) (reaped int, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			reaped, err = 0, panicError("program tool reap", recovered)
-		}
-	}()
-	return runner.store.ReapProgramToolCalls(ctx, programToolReapBatch)
 }
 
 func programClaimGone(err error) bool {

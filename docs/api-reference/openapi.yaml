@@ -8628,8 +8628,8 @@ paths:
       description: >-
         Requires machine daemon authentication and a live shell process started by
         run_command on that machine, with programmatic tool calls enabled on the machine
-        and in the process's agent config. The call runs with the permissions of the
-        config the process's model call used and is idempotent on key. tool_search is
+        and in the process's agent config. The call runs with the tools and permissions of
+        the agent's current config and is idempotent on key. tool_search is
         answered inline; other calls return pending or awaiting_approval until they complete.
       security:
         - machineDaemonAuth: []
@@ -14251,19 +14251,11 @@ components:
         agent_id:
           description: The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
           $ref: '#/components/schemas/AgentID'
-        agent_profile_id:
-          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
-          anyOf:
-            - $ref: '#/components/schemas/AgentProfileID'
-            - type: 'null'
-        parent_agent_id:
-          description: The emitting agent's immediate parent, or null for a top-level agent.
-          anyOf:
-            - $ref: '#/components/schemas/AgentID'
-            - type: 'null'
-        root_agent_id:
-          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
-          $ref: '#/components/schemas/AgentID'
+        parent_tool_call_id:
+          description: >-
+            The run_command call whose process made this call with `omnarad call`. Present on event stream
+            frames for program calls.
+          $ref: '#/components/schemas/ToolCallID'
         state:
           $ref: '#/components/schemas/ToolCallState'
         name:
@@ -14290,8 +14282,7 @@ components:
         key:
           description: Idempotency key, stable across retries of one call.
           type: string
-          minLength: 1
-          maxLength: 200
+          format: uuid
         name:
           description: Tool name, or tool_search to find callable tools.
           type: string
@@ -14316,9 +14307,6 @@ components:
             - DaemonProgramToolCallStateCompleted
         outcome:
           $ref: '#/components/schemas/ToolCallOutcome'
-        structured:
-          description: The result's first structured value, when it has one.
-          x-go-type: json.RawMessage
         content:
           type: array
           items:

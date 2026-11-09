@@ -20,6 +20,11 @@ const (
 
 	// ProgramToolCallMaxWaitMs bounds how long one poll may be held open.
 	ProgramToolCallMaxWaitMs = 25000
+
+	// ProgramToolCallMaxInputBytes bounds a call's input.
+	// ProgramToolCallMaxRequestBytes leaves room for the key and name around it.
+	ProgramToolCallMaxInputBytes   = 1024 * 1024
+	ProgramToolCallMaxRequestBytes = ProgramToolCallMaxInputBytes + 4096
 )
 
 type ProgramToolCallRequest struct {
@@ -34,7 +39,6 @@ type ProgramToolCallResult struct {
 	ToolCallID string                   `json:"tool_call_id,omitempty"`
 	State      string                   `json:"state"`
 	Outcome    string                   `json:"outcome,omitempty"`
-	Structured json.RawMessage          `json:"structured,omitempty"`
 	Content    []ProgramToolCallContent `json:"content,omitempty"`
 }
 

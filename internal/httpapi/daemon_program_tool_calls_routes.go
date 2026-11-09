@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -25,8 +26,6 @@ import (
 // `omnarad call`, relayed by its machine's daemon.
 
 const (
-	programToolCallMaxKeyBytes   = 200
-	programToolCallMaxInputBytes = 1024 * 1024
 	// programToolCallSubmitWait lets fast calls finish in the submit round trip.
 	programToolCallSubmitWait = 2 * time.Second
 	// Notifications wake waiters; polls only cover missed or unavailable ones.
@@ -47,12 +46,11 @@ func (s strictOpenAPIServer) CreateDaemonProgramToolCall(
 	}
 	body := *request.Body
 	switch {
-	case body.Key == "" || len(body.Key) > programToolCallMaxKeyBytes:
-		return nil, apierror.FromCode(openapi.ErrorCodeUnprocessable,
-			fmt.Sprintf("key must be 1 to %d bytes", programToolCallMaxKeyBytes))
+	case body.Key == uuid.Nil:
+		return nil, apierror.FromCode(openapi.ErrorCodeUnprocessable, "key is required")
 	case strings.TrimSpace(body.Name) == "":
 		return nil, apierror.FromCode(openapi.ErrorCodeUnprocessable, "name is required")
-	case len(body.Input) > programToolCallMaxInputBytes:
+	case len(body.Input) > daemonprotocol.ProgramToolCallMaxInputBytes:
 		return nil, apierror.FromCode(openapi.ErrorCodeRequestTooLarge, "input exceeds 1 MiB")
 	case !programToolInputObject(body.Input):
 		return nil, apierror.FromCode(openapi.ErrorCodeUnprocessable, "input must be a JSON object")
@@ -61,13 +59,13 @@ func (s strictOpenAPIServer) CreateDaemonProgramToolCall(
 	if err != nil {
 		return nil, daemonProgramToolCallError(ctx, err)
 	}
-	specs, contract, err := tools.AgentConfigToolSpecs(
-		ctx, s.server.store, program.ProjectID, program.AgentID, program.AgentConfigID)
-	if err != nil {
-		return nil, daemonProgramToolCallError(ctx, err)
-	}
 	if body.Name == toolcatalog.ToolNameToolSearch {
-		callable, err := tools.ProgramCallableToolSpecs(contract, specs)
+		specs, contract, err := tools.AgentConfigToolSpecs(
+			ctx, s.server.store, program.ProjectID, program.AgentID, program.AgentConfigID)
+		if err != nil {
+			return nil, daemonProgramToolCallError(ctx, err)
+		}
+		callable, err := modelcontext.ProgramCallableTools(contract, specs)
 		if err != nil {
 			return nil, daemonProgramToolCallError(ctx, err)
 		}
@@ -82,18 +80,22 @@ func (s strictOpenAPIServer) CreateDaemonProgramToolCall(
 		value := json.RawMessage(encoded)
 		outcome := openapi.ToolCallOutcomeSucceeded
 		return openapi.CreateDaemonProgramToolCall200JSONResponse{
-			State: openapi.DaemonProgramToolCallStateCompleted, Outcome: &outcome, Structured: &value,
+			State: openapi.DaemonProgramToolCallStateCompleted, Outcome: &outcome,
 			Content: &[]openapi.DaemonProgramToolCallContent{
 				{Type: openapi.DaemonProgramToolCallContentTypeStructuredData, Value: &value},
 			},
 		}, nil
 	}
-	spec, found := modelcontext.ToolSpecByName(specs, body.Name)
+	spec, contract, found, err := tools.AgentConfigToolSpec(
+		ctx, s.server.store, program.ProjectID, program.AgentID, program.AgentConfigID, body.Name)
+	if err != nil {
+		return nil, daemonProgramToolCallError(ctx, err)
+	}
 	if !found {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound,
 			fmt.Sprintf("tool %q is not available to this agent", body.Name))
 	}
-	if !tools.ProgramToolCallable(contract, spec) {
+	if !modelcontext.ProgramCallable(contract, spec) {
 		return nil, apierror.FromCode(openapi.ErrorCodeForbidden,
 			fmt.Sprintf("tool %q cannot be called from commands", body.Name))
 	}
@@ -131,7 +133,7 @@ func (s strictOpenAPIServer) GetDaemonProgramToolCall(
 		if *request.Params.WaitMs < 0 {
 			return nil, apierror.FromCode(openapi.ErrorCodeUnprocessable, "wait_ms must not be negative")
 		}
-		wait = time.Duration(min(*request.Params.WaitMs, 25000)) * time.Millisecond
+		wait = time.Duration(min(*request.Params.WaitMs, daemonprotocol.ProgramToolCallMaxWaitMs)) * time.Millisecond
 	}
 	program, err := s.server.daemonProgramToolScope(ctx, scope, processID)
 	if err != nil {
@@ -279,9 +281,6 @@ func daemonProgramToolCallResponse(record executionstore.ToolCallRecord) (openap
 			item.Text = &part.Text
 		case openapi.DaemonProgramToolCallContentTypeStructuredData:
 			item.Value = &part.Value
-			if result.Structured == nil {
-				result.Structured = &part.Value
-			}
 		case openapi.DaemonProgramToolCallContentTypeMediaRef:
 			artifactID, err := uuid.Parse(part.ArtifactID)
 			if err != nil {

@@ -880,14 +880,13 @@ func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted, agent AgentCo
 	if err != nil {
 		return openapi.ToolCallUpdate{}, err
 	}
-	response := openapi.ToolCallUpdate{
-		ToolCallId: toolCallID, State: state,
-		OrgId: context.orgID, ProjectId: context.projectID, AgentId: context.agentID,
-		AgentProfileId: context.profileID, ParentAgentId: context.parentID, RootAgentId: context.rootID,
-	}
-	if state == openapi.ToolCallStateReady && update.Name != "" {
-		response.Name = &update.Name
-		response.Input = notifications.ToolCallUpdateInput(update.Input)
+	response := openapi.ToolCallUpdate{ToolCallId: toolCallID, AgentId: &agentID, State: state}
+	if update.ParentToolCallID != uuid.Nil {
+		parentID, err := publicID(publicid.KindToolCall, update.ParentToolCallID)
+		if err != nil {
+			return openapi.ToolCallUpdate{}, err
+		}
+		response.ParentToolCallId = &parentID
 	}
 	if interaction := update.InteractionUpdate; interaction != nil {
 		kind := openapi.AgentInteractionKind(interaction.InteractionKind)

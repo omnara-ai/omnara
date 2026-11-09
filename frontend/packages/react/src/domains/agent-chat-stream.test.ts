@@ -545,7 +545,7 @@ describe('AgentChatSession streaming', () => {
     session.disconnect()
   })
 
-  it('refreshes interactions and command tool calls on tool call update frames', async () => {
+  it('refreshes interactions, and a program call command tool calls, on tool call update frames', async () => {
     const queryClient = new QueryClient()
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
     const session = startSession([], client(), queryClient)
@@ -553,22 +553,56 @@ describe('AgentChatSession streaming', () => {
 
     stream.push({
       event: 'tool_call_update',
-      data: { tool_call_id: 'program-call', state: 'awaiting_permission' },
+      data: { tool_call_id: 'model-call', state: 'awaiting_permission' },
     })
     await vi.waitFor(() => {
-      expect(invalidate).toHaveBeenCalledTimes(2)
+      expect(invalidate).toHaveBeenCalledTimes(1)
     })
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: [expect.objectContaining({ _id: 'listAgentInteractions' })],
     })
-    expect(invalidate).toHaveBeenCalledWith({
+
+    stream.push({
+      event: 'tool_call_update',
+      data: {
+        tool_call_id: 'program-call',
+        parent_tool_call_id: 'command',
+        state: 'awaiting_permission',
+      },
+    })
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(3)
+    })
+    expect(invalidate).toHaveBeenLastCalledWith({
       queryKey: [
         expect.objectContaining({
           _id: 'listToolCalls',
           path: { orgID: 'org', projectID: 'project', agentID: 'agent' },
+          query: { parent_tool_call_id: 'command', limit: 100 },
         }),
       ],
     })
+    session.disconnect()
+  })
+
+  it('refreshes once for a burst of tool call update frames', async () => {
+    const queryClient = new QueryClient()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+    const session = startSession([], client(), queryClient)
+    const stream = await connection(0)
+
+    for (let call = 0; call < 20; call++) {
+      stream.push({
+        event: 'tool_call_update',
+        data: { tool_call_id: `call-${call}`, parent_tool_call_id: 'command', state: 'completed' },
+      })
+    }
+    // The first frame refreshes at once; the other 19 share one refresh.
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(4)
+    })
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(invalidate).toHaveBeenCalledTimes(4)
     session.disconnect()
   })
 

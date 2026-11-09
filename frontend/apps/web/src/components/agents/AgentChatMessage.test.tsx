@@ -265,8 +265,8 @@ it('shows the tool calls a command made when its details open', async () => {
     })
     await vi.waitFor(() => {
       const calls = container.querySelector('[aria-label="Tool calls from this command"]')
-      expect(calls?.textContent).toContain('web_search')
-      expect(calls?.textContent).toContain('Awaiting approval')
+      expect(calls?.textContent).toContain('Searching the web for')
+      expect(calls?.textContent).toContain('omnara')
     })
     expect(requestedURLs).toHaveLength(1)
     expect(new URL(requestedURLs[0] ?? '').searchParams.get('parent_tool_call_id')).toBe(parentID)

@@ -152,7 +152,6 @@ SELECT EXISTS (
     AND NOT EXISTS (
       SELECT 1 FROM tool_calls call
       WHERE call.agent_id = output.agent_id AND call.model_output_id = output.id
-        AND call.caller = 'model'
     )
 )::boolean;
 

@@ -88,26 +88,61 @@ var programmaticToolCallsExamples = []struct {
 	},
 }
 
+// ProgramCallable reports whether commands may call spec: the agent config
+// enables programmatic tool calls without excluding it, and it is an MCP tool
+// or a tool whose result type commands know.
+func ProgramCallable(contract agentconfig.RuntimeContract, spec ToolSpec) bool {
+	return !contract.ProgrammaticToolExcluded(spec.Name) && programResultKnown(spec)
+}
+
+func programResultKnown(spec ToolSpec) bool {
+	switch spec.Type {
+	case toolcatalog.ToolTypeMCP:
+		return toolcatalog.IsMCPRuntimeToolName(spec.Name)
+	case toolcatalog.ToolTypeBuiltIn:
+		if _, operation, ok := toolcatalog.SplitIntegrationToolName(spec.Name); ok {
+			return operation == toolcatalog.IntegrationOperationRead &&
+				programoutput.HasIntegrationRead(spec.IntegrationKind)
+		}
+		return programoutput.HasBuiltIn(spec.Name)
+	default:
+		return false
+	}
+}
+
 // ProgramOutputSchema returns the schema of the JSON value commands get from
 // spec, or nil when commands cannot call it.
 func ProgramOutputSchema(spec ToolSpec) (json.RawMessage, error) {
-	switch spec.Type {
-	case toolcatalog.ToolTypeMCP:
+	if !programResultKnown(spec) {
+		return nil, nil
+	}
+	if spec.Type == toolcatalog.ToolTypeMCP {
 		if len(spec.OutputSchema) > 0 {
 			return spec.OutputSchema, nil
 		}
 		return json.RawMessage(unknownProgramOutputSchema), nil
-	case toolcatalog.ToolTypeBuiltIn:
-		if _, operation, ok := toolcatalog.SplitIntegrationToolName(spec.Name); ok {
-			if operation != toolcatalog.IntegrationOperationRead {
-				return nil, nil
-			}
-			return programoutput.IntegrationRead(spec.IntegrationKind)
-		}
-		return programoutput.BuiltIn(spec.Name)
-	default:
-		return nil, nil
 	}
+	if _, _, ok := toolcatalog.SplitIntegrationToolName(spec.Name); ok {
+		return programoutput.IntegrationRead(spec.IntegrationKind)
+	}
+	return programoutput.BuiltIn(spec.Name)
+}
+
+// ProgramCallableTools keeps the specs commands may call under contract,
+// with the output schemas of their results. It does not modify specs.
+func ProgramCallableTools(contract agentconfig.RuntimeContract, specs []ToolSpec) ([]ToolSpec, error) {
+	callable := make([]ToolSpec, 0, len(specs))
+	var err error
+	for _, spec := range specs {
+		if !ProgramCallable(contract, spec) {
+			continue
+		}
+		if spec.OutputSchema, err = ProgramOutputSchema(spec); err != nil {
+			return nil, err
+		}
+		callable = append(callable, spec)
+	}
+	return callable, nil
 }
 
 // programmaticToolCallsDescription is appended to run_command's description:
@@ -117,7 +152,7 @@ func ProgramOutputSchema(spec ToolSpec) (json.RawMessage, error) {
 func programmaticToolCallsDescription(contract agentconfig.RuntimeContract, specs []ToolSpec) (string, error) {
 	var types strings.Builder
 	for _, spec := range specs {
-		if spec.Type != toolcatalog.ToolTypeBuiltIn || contract.ProgrammaticToolExcluded(spec.Name) {
+		if spec.Type != toolcatalog.ToolTypeBuiltIn || !ProgramCallable(contract, spec) {
 			continue
 		}
 		if _, _, ok := toolcatalog.SplitIntegrationToolName(spec.Name); ok {
@@ -126,9 +161,6 @@ func programmaticToolCallsDescription(contract agentconfig.RuntimeContract, spec
 		schema, err := programoutput.BuiltIn(spec.Name)
 		if err != nil {
 			return "", err
-		}
-		if schema == nil {
-			continue
 		}
 		rendered, err := renderSchemaTypeScript(schema)
 		if err != nil {
@@ -148,9 +180,7 @@ func programmaticToolCallsDescription(contract agentconfig.RuntimeContract, spec
 func programmaticToolCallsSystemGuidance(contract agentconfig.RuntimeContract, specs []ToolSpec) string {
 	callable := map[string]bool{}
 	for _, spec := range specs {
-		if spec.Type == toolcatalog.ToolTypeBuiltIn && !contract.ProgrammaticToolExcluded(spec.Name) {
-			callable[spec.Name] = true
-		}
+		callable[spec.Name] = ProgramCallable(contract, spec)
 	}
 	var guidance strings.Builder
 	guidance.WriteString(programmaticToolCallsGuidance)

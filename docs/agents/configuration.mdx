@@ -185,8 +185,8 @@ programmatic_tool_calls:
 Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`,
 `web_search`, `web_fetch`, and integration `read` tools, except those listed in
 `exclude`. Exclude names aren't checked against the agent's tools, since MCP tools
-are known only at runtime. Calls run with the permissions of the config the
-`run_command` call ran under. The machine must also
+are known only at runtime. Each call is checked against the agent's current
+config, so a config change applies to commands that are already running. The machine must also
 [allow programmatic tool calls](/machines/connect#programmatic-tool-calls), which is
 off by default. Spawned subagents do not inherit this setting. In the Builder, it is
 **Programmatic tool calls** under **Advanced**.

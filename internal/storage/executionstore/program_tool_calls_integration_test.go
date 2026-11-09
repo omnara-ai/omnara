@@ -65,12 +65,7 @@ func TestProgramToolCallsStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "model", parentRecord.Caller)
 	require.Equal(t, executionstore.ProgramToolScope{ProjectID: testProjectID, AgentID: fixture.AgentID,
-		ProcessID: process.ID, ParentToolCallID: parent, ModelOutputID: scope.ModelOutputID,
-		ModelCallContextID: parentRecord.ModelCallContextID, TurnID: parentRecord.TurnID,
-		SourceEventID: parentRecord.SourceEventID, AgentConfigID: config.ID,
-		ProgrammaticToolCallsCompiled: scope.ProgrammaticToolCallsCompiled}, scope)
-	require.True(t, scope.Enabled)
-	require.Equal(t, []string{"storage_write"}, scope.Exclude)
+		ProcessID: process.ID, AgentConfigID: config.ID}, scope)
 	setMachineFlag(false)
 	_, found, err = execution.GetDaemonProgramToolScope(ctx, testOrgID, fixture.MachineID, process.ID)
 	require.NoError(t, err)
@@ -80,7 +75,7 @@ func TestProgramToolCallsStore(t *testing.T) {
 	create := func(key string) executionstore.ProgramToolCallRecord {
 		t.Helper()
 		record, err := execution.CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{
-			ProjectID: testProjectID, AgentID: fixture.AgentID, ProcessID: process.ID, Key: key,
+			ProjectID: testProjectID, AgentID: fixture.AgentID, ProcessID: process.ID, Key: programKey(key),
 			Name: "storage_read", Type: "built_in", Input: json.RawMessage(`{"path":"notes.md"}`)})
 		require.NoError(t, err)
 		return record
@@ -100,10 +95,9 @@ func TestProgramToolCallsStore(t *testing.T) {
 	authorized := func(id uuid.UUID) executionstore.ProgramToolCallRef {
 		t.Helper()
 		ref := claim(executionstore.ProgramToolCallPhaseAuthorize, id)
-		ready, err := execution.MarkProgramToolCallReady(ctx, ref)
+		authorized, err := execution.AuthorizeProgramToolCall(ctx, ref, time.Minute)
 		require.NoError(t, err)
-		require.Equal(t, executionstore.ToolCallStateReady, ready.State)
-		ref = claim(executionstore.ProgramToolCallPhaseExecute, id)
+		require.Equal(t, executionstore.ToolCallStateWaiting, authorized.State)
 		waiting, found, err := execution.GetProgramToolCall(ctx, testProjectID, fixture.AgentID, process.ID, id)
 		require.NoError(t, err)
 		require.True(t, found)
@@ -120,7 +114,7 @@ func TestProgramToolCallsStore(t *testing.T) {
 	require.False(t, replay.Created)
 	require.Equal(t, first.ID, replay.ID)
 	_, err = execution.CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{
-		ProjectID: testProjectID, AgentID: fixture.AgentID, ProcessID: process.ID, Key: "first",
+		ProjectID: testProjectID, AgentID: fixture.AgentID, ProcessID: process.ID, Key: programKey("first"),
 		Name: "storage_list", Type: "built_in", Input: json.RawMessage(`{}`)})
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 
@@ -238,7 +232,7 @@ func TestProgramToolCallsStore(t *testing.T) {
  exit_code=0 WHERE id=$1`, process.ID)
 	require.NoError(t, err)
 	_, err = execution.CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{
-		ProjectID: testProjectID, AgentID: fixture.AgentID, ProcessID: process.ID, Key: "late",
+		ProjectID: testProjectID, AgentID: fixture.AgentID, ProcessID: process.ID, Key: programKey("late"),
 		Name: "storage_read", Type: "built_in", Input: json.RawMessage(`{}`)})
 	require.ErrorIs(t, err, storeerr.ErrProcessTerminal)
 	reaped, err := execution.ReapProgramToolCalls(ctx, 10)
@@ -251,3 +245,6 @@ func TestProgramToolCallsStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, reaped)
 }
+
+// programKey is a stable idempotency key for a test label.
+func programKey(label string) uuid.UUID { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)) }

@@ -166,8 +166,11 @@ func (h *Handle) OpenInteraction(ctx context.Context, input OpenInteractionInput
 }
 
 func (h *Handle) interactionNotification(i Interaction, state string) {
-	h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, i.ToolID, state,
-		&notifications.AgentInteractionUpdate{ID: i.ID, InteractionKind: i.Kind, State: i.State})
+	h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, i.ToolID, state, i.notification())
+}
+
+func (i Interaction) notification() *notifications.AgentInteractionUpdate {
+	return &notifications.AgentInteractionUpdate{ID: i.ID, InteractionKind: i.Kind, State: i.State}
 }
 
 func (h *Handle) ResolveInteraction(ctx context.Context, input ResolveInteractionInput) (Interaction, error) {

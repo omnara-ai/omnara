@@ -126,7 +126,7 @@ On success, stdout is always one JSON value: the tool's structured result, or it
 | `--output` | Prints |
 | --- | --- |
 | `result` (default) | One JSON value, as above |
-| `envelope` | The full result envelope, with `tool_call_id`, `outcome`, `structured` and `content`, whatever the outcome. The exit code still reflects the outcome |
+| `envelope` | The full result envelope, with `tool_call_id`, `outcome` and `content`, whatever the outcome. The exit code still reflects the outcome |
 | `text` | The tool's text as plain text, or its result as JSON when it has no text |
 
 Results go only to the command, never into the model's context, so an agent can chain calls with pipes, `jq`, loops, or scripts, or run them in parallel with `xargs -P`, and print only what it needs. A command can have up to 16 calls in flight.
