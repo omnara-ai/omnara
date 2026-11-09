@@ -33,7 +33,7 @@
     "date-fns": "^4.4.0",
     "lucide-react": "^1.66.0",
     "modern-tar": "^0.8.6",
-    "monaco-editor": "^0.57.0",
+    "monaco-editor": "^0.52.2",
     "monaco-yaml": "^5.5.1",
     "p-limit": "^7.3.3",
     "radix-ui": "^1.8.1",

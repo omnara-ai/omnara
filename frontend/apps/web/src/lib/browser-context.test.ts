@@ -59,7 +59,7 @@ it('retains identity on transient errors but requires success to restore a rejec
       [503, undefined, 1],
     ] as const) {
       await expect(
-        queries.fetchQuery({
+        queries.query({
           queryKey: key,
           queryFn: () => Promise.reject(new ApiError(status, 'Unavailable')),
         }),
