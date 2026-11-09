@@ -51,7 +51,9 @@ updates:
       default-days: 7
 
   - package-ecosystem: npm
-    directory: /frontend
+    directories:
+      - /frontend
+      - /examples/custom-tool-webhook
     schedule:
       interval: weekly
       day: monday

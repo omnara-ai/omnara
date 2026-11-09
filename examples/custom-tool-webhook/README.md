@@ -13,7 +13,7 @@ Requires Node 22+ and pnpm. From the repository root:
 ```sh
 pnpm --dir frontend install --frozen-lockfile
 cd examples/custom-tool-webhook
-pnpm install
+pnpm install --frozen-lockfile
 cp .env.example .env
 ```
 
@@ -28,9 +28,11 @@ This example uses the SDK from this checkout.
 3. Run `pnpm start`. Expose `http://127.0.0.1:3000` through an HTTPS tunnel.
    The config uses `omnara-openrouter` / `openai/gpt-6.1-sol`; choose another
    model if that one isn't available to your project.
-4. In the Omnara dashboard, create a profile using `agent.yaml`. In its
-   **Webhooks** tab, add the public URL ending in
-   `/webhook`, select **Tool-call updates**, and choose the signing secret.
+4. In the Omnara dashboard, create a profile using `agent.yaml`. Open the project's
+   **Webhooks** tab and add the public URL ending in `/webhook`. Under
+   **Receive events from**, choose **Agents using one profile**, then select
+   that profile in **Agent profile**. Select **Tool-call updates** and choose
+   the signing secret.
 5. Launch the profile and send: **Count the characters in "hello 🌍".**
    The tool returns 7 Unicode code points.
 

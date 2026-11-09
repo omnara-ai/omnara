@@ -152,13 +152,7 @@ function InteractionFormCard({
   const [responses, setResponses] = useState<Record<number, string>>({})
   const isPermission = interaction.interaction_kind === 'permission'
   const questions = interaction.request.questions
-  let complete = true
-  for (let questionIndex = 0; questionIndex < questions.length; questionIndex += 1) {
-    if ((selections[questionIndex]?.length ?? 0) === 0) {
-      complete = false
-      break
-    }
-  }
+  const complete = questions.every((_, index) => (selections[index]?.length ?? 0) > 0)
   const directPermission = isPermission && questions.length === 1 && questions[0]?.multiple !== true
   const contextItems = keyedContextItems(interaction)
   const toolName = interaction.tool_name ?? null
