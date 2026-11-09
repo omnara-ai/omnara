@@ -12,10 +12,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	"golang.org/x/net/http/httpguts"
 )
 
@@ -358,13 +361,54 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 }
 
 func (c Client) RespondStream(ctx context.Context, input model.Request) (model.Response, error) {
-	attempt := newCallAttempt(ctx, input)
-	response, err := c.respondStream(context.WithValue(ctx, callAttemptKey{}, attempt), input, attempt)
-	attempt.finish(ctx, c, response, err)
+	scope := model.CallScopeFromContext(ctx)
+	attempt := &logent.ModelCallAttempt{
+		CallID:             uuid.NewString(),
+		Purpose:            string(scope.Purpose),
+		ModelCallContextID: scope.ModelCallContextID,
+		Attempt:            scope.Attempt,
+		APIFormat:          string(c.APIFormat()),
+		APIVariant:         string(c.ModelAPIVariant()),
+		Model:              c.ProviderModelSlug,
+		EndpointHost:       endpointHost(c.Endpoint),
+		RequestBytes:       len(input.ProviderRequest),
+		StartedAt:          time.Now(),
+	}
+	response, err := c.respondStream(context.WithValue(ctx, modelCallAttemptKey{}, attempt), input, attempt)
+	if setupErr := (SetupError{}); errors.As(err, &setupErr) {
+		return response, err
+	}
+	result := modelCallResult(ctx, attempt, response, err)
+	logent.ModelCall(ctx, *attempt, result)
+	if recorder, ok := ctx.Value(modelCallMetricsKey{}).(*metrics.ModelCallRecorder); ok {
+		recorder.Observe(metrics.ModelCallSample{
+			APIFormat:         attempt.APIFormat,
+			APIVariant:        attempt.APIVariant,
+			Provider:          attempt.EndpointHost,
+			Model:             attempt.Model,
+			Purpose:           attempt.Purpose,
+			Outcome:           string(result.Outcome),
+			ErrorKind:         result.ErrorKind,
+			RequestBytes:      attempt.RequestBytes,
+			UsageReported:     result.UsageReported(),
+			InputTokens:       response.Usage.InputTokens,
+			CachedInputTokens: response.Usage.CacheReadTokens,
+			CacheWriteTokens:  response.Usage.CacheWriteTokens,
+			CacheReported:     response.Usage.CacheReported,
+			OutputTokens:      response.Usage.OutputTokens,
+			ReasoningTokens:   response.Usage.ReasoningTokens,
+			TTFT:              attempt.TTFT,
+			Duration:          result.Duration,
+		})
+	}
 	return response, err
 }
 
-func (c Client) respondStream(ctx context.Context, input model.Request, attempt *callAttempt) (model.Response, error) {
+func (c Client) respondStream(
+	ctx context.Context,
+	input model.Request,
+	attempt *logent.ModelCallAttempt,
+) (model.Response, error) {
 	if c.Protocol == nil {
 		return model.Response{}, SetupError{Err: errors.New("model route protocol is required")}
 	}
@@ -383,7 +427,6 @@ func (c Client) respondStream(ctx context.Context, input model.Request, attempt 
 	if strings.TrimSpace(streamMediaType) == "" {
 		return model.Response{}, SetupError{Err: errors.New("model stream media type is required")}
 	}
-	attempt.sent = true
 	resp, err := c.Transport.StreamingDo(
 		ctx,
 		endpoint,
@@ -394,14 +437,13 @@ func (c Client) respondStream(ctx context.Context, input model.Request, attempt 
 	if err != nil {
 		var setupErr SetupError
 		if errors.As(err, &setupErr) {
-			attempt.sent = false
 			return model.Response{}, setupErr
 		}
-		attempt.statusCode = resp.StatusCode
+		attempt.StatusCode = resp.StatusCode
 		return model.Response{}, ambiguousTransportError(endpoint, resp.StatusCode, resp.Header, err)
 	}
-	attempt.markHeaders()
-	attempt.statusCode = resp.StatusCode
+	attempt.MarkHeaders()
+	attempt.StatusCode = resp.StatusCode
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, exceeded, readErr := ReadAllAndClose(resp, c.Transport.errorResponseByteLimit())
 		if readErr != nil {
@@ -457,11 +499,11 @@ func (c Client) respondStream(ctx context.Context, input model.Request, attempt 
 			Body:       respBody,
 		})
 		if parseErr == nil {
-			attempt.markComplete()
+			attempt.MarkComplete()
 		}
 		return parsed, parseErr
 	}
-	attempt.streamed = true
+	attempt.Streamed = true
 	defer func() { _ = resp.Body.Close() }()
 	limitedBody := &responseLimitReader{
 		reader:    resp.Body,
@@ -472,10 +514,10 @@ func (c Client) respondStream(ctx context.Context, input model.Request, attempt 
 		limitedBody,
 		resp.StatusCode,
 		resp.Header,
-		attempt.sink(input.DeltaSink),
+		timingSink{next: input.DeltaSink, attempt: attempt},
 	)
 	if consumeErr == nil {
-		attempt.markComplete()
+		attempt.MarkComplete()
 	}
 	response.ProviderRequestID = model.RequestIDFromHeader(resp.Header)
 	if limitedBody.exceeded || errors.Is(consumeErr, ErrProviderResponseTooLarge) {
@@ -616,4 +658,92 @@ func ambiguousTransportError(source string, statusCode int, header http.Header, 
 func MatchesMediaType(contentType, expected string) bool {
 	mediaType, _, _ := strings.Cut(strings.ToLower(contentType), ";")
 	return strings.TrimSpace(mediaType) == strings.ToLower(strings.TrimSpace(expected))
+}
+
+type modelCallAttemptKey struct{}
+
+type modelCallMetricsKey struct{}
+
+// WithModelCallMetrics makes model calls under ctx report to recorder.
+func WithModelCallMetrics(ctx context.Context, recorder *metrics.ModelCallRecorder) context.Context {
+	if recorder == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, modelCallMetricsKey{}, recorder)
+}
+
+// MarkToken lets a decoder that holds output back from the stream sink mark
+// the first token when it arrives.
+func MarkToken(ctx context.Context, payload string) {
+	if attempt, ok := ctx.Value(modelCallAttemptKey{}).(*logent.ModelCallAttempt); ok {
+		attempt.MarkToken(payload)
+	}
+}
+
+func endpointHost(endpoint Endpoint) string {
+	if endpoint == nil {
+		return ""
+	}
+	raw, err := endpoint.URL()
+	if err != nil {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return parsed.Hostname()
+}
+
+func modelCallResult(
+	ctx context.Context,
+	attempt *logent.ModelCallAttempt,
+	response model.Response,
+	err error,
+) logent.ModelCallResult {
+	result := logent.ModelCallResult{
+		Outcome:           logent.ModelCallSuccess,
+		ServedModel:       response.ServedProviderModelSlug,
+		ProviderRequestID: response.ProviderRequestID,
+		Usage:             response.Usage,
+		Duration:          time.Since(attempt.StartedAt),
+	}
+	switch {
+	case err == nil:
+	case ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
+		result.Outcome = logent.ModelCallCanceled
+	default:
+		result.Outcome, result.ErrorKind = logent.ModelCallError, string(model.ErrorKindUnknown)
+		if providerErr, ok := model.ClassifyError(err); ok {
+			result.ErrorKind, result.ErrorCode = string(providerErr.Kind), providerErr.Code
+			if attempt.StatusCode == 0 {
+				attempt.StatusCode = providerErr.StatusCode
+			}
+			if result.ProviderRequestID == "" {
+				result.ProviderRequestID = providerErr.RequestID
+			}
+		}
+	}
+	return result
+}
+
+// A tool call's name counts as its first token: the model generates it before the arguments.
+type timingSink struct {
+	next    model.StreamSink
+	attempt *logent.ModelCallAttempt
+}
+
+func (s timingSink) Emit(ctx context.Context, event model.StreamEvent) {
+	switch event.Kind {
+	case model.StreamEventTextDelta, model.StreamEventThinkingDelta, model.StreamEventToolArgsDelta:
+		s.attempt.MarkToken(event.Delta)
+	case model.StreamEventBlockStart:
+		if event.Block != nil && event.Block.Kind == model.StreamBlockToolUse {
+			s.attempt.MarkToken(event.Block.ToolName)
+		}
+	case model.StreamEventBlockStop, model.StreamEventMessageStop, model.StreamEventError:
+	}
+	if s.next != nil {
+		s.next.Emit(ctx, event)
+	}
 }
