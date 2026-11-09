@@ -3,24 +3,17 @@ package machinedaemon
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/machinedaemon/localipc"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
@@ -31,35 +24,13 @@ const (
 	programToolCapabilityEnv = "OMNARA_TOOL_CAPABILITY"
 	programToolBinEnv        = "OMNARA_BIN"
 
-	programToolCallMaxRequestBytes  = 1024 * 1024
 	programToolCallMaxResponseBytes = 16 * 1024 * 1024
-	programToolCallMaxIDBytes       = 256
 	programToolCallProcessLimit     = 16
 	programToolCallServerLimit      = 128
 	programToolCallSubmitTimeout    = 30 * time.Second
 	// programToolCallForwardMargin is added to a poll's wait for backend latency.
 	programToolCallForwardMargin = 10 * time.Second
 )
-
-type programToolHelper struct {
-	Executable string `json:"executable"`
-	Endpoint   string `json:"endpoint"`
-	Capability string `json:"capability"`
-}
-
-func programToolCallCapability(supervisorToken, processID string) string {
-	mac := hmac.New(sha256.New, []byte(supervisorToken))
-	_, _ = mac.Write([]byte("omnara-program-tool-call\x00" + processID))
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
-func (c *Client) programToolCallEndpoint() (string, error) {
-	machine, err := c.machineStore()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(machine.RunDir(), "tool-calls.sock"), nil
-}
 
 // prepareProgramToolCalls never fails preparation: the feature is optional, and
 // `omnarad call` explains itself when its environment is missing.
@@ -70,29 +41,16 @@ func (c *Client) prepareProgramToolCalls(assignment *ProcessAssignment, supervis
 		assignment.ProgrammaticToolCalls = false
 		return
 	}
-	endpoint, err := c.programToolCallEndpoint()
+	helper, err := c.processServiceHelper(programToolCallService, supervisorToken, assignment.ID)
 	if err != nil {
-		c.log.Warn("program tool call endpoint unavailable", "error", err)
+		c.log.Warn("program tool call helper unavailable", "error", err)
 		assignment.ProgrammaticToolCalls = false
 		return
 	}
-	executable, err := os.Executable()
-	if err == nil {
-		executable, err = filepath.Abs(executable)
-	}
-	if err != nil {
-		c.log.Warn("program tool call executable unavailable", "error", err)
-		assignment.ProgrammaticToolCalls = false
-		return
-	}
-	assignment.ProgramToolHelper = &programToolHelper{
-		Executable: executable,
-		Endpoint:   endpoint,
-		Capability: programToolCallCapability(supervisorToken, assignment.ID),
-	}
+	assignment.ProgramToolHelper = helper
 }
 
-func programToolCallEnvironment(env []string, processID string, helper *programToolHelper) []string {
+func programToolCallEnvironment(env []string, processID string, helper *processServiceHelper) []string {
 	result := make([]string, 0, len(env)+4)
 	for _, entry := range env {
 		name, _, _ := strings.Cut(entry, "=")
@@ -111,44 +69,14 @@ func programToolCallEnvironment(env []string, processID string, helper *programT
 }
 
 func (c *Client) startProgramToolCallServer(ctx context.Context) (func(), error) {
-	endpoint, err := c.programToolCallEndpoint()
-	if err != nil {
-		return nil, err
-	}
-	if err := localipc.Cleanup(endpoint); err != nil {
-		return nil, err
-	}
-	listener, err := localipc.Listen(ctx, endpoint)
-	if err != nil {
-		return nil, err
-	}
-	serverCtx, cancel := context.WithCancel(ctx)
-	server := &http.Server{
-		BaseContext:       func(net.Listener) context.Context { return serverCtx },
+	return c.serveProcessService(ctx, programToolCallService, &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      time.Duration(daemonprotocol.ProgramToolCallMaxWaitMs)*time.Millisecond + 20*time.Second,
 		IdleTimeout:       30 * time.Second,
 		MaxHeaderBytes:    8192,
 		Handler:           c.newProgramToolCallHandler(),
-	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			c.log.Error("program tool call service stopped", "error", err)
-		}
-	}()
-	return func() {
-		cancel()
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer shutdownCancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			_ = server.Close()
-		}
-		<-done
-		_ = localipc.Cleanup(endpoint)
-	}, nil
+	})
 }
 
 type programToolCallHandler struct {
@@ -214,20 +142,14 @@ func (h *programToolCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 func (h *programToolCallHandler) authorize(r *http.Request, processID string) (int, string, string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	state, err := h.client.stateStore(ctx)
-	if err != nil {
-		return http.StatusServiceUnavailable, "service_unavailable", "tool call service unavailable"
-	}
-	process, found, err := state.Process(ctx, processID)
-	if err != nil {
-		return http.StatusServiceUnavailable, "service_unavailable", "tool call service unavailable"
-	}
-	capability, bearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	want := programToolCallCapability(process.SupervisorToken, processID)
-	if !found || process.LocalClosed || !bearer || !hmac.Equal([]byte(capability), []byte(want)) {
+	switch h.client.authorizeProcessService(ctx, programToolCallService, r, processID) {
+	case 0:
+		return 0, "", ""
+	case http.StatusForbidden:
 		return http.StatusForbidden, "forbidden", "tool call request denied"
+	default:
+		return http.StatusServiceUnavailable, "service_unavailable", "tool call service unavailable"
 	}
-	return 0, "", ""
 }
 
 func (h *programToolCallHandler) acquire(processID string) bool {
@@ -251,34 +173,19 @@ func (h *programToolCallHandler) release(processID string) {
 }
 
 func (h *programToolCallHandler) submit(w http.ResponseWriter, r *http.Request, processID string) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, programToolCallMaxRequestBytes))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, daemonprotocol.ProgramToolCallMaxRequestBytes))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			h.writeError(w, http.StatusRequestEntityTooLarge, "request_too_large",
-				"tool call request exceeds 1 MiB")
+				"tool call input exceeds 1 MiB")
 			return
 		}
 		h.writeError(w, http.StatusBadRequest, "invalid_request", "tool call request could not be read")
 		return
 	}
-	var request daemonprotocol.ProgramToolCallRequest
-	if err := json.Unmarshal(body, &request); err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid_request", "tool call request is not valid JSON")
-		return
-	}
-	if request.Key == "" || len(request.Key) > programToolCallMaxIDBytes || request.Name == "" ||
-		!isJSONObject(request.Input) {
-		h.writeError(w, http.StatusBadRequest, "invalid_request",
-			"tool call request requires key, name, and an input object")
-		return
-	}
-	payload, err := json.Marshal(request)
-	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid_request", "tool call request is not valid JSON")
-		return
-	}
-	h.forward(w, r, http.MethodPost, daemonAPIPath+"/processes/"+processID+"/tool-calls", payload,
+	// The backend validates the request.
+	h.forward(w, r, http.MethodPost, daemonAPIPath+"/processes/"+processID+"/tool-calls", body,
 		programToolCallSubmitTimeout)
 }
 
@@ -325,13 +232,7 @@ func (h *programToolCallHandler) forward(
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	httpClient := h.client.toolCallHTTP
-	if httpClient == nil {
-		httpClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		}}
-	}
-	response, err := httpClient.Do(request)
+	response, err := h.client.toolCallHTTP.Do(request)
 	if err != nil {
 		h.client.log.Debug("program tool call could not reach Omnara", "error", err)
 		h.writeError(w, http.StatusServiceUnavailable, "service_unavailable",
@@ -380,8 +281,10 @@ func (h *programToolCallHandler) writeError(w http.ResponseWriter, status int, c
 	}
 }
 
+// validProgramToolCallID keeps a poll's tool call ID to one path segment;
+// the backend decides whether it names a call.
 func validProgramToolCallID(id string) bool {
-	if id == "" || len(id) > programToolCallMaxIDBytes {
+	if id == "" || len(id) > 256 {
 		return false
 	}
 	for _, r := range id {
@@ -390,9 +293,4 @@ func validProgramToolCallID(id string) bool {
 		}
 	}
 	return true
-}
-
-func isJSONObject(value json.RawMessage) bool {
-	trimmed := bytes.TrimLeft(value, " \t\r\n")
-	return len(trimmed) > 0 && trimmed[0] == '{' && json.Valid(value)
 }

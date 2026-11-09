@@ -127,9 +127,36 @@ WHERE call.project_id = sqlc.arg(project_id)
   AND (sqlc.arg(state)::text = '' OR call.state = sqlc.arg(state))
   AND (sqlc.arg(type)::text = '' OR call.type = sqlc.arg(type))
   AND (
-    sqlc.narg(parent_tool_call_id)::uuid IS NULL
-    OR call.parent_tool_call_id = sqlc.narg(parent_tool_call_id)
+    sqlc.narg(cursor_created_at)::timestamptz IS NULL
+    OR (call.created_at, call.id) > (
+      sqlc.narg(cursor_created_at)::timestamptz,
+      sqlc.narg(cursor_id)::uuid
+    )
   )
+ORDER BY call.created_at ASC, call.id ASC
+LIMIT sqlc.arg(row_limit)::bigint;
+
+-- ListToolCallsForParent lists the program calls a run_command call's process
+-- made; it seeks on tool_calls_program_key_idx. Rows match ListToolCallsForAgent.
+-- name: ListToolCallsForParent :many
+SELECT call.id, call.project_id, call.agent_id,
+  call.turn_id, call.source_event_id,
+  call.model_call_context_id, call.provider_call_id,
+  call.name, call.input,
+  call.type, call.state,
+  coalesce(result.outcome, '') AS outcome, call.runtime_lock_id,
+  '[]'::jsonb AS result_content_parts,
+  call.created_at, result.completed_at,
+  call.caller, call.parent_tool_call_id
+FROM tool_call_read_projection call
+LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
+  AND result.tool_call_id = call.id
+WHERE call.project_id = sqlc.arg(project_id)
+  AND call.agent_id = ANY(sqlc.arg(agent_ids)::uuid[])
+  AND (sqlc.arg(state)::text = '' OR call.state = sqlc.arg(state))
+  AND (sqlc.arg(type)::text = '' OR call.type = sqlc.arg(type))
+  AND call.caller = 'program'
+  AND call.parent_tool_call_id = sqlc.arg(parent_tool_call_id)::uuid
   AND (
     sqlc.narg(cursor_created_at)::timestamptz IS NULL
     OR (call.created_at, call.id) > (
@@ -188,8 +215,7 @@ LEFT JOIN content_blocks call_block ON call_block.agent_id = call.agent_id
   AND call_block.block_kind = 'tool_call'
 WHERE call.project_id = sqlc.arg(project_id)
   AND call.agent_id = sqlc.arg(agent_id)
-  AND call.model_output_id = sqlc.arg(model_output_id)
-  AND call.caller = 'model'
+  AND call.model_output_id = sqlc.arg(model_output_id)::uuid
   AND (
     COALESCE(cardinality(sqlc.arg(excluded_tool_call_ids)::uuid[]), 0) = 0
     OR NOT (call.id = ANY(sqlc.arg(excluded_tool_call_ids)::uuid[]))

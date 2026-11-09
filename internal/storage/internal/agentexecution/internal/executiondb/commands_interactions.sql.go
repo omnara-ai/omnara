@@ -72,7 +72,7 @@ const listExecutionInteractions = `-- name: ListExecutionInteractions :many
 SELECT i.id FROM agent_interactions i JOIN tool_calls c ON c.agent_id=i.agent_id AND c.id=i.tool_call_id
 JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
 JOIN model_call_contexts m ON m.agent_id=o.agent_id AND m.id=o.model_call_context_id
-WHERE i.agent_id=$1 AND i.state='open' AND m.turn_id=$2 AND c.caller='model'
+WHERE i.agent_id=$1 AND i.state='open' AND m.turn_id=$2
 ORDER BY i.id
 `
 

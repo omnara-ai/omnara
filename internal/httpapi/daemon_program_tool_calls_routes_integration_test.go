@@ -28,20 +28,13 @@ type daemonProgramToolCallFixture struct {
 	project publicHTTPProject
 	base    daemonProcessFixture
 	process daemonProcessFixture
+	config  uuid.UUID
 }
 
-// newDaemonProgramToolCallFixture creates a run_command process for an agent
-// whose config enables programmatic tool calls and excludes web_search, on a
-// machine that does not allow them yet.
-func newDaemonProgramToolCallFixture(t *testing.T) *daemonProgramToolCallFixture {
-	t.Helper()
-	ctx := t.Context()
-	pool := openIntegrationDB(t, ctx)
-	handler := newIntegrationServerWithStoreOptions(pool, nil)
-	project := bootstrapPublicHTTPProject(t, handler, "program-tools")
-	store := integrationStoreForHandler(t, handler)
-	base := createDaemonProcessFixture(t, ctx, pool, store, project, time.Now(), "program-tools", "run_command")
-	sourceYAML := `instruction: Program tool test agent.
+// programToolAgentYAML is an agent config that lets commands call its tools
+// except those in exclude.
+func programToolAgentYAML(exclude string) string {
+	return `instruction: Program tool test agent.
 model:
   provider_config: openai-prod
   name: http-test
@@ -55,8 +48,22 @@ tools:
   web_search: {}
 programmatic_tool_calls:
   enabled: true
-  exclude: [web_search]
+  exclude: [` + exclude + `]
 `
+}
+
+// newDaemonProgramToolCallFixture creates a run_command process for an agent
+// whose config enables programmatic tool calls and excludes web_search, on a
+// machine that does not allow them yet.
+func newDaemonProgramToolCallFixture(t *testing.T) *daemonProgramToolCallFixture {
+	t.Helper()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServerWithStoreOptions(pool, nil)
+	project := bootstrapPublicHTTPProject(t, handler, "program-tools")
+	store := integrationStoreForHandler(t, handler)
+	base := createDaemonProcessFixture(t, ctx, pool, store, project, time.Now(), "program-tools", "run_command")
+	sourceYAML := programToolAgentYAML("web_search")
 	compiled := compileHTTPAgentYAMLResolved(t, ctx, store, project.OrgUUID, project.ProjectUUID,
 		project.AdminUserUUID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
@@ -112,7 +119,27 @@ programmatic_tool_calls:
 	fixture.AgentUUID, fixture.BindingUUID = launch.Agent.ID, launch.MachineBindings[0].ID
 	fixture.ProcessUUID, fixture.ProcessID = process.ID, testPublicID(t, publicid.KindProcess, process.ID)
 	fixture.RuntimeLock, fixture.ToolCallUUID, fixture.ToolCall = claim.RuntimeLock, call.ID, call
-	return &daemonProgramToolCallFixture{handler: handler, project: project, base: base, process: fixture}
+	return &daemonProgramToolCallFixture{handler: handler, project: project, base: base, process: fixture,
+		config: config.ID}
+}
+
+// changeConfig makes sourceYAML the agent's current config.
+func (f *daemonProgramToolCallFixture) changeConfig(t *testing.T, sourceYAML string) {
+	t.Helper()
+	ctx, store := t.Context(), f.project.Store
+	compiled := compileHTTPAgentYAMLResolved(t, ctx, store, f.project.OrgUUID, f.project.ProjectUUID,
+		f.project.AdminUserUUID, sourceYAML)
+	changed, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
+			ProjectID: f.project.ProjectUUID, Source: sourceYAML, SourceFormat: "yaml",
+			ConfiguredModelID: parseConfiguredModelID(t, compiled), CompiledDefinition: compiled.CanonicalJSON,
+			EffectiveDefinitionHash: compiled.Hash,
+		},
+		AgentID: f.process.AgentUUID, ExpectedCurrentConfigID: f.config, ActorType: "user",
+		ActorID: f.project.AdminUserUUID, IdempotencyKey: uuid.NewString(),
+	})
+	require.NoError(t, err)
+	f.config = changed.AgentConfig.ID
 }
 
 func (f *daemonProgramToolCallFixture) do(
@@ -147,6 +174,9 @@ func (f *daemonProgramToolCallFixture) submit(
 	t *testing.T, key, name, input string, status int,
 ) daemonprotocol.ProgramToolCallResult {
 	t.Helper()
+	if key != "" {
+		key = uuid.NewSHA1(uuid.NameSpaceOID, []byte(key)).String()
+	}
 	body, err := json.Marshal(map[string]any{"key": key, "name": name, "input": json.RawMessage(input)})
 	require.NoError(t, err)
 	return f.do(t, http.MethodPost, "/tool-calls", f.process.Token, string(body), status)
@@ -192,7 +222,7 @@ func TestDaemonProgramToolCallRoutes(t *testing.T) {
 	}
 
 	// Authentication and authorization.
-	body := `{"key":"k","name":"storage_list","input":{}}`
+	body := `{"key":"` + uuid.NewString() + `","name":"storage_list","input":{}}`
 	f.do(t, http.MethodPost, "/tool-calls", "", body, http.StatusUnauthorized)
 	f.do(t, http.MethodPost, "/tool-calls", f.project.AdminToken, body, http.StatusForbidden)
 	f.setMachineFlag(t, false)
@@ -210,6 +240,8 @@ func TestDaemonProgramToolCallRoutes(t *testing.T) {
 
 	// Validation (the schema rejects malformed requests first) and eligibility.
 	f.submit(t, "", toolcatalog.ToolNameStorageList, `{}`, http.StatusBadRequest)
+	f.do(t, http.MethodPost, "/tool-calls", f.process.Token,
+		`{"key":"not-a-uuid","name":"storage_list","input":{}}`, http.StatusBadRequest)
 	f.submit(t, "k", toolcatalog.ToolNameStorageList, `[1]`, http.StatusBadRequest)
 	f.submit(t, "k", "bad\u0000name", `{}`, http.StatusNotFound)
 	f.submit(t, "k", "no_such_tool", `{}`, http.StatusNotFound)
@@ -231,7 +263,7 @@ func TestDaemonProgramToolCallRoutes(t *testing.T) {
 			OutputSchema json.RawMessage `json:"output_schema"`
 		} `json:"tools"`
 	}
-	require.NoError(t, json.Unmarshal(search.Structured, &listing))
+	require.NoError(t, json.Unmarshal(structuredResult(t, search), &listing))
 	var names []string
 	for _, tool := range listing.Tools {
 		require.NotEmpty(t, tool.InputSchema)
@@ -276,20 +308,17 @@ func TestDaemonProgramToolCallRoutes(t *testing.T) {
 		f.handler.ServeHTTP(recorder, poll)
 		polls <- pollResult{recorder: recorder, elapsed: time.Since(started)}
 	}()
+	// An allowed call runs under its authorization claim.
 	executor := tools.Executor{Store: store}
-	for _, phase := range []executionstore.ProgramToolCallPhase{
-		executionstore.ProgramToolCallPhaseAuthorize, executionstore.ProgramToolCallPhaseExecute,
-	} {
-		claim, found, err := execution.ClaimNextProgramToolCall(ctx, uuid.New(), time.Minute)
-		require.NoError(t, err)
-		require.True(t, found)
-		require.Equal(t, phase, claim.Phase)
-		scope := tools.NewAsyncExecutionScope(nil)
-		require.NoError(t, executor.RunProgramToolCall(tools.WithAsyncExecutionScope(ctx, scope), claim, time.Minute))
-		scope.Seal()
-		<-scope.Done()
-		require.NoError(t, scope.Err())
-	}
+	claim, found, err := execution.ClaimNextProgramToolCall(ctx, uuid.New(), time.Minute)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.ProgramToolCallPhaseAuthorize, claim.Phase)
+	scope := tools.NewAsyncExecutionScope(nil)
+	require.NoError(t, executor.RunProgramToolCall(tools.WithAsyncExecutionScope(ctx, scope), claim, time.Minute))
+	scope.Seal()
+	<-scope.Done()
+	require.NoError(t, scope.Err())
 	var completed pollResult
 	select {
 	case completed = <-polls:
@@ -302,7 +331,7 @@ func TestDaemonProgramToolCallRoutes(t *testing.T) {
 	require.NoError(t, json.Unmarshal(completed.recorder.Body.Bytes(), &result))
 	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, result.State)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, result.Outcome)
-	require.Contains(t, string(result.Structured), "entries")
+	require.Contains(t, string(structuredResult(t, result)), "entries")
 
 	// The public tool-call API shows the child with its parent.
 	listed := requestJSONWithHeaders(t, f.handler, http.MethodGet,
@@ -336,4 +365,35 @@ func TestDaemonProgramToolCallRoutes(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, parentID, call["parent_tool_call_id"])
 	}
+
+	// A config change applies to the running process: a tool it excludes is
+	// refused on submit, and a call submitted before the change fails when a
+	// worker picks it up.
+	stale := f.submit(t, "stale", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, http.StatusOK)
+	require.Equal(t, daemonprotocol.ProgramToolCallStatePending, stale.State)
+	f.changeConfig(t, programToolAgentYAML("web_search, storage_list"))
+	f.submit(t, "revoked", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, http.StatusForbidden)
+	claim, found, err = execution.ClaimNextProgramToolCall(ctx, uuid.New(), time.Minute)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.NoError(t, executor.RunProgramToolCall(ctx, claim, time.Minute))
+	revoked := f.do(t, http.MethodGet, "/tool-calls/"+stale.ToolCallID+"?wait_ms=0", f.process.Token, "",
+		http.StatusOK)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, revoked.State)
+	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeFailed, revoked.Outcome)
+	// Re-allowing the tool applies to the same process too.
+	f.changeConfig(t, programToolAgentYAML("web_search"))
+	f.submit(t, "restored", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, http.StatusOK)
+}
+
+// structuredResult is the first structured value, which `omnarad call` prints.
+func structuredResult(t *testing.T, result daemonprotocol.ProgramToolCallResult) json.RawMessage {
+	t.Helper()
+	for _, part := range result.Content {
+		if part.Type == daemonprotocol.ProgramToolCallContentStructuredData {
+			return part.Value
+		}
+	}
+	t.Fatalf("no structured content in %+v", result)
+	return nil
 }

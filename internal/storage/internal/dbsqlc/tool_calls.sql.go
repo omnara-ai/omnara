@@ -464,29 +464,24 @@ WHERE call.project_id = $1
   AND ($3::text = '' OR call.state = $3)
   AND ($4::text = '' OR call.type = $4)
   AND (
-    $5::uuid IS NULL
-    OR call.parent_tool_call_id = $5
-  )
-  AND (
-    $6::timestamptz IS NULL
+    $5::timestamptz IS NULL
     OR (call.created_at, call.id) > (
-      $6::timestamptz,
-      $7::uuid
+      $5::timestamptz,
+      $6::uuid
     )
   )
 ORDER BY call.created_at ASC, call.id ASC
-LIMIT $8::bigint
+LIMIT $7::bigint
 `
 
 type ListToolCallsForAgentParams struct {
-	ProjectID        uuid.UUID
-	AgentIds         []uuid.UUID
-	State            string
-	Type             string
-	ParentToolCallID *uuid.UUID
-	CursorCreatedAt  *time.Time
-	CursorID         *uuid.UUID
-	RowLimit         int64
+	ProjectID       uuid.UUID
+	AgentIds        []uuid.UUID
+	State           string
+	Type            string
+	CursorCreatedAt *time.Time
+	CursorID        *uuid.UUID
+	RowLimit        int64
 }
 
 type ListToolCallsForAgentRow struct {
@@ -516,7 +511,6 @@ func (q *Queries) ListToolCallsForAgent(ctx context.Context, arg ListToolCallsFo
 		arg.AgentIds,
 		arg.State,
 		arg.Type,
-		arg.ParentToolCallID,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.RowLimit,
@@ -653,6 +647,118 @@ func (q *Queries) ListUnfinishedToolCallsForProject(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listToolCallsForParent = `-- name: ListToolCallsForParent :many
+SELECT call.id, call.project_id, call.agent_id,
+  call.turn_id, call.source_event_id,
+  call.model_call_context_id, call.provider_call_id,
+  call.name, call.input,
+  call.type, call.state,
+  coalesce(result.outcome, '') AS outcome, call.runtime_lock_id,
+  '[]'::jsonb AS result_content_parts,
+  call.created_at, result.completed_at,
+  call.caller, call.parent_tool_call_id
+FROM tool_call_read_projection call
+LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
+  AND result.tool_call_id = call.id
+WHERE call.project_id = $1
+  AND call.agent_id = ANY($2::uuid[])
+  AND ($3::text = '' OR call.state = $3)
+  AND ($4::text = '' OR call.type = $4)
+  AND call.caller = 'program'
+  AND call.parent_tool_call_id = $5::uuid
+  AND (
+    $6::timestamptz IS NULL
+    OR (call.created_at, call.id) > (
+      $6::timestamptz,
+      $7::uuid
+    )
+  )
+ORDER BY call.created_at ASC, call.id ASC
+LIMIT $8::bigint
+`
+
+type ListToolCallsForParentParams struct {
+	ProjectID        uuid.UUID
+	AgentIds         []uuid.UUID
+	State            string
+	Type             string
+	ParentToolCallID uuid.UUID
+	CursorCreatedAt  *time.Time
+	CursorID         *uuid.UUID
+	RowLimit         int64
+}
+
+type ListToolCallsForParentRow struct {
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	TurnID             uuid.UUID
+	SourceEventID      uuid.UUID
+	ModelCallContextID uuid.UUID
+	ProviderCallID     string
+	Name               string
+	Input              json.RawMessage
+	Type               string
+	State              string
+	Outcome            string
+	RuntimeLockID      *uuid.UUID
+	ResultContentParts json.RawMessage
+	CreatedAt          time.Time
+	CompletedAt        *time.Time
+	Caller             string
+	ParentToolCallID   *uuid.UUID
+}
+
+// ListToolCallsForParent lists the program calls a run_command call's process
+// made; it seeks on tool_calls_program_key_idx. Rows match ListToolCallsForAgent.
+func (q *Queries) ListToolCallsForParent(ctx context.Context, arg ListToolCallsForParentParams) ([]ListToolCallsForParentRow, error) {
+	rows, err := q.db.Query(ctx, listToolCallsForParent,
+		arg.ProjectID,
+		arg.AgentIds,
+		arg.State,
+		arg.Type,
+		arg.ParentToolCallID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListToolCallsForParentRow{}
+	for rows.Next() {
+		var i ListToolCallsForParentRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.TurnID,
+			&i.SourceEventID,
+			&i.ModelCallContextID,
+			&i.ProviderCallID,
+			&i.Name,
+			&i.Input,
+			&i.Type,
+			&i.State,
+			&i.Outcome,
+			&i.RuntimeLockID,
+			&i.ResultContentParts,
+			&i.CreatedAt,
+			&i.CompletedAt,
+			&i.Caller,
+			&i.ParentToolCallID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nextRunnableToolCallForModelOutput = `-- name: NextRunnableToolCallForModelOutput :one
 SELECT call.id, call.project_id, call.agent_id,
   call.turn_id, call.source_event_id,
@@ -668,8 +774,7 @@ LEFT JOIN content_blocks call_block ON call_block.agent_id = call.agent_id
   AND call_block.block_kind = 'tool_call'
 WHERE call.project_id = $1
   AND call.agent_id = $2
-  AND call.model_output_id = $3
-  AND call.caller = 'model'
+  AND call.model_output_id = $3::uuid
   AND (
     COALESCE(cardinality($4::uuid[]), 0) = 0
     OR NOT (call.id = ANY($4::uuid[]))

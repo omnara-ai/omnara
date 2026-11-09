@@ -130,17 +130,19 @@ func (s *Store) ListToolCalls(
 		Type:      string(input.Type),
 		RowLimit:  int64(input.Limit) + 1,
 	}
-	if input.ParentToolCallID != uuid.Nil {
-		parentID := input.ParentToolCallID
-		params.ParentToolCallID = &parentID
-	}
 	if input.After.Set {
 		createdAt := input.After.CreatedAt
 		id := input.After.ID
 		params.CursorCreatedAt = &createdAt
 		params.CursorID = &id
 	}
-	rows, err := s.q.ListToolCallsForAgent(ctx, params)
+	var rows []dbsqlc.ListToolCallsForAgentRow
+	var err error
+	if input.ParentToolCallID == uuid.Nil {
+		rows, err = s.q.ListToolCallsForAgent(ctx, params)
+	} else {
+		rows, err = s.listToolCallsForParent(ctx, params, input.ParentToolCallID)
+	}
 	if err != nil {
 		return ListToolCallsResult{}, fmt.Errorf("list tool calls: %w", err)
 	}
@@ -309,4 +311,19 @@ func (s *Store) ListCompletedToolCallsAtWatermark(
 		out = append(out, toolCallRecordFromWatermarkSQLC(row))
 	}
 	return out, nil
+}
+
+func (s *Store) listToolCallsForParent(
+	ctx context.Context, params dbsqlc.ListToolCallsForAgentParams, parentID uuid.UUID,
+) ([]dbsqlc.ListToolCallsForAgentRow, error) {
+	rows, err := s.q.ListToolCallsForParent(ctx, dbsqlc.ListToolCallsForParentParams{
+		ProjectID: params.ProjectID, AgentIds: params.AgentIds, State: params.State, Type: params.Type,
+		ParentToolCallID: parentID, CursorCreatedAt: params.CursorCreatedAt, CursorID: params.CursorID,
+		RowLimit: params.RowLimit,
+	})
+	converted := make([]dbsqlc.ListToolCallsForAgentRow, len(rows))
+	for i, row := range rows {
+		converted[i] = dbsqlc.ListToolCallsForAgentRow(row)
+	}
+	return converted, err
 }

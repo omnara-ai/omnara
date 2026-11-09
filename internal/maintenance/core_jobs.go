@@ -14,6 +14,7 @@ import (
 
 const (
 	runtimeLockReapBatchSize             int32 = 100
+	programToolCallReapBatchSize               = 100
 	daemonRuntimeExpiryBatchSize         int32 = 100
 	eventWebhookDeliveryCleanupBatchSize int32 = 500
 	eventWebhookDeliveryCleanupTimeout         = 5 * time.Second
@@ -26,6 +27,22 @@ func reapRuntimeLocks(
 	return func(ctx context.Context) maintenanceResult {
 		count, err := reap(ctx, runtimeLockReapBatchSize)
 		return reportMaintenanceCount(ctx, log, "reap expired runtime locks", "reaped expired runtime locks", count, err)
+	}
+}
+
+// reapProgramToolCalls cancels program tool calls of ended processes or
+// inactive agents and fails those whose execution claim expired.
+func reapProgramToolCalls(
+	log *slog.Logger,
+	reap func(context.Context, int) (int, error),
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
+		count, err := reap(ctx, programToolCallReapBatchSize)
+		result := reportMaintenanceCount(
+			ctx, log, "reap program tool calls", "reaped program tool calls", int64(count), err,
+		)
+		result.more = count >= programToolCallReapBatchSize
+		return result
 	}
 }
 

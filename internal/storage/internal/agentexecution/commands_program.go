@@ -22,8 +22,6 @@ import (
 // events, or the runtime lock: every write holds the agent row lock and a
 // FOR SHARE lock on the owning live process instead.
 
-const MaxProgramToolKeyBytes = 200
-
 type ProgramToolPhase uint8
 
 const (
@@ -39,8 +37,6 @@ type ProgramTool struct {
 	ID             uuid.UUID
 	ParentID       uuid.UUID
 	ProcessID      uuid.UUID
-	ModelOutputID  uuid.UUID
-	Key            string
 	Name           string
 	Type           string
 	Input          json.RawMessage
@@ -61,7 +57,7 @@ type ProgramToolRef struct {
 
 type CreateProgramToolInput struct {
 	ProcessID uuid.UUID
-	Key       string
+	Key       uuid.UUID
 	Name      string
 	Type      string
 	Input     json.RawMessage
@@ -69,7 +65,7 @@ type CreateProgramToolInput struct {
 
 func programToolRecord(row executiondb.ReadProgramToolRow) ProgramTool {
 	return ProgramTool{ID: row.ID, ParentID: storeutil.ValueOrZero(row.ParentToolCallID), ProcessID: row.ProcessID,
-		ModelOutputID: row.ModelOutputID, Key: row.ProgramKey, Name: row.Name, Type: row.Type, Input: row.Input,
+		Name: row.Name, Type: row.Type, Input: row.Input,
 		State: row.State, ClaimID: storeutil.ValueOrZero(row.ProgramClaimID), ClaimExpiresAt: row.ProgramClaimExpiresAt,
 		ResultID: storeutil.ValueOrZero(row.ResultID), Outcome: storeutil.ValueOrZero(row.Outcome), CreatedAt: row.CreatedAt}
 }
@@ -137,6 +133,13 @@ func (h *Handle) transitionProgramTool(
 	return err
 }
 
+func (h *Handle) programToolNotification(
+	row executiondb.ReadProgramToolRow, state string, interaction *notifications.AgentInteractionUpdate,
+) {
+	h.unit.Notifications().AddProgramToolCallUpdate(h.route.AgentID, row.ID,
+		storeutil.ValueOrZero(row.ParentToolCallID), state, interaction)
+}
+
 func (h *Handle) readProgramTool(ctx context.Context, id uuid.UUID) (ProgramTool, error) {
 	row, err := h.programTool(ctx, id, uuid.Nil)
 	return programToolRecord(row), err
@@ -146,13 +149,10 @@ func (h *Handle) readProgramTool(ctx context.Context, id uuid.UUID) (ProgramTool
 // run_command call, idempotently on (process call, key).
 func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolInput) (ProgramTool, error) {
 	return programCommand(h, func() (ProgramTool, error) {
-		if input.Key == "" || len(input.Key) > MaxProgramToolKeyBytes || input.Name == "" ||
-			(input.Type != "built_in" && input.Type != "mcp") {
+		if input.Key == uuid.Nil || input.Name == "" || (input.Type != "built_in" && input.Type != "mcp") {
 			return ProgramTool{}, storeerr.ErrInvalidRequest
 		}
-		if err := dbsafe.Text(input.Key); err != nil {
-			return ProgramTool{}, storeerr.ErrInvalidRequest
-		}
+		key := input.Key.String()
 		if err := dbsafe.Text(input.Name); err != nil {
 			return ProgramTool{}, storeerr.ErrInvalidRequest
 		}
@@ -167,7 +167,7 @@ func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolI
 		q := executiondb.New()
 		existing := func() (ProgramTool, error) {
 			row, err := q.ReadProgramTool(ctx, h.unit.DB(), executiondb.ReadProgramToolParams{
-				AgentID: h.route.AgentID, ParentID: &process.ToolCallID, Key: &input.Key})
+				AgentID: h.route.AgentID, ParentID: &process.ToolCallID, Key: &key})
 			if err != nil {
 				return ProgramTool{}, err
 			}
@@ -185,7 +185,7 @@ func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolI
 			return ProgramTool{}, err
 		}
 		if _, err = q.InsertProgramTool(ctx, h.unit.DB(), executiondb.InsertProgramToolParams{
-			ID: id, AgentID: h.route.AgentID, ParentID: process.ToolCallID, Key: &input.Key,
+			ID: id, AgentID: h.route.AgentID, ParentID: process.ToolCallID, Key: key,
 			Name: input.Name, Type: input.Type, Input: callInput}); errors.Is(err, pgx.ErrNoRows) {
 			return existing()
 		} else if err != nil {
@@ -196,7 +196,8 @@ func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolI
 			return ProgramTool{}, err
 		}
 		record.Created = true
-		h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, id, "awaiting_authorization", nil)
+		h.unit.Notifications().AddProgramToolCallUpdate(h.route.AgentID, id, process.ToolCallID,
+			"awaiting_authorization", nil)
 		return record, nil
 	})
 }
@@ -214,21 +215,30 @@ func (h *Handle) authorizingProgramTool(
 	return row, nil
 }
 
-// AuthorizeProgramTool moves an awaiting_authorization call to ready, releasing
-// the authorization lease. A call that is already ready is a no-op.
-func (h *Handle) AuthorizeProgramTool(ctx context.Context, ref ProgramToolRef) (bool, error) {
+// AuthorizeProgramTool moves an awaiting_authorization call to waiting under
+// the authorization claim, so its holder executes it next (at most once). A
+// call already waiting under the claim is a no-op.
+func (h *Handle) AuthorizeProgramTool(ctx context.Context, ref ProgramToolRef, lease time.Duration) (bool, error) {
 	return programCommand(h, func() (bool, error) {
 		row, err := h.authorizingProgramTool(ctx, ref)
-		if err != nil || row.State == "ready" {
+		if err != nil {
 			return false, err
 		}
-		if row.State != "awaiting_authorization" {
+		switch {
+		case row.State == "waiting" && storeutil.ValueOrZero(row.ProgramClaimID) == ref.ClaimID:
+			return false, nil
+		case row.State != "awaiting_authorization":
 			return false, storeerr.ErrStateTransitionConflict
 		}
+		// Through ready, as the tool call transition graph requires.
 		if err = h.transitionProgramTool(ctx, row, "ready", uuid.Nil, 0); err != nil {
 			return false, err
 		}
-		h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, row.ID, "ready", nil)
+		row.State, row.ProgramClaimID = "ready", nil
+		if err = h.transitionProgramTool(ctx, row, "waiting", ref.ClaimID, lease); err != nil {
+			return false, err
+		}
+		h.programToolNotification(row, "waiting", nil)
 		return true, nil
 	})
 }
@@ -283,7 +293,7 @@ func (h *Handle) OpenProgramPermission(
 		}
 		result := Interaction{ID: id, ToolID: row.ID, Kind: kind, State: "open", Request: request,
 			Resolution: json.RawMessage(`{}`), Created: true}
-		h.interactionNotification(result, "awaiting_permission")
+		h.programToolNotification(row, "awaiting_permission", result.notification())
 		return result, nil
 	})
 }
@@ -321,7 +331,7 @@ func (h *Handle) ClaimProgramTool(
 			return claimed{}, err
 		}
 		if next != row.State {
-			h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, row.ID, next, nil)
+			h.programToolNotification(row, next, nil)
 		}
 		tool, err := h.readProgramTool(ctx, row.ID)
 		return claimed{tool: tool, phase: phase, found: true}, err
@@ -429,7 +439,7 @@ func (h *Handle) completeProgramTool(
 	for _, i := range closed {
 		interaction = &notifications.AgentInteractionUpdate{ID: i.ID, InteractionKind: i.InteractionKind, State: i.State}
 	}
-	h.unit.Notifications().AddToolCallUpdate(h.route.AgentID, row.ID, "completed", interaction)
+	h.programToolNotification(row, "completed", interaction)
 	return h.readProgramTool(ctx, row.ID)
 }
 
@@ -525,7 +535,7 @@ func (h *Handle) resolveProgramInteraction(
 			if err = h.transitionProgramTool(ctx, call, "ready", uuid.Nil, 0); err != nil {
 				return Interaction{}, err
 			}
-			h.interactionNotification(result, "ready")
+			h.programToolNotification(call, "ready", result.notification())
 			return result, nil
 		}
 		body, err := json.Marshal(map[string]string{"reason": decision.Reason})
@@ -569,8 +579,9 @@ type ProgramToolCandidate struct {
 	ProcessID uuid.UUID
 }
 
-// ListProgramToolCandidates lists calls that may be claimable, oldest first,
-// without locking them; ClaimProgramTool re-checks under the agent lock.
+// ListProgramToolCandidates lists calls that may be claimable without locking
+// them; ClaimProgramTool re-checks under the agent lock. Agents with the fewest
+// calls in flight come first, then older calls.
 func (c *AgentCell) ListProgramToolCandidates(ctx context.Context, limit int32) ([]ProgramToolCandidate, error) {
 	var rows []executiondb.ListProgramToolCandidatesRow
 	if err := c.short(ctx, func(tx pgx.Tx) (err error) {

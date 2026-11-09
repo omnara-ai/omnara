@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/machinedaemon/localipc"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
@@ -139,12 +137,12 @@ func readProgramToolCallInput(raw string, stdin io.Reader) (json.RawMessage, err
 			return nil, errors.New("input is not available on stdin")
 		}
 		var err error
-		data, err = io.ReadAll(io.LimitReader(stdin, programToolCallMaxRequestBytes+1))
+		data, err = io.ReadAll(io.LimitReader(stdin, daemonprotocol.ProgramToolCallMaxInputBytes+1))
 		if err != nil {
 			return nil, fmt.Errorf("read input from stdin: %w", err)
 		}
 	}
-	if len(data) > programToolCallMaxRequestBytes {
+	if len(data) > daemonprotocol.ProgramToolCallMaxInputBytes {
 		return nil, errors.New("input exceeds 1 MiB")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -178,32 +176,9 @@ type programToolCaller struct {
 }
 
 func newProgramToolCaller(endpoint, processID, capability string) *programToolCaller {
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-			for {
-				conn, err := localipc.Dial(connectCtx, endpoint)
-				if err == nil {
-					return conn, nil
-				}
-				if err := sleepContext(connectCtx, 250*time.Millisecond); err != nil {
-					return nil, errors.New("daemon is unavailable for tool calls")
-				}
-			}
-		},
-	}
-	return &programToolCaller{
-		processID:  processID,
-		capability: capability,
-		transport:  transport,
-		client: &http.Client{
-			Transport: transport,
-			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
-	}
+	transport := dialProcessService(endpoint, "daemon is unavailable for tool calls")
+	return &programToolCaller{processID: processID, capability: capability, transport: transport,
+		client: &http.Client{Transport: transport, CheckRedirect: noRedirects}}
 }
 
 func (c *programToolCaller) closeIdleConnections() { c.transport.CloseIdleConnections() }
@@ -397,9 +372,13 @@ func writeProgramToolCallResult(
 		return code
 	}
 	var texts []string
+	var structured json.RawMessage
 	for _, part := range result.Content {
-		if part.Type == daemonprotocol.ProgramToolCallContentText {
+		switch {
+		case part.Type == daemonprotocol.ProgramToolCallContentText:
 			texts = append(texts, part.Text)
+		case part.Type == daemonprotocol.ProgramToolCallContentStructuredData && structured == nil:
+			structured = part.Value
 		}
 	}
 	text := strings.Join(texts, "\n")
@@ -416,9 +395,9 @@ func writeProgramToolCallResult(
 	// parse stdout.
 	var value any
 	switch {
-	case len(result.Structured) > 0 && string(result.Structured) != "null":
+	case len(structured) > 0 && string(structured) != "null":
 		var compact bytes.Buffer
-		if err := json.Compact(&compact, result.Structured); err != nil {
+		if err := json.Compact(&compact, structured); err != nil {
 			_, _ = fmt.Fprintln(stderr, "omnarad call: invalid structured tool result")
 			return ProgramToolCallExitTransport
 		}

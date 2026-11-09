@@ -19,7 +19,7 @@ WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(id) AND state='open';
 SELECT i.id FROM agent_interactions i JOIN tool_calls c ON c.agent_id=i.agent_id AND c.id=i.tool_call_id
 JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
 JOIN model_call_contexts m ON m.agent_id=o.agent_id AND m.id=o.model_call_context_id
-WHERE i.agent_id=sqlc.arg(agent_id) AND i.state='open' AND m.turn_id=sqlc.arg(turn_id) AND c.caller='model'
+WHERE i.agent_id=sqlc.arg(agent_id) AND i.state='open' AND m.turn_id=sqlc.arg(turn_id)
 ORDER BY i.id;
 
 -- name: InsertExecutionResponse :one

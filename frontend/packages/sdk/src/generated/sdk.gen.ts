@@ -4019,7 +4019,7 @@ export const getDaemonGitCredentials = <ThrowOnError extends boolean = true>(opt
 /**
  * Call an agent tool from a daemon process
  *
- * Requires machine daemon authentication and a live shell process started by run_command on that machine, with programmatic tool calls enabled on the machine and in the process's agent config. The call runs with the permissions of the config the process's model call used and is idempotent on key. tool_search is answered inline; other calls return pending or awaiting_approval until they complete.
+ * Requires machine daemon authentication and a live shell process started by run_command on that machine, with programmatic tool calls enabled on the machine and in the process's agent config. The call runs with the tools and permissions of the agent's current config and is idempotent on key. tool_search is answered inline; other calls return pending or awaiting_approval until they complete.
  */
 export const createDaemonProgramToolCall = <ThrowOnError extends boolean = true>(options: Options<CreateDaemonProgramToolCallData, ThrowOnError>): RequestResult<CreateDaemonProgramToolCallResponses, CreateDaemonProgramToolCallErrors, ThrowOnError> => (options.client ?? client).post<CreateDaemonProgramToolCallResponses, CreateDaemonProgramToolCallErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateDaemonProgramToolCallResponse),

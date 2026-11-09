@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/programoutput"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/webaccess"
@@ -27,7 +28,7 @@ import (
 
 func requireProgramOutputSchema(t *testing.T, spec modelcontext.ToolSpec) json.RawMessage {
 	t.Helper()
-	schema, err := programOutputSchema(spec)
+	schema, err := modelcontext.ProgramOutputSchema(spec)
 	require.NoError(t, err)
 	require.NotEmpty(t, schema, spec.Name)
 	require.NoError(t, jsonschema.ValidateSchema(schema), spec.Name)
@@ -69,7 +70,8 @@ func integrationReadSpec(kind integrationdefinition.Kind) modelcontext.ToolSpec 
 }
 
 func TestProgramOutputSchemasCoverCallableBuiltIns(t *testing.T) {
-	for name := range programReadOnlyBuiltInTools {
+	for _, name := range []string{toolcatalog.ToolNameStorageRead, toolcatalog.ToolNameStorageList,
+		toolcatalog.ToolNameStorageSearch, toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameWebFetch} {
 		requireProgramOutputSchema(t, builtInSpec(name))
 	}
 	reads := 0
@@ -84,13 +86,13 @@ func TestProgramOutputSchemasCoverCallableBuiltIns(t *testing.T) {
 	post := integrationReadSpec(integrationdefinition.SlackThread)
 	post.Name = toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationPostMessage)
 	for _, spec := range []modelcontext.ToolSpec{post, builtInSpec(toolcatalog.ToolNameStorageWrite)} {
-		schema, err := programOutputSchema(spec)
+		schema, err := modelcontext.ProgramOutputSchema(spec)
 		require.NoError(t, err)
 		require.Nil(t, schema, spec.Name)
 	}
 	mcp := modelcontext.ToolSpec{Name: "mcp__docs__greet", Type: toolcatalog.ToolTypeMCP,
 		OutputSchema: json.RawMessage(`{"type":"object"}`)}
-	schema, err := programOutputSchema(mcp)
+	schema, err := modelcontext.ProgramOutputSchema(mcp)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"type":"object"}`, string(schema))
 	mcp.OutputSchema = nil
@@ -150,13 +152,13 @@ func TestProgramOutputSchemasAcceptReflectedResults(t *testing.T) {
 	}{
 		{builtInSpec(toolcatalog.ToolNameStorageList), []any{listing.FilePage{}}},
 		{builtInSpec(toolcatalog.ToolNameStorageSearch), []any{searchResult{}}},
-		{builtInSpec(toolcatalog.ToolNameWebSearch), []any{webSearchProgramResult{}}},
-		{builtInSpec(toolcatalog.ToolNameWebFetch), []any{webFetchProgramResult{}}},
+		{builtInSpec(toolcatalog.ToolNameWebSearch), []any{programoutput.WebSearch{}}},
+		{builtInSpec(toolcatalog.ToolNameWebFetch), []any{programoutput.WebFetch{}}},
 		{integrationReadSpec(integrationdefinition.SlackThread), []any{slack.MessagePage{}}},
 		{integrationReadSpec(integrationdefinition.DiscordThread), []any{discord.MessagePage{}}},
 		{integrationReadSpec(integrationdefinition.GitHubPR), []any{
 			github.PullRequest{}, github.DiscussionCommentsPage{}, github.ReviewCommentsPage{},
-			github.ReviewsPage{}, github.Review{}, githubPendingReviewResult{}, github.ReviewThreadsPage{},
+			github.ReviewsPage{}, github.Review{}, programoutput.GitHubPendingReview{}, github.ReviewThreadsPage{},
 			github.FilesPage{}, github.Diff{},
 		}},
 	}

@@ -29,6 +29,23 @@ type programFixture struct {
 func newProgramFixture(t *testing.T) programFixture {
 	t.Helper()
 	f, a, lease := commandFixture(t)
+	return programFixtureFor(t, f, a, lease)
+}
+
+// sibling is the same state for another agent in the fixture's database.
+func (f programFixture) sibling(t *testing.T) programFixture {
+	t.Helper()
+	a, lease := f.executionFixture.create(t, uuid.New(), uuid.Nil), uuid.New()
+	_, err := f.pool.Exec(t.Context(),
+		`INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
+ VALUES($1,$2,$3,statement_timestamp(),statement_timestamp(),statement_timestamp()+interval '90 seconds')`,
+		lease, a, uuid.New())
+	require.NoError(t, err)
+	return programFixtureFor(t, f.executionFixture, a, lease)
+}
+
+func programFixtureFor(t *testing.T, f executionFixture, a, lease uuid.UUID) programFixture {
+	t.Helper()
 	u, h := f.handle(t, a)
 	ref := toolCommand(t, h, lease, "built_in")
 	_, err := h.AuthorizeTool(t.Context(), ref)
@@ -62,7 +79,7 @@ func (f programFixture) create(t *testing.T, key string) agentexecution.ProgramT
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
 		var err error
 		tool, err = h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
-			ProcessID: f.process, Key: key, Name: "storage_read", Type: "built_in", Input: json.RawMessage(`{"path":"a"}`)})
+			ProcessID: f.process, Key: programKey(key), Name: "storage_read", Type: "built_in", Input: json.RawMessage(`{"path":"a"}`)})
 		require.NoError(t, err)
 	})
 	return tool
@@ -186,16 +203,20 @@ func TestProgramToolSchema(t *testing.T) {
 	child := f.create(t, "k1")
 	u, err := f.pool.Begin(t.Context())
 	require.NoError(t, err)
+	var output uuid.UUID
+	require.NoError(t, u.QueryRow(t.Context(), `SELECT model_output_id FROM tool_calls WHERE id=$1`,
+		f.parent).Scan(&output))
 	insert := `INSERT INTO tool_calls(agent_id,model_output_id,provider_call_id,name,input,type,state,caller,
- parent_tool_call_id,program_key,created_at) SELECT agent_id,model_output_id,$2,'storage_read','{}','built_in',
- 'awaiting_authorization',$3,$4,$5,statement_timestamp() FROM tool_calls WHERE id=$1`
-	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p1", "program", f.parent, nil)))
-	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p2", "model", nil, "key")))
-	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p3", "program", uuid.New(), "key")))
-	require.Equal(t, "23505", sqlState(t, u, stmt(insert, f.parent, "p4", "program", f.parent, "k1")))
-	require.Empty(t, sqlState(t, u, stmt(insert, f.parent, "p5", "program", f.parent, "k2")))
+ parent_tool_call_id,created_at) SELECT agent_id,$5::uuid,$2,'storage_read','{}','built_in',
+ 'awaiting_authorization',$3,$4,statement_timestamp() FROM tool_calls WHERE id=$1`
+	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p1", "program", f.parent, output)))
+	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p2", "program", nil, nil)))
+	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p3", "model", f.parent, output)))
+	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p4", "program", uuid.New(), nil)))
+	require.Equal(t, "23505", sqlState(t, u, stmt(insert, f.parent, programKey("k1").String(), "program", f.parent, nil)))
+	require.Empty(t, sqlState(t, u, stmt(insert, f.parent, "k2", "program", f.parent, nil)))
 	require.Equal(t, "25006", sqlState(t, u, stmt(`UPDATE tool_calls SET caller='model' WHERE id=$1`, child.ID)))
-	require.Equal(t, "25006", sqlState(t, u, stmt(`UPDATE tool_calls SET program_key='other' WHERE id=$1`, child.ID)))
+	require.Equal(t, "25006", sqlState(t, u, stmt(`UPDATE tool_calls SET provider_call_id='other' WHERE id=$1`, child.ID)))
 	ready := stmt(`UPDATE tool_calls SET state='ready' WHERE id=$1`, child.ID)
 	require.Equal(t, "23514", sqlState(t, u, ready, stmt(`UPDATE tool_calls SET state='waiting' WHERE id=$1`, child.ID)))
 	require.Equal(t, "23514", sqlState(t, u, ready,
@@ -210,9 +231,9 @@ func TestProgramToolSchema(t *testing.T) {
  state_changed_at,created_at,updated_at,last_activity_at) SELECT org_id,project_id,agent_id,$2,runtime_lock_id,
  agent_machine_binding_id,machine_id,execution_spec,state,execution_granted_at,source_started_at,state_changed_at,
  created_at,updated_at,last_activity_at FROM processes WHERE id=$1`, f.process, child.ID),
-		stmt(`INSERT INTO tool_calls(agent_id,model_output_id,provider_call_id,name,input,type,state,caller,
- parent_tool_call_id,program_key,created_at) SELECT agent_id,model_output_id,'p6','storage_read','{}','built_in',
- 'awaiting_authorization','program',id,'k',statement_timestamp() FROM tool_calls WHERE id=$1`, child.ID)))
+		stmt(`INSERT INTO tool_calls(agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,
+ created_at) SELECT agent_id,'p6','storage_read','{}','built_in','awaiting_authorization','program',id,
+ statement_timestamp() FROM tool_calls WHERE id=$1`, child.ID)))
 	require.NoError(t, u.Rollback(t.Context()))
 }
 
@@ -228,13 +249,13 @@ func TestProgramToolCreateIsIdempotent(t *testing.T) {
 	require.Equal(t, created.ID, replay.ID)
 	f.try(t, func(h *agentexecution.Handle) {
 		_, err := h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
-			ProcessID: f.process, Key: "key", Name: "storage_read", Type: "built_in", Input: json.RawMessage(`{"path":"b"}`)})
+			ProcessID: f.process, Key: programKey("key"), Name: "storage_read", Type: "built_in", Input: json.RawMessage(`{"path":"b"}`)})
 		require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 	})
 	var provider, caller string
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT provider_call_id,caller FROM tool_calls WHERE id=$1`,
 		created.ID).Scan(&provider, &caller))
-	require.Equal(t, "program:"+f.parent.String()+":key", provider)
+	require.Equal(t, programKey("key").String(), provider)
 	require.Equal(t, "program", caller)
 	require.Equal(t, before, f.fingerprint(t))
 }
@@ -255,7 +276,7 @@ func TestProgramToolFlows(t *testing.T) {
 			switch mode {
 			case "allow":
 				f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
-					changed, err := h.AuthorizeProgramTool(t.Context(), ref)
+					changed, err := h.AuthorizeProgramTool(t.Context(), ref, time.Minute)
 					require.NoError(t, err)
 					require.True(t, changed)
 				})
@@ -322,14 +343,19 @@ func TestProgramToolFlows(t *testing.T) {
 				require.Equal(t, "completed", state)
 				require.Equal(t, "denied", outcome)
 			} else {
-				require.Equal(t, "ready", state)
-				execute := uuid.New()
-				phase, found = f.claim(t, tool.ID, execute)
-				require.True(t, found)
-				require.Equal(t, agentexecution.ProgramToolExecute, phase)
+				if mode == "allow" {
+					// Allowed in the authorize phase: waiting under the same claim.
+					require.Equal(t, "waiting", state)
+				} else {
+					require.Equal(t, "ready", state)
+					execute := uuid.New()
+					phase, found = f.claim(t, tool.ID, execute)
+					require.True(t, found)
+					require.Equal(t, agentexecution.ProgramToolExecute, phase)
+					ref.ClaimID = execute
+				}
 				_, found = f.claim(t, tool.ID, uuid.New())
 				require.False(t, found)
-				ref.ClaimID = execute
 				f.try(t, func(h *agentexecution.Handle) {
 					_, err := h.CompleteProgramTool(t.Context(),
 						agentexecution.ProgramToolRef{ID: tool.ID, ProcessID: f.process, ClaimID: uuid.New()}, "succeeded", nil)
@@ -391,7 +417,7 @@ func TestProgramToolProcessFence(t *testing.T) {
 	before := f.fingerprint(t)
 	f.try(t, func(h *agentexecution.Handle) {
 		_, err := h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{
-			ProcessID: f.process, Key: "late", Name: "storage_read", Type: "built_in", Input: json.RawMessage(`{}`)})
+			ProcessID: f.process, Key: programKey("late"), Name: "storage_read", Type: "built_in", Input: json.RawMessage(`{}`)})
 		require.ErrorIs(t, err, storeerr.ErrProcessTerminal)
 	})
 	f.try(t, func(h *agentexecution.Handle) {
@@ -448,17 +474,16 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, agentexecution.ProgramToolAuthorize, phase)
 	f.try(t, func(h *agentexecution.Handle) {
-		_, err := h.AuthorizeProgramTool(t.Context(), ref)
+		_, err := h.AuthorizeProgramTool(t.Context(), ref, time.Minute)
 		require.ErrorIs(t, err, storeerr.ErrProgramToolCallClaimLost)
 	})
 	ref.ClaimID = second
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
-		_, err := h.AuthorizeProgramTool(t.Context(), ref)
+		_, err := h.AuthorizeProgramTool(t.Context(), ref, time.Minute)
 		require.NoError(t, err)
 	})
-	execute := uuid.New()
-	_, found = f.claim(t, tool.ID, execute)
-	require.True(t, found)
+	// The authorized call waits under the authorization claim.
+	execute := second
 	candidates, err = cell.ListProgramToolCandidates(t.Context(), 10)
 	require.NoError(t, err)
 	require.Empty(t, candidates)
@@ -482,6 +507,25 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT b.structured_data->>'error_code' FROM content_blocks b
  JOIN tool_call_results r ON r.id=b.owner_tool_call_result_id WHERE r.tool_call_id=$1`, tool.ID).Scan(&code))
 	require.Equal(t, "worker_lost", code)
+}
+
+// An agent's claimed calls count against its claimable ones, so another
+// agent's later call is offered before the rest of its backlog.
+func TestProgramToolCandidatesShareWorkersAcrossAgents(t *testing.T) {
+	busy := newProgramFixture(t)
+	running, second, third := busy.create(t, "running"), busy.create(t, "second"), busy.create(t, "third")
+	_, found := busy.claim(t, running.ID, uuid.New())
+	require.True(t, found)
+	other := busy.sibling(t)
+	late := other.create(t, "late")
+	candidates, err := agentexecution.NewCell(busy.pool, nil, nil).ListProgramToolCandidates(t.Context(), 10)
+	require.NoError(t, err)
+	ids := make([]uuid.UUID, len(candidates))
+	for i, candidate := range candidates {
+		ids[i] = candidate.ID
+	}
+	require.Equal(t, []uuid.UUID{late.ID, second.ID, third.ID}, ids)
+	require.Equal(t, other.agent, candidates[0].AgentID)
 }
 
 func TestProgramToolsIgnoredByTurnControl(t *testing.T) {
@@ -520,3 +564,6 @@ func TestProgramToolsIgnoredByTurnControl(t *testing.T) {
 		})
 	}
 }
+
+// programKey is a stable idempotency key for a test label.
+func programKey(label string) uuid.UUID { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)) }
