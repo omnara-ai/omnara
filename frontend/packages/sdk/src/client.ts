@@ -67,6 +67,7 @@ const serializeMultipartBody = ((body) => {
 
 function normalizeRequestOptions<O extends object>(options: O): O {
   const normalized: O & { bodySerializer?: unknown } = { ...options }
+  // Avoid leaking the SDK client into RequestInit: https://github.com/hey-api/hey-api/issues/4177
   Reflect.deleteProperty(normalized, 'client')
   if (normalized.bodySerializer === formDataBodySerializer.bodySerializer) {
     normalized.bodySerializer = serializeMultipartBody
@@ -75,7 +76,6 @@ function normalizeRequestOptions<O extends object>(options: O): O {
 }
 
 // Generated HTTP methods close over request(), so route them through our policy entry.
-// Normalization also drops the reserved Request init key until hey-api#4177 is fixed.
 function configureRequests(client: OmnaraClient): void {
   client.interceptors.request.use(captureRequestDestination)
   const { setConfig } = client

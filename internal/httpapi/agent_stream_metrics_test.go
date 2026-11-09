@@ -16,9 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Fill before the consumer starts, making buffer overflow deterministic without
-// depending on socket scheduling or Redis. Both callbacks are the route's real
-// subscription callbacks.
 type overflowingAgentSubscriber struct {
 	noopAgentNotificationSubscriber
 }

@@ -116,8 +116,6 @@ func TestToolCallInteractionProjectScopeMigration(t *testing.T) {
 		openID, agentID, pendingCallID, resolvedID, doneCallID)
 	exec(`UPDATE agent_interactions SET state='resolved',resolved_at=now() WHERE id=$1`, resolvedID)
 
-	// Fail after the real migration has backfilled history and replaced its views.
-	// A failed stopped-app upgrade must leave version 68 usable for retry.
 	const migrationFile = "000069_tool_recovery.sql"
 	body, err := os.ReadFile("../../migrations/" + migrationFile)
 	require.NoError(t, err)

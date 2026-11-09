@@ -28,7 +28,6 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       )
   }
   const running = new Map<string, CustomToolTask & { done: Promise<CustomToolOutcome> }>()
-  // Only outstanding list reads need protection from a completion newer than their snapshot.
   const listingCompletions = new Set<Set<string>>()
   function observedCompletion(id: string) {
     for (const completed of listingCompletions) completed.add(id)

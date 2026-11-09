@@ -1,4 +1,3 @@
-/** Forward cancellation for one owned operation; dispose when that operation ends. */
 export function forwardAbort(
   source: AbortSignal | null | undefined,
   target: AbortController,
@@ -21,7 +20,6 @@ export function forwardAbort(
   return dispose
 }
 
-/** Race the entire SDK call, including auth and response parsing, against cancellation. */
 export function untilAborted<T>(request: () => Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     const abort = () => {

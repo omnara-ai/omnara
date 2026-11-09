@@ -4,10 +4,7 @@ import { fileURLToPath, URL } from 'node:url'
 
 import { parse } from 'yaml'
 
-// Idempotency describes the effect, not the response: a replay may return a
-// conflict (for example, an already completed custom tool call).
 export function replayContracts(spec) {
-  // Observations need a bounded label for every API operation, independently of replay safety.
   const known = []
   const keyed = []
   const idempotent = []

@@ -196,8 +196,6 @@ func TestOpenAPIReplaySafetyAnnotations(t *testing.T) {
 				if method == http.MethodGet || method == http.MethodHead {
 					t.Errorf("%s %s is already replay-safe by method", method, path)
 				}
-				// The loader resolves component references; inherited path parameters
-				// matter just as much as parameters declared on the operation itself.
 				for _, ref := range slices.Concat(item.Parameters, operation.Parameters) {
 					if ref.Value == nil {
 						t.Fatalf("%s %s has unresolved parameter %q", method, path, ref.Ref)

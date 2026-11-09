@@ -26,7 +26,6 @@ test('recovers lost launch and message responses without creating duplicates', a
       if (request.method() !== 'POST') return route.continue()
       const operation = request.url().endsWith('/inputs') ? 'input' : 'launch'
       if (operation === 'launch') agentsURL = request.url()
-      // Let the real API commit the write, then lose only the response to the browser.
       const response = await fetchLocalRoute(route)
       const json: unknown = await response.json()
       const id =
@@ -78,8 +77,6 @@ test('recovers lost launch and message responses without creating duplicates', a
   await expect(page.getByText(message, { exact: true })).toHaveCount(1)
   await expect(page.getByRole('alert')).toHaveCount(0)
 
-  // Launch gets its key from the SDK; chat supplies its own. Both must replay
-  // identical bytes and return the original resource on the second attempt.
   for (const requests of Object.values(attempts)) {
     expect(requests).toHaveLength(2)
     const [first, retry] = requests

@@ -18,8 +18,6 @@ export async function exerciseProjectWebhooks(
     page.locator('[data-sidebar="group-label"]').filter({ hasText: /^Webhooks$/ }),
   ).toHaveCount(0)
 
-  // Forward the genuine list request to the API with a small page size so the
-  // browser exercises pagination without creating dozens of subscriptions.
   await page.route(/\/event-webhooks(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== 'GET') return route.continue()
     const url = new URL(route.request().url())

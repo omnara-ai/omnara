@@ -55,7 +55,6 @@ it('does not retry failed stream connections or leave a deadline timer behind', 
   const done = expect(client.get({ url: '/stream', parseAs: 'stream' })).rejects.toMatchObject({
     status: 503,
   })
-  // Allow both retry backoffs to elapse without letting the deadline suppress a retry.
   await vi.advanceTimersByTimeAsync(3_000)
   await done
   expect(fetch).toHaveBeenCalledOnce()
@@ -230,7 +229,6 @@ it.each([true, false])(
     await settled
     expect(listeners.size).toBe(0)
     expect(response.bodyUsed).toBe(true)
-    // Finish the deliberately non-cooperative custom body after the caller has stopped waiting.
     body.close()
   },
 )

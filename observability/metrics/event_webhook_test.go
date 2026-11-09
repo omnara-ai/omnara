@@ -42,7 +42,6 @@ func TestEventWebhookBacklogEmptyFailureAndRecovery(t *testing.T) {
 	require.Contains(t, body, "review_event_webhook_oldest_due_age_seconds NaN")
 	require.Contains(t, body, "review_event_webhook_oldest_due_lag_seconds NaN")
 	require.Contains(t, body, "review_event_webhook_backlog_sample_errors_total 1")
-	// Failure leaves freshness untouched, and an empty successful sample is healthy.
 	require.Equal(t, success, lastSuccess())
 	m.Record(EventWebhookBacklogSample{}, nil)
 	body = scrapeMetrics(t, set)

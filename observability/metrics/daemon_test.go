@@ -26,6 +26,7 @@ func TestDaemonRecorderEmitsSocketEvents(t *testing.T) {
 func TestNotificationRecorderEmitsMetrics(t *testing.T) {
 	set := New()
 	recorder := NewNotificationRecorder(set)
+
 	recorder.RecordNotification("daemon_work", "published", "none")
 	recorder.RecordNotification("daemon_work", "skipped", "presence_miss")
 	recorder.RecordNotification("agent_event", "published", "none")

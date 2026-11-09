@@ -377,7 +377,6 @@ describe('openAgentEventStream', () => {
       new Response(null, { status: 503, headers: { 'Retry-After': '2' } }),
       new Response(null, { status: 401 }),
     )
-    // The stream owns reconnects; SDK retries must not hide a failed connection.
     client.setConfig({ maxRetries: 10, timeoutMs: 100 })
     const result = collectUntilError(
       openAgentEventStream({

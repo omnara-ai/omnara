@@ -21,7 +21,6 @@ const (
 	ToolInputSchemaObject = "object"
 )
 
-// Type identifies the execution contract of a tool, independently of its name.
 type Type string
 
 func (t Type) Valid() bool {

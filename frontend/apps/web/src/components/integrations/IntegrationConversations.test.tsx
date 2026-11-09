@@ -69,7 +69,6 @@ function conversations(currentIntegration: Integration = integration, canManage 
   )
 }
 function render(api: ReturnType<typeof fakeApi>, content = conversations()) {
-  // These component tests exercise final API failures and explicit user retries.
   const client = createOmnaraClient({
     baseUrl: 'https://omnara.test/api/v1',
     fetch: api.fetch,

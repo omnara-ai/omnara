@@ -126,7 +126,6 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 export function render(api: FakeApi, node: ReactNode) {
-  // These component tests exercise final API failures and explicit user retries.
   const client = createOmnaraClient({
     baseUrl: 'https://omnara.test/api/v1',
     fetch: api.fetch,

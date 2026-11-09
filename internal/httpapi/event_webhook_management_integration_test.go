@@ -65,7 +65,6 @@ func TestProjectWebhookManagement(t *testing.T) {
 		endpoint+"?limit=2&cursor="+url.QueryEscape(cursor), "", "", http.StatusOK, headers)
 	require.Equal(t, created[2:], last["data"])
 	require.Nil(t, last["next_cursor"])
-	// A project-wide continuation cannot be reused for an exact selection.
 	for _, query := range []string{
 		"scope_type=project",
 		"scope_type=profile&agent_profile_id=" + f.profileID,
@@ -85,8 +84,6 @@ func TestProjectWebhookManagement(t *testing.T) {
 		return requestJSONWithHeaders(t, f.handler, http.MethodPatch, endpoint+"/"+id,
 			integrationHTTPJSON(t, map[string]any{"scope": scope}), "", status, headers)
 	}
-	// An existing subscription can widen and narrow without losing its identity
-	// or signing configuration. All other PATCH fields remain untouched.
 	for _, scope := range []map[string]any{selections[0], selections[1], selections[2], selections[0]} {
 		updated := patchScope(scope, http.StatusOK)
 		require.Equal(t, scope, updated["scope"])
@@ -96,7 +93,6 @@ func TestProjectWebhookManagement(t *testing.T) {
 	}
 	queuedAgent := launch(false)
 	patchScope(selections[1], http.StatusOK)
-	// Exact-selection filters keep the same cursor contract as the project list.
 	profileList := endpoint + "?scope_type=profile&agent_profile_id=" + f.profileID + "&limit=1"
 	profileFirst := requestJSONWithHeaders(t, f.handler, http.MethodGet, profileList,
 		"", "", http.StatusOK, headers)
@@ -127,7 +123,6 @@ func TestProjectWebhookManagement(t *testing.T) {
 		mustPublicHTTPID(t, publicid.KindAgent, queuedAgent), mustPublicHTTPID(t, publicid.KindAgent, includedAgent),
 	}, queuedAgents)
 	require.NotContains(t, queuedAgents, mustPublicHTTPID(t, publicid.KindAgent, excludedAgent))
-	// Delivery resolves the endpoint without reapplying the edited selection.
 	queuedEndpoint, err := f.project.Store.Execution().GetEventWebhookEndpoint(ctx, f.project.OrgUUID,
 		webhookUUID, mustPublicHTTPID(t, publicid.KindAgent, queuedAgent))
 	require.NoError(t, err)
@@ -151,7 +146,6 @@ func TestProjectWebhookManagement(t *testing.T) {
 		"", "", http.StatusOK, headers)
 	require.Equal(t, []any{otherSubscription}, isolated["data"])
 
-	// Scope edits enforce the same active selection-and-URL uniqueness as creates.
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, endpoint,
 		integrationHTTPJSON(t, map[string]any{"scope": selections[0], "url": subscription["url"],
 			"event_types": []string{"agent_input"}}), "", http.StatusCreated, headers)
@@ -159,7 +153,6 @@ func TestProjectWebhookManagement(t *testing.T) {
 	unchanged := requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+"/"+id,
 		"", "", http.StatusOK, headers)
 	require.Equal(t, selections[1], unchanged["scope"])
-	// Display names follow the referenced resource; subscriptions store only its identity.
 	requestJSONWithHeaders(t, f.handler, http.MethodPatch, f.project.ProjectPath+"/agent-profiles/"+f.profileID,
 		`{"name":"Renamed webhook profile"}`, "", http.StatusOK, headers)
 	renamed := requestJSONWithHeaders(t, f.handler, http.MethodGet, profileList, "", "", http.StatusOK, headers)

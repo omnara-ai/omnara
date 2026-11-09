@@ -71,8 +71,6 @@ func TestSenderPayloadContractAndRetries(t *testing.T) {
 					require.Equal(t, encoded, data[key], key)
 				}
 				if kind == "tool_call_update" {
-					data, ok := payload["data"].(map[string]any)
-					require.True(t, ok)
 					require.Equal(t, "lookup_customer", data["name"])
 					require.Equal(t, map[string]any{"email": "ada@example.com"}, data["input"])
 				}

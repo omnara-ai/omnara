@@ -117,8 +117,6 @@ func TestSenderHTTPMetricsKeepRecipientLabelsPrivate(t *testing.T) {
 		metrics.NewHTTPClientRecorder(set, metrics.SubsystemHTTPClient))
 	require.Equal(t, attemptTimeout, sender.client.Timeout)
 	require.ErrorIs(t, sender.client.CheckRedirect(nil, nil), http.ErrUseLastResponse)
-	// The actual public-network transport rejects this destination. That failed
-	// attempt must still be observed without exposing the recipient's address.
 	sender.deliver(t.Context(), delivery)
 	body := webhookMetrics(set)
 	require.Contains(t, body, `omnara_http_client_requests_total{code="none",error_kind="transport",host="event_webhook",`+

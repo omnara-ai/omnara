@@ -3,9 +3,7 @@ import { URL } from 'node:url'
 
 import ts from 'typescript'
 
-// TypeScript expands inferred TanStack query keys into bare unique-symbol names
-// in declarations. Preserve the named public return types instead, including the
-// no-skipToken queryFn contract that lets these helpers work with suspense.
+// Inferred TanStack query keys emit unnameable unique symbols in consumer declarations.
 const path = new URL('../src/generated/@tanstack/react-query.gen.ts', import.meta.url)
 const source = readFileSync(path, 'utf8')
 const file = ts.createSourceFile(path.pathname, source, ts.ScriptTarget.Latest, true)
@@ -67,9 +65,6 @@ for (const statement of file.statements) {
     if (source[position] !== ' ') throw new Error('Unexpected generated arrow-function format')
     edits.push({ position, end: position, text: `: ${result}` })
     if (infinite) {
-      // The generator suppresses missing caller-supplied pagination settings at
-      // construction, selecting a wider overload. Its queryFn is always a
-      // function, so keep that fact in the existing type-only return assertion.
       const returned = fn.body.statements.at(-1)
       edits.push({
         position: returned.getStart(file),

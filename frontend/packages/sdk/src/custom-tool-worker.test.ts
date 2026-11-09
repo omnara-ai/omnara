@@ -238,7 +238,6 @@ describe('finite recovery pages', () => {
     expect(params.getAll('names')).toEqual(['lookup_customer'])
     expect(params.get('state')).toBe('ready')
     expect(params.get('type')).toBe('custom')
-    // Deferred jobs remain ready: another pass must still cost only one GET per page.
     await worker.check({ limit: 2 })
     expect(requests).toHaveLength(3)
     expect(
@@ -296,7 +295,7 @@ describe('finite recovery pages', () => {
       list.resolve(Response.json({ data: [toolCall()], next_cursor: null }))
       expect((await check).results[0]?.outcome.status).toBe(outcome)
       expect(handler).toHaveBeenCalledTimes(outcome === 'completed' ? 1 : 2)
-      expect(requests).toHaveLength(outcome === 'completed' ? 3 : 2) // List, notification GET, optional POST.
+      expect(requests).toHaveLength(outcome === 'completed' ? 3 : 2)
     },
   )
 

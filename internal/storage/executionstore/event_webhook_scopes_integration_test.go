@@ -282,8 +282,6 @@ func TestEventWebhookScopeValidationAndLimits(t *testing.T) {
 		_, err := store.CreateEventWebhook(t.Context(), input)
 		require.NoError(t, err)
 	}
-	// Pause the first create after its quota check by blocking INSERT, while
-	// allowing COUNT. A different selection must wait on the same project lock.
 	gate := integrationdb.BeginTx(t, t.Context(), fixture.Store.pool)
 	_, err = gate.Exec(t.Context(), "LOCK TABLE event_webhooks IN SHARE MODE")
 	require.NoError(t, err)

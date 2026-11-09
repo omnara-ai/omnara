@@ -99,9 +99,7 @@ it.each(['fetch', 'body'] as const)(
     await vi.advanceTimersByTimeAsync(100)
     await done
     expect(fetch).toHaveBeenCalledOnce()
-    response.reject(new TypeError('late rejection'))
-    // In the body case the promise was never awaited; attach a rejection handler.
-    if (stage === 'body') await response.promise.catch(() => undefined)
+    if (stage === 'fetch') response.reject(new TypeError('late rejection'))
     await vi.runAllTimersAsync()
     expect(fetch).toHaveBeenCalledOnce()
   },

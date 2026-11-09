@@ -144,7 +144,6 @@ function testProviders(routes: FakeRoute[] = []) {
         }),
     },
   ])
-  // Exercise the unavailable-grant UI after a final API failure.
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', maxRetries: 0 })
   client.setConfig({ fetch: api.fetch })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })

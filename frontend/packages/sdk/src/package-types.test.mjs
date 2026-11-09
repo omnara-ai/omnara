@@ -14,7 +14,6 @@ const require = createRequire(import.meta.url)
 it('supports packed-package consumers with current and minimum TanStack versions', () => {
   const consumer = mkdtempSync(join(tmpdir(), 'omnara-sdk-consumer-'))
   try {
-    // Source imports bypass the published export map and cannot catch private declaration chunks.
     execFileSync('sh', ['-c', 'pnpm build'], { cwd: packageRoot, stdio: 'pipe', timeout: 120_000 })
     const tarball = join(consumer, 'sdk.tgz')
     execFileSync('sh', ['-c', 'pnpm pack --out "$1"', 'pack', tarball], {
@@ -28,7 +27,6 @@ it('supports packed-package consumers with current and minimum TanStack versions
       timeout: 15_000,
     })
 
-    // Reuse installed dependencies without a network install or workspace link to the SDK source.
     const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'))
     for (const dependency of Object.keys(manifest.dependencies)) {
       const destination = join(consumer, 'node_modules', dependency)
@@ -36,7 +34,6 @@ it('supports packed-package consumers with current and minimum TanStack versions
       symlinkSync(join(packageRoot, 'node_modules', dependency), destination, 'dir')
     }
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ type: 'module' }))
-    // A separate process importing only this entry must install the shared-client policy too.
     writeFileSync(
       join(consumer, 'tanstack-only.mjs'),
       `import assert from 'node:assert/strict'
@@ -111,8 +108,6 @@ export const redeliver = (error: CustomToolDeliveryError) => sdk.submitToolCallR
 })
 `,
     )
-    // An exact dev-only alias makes the declared peer floor reproducible and
-    // keeps the lockfile's newer version from hiding incompatible declarations.
     for (const dependency of ['@tanstack/react-query-minimum', '@tanstack/react-query']) {
       const source = join(packageRoot, 'node_modules', dependency)
       const { version } = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))

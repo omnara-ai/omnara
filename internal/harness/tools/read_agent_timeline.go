@@ -131,7 +131,6 @@ func readAgentTurnFromRecord(record executionstore.AgentTurnReadRecord) (readAge
 		ID: id, TurnSequence: record.TurnSequence, EventCount: record.EventCount,
 		OpeningEvents: opening, StartedAt: record.StartedAt, UpdatedAt: record.UpdatedAt,
 	}
-	// Keep each event's content once, preferring opening events and then latest_event.
 	seen := make(map[uuid.UUID]struct{}, len(record.OpeningEvents)+1)
 	for _, event := range record.OpeningEvents {
 		seen[event.ID] = struct{}{}

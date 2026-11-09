@@ -1,6 +1,5 @@
 import { vi } from 'vitest'
 
-/** Track explicit listener ownership without depending on a runtime's garbage collector. */
 export function trackAbortListeners(signal: AbortSignal) {
   const listeners = new Set<EventListenerOrEventListenerObject>()
   const add = signal.addEventListener.bind(signal)

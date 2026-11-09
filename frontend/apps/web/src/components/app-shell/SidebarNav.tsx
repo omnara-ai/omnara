@@ -93,7 +93,6 @@ export function SidebarNav() {
           items={[
             {
               id: 'back',
-              // Back to the organization's version of this page, so the section stays put.
               to: section && hasOrganizationPath(section) ? organizationPaths[section] : '/',
               label: 'Back to organization',
               icon: ArrowLeft,

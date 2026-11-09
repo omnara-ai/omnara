@@ -31,7 +31,6 @@ export function normalizeHeaders(
   return Array.isArray(headers) ? new Headers(headers) : headers
 }
 
-/** A replay key belongs to one logical request, never to a client shared by many requests. */
 export function validateClientRequestPolicy(
   options: RequestPolicyOptions & Pick<Config, 'headers'>,
 ): void {
@@ -43,13 +42,11 @@ export function validateClientRequestPolicy(
   }
 }
 
-// Transport accepts arbitrary caller serializers; parsing here would change their payloads.
-// oxlint-disable-next-line anti-slop/no-unknown-parameters
-function oneShotBody(body: unknown): boolean {
+function oneShotBody(
+  body: unknown,
+): body is ReadableStream<unknown> | { [Symbol.asyncIterator]: unknown } {
   return (
     body instanceof ReadableStream ||
-    // This is a conservative replay check, not a domain-data validator.
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof
     (body !== null && typeof body === 'object' && Symbol.asyncIterator in body)
   )
 }
@@ -61,7 +58,6 @@ type RequestDestination = Pick<Request, 'method' | 'url'> &
   Pick<RequestOptions, 'baseUrl'> & { operation: string }
 const originalRequests = new WeakMap<typeof globalThis.fetch, RequestDestination | undefined>()
 
-/** Capture the generated destination before caller interceptors can replace the Request. */
 export function captureRequestDestination(
   request: Request,
   options: Pick<RequestOptions, 'fetch' | 'method' | 'url' | 'baseUrl'>,
@@ -82,9 +78,6 @@ interface BackoffTiming {
   startedAt?: number
 }
 
-/** Run generated auth, serialization, interceptors and validation once. Only fetch is retried. */
-// Preserve the generated client's conditional Promise return type, including
-// throwOnError and responseStyle, rather than distributing its result union.
 export function requestWithPolicy<T extends Promise<unknown>>(
   config: Config,
   options: PolicyRequest,
@@ -104,8 +97,6 @@ export async function requestWithPolicy<T>(
   const operation = `${method} ${options.url}`
   const baseUrl = 'baseUrl' in options ? options.baseUrl : config.baseUrl
   const keyed = keyedOperations.has(operation)
-  // Forward request overrides, including null removals, rather than merging the
-  // config twice. The generated client performs the final merge.
   let headers = normalizeHeaders(options.headers)
   const mergedHeaders = mergeHeaders(normalizeHeaders(config.headers), headers)
   if (keyed && !mergedHeaders.has('Idempotency-Key')) {
@@ -167,7 +158,6 @@ export async function requestWithPolicy<T>(
   }
 
   const retryingFetch: typeof globalThis.fetch = async (input, init) => {
-    // Auth/interceptors can finish after the deadline, even if they ignore cancellation.
     signal.throwIfAborted()
     const template =
       input instanceof Request && init === undefined ? input : new Request(input, init)
@@ -211,7 +201,6 @@ export async function requestWithPolicy<T>(
           continue
         }
         if (signal.aborted) {
-          // A custom fetch can finish after cancellation even if it ignores signal.
           void response.body?.cancel().catch(() => undefined)
           signal.throwIfAborted()
         }
@@ -223,7 +212,6 @@ export async function requestWithPolicy<T>(
         const delay = Math.max(retryDelay(attempt + 1), retryAfterMs)
         if (retryAfterMs > retryAfterMaximumDelayMs || Date.now() + delay >= expiresAt)
           return exposeResponse(response)
-        // We will not expose this response. Release its connection before trying again.
         void response.body?.cancel().catch(() => undefined)
         lastResponse = undefined
         await wait(delay)
@@ -239,7 +227,6 @@ export async function requestWithPolicy<T>(
       () => dispatch({ fetch: retryingFetch, signal, headers, bodySerializer }),
       signal,
     )
-    // Wrap the final returned stream: response interceptors can clone or replace it.
     if (result instanceof ReadableStream) {
       clearTimeout(timer)
       const stream = callerSignal ? streamWithLifetime(result, signal, disposeCaller) : result
@@ -247,7 +234,6 @@ export async function requestWithPolicy<T>(
       // SAFETY: generated data mode returns the raw stream; wrapping preserves that contract.
       return stream as T
     }
-    // Generated fields mode is a transport envelope, not a domain payload.
     if (
       result !== null &&
       // oxlint-disable-next-line anti-slop/no-runtime-typeof
@@ -271,8 +257,6 @@ export async function requestWithPolicy<T>(
     }
     return result
   } catch (error) {
-    // The generated client handles its own errors. This also preserves its return
-    // modes when our deadline wins a race against auth or response-body reading.
     if (options.throwOnError ?? config.throwOnError) {
       outcome = 'threw'
       throw error
@@ -287,8 +271,6 @@ export async function requestWithPolicy<T>(
     clearTimeout(timer)
     if (handoff !== 'stream') {
       disposeCaller()
-      // Fields-mode errors expose their Response for inspection. Cancellation still
-      // releases the body when the caller/deadline has explicitly ended the request.
       if (parseAs === 'stream' && (handoff === 'none' || signal.aborted))
         void lastResponse?.body?.cancel().catch(() => undefined)
     }
@@ -297,7 +279,6 @@ export async function requestWithPolicy<T>(
         operation: observationOperation,
         durationMs: Math.max(0, Date.now() - startedAt),
         attempts,
-        // Cancellation can settle the outer call before wait() reaches its finally block.
         backoffMs:
           backoff.elapsedMs +
           (backoff.startedAt === undefined ? 0 : Math.max(0, Date.now() - backoff.startedAt)),

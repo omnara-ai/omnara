@@ -248,7 +248,6 @@ describe('SDK transport retries', () => {
         .fn<typeof globalThis.fetch>()
         .mockImplementation(() => Promise.resolve(failure()))
       const client = createOmnaraClient({ baseUrl, fetch })
-      // Node's Request requires duplex for a streamed body; browsers ignore this extra init field.
       const options = {
         url: agentUrl,
         path,

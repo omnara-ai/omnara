@@ -1,4 +1,3 @@
-/** Keep cancellation linked until the returned body ends, without buffering it. */
 export function responseWithStreamLifetime(
   response: Response,
   signal: AbortSignal,
@@ -10,7 +9,6 @@ export function responseWithStreamLifetime(
 }
 
 function copyResponseMetadata(target: Response, source: Response): Response {
-  // ResponseInit carries status and headers, but not these network response fields.
   Object.defineProperties(target, {
     url: { value: source.url },
     redirected: { value: source.redirected },
@@ -19,7 +17,6 @@ function copyResponseMetadata(target: Response, source: Response): Response {
       configurable: true,
       writable: true,
       value: function clone(this: Response): Response {
-        // Native cloning owns teeing, receiver validation, and locked/used body checks.
         return copyResponseMetadata(Response.prototype.clone.call(this), this)
       },
     },
@@ -42,7 +39,6 @@ export function streamWithLifetime(
     signal.removeEventListener('abort', abort)
     dispose()
   }
-  // Stream errors and abort reasons are opaque; preserve their identity without parsing.
   // oxlint-disable-next-line anti-slop/no-unknown-parameters
   function fail(reason: unknown) {
     if (finished) return
@@ -65,8 +61,7 @@ export function streamWithLifetime(
         output = controller
         if (signal.aborted) abort()
         else signal.addEventListener('abort', abort, { once: true })
-        // An empty or errored body can settle before the consumer begins reading.
-        // Releasing the link must not discard a final chunk already being read.
+        // Release on close without finishing: pull() may still be delivering the final chunk.
         void reader.closed.then(release, fail)
       },
       async pull(controller) {

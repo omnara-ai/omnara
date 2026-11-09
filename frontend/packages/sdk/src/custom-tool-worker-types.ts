@@ -33,7 +33,6 @@ export interface CustomToolCheckOptions extends CustomToolOperationOptions {
 }
 
 export interface CustomToolCheckResult {
-  /** Consume every failed outcome before advancing your application's recovery checkpoint. */
   results: {
     call: CustomToolCallRef
     outcome: CustomToolOutcome | { status: 'failed'; error: Error }
@@ -43,7 +42,6 @@ export interface CustomToolCheckResult {
 
 export type WorkSource = 'notification' | 'recovery'
 
-/** Local observations contain no tool names, resource identifiers, inputs, or results. */
 export type CustomToolObservation =
   | { stage: 'admission'; source: WorkSource; outcome: 'started' | 'joined' }
   | {
@@ -69,9 +67,9 @@ export interface CreateCustomToolWorkerOptions {
   path: ListProjectToolCallsData['path']
   agentProfileID?: string
   tools: Record<string, CustomToolHandler>
-  /** Optional diagnostics. Failures still reach handle() or the check() result. */
+  /** Handler errors become failed tool results; request failures still reach the caller. */
   onError?: (error: Error, call?: CustomToolCallRef) => void | Promise<void>
-  /** Record inexpensive local metrics; observer failures never affect execution. */
+  /** Not awaited; callback failures do not affect execution. */
   onObserve?: (observation: CustomToolObservation) => void | Promise<void>
 }
 
@@ -81,6 +79,5 @@ export interface CustomToolWorker {
     update: ToolCallUpdate,
     options?: CustomToolOperationOptions,
   ) => Promise<CustomToolOutcome>
-  /** Read and await one bounded page. The application owns subsequent checks and recovery. */
   check: (options?: CustomToolCheckOptions) => Promise<CustomToolCheckResult>
 }

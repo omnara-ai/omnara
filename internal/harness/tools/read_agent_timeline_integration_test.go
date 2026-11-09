@@ -80,7 +80,6 @@ func TestReadAgentDispatchReturnsCompactTimeline(t *testing.T) {
 			`{"agent_id":"` + childID + `","turn_id":"` + turnID + `"}`)},
 		{ID: "read_non_child", Name: "read_agent", Input: json.RawMessage(`{"agent_id":"` + parentID + `"}`)},
 	}
-	// The public timeline and durable result still retain bookkeeping content.
 	storedEvents, err := fixture.Store.Execution().ListTurnEventsForRead(
 		ctx, toolsTestProjectID, child.Agent.ID, turns[0].ID, 0, 20)
 	require.NoError(t, err)

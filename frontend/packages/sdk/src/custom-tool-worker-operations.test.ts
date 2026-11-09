@@ -57,7 +57,7 @@ it('runs once, exhausts shared HTTP retries, hands off unchanged output, and let
     toolCallID: ready.tool_call_id,
     name: ready.name,
   })
-  value.n = 3 // Application mutations after failure cannot change the handed-off result.
+  value.n = 3
   expect(error.result).toEqual(snapshot)
   expect(error.cause).toBeInstanceOf(ApiError)
   expect(error.retryAt).toBeTypeOf('number')

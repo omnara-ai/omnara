@@ -63,7 +63,6 @@ it.each(['method', 'url', 'baseUrl'] as const)(
         url: field === 'method' ? '/read' : keyedURL,
         path,
         requestValidator: (options) => {
-          // The generated client passes its mutable resolved request options to this callback.
           Object.assign(options ?? {}, {
             [field]: {
               method: 'POST',

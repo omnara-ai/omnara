@@ -20,8 +20,6 @@ func TestEventWebhookBacklogMatchesDeliveryLifecycle(t *testing.T) {
 	sample, err := execution.SampleEventWebhookBacklog(ctx)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.EventWebhookBacklog{}, sample)
-	// A due retry, a future retry, a live claim, an expired claim that is due
-	// again, an expired row, and an expired row protected by a live claim.
 	for _, state := range []struct{ age, delay, claim string }{
 		{"2 minutes", "-1 minute", "NULL"},
 		{"9 minutes", "1 minute", "NULL"},
@@ -52,8 +50,6 @@ func TestEventWebhookBacklogMatchesDeliveryLifecycle(t *testing.T) {
 	require.Less(t, sample.OldestDueAge, 5*time.Minute)
 	require.GreaterOrEqual(t, sample.OldestDueLag, time.Minute)
 	require.Less(t, sample.OldestDueLag, 2*time.Minute)
-	// Due includes organization-throttled work: a high age is useful even
-	// when another delivery currently consumes the organization's last slot.
 	_, err = execution.ClaimEventWebhookDelivery(ctx, 1)
 	require.Error(t, err)
 	claimed, err := execution.ClaimEventWebhookDelivery(ctx, 100)

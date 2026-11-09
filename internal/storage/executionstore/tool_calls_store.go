@@ -93,8 +93,6 @@ type ListToolCallsResult struct {
 	HasMore   bool
 }
 
-// ToolCallSummary describes a call and its current lifecycle without loading
-// result content. Tool results are separate resources in the public API.
 type ToolCallSummary struct {
 	ID             uuid.UUID
 	AgentID        uuid.UUID
@@ -109,8 +107,6 @@ type ToolCallSummary struct {
 	CompletedAt    *time.Time
 }
 
-// ToolCallStatus supports a cheap preflight check. Mutations must still validate
-// the state in their transaction; reading it does not claim the call.
 type ToolCallStatus struct {
 	Type  toolcatalog.Type
 	State ToolCallState

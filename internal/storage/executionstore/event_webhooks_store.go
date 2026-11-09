@@ -324,8 +324,7 @@ func (s *Store) UpdateEventWebhook(
 	if input.Scope != nil {
 		scope = *input.Scope
 	}
-	// Profile deletion locks the profile before its subscriptions. Validate the
-	// chosen profile before updating the webhook row in the same order.
+	// Lock the profile before the webhook row, matching profile deletion's order.
 	scopeName, err := validateEventWebhookScopeTx(ctx, tx, input.ProjectID, scope)
 	if err != nil {
 		return EventWebhookRecord{}, err

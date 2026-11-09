@@ -44,8 +44,6 @@ func TestCustomToolSDKWebhookAndRecoveryJourney(t *testing.T) {
 			project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, agent))
 	}
 
-	// Use the sender's public formatter and Standard Webhooks wire signature.
-	// The second call deliberately receives no notification and must be discovered.
 	update, err := publicevents.ToolCallUpdate(notifications.ToolCallUpdatedCommitted{
 		AgentID: agents[0].ID, ToolCallID: callIDs[0], State: "ready", Name: "lookup_customer",
 		Input: json.RawMessage(`{"email":"ada@example.com"}`),

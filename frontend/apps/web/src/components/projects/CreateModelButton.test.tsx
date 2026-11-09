@@ -118,7 +118,6 @@ function buttonApi(providers: (request: RecordedRequest) => Response) {
 }
 
 async function render(api: FakeApi) {
-  // Exercise the unavailable-provider UI after a final API failure.
   const client = createOmnaraClient({
     baseUrl: 'https://omnara.test/api/v1',
     fetch: api.fetch,

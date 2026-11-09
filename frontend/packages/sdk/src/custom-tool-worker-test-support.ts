@@ -52,7 +52,6 @@ export function toolCall(id = toolCallID) {
   }
 }
 
-/** Model the API's keyset pagination, including rows removed between requests. */
 export function toolPage(request: Request, calls: ReturnType<typeof toolCall>[]) {
   const query = new URL(request.url).searchParams
   const after = query.get('cursor')?.replace(/^after:/, '')

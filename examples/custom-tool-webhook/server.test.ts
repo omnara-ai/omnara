@@ -237,7 +237,6 @@ test('stops a recovery pass when canceled between pages', { timeout: 5000 }, asy
     stop.abort(reason)
     return accepted()
   }, stop.signal)
-  // Cancellation after a result exists is reported by the real helper before the pass stops.
   const errors: unknown[] = []
   context.mock.method(console, 'error', (...args: unknown[]) => {
     errors.push(args)

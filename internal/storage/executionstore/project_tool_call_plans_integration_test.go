@@ -110,16 +110,12 @@ WHERE agent_id=$1 AND provider_call_id LIKE 'mixed-%'
 			if offset == 0 {
 				firstPageBuffers = buffers
 			} else {
-				// A cursor must seek past older calls even with a generic prepared
-				// plan, rather than scan and discard every preceding page again.
 				require.LessOrEqual(t, buffers, firstPageBuffers+64, "%s: %s", mode, raw)
 			}
 			t.Logf("%s offset=%d buffers=%d", mode, offset, buffers)
 		}
 	}
 
-	// Interactions use the same project-first cursor contract. Reuse this mixed
-	// active/archived, multi-profile history to check deep pages in both plans.
 	_, err = tx.Exec(ctx, `
 INSERT INTO agent_interactions(id, project_id, agent_id, tool_call_id, interaction_kind, state, created_at)
 SELECT id, project_id, agent_id, id,
@@ -177,8 +173,6 @@ FROM tool_calls WHERE provider_call_id LIKE 'mixed-%'`)
 		}
 	}
 
-	// The broad endpoint still lists unfinished built-ins and authorization waits;
-	// the narrower worker filters must not become an implicit API restriction.
 	rows, err := tx.Query(ctx, query, testProjectID, "", "", nil, profile.ID, nil, nil, 4)
 	require.NoError(t, err)
 	listed, err := pgx.CollectRows(rows, pgx.RowToMap)

@@ -1686,7 +1686,6 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 					wantModelContent = []byte(`[` + metadataPart + `,` + notePart + `]`)
 				}
 				wantContent := []byte(`[` + contentPrefix + `,` + digestPart + `]`)
-				// Internal events retain visibility flags for model-facing timeline readers.
 				wantEventContent := []byte(`[` + contentPrefix + `,` + eventDigestPart + `]`)
 				if !sameJSON(toolCall.ResultContentParts, wantContent) {
 					t.Fatalf(

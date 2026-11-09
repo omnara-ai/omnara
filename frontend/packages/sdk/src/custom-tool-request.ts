@@ -3,7 +3,6 @@ import type { CustomToolCallRef } from './custom-tool-worker-types'
 import { parseRetryAfter } from './errors'
 import type { SubmitToolCallResultRequest } from './generated/types.gen'
 
-/** The business operation produced a result, but delivery did not establish completion. */
 export class CustomToolDeliveryError extends Error {
   constructor(
     readonly call: CustomToolCallRef,
@@ -21,7 +20,6 @@ export function toolError(cause: unknown): Error {
   return cause instanceof Error ? cause : new Error(String(cause))
 }
 
-/** Capture retry timing from the real transport, including cancellation during SDK backoff. */
 export async function deliverToolResult<T>(
   client: OmnaraClient,
   call: CustomToolCallRef,

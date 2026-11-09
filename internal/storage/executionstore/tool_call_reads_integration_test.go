@@ -50,9 +50,6 @@ func TestToolCallNarrowReads(t *testing.T) {
 		require.ErrorIs(t, err, storeerr.ErrNotFound)
 	}
 
-	// Check the database work as well as the values: a completed tool's result
-	// blocks and its source model output must not be visited by either preflight
-	// path; the source event directly supplies the public summary's turn ID.
 	tx := integrationdb.BeginTx(t, ctx, f.Store.pool)
 	for _, queryName := range []string{"GetToolCallSummary", "GetToolCallStatus"} {
 		query := integrationdb.GeneratedQuery(t, "../internal/dbsqlc/tool_calls.sql.go", queryName)

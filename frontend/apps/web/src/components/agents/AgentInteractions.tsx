@@ -41,10 +41,6 @@ function keyedContextItems(interaction: AgentInteraction) {
   })
 }
 
-/**
- * A permission request answered in one click. Options render as buttons, the first
- * (Allow) as the primary action; an option that accepts text (Deny) can carry a reason.
- */
 function PermissionActions({
   interaction,
   resolve,

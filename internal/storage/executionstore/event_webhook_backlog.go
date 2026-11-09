@@ -14,8 +14,6 @@ type EventWebhookBacklog struct {
 	OldestDueAge, OldestDueLag      time.Duration
 }
 
-// SampleEventWebhookBacklog samples the writer's delivery queue. Due work excludes
-// active claims and expired deliveries, but includes organization-throttled work.
 func (s *Store) SampleEventWebhookBacklog(ctx context.Context) (EventWebhookBacklog, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {

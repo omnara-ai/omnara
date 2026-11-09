@@ -56,7 +56,6 @@ export async function executeCustomTool(
   if (task.source === 'recovery') {
     current = task.current
   } else {
-    // Notifications can be delayed or omit input; discovery already read the full call.
     const readStarted = performance.now()
     let readiness: 'ready' | 'completed' | 'ignored' | 'failed' = 'failed'
     try {
@@ -91,7 +90,6 @@ export async function executeCustomTool(
   let handlerOutcome: 'succeeded' | 'failed' | 'deferred' | 'canceled' = 'canceled'
   let body: SubmitToolCallResultRequest
   try {
-    // Await cooperative cancellation so a handler's late computed result is never lost.
     const result = await options.handler({ ...call, input: current.input, signal })
     if (task.completed) return { status: 'completed' }
     if (result.outcome === 'deferred') {
@@ -99,8 +97,7 @@ export async function executeCustomTool(
       handlerOutcome = 'deferred'
       return { status: 'deferred' }
     }
-    // Use the API serializer (including BigInt handling), then validate its JSON value.
-    // The snapshot owns nested structured data; application mutations cannot change delivery.
+    // Detach caller-owned data while preserving the API's BigInt encoding.
     body = zSubmitToolCallResultRequest.parse(
       JSON.parse(jsonBodySerializer.bodySerializer(zSubmitToolCallResultRequest.parse(result))),
     )

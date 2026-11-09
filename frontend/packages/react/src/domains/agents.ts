@@ -41,14 +41,10 @@ import { useScopedMutation } from './scoped-mutation'
 export type AgentListFilters = ListFilters<ListAgentsData>
 export type AgentListSort = ListSort<ListAgentsData>
 export type AgentListOptions = PaginatedListOptions<ListAgentsData> & {
-  /** Disable activity polling for static resource selection. Defaults to true. */
+  /** Defaults to true. */
   poll?: boolean
 }
 
-/**
- * Polls a list while any agent loaded so far is active. A list filtered on a live status
- * always polls, since agents can enter that status while none of its rows are active.
- */
 function agentListRefetchInterval(activityState: AgentListFilters['activity_state']) {
   const filtersOnLiveStatus = activityState !== undefined && activityState !== 'archived'
   return activeAgentsRefetchInterval(
@@ -58,7 +54,6 @@ function agentListRefetchInterval(activityState: AgentListFilters['activity_stat
   )
 }
 
-/** Polls one agent while it is active. */
 function agentRefetchInterval(
   refetchInterval?: (data: GetAgentResponse | undefined) => number | false,
 ) {

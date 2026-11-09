@@ -52,7 +52,6 @@ func (m *NotificationRecorder) RecordNotification(intent, result, reason string)
 	m.notificationsTotal.WithLabelValues(intent, result, reason).Inc()
 }
 
-// RecordPublisherQueue reads only local channel occupancy during scrapes.
 func (m *NotificationRecorder) RecordPublisherQueue(capacity int, depth func() int) {
 	if m == nil {
 		return

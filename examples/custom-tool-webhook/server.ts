@@ -67,7 +67,6 @@ export function createWebhookApp(options: {
     }
   }
 
-  // Recomputing is safe for text_length; external actions need durable duplicate protection.
   async function recover() {
     do {
       options.signal?.throwIfAborted()
