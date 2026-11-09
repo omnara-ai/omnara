@@ -17,7 +17,7 @@ import {
   readIntegration,
   requiredEnvironmentVariable,
 } from './fixtures'
-import { signIn, signInThroughLoginForm } from './helpers'
+import { replaceConfigEditor, signIn, signInThroughLoginForm, typeInConfigEditor } from './helpers'
 import { exerciseGuidedGitHubSetup } from './integration-github'
 import { exerciseDiscordIntegrationSchedule } from './integration-schedules'
 import { exerciseSlackIntegrationSetup } from './integration-slack'
@@ -72,29 +72,6 @@ async function createProfile(page: Page, name: string, instruction: string) {
 function uniqueName(base: string) {
   const retry = test.info().retry
   return retry === 0 ? base : `${base} (retry ${retry})`
-}
-
-async function typeInConfigEditor(page: Page, text: string) {
-  const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
-  await expect(editor).toBeVisible()
-  await editor.focus()
-  await page.keyboard.insertText(text)
-}
-
-async function replaceConfigEditor(page: Page, text: string) {
-  const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
-  await expect(editor).toBeVisible()
-  await editor.focus()
-  // Desktop Chrome uses a Windows user agent, which selects Monaco's Ctrl
-  // bindings even on macOS. Paste avoids typing auto-closing extra JSON quotes.
-  await page.keyboard.press('Control+A')
-  await editor.evaluate((element, value) => {
-    const clipboardData = new DataTransfer()
-    clipboardData.setData('text/plain', value)
-    element.dispatchEvent(
-      new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }),
-    )
-  }, text)
 }
 
 async function visitAgentsTabAndReturn(page: Page) {
