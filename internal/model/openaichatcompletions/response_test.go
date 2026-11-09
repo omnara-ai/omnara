@@ -724,7 +724,7 @@ func TestUsageFromResponseNormalizesCacheWriteTokensWithinPromptTokens(t *testin
 		PromptTokens:     1000,
 		CompletionTokens: 60,
 		PromptTokensDetails: chatTokenDetails{
-			CachedTokens:     100,
+			CachedTokens:     reportedCount(100),
 			CacheWriteTokens: 800,
 		},
 	})
@@ -751,7 +751,7 @@ func TestUsageFromResponseNormalizesCacheWriteTokensWithinPromptTokens(t *testin
 	if got := usageFromResponse(chatUsage{
 		PromptTokens: 10,
 		PromptTokensDetails: chatTokenDetails{
-			CachedTokens:     2,
+			CachedTokens:     reportedCount(2),
 			CacheWriteTokens: 9,
 		},
 	}); got != (model.Usage{InputTokens: 10, UncachedInputTokens: 10}) {
@@ -836,4 +836,8 @@ func TestUsageFromResponseIgnoresMalformedCacheTelemetry(t *testing.T) {
 	if got := usageFromResponse(usage); got.InputTokens != 283 || got.CacheReadTokens != 0 {
 		t.Fatalf("usage = %+v, want 283 input with no cache read", got)
 	}
+}
+
+func reportedCount(count int) modelenvelope.ReportedCount {
+	return modelenvelope.ReportedCount{Count: count, Reported: true}
 }

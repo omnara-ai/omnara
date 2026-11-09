@@ -9,8 +9,6 @@ import (
 
 const SubsystemModelCall = "model_call"
 
-// ModelCallSample is one model provider attempt. A nil TTFT means no token was
-// streamed and is not observed. Labels carry no call or request IDs.
 type ModelCallSample struct {
 	APIFormat  string
 	APIVariant string
@@ -25,6 +23,7 @@ type ModelCallSample struct {
 	InputTokens       int
 	CachedInputTokens int
 	CacheWriteTokens  int
+	CacheReported     bool
 	OutputTokens      int
 	ReasoningTokens   int
 
@@ -40,6 +39,7 @@ type ModelCallRecorder struct {
 	inputTokensTotal       *prometheus.CounterVec
 	cachedInputTokensTotal *prometheus.CounterVec
 	cacheWriteTokensTotal  *prometheus.CounterVec
+	cacheMeasuredInput     *prometheus.CounterVec
 	outputTokensTotal      *prometheus.CounterVec
 	reasoningTokensTotal   *prometheus.CounterVec
 	usageMissingTotal      *prometheus.CounterVec
@@ -47,12 +47,6 @@ type ModelCallRecorder struct {
 
 var modelCallLatencyBuckets = []float64{0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 8, 13, 21, 34, 60, 120}
 
-// NewModelCallRecorder registers per-attempt model call series. Averages come
-// from dividing a counter by attempts_total (or by attempts that reported
-// usage, attempts_total minus usage_missing_total, for tokens); the cache hit
-// ratio is cached_input_tokens_total over input_tokens_total. The provider
-// label is the endpoint host, which separates providers that share an API
-// variant.
 func NewModelCallRecorder(set *Set) *ModelCallRecorder {
 	namespace := set.Namespace()
 	model := []string{"api_format", "api_variant", "provider", "model"}
@@ -78,6 +72,8 @@ func NewModelCallRecorder(set *Set) *ModelCallRecorder {
 			"Provider-reported input tokens, including cached and cache-write tokens."),
 		cachedInputTokensTotal: counter("cached_input_tokens_total", "Provider-reported cache-read input tokens."),
 		cacheWriteTokensTotal:  counter("cache_write_input_tokens_total", "Provider-reported cache-write input tokens."),
+		cacheMeasuredInput: counter("cache_reported_input_tokens_total",
+			"Input tokens of attempts whose provider reported a cache-read count; the cache hit ratio's denominator."),
 		outputTokensTotal: counter("output_tokens_total",
 			"Provider-reported output tokens, including reasoning tokens."),
 		reasoningTokensTotal: counter("reasoning_tokens_total", "Provider-reported reasoning output tokens."),
@@ -86,7 +82,7 @@ func NewModelCallRecorder(set *Set) *ModelCallRecorder {
 	}
 	set.MustRegister(
 		m.attemptsTotal, m.ttftSeconds, m.durationSeconds, m.requestBytesTotal,
-		m.inputTokensTotal, m.cachedInputTokensTotal, m.cacheWriteTokensTotal,
+		m.inputTokensTotal, m.cachedInputTokensTotal, m.cacheWriteTokensTotal, m.cacheMeasuredInput,
 		m.outputTokensTotal, m.reasoningTokensTotal, m.usageMissingTotal,
 	)
 	return m
@@ -102,16 +98,31 @@ func (m *ModelCallRecorder) Observe(s ModelCallSample) {
 		m.ttftSeconds.WithLabelValues(model...).Observe(s.TTFT.Seconds())
 	}
 	m.durationSeconds.WithLabelValues(model...).Observe(s.Duration.Seconds())
-	m.requestBytesTotal.WithLabelValues(model...).Add(float64(s.RequestBytes))
-	if !s.UsageReported {
-		m.usageMissingTotal.WithLabelValues(model...).Inc()
-		return
+	var usageMissing, input, cached, cacheWrite, cacheMeasured, output, reasoning int
+	if s.UsageReported {
+		input, output, reasoning = s.InputTokens, s.OutputTokens, s.ReasoningTokens
+		if s.CacheReported {
+			cached, cacheWrite, cacheMeasured = s.CachedInputTokens, s.CacheWriteTokens, s.InputTokens
+		}
+	} else {
+		usageMissing = 1
 	}
-	m.inputTokensTotal.WithLabelValues(model...).Add(float64(s.InputTokens))
-	m.cachedInputTokensTotal.WithLabelValues(model...).Add(float64(s.CachedInputTokens))
-	m.cacheWriteTokensTotal.WithLabelValues(model...).Add(float64(s.CacheWriteTokens))
-	m.outputTokensTotal.WithLabelValues(model...).Add(float64(s.OutputTokens))
-	m.reasoningTokensTotal.WithLabelValues(model...).Add(float64(s.ReasoningTokens))
+	// Touch every counter so they all appear together and increase() ratios cover the same attempts.
+	for _, c := range []struct {
+		vec   *prometheus.CounterVec
+		value int
+	}{
+		{m.requestBytesTotal, s.RequestBytes},
+		{m.usageMissingTotal, usageMissing},
+		{m.inputTokensTotal, input},
+		{m.cachedInputTokensTotal, cached},
+		{m.cacheWriteTokensTotal, cacheWrite},
+		{m.cacheMeasuredInput, cacheMeasured},
+		{m.outputTokensTotal, output},
+		{m.reasoningTokensTotal, reasoning},
+	} {
+		c.vec.WithLabelValues(model...).Add(float64(c.value))
+	}
 }
 
 func labelOr(value string) string {

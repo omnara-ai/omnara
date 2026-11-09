@@ -239,7 +239,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (provider) (rate(omnara_model_call_cached_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__rate_interval])) / sum by (provider) (rate(omnara_model_call_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__rate_interval]))",
+          "expr": "sum by (provider) (rate(omnara_model_call_cached_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__rate_interval])) / sum by (provider) (rate(omnara_model_call_cache_reported_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__rate_interval]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -255,7 +255,7 @@
         },
         "overrides": []
       },
-      "description": "Share of provider-reported input tokens read from the prompt cache."
+      "description": "Share of input tokens read from the prompt cache, over attempts whose provider reported a cache-read count. Providers that never report one have no line."
     },
     {
       "id": 6,
@@ -375,7 +375,7 @@
       "targets": [
         {
           "refId": "bytes",
-          "expr": "sum by (model, provider) (increase(omnara_model_call_request_bytes_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range]))",
+          "expr": "sum by (model, provider) (increase(omnara_model_call_request_bytes_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / sum by (model, provider) (increase(omnara_model_call_duration_seconds_count{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -386,7 +386,7 @@
         },
         {
           "refId": "input",
-          "expr": "sum by (model, provider) (increase(omnara_model_call_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / (sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) - (sum by (model, provider) (increase(omnara_model_call_usage_missing_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) or sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) * 0))",
+          "expr": "sum by (model, provider) (increase(omnara_model_call_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / (sum by (model, provider) (increase(omnara_model_call_duration_seconds_count{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) - sum by (model, provider) (increase(omnara_model_call_usage_missing_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -397,7 +397,7 @@
         },
         {
           "refId": "cached",
-          "expr": "sum by (model, provider) (increase(omnara_model_call_cached_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / sum by (model, provider) (increase(omnara_model_call_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range]))",
+          "expr": "sum by (model, provider) (increase(omnara_model_call_cached_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / sum by (model, provider) (increase(omnara_model_call_cache_reported_input_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -408,7 +408,7 @@
         },
         {
           "refId": "output",
-          "expr": "sum by (model, provider) (increase(omnara_model_call_output_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / (sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) - (sum by (model, provider) (increase(omnara_model_call_usage_missing_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) or sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) * 0))",
+          "expr": "sum by (model, provider) (increase(omnara_model_call_output_tokens_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) / (sum by (model, provider) (increase(omnara_model_call_duration_seconds_count{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])) - sum by (model, provider) (increase(omnara_model_call_usage_missing_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -419,7 +419,7 @@
         },
         {
           "refId": "attempts",
-          "expr": "round(sum by (model, provider) (increase(omnara_model_call_attempts_total{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])))",
+          "expr": "round(sum by (model, provider) (increase(omnara_model_call_duration_seconds_count{api_format=~\"$api_format\",provider=~\"$provider\",model=~\"$model\"}[$__range])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -473,7 +473,7 @@
           }
         ]
       },
-      "description": "Token averages are over attempts that reported usage."
+      "description": "Token averages are over attempts that reported usage; the cache hit ratio is over attempts that reported a cache-read count."
     }
   ]
 }

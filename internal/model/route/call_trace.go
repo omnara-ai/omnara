@@ -12,8 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/calltrace"
 )
 
-// callAttempt accumulates the model.call record for one RespondStream. Only
-// sizes, counts, and timings are kept; request and response content are not.
 type callAttempt struct {
 	tracker *calltrace.Tracker
 	record  calltrace.Record
@@ -59,6 +57,7 @@ func (a *callAttempt) finish(ctx context.Context, response model.Response, err e
 			InputTokens:       usage.InputTokens,
 			CachedInputTokens: usage.CacheReadTokens,
 			CacheWriteTokens:  usage.CacheWriteTokens,
+			CacheReported:     usage.CacheReported,
 			OutputTokens:      usage.OutputTokens,
 			ReasoningTokens:   usage.ReasoningTokens,
 		}
@@ -86,10 +85,7 @@ func (a *callAttempt) finish(ctx context.Context, response model.Response, err e
 	calltrace.RecorderFromContext(ctx).Observe(record.MetricsSample())
 }
 
-// timingSink marks the first token before forwarding events. A token is any
-// nonempty text, reasoning, or tool-argument delta, or a tool call's name,
-// which the model generates before its arguments. Text and thinking block
-// starts, stops, and empty deltas are stream metadata.
+// A tool call's name counts as its first token: the model generates it before the arguments.
 type timingSink struct {
 	next    model.StreamSink
 	tracker *calltrace.Tracker

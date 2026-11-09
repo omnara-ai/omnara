@@ -311,8 +311,8 @@ type chatUsage struct {
 	// Cache reads on OpenAI-compatible hosts that predate prompt_tokens_details:
 	// https://api-docs.deepseek.com/guides/kv_cache (prompt_cache_hit_tokens) and
 	// https://platform.kimi.ai/docs/api/chat (cached_tokens).
-	PromptCacheHitTokens    lenientInt       `json:"prompt_cache_hit_tokens"`
-	CachedTokens            lenientInt       `json:"cached_tokens"`
+	PromptCacheHitTokens    *lenientInt      `json:"prompt_cache_hit_tokens,omitempty"`
+	CachedTokens            *lenientInt      `json:"cached_tokens,omitempty"`
 	CompletionTokens        int              `json:"completion_tokens"`
 	OpenRouterCost          json.RawMessage  `json:"cost,omitempty"`
 	OpenRouterCostDetails   json.RawMessage  `json:"cost_details,omitempty"`
@@ -322,9 +322,9 @@ type chatUsage struct {
 }
 
 type chatTokenDetails struct {
-	CachedTokens     int `json:"cached_tokens"`
-	CacheWriteTokens int `json:"cache_write_tokens"`
-	ReasoningTokens  int `json:"reasoning_tokens"`
+	CachedTokens     modelenvelope.ReportedCount `json:"cached_tokens,omitzero"`
+	CacheWriteTokens int                         `json:"cache_write_tokens"`
+	ReasoningTokens  int                         `json:"reasoning_tokens"`
 }
 
 func textFromChatContent(raw json.RawMessage) (string, error) {
@@ -380,12 +380,15 @@ func usageFromResponse(usage chatUsage) model.Usage {
 		return model.Usage{}
 	}
 	cache := usage.PromptTokensDetails
-	if cache.CachedTokens == 0 {
-		cache.CachedTokens = max(int(usage.PromptCacheHitTokens), int(usage.CachedTokens))
+	if usage.PromptCacheHitTokens != nil || usage.CachedTokens != nil {
+		cache.CachedTokens.Reported = true
 	}
-	if cache.CachedTokens < 0 || cache.CacheWriteTokens < 0 ||
-		cache.CachedTokens > usage.PromptTokens ||
-		cache.CacheWriteTokens > usage.PromptTokens-cache.CachedTokens {
+	if cache.CachedTokens.Count == 0 {
+		cache.CachedTokens.Count = max(usage.PromptCacheHitTokens.value(), usage.CachedTokens.value())
+	}
+	if cache.CachedTokens.Count < 0 || cache.CacheWriteTokens < 0 ||
+		cache.CachedTokens.Count > usage.PromptTokens ||
+		cache.CacheWriteTokens > usage.PromptTokens-cache.CachedTokens.Count {
 		cache = chatTokenDetails{}
 	}
 	reasoning := usage.CompletionTokensDetails.ReasoningTokens
@@ -394,10 +397,11 @@ func usageFromResponse(usage chatUsage) model.Usage {
 	}
 	return model.Usage{
 		InputTokens:         usage.PromptTokens,
-		UncachedInputTokens: usage.PromptTokens - cache.CachedTokens - cache.CacheWriteTokens,
+		UncachedInputTokens: usage.PromptTokens - cache.CachedTokens.Count - cache.CacheWriteTokens,
 		OutputTokens:        usage.CompletionTokens,
 		ReasoningTokens:     reasoning,
-		CacheReadTokens:     cache.CachedTokens,
+		CacheReadTokens:     cache.CachedTokens.Count,
+		CacheReported:       cache.CachedTokens.Reported && usage.PromptTokens > 0,
 		CacheWriteTokens:    cache.CacheWriteTokens,
 	}
 }

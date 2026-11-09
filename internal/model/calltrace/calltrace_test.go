@@ -53,8 +53,9 @@ func TestRecordCacheRatio(t *testing.T) {
 	}{
 		{nil, 0, false},
 		{&Usage{OutputTokens: 3}, 0, false},
-		{&Usage{InputTokens: 10}, 0, true},
-		{&Usage{InputTokens: 10, CachedInputTokens: 4}, 0.4, true},
+		{&Usage{InputTokens: 10}, 0, false},
+		{&Usage{InputTokens: 10, CacheReported: true}, 0, true},
+		{&Usage{InputTokens: 10, CachedInputTokens: 4, CacheReported: true}, 0.4, true},
 	} {
 		ratio, known := (Record{Usage: tc.usage}).CacheRatio()
 		if ratio != tc.ratio || known != tc.known {

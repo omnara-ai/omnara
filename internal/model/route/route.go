@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/calltrace"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
@@ -357,11 +358,10 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 	}, nil
 }
 
-// RespondStream sends one provider attempt and reports it as a model.call
-// record once a request has been handed to the transport.
 func (c Client) RespondStream(ctx context.Context, input model.Request) (model.Response, error) {
 	attempt := newCallAttempt(ctx, c, input)
-	response, err := c.respondStream(attempt.tracker.WithClientTrace(ctx), input, attempt)
+	traced := calltrace.WithTracker(attempt.tracker.WithClientTrace(ctx), attempt.tracker)
+	response, err := c.respondStream(traced, input, attempt)
 	attempt.finish(ctx, response, err)
 	return response, err
 }

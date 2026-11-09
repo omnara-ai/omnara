@@ -23,3 +23,10 @@ func (s *lenientString) UnmarshalJSON(data []byte) error {
 	*s = lenientString(value)
 	return nil
 }
+
+func (n *lenientInt) value() int {
+	if n == nil {
+		return 0
+	}
+	return int(*n)
+}

@@ -50,7 +50,7 @@ headers, so it is not a TTFT measure.
 
 The event also carries `request_bytes`, provider-reported input, cached,
 cache-write, output, and reasoning tokens, `cache_ratio` (cached over input
-tokens; `null` without usage), model, API format and variant, endpoint host,
+tokens), model, API format and variant, endpoint host,
 outcome, error kind and code, and the call, model-call-context, and provider
 request IDs. It never carries prompt or response content, headers, or
 credentials.
@@ -62,10 +62,17 @@ variant), and `model`; IDs never become labels. `attempts_total` adds
 `duration_seconds` histograms add nothing; their `_count` is the sample count.
 Other phases are in logs only. The counters `request_bytes_total`,
 `input_tokens_total`, `cached_input_tokens_total`,
-`cache_write_input_tokens_total`, `output_tokens_total`,
-`reasoning_tokens_total`, and `usage_missing_total` give averages when divided
-by `attempts_total`, or for tokens by `attempts_total - usage_missing_total`.
-The cache hit ratio is `cached_input_tokens_total / input_tokens_total`. TTFT
+`cache_write_input_tokens_total`, `cache_reported_input_tokens_total`,
+`output_tokens_total`, `reasoning_tokens_total`, and `usage_missing_total` are
+all updated on every attempt, so they appear together with
+`duration_seconds`. Averages divide a counter by `duration_seconds_count`, or
+for tokens by `duration_seconds_count - usage_missing_total`.
+
+Cache counts come only from providers that report them. When a response
+omits its cache-read count, the event's `cache_ratio`, `usage.cached_tokens`,
+and `usage.cache_write_tokens` are `null` rather than zero, and its input
+tokens are left out of `cache_reported_input_tokens_total`. The cache hit ratio
+is `cached_input_tokens_total / cache_reported_input_tokens_total`. TTFT
 against exact request bytes or input tokens comes from `model.call` events,
 which carry both per attempt.
 `dashboards/model-calls.json` is a Grafana dashboard over these series.

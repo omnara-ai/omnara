@@ -13,8 +13,9 @@ func TestModelCallRecorderCountsAttemptsTokensAndLatency(t *testing.T) {
 	recorder.Observe(ModelCallSample{
 		APIFormat: "anthropic-messages", APIVariant: "default", Provider: "api.anthropic.com", Model: "claude-x",
 		Purpose: "agent_turn", Outcome: "success",
-		RequestBytes: 100 * 1024, UsageReported: true, InputTokens: 20000, CachedInputTokens: 15000, OutputTokens: 50,
-		TTFT: &ttft, Duration: 3 * time.Second,
+		RequestBytes: 100 * 1024, UsageReported: true, InputTokens: 20000, CachedInputTokens: 15000, CacheReported: true,
+		OutputTokens: 50,
+		TTFT:         &ttft, Duration: 3 * time.Second,
 	})
 	recorder.Observe(ModelCallSample{
 		APIFormat: "anthropic-messages", APIVariant: "default", Provider: "api.anthropic.com", Model: "claude-x",
@@ -34,6 +35,7 @@ func TestModelCallRecorderCountsAttemptsTokensAndLatency(t *testing.T) {
 		`omnara_model_call_request_bytes_total{` + model + `,model="claude-x"` + provider + ` 102410`,
 		`omnara_model_call_input_tokens_total{` + model + `,model="claude-x"` + provider + ` 20000`,
 		`omnara_model_call_cached_input_tokens_total{` + model + `,model="claude-x"` + provider + ` 15000`,
+		`omnara_model_call_cache_reported_input_tokens_total{` + model + `,model="claude-x"` + provider + ` 20000`,
 		`omnara_model_call_output_tokens_total{` + model + `,model="claude-x"` + provider + ` 50`,
 		`omnara_model_call_usage_missing_total{` + model + `,model="claude-x"` + provider + ` 1`,
 	} {
@@ -46,4 +48,24 @@ func TestModelCallRecorderCountsAttemptsTokensAndLatency(t *testing.T) {
 func TestModelCallRecorderNilIsNoop(t *testing.T) {
 	var recorder *ModelCallRecorder
 	recorder.Observe(ModelCallSample{})
+}
+
+func TestModelCallRecorderCreatesEveryCounterOnTheFirstAttempt(t *testing.T) {
+	set := New()
+	NewModelCallRecorder(set).Observe(ModelCallSample{Model: "m", RequestBytes: 10, Duration: time.Second})
+	body := scrapeMetrics(t, set)
+	labels := `{api_format="unknown",api_variant="unknown",model="m",provider="unknown"}`
+	for _, want := range []string{
+		"omnara_model_call_duration_seconds_count" + labels + " 1",
+		"omnara_model_call_request_bytes_total" + labels + " 10",
+		"omnara_model_call_usage_missing_total" + labels + " 1",
+		"omnara_model_call_input_tokens_total" + labels + " 0",
+		"omnara_model_call_cached_input_tokens_total" + labels + " 0",
+		"omnara_model_call_cache_reported_input_tokens_total" + labels + " 0",
+		"omnara_model_call_output_tokens_total" + labels + " 0",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics missing %q", want)
+		}
+	}
 }

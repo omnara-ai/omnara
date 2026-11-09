@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/model/calltrace"
 	"github.com/omnara-ai/omnara/internal/model/route"
 )
 
@@ -501,6 +502,8 @@ func (s *chatStreamChoiceState) applyToolDelta(
 	acc *chatStreamAccumulator,
 	delta chatStreamToolCallDelta,
 ) {
+	// Arguments can arrive before the ID and name and are held back from the sink until then.
+	calltrace.MarkToken(ctx, delta.Function.Name+delta.Function.Arguments)
 	tool := s.tool(delta.Index)
 	if delta.ID != "" {
 		tool.id = delta.ID

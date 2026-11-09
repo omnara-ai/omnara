@@ -75,67 +75,60 @@ func ModelResponseProviderCostBYOKComponentMissing(ctx context.Context) {
 	log.Level(ctx, log.WarnLevel)
 }
 
-// ModelCall emits one model.call event per provider attempt. It carries sizes,
-// token counts, and timings only; never prompt or response content, headers,
-// or credentials. Unreached phases are logged as null.
 func ModelCall(ctx context.Context, r calltrace.Record) {
-	fields := log.Fields{
-		"model_call.id":                    r.CallID,
-		"model_call.purpose":               string(r.Scope.Purpose),
-		"model_call.attempt":               r.Scope.Attempt,
-		"model_call.api_format":            r.APIFormat,
-		"model_call.api_variant":           r.APIVariant,
-		"model_call.model":                 r.Model,
-		"model_call.endpoint_host":         r.EndpointHost,
-		"model_call.streamed":              r.Streamed,
-		"model_call.outcome":               string(r.Outcome),
-		"model_call.cache_ratio":           nil,
-		"model_call.request_bytes":         r.RequestBytes,
-		"model_call.started_at":            r.StartedAt.UTC(),
-		"model_call.upload_complete_ms":    optionalMilliseconds(r.UploadComplete),
-		"model_call.headers_ms":            optionalMilliseconds(r.Headers),
-		"model_call.ttft_ms":               optionalMilliseconds(r.TTFT),
-		"model_call.stream_complete_ms":    optionalMilliseconds(r.StreamComplete),
-		"model_call.duration_ms":           r.Duration.Milliseconds(),
-		"model_call.usage.reported":        r.Usage != nil,
-		"model_call.usage.input_tokens":    nil,
-		"model_call.usage.cached_tokens":   nil,
-		"model_call.usage.output_tokens":   nil,
-		"model_call.model_call_context_id": nil,
-	}
-	if r.Scope.ModelCallContextID != "" {
-		fields["model_call.model_call_context_id"] = r.Scope.ModelCallContextID
+	var input, cached, cacheWrite, output, reasoning, cacheRatio any
+	if u := r.Usage; u != nil {
+		input, output, reasoning = u.InputTokens, u.OutputTokens, u.ReasoningTokens
+		if u.CacheReported {
+			cached, cacheWrite = u.CachedInputTokens, u.CacheWriteTokens
+		}
 	}
 	if ratio, ok := r.CacheRatio(); ok {
-		fields["model_call.cache_ratio"] = ratio
+		cacheRatio = ratio
 	}
-	if r.ServedModel != "" {
-		fields["model_call.served_model"] = r.ServedModel
-	}
-	if r.ProviderRequestID != "" {
-		fields["model_call.provider_request_id"] = r.ProviderRequestID
-	}
-	if r.StatusCode != 0 {
-		fields["model_call.status_code"] = r.StatusCode
-	}
-	if r.ErrorKind != "" {
-		fields["model_call.error_kind"] = r.ErrorKind
-	}
-	if r.ErrorCode != "" {
-		fields["model_call.error_code"] = r.ErrorCode
-	}
-	if r.Usage != nil {
-		fields["model_call.usage.input_tokens"] = r.Usage.InputTokens
-		fields["model_call.usage.cached_tokens"] = r.Usage.CachedInputTokens
-		fields["model_call.usage.cache_write_tokens"] = r.Usage.CacheWriteTokens
-		fields["model_call.usage.output_tokens"] = r.Usage.OutputTokens
-		fields["model_call.usage.reasoning_tokens"] = r.Usage.ReasoningTokens
-	}
-	event := log.NewEvent(ctx, "model.call", fields)
+	event := log.NewEvent(ctx, "model.call", log.Fields{
+		"model_call.id":                       r.CallID,
+		"model_call.purpose":                  string(r.Scope.Purpose),
+		"model_call.attempt":                  r.Scope.Attempt,
+		"model_call.model_call_context_id":    optional(r.Scope.ModelCallContextID),
+		"model_call.api_format":               r.APIFormat,
+		"model_call.api_variant":              r.APIVariant,
+		"model_call.model":                    r.Model,
+		"model_call.served_model":             optional(r.ServedModel),
+		"model_call.endpoint_host":            r.EndpointHost,
+		"model_call.provider_request_id":      optional(r.ProviderRequestID),
+		"model_call.streamed":                 r.Streamed,
+		"model_call.outcome":                  string(r.Outcome),
+		"model_call.status_code":              optional(r.StatusCode),
+		"model_call.error_kind":               optional(r.ErrorKind),
+		"model_call.error_code":               optional(r.ErrorCode),
+		"model_call.request_bytes":            r.RequestBytes,
+		"model_call.cache_ratio":              cacheRatio,
+		"model_call.usage.reported":           r.Usage != nil,
+		"model_call.usage.input_tokens":       input,
+		"model_call.usage.cached_tokens":      cached,
+		"model_call.usage.cache_write_tokens": cacheWrite,
+		"model_call.usage.output_tokens":      output,
+		"model_call.usage.reasoning_tokens":   reasoning,
+		"model_call.started_at":               r.StartedAt.UTC(),
+		"model_call.upload_complete_ms":       optionalMilliseconds(r.UploadComplete),
+		"model_call.headers_ms":               optionalMilliseconds(r.Headers),
+		"model_call.ttft_ms":                  optionalMilliseconds(r.TTFT),
+		"model_call.stream_complete_ms":       optionalMilliseconds(r.StreamComplete),
+		"model_call.duration_ms":              r.Duration.Milliseconds(),
+	})
 	if r.Outcome == calltrace.OutcomeError {
 		event.Level(log.WarnLevel)
 	}
 	event.Done(ctx)
+}
+
+func optional[T comparable](value T) any {
+	var zero T
+	if value == zero {
+		return nil
+	}
+	return value
 }
 
 func optionalMilliseconds(d *time.Duration) any {

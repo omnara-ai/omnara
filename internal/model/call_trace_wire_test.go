@@ -21,8 +21,7 @@ import (
 	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
-// Each stream sends metadata and a heartbeat at 1s, first visible text at 2s,
-// and its terminal frames at 3s. Usage reports 100 input tokens, 40 cached.
+// Frames arrive at 1s (metadata), 2s (first token), and 3s (terminal); usage is 100 input, 40 cached.
 var callTraceStreams = map[string][3]string{
 	"chat": {
 		": OPENROUTER PROCESSING\n\n" +
@@ -59,8 +58,7 @@ var callTraceStreams = map[string][3]string{
 	},
 }
 
-// Each tool-call stream sends metadata at 1s, the tool name (with empty
-// arguments where the API sends them) at 2s, and the arguments at 3s.
+// Frames arrive at 1s (metadata), 2s (tool name), and 3s (arguments).
 var callTraceToolStreams = map[string][3]string{
 	"chat": {
 		`data: {"id":"c1","model":"test-model","choices":[{"index":0,"delta":{"role":"assistant"}}]}` + "\n\n",
@@ -98,8 +96,7 @@ func sseFrame(event, data string) string {
 	return "event: " + event + "\ndata: " + data + "\n\n"
 }
 
-// scriptedTransport uploads in 100ms, returns headers at 500ms, and writes one
-// frame per second. It reports WroteRequest the way http.Transport does.
+// scriptedTransport finishes the upload at 100ms and returns headers at 500ms.
 func scriptedTransport(frames [3]string) http.RoundTripper {
 	return timeoutRoundTrip(func(req *http.Request) (*http.Response, error) {
 		_, _ = io.Copy(io.Discard, req.Body)
@@ -273,8 +270,6 @@ func TestRespondRecordsFailedAttemptWithNullTokenTimings(t *testing.T) {
 	})
 }
 
-// The model generates a tool call's name before its arguments, so TTFT is the
-// frame that names the tool, not the first argument delta.
 func TestRespondTTFTCountsToolCallName(t *testing.T) {
 	for name, frames := range callTraceToolStreams {
 		t.Run(name, func(t *testing.T) {
@@ -301,7 +296,78 @@ func TestRespondTTFTCountsToolCallName(t *testing.T) {
 	}
 }
 
-// A non-streamed body delivers every token at once, so it has no TTFT.
+func TestRespondTTFTCountsToolArgumentsBeforeToolMetadata(t *testing.T) {
+	frames := [3]string{
+		`data: {"id":"c1","model":"test-model","choices":[{"index":0,"delta":{"role":"assistant"}}]}` + "\n\n",
+		`data: {"id":"c1","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,` +
+			`"function":{"arguments":"{\"q\":"}}]}}]}` + "\n\n",
+		`data: {"id":"c1","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,` +
+			`"id":"call_1","type":"function","function":{"name":"lookup","arguments":"1}"}}]},` +
+			`"finish_reason":"tool_calls"}]}` + "\n\n" + "data: [DONE]\n\n",
+	}
+	synctest.Test(t, func(t *testing.T) {
+		event, _ := respondOnce(t, "chat", frames)
+		if event["model_call.ttft_ms"] != float64(2000) {
+			t.Fatalf("ttft = %#v, want the arrival of the buffered arguments", event["model_call.ttft_ms"])
+		}
+	})
+}
+
+func TestRespondCacheRatioNeedsReportedCacheCount(t *testing.T) {
+	reported := map[string][2]string{
+		"chat":      {`,"prompt_tokens_details":{"cached_tokens":40}`, `,"prompt_tokens_details":{"cached_tokens":0}`},
+		"responses": {`,"input_tokens_details":{"cached_tokens":40}`, `,"input_tokens_details":{"cached_tokens":0}`},
+		"anthropic": {`"input_tokens":60,"cache_read_input_tokens":40`, `"input_tokens":100,"cache_read_input_tokens":0`},
+	}
+	omitted := map[string]string{"chat": "", "responses": "", "anthropic": `"input_tokens":100`}
+	for name, usage := range reported {
+		for _, tc := range []struct {
+			name, usage   string
+			ratio, cached any
+			measuredInput string
+		}{
+			{"omitted", omitted[name], nil, nil, "0"},
+			{"zero", usage[1], float64(0), float64(0), "100"},
+		} {
+			t.Run(name+"/"+tc.name, func(t *testing.T) {
+				var frames [3]string
+				for i, frame := range callTraceStreams[name] {
+					frames[i] = strings.Replace(frame, usage[0], tc.usage, 1)
+				}
+				synctest.Test(t, func(t *testing.T) {
+					event, scraped := respondOnce(t, name, frames)
+					if event["model_call.usage.input_tokens"] != float64(100) ||
+						event["model_call.cache_ratio"] != tc.ratio || event["model_call.usage.cached_tokens"] != tc.cached {
+						t.Fatalf("input = %#v ratio = %#v cached = %#v", event["model_call.usage.input_tokens"],
+							event["model_call.cache_ratio"], event["model_call.usage.cached_tokens"])
+					}
+					if !strings.Contains(scraped, `omnara_model_call_cache_reported_input_tokens_total{`) ||
+						!strings.Contains(scraped, `provider="example.test"} `+tc.measuredInput+"\n") {
+						t.Fatalf("cache_reported_input_tokens_total != %s:\n%s", tc.measuredInput, scraped)
+					}
+				})
+			})
+		}
+	}
+}
+
+func respondOnce(t *testing.T, name string, frames [3]string) (map[string]any, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	set := metrics.New()
+	ctx := log.WithLogger(t.Context(), slog.New(log.NewJSONHandler(&buf, nil)))
+	ctx = calltrace.WithRecorder(ctx, metrics.NewModelCallRecorder(set))
+	client := clientNamed(t, name, &http.Client{Transport: scriptedTransport(frames)})
+	if _, err := client.Respond(ctx, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
+		t.Fatalf("respond: %v", err)
+	}
+	events := modelCallEvents(t, &buf)
+	if len(events) != 1 {
+		t.Fatalf("events = %d", len(events))
+	}
+	return events[0], scrapeModelCallMetrics(t, set)
+}
+
 func TestRespondLeavesTTFTNullForNonStreamedBody(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var buf bytes.Buffer

@@ -1,7 +1,3 @@
-// Package calltrace records one structured observation per model provider
-// attempt: request size, token usage, outcome, and the latency of each phase
-// from request start to stream completion. It never holds prompt or response
-// content, headers, or credentials.
 package calltrace
 
 import (
@@ -21,8 +17,6 @@ const (
 	PurposeUnknown    Purpose = "unknown"
 )
 
-// Scope identifies the logical model call that an attempt belongs to. A retry
-// is a new attempt with its own record.
 type Scope struct {
 	Purpose            Purpose
 	ModelCallContextID string
@@ -45,7 +39,6 @@ func ScopeFromContext(ctx context.Context) Scope {
 
 type recorderKey struct{}
 
-// WithRecorder makes model calls under ctx report to recorder.
 func WithRecorder(ctx context.Context, recorder *metrics.ModelCallRecorder) context.Context {
 	if recorder == nil {
 		return ctx
@@ -66,20 +59,15 @@ const (
 	OutcomeCanceled Outcome = "canceled"
 )
 
-// Usage holds provider-reported token counts. InputTokens includes cached
-// and cache-write input tokens.
 type Usage struct {
 	InputTokens       int
 	CachedInputTokens int
 	CacheWriteTokens  int
+	CacheReported     bool
 	OutputTokens      int
 	ReasoningTokens   int
 }
 
-// Record is one provider attempt. Timings are offsets from StartedAt; a nil
-// timing means the phase was never reached. TTFT is the offset of the first
-// stream frame that carries model-generated output; it stays nil for a
-// non-streamed body, where every token arrives at once.
 type Record struct {
 	CallID            string
 	Scope             Scope
@@ -105,10 +93,8 @@ type Record struct {
 	Duration       time.Duration
 }
 
-// CacheRatio is the share of input tokens read from the provider's prompt
-// cache. It is unknown without reported input tokens.
 func (r Record) CacheRatio() (float64, bool) {
-	if r.Usage == nil || r.Usage.InputTokens <= 0 {
+	if r.Usage == nil || !r.Usage.CacheReported || r.Usage.InputTokens <= 0 {
 		return 0, false
 	}
 	return float64(r.Usage.CachedInputTokens) / float64(r.Usage.InputTokens), true
@@ -132,15 +118,27 @@ func (r Record) MetricsSample() metrics.ModelCallSample {
 		sample.InputTokens = r.Usage.InputTokens
 		sample.CachedInputTokens = r.Usage.CachedInputTokens
 		sample.CacheWriteTokens = r.Usage.CacheWriteTokens
+		sample.CacheReported = r.Usage.CacheReported
 		sample.OutputTokens = r.Usage.OutputTokens
 		sample.ReasoningTokens = r.Usage.ReasoningTokens
 	}
 	return sample
 }
 
-// Tracker captures phase timings for one attempt. Upload completion arrives on
-// the HTTP transport's goroutine, so every mark is guarded.
+type trackerKey struct{}
+
+func WithTracker(ctx context.Context, tracker *Tracker) context.Context {
+	return context.WithValue(ctx, trackerKey{}, tracker)
+}
+
+func MarkToken(ctx context.Context, payload string) {
+	if tracker, ok := ctx.Value(trackerKey{}).(*Tracker); ok {
+		tracker.MarkToken(payload)
+	}
+}
+
 type Tracker struct {
+	// Upload completion arrives on the transport's goroutine.
 	mu      sync.Mutex
 	now     func() time.Time
 	started time.Time
@@ -167,8 +165,6 @@ func (t *Tracker) elapsed() *time.Duration {
 	return &d
 }
 
-// WithClientTrace marks upload completion when the transport finishes writing
-// the request. A transport that rewrites the request keeps the last write.
 func (t *Tracker) WithClientTrace(ctx context.Context) context.Context {
 	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
@@ -190,9 +186,6 @@ func (t *Tracker) MarkHeaders() {
 	}
 }
 
-// MarkToken records the first token: the first frame whose payload is model
-// output of any kind, whitespace included. An empty payload is stream
-// metadata (role, heartbeat, block markers) and does not count.
 func (t *Tracker) MarkToken(payload string) {
 	if payload == "" {
 		return
@@ -212,7 +205,6 @@ func (t *Tracker) MarkComplete() {
 	}
 }
 
-// Fill copies the captured timings into record and stamps its total duration.
 func (t *Tracker) Fill(record *Record) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
