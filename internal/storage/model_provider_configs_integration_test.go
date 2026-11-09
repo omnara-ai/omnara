@@ -56,15 +56,15 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project credential: %v", err)
 	}
-	_, err = store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+	if _, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
 		OrgID:              testOrgID,
 		Name:               "project-secret-should-not-work",
 		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
 		BaseURL:            "https://api.openai.com/v1",
 		CredentialSecretID: projectSecret.ID,
-	})
-	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-	require.ErrorContains(t, err, "credential_secret_id")
+	}); err == nil {
+		t.Fatal("project-owned secret should not be accepted as provider config credential")
+	}
 	oauthSecret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:     testOrgID,
 		OwnerKind: secretstore.SecretOwnerOrg,
@@ -910,7 +910,7 @@ model:
 	if secondGrant.ID == grant.ID {
 		t.Fatalf("grant after delete mismatch: old=%+v new=%+v", grant, secondGrant)
 	}
-	if err := store.Models().DeleteModelProviderConfig(
+	if _, err := store.Models().DeleteModelProviderConfig(
 		ctx,
 		testOrgID,
 		config.ID,
@@ -933,7 +933,7 @@ model:
 	require.NotEqual(t, configuredModel.CurrentRevisionID, recreatedModel.CurrentRevisionID)
 	_, err = store.Models().DeleteConfiguredModel(ctx, testOrgID, recreatedModel.ID)
 	require.NoError(t, err)
-	if err := store.Models().DeleteModelProviderConfig(ctx, testOrgID, config.ID); err != nil {
+	if _, err := store.Models().DeleteModelProviderConfig(ctx, testOrgID, config.ID); err != nil {
 		t.Fatalf("archive provider config: %v", err)
 	}
 	modelsAfterArchivePage, err := store.Models().ListConfiguredModels(

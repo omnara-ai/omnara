@@ -392,9 +392,10 @@ type storedContentBlockType struct {
 }
 
 type storedTextContentBlock struct {
-	Type     string                `json:"type"`
-	Text     *string               `json:"text"`
-	Metadata resourcemeta.Metadata `json:"metadata,omitempty"`
+	ExcludeFromModelContext bool                  `json:"exclude_from_model_context,omitempty"`
+	Type                    string                `json:"type"`
+	Text                    *string               `json:"text"`
+	Metadata                resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 type storedMediaRefContentBlock struct {
@@ -405,18 +406,20 @@ type storedMediaRefContentBlock struct {
 }
 
 type storedToolCallContentBlock struct {
-	Type       string                `json:"type"`
-	ToolCallID string                `json:"tool_call_id"`
-	ToolType   string                `json:"tool_type"`
-	Name       string                `json:"name"`
-	Input      json.RawMessage       `json:"input"`
-	Metadata   resourcemeta.Metadata `json:"metadata,omitempty"`
+	ExcludeFromModelContext bool                  `json:"exclude_from_model_context,omitempty"`
+	Type                    string                `json:"type"`
+	ToolCallID              string                `json:"tool_call_id"`
+	ToolType                string                `json:"tool_type"`
+	Name                    string                `json:"name"`
+	Input                   json.RawMessage       `json:"input"`
+	Metadata                resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 type storedStructuredDataContentBlock struct {
-	Type     string                `json:"type"`
-	Value    json.RawMessage       `json:"value"`
-	Metadata resourcemeta.Metadata `json:"metadata,omitempty"`
+	ExcludeFromModelContext bool                  `json:"exclude_from_model_context,omitempty"`
+	Type                    string                `json:"type"`
+	Value                   json.RawMessage       `json:"value"`
+	Metadata                resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 func decodeStoredContentBlocks(raw json.RawMessage) ([]json.RawMessage, error) {

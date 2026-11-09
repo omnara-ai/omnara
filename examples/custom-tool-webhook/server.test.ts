@@ -61,10 +61,11 @@ function accepted() {
 }
 
 function receiver(apiFetch: typeof fetch, signal?: AbortSignal) {
-  const { app, worker } = createWebhookApp({
+  const { app, check, drain } = createWebhookApp({
     client: createOmnaraClient({
       baseUrl: 'https://api.example.com/v1',
       fetch: apiFetch,
+      maxRetries: 0,
     }),
     orgID: 'org_5n6a2bfgik7mv4qtrwz3jehcyd',
     projectID: 'proj_5n6a2bfgik7mv4qtrwz3jehcyd',
@@ -87,20 +88,24 @@ function receiver(apiFetch: typeof fetch, signal?: AbortSignal) {
       },
     })
   }
-  return { post, worker }
+  return { post, check, drain }
 }
 
-test('rejects bad signatures and invalid payloads before calling the API', async () => {
-  const { post } = receiver(async () => {
-    throw new Error('API must not be called')
-  })
-  assert.equal((await post(payload, false)).status, 400)
-  assert.equal((await post(payload, true, 600)).status, 400)
-  assert.equal((await post({ event: 'tool_call_update', data: {} })).status, 400)
-  assert.equal((await post({ event: 'unknown', data: {} })).status, 204)
-})
+test(
+  'rejects bad signatures and invalid payloads before calling the API',
+  { timeout: 5000 },
+  async () => {
+    const { post } = receiver(async () => {
+      throw new Error('API must not be called')
+    })
+    assert.equal((await post(payload, false)).status, 400)
+    assert.equal((await post(payload, true, 600)).status, 400)
+    assert.equal((await post({ event: 'tool_call_update', data: {} })).status, 400)
+    assert.equal((await post({ event: 'unknown', data: {} })).status, 204)
+  },
+)
 
-test('acknowledges without waiting for result submission', async () => {
+test('acknowledges without waiting for result submission', { timeout: 5000 }, async () => {
   let release: () => void = () => {}
   const acceptedLater = new Promise<void>((resolve) => {
     release = resolve
@@ -110,8 +115,9 @@ test('acknowledges without waiting for result submission', async () => {
   const submitted = new Promise((resolve) => {
     submit = resolve
   })
-  const { post, worker } = receiver(async (url, init) => {
+  const { post, drain } = receiver(async (url, init) => {
     const request = new Request(url, init)
+    if (request.method === 'GET') return Response.json(readyCall())
     assert.equal(request.method, 'POST')
     submit(await request.json())
     await acceptedLater
@@ -122,13 +128,12 @@ test('acknowledges without waiting for result submission', async () => {
   assert.equal(completed, false)
   assert.deepEqual(await submitted, result)
   release()
-  await worker.shutdown()
+  await drain()
   assert.equal(completed, true)
 })
 
-test('picks up ready calls that no webhook reported', async () => {
-  const controller = new AbortController()
-  const { worker } = receiver(async (url, init) => {
+test('picks up ready calls that no webhook reported', { timeout: 5000 }, async () => {
+  const { check } = receiver(async (url, init) => {
     const request = new Request(url, init)
     if (request.method === 'GET') {
       return Response.json(
@@ -138,9 +143,66 @@ test('picks up ready calls that no webhook reported', async () => {
       )
     }
     assert.deepEqual(await request.json(), result)
-    controller.abort()
     return accepted()
-  }, controller.signal)
-  await worker.run()
-  assert.equal(controller.signal.aborted, true)
+  })
+  await check()
 })
+
+test(
+  'recovers an explicitly reported delivery failure on the next application check',
+  { timeout: 5000 },
+  async (context) => {
+    const errors: unknown[][] = []
+    context.mock.method(console, 'error', (...args: unknown[]) => {
+      errors.push(args)
+    })
+    let submissions = 0
+    const { post, check, drain } = receiver(async (url, init) => {
+      const request = new Request(url, init)
+      if (request.method === 'GET')
+        return Response.json(
+          new URL(request.url).pathname.endsWith('/tool-calls')
+            ? { data: [readyCall()], next_cursor: null }
+            : readyCall(),
+        )
+      submissions++
+      assert.deepEqual(await request.json(), result)
+      return submissions === 1
+        ? Response.json({ code: 'service_unavailable', error: 'try again' }, { status: 503 })
+        : accepted()
+    })
+    assert.equal((await post()).status, 204)
+    await drain()
+    assert.equal(submissions, 1)
+    assert.equal(errors.length, 1)
+    assert.match(String(errors[0]?.[0]), /next recovery check will safely recompute/)
+    await check()
+    assert.equal(submissions, 2)
+  },
+)
+
+test(
+  'reports permanent payload rejection as an application repair task',
+  { timeout: 5000 },
+  async (context) => {
+    const errors: unknown[][] = []
+    context.mock.method(console, 'error', (...args: unknown[]) => {
+      errors.push(args)
+    })
+    let submissions = 0
+    const { post, drain } = receiver(async (url, init) => {
+      const request = new Request(url, init)
+      if (request.method === 'GET') return Response.json(readyCall())
+      submissions++
+      return Response.json(
+        { code: 'request_too_large', error: 'payload rejected' },
+        { status: 413 },
+      )
+    })
+    assert.equal((await post()).status, 204)
+    await drain()
+    assert.equal(submissions, 1)
+    assert.equal(errors.length, 1)
+    assert.match(String(errors[0]?.[0]), /submit a corrected or explicit failed result/)
+  },
+)

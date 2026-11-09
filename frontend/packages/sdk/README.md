@@ -84,9 +84,9 @@ Header changes and clones that preserve the destination remain retryable.
 A custom `fetch` still sees each attempt. Retries stop at the
 fetch boundary: a failure while reading or parsing a JSON response body is
 returned without another attempt. Streamed request bodies and `parseAs: 'stream'`
-requests are not retried. For a successful streamed response, the deadline ends
-at response headers; use `signal` to cancel its body afterward. HTTP error-body
-parsing remains covered by the deadline.
+requests are not retried. For a successfully returned stream, including automatic
+parsing, the request deadline does not limit subsequent body reads; use `signal`
+to cancel them. HTTP error-body parsing remains covered by the deadline.
 The SDK releases its caller cancellation listener when the request settles, or
 when a returned stream ends, errors, or is canceled. `openAgentEventStream` owns
 its reconnection policy and releases that listener after each connection.

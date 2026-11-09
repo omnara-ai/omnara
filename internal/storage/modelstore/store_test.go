@@ -120,11 +120,12 @@ func TestNormalizeModelProviderConfigUpdateValidatesHeaders(t *testing.T) {
 		APIFormat:          modelprotocol.APIFormatAnthropicMessages,
 		APIVariant:         modelprotocol.APIVariantDefault,
 	}
-	_, _, err := normalizeModelProviderConfigUpdate(update)
+	validateCredential := func(context.Context, uuid.UUID, uuid.UUID, string) error { return nil }
+	_, err := normalizeModelProviderConfigUpdate(context.Background(), update, validateCredential)
 	require.NoError(t, err)
 
 	update.Headers = json.RawMessage(`{"X-Api-Key":"k"}`)
-	_, _, err = normalizeModelProviderConfigUpdate(update)
+	_, err = normalizeModelProviderConfigUpdate(context.Background(), update, validateCredential)
 	require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
 }
 

@@ -50,29 +50,37 @@ WHERE webhook.project_id = $1 AND webhook.id = $2 AND webhook.deleted_at IS NULL
 SELECT id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
           created_at, updated_at, deleted_at FROM event_webhooks
 WHERE project_id = sqlc.arg(project_id)
-  AND agent_profile_id IS NOT DISTINCT FROM sqlc.narg(agent_profile_id)::uuid
-  AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)::uuid
+  AND (NOT sqlc.arg(filter_scope)::boolean OR (
+    agent_profile_id IS NOT DISTINCT FROM sqlc.narg(agent_profile_id)::uuid
+    AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)::uuid
+  ))
   AND deleted_at IS NULL
-ORDER BY created_at, id;
+  AND (created_at, id) > (
+    coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
+    coalesce(sqlc.narg(cursor_id)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+  )
+ORDER BY created_at, id
+LIMIT sqlc.arg(row_limit);
+
+-- name: CountProjectEventWebhooks :one
+SELECT count(*) FROM event_webhooks
+WHERE project_id = $1 AND deleted_at IS NULL;
 
 -- name: UpdateEventWebhook :one
-UPDATE event_webhooks SET url = $3, event_types = $4, signing_secret_id = $5, updated_at = statement_timestamp()
+UPDATE event_webhooks SET url = $3, event_types = $4, signing_secret_id = $5,
+    agent_profile_id = $6, agent_id = $7, updated_at = statement_timestamp()
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 RETURNING id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
           created_at, updated_at, deleted_at;
 
 -- name: DeleteEventWebhook :execrows
-UPDATE event_webhooks SET deleted_at = statement_timestamp(), signing_secret_id = NULL, updated_at = statement_timestamp()
+UPDATE event_webhooks SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL;
 
 -- name: DeleteEventWebhooksForAgentProfile :exec
-UPDATE event_webhooks SET deleted_at = statement_timestamp(), signing_secret_id = NULL, updated_at = statement_timestamp()
+UPDATE event_webhooks SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE project_id = $1 AND agent_profile_id = $2 AND deleted_at IS NULL;
 
-
--- name: DeleteEventWebhooksForProject :exec
-UPDATE event_webhooks SET deleted_at = statement_timestamp(), signing_secret_id = NULL, updated_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
 -- name: EnqueueEventWebhookDelivery :exec
 INSERT INTO event_webhook_deliveries (org_id, webhook_id, agent_id, event_sequence, tool_call_id, tool_state, interaction_update)

@@ -374,6 +374,9 @@ func (s *Store) ListAgentInteractions(
 	ctx context.Context,
 	input ListAgentInteractionsInput,
 ) (ListAgentInteractionsResult, error) {
+	if input.State != "" && !input.State.Valid() {
+		return ListAgentInteractionsResult{}, fmt.Errorf("invalid interaction state %q", input.State)
+	}
 	if input.ProjectID == uuid.Nil || len(input.AgentIDs) == 0 {
 		return ListAgentInteractionsResult{}, errors.New("project and at least one agent are required")
 	}
@@ -416,6 +419,9 @@ func (s *Store) ListOpenProjectInteractions(
 	}
 	if input.Limit <= 0 {
 		return ListAgentInteractionsResult{}, errors.New("limit must be positive")
+	}
+	if input.InteractionKind != "" && !input.InteractionKind.Valid() {
+		return ListAgentInteractionsResult{}, fmt.Errorf("invalid interaction kind %q", input.InteractionKind)
 	}
 	params := dbsqlc.ListOpenAgentInteractionsForProjectParams{
 		ProjectID:       input.ProjectID,

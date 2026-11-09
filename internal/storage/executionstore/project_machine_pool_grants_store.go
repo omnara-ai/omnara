@@ -42,6 +42,7 @@ type ProjectMachinePoolGrantRecord struct {
 	MaxMachineCPU                        *int            `json:"max_machine_cpu,omitempty"`
 	MaxMachineMemoryMB                   *int            `json:"max_machine_memory_mb,omitempty"`
 	DeleteAfterIdleMinutes               *int            `json:"delete_after_idle_minutes,omitempty"`
+	IdempotencyKey                       string          `json:"idempotency_key,omitempty"`
 	Metadata                             json.RawMessage `json:"metadata"`
 	CreatedAt                            time.Time       `json:"created_at"`
 	UpdatedAt                            time.Time       `json:"updated_at"`
@@ -130,20 +131,20 @@ type UpdateProjectMachinePoolGrantInput struct {
 }
 
 type projectMachinePoolGrantConfig struct {
-	DefaultMachineCPU                    *int            `json:"default_machine_cpu"`
-	DefaultMachineMemoryMB               *int            `json:"default_machine_memory_mb"`
-	DefaultMachineEnvOverlay             json.RawMessage `json:"default_machine_env_overlay"`
-	DefaultMachineSecretEnvOverlay       json.RawMessage `json:"default_machine_secret_env_overlay"`
-	DefaultMachineProviderOptionsOverlay json.RawMessage `json:"default_machine_provider_options_overlay"`
-	DefaultCwd                           string          `json:"default_cwd"`
-	MaxTotalMachines                     *int            `json:"max_total_machines"`
-	MaxTotalCPU                          *int            `json:"max_total_cpu"`
-	MaxTotalMemoryMB                     *int            `json:"max_total_memory_mb"`
-	MinMachineCPU                        *int            `json:"min_machine_cpu"`
-	MinMachineMemoryMB                   *int            `json:"min_machine_memory_mb"`
-	MaxMachineCPU                        *int            `json:"max_machine_cpu"`
-	MaxMachineMemoryMB                   *int            `json:"max_machine_memory_mb"`
-	DeleteAfterIdleMinutes               *int            `json:"delete_after_idle_minutes"`
+	DefaultMachineCPU                    *int
+	DefaultMachineMemoryMB               *int
+	DefaultMachineEnvOverlay             json.RawMessage
+	DefaultMachineSecretEnvOverlay       json.RawMessage
+	DefaultMachineProviderOptionsOverlay json.RawMessage
+	DefaultCwd                           string
+	MaxTotalMachines                     *int
+	MaxTotalCPU                          *int
+	MaxTotalMemoryMB                     *int
+	MinMachineCPU                        *int
+	MinMachineMemoryMB                   *int
+	MaxMachineCPU                        *int
+	MaxMachineMemoryMB                   *int
+	DeleteAfterIdleMinutes               *int
 }
 
 func projectMachinePoolGrantConfigFromCreateInput(
@@ -419,34 +420,50 @@ func (s *Store) CreateProjectMachinePoolGrant(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
 		return ProjectMachinePoolGrantRecord{}, err
 	}
-	replayID, err := reserveProjectMachinePoolGrantCreation(ctx, qtx, input, config, metadata)
-	if err != nil {
-		return ProjectMachinePoolGrantRecord{}, err
+	if input.IdempotencyKey != "" {
+		replay, replayErr := qtx.GetProjectMachinePoolGrantByIdempotency(
+			ctx,
+			dbsqlc.GetProjectMachinePoolGrantByIdempotencyParams{
+				OrgID:          input.OrgID,
+				ProjectID:      input.ProjectID,
+				IdempotencyKey: input.IdempotencyKey,
+			},
+		)
+		if replayErr == nil {
+			grant := projectMachinePoolGrantFromSQLC(dbsqlc.GetProjectMachinePoolGrantRow(replay))
+			if !sameProjectMachinePoolGrantCreateIntent(grant, input, config) {
+				return ProjectMachinePoolGrantRecord{}, storeerr.ErrIdempotencyConflict
+			}
+			if _, err := qtx.LockMachinePoolForUpdate(
+				ctx,
+				dbsqlc.LockMachinePoolForUpdateParams{OrgID: input.OrgID, ID: grant.MachinePoolID},
+			); err != nil {
+				return ProjectMachinePoolGrantRecord{}, fmt.Errorf(
+					"lock machine pool for project pool grant replay: %w",
+					err,
+				)
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return ProjectMachinePoolGrantRecord{}, fmt.Errorf(
+					"commit replay create project machine pool grant: %w",
+					err,
+				)
+			}
+			return grant, nil
+		}
+		if !errors.Is(replayErr, pgx.ErrNoRows) {
+			return ProjectMachinePoolGrantRecord{}, fmt.Errorf(
+				"get project machine pool grant by idempotency: %w",
+				replayErr,
+			)
+		}
 	}
 	pool, err := qtx.LockMachinePoolForUpdate(
 		ctx,
 		dbsqlc.LockMachinePoolForUpdateParams{OrgID: input.OrgID, ID: input.MachinePoolID},
 	)
 	if err != nil {
-		if replayID != uuid.Nil && errors.Is(err, pgx.ErrNoRows) {
-			return ProjectMachinePoolGrantRecord{}, storeerr.ErrIdempotencyConflict
-		}
 		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("get machine pool for project pool grant: %w", err)
-	}
-	if replayID != uuid.Nil {
-		row, err := qtx.GetProjectMachinePoolGrant(ctx, dbsqlc.GetProjectMachinePoolGrantParams{
-			OrgID: input.OrgID, ProjectID: input.ProjectID, ID: replayID,
-		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ProjectMachinePoolGrantRecord{}, storeerr.ErrIdempotencyConflict
-		}
-		if err != nil {
-			return ProjectMachinePoolGrantRecord{}, fmt.Errorf("get replayed machine pool grant: %w", err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return ProjectMachinePoolGrantRecord{}, fmt.Errorf("commit replayed machine pool grant: %w", err)
-		}
-		return projectMachinePoolGrantFromSQLC(row), nil
 	}
 	poolRecord := machinePoolRecordFromSQLC(pool)
 	if err := s.validateProjectMachinePoolGrantAgainstPoolTx(
@@ -482,6 +499,7 @@ func (s *Store) CreateProjectMachinePoolGrant(
 			MaxMachineCpu:                        storeutil.Int32Ptr(config.MaxMachineCPU),
 			MaxMachineMemoryMb:                   storeutil.Int32Ptr(config.MaxMachineMemoryMB),
 			DeleteAfterIdleMinutes:               storeutil.Int32Ptr(config.DeleteAfterIdleMinutes),
+			IdempotencyKey:                       storeutil.TextFromEmpty(input.IdempotencyKey),
 			Metadata:                             metadata,
 		},
 	)
@@ -500,25 +518,43 @@ func (s *Store) CreateProjectMachinePoolGrant(
 				"a grant for this machine pool already exists on this project",
 			))
 		}
+		if storeutil.IsUniqueViolation(err) {
+			return ProjectMachinePoolGrantRecord{}, storeerr.ErrIdempotencyConflict
+		}
 		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("upsert project machine pool grant: %w", err)
 	}
 	grant := projectMachinePoolGrantFromSQLC(dbsqlc.GetProjectMachinePoolGrantRow(row))
 	grant.Created = true
-	if input.IdempotencyKey != "" {
-		count, err := qtx.CompleteProjectMachinePoolGrantCreation(ctx, dbsqlc.CompleteProjectMachinePoolGrantCreationParams{
-			OrgID: input.OrgID, ProjectID: input.ProjectID, IdempotencyKey: input.IdempotencyKey, GrantID: grant.ID,
-		})
-		if err != nil {
-			return ProjectMachinePoolGrantRecord{}, fmt.Errorf("complete machine pool grant creation: %w", err)
-		}
-		if count != 1 {
-			return ProjectMachinePoolGrantRecord{}, errors.New("machine pool grant creation receipt missing")
-		}
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return ProjectMachinePoolGrantRecord{}, fmt.Errorf("commit create project machine pool grant: %w", err)
 	}
 	return grant, nil
+}
+
+func sameProjectMachinePoolGrantCreateIntent(
+	grant ProjectMachinePoolGrantRecord,
+	input CreateProjectMachinePoolGrantInput,
+	config projectMachinePoolGrantConfig,
+) bool {
+	return grant.OrgID == input.OrgID &&
+		grant.ProjectID == input.ProjectID &&
+		grant.MachinePoolID == input.MachinePoolID &&
+		grant.Description == input.Description &&
+		storeutil.SameIntPtr(grant.DefaultMachineCPU, config.DefaultMachineCPU) &&
+		storeutil.SameIntPtr(grant.DefaultMachineMemoryMB, config.DefaultMachineMemoryMB) &&
+		sameJSON(grant.DefaultMachineEnvOverlay, config.DefaultMachineEnvOverlay) &&
+		sameJSON(grant.DefaultMachineSecretEnvOverlay, config.DefaultMachineSecretEnvOverlay) &&
+		sameJSON(grant.DefaultMachineProviderOptionsOverlay, config.DefaultMachineProviderOptionsOverlay) &&
+		grant.DefaultCwd == config.DefaultCwd &&
+		storeutil.SameIntPtr(grant.MaxTotalMachines, config.MaxTotalMachines) &&
+		storeutil.SameIntPtr(grant.MaxTotalCPU, config.MaxTotalCPU) &&
+		storeutil.SameIntPtr(grant.MaxTotalMemoryMB, config.MaxTotalMemoryMB) &&
+		storeutil.SameIntPtr(grant.MinMachineCPU, config.MinMachineCPU) &&
+		storeutil.SameIntPtr(grant.MinMachineMemoryMB, config.MinMachineMemoryMB) &&
+		storeutil.SameIntPtr(grant.MaxMachineCPU, config.MaxMachineCPU) &&
+		storeutil.SameIntPtr(grant.MaxMachineMemoryMB, config.MaxMachineMemoryMB) &&
+		storeutil.SameIntPtr(grant.DeleteAfterIdleMinutes, config.DeleteAfterIdleMinutes) &&
+		sameMetadata(grant.Metadata, input.Metadata)
 }
 
 func (s *Store) UpdateProjectMachinePoolGrant(

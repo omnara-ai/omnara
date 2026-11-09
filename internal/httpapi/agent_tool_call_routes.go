@@ -31,9 +31,9 @@ func (s strictOpenAPIServer) ListToolCalls(
 	if request.Params.State != nil {
 		state = executionstore.ToolCallState(*request.Params.State)
 	}
-	toolType := ""
+	var toolType toolcatalog.Type
 	if request.Params.Type != nil {
-		toolType = string(*request.Params.Type)
+		toolType = toolcatalog.Type(*request.Params.Type)
 	}
 	agentIDs := []uuid.UUID{scope.agent.ID}
 	if request.Params.IncludeSubagents != nil && *request.Params.IncludeSubagents {
@@ -77,9 +77,9 @@ func (s strictOpenAPIServer) ListProjectToolCalls(
 	if request.Params.State != nil {
 		state = executionstore.ToolCallState(*request.Params.State)
 	}
-	toolType := ""
+	var toolType toolcatalog.Type
 	if request.Params.Type != nil {
-		toolType = string(*request.Params.Type)
+		toolType = toolcatalog.Type(*request.Params.Type)
 	}
 	var names []string
 	if request.Params.Names != nil {
@@ -117,9 +117,9 @@ func (s strictOpenAPIServer) ListProjectToolCalls(
 
 func toolCallsListResponse(page executionstore.ListToolCallsResult) (openapi.ListToolCallsResponse, error) {
 	data := make([]openapi.ToolCall, 0, len(page.ToolCalls))
-	var last executionstore.ToolCallRecord
+	var last executionstore.ToolCallSummary
 	for _, toolCall := range page.ToolCalls {
-		response, err := publicToolCallFromSummary(toolCall.Summary())
+		response, err := publicToolCallFromSummary(toolCall)
 		if err != nil {
 			return openapi.ListToolCallsResponse{}, err
 		}

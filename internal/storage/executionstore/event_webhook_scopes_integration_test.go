@@ -62,10 +62,12 @@ func TestEventWebhookScopeFanoutAndLifecycle(t *testing.T) {
 	otherEndpoint, err := store.GetEventWebhookEndpoint(f.ctx, testOrgID, otherWebhook.ID, first.Agent.ID)
 	require.NoError(t, err)
 	require.Empty(t, otherEndpoint.URL)
-	own, err := store.ListEventWebhooks(f.ctx, testProjectID, executionstore.EventWebhookScope{
-		Type: executionstore.EventWebhookScopeAgent,
-		ID:   first.Agent.ID,
+	ownPage, err := store.ListEventWebhooks(f.ctx, executionstore.ListEventWebhooksInput{
+		ProjectID: testProjectID, Limit: 100, Scope: &executionstore.EventWebhookScope{
+			Type: executionstore.EventWebhookScopeAgent, ID: first.Agent.ID,
+		},
 	})
+	own := ownPage.Webhooks
 	require.NoError(t, err)
 	require.Len(t, own, 2)
 	second, err := store.LaunchAgent(f.ctx, launch)
@@ -270,14 +272,48 @@ func TestEventWebhookScopeValidationAndLimits(t *testing.T) {
 	}
 	first, err := store.CreateEventWebhook(t.Context(), input)
 	require.NoError(t, err)
-	for i := range executionstore.MaxEventWebhooksPerScope - 1 {
+	for i := range executionstore.MaxEventWebhooksPerProject - 2 {
+		input.Scope = executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeProject}
+		if i%2 == 0 {
+			input.Scope = first.Scope
+		}
 		input.Settings.URL = fmt.Sprintf("https://example.com/events/%d", i)
 		_, err := store.CreateEventWebhook(t.Context(), input)
 		require.NoError(t, err)
 	}
+	// Competing selections share the final project slot, not independent quotas.
+	results := make(chan error, 2)
+	start := make(chan struct{})
+	for i, scope := range []executionstore.EventWebhookScope{
+		first.Scope, {Type: executionstore.EventWebhookScopeProject},
+	} {
+		candidate := input
+		candidate.Scope = scope
+		candidate.Settings.URL = fmt.Sprintf("https://example.com/final/%d", i)
+		go func() {
+			<-start
+			_, err := store.CreateEventWebhook(t.Context(), candidate)
+			results <- err
+		}()
+	}
+	close(start)
+	one, two := <-results, <-results
+	if one == nil {
+		require.ErrorIs(t, two, storeerr.ErrConflict)
+	} else {
+		require.ErrorIs(t, one, storeerr.ErrConflict)
+		require.NoError(t, two)
+	}
+	projectSelection := executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeProject}
+	updated, err := store.UpdateEventWebhook(t.Context(), executionstore.UpdateEventWebhookInput{
+		ProjectID: testProjectID, WebhookID: first.ID, Scope: &projectSelection,
+	})
+	require.NoError(t, err, "editing does not consume another quota slot")
+	require.Equal(t, projectSelection, updated.Scope)
 	input.Settings.URL = "https://example.com/over-limit"
 	_, err = store.CreateEventWebhook(t.Context(), input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
+	require.ErrorContains(t, err, "event webhooks per project")
 	require.NoError(t, store.DeleteEventWebhook(t.Context(), testProjectID, first.ID))
 	input.Settings.URL = first.Settings.URL
 	recreated, err := store.CreateEventWebhook(t.Context(), input)
@@ -395,7 +431,7 @@ func TestEventWebhookConcurrentURLConflict(t *testing.T) {
 	}
 	existing, err := store.CreateEventWebhook(t.Context(), input)
 	require.NoError(t, err)
-	input.Settings.URL = "https://example.com/shared"
+	input.Scope = executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeProject}
 	results := make(chan error, 2)
 	start := make(chan struct{})
 	go func() {
@@ -408,7 +444,7 @@ func TestEventWebhookConcurrentURLConflict(t *testing.T) {
 		_, err := store.UpdateEventWebhook(t.Context(), executionstore.UpdateEventWebhookInput{
 			ProjectID: testProjectID,
 			WebhookID: existing.ID,
-			URL:       &input.Settings.URL,
+			Scope:     &input.Scope,
 		})
 		results <- err
 	}()

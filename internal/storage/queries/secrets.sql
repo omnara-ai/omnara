@@ -323,62 +323,21 @@ WHERE org_id = sqlc.arg(org_id) AND secret_id = sqlc.arg(secret_id);
 DELETE FROM secret_oauth_refresh_leases
 WHERE org_id = sqlc.arg(org_id) AND secret_id = sqlc.arg(secret_id);
 
--- name: LockDeletedOrganizationSecretCleanup :exec
-SELECT pg_advisory_xact_lock(
-    hashtextextended('deleted_org_secret_cleanup:' || sqlc.arg(org_id)::uuid::text, 0)
-);
-
--- name: ListReferencedSecretIDs :many
--- @sqlc-vet-disable secrets-deleted-at model-provider-configs-deleted-at integrations-deleted-at machine-pools-deleted-at
--- Deleted consumers release their references. Project consumers count only while
--- they still own or have a grant to the secret; revocation never traps the owner.
--- Deleted organization cleanup also checks tombstoned secrets retained for provider teardown.
--- Normal deletion callers lock candidates first and then use this fresh READ COMMITTED snapshot.
-SELECT secret.id FROM secrets secret
-  WHERE secret.id = ANY(sqlc.arg(secret_ids)::uuid[])
-    AND (
-      EXISTS (SELECT 1 FROM model_provider_configs config
-        WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM model_provider_header_secrets header
-        WHERE header.org_id = secret.org_id AND header.secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM machine_pools pool
-        WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integrations integration
-        WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id
-          AND NOT (integration.project_id = ANY(coalesce(sqlc.arg(excluded_project_ids)::uuid[], '{}'::uuid[])))
-          AND (secret.owner_project_id = integration.project_id OR EXISTS (
-            SELECT 1 FROM secret_grants grant_row
-            WHERE grant_row.org_id = secret.org_id AND grant_row.secret_id = secret.id
-              AND grant_row.target_project_id = integration.project_id)))
-      OR EXISTS (SELECT 1 FROM event_webhooks webhook
-        WHERE webhook.org_id = secret.org_id AND webhook.signing_secret_id = secret.id
-          AND NOT (webhook.project_id = ANY(coalesce(sqlc.arg(excluded_project_ids)::uuid[], '{}'::uuid[])))
-          AND (secret.owner_project_id = webhook.project_id OR EXISTS (
-            SELECT 1 FROM secret_grants grant_row
-            WHERE grant_row.org_id = secret.org_id AND grant_row.secret_id = secret.id
-              AND grant_row.target_project_id = webhook.project_id)))
-    )
-ORDER BY secret.id;
-
--- name: LockProjectOwnedSecretsForDeletion :many
-SELECT id FROM secrets
-WHERE org_id = sqlc.arg(org_id) AND owner_project_id = sqlc.arg(project_id)::uuid AND deleted_at IS NULL
-ORDER BY id FOR UPDATE;
-
--- name: LockUserOwnedSecretsForDeletion :many
-SELECT id FROM secrets
-WHERE owner_user_id = sqlc.arg(user_id)::uuid AND deleted_at IS NULL
-ORDER BY id FOR UPDATE;
-
--- name: LockOrgMemberOwnedSecretsForDeletion :many
-SELECT id FROM secrets
-WHERE org_id = sqlc.arg(org_id) AND owner_user_id = sqlc.arg(user_id)::uuid AND deleted_at IS NULL
-ORDER BY id FOR UPDATE;
-
--- name: LockOrganizationSecretsForDeletion :exec
-SELECT id FROM secrets
-WHERE org_id = sqlc.arg(org_id) AND deleted_at IS NULL
-ORDER BY id FOR UPDATE;
+-- name: SecretIsReferenced :one
+-- @sqlc-vet-disable model-provider-configs-deleted-at integrations-deleted-at machine-pools-deleted-at
+-- Soft-deleted secrets no longer trip foreign keys, so referencing rows are
+-- checked explicitly. Deleted configs, pools, and installs clear their
+-- credential references; any row still holding one blocks deletion.
+SELECT EXISTS (
+  SELECT 1 FROM model_provider_configs config
+  WHERE config.org_id = sqlc.arg(org_id) AND config.credential_secret_id = sqlc.arg(secret_id)::uuid
+  UNION ALL
+  SELECT 1 FROM machine_pools pool
+  WHERE pool.org_id = sqlc.arg(org_id) AND pool.provider_auth_secret_id = sqlc.arg(secret_id)::uuid
+  UNION ALL
+  SELECT 1 FROM integrations install
+  WHERE install.org_id = sqlc.arg(org_id) AND install.credential_secret_id = sqlc.arg(secret_id)::uuid
+) AS is_referenced;
 
 -- name: InsertSecretGrant :one
 INSERT INTO secret_grants(id, org_id, secret_id, target_project_id, created_at)

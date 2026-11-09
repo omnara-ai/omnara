@@ -27,6 +27,11 @@ func NewNotificationRecorder(set *Set) *NotificationRecorder {
 			Help:      "Total number of post-commit notification publish outcomes, labeled by intent.",
 		}, []string{"intent", "result", "reason"}),
 	}
+	for _, intent := range []string{
+		"daemon_work", "daemon_runtime_ended", "daemon_process_terminate", "agent_event", "tool_call_update",
+	} {
+		m.notificationsTotal.WithLabelValues(intent, "dropped", "queue_full")
+	}
 	queueDepth := prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: set.Namespace(), Subsystem: SubsystemNotifications, Name: "publisher_queue_depth",
 		Help: "Post-commit intents buffered on this process; excludes the batch currently publishing (at most 256).",

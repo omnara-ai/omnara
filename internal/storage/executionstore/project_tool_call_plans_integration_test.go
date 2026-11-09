@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestProjectToolCallRecoveryPlans(t *testing.T) {
+func TestProjectRecoveryPlans(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newProcessDaemonFixture(t, ctx, t.Name())
@@ -115,6 +115,65 @@ WHERE agent_id=$1 AND provider_call_id LIKE 'mixed-%'
 				require.LessOrEqual(t, buffers, firstPageBuffers+64, "%s: %s", mode, raw)
 			}
 			t.Logf("%s offset=%d buffers=%d", mode, offset, buffers)
+		}
+	}
+
+	// Interactions use the same project-first cursor contract. Reuse this mixed
+	// active/archived, multi-profile history to check deep pages in both plans.
+	_, err = tx.Exec(ctx, `
+INSERT INTO agent_interactions(id, project_id, agent_id, tool_call_id, interaction_kind, state, created_at)
+SELECT id, project_id, agent_id, id,
+       CASE WHEN substring(provider_call_id from 7)::int % 4 = 0 THEN 'question' ELSE 'permission' END,
+       'open', created_at
+FROM tool_calls WHERE provider_call_id LIKE 'mixed-%'`)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, "ANALYZE agent_interactions")
+	require.NoError(t, err)
+	interactionQuery := integrationdb.GeneratedQuery(t,
+		"../internal/dbsqlc/subagents.sql.go", "ListOpenAgentInteractionsForProject")
+	_, err = tx.Exec(ctx, "PREPARE interaction_recovery AS "+interactionQuery)
+	require.NoError(t, err)
+	defer func() { _, _ = tx.Exec(ctx, "DEALLOCATE interaction_recovery") }()
+	for _, mode := range []string{"force_custom_plan", "force_generic_plan"} {
+		_, err = tx.Exec(ctx, "SET LOCAL plan_cache_mode="+mode)
+		require.NoError(t, err)
+		var firstPageBuffers int
+		for _, offset := range []int{0, 1600} {
+			createdAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(offset) * time.Second)
+			cursorID := uuid.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff")
+			rows, err := dbsqlc.New(tx).ListOpenAgentInteractionsForProject(ctx,
+				dbsqlc.ListOpenAgentInteractionsForProjectParams{
+					ProjectID: testProjectID, AgentProfileID: &profile.ID, InteractionKind: "question",
+					CursorCreatedAt: &createdAt, CursorID: &cursorID, RowLimit: 4,
+				})
+			require.NoError(t, err)
+			require.Len(t, rows, 4)
+			for i, row := range rows {
+				require.Equal(t, sources[0].agentID, row.AgentID)
+				require.Equal(t, fmt.Sprintf("mixed-%d", offset+4*(i+1)), row.ProviderCallID)
+			}
+			var raw json.RawMessage
+			statement := fmt.Sprintf("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+
+				"EXECUTE interaction_recovery('%s','question','%s','%s','%s',4)",
+				testProjectID, profile.ID, createdAt.Format(time.RFC3339), cursorID)
+			require.NoError(t, tx.QueryRow(ctx, statement).Scan(&raw))
+			plan := integrationdb.ReadPlan(t, raw)
+			require.EqualValues(t, 4, plan.Rows)
+			var orderedIndex bool
+			plan.Walk(func(node integrationdb.PlanNode) {
+				orderedIndex = orderedIndex || node.Index == "agent_interactions_project_open_idx"
+				if node.Relation == "model_outputs" || node.Relation == "agent_events" {
+					require.LessOrEqual(t, node.Rows*node.Loops, float64(4), "%s", raw)
+				}
+			})
+			require.True(t, orderedIndex, "%s", raw)
+			buffers := integrationdb.PlanBuffers(t, raw)
+			if offset == 0 {
+				firstPageBuffers = buffers
+			} else {
+				require.LessOrEqual(t, buffers, firstPageBuffers+64, "%s: %s", mode, raw)
+			}
+			t.Logf("interactions %s offset=%d buffers=%d", mode, offset, buffers)
 		}
 	}
 

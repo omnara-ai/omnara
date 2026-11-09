@@ -441,13 +441,10 @@ func (q *Queries) ListCompletedToolCallsAtWatermark(ctx context.Context, arg Lis
 }
 
 const listToolCallsForAgent = `-- name: ListToolCallsForAgent :many
-SELECT call.id, call.project_id, call.agent_id,
-  call.turn_id, call.source_event_id,
-  call.model_call_context_id, call.provider_call_id,
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
-  coalesce(result.outcome, '') AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
+  coalesce(result.outcome, '') AS outcome,
   call.created_at, result.completed_at
 FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
@@ -478,22 +475,17 @@ type ListToolCallsForAgentParams struct {
 }
 
 type ListToolCallsForAgentRow struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	SourceEventID      uuid.UUID
-	ModelCallContextID uuid.UUID
-	ProviderCallID     string
-	Name               string
-	Input              json.RawMessage
-	Type               string
-	State              string
-	Outcome            string
-	RuntimeLockID      *uuid.UUID
-	ResultContentParts json.RawMessage
-	CreatedAt          time.Time
-	CompletedAt        *time.Time
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	TurnID         uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           string
+	State          string
+	Outcome        string
+	CreatedAt      time.Time
+	CompletedAt    *time.Time
 }
 
 func (q *Queries) ListToolCallsForAgent(ctx context.Context, arg ListToolCallsForAgentParams) ([]ListToolCallsForAgentRow, error) {
@@ -515,19 +507,14 @@ func (q *Queries) ListToolCallsForAgent(ctx context.Context, arg ListToolCallsFo
 		var i ListToolCallsForAgentRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.ProjectID,
 			&i.AgentID,
 			&i.TurnID,
-			&i.SourceEventID,
-			&i.ModelCallContextID,
 			&i.ProviderCallID,
 			&i.Name,
 			&i.Input,
 			&i.Type,
 			&i.State,
 			&i.Outcome,
-			&i.RuntimeLockID,
-			&i.ResultContentParts,
 			&i.CreatedAt,
 			&i.CompletedAt,
 		); err != nil {
@@ -564,13 +551,10 @@ WITH page AS (
   ORDER BY tool_call.created_at ASC, tool_call.id ASC
   LIMIT $8::bigint
 )
-SELECT call.id, call.project_id, call.agent_id,
-  call.turn_id, call.source_event_id,
-  call.model_call_context_id, call.provider_call_id,
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
-  ''::text AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
+  ''::text AS outcome,
   call.created_at, NULL::timestamptz AS completed_at
 FROM page
 JOIN tool_call_read_projection call ON call.agent_id = page.agent_id
@@ -590,22 +574,17 @@ type ListUnfinishedToolCallsForProjectParams struct {
 }
 
 type ListUnfinishedToolCallsForProjectRow struct {
-	ID                 uuid.UUID
-	ProjectID          uuid.UUID
-	AgentID            uuid.UUID
-	TurnID             uuid.UUID
-	SourceEventID      uuid.UUID
-	ModelCallContextID uuid.UUID
-	ProviderCallID     string
-	Name               string
-	Input              json.RawMessage
-	Type               string
-	State              string
-	Outcome            string
-	RuntimeLockID      *uuid.UUID
-	ResultContentParts json.RawMessage
-	CreatedAt          time.Time
-	CompletedAt        *time.Time
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	TurnID         uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           string
+	State          string
+	Outcome        string
+	CreatedAt      time.Time
+	CompletedAt    *time.Time
 }
 
 func (q *Queries) ListUnfinishedToolCallsForProject(ctx context.Context, arg ListUnfinishedToolCallsForProjectParams) ([]ListUnfinishedToolCallsForProjectRow, error) {
@@ -628,19 +607,14 @@ func (q *Queries) ListUnfinishedToolCallsForProject(ctx context.Context, arg Lis
 		var i ListUnfinishedToolCallsForProjectRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.ProjectID,
 			&i.AgentID,
 			&i.TurnID,
-			&i.SourceEventID,
-			&i.ModelCallContextID,
 			&i.ProviderCallID,
 			&i.Name,
 			&i.Input,
 			&i.Type,
 			&i.State,
 			&i.Outcome,
-			&i.RuntimeLockID,
-			&i.ResultContentParts,
 			&i.CreatedAt,
 			&i.CompletedAt,
 		); err != nil {

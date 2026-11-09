@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -199,19 +198,6 @@ func (u *Unit) LockOrganizationDeletion(ctx context.Context, orgID uuid.UUID) er
 		u.exclusiveProjects[id] = struct{}{}
 	}
 	return nil
-}
-
-// LockProjectSecretsForDeletion excludes only this project's consumers, whose
-// admission is closed by the unit's exclusive lifecycle gate. Other projects
-// retain their access until their grants are revoked or their consumers retire.
-func (u *Unit) LockProjectSecretsForDeletion(ctx context.Context, orgID, projectID uuid.UUID) error {
-	if err := u.active(); err != nil {
-		return err
-	}
-	if _, held := u.exclusiveProjects[projectID]; !held || len(u.handles) != 0 {
-		return ErrLockPlan
-	}
-	return secretops.LockProjectSecretsForDeletion(ctx, u.DB(), orgID, projectID)
 }
 
 func (u *Unit) ClaimAgent(ctx context.Context) (AgentRoute, error) {

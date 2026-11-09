@@ -653,15 +653,6 @@ func TestPublicCustomToolCallLifecycle(t *testing.T) {
 		http.StatusConflict,
 		authHeaders(project.AdminToken),
 	)
-	if _, err := store.Execution().CompleteCustomToolCall(ctx, executionstore.CompleteCustomToolCallInput{
-		ProjectID:     project.ProjectUUID,
-		AgentID:       agent.ID,
-		ID:            calls[0].ID,
-		Outcome:       executionstore.ToolResultOutcomeSucceeded,
-		ContentBlocks: json.RawMessage(`[{"type":"text","text":"Customer found again."}]`),
-	}); !errors.Is(err, storeerr.ErrToolCallCompleted) {
-		t.Fatalf("complete finished custom tool call error = %v, want ErrToolCallCompleted", err)
-	}
 	fetched := requestJSONWithHeaders(
 		t,
 		handler,

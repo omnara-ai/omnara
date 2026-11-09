@@ -1,39 +1,42 @@
 import type { OmnaraClient } from './client'
+import type { CustomToolCallRef } from './custom-tool-worker-types'
 import { parseRetryAfter } from './errors'
+import type { SubmitToolCallResultRequest } from './generated/types.gen'
 
-export class ToolRequestError extends Error {
+/** The business operation produced a result, but delivery did not establish completion. */
+export class CustomToolDeliveryError extends Error {
   constructor(
-    override readonly cause: Error,
-    readonly retryAt: number,
+    readonly call: CustomToolCallRef,
+    readonly result: SubmitToolCallResultRequest,
+    override readonly cause: unknown,
+    /** Earliest retry time in epoch milliseconds, when the server supplied Retry-After. */
+    readonly retryAt?: number,
   ) {
-    super(cause.message, { cause })
+    super(`Could not deliver the result for custom tool call ${call.toolCallID}`, { cause })
+    this.name = 'CustomToolDeliveryError'
   }
 }
 
 export function toolError(cause: unknown): Error {
-  if (cause instanceof ToolRequestError) return cause.cause
   return cause instanceof Error ? cause : new Error(String(cause))
 }
 
-/** Keep the delivery not-before time even when the caller cancels during SDK backoff. */
-export async function requestToolAPI<T>(
+/** Capture retry timing from the real transport, including cancellation during SDK backoff. */
+export async function deliverToolResult<T>(
   client: OmnaraClient,
-  request: (fetch: typeof globalThis.fetch, signal: AbortSignal, timeoutMs: number) => Promise<T>,
-  signal: AbortSignal,
-  timeoutMs: number,
+  call: CustomToolCallRef,
+  result: SubmitToolCallResultRequest,
+  request: (fetch: typeof globalThis.fetch) => Promise<T>,
 ): Promise<T> {
-  let retryAt = 0
+  let retryAt: number | undefined
   try {
-    return await request(
-      async (input, init) => {
-        const response = await (client.getConfig().fetch ?? globalThis.fetch)(input, init)
-        retryAt = Date.now() + (parseRetryAfter(response.headers.get('Retry-After')) ?? 0)
-        return response
-      },
-      signal,
-      timeoutMs,
-    )
+    return await request(async (input, init) => {
+      const response = await (client.getConfig().fetch ?? globalThis.fetch)(input, init)
+      const delay = parseRetryAfter(response.headers.get('Retry-After'))
+      retryAt = delay === undefined ? undefined : Date.now() + delay
+      return response
+    })
   } catch (cause) {
-    throw new ToolRequestError(toolError(cause), retryAt)
+    throw new CustomToolDeliveryError(call, result, cause, retryAt)
   }
 }

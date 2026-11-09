@@ -365,6 +365,10 @@ export type EventWebhookScope = ({
 
 export type UpdateEventWebhookRequest = {
     /**
+     * Replaces the complete selection. Omit to preserve the current selection.
+     */
+    scope?: EventWebhookScope;
+    /**
      * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
      */
     url?: string;
@@ -410,6 +414,7 @@ export type EventWebhook = {
 
 export type ListEventWebhooksResponse = {
     data: Array<EventWebhook>;
+    next_cursor: string | null;
 };
 
 export type CronTriggerId = string;
@@ -3137,11 +3142,11 @@ export type AgentInteraction = {
      */
     tool_name?: string;
     /**
-     * Present on project lists, and when the interaction belongs to a subagent of the listed agent.
+     * Name of the owning agent. Included by both interaction list endpoints.
      */
     agent_name?: AgentName;
     /**
-     * Present when the interaction belongs to a subagent and was listed for its project or an ancestor agent.
+     * Key of the owning agent when it is a subagent. Included by both interaction list endpoints.
      */
     subagent_key?: string;
     interaction_kind: AgentInteractionKind;
@@ -4920,10 +4925,18 @@ export type ListEventWebhooksData = {
         orgID: OrganizationId;
         projectID: ProjectId;
     };
-    query: {
-        scope_type: EventWebhookScopeType;
+    query?: {
+        scope_type?: EventWebhookScopeType;
         agent_profile_id?: AgentProfileId;
         agent_id?: AgentId;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
     };
     url: '/orgs/{orgID}/projects/{projectID}/event-webhooks';
 };
@@ -4979,7 +4992,7 @@ export type ListEventWebhooksError = ListEventWebhooksErrors[keyof ListEventWebh
 
 export type ListEventWebhooksResponses = {
     /**
-     * Webhooks for the requested scope.
+     * Webhooks matching the requested selection.
      */
     200: ListEventWebhooksResponse;
 };

@@ -15,7 +15,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	prepared *DefaultModelProviderTemplate,
-	rows []dbsqlc.ListClusterManagedModelProviderConfigsByNameRow,
+	rows []dbsqlc.ModelProviderConfig,
 	defaultProjectID uuid.UUID,
 	apply bool,
 ) ([]string, []string, error) {
@@ -26,22 +26,16 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 	var changes []string
 	var warnings []string
 	for _, row := range rows {
-		current := modelProviderConfigRecordFromSQLC(dbsqlc.GetModelProviderConfigRow(row))
+		current := modelProviderConfigRecordFromSQLC(row)
 		if apply {
-			_, err := qtx.LockModelProviderConfigForMutation(
+			locked, err := qtx.LockModelProviderConfigForMutation(
 				ctx,
 				dbsqlc.LockModelProviderConfigForMutationParams{OrgID: current.OrgID, ID: current.ID},
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("lock default model provider %q: %w", prepared.Name, err)
 			}
-			loaded, err := qtx.GetModelProviderConfig(ctx, dbsqlc.GetModelProviderConfigParams{
-				OrgID: current.OrgID, ID: current.ID,
-			})
-			if err != nil {
-				return nil, nil, err
-			}
-			current = modelProviderConfigRecordFromSQLC(loaded)
+			current = modelProviderConfigRecordFromSQLC(locked)
 		}
 		if current.APIFormat != prepared.APIFormat || current.APIVariant != prepared.APIVariant {
 			return nil, nil, fmt.Errorf(

@@ -126,8 +126,8 @@ DELETE FROM project_machine_grants
 WHERE org_id = sqlc.arg(org_id) AND machine_id = sqlc.arg(machine_id);
 
 -- name: UpsertProjectMachineGrant :one
-INSERT INTO project_machine_grants(org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at)
-SELECT project.org_id, project.id, machine.id, sqlc.arg(source_kind), sqlc.narg(project_machine_pool_grant_id)::uuid, sqlc.arg(description), sqlc.arg(metadata), statement_timestamp(), statement_timestamp()
+INSERT INTO project_machine_grants(org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, idempotency_key, metadata, created_at, updated_at)
+SELECT project.org_id, project.id, machine.id, sqlc.arg(source_kind), sqlc.narg(project_machine_pool_grant_id)::uuid, sqlc.arg(description), sqlc.narg(idempotency_key), sqlc.arg(metadata), statement_timestamp(), statement_timestamp()
 FROM projects project
 JOIN machines machine ON machine.org_id = project.org_id
   AND machine.id = sqlc.arg(machine_id)
@@ -153,7 +153,7 @@ WHERE project.org_id = sqlc.arg(org_id)
     )
   )
 ON CONFLICT (project_id, machine_id) DO NOTHING
-RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at;
+RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at;
 
 -- name: UpdateMachineObservation :exec
 -- @sqlc-vet-disable machines-deleted-at
@@ -172,12 +172,17 @@ WHERE org_id = sqlc.arg(org_id)
   AND lifecycle_state = 'active';
 
 -- name: GetProjectMachineGrant :one
-SELECT id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at
+SELECT id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
 FROM project_machine_grants
 WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
 
+-- name: GetProjectMachineGrantByIdempotency :one
+SELECT id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at
+FROM project_machine_grants
+WHERE project_id = sqlc.arg(project_id) AND idempotency_key = sqlc.arg(idempotency_key)::text;
+
 -- name: GetActiveProjectMachineGrantForMachineName :one
-SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, pmg.metadata, pmg.created_at, pmg.updated_at
+SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, coalesce(pmg.idempotency_key, '') AS idempotency_key, pmg.metadata, pmg.created_at, pmg.updated_at
 FROM project_machine_grants pmg
 JOIN machines machine ON machine.org_id = pmg.org_id
   AND machine.id = pmg.machine_id
@@ -189,7 +194,7 @@ WHERE pmg.project_id = sqlc.arg(project_id)
   AND machine.display_name = sqlc.arg(machine_name);
 
 -- name: GetActiveProjectMachineGrantForMachine :one
-SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, pmg.metadata, pmg.created_at, pmg.updated_at,
+SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, coalesce(pmg.idempotency_key, '') AS idempotency_key, pmg.metadata, pmg.created_at, pmg.updated_at,
        machine.env AS machine_env, machine.secret_env AS machine_secret_env
 FROM project_machine_grants pmg
 JOIN machines machine ON machine.org_id = pmg.org_id
@@ -204,7 +209,7 @@ WHERE pmg.project_id = sqlc.arg(project_id)
 
 -- name: ListProjectMachineGrants :many
 WITH listed AS (
- SELECT g.id, g.org_id, g.project_id, g.machine_id, g.source_kind, g.project_machine_pool_grant_id, g.description, g.metadata, g.created_at, g.updated_at,
+ SELECT g.id, g.org_id, g.project_id, g.machine_id, g.source_kind, g.project_machine_pool_grant_id, g.description, coalesce(g.idempotency_key, '') AS idempotency_key, g.metadata, g.created_at, g.updated_at,
  m.source_kind AS machine_source_kind, m.display_name, m.description AS machine_description, m.provider, m.lifecycle_state, c.connection_state, m.last_observed_at, m.deleted_at, m.created_at AS machine_created_at, m.updated_at AS machine_updated_at,
  CASE sqlc.arg(sort_field)::text WHEN 'name' THEN lower(m.display_name) WHEN 'created_at' THEN to_char(g.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') WHEN 'updated_at' THEN to_char(g.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') WHEN 'source_kind' THEN g.source_kind WHEN 'provider' THEN m.provider WHEN 'lifecycle_state' THEN m.lifecycle_state WHEN 'connection_state' THEN c.connection_state END::text AS sort_key, false AS sort_is_null
  FROM project_machine_grants g JOIN machines m ON m.org_id = g.org_id AND m.id = g.machine_id
@@ -218,7 +223,7 @@ WITH listed AS (
   AND (COALESCE(cardinality(sqlc.arg(connection_states)::text[]), 0) = 0 OR c.connection_state = ANY(sqlc.arg(connection_states)::text[]))
 )
 SELECT id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id,
- description, metadata, created_at,
+ description, idempotency_key, metadata, created_at,
  updated_at, machine_source_kind, display_name, machine_description, provider, lifecycle_state,
  connection_state, last_observed_at, deleted_at, machine_created_at, machine_updated_at,
  sort_key, sort_is_null
@@ -284,7 +289,7 @@ ORDER BY CASE WHEN NOT sqlc.arg(sort_desc)::boolean THEN sort_key END ASC, CASE 
 LIMIT sqlc.arg(row_limit)::bigint;
 
 -- name: ListActiveProjectMachineGrantsForMachine :many
-SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, pmg.metadata, pmg.created_at, pmg.updated_at
+SELECT pmg.id, pmg.org_id, pmg.project_id, pmg.machine_id, pmg.source_kind, pmg.project_machine_pool_grant_id, pmg.description, coalesce(pmg.idempotency_key, '') AS idempotency_key, pmg.metadata, pmg.created_at, pmg.updated_at
 FROM project_machine_grants pmg
 JOIN machines machine ON machine.org_id = pmg.org_id AND machine.id = pmg.machine_id AND machine.deleted_at IS NULL AND machine.lifecycle_state = 'active'
 WHERE pmg.org_id = sqlc.arg(org_id) AND pmg.machine_id = sqlc.arg(machine_id)
@@ -293,7 +298,7 @@ ORDER BY pmg.project_id, pmg.id;
 -- name: DeleteProjectMachineGrant :one
 DELETE FROM project_machine_grants
 WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND source_kind = 'explicit'
-RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at;
+RETURNING id, org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, coalesce(idempotency_key, '') AS idempotency_key, metadata, created_at, updated_at;
 
 -- name: CreateBYOMachineDaemonToken :one
 INSERT INTO machine_daemon_tokens(org_id, machine_id, name, token_hash, metadata, created_at)

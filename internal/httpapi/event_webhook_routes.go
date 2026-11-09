@@ -176,23 +176,42 @@ func (s strictOpenAPIServer) ListEventWebhooks(
 	if err != nil {
 		return nil, err
 	}
-	scope, err := parseEventWebhookScopeIDs(executionstore.EventWebhookScopeType(request.Params.ScopeType),
-		request.Params.AgentProfileId, request.Params.AgentId)
+	limit, after, err := parseOpenAPIPageParams(request.Params.Limit, request.Params.Cursor, publicid.KindEventWebhook)
 	if err != nil {
-		return nil, err
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	records, err := s.server.store.Execution().ListEventWebhooks(ctx, projectScope.project.ID, scope)
+	var scope *executionstore.EventWebhookScope
+	if request.Params.ScopeType != nil {
+		selection, err := parseEventWebhookScopeIDs(executionstore.EventWebhookScopeType(*request.Params.ScopeType),
+			request.Params.AgentProfileId, request.Params.AgentId)
+		if err != nil {
+			return nil, err
+		}
+		scope = &selection
+	} else if request.Params.AgentProfileId != nil || request.Params.AgentId != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "agent or profile ID requires scope_type")
+	}
+	page, err := s.server.store.Execution().ListEventWebhooks(ctx, executionstore.ListEventWebhooksInput{
+		ProjectID: projectScope.project.ID, Scope: scope, Limit: limit, After: after,
+	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response := openapi.ListEventWebhooksResponse{Data: make([]openapi.EventWebhook, 0, len(records))}
-	for _, record := range records {
+	response := openapi.ListEventWebhooksResponse{Data: make([]openapi.EventWebhook, 0, len(page.Webhooks))}
+	var last executionstore.EventWebhookRecord
+	for _, record := range page.Webhooks {
 		webhook, err := eventWebhookResponseFromRecord(record)
 		if err != nil {
 			return nil, err
 		}
 		response.Data = append(response.Data, webhook)
+		last = record
 	}
+	next, err := encodeNextCursor(page.HasMore, last.CreatedAt, publicid.KindEventWebhook, last.ID)
+	if err != nil {
+		return nil, err
+	}
+	response.NextCursor = nullableFromPtr(next)
 	return openapi.ListEventWebhooks200JSONResponse(response), nil
 }
 
@@ -236,6 +255,13 @@ func (s strictOpenAPIServer) UpdateEventWebhook(
 	}
 	input := executionstore.UpdateEventWebhookInput{
 		ProjectID: projectScope.project.ID, WebhookID: id, URL: request.Body.Url,
+	}
+	if request.Body.Scope != nil {
+		scope, err := parseEventWebhookScope(*request.Body.Scope)
+		if err != nil {
+			return nil, err
+		}
+		input.Scope = &scope
 	}
 	if request.Body.EventTypes != nil {
 		input.EventTypes = eventWebhookEventTypes(*request.Body.EventTypes)

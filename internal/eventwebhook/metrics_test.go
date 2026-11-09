@@ -108,3 +108,25 @@ func TestSenderSeparatesSigningConfigurationFromLocalFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestSenderHTTPMetricsKeepRecipientLabelsPrivate(t *testing.T) {
+	_, store, delivery := testSender()
+	store.endpoint.URL = "http://127.0.0.1:1/customer-private-path?token=private"
+	set := metrics.New()
+	sender := New(store, slog.Default(), 1, 1, metrics.NewEventWebhookRecorder(set),
+		metrics.NewHTTPClientRecorder(set, metrics.SubsystemHTTPClient))
+	require.Equal(t, attemptTimeout, sender.client.Timeout)
+	require.ErrorIs(t, sender.client.CheckRedirect(nil, nil), http.ErrUseLastResponse)
+	// The actual public-network transport rejects this destination. That failed
+	// attempt must still be observed without exposing the recipient's address.
+	sender.deliver(t.Context(), delivery)
+	body := webhookMetrics(set)
+	require.Contains(t, body, `omnara_http_client_requests_total{code="none",error_kind="transport",host="event_webhook",`+
+		`method="POST",path="/*",result="error"} 1`)
+	require.Contains(t, body,
+		`omnara_http_client_request_duration_seconds_count{code="none",error_kind="transport",host="event_webhook",`+
+			`method="POST",path="/*",result="error"} 1`)
+	require.NotContains(t, body, "127.0.0.1")
+	require.NotContains(t, body, "customer-private-path")
+	require.NotContains(t, body, "token=")
+}

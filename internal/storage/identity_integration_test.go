@@ -650,6 +650,9 @@ func TestCreateOrgForUserCreatesDefaultMachinePool(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get default project machine pool grant for %q: %v", defaultPool.Name, err)
 		}
+		if grant.IdempotencyKey != "" {
+			t.Fatalf("unexpected default project machine pool grant: %+v", grant)
+		}
 		assertDecodedJSONEqual(t, grant.Metadata, `{}`)
 	}
 	createdProject, err := store.Identity().CreateProjectForPrincipal(
@@ -904,7 +907,7 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 	}); !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		t.Fatalf("patch cluster-managed provider error = %v, want state transition conflict", err)
 	}
-	if err := store.Models().DeleteModelProviderConfig(
+	if _, err := store.Models().DeleteModelProviderConfig(
 		ctx,
 		created.Org.ID,
 		provider.ID,
@@ -2323,6 +2326,97 @@ func TestInvitationAcceptRequiresLiveOrganization(t *testing.T) {
 	}
 }
 
+func TestPoolTeardownCompletionDestroysDeletedOrgSecretVersions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedDefaultProject(t, ctx, newIntegrationStore(pool))
+	keyWrapper, err := secrets.NewLocalKeyWrapper(
+		"test-key",
+		map[string][]byte{"test-key": []byte("0123456789abcdef0123456789abcdef")},
+	)
+	if err != nil {
+		t.Fatalf("create key wrapper: %v", err)
+	}
+	store := newIntegrationStore(pool, WithSecretKeyWrapper(keyWrapper))
+	now := time.Date(2026, 4, 29, 16, 20, 0, 0, time.UTC)
+	admin := createSecretTestUser(t, ctx, store, "Teardown Admin", "admin")
+	credential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     testOrgID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      "teardown-pool-credential",
+		Material:  secrets.GenericMaterial{Value: "secret"},
+		Actor:     userPrincipal(admin.ID),
+	})
+	if err != nil {
+		t.Fatalf("create pool credential secret: %v", err)
+	}
+	// A deleted pool still holding its credential, with one machine whose
+	// provider teardown is in flight: the state organization deletion leaves
+	// behind when it cannot destroy the credential ciphertext yet.
+	poolID := testID("teardown-destroy-pool")
+	machineID := testID("teardown-destroy-machine")
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO machine_pools(
+			id, org_id, name, management_kind, provider, default_machine_memory_mb,
+			max_total_machines, max_total_memory_mb, max_machine_memory_mb,
+			provider_auth_secret_id, deleted_at, created_at, updated_at
+		)
+		VALUES ($1, $2, 'teardown-destroy-pool', 'tenant', 'test', 1024, 1, 1024, 1024, $3, $4, $4, $4)
+	`, poolID, testOrgID, credential.ID, now); err != nil {
+		t.Fatalf("insert deleted machine pool: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO machines(
+			id, org_id, machine_pool_id, source_kind, display_name, provider, lifecycle_state,
+			lifecycle_changed_at,
+			memory_mb, provider_options, next_reconcile_after, delete_attempts,
+			created_at, updated_at, delete_reason_code
+		)
+		VALUES (
+			$1, $2, $3, 'pool', 'Teardown Machine', 'test', 'deleting', $4, 1024, '{}'::jsonb, $4, 1, $4, $4,
+			'test_cleanup'
+		)
+	`, machineID, testOrgID, poolID, now); err != nil {
+		t.Fatalf("insert deleting pool machine: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE orgs SET deleted_at = $2, updated_at = $2 WHERE id = $1`,
+		testOrgID,
+		now.Add(time.Minute),
+	); err != nil {
+		t.Fatalf("soft delete org: %v", err)
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`UPDATE secrets SET deleted_at = $2, current_version_id = NULL, updated_at = $2 WHERE id = $1`,
+		credential.ID,
+		now.Add(time.Minute),
+	); err != nil {
+		t.Fatalf("soft delete secret: %v", err)
+	}
+
+	if err := store.Execution().CompletePoolMachineDeletion(ctx, testOrgID, machineID, 1); err != nil {
+		t.Fatalf("complete pool machine deletion: %v", err)
+	}
+
+	var credentialCleared bool
+	var versionRows int
+	if err := pool.QueryRow(ctx, `
+		SELECT provider_auth_secret_id IS NULL,
+		       (SELECT count(*) FROM secret_versions WHERE secret_id = $2)
+		FROM machine_pools WHERE id = $1
+	`, poolID, credential.ID).Scan(&credentialCleared, &versionRows); err != nil {
+		t.Fatalf("load pool credential state: %v", err)
+	}
+	if !credentialCleared || versionRows != 0 {
+		t.Fatalf(
+			"teardown completion should release the credential and destroy its ciphertext: cleared=%v versions=%d",
+			credentialCleared, versionRows,
+		)
+	}
+}
 func TestIdempotencyKeysStayConsumedAfterDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -6919,7 +7013,7 @@ func TestMemberRemovalFencesUserOwnedSecretAndSkillCreation(t *testing.T) {
 	}
 }
 
-func TestUserTeardownEarlySecretLockAllowsProjectDeletion(t *testing.T) {
+func TestUserTeardownLocksMembershipsBeforeOwnedResources(t *testing.T) {
 	t.Parallel()
 	for _, deleteAccount := range []bool{false, true} {
 		name := "remove member"
@@ -6971,9 +7065,9 @@ func TestUserTeardownEarlySecretLockAllowsProjectDeletion(t *testing.T) {
 			}
 
 			var teardownDone <-chan error
-			waitQuery := "LockOrgMemberOwnedSecretsForDeletion"
+			waitQuery := "DeleteUserOwnedSecretsForOrgMember"
 			if deleteAccount {
-				waitQuery = "LockUserOwnedSecretsForDeletion"
+				waitQuery = "DeleteUserOwnedSecretsForUser"
 				teardownDone = integrationdb.RunAsyncError(func() error {
 					return store.Identity().DeleteUserAccount(context.Background(), member.ID)
 				})
@@ -7000,16 +7094,17 @@ func TestUserTeardownEarlySecretLockAllowsProjectDeletion(t *testing.T) {
 				)
 				return deleteErr
 			})
-			// The early secret gate precedes membership deletion and its project
-			// cascades, so unrelated project teardown can finish while it waits.
-			if err := integrationdb.Await(t, projectDone, "delete project before releasing secret"); err != nil {
-				t.Fatalf("delete project: %v", err)
-			}
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteProjectMemberships", 1)
 			if err := controlTx.Commit(ctx); err != nil {
 				t.Fatalf("release teardown order control transaction: %v", err)
 			}
-			if err := integrationdb.Await(t, teardownDone, name); err != nil {
-				t.Fatalf("%s: %v", name, err)
+			for operation, done := range map[string]<-chan error{
+				name:             teardownDone,
+				"delete project": projectDone,
+			} {
+				if err := integrationdb.Await(t, done, operation); err != nil {
+					t.Fatalf("%s: %v", operation, err)
+				}
 			}
 		})
 	}
@@ -7312,7 +7407,7 @@ func TestOrgAPIKeyMutationWaitingBehindDeletionRejectsInactiveOrganization(t *te
 				)
 				return deleteErr
 			})
-			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 1)
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteOrganization", 1)
 
 			mutationDone := integrationdb.RunAsyncError(func() error {
 				if operation == "update" {

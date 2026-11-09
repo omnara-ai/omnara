@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -34,42 +33,17 @@ func migratedExecutionFixture(t *testing.T) executionFixture {
 }
 
 // seedSchema52AgentConfig writes the config in the shape released schema 52
-// stored it, before compiled content moved to agent_config_definitions. Seed
-// its model with historical SQL too: current stores require later migrations.
+// stored it, before compiled content moved to agent_config_definitions.
 func seedSchema52AgentConfig(
 	t *testing.T,
 	pool *pgxpool.Pool,
 ) func(*storage.Store, storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID) {
-	return func(_ *storage.Store, ids storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID) {
+	return func(store *storage.Store, ids storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID) {
 		ctx := t.Context()
-		modelID, revisionID := uuid.New(), uuid.New()
-		_, err := pool.Exec(ctx, `WITH configured_model AS (
- INSERT INTO configured_models(id,org_id,model_provider_config_id,management_kind,name,
- current_revision_id,created_at,updated_at)
- VALUES($1,$2,$3,'tenant','test',$4,now(),now())
- RETURNING id,org_id,model_provider_config_id,current_revision_id
-)
-INSERT INTO configured_model_revisions(id,org_id,configured_model_id,model_provider_config_id,
- provider_model_slug,context_window_tokens,max_output_tokens,default_max_output_tokens,created_at)
-SELECT current_revision_id,org_id,id,model_provider_config_id,'test',128000,8192,4096,now()
-FROM configured_model`, modelID, ids.OrgID, ids.ProviderConfigID, revisionID)
-		require.NoError(t, err, "seed schema-52 configured model")
-		_, err = pool.Exec(ctx, `INSERT INTO project_model_grants(org_id,project_id,configured_model_id,
- created_at,updated_at) VALUES($1,$2,$3,now(),now())`, ids.OrgID, ids.ProjectID, modelID)
-		require.NoError(t, err, "seed schema-52 model grant")
-		compiled, err := agentconfig.Compile(
-			agentconfig.SourceFormatYAML,
-			[]byte(executionFixtureSource),
-			agentconfig.CompileOptions{
-				ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
-					return agentconfig.ResolvedModelSelection{
-						ConfiguredModelID: modelID,
-						SupportsTools:     new(true),
-					}, nil
-				},
-			},
+		compiled := storagefixture.SeedModelAndCompileAgentYAML(
+			t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID, executionFixtureSource,
 		)
-		require.NoError(t, err, "compile schema-52 agent config")
+		modelID := compiled.Compiled.Model.ConfiguredModelID
 		var configID uuid.UUID
 		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO agent_configs(org_id,project_id,configured_model_id,
  source,source_format,source_hash,compiled_definition,effective_definition_hash,created_at)

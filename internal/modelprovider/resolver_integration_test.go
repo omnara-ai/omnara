@@ -959,24 +959,16 @@ func TestResolverAppliesProviderHeaders(t *testing.T) {
 	}
 
 	if _, err := store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
-		OrgID: created.Org.ID, SecretID: gatewayKeyID, Actor: modelProviderUserPrincipal(user.ID),
-	}); !errors.Is(err, storeerr.ErrConflict) {
-		t.Fatalf("delete referenced header secret = %v, want conflict", err)
+		OrgID:    created.Org.ID,
+		SecretID: gatewayKeyID,
+		Actor:    modelProviderUserPrincipal(user.ID),
+	}); err != nil {
+		t.Fatalf("delete header secret: %v", err)
 	}
-	// Simulate an unavailable legacy/corrupted reference below the guarded API.
-	// Resolution must fail before a provider client capable of sending is returned.
-	if _, err := pool.Exec(ctx, `UPDATE secrets
-SET deleted_at = statement_timestamp(), current_version_id = NULL WHERE id = $1`, gatewayKeyID); err != nil {
-		t.Fatalf("make header secret unavailable: %v", err)
-	}
-	resolved, err := resolver.Resolve(ctx, model.Selection{
-		OrgID: created.Org.ID.String(), ProjectID: created.Project.ID.String(),
-		ConfiguredModelRevisionID: configuredModel.CurrentRevisionID.String(),
-	})
-	providerErr, ok := model.ClassifyError(err)
-	if !ok || providerErr.Code != "model_provider_header_secret_unavailable" || resolved.Client != nil {
-		t.Fatalf("resolve missing header secret = %v, client %T; want configuration error and no client",
-			err, resolved.Client)
+	headers = requestHeaders()
+	if headers.Get("X-Team") != "core" || headers.Get("X-Gateway-Key") != "" ||
+		headers.Get("Authorization") != "Bearer sk-provider" {
+		t.Fatalf("request headers after header secret deletion = %v", headers)
 	}
 
 	paddedKeyID := createSecret("padded-key", "gw-secret ")

@@ -405,13 +405,14 @@ func allocateNewPoolMachineForAgentTx(
 		SourceKind:                string(ProjectMachineGrantSourceKindPool),
 		ProjectMachinePoolGrantID: &poolGrant.ID,
 		Description:               poolGrant.Description,
-		Metadata:                  json.RawMessage(`{}`),
+		IdempotencyKey: storeutil.TextFromEmpty(
+			machineSourceSlotChildIdempotencyKey(agentID, source.Index, binding.PoolSlotIndex, "machine-grant"),
+		),
+		Metadata: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// The machine was created in this transaction and the pool grant is
-			// locked. No public create key participates in this derived edge.
-			return AgentMachineBindingRecord{}, errors.New("generated machine grant insertion returned no row")
+			return AgentMachineBindingRecord{}, storeerr.ErrIdempotencyConflict
 		}
 		return AgentMachineBindingRecord{}, fmt.Errorf(
 			"insert generated project machine grant: %w",

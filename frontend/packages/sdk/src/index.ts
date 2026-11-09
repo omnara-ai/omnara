@@ -16,6 +16,7 @@ export type {
   OmnaraClientOptions,
 } from './client'
 export { createOmnaraClient } from './client'
+export { CustomToolDeliveryError } from './custom-tool-request'
 export { createCustomToolWorker } from './custom-tool-worker'
 export type {
   CreateCustomToolWorkerOptions,

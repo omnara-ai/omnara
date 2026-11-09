@@ -120,33 +120,14 @@ func (s *Store) ListToolCalls(
 	if input.Limit <= 0 {
 		return ListToolCallsResult{}, errors.New("limit must be positive")
 	}
-	switch input.State {
-	case "",
-		ToolCallStateAwaitingAuthorization,
-		ToolCallStateAwaitingPermission,
-		ToolCallStateReady,
-		ToolCallStateRunning,
-		ToolCallStateWaiting,
-		ToolCallStateCompleted:
-	default:
-		return ListToolCallsResult{}, fmt.Errorf(
-			"invalid tool call state %q",
-			input.State,
-		)
-	}
-	switch input.Type {
-	case "",
-		toolcatalog.ToolTypeBuiltIn,
-		toolcatalog.ToolTypeCustom,
-		toolcatalog.ToolTypeMCP:
-	default:
-		return ListToolCallsResult{}, fmt.Errorf("invalid tool call type %q", input.Type)
+	if err := validateToolCallFilters(input.State, input.Type); err != nil {
+		return ListToolCallsResult{}, err
 	}
 	params := dbsqlc.ListToolCallsForAgentParams{
 		ProjectID: input.ProjectID,
 		AgentIds:  input.AgentIDs,
 		State:     string(input.State),
-		Type:      input.Type,
+		Type:      string(input.Type),
 		RowLimit:  int64(input.Limit) + 1,
 	}
 	if input.After.Set {
@@ -159,7 +140,15 @@ func (s *Store) ListToolCalls(
 	if err != nil {
 		return ListToolCallsResult{}, fmt.Errorf("list tool calls: %w", err)
 	}
-	return toolCallsPage(rows, input.Limit), nil
+	calls := make([]ToolCallSummary, 0, len(rows))
+	for _, row := range rows {
+		calls = append(calls, ToolCallSummary{
+			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
+			Name: row.Name, Input: row.Input, Type: row.Type, State: ToolCallState(row.State),
+			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+		})
+	}
+	return toolCallsPage(calls, input.Limit), nil
 }
 
 func (s *Store) ListUnfinishedProjectToolCalls(
@@ -172,11 +161,17 @@ func (s *Store) ListUnfinishedProjectToolCalls(
 	if input.Limit <= 0 {
 		return ListToolCallsResult{}, errors.New("limit must be positive")
 	}
+	if err := validateToolCallFilters(input.State, input.Type); err != nil {
+		return ListToolCallsResult{}, err
+	}
+	if input.State == ToolCallStateCompleted {
+		return ListToolCallsResult{}, errors.New("completed calls are not unfinished work")
+	}
 	params := dbsqlc.ListUnfinishedToolCallsForProjectParams{
 		ProjectID:      input.ProjectID,
 		AgentProfileID: input.AgentProfileID,
 		State:          string(input.State),
-		Type:           input.Type,
+		Type:           string(input.Type),
 		Names:          input.Names,
 		RowLimit:       int64(input.Limit) + 1,
 	}
@@ -190,22 +185,31 @@ func (s *Store) ListUnfinishedProjectToolCalls(
 	if err != nil {
 		return ListToolCallsResult{}, fmt.Errorf("list unfinished project tool calls: %w", err)
 	}
-	converted := make([]dbsqlc.ListToolCallsForAgentRow, 0, len(rows))
+	calls := make([]ToolCallSummary, 0, len(rows))
 	for _, row := range rows {
-		converted = append(converted, dbsqlc.ListToolCallsForAgentRow(row))
+		calls = append(calls, ToolCallSummary{
+			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
+			Name: row.Name, Input: row.Input, Type: row.Type, State: ToolCallState(row.State),
+			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+		})
 	}
-	return toolCallsPage(converted, input.Limit), nil
+	return toolCallsPage(calls, input.Limit), nil
 }
 
-func toolCallsPage(rows []dbsqlc.ListToolCallsForAgentRow, limit int) ListToolCallsResult {
-	result := ListToolCallsResult{}
-	if len(rows) > limit {
-		result.HasMore = true
-		rows = rows[:limit]
+func validateToolCallFilters(state ToolCallState, toolType toolcatalog.Type) error {
+	if state != "" && !state.Valid() {
+		return fmt.Errorf("invalid tool call state %q", state)
 	}
-	result.ToolCalls = make([]ToolCallRecord, 0, len(rows))
-	for _, row := range rows {
-		result.ToolCalls = append(result.ToolCalls, toolCallRecordFromAgentListSQLC(row))
+	if toolType != "" && !toolType.Valid() {
+		return fmt.Errorf("invalid tool call type %q", toolType)
+	}
+	return nil
+}
+
+func toolCallsPage(calls []ToolCallSummary, limit int) ListToolCallsResult {
+	result := ListToolCallsResult{ToolCalls: calls, HasMore: len(calls) > limit}
+	if result.HasMore {
+		result.ToolCalls = calls[:limit]
 	}
 	return result
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
-	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -62,21 +61,7 @@ func (u *Unit) active() error {
 	return nil
 }
 
-func (u *Unit) Commit(ctx context.Context, operation string) error {
-	return u.commit(ctx, operation, uuid.Nil)
-}
-
-// CommitTeardown destroys unused credentials of a deleted organization after
-// execution/webhook publication and creation checks, immediately before commit.
-// Callers cannot acquire more consumer locks after cleanup.
-func (u *Unit) CommitTeardown(ctx context.Context, operation string, orgID uuid.UUID) error {
-	if orgID == uuid.Nil {
-		return errors.New("organization is required for teardown commit")
-	}
-	return u.commit(ctx, operation, orgID)
-}
-
-func (u *Unit) commit(ctx context.Context, operation string, cleanupOrgID uuid.UUID) (err error) {
+func (u *Unit) Commit(ctx context.Context, operation string) (err error) {
 	if err := u.active(); err != nil {
 		return err
 	}
@@ -97,11 +82,6 @@ func (u *Unit) commit(ctx context.Context, operation string, cleanupOrgID uuid.U
 	}
 	if err := resourceguard.CheckCreations(ctx, u.DB(), u.creations); err != nil {
 		return err
-	}
-	if cleanupOrgID != uuid.Nil {
-		if err := secretops.DestroyUnreferencedVersionsForDeletedOrg(ctx, u.DB(), cleanupOrgID); err != nil {
-			return err
-		}
 	}
 	if err := u.tx.Commit(ctx); err != nil {
 		u.closed = true

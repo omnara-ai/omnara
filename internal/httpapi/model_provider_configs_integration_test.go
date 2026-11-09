@@ -109,39 +109,53 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 	headersConfigPath := "/api/v1/orgs/" + project.OrgID + "/model-provider-configs/" +
 		testutil.RequireType[string](t, headersConfig["id"])
 	requestJSONWithHeaders(
-		t, handler, http.MethodDelete, "/api/v1/orgs/"+project.OrgID+"/secrets/"+gatewaySecretID,
-		"", "", http.StatusConflict, authHeaders(project.AdminToken),
+		t,
+		handler,
+		http.MethodDelete,
+		"/api/v1/orgs/"+project.OrgID+"/secrets/"+gatewaySecretID,
+		"",
+		"",
+		http.StatusNoContent,
+		authHeaders(project.AdminToken),
 	)
-	patchedHeadersConfig := requestJSONWithHeaders(
-		t, handler, http.MethodPut, headersConfigPath, `{"headers":{"X-Team":"platform"}}`,
-		"", http.StatusOK, authHeaders(project.AdminToken),
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		headersConfigPath,
+		`{"headers":{"X-Team":"platform"}}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
 	)
-	readHeadersConfig := requestJSONWithHeaders(
-		t, handler, http.MethodGet, headersConfigPath, "", "", http.StatusOK, authHeaders(project.AdminToken),
+	deletedSecretHeader := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		headersConfigPath,
+		`{"secret_headers":{"X-Gateway-Key":"`+gatewaySecretID+`"}}`,
+		"",
+		http.StatusNotFound,
+		authHeaders(project.AdminToken),
 	)
-	for _, config := range []map[string]any{patchedHeadersConfig, readHeadersConfig} {
-		if testutil.RequireType[map[string]any](t, config["headers"])["X-Team"] != "platform" ||
-			testutil.RequireType[map[string]any](t, config["secret_headers"])["X-Gateway-Key"] != gatewaySecretID {
-			t.Fatalf("unrelated patch must preserve the header reference: %+v", config)
-		}
+	deletedMessage, _ := deletedSecretHeader["error"].(string)
+	if !strings.Contains(deletedMessage, "the secret for header X-Gateway-Key no longer exists") {
+		t.Fatalf("deleted secret header error = %q", deletedMessage)
 	}
 	replacedHeadersConfig := requestJSONWithHeaders(
-		t, handler, http.MethodPut, headersConfigPath, `{"secret_headers":{}}`,
-		"", http.StatusOK, authHeaders(project.AdminToken),
+		t,
+		handler,
+		http.MethodPut,
+		headersConfigPath,
+		`{"secret_headers":{}}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
 	)
 	if testutil.RequireType[map[string]any](t, replacedHeadersConfig["headers"])["X-Team"] != "platform" ||
 		len(testutil.RequireType[map[string]any](t, replacedHeadersConfig["secret_headers"])) != 0 {
 		t.Fatalf("provider headers were not replaced: %+v", replacedHeadersConfig)
 	}
-	requestJSONWithHeaders(
-		t, handler, http.MethodDelete, "/api/v1/orgs/"+project.OrgID+"/secrets/"+gatewaySecretID,
-		"", "", http.StatusNoContent, authHeaders(project.AdminToken),
-	)
-	requestJSONWithHeaders(
-		t, handler, http.MethodPut, headersConfigPath,
-		`{"secret_headers":{"X-Gateway-Key":"`+gatewaySecretID+`"}}`,
-		"", http.StatusBadRequest, authHeaders(project.AdminToken),
-	)
 	requestJSONWithHeaders(
 		t,
 		handler,

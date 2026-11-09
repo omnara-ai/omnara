@@ -4,11 +4,13 @@ description: "Event webhook bodies and generated SDK schemas"
 icon: "webhook"
 ---
 
-Event webhooks send JSON POST requests with `event` and `data` matching the [event stream](/events/streaming), excluding token previews, heartbeats, and stream errors. They are managed independently of agent configuration.
+Event webhooks send JSON POST requests with `event` and `data` matching the [event stream](/events/streaming), excluding token previews, heartbeats, and stream errors. Each webhook is a project-owned subscription, managed independently of agent configuration.
 
 ## Configure
 
-Create a webhook with `POST /orgs/{orgID}/projects/{projectID}/event-webhooks`:
+Open the project's **Webhooks** tab to see and manage every subscription. The same create/edit form sets the destination URL, event types, optional signing secret, and **Receive events from** selection: all agents in the project, agents using one profile, or one agent. Each row shows its selection.
+
+The API uses `POST /orgs/{orgID}/projects/{projectID}/event-webhooks` to create a subscription:
 
 ```json
 {
@@ -21,11 +23,26 @@ Create a webhook with `POST /orgs/{orgID}/projects/{projectID}/event-webhooks`:
 }
 ```
 
-Each webhook watches a project, profile, or single agent. Profile webhooks cover existing and future agents of that profile; agent webhooks do not include descendants. Matching scopes are additive; overlapping subscriptions with the same URL and signing-secret ID queue only one delivery per event. Each project, profile, or agent can have up to 16 directly attached webhooks, with one webhook per URL. Listing requires project read permission; changes require project management permission.
+Project selections include all existing and future agents, including subagents. Profile selections cover agents using that profile; an agent selection watches only that agent, not its descendants. To receive events from launch onward, configure a project or profile selection before launching agents.
 
-See the API reference to [list](/api-reference/endpoints/events/list-event-webhooks-for-one-scope), [update](/api-reference/endpoints/events/update-event-webhook-settings), or [delete](/api-reference/endpoints/events/delete-an-event-webhook) webhooks. In the dashboard, manage webhooks from the profile’s Webhooks tab or the agent’s sidebar. Inherited webhooks are shown read-only; project webhooks are managed through the API. To receive events from launch onward, configure a profile webhook before launching its agents.
+Projects can have **100 active subscriptions across all selections**. This replaces the former limit of 16 per selection. Creating another subscription at the limit returns `409`; editing an existing subscription does not consume another slot, and deletion frees one. Existing subscriptions are preserved even if a project already exceeds the limit. Each selection can have only one active subscription per URL; conflicting creates and edits return `409`. Overlapping subscriptions with the same URL and signing-secret ID queue only one delivery per event.
 
-The required `event_types` allowlist selects `agent_input`, `model_output`, `tool_result`, `context_checkpoint`, or `tool_call_update`. New webhooks and filter changes affect future events, with no historical replay. URL/signing changes apply to pending attempts too. Removing the selected webhook stops its pending attempts without transferring them to another webhook; in-flight requests may finish. Deleting a profile removes its webhooks.
+`GET /orgs/{orgID}/projects/{projectID}/event-webhooks` lists subscriptions across the project, ordered by creation time and ID. Pass `limit` (1–100, default 50), then pass the returned `next_cursor` as `cursor` until it is `null`. To list an exact selection, pass `scope_type=project`, `scope_type=profile&agent_profile_id=...`, or `scope_type=agent&agent_id=...`. These filtered lists are paginated too: follow `next_cursor` to read every matching subscription. The filters return directly selected subscriptions, not inherited matches. Listing requires project read permission; changes require project management permission.
+
+Change a subscription's selection through the existing item PATCH endpoint. Send the complete new `scope`, for example:
+
+```json
+{
+  "scope": {
+    "type": "profile",
+    "agent_profile_id": "aprf_5n6a2bfgik7mv4qtrwz3jehcyd"
+  }
+}
+```
+
+The selected agent or profile must belong to the same project. Omitted settings stay unchanged, and the subscription keeps its ID. See the API reference to [list](/api-reference/endpoints/events/list-event-webhooks), [update](/api-reference/endpoints/events/update-event-webhook-settings), or [delete](/api-reference/endpoints/events/delete-an-event-webhook) subscriptions.
+
+The required `event_types` allowlist selects `agent_input`, `model_output`, `tool_result`, `context_checkpoint`, or `tool_call_update`. New subscriptions and selection/filter edits apply to newly queued notifications, with no historical replay. A notification selected before an edit can still arrive afterward, even if its agent no longer matches the selection. URL and signing changes also apply to pending attempts. Removing the selected subscription stops its pending attempts without transferring them to another subscription; in-flight requests may finish. Deleting a profile removes subscriptions that select it.
 
 Deliveries retry independently for up to ten minutes, with a five-second request timeout and exponential backoff with jitter. Return `2xx` to acknowledge receipt. Events may arrive more than once or out of order; deduplicate deliveries by `Webhook-Id` and custom tool execution by tool-call ID.
 

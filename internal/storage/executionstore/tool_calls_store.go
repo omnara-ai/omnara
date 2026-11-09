@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type CompleteToolCallInput struct {
@@ -67,7 +68,7 @@ type ListToolCallsInput struct {
 	ProjectID uuid.UUID
 	AgentIDs  []uuid.UUID
 	State     ToolCallState
-	Type      string
+	Type      toolcatalog.Type
 	Limit     int
 	After     listing.KeysetCursor
 }
@@ -76,7 +77,7 @@ type ListUnfinishedProjectToolCallsInput struct {
 	ProjectID      uuid.UUID
 	AgentProfileID *uuid.UUID
 	State          ToolCallState
-	Type           string
+	Type           toolcatalog.Type
 	Names          []string
 	Limit          int
 	After          listing.KeysetCursor
@@ -88,7 +89,7 @@ type CustomToolCallInput struct {
 }
 
 type ListToolCallsResult struct {
-	ToolCalls []ToolCallRecord
+	ToolCalls []ToolCallSummary
 	HasMore   bool
 }
 
@@ -125,6 +126,16 @@ const (
 	ToolCallStateWaiting               ToolCallState = "waiting"
 	ToolCallStateCompleted             ToolCallState = "completed"
 )
+
+func (state ToolCallState) Valid() bool {
+	switch state {
+	case ToolCallStateAwaitingAuthorization, ToolCallStateAwaitingPermission,
+		ToolCallStateReady, ToolCallStateRunning, ToolCallStateWaiting, ToolCallStateCompleted:
+		return true
+	default:
+		return false
+	}
+}
 
 type ToolResultOutcome string
 

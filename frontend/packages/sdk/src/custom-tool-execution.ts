@@ -1,5 +1,5 @@
 import type { OmnaraClient } from './client'
-import { requestToolAPI, toolError } from './custom-tool-request'
+import { CustomToolDeliveryError, deliverToolResult, toolError } from './custom-tool-request'
 import type {
   CustomToolCallRef,
   CustomToolHandler,
@@ -8,11 +8,12 @@ import type {
   WorkSource,
 } from './custom-tool-worker-types'
 import { ApiError } from './errors'
+import { jsonBodySerializer } from './generated/core/bodySerializer.gen'
 import { getToolCall, submitToolCallResult } from './generated/sdk.gen'
 import type {
   ListProjectToolCallsData,
   SubmitToolCallResultRequest,
-  ToolInput,
+  ToolCall,
 } from './generated/types.gen'
 import { zSubmitToolCallResultRequest } from './generated/zod.gen'
 import { notifyObserver } from './observer'
@@ -20,27 +21,16 @@ import { notifyObserver } from './observer'
 interface ToolExecutionOptions {
   client: OmnaraClient
   path: ListProjectToolCallsData['path']
-  requestTimeoutMs: number
-  handler: CustomToolHandler | undefined
-  onError: (error: Error, call: CustomToolCallRef) => Promise<void>
+  handler: CustomToolHandler
+  onError?: (error: Error, call: CustomToolCallRef) => void | Promise<void>
   onObserve?: (observation: CustomToolObservation) => void | Promise<void>
 }
 
-export interface PendingResult {
-  body: SubmitToolCallResultRequest
-  fallback: boolean
-  retainedAt?: number
-}
 export interface CustomToolTask {
   call: CustomToolCallRef
   source: WorkSource
-  // Only a just-read recovery page may supply input. Notifications always re-read.
-  input?: ToolInput
   cancel: AbortController
   completed: boolean
-  submit: AbortController
-  result?: PendingResult
-  rejected?: boolean
 }
 
 function failedResult(): SubmitToolCallResultRequest {
@@ -50,148 +40,112 @@ function failedResult(): SubmitToolCallResultRequest {
   }
 }
 
-function submissionDisposition(error: Error) {
-  if (error instanceof ApiError) {
-    switch (error.code) {
-      case 'tool_call_already_completed':
-        return 'completed'
-      case 'conflict':
-      case 'state_transition_conflict':
-        return 'not_ready'
-      case 'invalid_request':
-      case 'validation_failed':
-      case 'request_too_large':
-        return 'invalid'
-    }
-    // Proxies may reject an oversized body without the API's typed error envelope.
-    if (error.status === 413) return 'invalid'
-  }
-  // Project authorization can hide existing calls behind a 404. Preserve the
-  // result if access returns; completion is established by a typed response,
-  // never inferred from visibility. Revisit this if individual calls gain purging.
-  return 'retain'
-}
-
 export async function executeCustomTool(
   task: CustomToolTask,
   options: ToolExecutionOptions,
 ): Promise<CustomToolOutcome> {
-  const { client, requestTimeoutMs, onError: reportErrorSafely } = options
+  const { client } = options
   const observe = (event: CustomToolObservation) => {
     notifyObserver(options.onObserve, event)
   }
   const { call, cancel } = task
+  const { signal } = cancel
   const path = { ...options.path, agentID: call.agentID, toolCallID: call.toolCallID }
-  if (task.result === undefined) {
-    if (task.input === undefined) {
-      const started = performance.now()
-      let outcome: 'ready' | 'completed' | 'ignored' | 'failed' = 'failed'
-      try {
-        const { data: current } = await requestToolAPI(
-          client,
-          (fetch, signal, timeoutMs) => getToolCall({ client, path, signal, fetch, timeoutMs }),
-          cancel.signal,
-          requestTimeoutMs,
-        )
-        if (current.state !== 'ready') {
-          outcome = current.state === 'completed' ? 'completed' : 'ignored'
-          return { status: outcome }
-        }
-        if (current.type !== 'custom' || current.name !== call.name) {
-          outcome = 'ignored'
-          return { status: outcome }
-        }
-        task.input = current.input
-        outcome = 'ready'
-      } finally {
-        observe({ stage: 'readiness', durationMs: performance.now() - started, outcome })
-      }
-    }
-    const handler = options.handler
-    if (handler === undefined) return { status: 'ignored' }
-    cancel.signal.throwIfAborted()
-    const started = performance.now()
-    let outcome: 'succeeded' | 'failed' | 'deferred' | 'canceled' = 'canceled'
-    try {
-      const result = await handler({
-        ...call,
-        input: task.input,
-        signal: cancel.signal,
-      })
-      if (task.completed) return { status: 'completed' }
-      if (result.outcome === 'deferred') {
-        outcome = 'deferred'
-        return { status: 'deferred' }
-      }
-      const body = zSubmitToolCallResultRequest.parse(result)
-      task.result = { body, fallback: false }
-      outcome = body.outcome
-    } catch (cause) {
-      cancel.signal.throwIfAborted()
-      const error = toolError(cause)
-      void reportErrorSafely(error, call)
-      task.result = { body: failedResult(), fallback: true }
-      outcome = 'failed'
-    } finally {
-      observe({
-        stage: 'handler',
-        source: task.source,
-        durationMs: performance.now() - started,
-        outcome,
-      })
-    }
-  }
-  const signal = task.submit.signal
-  const post = (body: SubmitToolCallResultRequest) =>
-    requestToolAPI(
+  const readStarted = performance.now()
+  let readiness: 'ready' | 'completed' | 'ignored' | 'failed' = 'failed'
+  let current: ToolCall
+  try {
+    // A page or notification can arrive after another invocation completed the call.
+    const response = await getToolCall({
       client,
-      (fetch, signal, timeoutMs) =>
-        submitToolCallResult({ client, path, body, signal, fetch, timeoutMs }),
+      path,
       signal,
-      requestTimeoutMs,
-    )
-  while (true) {
-    const started = performance.now()
-    const retainedForMs =
-      task.result.retainedAt === undefined ? 0 : Date.now() - task.result.retainedAt
-    let outcome: 'accepted' | 'already_completed' | 'not_ready' | 'rejected' | 'failed' = 'failed'
-    try {
-      await post(task.result.body)
-      outcome = 'accepted'
-      return { status: 'completed' }
-    } catch (cause) {
-      const error = toolError(cause)
-      switch (submissionDisposition(error)) {
-        case 'completed':
-          outcome = 'already_completed'
-          return { status: 'completed' }
-        case 'not_ready':
-          outcome = 'not_ready'
-          task.result = undefined
-          throw cause
-        case 'invalid':
-          outcome = 'rejected'
-          if (task.result.fallback) {
-            task.rejected = true
-            throw cause
-          }
-          void reportErrorSafely(error, call)
-          task.result = {
-            body: failedResult(),
-            fallback: true,
-            retainedAt: task.result.retainedAt,
-          }
-          break
-        default:
-          throw cause
-      }
-    } finally {
-      observe({
-        stage: 'submission',
-        durationMs: performance.now() - started,
-        retainedForMs,
-        outcome,
-      })
+      throwOnError: true,
+      responseStyle: 'fields',
+    })
+    current = response.data
+    if (current.state !== 'ready') {
+      readiness = current.state === 'completed' ? 'completed' : 'ignored'
+      return { status: readiness }
     }
+    if (current.type !== 'custom' || current.name !== call.name) {
+      readiness = 'ignored'
+      return { status: readiness }
+    }
+    readiness = 'ready'
+  } finally {
+    observe({ stage: 'readiness', durationMs: performance.now() - readStarted, outcome: readiness })
+  }
+  signal.throwIfAborted()
+  const handlerStarted = performance.now()
+  let handlerOutcome: 'succeeded' | 'failed' | 'deferred' | 'canceled' = 'canceled'
+  let body: SubmitToolCallResultRequest
+  try {
+    // Await cooperative cancellation so a handler's late computed result is never lost.
+    const result = await options.handler({ ...call, input: current.input, signal })
+    if (task.completed) return { status: 'completed' }
+    if (result.outcome === 'deferred') {
+      signal.throwIfAborted()
+      handlerOutcome = 'deferred'
+      return { status: 'deferred' }
+    }
+    // Use the API serializer (including BigInt handling), then validate its JSON value.
+    // The snapshot owns nested structured data; application mutations cannot change delivery.
+    body = zSubmitToolCallResultRequest.parse(
+      JSON.parse(jsonBodySerializer.bodySerializer(zSubmitToolCallResultRequest.parse(result))),
+    )
+    handlerOutcome = body.outcome
+  } catch (cause) {
+    if (task.completed) return { status: 'completed' }
+    signal.throwIfAborted()
+    notifyObserver((error: Error) => options.onError?.(error, call), toolError(cause))
+    body = failedResult()
+    handlerOutcome = 'failed'
+  } finally {
+    observe({
+      stage: 'handler',
+      source: task.source,
+      durationMs: performance.now() - handlerStarted,
+      outcome: handlerOutcome,
+    })
+  }
+
+  const submitStarted = performance.now()
+  let submission: 'accepted' | 'already_completed' | 'failed' = 'failed'
+  try {
+    // One logical POST; only the client's shared request policy retries its transport.
+    await deliverToolResult(client, call, body, (fetch) =>
+      submitToolCallResult({
+        client,
+        path,
+        body,
+        signal,
+        fetch,
+        throwOnError: true,
+        responseStyle: 'fields',
+      }),
+    )
+    submission = 'accepted'
+    return { status: 'completed' }
+  } catch (error) {
+    if (
+      // A completed update can change this flag while the POST is awaiting a response.
+      // oxlint-disable-next-line typescript/no-unnecessary-condition
+      task.completed ||
+      (error instanceof CustomToolDeliveryError &&
+        error.cause instanceof ApiError &&
+        error.cause.status === 409 &&
+        error.cause.code === 'tool_call_already_completed')
+    ) {
+      submission = 'already_completed'
+      return { status: 'completed' }
+    }
+    throw error
+  } finally {
+    observe({
+      stage: 'submission',
+      durationMs: performance.now() - submitStarted,
+      outcome: submission,
+    })
   }
 }

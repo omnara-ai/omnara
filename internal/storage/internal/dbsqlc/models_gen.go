@@ -417,6 +417,27 @@ type MemoryStore struct {
 	FileCount      *int64
 }
 
+type ModelProviderConfig struct {
+	ID                 uuid.UUID
+	OrgID              uuid.UUID
+	ManagementKind     string
+	Name               string
+	ApiFormat          string
+	ApiVariant         string
+	BaseUrl            string
+	EndpointPath       string
+	RequestTimeoutMs   int32
+	AuthKind           string
+	AuthOptions        json.RawMessage
+	CredentialSecretID *uuid.UUID
+	DeletedAt          *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	IdleTimeoutMs      int32
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
+}
+
 type OrgApiKey struct {
 	ID              uuid.UUID
 	OrgID           uuid.UUID
@@ -499,19 +520,6 @@ type ProcessAction struct {
 	UpdatedAt          time.Time
 	StateReasonCode    *string
 	StateReasonMessage string
-}
-
-type ProjectMachineGrant struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	MachineID                 uuid.UUID
-	SourceKind                string
-	ProjectMachinePoolGrantID *uuid.UUID
-	Description               string
-	Metadata                  json.RawMessage
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
 }
 
 type ProjectMembership struct {

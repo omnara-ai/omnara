@@ -1667,22 +1667,27 @@ func TestFileTransferWaitsForTerminalResult(t *testing.T) {
 				metadataPart := `{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID + `"}}`
 				// Stored results keep the digest for memory read tracking; model context drops it.
 				digestPart := `{"type":"structured_data","value":{"digest":"` + digest + `"}}`
+				eventDigestPart := `{"type":"structured_data","value":{"digest":"` + digest +
+					`"},"exclude_from_model_context":true}`
 				mediaPart := `{"type":"media_ref","artifact_id":"` + artifactID.String() + `"}`
 				excludedMediaPart := `{"type":"media_ref","artifact_id":"` + artifactID.String() +
 					`","exclude_from_model_context":true}`
 				wantExcluded := true
-				wantContent := []byte(`[` + metadataPart + `,` + excludedMediaPart + `,` + digestPart + `]`)
+				contentPrefix := metadataPart + `,` + excludedMediaPart
 				wantModelContent := []byte(`[` + metadataPart + `]`)
 				switch test.name {
 				case "viewed_artifact":
 					wantExcluded = false
-					wantContent = []byte(`[` + metadataPart + `,` + mediaPart + `,` + digestPart + `]`)
+					contentPrefix = metadataPart + `,` + mediaPart
 					wantModelContent = []byte(`[` + metadataPart + `,` + mediaPart + `]`)
 				case "viewed_non_image":
 					notePart := `{"type":"text","text":"not shown: image/svg+xml is not a PNG, JPEG, GIF, or WebP image"}`
-					wantContent = []byte(`[` + metadataPart + `,` + notePart + `,` + excludedMediaPart + `,` + digestPart + `]`)
+					contentPrefix = metadataPart + `,` + notePart + `,` + excludedMediaPart
 					wantModelContent = []byte(`[` + metadataPart + `,` + notePart + `]`)
 				}
+				wantContent := []byte(`[` + contentPrefix + `,` + digestPart + `]`)
+				// Internal events retain visibility flags for model-facing timeline readers.
+				wantEventContent := []byte(`[` + contentPrefix + `,` + eventDigestPart + `]`)
 				if !sameJSON(toolCall.ResultContentParts, wantContent) {
 					t.Fatalf(
 						"GetToolCall content = %s, want %s",
@@ -1751,11 +1756,11 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 				foundEvent := false
 				for _, event := range events {
 					if event.ToolCallID == toolCallID {
-						foundEvent = sameJSON(event.ContentBlocks, wantContent)
+						foundEvent = sameJSON(event.ContentBlocks, wantEventContent)
 					}
 				}
 				if !foundEvent {
-					t.Fatalf("upload event missing content %s: %+v", wantContent, events)
+					t.Fatalf("upload event missing content %s: %+v", wantEventContent, events)
 				}
 				compactionEvents, err := fixture.Store.Execution().ListCompactionSourceEvents(
 					ctx,

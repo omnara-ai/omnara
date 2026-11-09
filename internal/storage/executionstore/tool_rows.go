@@ -41,16 +41,6 @@ func toolCallRecordFromRunnableSQLC(
 	)
 }
 
-func toolCallRecordFromAgentListSQLC(row dbsqlc.ListToolCallsForAgentRow) ToolCallRecord {
-	return toolCallRecordFromSQLC(
-		row.ID, row.ProjectID, row.AgentID, row.TurnID,
-		row.SourceEventID, row.ModelCallContextID, row.ProviderCallID,
-		row.Name, row.Input, row.Type,
-		row.State, row.Outcome, row.RuntimeLockID,
-		row.ResultContentParts, row.CreatedAt, row.CompletedAt,
-	)
-}
-
 func toolCallRecordFromWatermarkSQLC(
 	row dbsqlc.ListCompletedToolCallsAtWatermarkRow,
 ) ToolCallRecord {

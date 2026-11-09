@@ -100,7 +100,7 @@ func TestUnitCommitLifecycle(t *testing.T) {
 }
 
 func TestUnitFailuresSuppressPublication(t *testing.T) {
-	for _, scenario := range []string{"rollback", "deferred commit", "aborted SQL", "cancel", "teardown cleanup"} {
+	for _, scenario := range []string{"rollback", "deferred commit", "aborted SQL", "cancel"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			cell, pool := unitTestCell(
@@ -112,6 +112,8 @@ func TestUnitFailuresSuppressPublication(t *testing.T) {
 			u, err := BeginTestUnit(ctx, cell)
 			require.NoError(t, err)
 			defer func() { _ = u.Rollback(ctx) }()
+			_, err = u.DB().Exec(ctx, `INSERT INTO unit_probe(phase) VALUES ('write')`)
+			require.NoError(t, err)
 			unitTestAgent(t, u, uuid.New(), uuid.New())
 			u.Notifications().AddDaemonWork(uuid.New())
 			switch scenario {
@@ -130,14 +132,7 @@ func TestUnitFailuresSuppressPublication(t *testing.T) {
 				cancel()
 				ctx = canceled
 			}
-			if scenario == "teardown cleanup" {
-				// This minimal fixture has no secret tables, so cleanup fails
-				// after execution finalization but before transaction commit.
-				require.ErrorContains(t, u.CommitTeardown(ctx, scenario, uuid.New()), "list deleted organization secrets")
-				require.ErrorIs(t, u.Commit(ctx, "retry failed cleanup"), ErrUnitAborted)
-			} else {
-				require.Error(t, u.Commit(ctx, scenario))
-			}
+			require.Error(t, u.Commit(ctx, scenario))
 			_ = u.Rollback(t.Context())
 			var count int
 			require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM unit_probe`).Scan(&count))

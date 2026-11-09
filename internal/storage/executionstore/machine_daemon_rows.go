@@ -5,7 +5,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-func projectMachineGrantFromSQLC(row dbsqlc.ProjectMachineGrant) ProjectMachineGrantRecord {
+func projectMachineGrantFromSQLC(row dbsqlc.GetProjectMachineGrantRow) ProjectMachineGrantRecord {
 	return ProjectMachineGrantRecord{
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
@@ -14,6 +14,7 @@ func projectMachineGrantFromSQLC(row dbsqlc.ProjectMachineGrant) ProjectMachineG
 		SourceKind:                ProjectMachineGrantSourceKind(row.SourceKind),
 		ProjectMachinePoolGrantID: storeutil.IDFromPtr(row.ProjectMachinePoolGrantID),
 		Description:               row.Description,
+		IdempotencyKey:            row.IdempotencyKey,
 		Metadata:                  row.Metadata,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,

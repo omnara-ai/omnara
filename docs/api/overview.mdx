@@ -69,7 +69,7 @@ Pass the returned cursor back on the next request; a `null` cursor means you've 
 
 Create endpoints — orgs, projects, profiles, machines, and machine/pool grants — accept an optional `Idempotency-Key` header (the API reference marks each one). Retrying with the same key and an identical body returns the original resource instead of creating a duplicate — a replay returns `200` where the first request returned `201`; a conflicting retry returns `409` with code `idempotency_key_conflict`.
 
-Machine and pool grant creation keys remain consumed after access is revoked or the underlying resource is deleted. Replaying that key returns `409` with code `idempotency_key_conflict`; restoring access requires a new key. Grant replays compare against the original create request and return the grant’s current state, including later updates.
+Machine and machine-pool grant idempotency keys are retained only while the grant exists. Retrying creation after the grant is revoked or deleted can recreate it and restore access, including through automatic SDK retries. A pool-grant replay compares the request with the current grant, so later edits can return `409` with code `idempotency_key_conflict`.
 
 Agent input creation and config changes use the key alone: a retry returns the original stored result without comparing the request body.
 

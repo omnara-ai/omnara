@@ -74,16 +74,32 @@ WHERE org_id = sqlc.arg(org_id);
 DELETE FROM secret_oauth_refresh_leases
 WHERE org_id = sqlc.arg(org_id);
 
--- name: ListSecretIDsForDeletedOrgCleanup :many
--- @sqlc-vet-disable secrets-deleted-at
--- A deleted organization's ciphertext survives only while a durable consumer needs it.
-SELECT secret.id FROM secrets secret JOIN orgs org ON org.id = secret.org_id
-WHERE org.id = sqlc.arg(org_id) AND org.deleted_at IS NOT NULL AND secret.deleted_at IS NOT NULL
-  AND EXISTS (SELECT 1 FROM secret_versions version WHERE version.secret_id = secret.id)
-ORDER BY secret.id;
-
--- name: DeleteSecretVersionsForSecrets :exec
-DELETE FROM secret_versions WHERE secret_id = ANY(sqlc.arg(secret_ids)::uuid[]);
+-- name: DestroyUnreferencedSecretVersionsForDeletedOrg :execrows
+-- The single owner of the "what references a secret" predicate for deleted
+-- organizations. Organization deletion soft deletes its secrets and calls this
+-- in the same transaction to destroy their ciphertext; pool-machine teardown
+-- completion re-runs it inline for pool credentials it still needed at
+-- deletion time.
+DELETE FROM secret_versions version
+USING secrets secret
+JOIN orgs org ON org.id = secret.org_id
+WHERE secret.org_id = version.org_id
+  AND secret.id = version.secret_id
+  AND org.id = sqlc.arg(org_id)
+  AND org.deleted_at IS NOT NULL
+  AND secret.deleted_at IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM model_provider_configs config
+    WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM machine_pools pool
+    WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM integrations integration
+    WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id
+  );
 
 -- name: ListActiveProjectIDsForOrganization :many
 SELECT id FROM projects WHERE org_id = sqlc.arg(org_id) AND deleted_at IS NULL ORDER BY id;
@@ -248,6 +264,19 @@ SET deleted_at = transaction_timestamp(),
     updated_at = transaction_timestamp()
 WHERE org_id = sqlc.arg(org_id) AND owner_project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
+-- name: ProjectOwnedSecretsReferenced :one
+SELECT EXISTS (
+  SELECT 1 FROM secrets secret
+  WHERE secret.org_id = sqlc.arg(org_id)
+    AND secret.owner_project_id = sqlc.arg(project_id)
+    AND secret.deleted_at IS NULL
+    AND (
+      EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
+    )
+) AS is_referenced;
+
 -- name: ListVisibleProjectRolesForPrincipal :many
 WITH visible_projects AS (
   SELECT DISTINCT p.id, p.org_id, p.name, coalesce(p.idempotency_key, '') AS idempotency_key, p.created_at, p.updated_at
@@ -347,6 +376,18 @@ USING secrets secret
 WHERE secret.owner_user_id = sqlc.arg(user_id)::uuid
   AND grant_row.org_id = secret.org_id AND grant_row.secret_id = secret.id;
 
+-- name: UserOwnedSecretsReferenced :one
+SELECT EXISTS (
+  SELECT 1 FROM secrets secret
+  WHERE secret.owner_user_id = sqlc.arg(user_id)::uuid
+    AND secret.deleted_at IS NULL
+    AND (
+      EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
+    )
+) AS is_referenced;
+
 -- name: ListUserOwnedSkillsForUser :many
 SELECT id, org_id
 FROM skills
@@ -375,7 +416,6 @@ SELECT EXISTS (
 ) AS is_last_owner;
 
 -- name: LockActiveOwnedOrganizationsForUser :many
--- Serialize ownership mutations without blocking FK checks by secret consumers.
 SELECT org.id
 FROM org_memberships membership
 JOIN orgs org ON org.id = membership.org_id
@@ -383,15 +423,13 @@ WHERE membership.user_id = sqlc.arg(user_id)::uuid
   AND membership.role = 'owner'
   AND org.deleted_at IS NULL
 ORDER BY org.id
-FOR NO KEY UPDATE OF org;
+FOR UPDATE OF org;
 
 -- name: LockUserForUpdate :one
--- User IDs are immutable. Preserve FK admission while serializing user mutations,
--- so a consumer holding a secret lock cannot deadlock with its owner's deletion.
 SELECT id
 FROM users
 WHERE id = sqlc.arg(id) AND deleted_at IS NULL
-FOR NO KEY UPDATE;
+FOR UPDATE;
 
 -- name: CreateUserEmail :one
 INSERT INTO user_emails(user_id, email, normalized_email, verified_at, is_primary, created_at, updated_at)
@@ -806,6 +844,19 @@ USING secrets secret
 WHERE secret.org_id = sqlc.arg(org_id) AND secret.owner_user_id = sqlc.arg(user_id)::uuid
   AND grant_row.org_id = secret.org_id AND grant_row.secret_id = secret.id;
 
+-- name: OrgMemberOwnedSecretsReferenced :one
+SELECT EXISTS (
+  SELECT 1 FROM secrets secret
+  WHERE secret.org_id = sqlc.arg(org_id)
+    AND secret.owner_user_id = sqlc.arg(user_id)::uuid
+    AND secret.deleted_at IS NULL
+    AND (
+      EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
+    )
+) AS is_referenced;
+
 -- name: RemoveProjectMembership :one
 DELETE FROM project_memberships
 WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id) AND org_membership_id = sqlc.arg(org_membership_id)
@@ -1209,11 +1260,10 @@ WHERE org_id = sqlc.arg(org_id)
   AND org_role = 'owner';
 
 -- name: LockOrg :one
--- Serialize ownership mutations without blocking FK checks by secret consumers.
 SELECT id
 FROM orgs
 WHERE id = $1 AND deleted_at IS NULL
-FOR NO KEY UPDATE;
+FOR UPDATE;
 
 -- name: ListProjectAuthorizationRolesForPrincipal :many
 SELECT role

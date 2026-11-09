@@ -348,6 +348,12 @@ const memoryStoreRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/MemoryStorePage'), 'MemoryStorePage'),
 })
 
+const projectWebhooksRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/webhooks',
+  component: lazyRouteComponent(() => import('@/routes/ProjectWebhooksPage')),
+})
+
 const projectUsageRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/usage',
@@ -377,11 +383,6 @@ const agentProfileConfigurationRoute = createRoute({
 const agentProfileSchedulesRoute = createRoute({
   getParentRoute: () => agentProfileRoute,
   path: '/schedules',
-})
-
-const agentProfileWebhooksRoute = createRoute({
-  getParentRoute: () => agentProfileRoute,
-  path: '/webhooks',
 })
 
 const agentProfileAgentsRoute = createRoute({
@@ -545,11 +546,11 @@ const routeTree = rootRoute.addChildren([
       projectMemoryRoute,
       memoryStoreRoute,
       projectUsageRoute,
+      projectWebhooksRoute,
       agentProfileRoute.addChildren([
         agentProfileIndexRoute,
         agentProfileConfigurationRoute,
         agentProfileSchedulesRoute,
-        agentProfileWebhooksRoute,
         agentProfileAgentsRoute,
         agentProfileUsageRoute,
       ]),

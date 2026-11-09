@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,5 +68,71 @@ func TestToolCallNarrowReads(t *testing.T) {
 				require.Equal(t, "tool_calls", node.Relation, "%s", raw)
 			}
 		})
+	}
+}
+
+func TestRecoveryListFilterValidation(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newProcessDaemonFixture(t, ctx, t.Name())
+	id := createTypedToolCallForProcessTest(t, ctx, f, "filters", "lookup_customer", "custom", true)
+	want, err := f.Store.Execution().GetToolCallSummary(ctx, testProjectID, f.AgentID, id)
+	require.NoError(t, err)
+	for _, projectWide := range []bool{false, true} {
+		list := func(state executionstore.ToolCallState, kind toolcatalog.Type) (executionstore.ListToolCallsResult, error) {
+			if projectWide {
+				return f.Store.Execution().ListUnfinishedProjectToolCalls(ctx, executionstore.ListUnfinishedProjectToolCallsInput{
+					ProjectID: testProjectID, State: state, Type: kind, Limit: 10,
+				})
+			}
+			return f.Store.Execution().ListToolCalls(ctx, executionstore.ListToolCallsInput{
+				ProjectID: testProjectID, AgentIDs: []uuid.UUID{f.AgentID}, State: state, Type: kind, Limit: 10,
+			})
+		}
+		for _, filter := range []struct {
+			state executionstore.ToolCallState
+			kind  toolcatalog.Type
+		}{
+			{state: "unknown"}, {kind: "unknown"},
+		} {
+			_, err := list(filter.state, filter.kind)
+			require.Error(t, err)
+		}
+		for _, state := range []executionstore.ToolCallState{"", executionstore.ToolCallStateReady} {
+			page, err := list(state, toolcatalog.ToolTypeCustom)
+			require.NoError(t, err)
+			require.Equal(t, []executionstore.ToolCallSummary{want}, page.ToolCalls)
+		}
+		_, err := list(executionstore.ToolCallStateCompleted, "")
+		if projectWide {
+			require.ErrorContains(t, err, "not unfinished")
+		} else {
+			require.NoError(t, err)
+		}
+	}
+	for _, state := range []executionstore.AgentInteractionState{
+		"", executionstore.AgentInteractionStateOpen, executionstore.AgentInteractionStateResolved,
+		executionstore.AgentInteractionStateCanceled, "unknown",
+	} {
+		_, err := f.Store.Execution().ListAgentInteractions(ctx, executionstore.ListAgentInteractionsInput{
+			ProjectID: testProjectID, AgentIDs: []uuid.UUID{f.AgentID}, State: state, Limit: 10,
+		})
+		if state == "unknown" {
+			require.ErrorContains(t, err, "invalid interaction state")
+		} else {
+			require.NoError(t, err)
+		}
+	}
+	for _, kind := range []executionstore.AgentInteractionKind{
+		"", executionstore.AgentInteractionKindQuestion, executionstore.AgentInteractionKindPermission, "unknown",
+	} {
+		_, err := f.Store.Execution().ListOpenProjectInteractions(ctx, executionstore.ListOpenProjectInteractionsInput{
+			ProjectID: testProjectID, InteractionKind: kind, Limit: 10,
+		})
+		if kind == "unknown" {
+			require.ErrorContains(t, err, "invalid interaction kind")
+		} else {
+			require.NoError(t, err)
+		}
 	}
 }

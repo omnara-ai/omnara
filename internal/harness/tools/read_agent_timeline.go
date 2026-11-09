@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -169,6 +170,29 @@ func readAgentEventFromRecord(record executionstore.AgentEventReadRecord) (readA
 	}
 	if record.IsOpeningEvent && record.EventKind != "agent_input" {
 		return nil, fmt.Errorf("%s cannot open a turn", record.EventKind)
+	}
+	if len(record.ContentBlocks) > 0 {
+		var blocks []json.RawMessage
+		if err := json.Unmarshal(record.ContentBlocks, &blocks); err != nil {
+			return nil, fmt.Errorf("decode model-facing content: %w", err)
+		}
+		visible := make([]json.RawMessage, 0, len(blocks))
+		for _, block := range blocks {
+			var visibility struct {
+				Exclude bool `json:"exclude_from_model_context"`
+			}
+			if err := json.Unmarshal(block, &visibility); err != nil {
+				return nil, fmt.Errorf("decode content visibility: %w", err)
+			}
+			if !visibility.Exclude {
+				visible = append(visible, block)
+			}
+		}
+		var err error
+		record.ContentBlocks, err = json.Marshal(visible)
+		if err != nil {
+			return nil, fmt.Errorf("encode model-facing content: %w", err)
+		}
 	}
 	switch record.EventKind {
 	case "agent_input":

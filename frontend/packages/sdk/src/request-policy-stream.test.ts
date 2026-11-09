@@ -62,52 +62,58 @@ it('does not retry failed stream connections or leave a deadline timer behind', 
   expect(vi.getTimerCount()).toBe(0)
 })
 
-it('keeps the caller linked after headers, clears the deadline, and disposes at EOF', async () => {
-  vi.useFakeTimers()
-  const { client, source, listeners, controller, requestSignal } = streamFixture()
-  const result = await client.get<ReadableStream<Uint8Array>, unknown, true>({
-    url: '/stream',
-    parseAs: 'stream',
-    signal: source.signal,
-    throwOnError: true,
-  })
-  expect(result.data).toBe(result.response.body)
-  expect(result.response.headers.get('X-Test')).toBe('stream')
-  expect(result.response).toMatchObject({
-    url: `${baseUrl}/stream`,
-    status: 206,
-    statusText: 'Partial Content',
-    redirected: true,
-    type: 'cors',
-  })
-  expect(listeners.size).toBe(1)
-  await vi.advanceTimersByTimeAsync(100)
-  expect(requestSignal()?.aborted).toBe(false)
-  const content = result.response.text()
-  controller.enqueue(new TextEncoder().encode('first'))
-  controller.enqueue(new TextEncoder().encode('last'))
-  controller.close()
-  expect(await content).toBe('firstlast')
-  expect(listeners.size).toBe(0)
-  source.abort()
-  expect(requestSignal()?.aborted).toBe(false)
-})
+it.each(['stream', 'auto'] as const)(
+  'keeps %s parsing linked after headers, clears the deadline, and disposes at EOF',
+  async (parseAs) => {
+    vi.useFakeTimers()
+    const { client, source, listeners, controller, requestSignal } = streamFixture()
+    const result = await client.get<ReadableStream<Uint8Array>, unknown, true>({
+      url: '/stream',
+      parseAs,
+      signal: source.signal,
+      throwOnError: true,
+    })
+    expect(result.data).toBe(result.response.body)
+    expect(result.response.headers.get('X-Test')).toBe('stream')
+    expect(result.response).toMatchObject({
+      url: `${baseUrl}/stream`,
+      status: 206,
+      statusText: 'Partial Content',
+      redirected: true,
+      type: 'cors',
+    })
+    expect(listeners.size).toBe(1)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(requestSignal()?.aborted).toBe(false)
+    const content = result.response.text()
+    controller.enqueue(new TextEncoder().encode('first'))
+    controller.enqueue(new TextEncoder().encode('last'))
+    controller.close()
+    expect(await content).toBe('firstlast')
+    expect(listeners.size).toBe(0)
+    source.abort()
+    expect(requestSignal()?.aborted).toBe(false)
+  },
+)
 
-it('disposes when a raw data-mode stream is canceled', async () => {
-  const { client, source, listeners, cancel } = streamFixture()
-  const stream = await client.get<ReadableStream<Uint8Array>, unknown, true, 'data'>({
-    url: '/stream',
-    parseAs: 'stream',
-    signal: source.signal,
-    throwOnError: true,
-    responseStyle: 'data',
-  })
-  expect(listeners.size).toBe(1)
-  const reason = { consumer: 'finished' }
-  await stream.cancel(reason)
-  expect(cancel).toHaveBeenCalledExactlyOnceWith(reason)
-  expect(listeners.size).toBe(0)
-})
+it.each(['stream', 'auto'] as const)(
+  'disposes a raw data-mode %s stream when canceled',
+  async (parseAs) => {
+    const { client, source, listeners, cancel } = streamFixture()
+    const stream = await client.get<ReadableStream<Uint8Array>, unknown, true, 'data'>({
+      url: '/stream',
+      parseAs,
+      signal: source.signal,
+      throwOnError: true,
+      responseStyle: 'data',
+    })
+    expect(listeners.size).toBe(1)
+    const reason = { consumer: 'finished' }
+    await stream.cancel(reason)
+    expect(cancel).toHaveBeenCalledExactlyOnceWith(reason)
+    expect(listeners.size).toBe(0)
+  },
+)
 
 it('disposes an errored body even when the consumer has not started reading', async () => {
   const { client, source, listeners, controller } = streamFixture()
@@ -296,4 +302,46 @@ it('preserves network metadata across native clones and releases their shared st
     expect(response.bodyUsed).toBe(true)
     expect(() => response.clone()).toThrow(TypeError)
   }
+})
+
+it.each(['data', 'fields'] as const)(
+  'keeps automatic %s stream parsing cancellable after headers',
+  async (responseStyle) => {
+    const { client, source, listeners, cancel, requestSignal } = streamFixture()
+    const result = await client.get<
+      ReadableStream<Uint8Array>,
+      unknown,
+      true,
+      typeof responseStyle
+    >({ url: '/stream', parseAs: 'auto', responseStyle, signal: source.signal, throwOnError: true })
+    const stream = result instanceof ReadableStream ? result : result.data
+    const reader = stream.getReader()
+    const reason = new Error('caller stopped automatic stream')
+    const read = expect(reader.read()).rejects.toBe(reason)
+    expect(listeners.size).toBe(1)
+    source.abort(reason)
+    await read
+    expect(requestSignal()?.reason).toBe(reason)
+    expect(cancel).toHaveBeenCalledExactlyOnceWith(reason)
+    expect(listeners.size).toBe(0)
+  },
+)
+
+it('releases the caller link when an automatic data-mode stream ends normally', async () => {
+  const { client, source, listeners, controller, requestSignal } = streamFixture()
+  const stream = await client.get<ReadableStream<Uint8Array>, unknown, true, 'data'>({
+    url: '/stream',
+    parseAs: 'auto',
+    responseStyle: 'data',
+    signal: source.signal,
+    throwOnError: true,
+  })
+  expect(listeners.size).toBe(1)
+  const text = new Response(stream).text()
+  controller.enqueue(new TextEncoder().encode('complete'))
+  controller.close()
+  expect(await text).toBe('complete')
+  expect(listeners.size).toBe(0)
+  source.abort()
+  expect(requestSignal()?.aborted).toBe(false)
 })

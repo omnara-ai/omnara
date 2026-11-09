@@ -575,6 +575,7 @@ export const zMemoryStoreId = z.string().regex(/^mst_[a-z2-7]{26}$/);
 export const zSecretId = z.string().regex(/^sec_[a-z2-7]{26}$/);
 
 export const zUpdateEventWebhookRequest = z.object({
+    scope: zEventWebhookScope.optional(),
     url: z.string().min(1).max(2048).optional(),
     event_types: z.array(zEventWebhookEventType).min(1).optional(),
     signing_secret_id: zSecretId.nullish()
@@ -600,7 +601,8 @@ export const zEventWebhook = z.object({
 });
 
 export const zListEventWebhooksResponse = z.object({
-    data: z.array(zEventWebhook)
+    data: z.array(zEventWebhook),
+    next_cursor: z.string().nullable()
 });
 
 /**
@@ -3848,13 +3850,15 @@ export const zListEventWebhooksPath = z.object({
 });
 
 export const zListEventWebhooksQuery = z.object({
-    scope_type: zEventWebhookScopeType,
+    scope_type: zEventWebhookScopeType.optional(),
     agent_profile_id: zAgentProfileId.optional(),
-    agent_id: zAgentId.optional()
+    agent_id: zAgentId.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
 });
 
 /**
- * Webhooks for the requested scope.
+ * Webhooks matching the requested selection.
  */
 export const zListEventWebhooksResponse2 = zListEventWebhooksResponse;
 

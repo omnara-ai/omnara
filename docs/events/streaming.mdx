@@ -93,7 +93,7 @@ data: {"id":"evt_5n6a2bfgik7mv4qtrwz3jehcyd","sequence":3,"event_kind":"model_ou
 : heartbeat
 ```
 
-`tool_call_update` frames are included for every tool type and contain `tool_call_id`, `agent_id`, and `state`. When a custom call becomes `ready`, they also include `name`, plus `input` if the JSON-encoded input is at most 64 KiB; for larger inputs, fetch the call. When a transition opens, resolves, or cancels an interaction, they also include `interaction_update` with its `id`, `interaction_kind`, and `state`. They may arrive out of order and are not replayed. After the stream connects, including after a reconnect, query `GET /tool-calls` for current state.
+`tool_call_update` frames are included for every tool type and contain `tool_call_id`, `agent_id`, and `state`. When a custom call becomes `ready`, they also include `name`, plus `input` if the JSON-encoded input is at most 64 KiB; for larger inputs, fetch the call. When a transition opens, resolves, or cancels an interaction, they also include `interaction_update` with its `id`, `interaction_kind`, and `state`. They may arrive out of order and are not replayed. After connecting or reconnecting, query current ready calls, and keep checking periodically while connected. A slow subscriber can lose a lifecycle update without losing the connection; the saved-event reconciler does not recover these updates.
 
 A parent's stream does not carry its subagents' timelines, but it does carry their `tool_call_update` frames from every depth, with `agent_id` naming the subagent. Because every question and permission request is attached to a tool call, a frame arrives whenever a subagent asks a question, waits on permission, calls a custom tool, or has one of those resolved or canceled. Treat it as a signal to query `GET /interactions?include_subagents=true` and `GET /tool-calls?include_subagents=true` for current state.
 
@@ -129,12 +129,16 @@ for await (const frame of openAgentEventStream({
   signal: controller.signal,
   onConnectionStateChange(state) {
     if (state.state === 'reconnecting') clearDeltaPreviews()
-    if (state.state === 'connected' && state.reconnected) refreshOpenToolCalls()
+    if (state.state === 'connected') scheduleReadyToolCheck()
   },
 })) {
   applyFrame(frame)
 }
 ```
+
+For custom-tool execution, the application should also schedule finite checks while this stream remains open. For example, call a recovery function on connection and once a minute from your scheduler. Have it await `worker.check({ cursor, limit: 10 })`, handle every failed outcome (saving any `CustomToolDeliveryError.result` for resubmission), and save `nextCursor` before the next scheduled invocation. A null cursor starts the next pass from the beginning. The [custom-tool guide](/tools/custom#schedule-finite-recovery-checks) shows this function; the SDK does not own a continuous tool-work loop.
+
+The helper's `check` uses the project-level tool-call endpoint, including subagents, with its optional profile filter. If you implement recovery directly for the agent tree on this stream, use `GET /agents/{agentID}/tool-calls?state=ready&type=custom&include_subagents=true`; the default agent-only list would miss descendants' calls. Route incoming `tool_call_update` frames to your application's awaited handling jobs, consuming their delivery failures as well.
 
 Use the abort signal when you need to stop the stream promptly; breaking out of the loop also closes it. A reconnect can miss best-effort delta and tool lifecycle frames, so discard connection-scoped previews and refresh any authoritative state you project outside the saved event timeline.
 

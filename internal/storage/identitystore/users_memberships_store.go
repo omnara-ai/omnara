@@ -14,7 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
-	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
@@ -654,15 +653,6 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 	if err := guardLastOwnerChange(ctx, qtx, input.OrgID, existing.Role, ""); err != nil {
 		return err
 	}
-	secretIDs, err := qtx.LockOrgMemberOwnedSecretsForDeletion(ctx, dbsqlc.LockOrgMemberOwnedSecretsForDeletionParams{
-		OrgID: input.OrgID, UserID: input.UserID,
-	})
-	if err != nil {
-		return fmt.Errorf("lock member secrets for deletion: %w", err)
-	}
-	if err := secretops.RequireUnreferenced(ctx, tx, secretIDs); err != nil {
-		return err
-	}
 	if _, err := qtx.RemoveUserOrgMembership(
 		ctx,
 		dbsqlc.RemoveUserOrgMembershipParams{OrgID: input.OrgID, UserID: input.UserID},
@@ -683,6 +673,16 @@ func (s *Store) RemoveOrgMember(ctx context.Context, input RemoveOrgMemberInput)
 			return fmt.Errorf("delete user-owned skill for member: %w", mapSkillOpsError(err))
 		}
 		skillArchives = append(skillArchives, archives...)
+	}
+	secretsReferenced, err := qtx.OrgMemberOwnedSecretsReferenced(
+		ctx,
+		dbsqlc.OrgMemberOwnedSecretsReferencedParams{OrgID: input.OrgID, UserID: input.UserID},
+	)
+	if err != nil {
+		return fmt.Errorf("check member-owned secret references: %w", err)
+	}
+	if secretsReferenced {
+		return fmt.Errorf("a member-owned secret is still referenced by another resource: %w", storeerr.ErrConflict)
 	}
 	if err := qtx.DeleteUserOwnedSecretsForOrgMember(
 		ctx,
@@ -957,13 +957,6 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID uuid.UUID) error {
 	if err := q.LockUserOrgMembershipsForDeletion(ctx, dbsqlc.LockUserOrgMembershipsForDeletionParams{UserID: userID}); err != nil {
 		return fmt.Errorf("lock user memberships for deletion: %w", err)
 	}
-	secretIDs, err := q.LockUserOwnedSecretsForDeletion(ctx, dbsqlc.LockUserOwnedSecretsForDeletionParams{UserID: userID})
-	if err != nil {
-		return fmt.Errorf("lock personal secrets for deletion: %w", err)
-	}
-	if err := secretops.RequireUnreferenced(ctx, tx, secretIDs); err != nil {
-		return err
-	}
 	if err := q.DeleteUserOrgMemberships(ctx, dbsqlc.DeleteUserOrgMembershipsParams{UserID: userID}); err != nil {
 		return fmt.Errorf("delete user memberships: %w", err)
 	}
@@ -988,6 +981,13 @@ func (s *Store) DeleteUserAccount(ctx context.Context, userID uuid.UUID) error {
 	}
 	if err := q.DeleteUserCredentialsForAccountDeletion(ctx, dbsqlc.DeleteUserCredentialsForAccountDeletionParams{UserID: userID}); err != nil {
 		return fmt.Errorf("delete user credentials: %w", err)
+	}
+	secretsReferenced, err := q.UserOwnedSecretsReferenced(ctx, dbsqlc.UserOwnedSecretsReferencedParams{UserID: userID})
+	if err != nil {
+		return fmt.Errorf("check personal secret references: %w", err)
+	}
+	if secretsReferenced {
+		return fmt.Errorf("a personal secret is still referenced by another resource: %w", storeerr.ErrConflict)
 	}
 	if err := q.DeleteUserOwnedSecretsForUser(ctx, dbsqlc.DeleteUserOwnedSecretsForUserParams{UserID: userID}); err != nil {
 		return fmt.Errorf("delete user-owned secrets: %w", err)

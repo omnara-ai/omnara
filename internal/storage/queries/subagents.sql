@@ -134,9 +134,9 @@ WITH page AS (
       FROM agents agent
       WHERE agent.id = interaction.agent_id
     )
-    AND (
-      sqlc.narg(cursor_created_at)::timestamptz IS NULL
-      OR (interaction.created_at, interaction.id) > (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::uuid)
+    AND (interaction.created_at, interaction.id) > (
+      coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
+      coalesce(sqlc.narg(cursor_id)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
     )
   ORDER BY interaction.created_at ASC, interaction.id ASC
   LIMIT sqlc.arg(row_limit)::bigint

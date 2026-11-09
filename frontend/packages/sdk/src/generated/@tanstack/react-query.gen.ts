@@ -43,9 +43,9 @@ const createQueryKey = <TOptions extends Options>(id: string, options?: TOptions
 export const listEventWebhooksQueryKey = (options: Options<ListEventWebhooksData>) => createQueryKey('listEventWebhooks', options);
 
 /**
- * List event webhooks for one scope
+ * List event webhooks
  *
- * Returns the webhooks directly attached to the requested scope, not inherited matches.
+ * Lists all subscriptions in the project, ordered by created_at then id ascending. An explicit scope returns only subscriptions with that exact selection, not inherited matches. Agent or profile IDs require the corresponding scope_type.
  */
 export const listEventWebhooksOptions = (options: Options<ListEventWebhooksData>): UnusedSkipTokenOptions<ListEventWebhooksResponse2, ListEventWebhooksError, ListEventWebhooksResponse2, ReturnType<typeof listEventWebhooksQueryKey>> & { queryKey: DataTag<ReturnType<typeof listEventWebhooksQueryKey>, ListEventWebhooksResponse2, ListEventWebhooksError> } => queryOptions<ListEventWebhooksResponse2, ListEventWebhooksError, ListEventWebhooksResponse2, ReturnType<typeof listEventWebhooksQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -60,10 +60,71 @@ export const listEventWebhooksOptions = (options: Options<ListEventWebhooksData>
     queryKey: listEventWebhooksQueryKey(options)
 });
 
+const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'headers' | 'path' | 'query'>>(queryKey: QueryKey<Options>, page: K) => {
+    const params = { ...queryKey[0] };
+    if (page.body) {
+        params.body = {
+            ...queryKey[0].body as any,
+            ...page.body as any
+        };
+    }
+    if (page.headers) {
+        params.headers = {
+            ...queryKey[0].headers,
+            ...page.headers
+        };
+    }
+    if (page.path) {
+        params.path = {
+            ...queryKey[0].path as any,
+            ...page.path as any
+        };
+    }
+    if (page.query) {
+        params.query = {
+            ...queryKey[0].query as any,
+            ...page.query as any
+        };
+    }
+    return params as unknown as typeof page;
+};
+
+export const listEventWebhooksInfiniteQueryKey = (options: Options<ListEventWebhooksData>): QueryKey<Options<ListEventWebhooksData>> => createQueryKey('listEventWebhooks', options, true);
+
+/**
+ * List event webhooks
+ *
+ * Lists all subscriptions in the project, ordered by created_at then id ascending. An explicit scope returns only subscriptions with that exact selection, not inherited matches. Agent or profile IDs require the corresponding scope_type.
+ */
+export const listEventWebhooksInfiniteOptions = (options: Options<ListEventWebhooksData>): Omit<UnusedSkipTokenInfiniteOptions<ListEventWebhooksResponse2, ListEventWebhooksError, InfiniteData<ListEventWebhooksResponse2>, QueryKey<Options<ListEventWebhooksData>>, string | Pick<QueryKey<Options<ListEventWebhooksData>>[0], 'body' | 'headers' | 'path' | 'query'>> & { queryKey: DataTag<QueryKey<Options<ListEventWebhooksData>>, InfiniteData<ListEventWebhooksResponse2>, ListEventWebhooksError> }, 'initialData'> => {
+    const opts = infiniteQueryOptions<ListEventWebhooksResponse2, ListEventWebhooksError, InfiniteData<ListEventWebhooksResponse2>, QueryKey<Options<ListEventWebhooksData>>, string | Pick<QueryKey<Options<ListEventWebhooksData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+    // @ts-ignore
+    {
+        queryFn: async ({ pageParam, queryKey, signal }) => {
+            // @ts-ignore
+            const page: Pick<QueryKey<Options<ListEventWebhooksData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+                query: {
+                    cursor: pageParam
+                }
+            };
+            const params = createInfiniteParams(queryKey, page);
+            const { data } = await listEventWebhooks({
+                ...options,
+                ...params,
+                signal,
+                throwOnError: true
+            });
+            return data;
+        },
+        queryKey: listEventWebhooksInfiniteQueryKey(options)
+    });
+    return opts as Omit<UnusedSkipTokenInfiniteOptions<ListEventWebhooksResponse2, ListEventWebhooksError, InfiniteData<ListEventWebhooksResponse2>, QueryKey<Options<ListEventWebhooksData>>, string | Pick<QueryKey<Options<ListEventWebhooksData>>[0], 'body' | 'headers' | 'path' | 'query'>> & { queryKey: DataTag<QueryKey<Options<ListEventWebhooksData>>, InfiniteData<ListEventWebhooksResponse2>, ListEventWebhooksError> }, 'initialData'>;
+};
+
 /**
  * Create an event webhook
  *
- * Subscribes to future events from agents matching the scope. Each scope can have only one active webhook per URL; duplicates return 409. Matching scopes are additive. Requires project management permission.
+ * Subscribes to future events from agents matching the scope. Projects can have up to 100 active subscriptions across all selections. Each selection can have only one active webhook per URL; duplicates return 409. Matching scopes are additive. Requires project management permission.
  */
 export const createEventWebhookMutation = (options?: Partial<Options<CreateEventWebhookData>>): UseMutationOptions<CreateEventWebhookResponse, CreateEventWebhookError, Options<CreateEventWebhookData>> => {
     const mutationOptions: UseMutationOptions<CreateEventWebhookResponse, CreateEventWebhookError, Options<CreateEventWebhookData>> = {
@@ -121,7 +182,7 @@ export const getEventWebhookOptions = (options: Options<GetEventWebhookData>): U
 /**
  * Update event webhook settings
  *
- * Updates a webhook's URL, event filters, and signing settings. The scope cannot change. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Event filters affect newly queued deliveries; URL and signing changes also apply to pending attempts.
+ * Updates a webhook's URL, event filters, signing settings, or complete scope selection. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Selected agents and profiles must belong to the project. Selection and event filters affect newly queued deliveries; notifications selected before an edit may still arrive afterward. URL and signing changes also apply to pending attempts. The same selection and URL cannot duplicate another active subscription.
  */
 export const updateEventWebhookMutation = (options?: Partial<Options<UpdateEventWebhookData>>): UseMutationOptions<UpdateEventWebhookResponse, UpdateEventWebhookError, Options<UpdateEventWebhookData>> => {
     const mutationOptions: UseMutationOptions<UpdateEventWebhookResponse, UpdateEventWebhookError, Options<UpdateEventWebhookData>> = {
@@ -156,35 +217,6 @@ export const listPersonalAccessTokensOptions = (options?: Options<ListPersonalAc
     },
     queryKey: listPersonalAccessTokensQueryKey(options)
 });
-
-const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'headers' | 'path' | 'query'>>(queryKey: QueryKey<Options>, page: K) => {
-    const params = { ...queryKey[0] };
-    if (page.body) {
-        params.body = {
-            ...queryKey[0].body as any,
-            ...page.body as any
-        };
-    }
-    if (page.headers) {
-        params.headers = {
-            ...queryKey[0].headers,
-            ...page.headers
-        };
-    }
-    if (page.path) {
-        params.path = {
-            ...queryKey[0].path as any,
-            ...page.path as any
-        };
-    }
-    if (page.query) {
-        params.query = {
-            ...queryKey[0].query as any,
-            ...page.query as any
-        };
-    }
-    return params as unknown as typeof page;
-};
 
 export const listPersonalAccessTokensInfiniteQueryKey = (options?: Options<ListPersonalAccessTokensData>): QueryKey<Options<ListPersonalAccessTokensData>> => createQueryKey('listPersonalAccessTokens', options, true);
 
@@ -3359,7 +3391,7 @@ export const listProjectMachineGrantsInfiniteOptions = (options: Options<ListPro
 /**
  * Create project machine grant
  *
- * Lets a project's agent configs use one BYO machine by name and returns the grant with the machine's record. Pooled machines can't be granted this way and return 404. Replaying the original create with the same Idempotency-Key returns the current grant. The key remains consumed after revocation or resource cleanup: replay returns 409 idempotency_key_conflict and never restores access. Intentional re-granting needs a new key.
+ * Lets a project's agent configs use one BYO machine by name and returns the grant with the machine's record. Pooled machines can't be granted this way and return 404. Idempotency keys are retained only while the grant exists. Retrying creation after the grant is revoked or deleted can recreate it and restore access, including through automatic SDK retries. A replay compares the request with the current grant.
  */
 export const createProjectMachineGrantMutation = (options?: Partial<Options<CreateProjectMachineGrantData>>): UseMutationOptions<CreateProjectMachineGrantResponse2, CreateProjectMachineGrantError, Options<CreateProjectMachineGrantData>> => {
     const mutationOptions: UseMutationOptions<CreateProjectMachineGrantResponse2, CreateProjectMachineGrantError, Options<CreateProjectMachineGrantData>> = {
@@ -4327,7 +4359,7 @@ export const listProjectMachinePoolGrantsInfiniteOptions = (options: Options<Lis
 /**
  * Create project machine pool grant
  *
- * Lets a project create machines from a machine pool, optionally with its own defaults and usage caps within the pool's limits, and returns the grant. No machines are created by this call. Replaying the original create with the same Idempotency-Key returns the current grant, including later updates. The key remains consumed after revocation or resource cleanup: replay returns 409 idempotency_key_conflict and never restores access. Intentional re-granting needs a new key.
+ * Lets a project create machines from a machine pool, optionally with its own defaults and usage caps within the pool's limits, and returns the grant. No machines are created by this call. Idempotency keys are retained only while the grant exists. Retrying creation after the grant is revoked or deleted can recreate it and restore access, including through automatic SDK retries. A replay compares the request with the current grant, so later edits can return 409 with code idempotency_key_conflict.
  */
 export const createProjectMachinePoolGrantMutation = (options?: Partial<Options<CreateProjectMachinePoolGrantData>>): UseMutationOptions<CreateProjectMachinePoolGrantResponse, CreateProjectMachinePoolGrantError, Options<CreateProjectMachinePoolGrantData>> => {
     const mutationOptions: UseMutationOptions<CreateProjectMachinePoolGrantResponse, CreateProjectMachinePoolGrantError, Options<CreateProjectMachinePoolGrantData>> = {

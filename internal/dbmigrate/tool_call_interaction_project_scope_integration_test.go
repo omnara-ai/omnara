@@ -35,8 +35,6 @@ func TestToolCallInteractionProjectScopeMigration(t *testing.T) {
 		_, err := db.ExecContext(ctx, statement, args...)
 		require.NoError(t, err)
 	}
-	exec(`UPDATE model_provider_configs SET secret_headers = jsonb_build_object('X-Gateway-Key', $2::text)
-		WHERE id = $1`, ids.ProviderConfigID, ids.ProviderSecretID.String())
 	modelID, revisionID, definitionID, configID, agentID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	exec(`WITH model AS (
 		INSERT INTO configured_models(id,org_id,model_provider_config_id,name,current_revision_id,
@@ -118,9 +116,9 @@ func TestToolCallInteractionProjectScopeMigration(t *testing.T) {
 		openID, agentID, pendingCallID, resolvedID, doneCallID)
 	exec(`UPDATE agent_interactions SET state='resolved',resolved_at=now() WHERE id=$1`, resolvedID)
 
-	// Fail after the real migration has backfilled history and dropped its source
-	// columns. A failed stopped-app upgrade must leave version 68 usable for retry.
-	const migrationFile = "000069_tool_recovery_and_resource_lifecycle.sql"
+	// Fail after the real migration has backfilled history and replaced its views.
+	// A failed stopped-app upgrade must leave version 68 usable for retry.
+	const migrationFile = "000069_tool_recovery.sql"
 	body, err := os.ReadFile("../../migrations/" + migrationFile)
 	require.NoError(t, err)
 	body = append(body, []byte("\nSELECT custom_tool_upgrade_failure();\n")...)
@@ -128,28 +126,13 @@ func TestToolCallInteractionProjectScopeMigration(t *testing.T) {
 		migrationFile: {Data: body},
 	}), "custom_tool_upgrade_failure")
 	require.EqualValues(t, toolCallInteractionProjectScopeMigration-1, currentPostgresMigrationVersion(t, ctx, db))
-	var expandedColumns, sourceColumns int
+	var expandedColumns int
 	require.NoError(t, db.QueryRowContext(ctx, `
-SELECT count(*) FILTER (WHERE table_name IN ('tool_calls', 'agent_interactions') AND column_name = 'project_id'),
-       count(*) FILTER (WHERE (table_name = 'model_provider_configs' AND column_name = 'secret_headers')
-          OR (table_name IN ('project_machine_grants', 'project_machine_pool_grants')
-              AND column_name = 'idempotency_key'))
-FROM information_schema.columns WHERE table_schema = current_schema()
-`).Scan(&expandedColumns, &sourceColumns))
+SELECT count(*) FROM information_schema.columns
+WHERE table_schema = current_schema()
+  AND table_name IN ('tool_calls', 'agent_interactions') AND column_name = 'project_id'
+`).Scan(&expandedColumns))
 	require.Zero(t, expandedColumns, "failed upgrade must not leave expanded tool history")
-	require.Equal(t, 3, sourceColumns, "failed upgrade must restore all converted source columns")
-	for _, table := range []string{
-		"project_machine_grant_creations", "project_machine_pool_grant_creations", "model_provider_header_secrets",
-	} {
-		var exists bool
-		require.NoError(t, db.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists))
-		require.False(t, exists, "failed upgrade left new table %s", table)
-	}
-	var headerSecret string
-	require.NoError(t, db.QueryRowContext(ctx,
-		"SELECT secret_headers->>'X-Gateway-Key' FROM model_provider_configs WHERE id=$1",
-		ids.ProviderConfigID).Scan(&headerSecret))
-	require.Equal(t, ids.ProviderSecretID.String(), headerSecret, "failed upgrade must restore source data")
 	var calls, interactions int
 	require.NoError(t, db.QueryRowContext(ctx, `
 SELECT (SELECT count(*) FROM tool_calls

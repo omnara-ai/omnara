@@ -17,37 +17,35 @@ export interface CustomToolCall {
 export type CustomToolCallRef = Omit<CustomToolCall, 'input' | 'signal'>
 export type CustomToolHandlerResult = SubmitToolCallResultRequest | { outcome: 'deferred' }
 export type CustomToolHandler = (call: CustomToolCall) => Promise<CustomToolHandlerResult>
-
-export type CustomToolOutcome =
-  | { status: 'completed' | 'deferred' | 'ignored' | 'busy' | 'stopped' }
-  | { status: 'failed'; error: Error }
+export interface CustomToolOutcome {
+  status: 'completed' | 'deferred' | 'ignored'
+}
 
 export interface CustomToolOperationOptions {
+  /** The first invocation owns cancellation. A duplicate caller only cancels its own wait. */
   signal?: AbortSignal
 }
 
 export interface CustomToolCheckOptions extends CustomToolOperationOptions {
   cursor?: string
+  /** Maximum number of rows read and handled by this invocation, from 1 to 100. */
   limit?: number
 }
 
 export interface CustomToolCheckResult {
-  results: { call: CustomToolCallRef; outcome: CustomToolOutcome }[]
+  /** Consume every failed outcome before advancing your application's recovery checkpoint. */
+  results: {
+    call: CustomToolCallRef
+    outcome: CustomToolOutcome | { status: 'failed'; error: Error }
+  }[]
   nextCursor: string | null
-  /** Retained results blocked the next read. Resume at nextCursor (or the beginning if null). */
-  blocked: boolean
 }
 
-export type WorkSource = 'notification' | 'recovery' | 'retained'
+export type WorkSource = 'notification' | 'recovery'
 
 /** Local observations contain no tool names, resource identifiers, inputs, or results. */
 export type CustomToolObservation =
-  | { stage: 'capacity'; running: number; retained: number; reserved: number }
-  | {
-      stage: 'admission'
-      source: WorkSource
-      outcome: 'started' | 'joined' | 'settled' | 'busy' | 'stopped'
-    }
+  | { stage: 'admission'; source: WorkSource; outcome: 'started' | 'joined' }
   | {
       stage: 'readiness'
       durationMs: number
@@ -62,29 +60,17 @@ export type CustomToolObservation =
   | {
       stage: 'submission'
       durationMs: number
-      retainedForMs: number
-      outcome: 'accepted' | 'already_completed' | 'not_ready' | 'rejected' | 'failed'
+      outcome: 'accepted' | 'already_completed' | 'failed'
     }
-  | {
-      stage: 'recovery'
-      durationMs: number
-      waitMs: number
-      outcome: 'page' | 'failed' | 'blocked'
-      rows: number
-      started: number
-    }
-  | { stage: 'recovery'; outcome: 'complete'; durationMs: number }
+  | { stage: 'recovery'; durationMs: number; outcome: 'page' | 'failed'; rows: number }
 
 export interface CreateCustomToolWorkerOptions {
   client: OmnaraClient
   path: ListProjectToolCallsData['path']
   agentProfileID?: string
   tools: Record<string, CustomToolHandler>
-  concurrency?: number
-  signal?: AbortSignal
-  shutdownGraceMs?: number
-  requestTimeoutMs?: number
-  onError: (error: Error, call?: CustomToolCallRef) => void | Promise<void>
+  /** Optional diagnostics. Failures still reach handle() or the check() result. */
+  onError?: (error: Error, call?: CustomToolCallRef) => void | Promise<void>
   /** Record inexpensive local metrics; observer failures never affect execution. */
   onObserve?: (observation: CustomToolObservation) => void | Promise<void>
 }
@@ -95,7 +81,6 @@ export interface CustomToolWorker {
     update: ToolCallUpdate,
     options?: CustomToolOperationOptions,
   ) => Promise<CustomToolOutcome>
+  /** Read and await one bounded page. The application owns subsequent checks and recovery. */
   check: (options?: CustomToolCheckOptions) => Promise<CustomToolCheckResult>
-  run: () => Promise<void>
-  shutdown: () => Promise<void>
 }

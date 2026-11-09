@@ -5,96 +5,16 @@ package httpapi
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/testutil"
-	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
-	"github.com/stretchr/testify/require"
 )
-
-type lostMachineGrantResponse struct {
-	http.ResponseWriter
-	dropped bool
-	err     error
-}
-
-func (w *lostMachineGrantResponse) WriteHeader(status int) {
-	if status != http.StatusCreated {
-		w.ResponseWriter.WriteHeader(status)
-		return
-	}
-	conn, _, err := http.NewResponseController(w.ResponseWriter).Hijack()
-	w.err = err
-	if err == nil {
-		w.dropped = true
-		w.err = conn.Close()
-	}
-}
-
-func (w *lostMachineGrantResponse) Write(body []byte) (int, error) {
-	if w.dropped {
-		return len(body), nil
-	}
-	return w.ResponseWriter.Write(body)
-}
-
-func TestPublicProjectMachineGrantLostResponseCannotRestoreRevokedAccess(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	pool := openIntegrationDB(t, ctx)
-	handler := newIntegrationServer(pool)
-	project := bootstrapPublicHTTPProject(t, handler, "grant-lost-response")
-	store := storage.NewStore(pool)
-	machine, err := store.Execution().CreateDaemonMachine(ctx, executionstore.CreateDaemonMachineInput{
-		OrgID: project.OrgUUID, DisplayName: "Lost response machine",
-	})
-	require.NoError(t, err)
-	path := project.ProjectPath + "/machine-grants"
-	body := `{"machine_id":"` + testPublicID(t, publicid.KindMachine, machine.ID) + `"}`
-	dropped := make(chan error, 1)
-	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		lost := &lostMachineGrantResponse{ResponseWriter: w}
-		handler.ServeHTTP(lost, r)
-		dropped <- lost.err
-	}))
-	t.Cleanup(first.Close)
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, first.URL+path, strings.NewReader(body))
-	require.NoError(t, err)
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Bearer "+project.AdminToken)
-	request.Header.Set("Idempotency-Key", "lost-create")
-	response, err := first.Client().Do(request)
-	if response != nil {
-		_ = response.Body.Close()
-	}
-	require.Error(t, err, "caller must observe a genuinely lost committed response")
-	require.NoError(t, integrationdb.Await(t, dropped, "lost grant response"))
-	first.Close()
-	var grantID uuid.UUID
-	require.NoError(t, pool.QueryRow(ctx, `SELECT grant_id FROM project_machine_grant_creations
-		WHERE project_id=$1 AND idempotency_key='lost-create'`, project.ProjectUUID).Scan(&grantID))
-	_, err = store.Execution().DeleteProjectMachineGrant(ctx, project.OrgUUID, project.ProjectUUID, grantID)
-	require.NoError(t, err)
-	// A fresh server sees the durable receipt after the owner revoked the grant
-	// during the caller's backoff, and cannot restore access on replay.
-	replayed := requestJSONWithHeaders(t, newIntegrationServer(pool), http.MethodPost, path, body,
-		"lost-create", http.StatusConflict, authHeaders(project.AdminToken))
-	require.Equal(t, "idempotency_key_conflict", replayed["code"])
-	var count int
-	require.NoError(t, pool.QueryRow(ctx,
-		"SELECT count(*) FROM project_machine_grants WHERE project_id=$1", project.ProjectUUID,
-	).Scan(&count))
-	require.Zero(t, count)
-}
 
 func TestPublicProjectMachineGrantLifecycle(t *testing.T) {
 	t.Parallel()

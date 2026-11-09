@@ -30,7 +30,7 @@ func NewEventWebhookRecorder(set *Set) *EventWebhookRecorder {
 		deliveryAge: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: set.Namespace(), Subsystem: "event_webhook", Name: "delivery_age_seconds",
 			Help:    "Age since enqueue when a receiver returns 2xx; retries can acknowledge a delivery more than once.",
-			Buckets: []float64{0.1, 0.5, 1, 5, 15, 30, 60, 120, 300, 600},
+			Buckets: []float64{0.1, 0.5, 1, 1.5, 2, 3, 4, 5, 15, 30, 60, 120, 300, 600},
 		}, []string{"attempt"}),
 	}
 	for _, outcome := range []string{

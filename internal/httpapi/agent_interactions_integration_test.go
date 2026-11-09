@@ -312,7 +312,7 @@ func TestListAgentInteractionsPagesThroughSubagentTree(t *testing.T) {
 		{
 			testPublicID(t, publicid.KindAgentInteraction, parentInteraction),
 			testPublicID(t, publicid.KindAgent, parent.ID),
-			"", "",
+			parent.Name, "",
 		},
 		{
 			testPublicID(t, publicid.KindAgentInteraction, childInteraction),
@@ -325,7 +325,7 @@ func TestListAgentInteractionsPagesThroughSubagentTree(t *testing.T) {
 			"grandchild", "helper",
 		},
 	}
-	assertRows := func(rows []map[string]any, listedAgentID string, want []expected) {
+	assertRows := func(rows []map[string]any, want []expected) {
 		t.Helper()
 		if len(rows) != len(want) {
 			t.Fatalf("paged %d interactions, want %d: %+v", len(rows), len(want), rows)
@@ -335,9 +335,6 @@ func TestListAgentInteractionsPagesThroughSubagentTree(t *testing.T) {
 				t.Fatalf("interaction %d = %+v, want %+v", i, row, want[i])
 			}
 			wantName, wantKey := want[i].agentName, want[i].subagentKey
-			if want[i].agentID == listedAgentID {
-				wantName, wantKey = "", ""
-			}
 			agentName, _ := row["agent_name"].(string)
 			subagentKey, _ := row["subagent_key"].(string)
 			if agentName != wantName || subagentKey != wantKey {
@@ -348,21 +345,18 @@ func TestListAgentInteractionsPagesThroughSubagentTree(t *testing.T) {
 	parentPath := project.ProjectPath + "/agents/" + want[0].agentID + "/interactions?state=open"
 	assertRows(
 		pageThroughAgentInteractionRows(t, handler, parentPath+"&include_subagents=true", project.AdminToken, 1),
-		want[0].agentID,
 		want,
 	)
 	assertRows(
 		pageThroughAgentInteractionRows(t, handler, parentPath+"&include_subagents=true", project.AdminToken, 2),
-		want[0].agentID,
 		want,
 	)
 	assertRows(
-		pageThroughAgentInteractionRows(t, handler, parentPath, project.AdminToken, 1), want[0].agentID, want[:1],
+		pageThroughAgentInteractionRows(t, handler, parentPath, project.AdminToken, 1), want[:1],
 	)
 	childPath := project.ProjectPath + "/agents/" + want[1].agentID + "/interactions?state=open"
 	assertRows(
 		pageThroughAgentInteractionRows(t, handler, childPath+"&include_subagents=true", project.AdminToken, 1),
-		want[1].agentID,
 		want[1:],
 	)
 }

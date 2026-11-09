@@ -12,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
-	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -540,8 +539,14 @@ func (s *Store) deleteSecretOnce(
 	if err := management.RequireTenant(record.ManagementKind, "secrets"); err != nil {
 		return SecretRecord{}, err
 	}
-	if err := secretops.RequireUnreferenced(ctx, tx, []uuid.UUID{input.SecretID}); err != nil {
-		return SecretRecord{}, err
+	referenced, err := qtx.SecretIsReferenced(ctx, dbsqlc.SecretIsReferencedParams{
+		OrgID: input.OrgID, SecretID: input.SecretID,
+	})
+	if err != nil {
+		return SecretRecord{}, fmt.Errorf("check secret references: %w", err)
+	}
+	if referenced {
+		return SecretRecord{}, storeerr.ErrConflict
 	}
 	if _, err := qtx.DeleteSecret(ctx, dbsqlc.DeleteSecretParams{
 		OrgID: input.OrgID, ID: input.SecretID,

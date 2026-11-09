@@ -1647,7 +1647,8 @@ func TestProjectMachinePoolGrantDoesNotMaterializeMachineGrants(t *testing.T) {
 	if _, err := store.Execution().DeleteMachinePool(ctx, testOrgID, machinePool.ID); err != nil {
 		t.Fatalf("archive machine pool: %v", err)
 	}
-	// Pool cleanup removes authorization but preserves the consumed create key.
+	// The pool grant was hard-deleted with the pool, freeing its idempotency
+	// key; recreating against the deleted pool fails on the pool itself.
 	if _, err := store.Execution().CreateProjectMachinePoolGrant(
 		ctx,
 		executionstore.CreateProjectMachinePoolGrantInput{
@@ -1655,8 +1656,61 @@ func TestProjectMachinePoolGrantDoesNotMaterializeMachineGrants(t *testing.T) {
 			ProjectID:      testProjectID,
 			MachinePoolID:  machinePool.ID,
 			IdempotencyKey: "idem-pmpg-pool-grants",
-		}); !errors.Is(err, storeerr.ErrIdempotencyConflict) {
-		t.Fatalf("recreate pool grant after pool delete error = %v, want idempotency conflict", err)
+		}); !storeerr.IsNotFound(err) {
+		t.Fatalf("recreate pool grant after pool delete error = %v, want not found", err)
+	}
+}
+
+func TestProjectMachinePoolGrantKeyFreedAfterDelete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	machinePool, err := store.Execution().CreateMachinePool(
+		ctx,
+		completeMachinePoolCreateInputForTest(
+			t,
+			ctx,
+			store,
+			executionstore.CreateMachinePoolInput{
+				OrgID:            testOrgID,
+				Name:             "Replay Revoked Pool",
+				Provider:         "test",
+				MaxTotalMachines: 2,
+			},
+		))
+
+	if err != nil {
+		t.Fatalf("create machine pool: %v", err)
+	}
+	createInput := executionstore.CreateProjectMachinePoolGrantInput{
+		OrgID:          testOrgID,
+		ProjectID:      testProjectID,
+		MachinePoolID:  machinePool.ID,
+		IdempotencyKey: "idem-pmpg-replay-revoked",
+	}
+	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(ctx, createInput)
+	if err != nil {
+		t.Fatalf("create pool grant: %v", err)
+	}
+	if !poolGrant.Created {
+		t.Fatalf("pool grant created = false")
+	}
+	if _, err := store.Execution().DeleteProjectMachinePoolGrant(
+		ctx,
+		testOrgID,
+		testProjectID,
+		poolGrant.ID,
+	); err != nil {
+		t.Fatalf("revoke pool grant: %v", err)
+	}
+	recreated, err := store.Execution().CreateProjectMachinePoolGrant(ctx, createInput)
+	if err != nil {
+		t.Fatalf("recreate pool grant after delete: %v", err)
+	}
+	if !recreated.Created || recreated.ID == poolGrant.ID {
+		t.Fatalf("hard-deleted grant should free its idempotency key, got %+v (original %s)", recreated, poolGrant.ID)
 	}
 }
 

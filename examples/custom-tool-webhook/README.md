@@ -2,8 +2,8 @@
 
 A small TypeScript receiver runs a `text_length` custom tool with the SDK's
 `createCustomToolWorker` and posts the result back to Omnara. Webhooks deliver
-ready calls right away, and the worker also checks for missed ones, pausing
-up to a minute between recovery passes. It verifies Standard Webhooks signatures
+ready calls right away, and the application schedules one finite recovery page each minute, resuming its cursor
+to discover missed notifications. It verifies Standard Webhooks signatures
 before parsing the payload and subscribes only to `tool_call_update`.
 
 ## Run
@@ -38,171 +38,55 @@ This example uses the SDK from this checkout.
 that profile. `OMNARA_API_URL` optionally overrides `https://api.omnara.com/v1`;
 `PORT` optionally overrides 3000.
 
-## Delivery handling
+## Delivery and recovery
 
-The receiver awaits the SDK's `verifyEventWebhook` with the original request
-body, headers, and signing secret. It verifies the signature and timestamp
-before validating and returning the typed event. `worker.handle(payload.data)`
-then checks the organization, project, profile, and tool name. Before invoking
-the handler, it fetches the call's current state and input, even when the event
-includes input. A delayed ready notification therefore cannot start a call that
-the read already reports completed. Recovery reserves execution capacity before
-reading a page and needs no per-call fetch.
+The receiver verifies each webhook's signature and timestamp with `verifyEventWebhook` before using it. The helper checks project/profile scope and reads current readiness before invoking the handler, so a delayed ready event cannot start a call already observed as canceled.
 
-The receiver acknowledges immediately after accepting the work into this
-process. This example's tool is a repeatable calculation, and `run()` recovers
-calls lost if the process exits. For durable acceptance, save the verified event
-to your existing job queue before acknowledging it, then await `handle()` in
-the queue consumer. On serverless platforms, don't assume work will continue
-after sending the response; use the platform's supported job/lifecycle mechanism.
+The receiver returns 204 after starting handling in this process. It tracks the promise and reports failures explicitly. This example computes text length, which is safe to repeat: after a delivery failure or process restart, the application's scheduled check can compute it again. The startup check and subsequent once-per-minute checks each process one page of at most ten calls, preserving the cursor between invocations. A null cursor restarts the next pass. The SDK does not schedule those checks or keep a result backlog.
 
-The helper submits results and retries network errors and `408`, `429`, `500`,
-`502`, `503`, and `504` responses. With the default client policy, each API operation makes at most three attempts within 30
-seconds (`requestTimeoutMs` can extend this for large uploads). It respects
-`Retry-After`; if the wait would exceed that budget, it returns the failure
-instead of retrying early. The continuous `run()` loop
-reports listing failures through `onError` and tries again on a later pass,
-including after authentication/configuration errors. It continues until shutdown,
-so a failed recovery pass does not disable webhook handling.
+For an action such as sending an email, make the action idempotent by tool-call ID across processes and keep any required results in your own durable storage. Save a verified event to your job queue before acknowledging it if acceptance must survive process exit. Serverless runtimes may stop background work after an HTTP response; use an awaited job supported by that platform instead.
 
-Unexpected handler errors and invalid results become a generic failed tool
-result. Their original details go only to `onError`. To intentionally explain a
-failure to the model, return an explicit `{ outcome: 'failed', content_blocks: ... }`.
-A `409` with code `tool_call_already_completed` counts as done. It means the call
-has finished, including cancellation or another worker's result; it does not
-prove that this worker's result won.
+## Delivery failures keep the computed result
 
-Once a function returns, the helper keeps its result in memory after access
-errors (including `404`) and unknown submission failures. A later operation
-retries the same result without running the function again. A typed not-ready
-conflict releases the result without remembering the call as completed. An
-invalid result is replaced with a generic failure once; if that fallback is also
-rejected, the helper remembers the rejection locally to avoid rerunning it.
-These results count against the concurrency limit, so an outage cannot grow an
-unbounded result queue. Retries of retained results also respect `Retry-After`.
-An unrecognized permanent failure can fill that capacity until it is resolved;
-watch `onError` and the optional `onObserve` capacity observations.
-The memory is lost on restart; use application-owned durable storage when that
-would be unacceptable.
-
-`onError` receives an error and the affected call, or `undefined` when a recovery
-listing fails. It observes failures rather than controlling execution. Exceptions
-and rejected promises from the callback are ignored.
-
-## Use inside an existing application
-
-The same helper works in a backend, job queue, or scheduled task. `run()` is
-optional; it supplies a continuous recovery loop. A queue consumer can do:
+`await worker.handle(update)` resolves with `completed`, `deferred`, or `ignored`. It rejects when processing or delivery cannot finish. `CustomToolDeliveryError` means the handler has already produced a result: use `error.call` and `error.result` to retry delivery without executing the business operation again. `error.cause` carries the underlying error, and optional `error.retryAt` is the earliest retry time in epoch milliseconds from `Retry-After`.
 
 ```typescript
-const outcome = await worker.handle(update, {
-  signal: AbortSignal.timeout(25_000),
-})
-if (outcome.status === 'failed') throw outcome.error
-if (outcome.status === 'busy' || outcome.status === 'stopped') {
-  throw new Error('Retry this job when the helper can accept it')
+try {
+  await worker.handle(update, { signal })
+} catch (error) {
+  if (!(error instanceof CustomToolDeliveryError)) throw error
+  await deliveries.save({ call: error.call, result: error.result, retryAt: error.retryAt })
 }
-```
 
-`ignored` means the event does not match the scope/tools or is not actionable.
-`deferred` means the function intentionally left the call waiting for a later
-result. Handler exceptions that were successfully submitted as failed tool
-results count as `completed`; `failed` means the helper could not finish
-processing or submitting the call.
-
-An operation's `signal` limits its requests, waits, and newly started handlers
-without shutting down unrelated work. If the same call is already running,
-the duplicate caller only stops waiting for it. JavaScript cannot forcibly stop
-a function: an aborted handler still occupies its slot until it settles, and a
-late result is retained for a future submission rather than posted after the
-operation's deadline. Functions should cooperate with their `signal`. An aborted
-`handle()` returns `stopped`; expected caller cancellation does not call `onError`.
-
-A scheduled job can save its cursor between invocations so a large backlog
-does not make it repeatedly process only the oldest calls:
-
-```typescript
-const signal = AbortSignal.timeout(25_000)
-let cursor = (await checkpoints.load(recoveryKey)) ?? undefined
-do {
-  const page = await worker.check({ cursor, limit: 10, signal })
-  for (const { call, outcome } of page.results) {
-    if (outcome.status === 'failed') console.error(call.toolCallID, outcome.error)
-  }
-  await checkpoints.save(recoveryKey, page.nextCursor, { signal })
-  if (page.blocked) break // Retained results need delivery before more work can start.
-  cursor = page.nextCursor ?? undefined
-} while (cursor !== undefined)
-```
-
-Each check reserves capacity before reading and processes up to `limit` rows
-across smaller API pages. It waits for its work and returns the outcomes.
-When retained results occupy all slots, `blocked` is true and the cursor stays
-before any unread calls; stop the job and retry later. A blocked null cursor
-means resume from the beginning, not that the pass finished.
-Here `checkpoints` is your existing
-job storage, keyed by this worker's project, profile, and tools. Save the cursor
-after each completed page; reaching `null` resets the next invocation to the
-beginning so deferred and newly approved calls are revisited. An interrupted
-page keeps its previous checkpoint and can safely be repeated. Choose a page
-size that fits your job's budget, and defer long-running work instead of waiting
-for it inside a handler. The continuous `run()` loop manages its cursor in memory.
-
-Each check also retries results retained by this helper. Listing failures and
-an aborted check reject the operation; already-started handlers receive
-cancellation when its signal is aborted.
-
-## Tools that answer later
-
-Return `{ outcome: 'deferred' }` when a durable application job is still running.
-The helper submits nothing and releases the slot. Subsequent recovery checks
-invoke the handler again; it reads the saved result when the job is finished.
-For example, with your own database and job queue:
-
-```typescript
-const worker = createCustomToolWorker({
+// Your delivery job honors retryAt and submits the saved result.
+await sdk.submitToolCallResult({
   client,
-  path: { orgID, projectID },
-  tools: {
-    go_to: async ({ toolCallID, input, signal }) => {
-      const job = await jobs.startOrGet(toolCallID, input, { signal })
-      if (job.result === null) return { outcome: 'deferred' }
-      return job.result
-    },
-  },
-  onError: (error, call) => console.error(call?.toolCallID, error),
+  path: { orgID, projectID, agentID: saved.call.agentID, toolCallID: saved.call.toolCallID },
+  body: saved.result,
 })
 ```
 
-Here `jobs` is your application's durable storage. `startOrGet` must atomically
-use the tool-call ID to avoid launching the same job twice. Alternatively, your
-job can submit its result directly to Omnara when it completes. The helper does
-not require another service or a particular queue/database. Enable `run()` or
-schedule `check()` to revisit deferred calls; webhook handling alone does not
-poll them. Recovery also revisits notifications that returned `busy` while all
-slots were occupied or reserved; a durable queue can instead retry those jobs.
-The application owns cancellation of a job once its handler has
-returned `deferred`.
+Import `CustomToolDeliveryError` and `sdk` from `@omnara/sdk`. Here `deliveries` is your existing application storage. No storage adapter or queue is required for the repeatable calculation in this example.
 
-## Duplicates, cancellation, and shutdown
+One helper submission uses the client's existing finite request policy. It retries network failures and HTTP 408, 429, 500, 502, 503 and 504 with backoff, jitter and `Retry-After`, without rerunning the tool. Configure `maxRetries` and `timeoutMs` on the client; this receiver uses a 30-second request deadline and the default two retries. Exhaustion returns the failure to the application. There is no background resubmission afterward. Set `timeoutMs` or pass a cancellation signal: a finite retry count alone does not stop a stalled HTTP request.
 
-Delivery and recovery are at least once. The helper shares active attempts for
-the same call and remembers the most recent 1,000 completed or permanently
-rejected call IDs. That suppresses recent duplicates within this process, but does not survive restart
-or coordinate instances. Use the tool-call ID as an idempotency key for external
-side effects, including starting deferred jobs.
+A `409` with `tool_call_already_completed` means the call is terminal, including cancellation or a lost successful response. The helper treats it as `completed`; direct delivery jobs must handle it too. It does not prove this result won. Other conflicts, 404s and invalid-request responses remain delivery errors with the original result.
 
-Events can arrive out of order. A `completed` event signals an active handler to
-stop through its `AbortSignal` on the receiving instance. The readiness read
-skips calls it observes as completed, but cancellation can happen after that
-read, and two workers can both read `ready`. Cancellation cannot undo an
-external action already performed.
+For authentication or visibility failures, repair credentials/access before resubmitting. For a permanent HTTP 400, 413 or 422 payload rejection, inspect and correct/reduce the saved result or deliberately submit an explicit failed result explaining the reporting problem. Do not repeat a successful external action to repair its result delivery. The example logs payload rejections as an application repair task; repeatedly recomputing text length cannot fix them.
 
-Call `await worker.shutdown()` when the application stops accepting work, or
-abort the `signal` passed at construction. Shutdown stops intake, signals active
-handlers, and gives finished results a bounded opportunity to be submitted
-(default ten seconds, configurable with `shutdownGraceMs`). Results remaining
-at shutdown are not durably saved by the helper.
+Local handler exceptions or invalid/unserializable output instead become a sanitized failed business result. Return an explicit failed result to give the model an intentional explanation.
+
+## Finite checks and cancellation
+
+`check({ cursor, limit, signal })` awaits one page and returns `{ results, nextCursor }`. Consume every `failed` outcome before saving the next cursor; its `error` can be a `CustomToolDeliveryError` whose result needs durable recovery. Listing failures reject without a new cursor. Once listing succeeds, per-call cancellation/failures are returned as outcomes so other calls' computed results are not lost.
+
+For long-running application jobs, a handler may return `{ outcome: 'deferred' }`, then return its saved result on a later check. Start or find that job idempotently by tool-call ID. Alternatively, have the job submit its result directly when ready. The application owns the job's cancellation and persistence.
+
+Concurrent local invocations for the same call share the first invocation. Only its signal cancels the handler; a duplicate caller can cancel its own wait. Handlers must cooperate with cancellation. The owning call waits for a handler to settle, then exposes any undelivered computed result rather than abandoning it. A completed notification also signals active work to stop; its caller can cancel its own wait without abandoning the original invocation. These local conveniences do not coordinate processes or make external actions exactly once.
+
+On SIGTERM/SIGINT, the application stops its scheduler/server, aborts its operations, and awaits accepted webhook work. The optional `onError` and `onObserve` hooks provide diagnostics; they never replace consuming failures from operations.
+
+The same recovery rule applies with SSE: connect and check for already-ready calls, handle incoming frames, and keep scheduling checks while connected. Lifecycle frames can be dropped without a disconnect and are not replayed. The helper checks the whole configured project, including subagents; a direct agent-scoped recovery query needs `include_subagents=true` to match a parent's stream.
 
 ## Check
 
@@ -210,3 +94,5 @@ at shutdown are not durably saved by the helper.
 pnpm test
 pnpm run typecheck
 ```
+
+The repository's routine checks also run this example suite.

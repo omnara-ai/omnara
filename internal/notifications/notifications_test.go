@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"slices"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 type fakePresenceStore struct {
@@ -1103,6 +1106,11 @@ func TestRoutedPublisherRecordsIntentLabelPerType(t *testing.T) {
 }
 
 func TestNotificationIntentLabels(t *testing.T) {
+	set := metrics.New()
+	metrics.NewNotificationRecorder(set)
+	response := httptest.NewRecorder()
+	set.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+	initial := response.Body.String()
 	cases := []struct {
 		intent PostCommitIntent
 		want   string
@@ -1117,6 +1125,11 @@ func TestNotificationIntentLabels(t *testing.T) {
 	for _, tc := range cases {
 		if got := notificationIntentLabel(tc.intent); got != tc.want {
 			t.Errorf("notificationIntentLabel(%T) = %q, want %q", tc.intent, got, tc.want)
+		}
+		series := `omnara_notifications_total{intent="` + tc.want + `",reason="queue_full",result="dropped"} 0`
+		_, direct := tc.intent.(WorkerControlCommitted)
+		if present := strings.Contains(initial, series); present == direct {
+			t.Errorf("initial overflow metric for %T: present=%t, want %t", tc.intent, present, !direct)
 		}
 	}
 }

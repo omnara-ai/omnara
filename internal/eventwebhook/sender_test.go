@@ -28,6 +28,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/observability/metrics"
 	"github.com/stretchr/testify/require"
 )
 
@@ -123,7 +124,7 @@ func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 	}
 	store.endpoint.OrgID = delivery.OrgID
 	store.endpoint.RootAgentID = delivery.AgentID
-	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7, nil), store, delivery
+	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7, nil, nil), store, delivery
 }
 
 func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
@@ -153,12 +154,25 @@ func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 		}
 		return &http.Response{StatusCode: code, Body: http.NoBody}, nil
 	})}
+	set := metrics.New()
+	sender.client = metrics.NewObservedHTTPClient(sender.client,
+		metrics.NewHTTPClientRecorder(set, metrics.SubsystemHTTPClient),
+		metrics.WithHTTPClientHostLabel("event_webhook"), metrics.WithHTTPClientPathLabel("/*"))
 	sender.deliver(t.Context(), delivery)
 	require.Equal(t, int64(1), store.retried.Load())
 	require.Zero(t, store.completed.Load())
 	sender.deliver(t.Context(), delivery)
 	require.Equal(t, int64(1), store.completed.Load())
 	require.Equal(t, bodies[0], bodies[1])
+	metricsBody := webhookMetrics(set)
+	require.Contains(t, metricsBody,
+		`omnara_http_client_requests_total{code="204",error_kind="none",host="event_webhook",`+
+			`method="POST",path="/*",result="success"} 1`)
+	require.Contains(t, metricsBody,
+		`omnara_http_client_requests_total{code="503",error_kind="http_5xx",host="event_webhook",`+
+			`method="POST",path="/*",result="error"} 1`)
+	require.NotContains(t, metricsBody, "example.com")
+
 	var payload struct {
 		Event string                 `json:"event"`
 		Data  openapi.ToolCallUpdate `json:"data"`

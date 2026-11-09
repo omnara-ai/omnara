@@ -68,9 +68,14 @@ type configurationError struct{ error }
 
 func (e configurationError) Unwrap() error { return e.error }
 
-func New(store Store, log *slog.Logger, maxInFlight, perOrgLimit int, recorder *metrics.EventWebhookRecorder) *Sender {
+func New(
+	store Store, log *slog.Logger, maxInFlight, perOrgLimit int,
+	recorder *metrics.EventWebhookRecorder, httpRecorder *metrics.HTTPClientRecorder,
+) *Sender {
 	return &Sender{store: store, log: log, recorder: recorder, maxInFlight: maxInFlight, perOrgLimit: perOrgLimit,
-		client: outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{Timeout: attemptTimeout})}
+		client: metrics.NewObservedHTTPClient(
+			outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{Timeout: attemptTimeout}), httpRecorder,
+			metrics.WithHTTPClientHostLabel("event_webhook"), metrics.WithHTTPClientPathLabel("/*"))}
 }
 
 func (s *Sender) Run(ctx context.Context) {

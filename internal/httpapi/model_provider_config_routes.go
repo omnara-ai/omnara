@@ -578,7 +578,7 @@ func (s strictOpenAPIServer) DeleteModelProviderConfig(
 	if !ok {
 		return nil, apierror.FromCode(openapigen.ErrorCodeNotFound, "not found")
 	}
-	err = s.server.store.Models().DeleteModelProviderConfig(ctx, org.ID, configID)
+	_, err = s.server.store.Models().DeleteModelProviderConfig(ctx, org.ID, configID)
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
 	}

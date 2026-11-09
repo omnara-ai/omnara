@@ -95,12 +95,12 @@ paths:
     get:
       operationId: listEventWebhooks
       tags: [Events]
-      summary: List event webhooks for one scope
-      description: Returns the webhooks directly attached to the requested scope, not inherited matches.
+      summary: List event webhooks
+      description: Lists all subscriptions in the project, ordered by created_at then id ascending. An explicit scope returns only subscriptions with that exact selection, not inherited matches. Agent or profile IDs require the corresponding scope_type.
       parameters:
         - name: scope_type
           in: query
-          required: true
+          required: false
           schema:
             $ref: '#/components/schemas/EventWebhookScopeType'
         - name: agent_profile_id
@@ -113,9 +113,11 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/AgentID'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Webhooks for the requested scope.
+          description: Webhooks matching the requested selection.
           content:
             application/json:
               schema:
@@ -140,7 +142,7 @@ paths:
       operationId: createEventWebhook
       tags: [Events]
       summary: Create an event webhook
-      description: Subscribes to future events from agents matching the scope. Each scope can have only one active webhook per URL; duplicates return 409. Matching scopes are additive. Requires project management permission.
+      description: Subscribes to future events from agents matching the scope. Projects can have up to 100 active subscriptions across all selections. Each selection can have only one active webhook per URL; duplicates return 409. Matching scopes are additive. Requires project management permission.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -223,7 +225,7 @@ paths:
       operationId: updateEventWebhook
       tags: [Events]
       summary: Update event webhook settings
-      description: Updates a webhook's URL, event filters, and signing settings. The scope cannot change. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Event filters affect newly queued deliveries; URL and signing changes also apply to pending attempts.
+      description: Updates a webhook's URL, event filters, signing settings, or complete scope selection. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Selected agents and profiles must belong to the project. Selection and event filters affect newly queued deliveries; notifications selected before an edit may still arrive afterward. URL and signing changes also apply to pending attempts. The same selection and URL cannot duplicate another active subscription.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6406,9 +6408,9 @@ paths:
       description: >-
         Lets a project's agent configs use one BYO machine by name and returns the grant with the
         machine's record. Pooled machines can't be granted this way and return 404.
-        Replaying the original create with the same Idempotency-Key returns the current grant.
-        The key remains consumed after revocation or resource cleanup: replay returns 409
-        idempotency_key_conflict and never restores access. Intentional re-granting needs a new key.
+        Idempotency keys are retained only while the grant exists. Retrying creation after the
+        grant is revoked or deleted can recreate it and restore access, including through automatic SDK retries.
+        A replay compares the request with the current grant.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -8030,10 +8032,10 @@ paths:
         Lets a project create machines from a machine pool, optionally with its own defaults and
         usage caps within the pool's limits, and returns the grant. No machines are created by this
         call.
-        Replaying the original create with the same Idempotency-Key returns the current grant,
-        including later updates. The key remains consumed after revocation or resource cleanup:
-        replay returns 409 idempotency_key_conflict and never restores access. Intentional
-        re-granting needs a new key.
+        Idempotency keys are retained only while the grant exists. Retrying creation after the
+        grant is revoked or deleted can recreate it and restore access, including through automatic SDK retries.
+        A replay compares the request with the current grant, so later edits can return 409 with
+        code idempotency_key_conflict.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -10422,6 +10424,9 @@ components:
       additionalProperties: false
       minProperties: 1
       properties:
+        scope:
+          $ref: '#/components/schemas/EventWebhookScope'
+          description: Replaces the complete selection. Omit to preserve the current selection.
         url:
           type: string
           minLength: 1
@@ -10498,12 +10503,14 @@ components:
     ListEventWebhooksResponse:
       type: object
       additionalProperties: false
-      required: [data]
+      required: [data, next_cursor]
       properties:
         data:
           type: array
           items:
             $ref: '#/components/schemas/EventWebhook'
+        next_cursor:
+          type: [string, 'null']
     CronTriggerID:
       type: string
       pattern: '^cron_[a-z2-7]{26}$'
@@ -14972,11 +14979,11 @@ components:
           type: string
           description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
         agent_name:
-          description: Present on project lists, and when the interaction belongs to a subagent of the listed agent.
+          description: Name of the owning agent. Included by both interaction list endpoints.
           $ref: '#/components/schemas/AgentName'
         subagent_key:
           type: string
-          description: Present when the interaction belongs to a subagent and was listed for its project or an ancestor agent.
+          description: Key of the owning agent when it is a subagent. Included by both interaction list endpoints.
         interaction_kind:
           $ref: '#/components/schemas/AgentInteractionKind'
         state:

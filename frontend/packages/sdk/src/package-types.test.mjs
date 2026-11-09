@@ -69,7 +69,7 @@ queryClient.clear()
     )
     writeFileSync(
       join(consumer, 'consumer.ts'),
-      `import { createOmnaraClient, createCustomToolWorker, verifyEventWebhook, sdk, type ListAgentsResponse, type ListAgentsError, type RequestObservation, type CustomToolObservation } from '@omnara/sdk'
+      `import { createOmnaraClient, createCustomToolWorker, CustomToolDeliveryError, verifyEventWebhook, sdk, type ListAgentsResponse, type ListAgentsError, type RequestObservation, type CustomToolObservation } from '@omnara/sdk'
 import { listAgentsOptions, listAgentsInfiniteOptions, createAgentInputMutation } from '@omnara/sdk/tanstack'
 import { QueryClient, useSuspenseInfiniteQuery, useSuspenseQuery, type InfiniteData } from '@tanstack/react-query'
 
@@ -104,6 +104,11 @@ export const worker = createCustomToolWorker({
 })
 export const verify = verifyEventWebhook
 export const recover = () => worker.check()
+export const redeliver = (error: CustomToolDeliveryError) => sdk.submitToolCallResult({
+  client,
+  path: { orgID: 'org_test', projectID: 'proj_test', agentID: error.call.agentID, toolCallID: error.call.toolCallID },
+  body: error.result,
+})
 `,
     )
     // An exact dev-only alias makes the declared peer floor reproducible and

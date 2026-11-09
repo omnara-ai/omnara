@@ -1,6 +1,7 @@
 const scopedSections = [
   'agents',
   'integrations',
+  'webhooks',
   'usage',
   'models',
   'machines',
@@ -11,6 +12,7 @@ const scopedSections = [
 export type ScopedSection = (typeof scopedSections)[number]
 
 export const projectPaths = {
+  webhooks: '/projects/$projectId/webhooks',
   agents: '/projects/$projectId/agents',
   integrations: '/projects/$projectId/integrations',
   usage: '/projects/$projectId/usage',

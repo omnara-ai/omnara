@@ -140,9 +140,6 @@ func deleteProjectRelationshipsTx(
 	if err := q.DeleteIntegrationsForProjectDeletion(ctx, dbsqlc.DeleteIntegrationsForProjectDeletionParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project integrations: %w", err)
 	}
-	if err := q.DeleteEventWebhooksForProject(ctx, dbsqlc.DeleteEventWebhooksForProjectParams{ProjectID: projectID}); err != nil {
-		return fmt.Errorf("delete project webhooks: %w", err)
-	}
 	if err := q.DeleteProjectSubscriptions(ctx, dbsqlc.DeleteProjectSubscriptionsParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project subscriptions: %w", err)
 	}
@@ -170,6 +167,13 @@ func deleteProjectOwnedContentTx(
 	}
 	if err := q.DeleteProjectSkillGrants(ctx, dbsqlc.DeleteProjectSkillGrantsParams{OrgID: orgID, ProjectID: projectID}); err != nil {
 		return nil, fmt.Errorf("delete project skill grants: %w", err)
+	}
+	referenced, err := q.ProjectOwnedSecretsReferenced(ctx, dbsqlc.ProjectOwnedSecretsReferencedParams{OrgID: orgID, ProjectID: &projectID})
+	if err != nil {
+		return nil, fmt.Errorf("check project secret references: %w", err)
+	}
+	if referenced {
+		return nil, fmt.Errorf("a project-owned secret is still referenced outside the project: %w", storeerr.ErrConflict)
 	}
 	if err := q.DeleteProjectSecrets(ctx, dbsqlc.DeleteProjectSecretsParams{OrgID: orgID, ProjectID: &projectID}); err != nil {
 		return nil, fmt.Errorf("delete project secrets: %w", err)
@@ -467,9 +471,6 @@ func (s *Service) deleteProjectOnce(
 		}
 		return nil, fmt.Errorf("load project for deletion: %w", err)
 	}
-	if err := unit.LockProjectSecretsForDeletion(ctx, orgID, projectID); err != nil {
-		return nil, err
-	}
 	agentIDs, err := prelockProjectMachineLifecycleTx(ctx, unit, q, orgID, projectID)
 	if err != nil {
 		return nil, err
@@ -557,12 +558,6 @@ func (s *Service) deleteOrganizationOnce(
 	if !active {
 		return nil, storeerr.ErrNotFound
 	}
-	if _, err := q.LockOrg(ctx, dbsqlc.LockOrgParams{ID: orgID}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, storeerr.ErrNotFound
-		}
-		return nil, fmt.Errorf("lock organization for deletion: %w", err)
-	}
 	if err := identitystore.RequireOrgOwner(ctx, q, orgID, deletedBy); err != nil {
 		return nil, err
 	}
@@ -572,14 +567,6 @@ func (s *Service) deleteOrganizationOnce(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list organization projects: %w", err)
-	}
-	// Co-owner account deletion locks the organization row before memberships.
-	// Both paths then lock memberships in UUID order before owned resources.
-	if err := q.LockOrganizationMembershipsForDeletion(ctx, dbsqlc.LockOrganizationMembershipsForDeletionParams{OrgID: orgID}); err != nil {
-		return nil, fmt.Errorf("lock organization memberships for deletion: %w", err)
-	}
-	if err := q.LockOrganizationSecretsForDeletion(ctx, dbsqlc.LockOrganizationSecretsForDeletionParams{OrgID: orgID}); err != nil {
-		return nil, fmt.Errorf("lock organization secrets for deletion: %w", err)
 	}
 	plan, err := prelockOrganizationMachineLifecycleTx(ctx, unit, q, orgID)
 	if err != nil {
@@ -621,6 +608,12 @@ func (s *Service) deleteOrganizationOnce(
 			return nil, fmt.Errorf("delete organization BYO machine %s: %w", machineID, err)
 		}
 	}
+	// Account deletion locks organization memberships before their project
+	// memberships and user-owned resources. Both paths lock memberships in UUID
+	// order so concurrent account and organization deletions cannot form a cycle.
+	if err := q.LockOrganizationMembershipsForDeletion(ctx, dbsqlc.LockOrganizationMembershipsForDeletionParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("lock organization memberships for deletion: %w", err)
+	}
 	if err := q.DeleteOrganizationMemberships(ctx, dbsqlc.DeleteOrganizationMembershipsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization memberships: %w", err)
 	}
@@ -631,9 +624,6 @@ func (s *Service) deleteOrganizationOnce(
 	}
 	if err := q.DeleteOrganizationConfiguredModels(ctx, dbsqlc.DeleteOrganizationConfiguredModelsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization configured models: %w", err)
-	}
-	if err := q.DeleteOrganizationModelProviderHeaderSecrets(ctx, dbsqlc.DeleteOrganizationModelProviderHeaderSecretsParams{OrgID: orgID}); err != nil {
-		return nil, fmt.Errorf("delete organization provider header secrets: %w", err)
 	}
 	if err := q.DeleteOrganizationModelProviderConfigs(ctx, dbsqlc.DeleteOrganizationModelProviderConfigsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization model provider configs: %w", err)
@@ -669,6 +659,11 @@ func (s *Service) deleteOrganizationOnce(
 	if err := q.DeleteOrganizationSecretOAuthLeases(ctx, dbsqlc.DeleteOrganizationSecretOAuthLeasesParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization secret oauth leases: %w", err)
 	}
+	// Ciphertext of secrets still referenced by pool rows awaiting machine
+	// teardown survives until teardown completion re-runs this inline.
+	if _, err := q.DestroyUnreferencedSecretVersionsForDeletedOrg(ctx, dbsqlc.DestroyUnreferencedSecretVersionsForDeletedOrgParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("destroy organization secret versions: %w", err)
+	}
 	if err := q.DeleteOrgInvitationsForOrgDeletion(ctx, dbsqlc.DeleteOrgInvitationsForOrgDeletionParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization invitations: %w", err)
 	}
@@ -678,9 +673,7 @@ func (s *Service) deleteOrganizationOnce(
 	if err := q.DeleteOrganizationOrgAPIKeys(ctx, dbsqlc.DeleteOrganizationOrgAPIKeysParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization api keys: %w", err)
 	}
-	// Ciphertext of secrets still referenced by pool rows awaiting machine
-	// teardown survives until that teardown also commits with secret cleanup.
-	if err := unit.CommitTeardown(ctx, "delete organization", orgID); err != nil {
+	if err := unit.Commit(ctx, "delete organization"); err != nil {
 		return nil, err
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)

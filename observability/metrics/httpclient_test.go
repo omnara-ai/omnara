@@ -273,3 +273,23 @@ func scrapeMetrics(t *testing.T, set *Set) string {
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// An observed client must retain the transport's connection cleanup contract.
+type closeableTestTransport struct {
+	closed bool
+}
+
+func (rt *closeableTestTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
+}
+
+func (rt *closeableTestTransport) CloseIdleConnections() { rt.closed = true }
+
+func TestObservedHTTPClientClosesIdleConnections(t *testing.T) {
+	base := &closeableTestTransport{}
+	client := NewObservedHTTPClient(&http.Client{Transport: base}, NewHTTPClientRecorder(New(), SubsystemHTTPClient))
+	client.CloseIdleConnections()
+	if !base.closed {
+		t.Fatal("observed transport did not forward CloseIdleConnections")
+	}
+}

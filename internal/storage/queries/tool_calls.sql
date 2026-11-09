@@ -109,13 +109,10 @@ LEFT JOIN LATERAL (
 ) result_blocks ON true;
 
 -- name: ListToolCallsForAgent :many
-SELECT call.id, call.project_id, call.agent_id,
-  call.turn_id, call.source_event_id,
-  call.model_call_context_id, call.provider_call_id,
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
-  coalesce(result.outcome, '') AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
+  coalesce(result.outcome, '') AS outcome,
   call.created_at, result.completed_at
 FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
@@ -157,13 +154,10 @@ WITH page AS (
   ORDER BY tool_call.created_at ASC, tool_call.id ASC
   LIMIT sqlc.arg(row_limit)::bigint
 )
-SELECT call.id, call.project_id, call.agent_id,
-  call.turn_id, call.source_event_id,
-  call.model_call_context_id, call.provider_call_id,
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
-  ''::text AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
+  ''::text AS outcome,
   call.created_at, NULL::timestamptz AS completed_at
 FROM page
 JOIN tool_call_read_projection call ON call.agent_id = page.agent_id

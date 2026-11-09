@@ -239,34 +239,34 @@ export async function requestWithPolicy<T>(
       () => dispatch({ fetch: retryingFetch, signal, headers, bodySerializer }),
       signal,
     )
-    if (parseAs === 'stream') {
-      // Wrap the final returned stream: response interceptors can clone or replace it.
-      if (result instanceof ReadableStream) {
-        const stream = callerSignal ? streamWithLifetime(result, signal, disposeCaller) : result
-        handoff = 'stream'
-        // SAFETY: generated data mode returns the raw stream; wrapping preserves that contract.
-        return stream as T
-      }
-      // Generated fields mode is a transport envelope, not a domain payload.
+    // Wrap the final returned stream: response interceptors can clone or replace it.
+    if (result instanceof ReadableStream) {
+      clearTimeout(timer)
+      const stream = callerSignal ? streamWithLifetime(result, signal, disposeCaller) : result
+      handoff = 'stream'
+      // SAFETY: generated data mode returns the raw stream; wrapping preserves that contract.
+      return stream as T
+    }
+    // Generated fields mode is a transport envelope, not a domain payload.
+    if (
+      result !== null &&
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof
+      typeof result === 'object' &&
+      'response' in result &&
+      result.response instanceof Response
+    ) {
+      handoff = result.response === lastResponse ? 'response' : 'none'
       if (
-        result !== null &&
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof
-        typeof result === 'object' &&
-        'response' in result &&
-        result.response instanceof Response
+        result.response.body !== null &&
+        'data' in result &&
+        result.data === result.response.body
       ) {
-        handoff = result.response === lastResponse ? 'response' : 'none'
-        if (
-          result.response.body !== null &&
-          'data' in result &&
-          result.data === result.response.body
-        ) {
-          const response = callerSignal
-            ? responseWithStreamLifetime(result.response, signal, disposeCaller)
-            : result.response
-          handoff = 'stream'
-          return { ...result, data: response.body, response }
-        }
+        clearTimeout(timer)
+        const response = callerSignal
+          ? responseWithStreamLifetime(result.response, signal, disposeCaller)
+          : result.response
+        handoff = 'stream'
+        return { ...result, data: response.body, response }
       }
     }
     return result

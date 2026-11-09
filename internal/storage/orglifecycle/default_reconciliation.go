@@ -33,7 +33,7 @@ func (s *Service) ReconcileDefaults(
 	var orgIDs []uuid.UUID
 	seen := make(map[uuid.UUID]bool)
 	pools := make(map[uuid.UUID][]dbsqlc.MachinePool)
-	providers := make(map[uuid.UUID][]dbsqlc.ListClusterManagedModelProviderConfigsByNameRow)
+	providers := make(map[uuid.UUID][]dbsqlc.ModelProviderConfig)
 	addOrg := func(orgID uuid.UUID) {
 		if !seen[orgID] {
 			seen[orgID] = true
@@ -108,7 +108,7 @@ func (s *Service) reconcileOrgDefaults(
 	orgID uuid.UUID,
 	input ReconcileDefaultsInput,
 	pools []dbsqlc.MachinePool,
-	providers []dbsqlc.ListClusterManagedModelProviderConfigsByNameRow,
+	providers []dbsqlc.ModelProviderConfig,
 ) (ReconcileDefaultsResult, error) {
 	txOptions := pgx.TxOptions{}
 	if !input.Apply {

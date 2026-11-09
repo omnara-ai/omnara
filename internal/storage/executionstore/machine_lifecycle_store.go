@@ -1164,7 +1164,13 @@ func (s *Store) completePoolMachineDeletion(
 			}); err != nil {
 				return struct{}{}, fmt.Errorf("release machine pool credential for deletion completion: %w", err)
 			}
-			if err := unit.CommitTeardown(ctx, "complete pool machine deletion", orgID); err != nil {
+			if _, err := qtx.DestroyUnreferencedSecretVersionsForDeletedOrg(
+				ctx,
+				dbsqlc.DestroyUnreferencedSecretVersionsForDeletedOrgParams{OrgID: orgID},
+			); err != nil {
+				return struct{}{}, fmt.Errorf("destroy deleted-org secret versions for deletion completion: %w", err)
+			}
+			if err := unit.Commit(ctx, "complete pool machine deletion"); err != nil {
 				return struct{}{}, err
 			}
 			return struct{}{}, nil

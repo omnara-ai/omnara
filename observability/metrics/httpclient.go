@@ -108,6 +108,12 @@ func (rt observedHTTPTransport) RoundTrip(req *http.Request) (*http.Response, er
 	return resp, err
 }
 
+func (rt observedHTTPTransport) CloseIdleConnections() {
+	if transport, ok := rt.base.(interface{ CloseIdleConnections() }); ok {
+		transport.CloseIdleConnections()
+	}
+}
+
 func newClientObserver(recorder *HTTPClientRecorder, opts []HTTPClientObserverOption) clientObserver {
 	observer := clientObserver{recorder: recorder}
 	for _, opt := range opts {

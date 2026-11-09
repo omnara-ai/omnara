@@ -374,7 +374,7 @@ func main() {
 
 	eventWebhooks := eventwebhook.New(
 		store.Execution(), log, cfg.WorkerEventWebhookConcurrency, cfg.EventWebhookPerOrgConcurrency,
-		metrics.NewEventWebhookRecorder(metricSet),
+		metrics.NewEventWebhookRecorder(metricSet), httpRecorder,
 	)
 	eventWebhookDone := make(chan struct{})
 	go func() {

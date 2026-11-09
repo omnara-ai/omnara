@@ -62,6 +62,7 @@ type ProjectMachineGrantRecord struct {
 	SourceKind                ProjectMachineGrantSourceKind `json:"source_kind"`
 	ProjectMachinePoolGrantID uuid.UUID                     `json:"project_machine_pool_grant_id,omitempty"`
 	Description               string                        `json:"description"`
+	IdempotencyKey            string                        `json:"idempotency_key,omitempty"`
 	Metadata                  json.RawMessage               `json:"metadata"`
 	CreatedAt                 time.Time                     `json:"created_at"`
 	UpdatedAt                 time.Time                     `json:"updated_at"`
@@ -696,29 +697,12 @@ func (s *Store) CreateProjectMachineGrant(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, input.OrgID, input.ProjectID); err != nil {
 		return ProjectMachineGrantRecord{}, MachineRecord{}, err
 	}
-	replayID, err := reserveProjectMachineGrantCreation(ctx, qtx, input, metadata)
-	if err != nil {
-		return ProjectMachineGrantRecord{}, MachineRecord{}, err
-	}
 	if err := lifecyclelock.Machines(
 		ctx,
 		tx,
 		[]lifecyclelock.MachineRef{{OrgID: input.OrgID, MachineID: input.MachineID}},
 	); err != nil {
 		return ProjectMachineGrantRecord{}, MachineRecord{}, err
-	}
-	var grant ProjectMachineGrantRecord
-	if replayID != uuid.Nil {
-		row, err := qtx.GetProjectMachineGrant(ctx, dbsqlc.GetProjectMachineGrantParams{
-			OrgID: input.OrgID, ProjectID: input.ProjectID, ID: replayID,
-		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ProjectMachineGrantRecord{}, MachineRecord{}, storeerr.ErrIdempotencyConflict
-		}
-		if err != nil {
-			return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf("get replayed machine grant: %w", err)
-		}
-		grant = projectMachineGrantFromSQLC(row)
 	}
 	machineRow, err := qtx.GetMachine(
 		ctx,
@@ -734,32 +718,57 @@ func (s *Store) CreateProjectMachineGrant(
 		)
 	}
 	machine := machineRecordFromGetSQLC(machineRow)
-	if replayID == uuid.Nil {
-		grant, err = upsertExplicitProjectMachineGrantTx(ctx, qtx, input, metadata)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ProjectMachineGrantRecord{}, MachineRecord{}, storeerr.Tag(storeerr.ErrConflict, errors.New(
-				"a grant for this machine already exists on this project",
-			))
+	grant, err := upsertExplicitProjectMachineGrantTx(ctx, qtx, input, metadata)
+	if err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf(
+				"commit create project machine grant: %w",
+				err,
+			)
 		}
-		if err != nil {
-			return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf("upsert project machine grant: %w", err)
+		return grant, machine, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf(
+			"upsert project machine grant: %w",
+			err,
+		)
+	}
+	if input.IdempotencyKey != "" {
+		replay, replayErr := qtx.GetProjectMachineGrantByIdempotency(
+			ctx,
+			dbsqlc.GetProjectMachineGrantByIdempotencyParams{
+				ProjectID:      input.ProjectID,
+				IdempotencyKey: input.IdempotencyKey,
+			},
+		)
+		if replayErr == nil {
+			grant := projectMachineGrantFromSQLC(dbsqlc.GetProjectMachineGrantRow(replay))
+			if grant.MachineID != input.MachineID ||
+				grant.SourceKind != ProjectMachineGrantSourceKindExplicit ||
+				grant.ProjectMachinePoolGrantID != uuid.Nil ||
+				grant.Description != input.Description ||
+				!sameJSON(grant.Metadata, metadata) {
+				return ProjectMachineGrantRecord{}, MachineRecord{}, storeerr.ErrIdempotencyConflict
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf(
+					"commit replay create project machine grant: %w",
+					err,
+				)
+			}
+			return grant, machine, nil
 		}
-		if input.IdempotencyKey != "" {
-			count, err := qtx.CompleteProjectMachineGrantCreation(ctx, dbsqlc.CompleteProjectMachineGrantCreationParams{
-				OrgID: input.OrgID, ProjectID: input.ProjectID, IdempotencyKey: input.IdempotencyKey, GrantID: grant.ID,
-			})
-			if err != nil {
-				return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf("complete machine grant creation: %w", err)
-			}
-			if count != 1 {
-				return ProjectMachineGrantRecord{}, MachineRecord{}, errors.New("machine grant creation receipt missing")
-			}
+		if !errors.Is(replayErr, pgx.ErrNoRows) {
+			return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf(
+				"get project machine grant by idempotency: %w",
+				replayErr,
+			)
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return ProjectMachineGrantRecord{}, MachineRecord{}, fmt.Errorf("commit create project machine grant: %w", err)
-	}
-	return grant, machine, nil
+	return ProjectMachineGrantRecord{}, MachineRecord{}, storeerr.Tag(storeerr.ErrConflict, errors.New(
+		"a grant for this machine already exists on this project",
+	))
 }
 
 func upsertExplicitProjectMachineGrantTx(
@@ -778,13 +787,14 @@ func upsertExplicitProjectMachineGrantTx(
 			SourceKind:                string(ProjectMachineGrantSourceKindExplicit),
 			ProjectMachinePoolGrantID: nil,
 			Description:               input.Description,
+			IdempotencyKey:            storeutil.TextFromEmpty(input.IdempotencyKey),
 			Metadata:                  metadata,
 		},
 	)
 	if err != nil {
 		return ProjectMachineGrantRecord{}, err
 	}
-	grant := projectMachineGrantFromSQLC(row)
+	grant := projectMachineGrantFromSQLC(dbsqlc.GetProjectMachineGrantRow(row))
 	grant.Created = true
 	return grant, nil
 }
@@ -793,7 +803,7 @@ func upsertProjectMachineGrantTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
 	input dbsqlc.UpsertProjectMachineGrantParams,
-) (dbsqlc.ProjectMachineGrant, error) {
+) (dbsqlc.UpsertProjectMachineGrantRow, error) {
 	row, err := qtx.UpsertProjectMachineGrant(ctx, input)
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return row, err
@@ -802,9 +812,9 @@ func upsertProjectMachineGrantTx(
 		ctx,
 		dbsqlc.GetProjectParams{OrgID: input.OrgID, ID: input.ProjectID},
 	); errors.Is(projectErr, pgx.ErrNoRows) {
-		return dbsqlc.ProjectMachineGrant{}, storeerr.ErrNotFound
+		return dbsqlc.UpsertProjectMachineGrantRow{}, storeerr.ErrNotFound
 	} else if projectErr != nil {
-		return dbsqlc.ProjectMachineGrant{}, fmt.Errorf(
+		return dbsqlc.UpsertProjectMachineGrantRow{}, fmt.Errorf(
 			"get project for machine grant: %w",
 			projectErr,
 		)
@@ -814,10 +824,10 @@ func upsertProjectMachineGrantTx(
 		dbsqlc.GetMachineParams{OrgID: input.OrgID, ID: input.MachineID},
 	)
 	if errors.Is(machineErr, pgx.ErrNoRows) || machine.DeletedAt != nil {
-		return dbsqlc.ProjectMachineGrant{}, storeerr.ErrNotFound
+		return dbsqlc.UpsertProjectMachineGrantRow{}, storeerr.ErrNotFound
 	}
 	if machineErr != nil {
-		return dbsqlc.ProjectMachineGrant{}, fmt.Errorf(
+		return dbsqlc.UpsertProjectMachineGrantRow{}, fmt.Errorf(
 			"get machine for project grant: %w",
 			machineErr,
 		)
@@ -872,8 +882,8 @@ func (s *Store) ListProjectMachineGrants(
 				SourceKind:                ProjectMachineGrantSourceKind(row.SourceKind),
 				ProjectMachinePoolGrantID: storeutil.IDFromPtr(row.ProjectMachinePoolGrantID),
 				Description:               row.Description,
-				Metadata:                  row.Metadata,
-				CreatedAt:                 row.CreatedAt, UpdatedAt: row.UpdatedAt,
+				IdempotencyKey:            row.IdempotencyKey, Metadata: row.Metadata,
+				CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 			},
 			Machine: MachineSummaryRecord{
 				ID: row.MachineID, OrgID: row.OrgID, SourceKind: MachineSourceKind(row.MachineSourceKind),
@@ -965,7 +975,7 @@ func (s *Store) ListActiveProjectMachineGrantsForMachine(
 	}
 	out := make([]ProjectMachineGrantRecord, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, projectMachineGrantFromSQLC(row))
+		out = append(out, projectMachineGrantFromSQLC(dbsqlc.GetProjectMachineGrantRow(row)))
 	}
 	return out, nil
 }
@@ -1067,7 +1077,7 @@ func (s *Store) deleteProjectMachineGrantOnce(
 	if err != nil {
 		return ProjectMachineGrantRecord{}, fmt.Errorf("delete project machine grant: %w", err)
 	}
-	record := projectMachineGrantFromSQLC(row)
+	record := projectMachineGrantFromSQLC(dbsqlc.GetProjectMachineGrantRow(row))
 	if err := unit.Commit(ctx, "delete project machine grant"); err != nil {
 		return ProjectMachineGrantRecord{}, err
 	}

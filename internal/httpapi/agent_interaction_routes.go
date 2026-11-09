@@ -62,7 +62,7 @@ func (s strictOpenAPIServer) listAgentInteractions(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response, err := agentInteractionsListResponse(orgID, agentID, page)
+	response, err := agentInteractionsListResponse(orgID, page)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func (s strictOpenAPIServer) ListProjectInteractions(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response, err := agentInteractionsListResponse(scope.project.OrgID, uuid.Nil, page)
+	response, err := agentInteractionsListResponse(scope.project.OrgID, page)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func (s strictOpenAPIServer) ListProjectInteractions(
 }
 
 func agentInteractionsListResponse(
-	orgID, listedAgentID uuid.UUID,
+	orgID uuid.UUID,
 	page executionstore.ListAgentInteractionsResult,
 ) (openapi.ListAgentInteractionsResponse, error) {
 	data := make([]openapi.AgentInteraction, 0, len(page.Interactions))
@@ -124,10 +124,8 @@ func agentInteractionsListResponse(
 		if err != nil {
 			return openapi.ListAgentInteractionsResponse{}, err
 		}
-		if item.AgentID != listedAgentID {
-			response.AgentName = &item.AgentName
-			response.SubagentKey = ptrFromNonEmpty(item.SubagentKey)
-		}
+		response.AgentName = &item.AgentName
+		response.SubagentKey = ptrFromNonEmpty(item.SubagentKey)
 		data = append(data, response)
 		last = item.AgentInteractionRecord
 	}

@@ -21,9 +21,9 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 };
 
 /**
- * List event webhooks for one scope
+ * List event webhooks
  *
- * Returns the webhooks directly attached to the requested scope, not inherited matches.
+ * Lists all subscriptions in the project, ordered by created_at then id ascending. An explicit scope returns only subscriptions with that exact selection, not inherited matches. Agent or profile IDs require the corresponding scope_type.
  */
 export const listEventWebhooks = <ThrowOnError extends boolean = true>(options: Options<ListEventWebhooksData, ThrowOnError>): RequestResult<ListEventWebhooksResponses, ListEventWebhooksErrors, ThrowOnError> => (options.client ?? client).get<ListEventWebhooksResponses, ListEventWebhooksErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListEventWebhooksResponse2),
@@ -43,7 +43,7 @@ export const listEventWebhooks = <ThrowOnError extends boolean = true>(options: 
 /**
  * Create an event webhook
  *
- * Subscribes to future events from agents matching the scope. Each scope can have only one active webhook per URL; duplicates return 409. Matching scopes are additive. Requires project management permission.
+ * Subscribes to future events from agents matching the scope. Projects can have up to 100 active subscriptions across all selections. Each selection can have only one active webhook per URL; duplicates return 409. Matching scopes are additive. Requires project management permission.
  */
 export const createEventWebhook = <ThrowOnError extends boolean = true>(options: Options<CreateEventWebhookData, ThrowOnError>): RequestResult<CreateEventWebhookResponses, CreateEventWebhookErrors, ThrowOnError> => (options.client ?? client).post<CreateEventWebhookResponses, CreateEventWebhookErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateEventWebhookResponse),
@@ -115,7 +115,7 @@ export const getEventWebhook = <ThrowOnError extends boolean = true>(options: Op
 /**
  * Update event webhook settings
  *
- * Updates a webhook's URL, event filters, and signing settings. The scope cannot change. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Event filters affect newly queued deliveries; URL and signing changes also apply to pending attempts.
+ * Updates a webhook's URL, event filters, signing settings, or complete scope selection. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Selected agents and profiles must belong to the project. Selection and event filters affect newly queued deliveries; notifications selected before an edit may still arrive afterward. URL and signing changes also apply to pending attempts. The same selection and URL cannot duplicate another active subscription.
  */
 export const updateEventWebhook = <ThrowOnError extends boolean = true>(options: Options<UpdateEventWebhookData, ThrowOnError>): RequestResult<UpdateEventWebhookResponses, UpdateEventWebhookErrors, ThrowOnError> => (options.client ?? client).patch<UpdateEventWebhookResponses, UpdateEventWebhookErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateEventWebhookResponse),
@@ -2906,7 +2906,7 @@ export const listProjectMachineGrants = <ThrowOnError extends boolean = true>(op
 /**
  * Create project machine grant
  *
- * Lets a project's agent configs use one BYO machine by name and returns the grant with the machine's record. Pooled machines can't be granted this way and return 404. Replaying the original create with the same Idempotency-Key returns the current grant. The key remains consumed after revocation or resource cleanup: replay returns 409 idempotency_key_conflict and never restores access. Intentional re-granting needs a new key.
+ * Lets a project's agent configs use one BYO machine by name and returns the grant with the machine's record. Pooled machines can't be granted this way and return 404. Idempotency keys are retained only while the grant exists. Retrying creation after the grant is revoked or deleted can recreate it and restore access, including through automatic SDK retries. A replay compares the request with the current grant.
  */
 export const createProjectMachineGrant = <ThrowOnError extends boolean = true>(options: Options<CreateProjectMachineGrantData, ThrowOnError>): RequestResult<CreateProjectMachineGrantResponses, CreateProjectMachineGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectMachineGrantResponses, CreateProjectMachineGrantErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateProjectMachineGrantResponse2),
@@ -3774,7 +3774,7 @@ export const listProjectMachinePoolGrants = <ThrowOnError extends boolean = true
 /**
  * Create project machine pool grant
  *
- * Lets a project create machines from a machine pool, optionally with its own defaults and usage caps within the pool's limits, and returns the grant. No machines are created by this call. Replaying the original create with the same Idempotency-Key returns the current grant, including later updates. The key remains consumed after revocation or resource cleanup: replay returns 409 idempotency_key_conflict and never restores access. Intentional re-granting needs a new key.
+ * Lets a project create machines from a machine pool, optionally with its own defaults and usage caps within the pool's limits, and returns the grant. No machines are created by this call. Idempotency keys are retained only while the grant exists. Retrying creation after the grant is revoked or deleted can recreate it and restore access, including through automatic SDK retries. A replay compares the request with the current grant, so later edits can return 409 with code idempotency_key_conflict.
  */
 export const createProjectMachinePoolGrant = <ThrowOnError extends boolean = true>(options: Options<CreateProjectMachinePoolGrantData, ThrowOnError>): RequestResult<CreateProjectMachinePoolGrantResponses, CreateProjectMachinePoolGrantErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectMachinePoolGrantResponses, CreateProjectMachinePoolGrantErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateProjectMachinePoolGrantResponse),

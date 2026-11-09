@@ -428,7 +428,7 @@ SELECT (SELECT count(*)::integer
 			)
 			return deleteErr
 		})
-		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockOrg", 1)
+		integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteOrganization", 1)
 
 		connectDone := integrationdb.RunAsyncError(func() error {
 			_, connectErr := store.Execution().ConnectBYOMachine(

@@ -1,7 +1,10 @@
 import { agentEventsToMessages } from '@omnara/react'
-import type { AgentEvent } from '@omnara/sdk'
+import type { AgentEvent, AgentInteraction } from '@omnara/sdk'
+import { renderToString } from 'ink'
+import { createElement } from 'react'
 import { expect, it } from 'vitest'
 
+import { InteractionPrompt } from './chat-prompts.tsx'
 import { toolOutput, type ToolPart } from './chat-ui.tsx'
 
 const base = {
@@ -59,3 +62,34 @@ it.each(['succeeded', 'denied'] as const)(
     expect(toolOutput(toolPart(outcome))).toEqual({ outcome, text: '/workspace' })
   },
 )
+
+it.each([
+  { ownerID: 'agent', label: null },
+  { ownerID: 'child', label: 'from subagent Worker' },
+])('labels interactions by owning agent $ownerID, not its name', ({ ownerID, label }) => {
+  const interaction: AgentInteraction = {
+    id: 'interaction',
+    org_id: 'org',
+    project_id: 'project',
+    agent_id: ownerID,
+    agent_name: 'Worker',
+    subagent_key: 'worker',
+    tool_call_id: 'call',
+    interaction_kind: 'question',
+    state: 'open',
+    request: {
+      title: 'Which option?',
+      questions: [{ prompt: 'Choose one', options: [{ label: 'First' }] }],
+    },
+    created_at: base.created_at,
+  }
+  const output = renderToString(
+    createElement(InteractionPrompt, {
+      interaction,
+      agentID: 'agent',
+      onAnswer: () => undefined,
+    }),
+  )
+  if (label == null) expect(output).not.toContain('from subagent')
+  else expect(output).toContain(label)
+})

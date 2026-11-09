@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -156,4 +157,15 @@ func launchChildIdempotencyKey(parent, child string) string {
 		return ""
 	}
 	return "launch:" + parent + ":" + child
+}
+
+func machineSourceSlotChildIdempotencyKey(agentID uuid.UUID, index, slotIndex int, child string) string {
+	return agentChildIdempotencyKey(
+		agentID,
+		fmt.Sprintf("machine-source:%d:slot:%d:%s", index, slotIndex, child),
+	)
+}
+
+func agentChildIdempotencyKey(agentID uuid.UUID, child string) string {
+	return "agent:" + agentID.String() + ":" + child
 }

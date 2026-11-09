@@ -31,27 +31,6 @@ do not use RDS Proxy or transaction-pooling PgBouncer. Long-running services
 may use a compatible proxy. See [database configuration](/self-hosting/configuration#database-and-redis)
 for connection-pool defaults.
 
-Schema upgrades are not guaranteed to be online. Migration 69 (project-scoped
-tool recovery and grant/secret references) runs in one transaction. Drain and
-stop the API, worker, and maintenance services before running the migrator.
-Start the new versions only after it succeeds; old binaries cannot safely
-operate on the new schema. Rehearse the upgrade on a representative database
-to measure the required maintenance window.
-
-Take a database backup before upgrading. Reverting to the previous binaries
-requires restoring the pre-upgrade database.
-
-For Compose, stop the existing writers before starting the upgraded services:
-
-```sh
-docker compose -f compose.yaml --profile app stop api worker maintenance
-```
-
-If migration 69 fails, its schema changes and data backfills roll back together.
-Address the failure before retrying; the retry reruns the entire migration.
-For timeouts, check both `OMNARA_MIGRATION_TIMEOUT` (30 minutes by default) and
-the migrator connection's `statement_timeout` (15 minutes per statement by default).
-
 ## Memory storage
 
 Compose shares the persistent `memory-data` volume between API, worker, and maintenance at `/var/lib/omnara/memory`.

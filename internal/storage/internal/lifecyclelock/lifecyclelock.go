@@ -14,22 +14,14 @@ import (
 )
 
 // Canonical order: organization, project, and integration lifecycle gates; account
-// principals, organization rows, and memberships; existing model providers;
-// secret rows (in UUID order); agent profiles;
-// agent sources; configured models; pools and grants;
+// principals; agent profiles; agent sources; configured models; pools and grants;
 // machines; existing agents; environment keys; then child state. Account mutations
 // lock users before organization rows and memberships; organization teardown
-// locks its organization row before memberships, then project memberships and
-// user-owned resources. Organization and user row locks use NO KEY UPDATE so
-// immutable-identity foreign keys can still acquire KEY SHARE during admission.
+// locks memberships before their project memberships and user-owned resources.
 // A transaction may enter at the earliest class shared with competing work, such
 // as an agent child serializing at the agent. Re-entering an earlier class is
 // safe only when an already-held lock excludes every competing path; exclusive
 // scope teardown can therefore re-enter agent-source locks during archival.
-// Provider mutations lock the provider before its secret references and header
-// rows. Organization teardown may lock secrets, pools, and agents and delete
-// headers before providers: its exclusive organization gate excludes every
-// competing provider mutation.
 // IDs in the same class use stable UUID order unless earlier locks already
 // exclude competing multi-row lockers, as pool locks do for their grants.
 // A lock outside this ladder must have a fixed class or be reachable only behind

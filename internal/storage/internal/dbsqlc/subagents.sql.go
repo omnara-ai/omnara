@@ -553,9 +553,9 @@ WITH page AS (
       FROM agents agent
       WHERE agent.id = interaction.agent_id
     )
-    AND (
-      $4::timestamptz IS NULL
-      OR (interaction.created_at, interaction.id) > ($4::timestamptz, $5::uuid)
+    AND (interaction.created_at, interaction.id) > (
+      coalesce($4::timestamptz, '-infinity'::timestamptz),
+      coalesce($5::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
     )
   ORDER BY interaction.created_at ASC, interaction.id ASC
   LIMIT $6::bigint
