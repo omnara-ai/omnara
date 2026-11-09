@@ -45,7 +45,10 @@ export function installBrowserContext(
     if (
       event.query.queryHash === hash &&
       event.type === 'updated' &&
-      (event.action.type === 'success' || event.action.type === 'error')
+      (event.action.type === 'success' ||
+        (event.action.type === 'error' &&
+          event.action.error instanceof ApiError &&
+          event.action.error.status === 401))
     )
       publish()
   })

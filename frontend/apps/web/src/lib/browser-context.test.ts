@@ -46,15 +46,31 @@ it('publishes user and organization changes without starting requests or repeati
   }
 })
 
-it.each([401, 503])('handles a %s response after publishing cached identity', async (status) => {
+it('retains identity on transient errors but requires success to restore a rejected session', async () => {
   queries.setQueryData(key, currentUser([currentUserOrg()]))
   unsubscribe = installBrowserContext(window, queries, client)
   expect(window.omnaraBrowserContext?.userId).toBe(fakeId('usr'))
-  await expect(
-    queries.fetchQuery({
-      queryKey: key,
-      queryFn: () => Promise.reject(new ApiError(status, 'Unavailable')),
-    }),
-  ).rejects.toThrow()
-  expect(window.omnaraBrowserContext?.userId).toBe(status === 401 ? undefined : fakeId('usr'))
+  const changed = vi.fn()
+  window.addEventListener('omnara:browser-context', changed)
+  try {
+    for (const [status, userId, events] of [
+      [503, fakeId('usr'), 0],
+      [401, undefined, 1],
+      [503, undefined, 1],
+    ] as const) {
+      await expect(
+        queries.fetchQuery({
+          queryKey: key,
+          queryFn: () => Promise.reject(new ApiError(status, 'Unavailable')),
+        }),
+      ).rejects.toThrow()
+      expect(window.omnaraBrowserContext?.userId).toBe(userId)
+      expect(changed).toHaveBeenCalledTimes(events)
+    }
+    queries.setQueryData(key, currentUser([currentUserOrg()]))
+    expect(window.omnaraBrowserContext?.userId).toBe(fakeId('usr'))
+    expect(changed).toHaveBeenCalledTimes(2)
+  } finally {
+    window.removeEventListener('omnara:browser-context', changed)
+  }
 })
