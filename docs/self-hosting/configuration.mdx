@@ -64,20 +64,7 @@ a claiming or scheduling problem instead.
 
 ### Monitoring event delivery
 
-Monitor worker capacity, delivery failures, and queue depth. Alert on sustained
-`omnara_event_webhook_oldest_due_lag_seconds` with a fresh
-`omnara_event_webhook_backlog_sample_last_success_timestamp_seconds`;
-enqueue age alone also grows during recipient outages. Due lag includes work
-waiting for an organization's concurrency allowance. Aggregate these queue gauges
-with **max**, not sum, across maintenance replicas.
-
-The repository includes [tested Prometheus delivery alert rules](https://github.com/omnara-ai/omnara/blob/main/observability/prometheus/delivery.rules.yml)
-and [metric and deployment instructions](https://github.com/omnara-ai/omnara/blob/main/observability/README.md#event-delivery).
-Load these rules and configure receiver routing
-in your monitoring deployment; installing Omnara does not install Prometheus or
-activate the alerts. Keep target-down alerts for missing services, and use
-[ready-call recovery](/tools/custom#schedule-finite-recovery-checks) for externally
-executed custom tools.
+See the [event-delivery monitoring guide](https://github.com/omnara-ai/omnara/blob/main/observability/README.md#event-delivery) for metrics and Prometheus alert setup.
 
 ### Integration inbox operation
 
