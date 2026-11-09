@@ -120,6 +120,9 @@ func eventWebhookResponseFromRecord(record executionstore.EventWebhookRecord) (o
 		Url: record.Settings.URL, EventTypes: make([]openapi.EventWebhookEventType, len(record.Settings.EventTypes)),
 		CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
+	if record.ScopeName != "" {
+		result.ScopeName = &record.ScopeName
+	}
 	for i, eventType := range record.Settings.EventTypes {
 		result.EventTypes[i] = openapi.EventWebhookEventType(eventType)
 	}

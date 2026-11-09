@@ -23,6 +23,7 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
     required,
     value,
     onValueChange,
+    onOpenChange,
     search,
     query,
     pending = query?.isPending ?? false,
@@ -36,6 +37,7 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
   }: ResourceComboboxBaseProps<TItem> & {
     value: TItem | null
     onValueChange: (item: TItem | null) => void
+    onOpenChange?: (open: boolean) => void
     clearable?: boolean
     triggerRef?: RefObject<HTMLButtonElement | null>
     triggerClassName?: string
@@ -43,7 +45,11 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
     const rootProps = useResourceComboboxRootProps(config, search, items, disabled)
     const localTriggerRef = useRef<HTMLButtonElement>(null)
     const triggerRef = externalTriggerRef ?? localTriggerRef
-    const [open, setOpen] = useState(false)
+    const [open, setOpenState] = useState(false)
+    const setOpen = (value: boolean) => {
+      setOpenState(value)
+      onOpenChange?.(value)
+    }
     const canClear = clearable && value !== null
     const label = value ? config.itemLabel(value) : placeholder
 

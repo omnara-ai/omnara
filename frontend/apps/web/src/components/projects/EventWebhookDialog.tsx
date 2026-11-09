@@ -61,6 +61,12 @@ export function EventWebhookDialog({
   const id = useId()
   const eventTypes: EventWebhookEventType[] = webhook?.event_types ?? ['tool_call_update']
   const initialScope: EventWebhookScope = webhook?.scope ?? { type: 'project' }
+  const initialSelectionId =
+    initialScope.type === 'project'
+      ? undefined
+      : initialScope.type === 'agent'
+        ? initialScope.agent_id
+        : initialScope.agent_profile_id
   const form = useForm({
     defaultValues: {
       scope: initialScope,
@@ -130,6 +136,14 @@ export function EventWebhookDialog({
                     orgId={orgId}
                     projectId={projectId}
                     value={field.state.value}
+                    initialSelection={
+                      initialSelectionId
+                        ? {
+                            id: initialSelectionId,
+                            name: webhook?.scope_name ?? initialSelectionId,
+                          }
+                        : undefined
+                    }
                     onChange={field.handleChange}
                   />
                 )}

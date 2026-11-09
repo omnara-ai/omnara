@@ -52,6 +52,7 @@ type EventWebhookRecord struct {
 	OrgID     uuid.UUID
 	ProjectID uuid.UUID
 	Scope     EventWebhookScope
+	ScopeName string
 	Settings  webhookconfig.Settings
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -84,14 +85,24 @@ type UpdateEventWebhookInput struct {
 	SigningSecretID *uuid.UUID
 }
 
-func eventWebhookRecordFromSQLC(row dbsqlc.EventWebhook) EventWebhookRecord {
+func eventWebhookRecordFromSQLC(row dbsqlc.EventWebhook, scopeName string) EventWebhookRecord {
 	return EventWebhookRecord{
 		ID: row.ID, OrgID: row.OrgID, ProjectID: row.ProjectID,
-		Scope: eventWebhookScopeFromColumns(row.AgentProfileID, row.AgentID),
+		Scope:     eventWebhookScopeFromColumns(row.AgentProfileID, row.AgentID),
+		ScopeName: scopeName,
 		Settings: webhookconfig.Settings{URL: row.Url, EventTypes: row.EventTypes,
 			SigningSecretID: storeutil.IDFromPtr(row.SigningSecretID)},
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
+}
+
+func eventWebhookReadRecordFromSQLC(row dbsqlc.GetEventWebhookRow) EventWebhookRecord {
+	return eventWebhookRecordFromSQLC(dbsqlc.EventWebhook{
+		ID: row.ID, OrgID: row.OrgID, ProjectID: row.ProjectID,
+		AgentProfileID: row.AgentProfileID, AgentID: row.AgentID,
+		Url: row.Url, EventTypes: row.EventTypes, SigningSecretID: row.SigningSecretID,
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}, row.ScopeName)
 }
 
 func eventWebhookScopeFromColumns(agentProfileID, agentID *uuid.UUID) EventWebhookScope {
@@ -104,23 +115,25 @@ func eventWebhookScopeFromColumns(agentProfileID, agentID *uuid.UUID) EventWebho
 	return EventWebhookScope{Type: EventWebhookScopeProject}
 }
 
-func validateEventWebhookScopeTx(ctx context.Context, tx pgx.Tx, projectID uuid.UUID, scope EventWebhookScope) error {
+func validateEventWebhookScopeTx(
+	ctx context.Context, tx pgx.Tx, projectID uuid.UUID, scope EventWebhookScope,
+) (string, error) {
 	if err := scope.Validate(); err != nil {
-		return err
+		return "", err
 	}
 	q := dbsqlc.New(tx)
 	if scope.Type == EventWebhookScopeAgentProfile {
-		_, err := lockAgentProfileTx(ctx, q, projectID, scope.ID)
-		return err
+		profile, err := lockAgentProfileTx(ctx, q, projectID, scope.ID)
+		return profile.Name, err
 	}
 	if scope.Type == EventWebhookScopeAgent {
-		_, err := q.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{ProjectID: projectID, ID: scope.ID})
+		agent, err := q.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{ProjectID: projectID, ID: scope.ID})
 		if errors.Is(err, pgx.ErrNoRows) {
-			return storeerr.ErrNotFound
+			return "", storeerr.ErrNotFound
 		}
-		return err
+		return agent.Name, err
 	}
-	return nil
+	return "", nil
 }
 
 func (s *Store) validateEventWebhookSettingsTx(
@@ -172,7 +185,8 @@ func (s *Store) CreateEventWebhook(ctx context.Context, input CreateEventWebhook
 	if err := lockResourceCreation(ctx, q, "event_webhooks", input.ProjectID.String()); err != nil {
 		return EventWebhookRecord{}, err
 	}
-	if err := validateEventWebhookScopeTx(ctx, tx, input.ProjectID, input.Scope); err != nil {
+	scopeName, err := validateEventWebhookScopeTx(ctx, tx, input.ProjectID, input.Scope)
+	if err != nil {
 		return EventWebhookRecord{}, err
 	}
 	settings, err := s.validateEventWebhookSettingsTx(ctx, tx, project.OrgID, input.ProjectID, input.Settings)
@@ -202,7 +216,7 @@ func (s *Store) CreateEventWebhook(ctx context.Context, input CreateEventWebhook
 	if err := tx.Commit(ctx); err != nil {
 		return EventWebhookRecord{}, err
 	}
-	return eventWebhookRecordFromSQLC(row), nil
+	return eventWebhookRecordFromSQLC(row, scopeName), nil
 }
 
 func (scope EventWebhookScope) columns() (profileID, agentID *uuid.UUID) {
@@ -259,7 +273,7 @@ func (s *Store) ListEventWebhooks(
 	}
 	result.Webhooks = make([]EventWebhookRecord, 0, len(rows))
 	for _, row := range rows {
-		result.Webhooks = append(result.Webhooks, eventWebhookRecordFromSQLC(row))
+		result.Webhooks = append(result.Webhooks, eventWebhookReadRecordFromSQLC(dbsqlc.GetEventWebhookRow(row)))
 	}
 	return result, nil
 }
@@ -272,7 +286,7 @@ func (s *Store) GetEventWebhook(ctx context.Context, projectID, id uuid.UUID) (E
 	if err != nil {
 		return EventWebhookRecord{}, err
 	}
-	return eventWebhookRecordFromSQLC(row), nil
+	return eventWebhookReadRecordFromSQLC(row), nil
 }
 
 func (s *Store) UpdateEventWebhook(
@@ -312,10 +326,11 @@ func (s *Store) UpdateEventWebhook(
 	}
 	// Profile deletion locks the profile before its subscriptions. Validate the
 	// chosen profile before updating the webhook row in the same order.
-	if err := validateEventWebhookScopeTx(ctx, tx, input.ProjectID, scope); err != nil {
+	scopeName, err := validateEventWebhookScopeTx(ctx, tx, input.ProjectID, scope)
+	if err != nil {
 		return EventWebhookRecord{}, err
 	}
-	settings := eventWebhookRecordFromSQLC(current).Settings
+	settings := eventWebhookReadRecordFromSQLC(current).Settings
 	if input.URL != nil {
 		settings.URL = *input.URL
 	}
@@ -348,7 +363,7 @@ func (s *Store) UpdateEventWebhook(
 	if err := tx.Commit(ctx); err != nil {
 		return EventWebhookRecord{}, err
 	}
-	return eventWebhookRecordFromSQLC(row), nil
+	return eventWebhookRecordFromSQLC(row, scopeName), nil
 }
 
 func (s *Store) DeleteEventWebhook(ctx context.Context, projectID, id uuid.UUID) error {

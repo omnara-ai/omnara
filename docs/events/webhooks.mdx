@@ -29,6 +29,8 @@ Projects can have **100 active subscriptions across all selections**. This repla
 
 `GET /orgs/{orgID}/projects/{projectID}/event-webhooks` lists subscriptions across the project, ordered by creation time and ID. Pass `limit` (1–100, default 50), then pass the returned `next_cursor` as `cursor` until it is `null`. To list an exact selection, pass `scope_type=project`, `scope_type=profile&agent_profile_id=...`, or `scope_type=agent&agent_id=...`. These filtered lists are paginated too: follow `next_cursor` to read every matching subscription. The filters return directly selected subscriptions, not inherited matches. Listing requires project read permission; changes require project management permission.
 
+Responses include `scope_name`, the current name of the selected agent or profile, so a subscription list can display links without separate resource requests. It is omitted for project scope or an unavailable name; use the selected resource ID as a fallback. Names are derived when read, not stored on subscriptions.
+
 Change a subscription's selection through the existing item PATCH endpoint. Send the complete new `scope`, for example:
 
 ```json

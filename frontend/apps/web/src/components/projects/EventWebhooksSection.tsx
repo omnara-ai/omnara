@@ -47,9 +47,9 @@ export function EventWebhooksSection({
                 </p>
                 <div className="text-muted-foreground text-sm">
                   <EventWebhookScopeLabel
-                    orgId={orgId}
                     projectId={projectId}
                     scope={webhook.scope}
+                    name={webhook.scope_name}
                   />
                 </div>
                 <p

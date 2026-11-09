@@ -40,7 +40,10 @@ import { useScopedMutation } from './scoped-mutation'
 
 export type AgentListFilters = ListFilters<ListAgentsData>
 export type AgentListSort = ListSort<ListAgentsData>
-export type AgentListOptions = PaginatedListOptions<ListAgentsData>
+export type AgentListOptions = PaginatedListOptions<ListAgentsData> & {
+  /** Disable activity polling for static resource selection. Defaults to true. */
+  poll?: boolean
+}
 
 /**
  * Polls a list while any agent loaded so far is active. A list filtered on a live status
@@ -78,7 +81,8 @@ export function useAgents(orgID: string, projectID: string, options?: AgentListO
     ),
     enabled: list.enabled,
     placeholderData: keepPreviousData,
-    refetchInterval: agentListRefetchInterval(options?.filters?.activity_state),
+    refetchInterval:
+      options?.poll === false ? false : agentListRefetchInterval(options?.filters?.activity_state),
   })
 }
 

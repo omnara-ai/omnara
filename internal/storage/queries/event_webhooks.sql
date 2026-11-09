@@ -40,26 +40,34 @@ RETURNING id, org_id, project_id, agent_profile_id, agent_id, url, event_types, 
           created_at, updated_at, deleted_at;
 
 -- name: GetEventWebhook :one
-SELECT webhook.id, webhook.org_id, webhook.project_id, webhook.agent_profile_id, webhook.agent_id, webhook.url, webhook.event_types, webhook.signing_secret_id,
-          webhook.created_at, webhook.updated_at, webhook.deleted_at FROM event_webhooks webhook
+SELECT webhook.id, webhook.org_id, webhook.project_id, webhook.agent_profile_id, webhook.agent_id,
+       webhook.url, webhook.event_types, webhook.signing_secret_id, webhook.created_at, webhook.updated_at,
+       webhook.deleted_at, coalesce(profile.name, agent.name, '')::text AS scope_name
+FROM event_webhooks webhook
+LEFT JOIN agent_profiles profile ON profile.project_id = webhook.project_id AND profile.id = webhook.agent_profile_id AND profile.deleted_at IS NULL
+LEFT JOIN agents agent ON agent.project_id = webhook.project_id AND agent.id = webhook.agent_id
 JOIN orgs org ON org.id = webhook.org_id AND org.deleted_at IS NULL
 JOIN projects project ON project.id = webhook.project_id AND project.deleted_at IS NULL
 WHERE webhook.project_id = $1 AND webhook.id = $2 AND webhook.deleted_at IS NULL;
 
 -- name: ListEventWebhooks :many
-SELECT id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
-          created_at, updated_at, deleted_at FROM event_webhooks
-WHERE project_id = sqlc.arg(project_id)
+SELECT webhook.id, webhook.org_id, webhook.project_id, webhook.agent_profile_id, webhook.agent_id,
+       webhook.url, webhook.event_types, webhook.signing_secret_id, webhook.created_at, webhook.updated_at,
+       webhook.deleted_at, coalesce(profile.name, agent.name, '')::text AS scope_name
+FROM event_webhooks webhook
+LEFT JOIN agent_profiles profile ON profile.project_id = webhook.project_id AND profile.id = webhook.agent_profile_id AND profile.deleted_at IS NULL
+LEFT JOIN agents agent ON agent.project_id = webhook.project_id AND agent.id = webhook.agent_id
+WHERE webhook.project_id = sqlc.arg(project_id)
   AND (NOT sqlc.arg(filter_scope)::boolean OR (
-    agent_profile_id IS NOT DISTINCT FROM sqlc.narg(agent_profile_id)::uuid
-    AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)::uuid
+    webhook.agent_profile_id IS NOT DISTINCT FROM sqlc.narg(agent_profile_id)::uuid
+    AND webhook.agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)::uuid
   ))
-  AND deleted_at IS NULL
-  AND (created_at, id) > (
+  AND webhook.deleted_at IS NULL
+  AND (webhook.created_at, webhook.id) > (
     coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
     coalesce(sqlc.narg(cursor_id)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
   )
-ORDER BY created_at, id
+ORDER BY webhook.created_at, webhook.id
 LIMIT sqlc.arg(row_limit);
 
 -- name: CountProjectEventWebhooks :one

@@ -39,6 +39,13 @@ const agent: Agent = {
   project_id: projectId,
   state: 'active',
   name: 'Test agent',
+  activity: {
+    state: 'running',
+    last_activity_at: now,
+    open_interactions: { question_count: 0, permission_request_count: 0 },
+    running_processes: { count: 0, process_ids: [] },
+    working_subagents: { count: 0, agent_ids: [] },
+  },
   created_at: now,
   updated_at: now,
 }
@@ -97,6 +104,7 @@ afterEach(() => {
   rendered.cache.clear()
   container.remove()
   restore()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -114,7 +122,17 @@ function mount(initial: EventWebhook[] = [], canManage = true) {
           return Response.json({ code: 'internal_error', error: 'Unavailable' }, { status: 500 })
         const cursor = url.searchParams.get('cursor')
         const start = cursor ? rows.findIndex((row) => row.id === cursor) + 1 : 0
-        const data = rows.slice(start, start + 2)
+        const data = rows.slice(start, start + 2).map((row) => ({
+          ...row,
+          scope_name:
+            row.scope.type === 'agent'
+              ? agents.find(
+                  (agent) => row.scope.type === 'agent' && agent.id === row.scope.agent_id,
+                )?.name
+              : row.scope.type === 'profile' && row.scope.agent_profile_id === profileId
+                ? profile.name
+                : undefined,
+        }))
         return Response.json({
           data,
           next_cursor: start + 2 < rows.length ? data.at(-1)?.id : null,
@@ -133,11 +151,6 @@ function mount(initial: EventWebhook[] = [], canManage = true) {
     },
     {
       method: 'GET',
-      path: projectPath + '/agent-profiles/' + profileId,
-      respond: () => Response.json(profile),
-    },
-    {
-      method: 'GET',
       path: projectPath + '/agents',
       respond: ({ url }) => {
         const data = agents.filter(
@@ -146,11 +159,6 @@ function mount(initial: EventWebhook[] = [], canManage = true) {
         return Response.json({ data, next_cursor: null })
       },
     },
-    ...agents.map((agent) => ({
-      method: 'GET',
-      path: projectPath + '/agents/' + agent.id,
-      respond: () => Response.json({ agent, machine_ids: [], mcp_connections: [] }),
-    })),
     {
       method: 'POST',
       path,
@@ -462,4 +470,64 @@ it('keeps the row and displays failed deletion', async () => {
     expect(container.textContent).toContain('Could not delete webhook')
   })
   expect(container.querySelectorAll('li')).toHaveLength(1)
+})
+
+it('renders scope names and ID fallbacks without resource reads or live polling', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+  const missing: EventWebhookScope = { type: 'agent', agent_id: 'agt_' + 'z'.repeat(26) }
+  const { api } = mount([
+    webhook(agentScope),
+    webhook(childScope, 'b'),
+    webhook(profileScope, 'c'),
+    webhook(missing, 'd'),
+  ])
+  await waitForUI(() => {
+    expect(container.querySelectorAll('li')).toHaveLength(2)
+  })
+  act(() => {
+    button('Load more webhooks').click()
+  })
+  await waitForUI(() => {
+    expect(container.querySelectorAll('li')).toHaveLength(4)
+  })
+  expect(container.textContent).toContain(agent.name)
+  expect(container.textContent).toContain(childAgent.name)
+  expect(container.textContent).toContain(profile.name)
+  expect(container.textContent).toContain(missing.agent_id)
+  await act(() => vi.advanceTimersByTimeAsync(10_000))
+  expect(api.requests).toHaveLength(2)
+  expect(api.requests.every((request) => request.url.pathname === path)).toBe(true)
+})
+
+it('loads picker options only when opened, reuses selected names, and never polls active agents', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+  const { api } = mount([webhook(agentScope)])
+  await waitForUI(() => {
+    expect(container.querySelectorAll('li')).toHaveLength(1)
+  })
+  act(() => {
+    button('Edit webhook https://example.com/agent').click()
+  })
+  await waitForUI(() => {
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(agent.name)
+  })
+  await act(() => vi.advanceTimersByTimeAsync(10_000))
+  expect(api.requestsTo('GET', projectPath + '/agents')).toHaveLength(0)
+  act(() => {
+    button(agent.name).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+    )
+  })
+  await waitForUI(() => {
+    expect(api.requestsTo('GET', projectPath + '/agents')).toHaveLength(1)
+  })
+  await act(() => vi.advanceTimersByTimeAsync(10_000))
+  expect(api.requestsTo('GET', projectPath + '/agents')).toHaveLength(1)
+  await choose('Agent', childAgent.name)
+  await act(() => vi.advanceTimersByTimeAsync(10_000))
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain(childAgent.name)
+  expect(api.requestsTo('GET', projectPath + '/agents')).toHaveLength(1)
+  expect(
+    api.requests.filter((request) => request.url.pathname.startsWith(projectPath + '/agents/')),
+  ).toHaveLength(0)
 })

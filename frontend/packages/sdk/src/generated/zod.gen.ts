@@ -593,6 +593,7 @@ export const zEventWebhook = z.object({
     event_types: z.array(zEventWebhookEventType).min(1),
     signing_secret_id: zSecretId.optional(),
     scope: zEventWebhookScope,
+    scope_name: zResourceName.optional(),
     id: zEventWebhookId,
     org_id: zOrganizationId,
     project_id: zProjectId,

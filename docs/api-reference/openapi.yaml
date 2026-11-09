@@ -10489,6 +10489,9 @@ components:
           description: Optional project-available generic secret.
         scope:
           $ref: '#/components/schemas/EventWebhookScope'
+        scope_name:
+          $ref: '#/components/schemas/ResourceName'
+          description: Current name of the selected agent or profile, derived when read. Omitted for project scope or an unavailable name; use the scope ID as a display fallback.
         id:
           $ref: '#/components/schemas/EventWebhookID'
         org_id:

@@ -405,6 +405,10 @@ export type EventWebhook = {
      */
     signing_secret_id?: SecretId;
     scope: EventWebhookScope;
+    /**
+     * Current name of the selected agent or profile, derived when read. Omitted for project scope or an unavailable name; use the scope ID as a display fallback.
+     */
+    scope_name?: ResourceName;
     id: EventWebhookId;
     org_id: OrganizationId;
     project_id: ProjectId;

@@ -25,7 +25,7 @@ func TestProjectWebhookManagement(t *testing.T) {
 	headers := authHeaders(f.project.AdminToken)
 	launch := func(profile bool) string {
 		t.Helper()
-		body := map[string]any{"config": f.configID}
+		body := map[string]any{"config": f.configID, "name": "Webhook target"}
 		if profile {
 			body["profile"] = f.profileID
 		}
@@ -55,6 +55,9 @@ func TestProjectWebhookManagement(t *testing.T) {
 			"", http.StatusCreated, headers)
 		created = append(created, response)
 	}
+	require.NotContains(t, testutil.RequireType[map[string]any](t, created[0]), "scope_name")
+	require.NotEmpty(t, testutil.RequireType[map[string]any](t, created[1])["scope_name"])
+	require.Equal(t, "Webhook target", testutil.RequireType[map[string]any](t, created[2])["scope_name"])
 	first := requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+"?limit=2", "", "", http.StatusOK, headers)
 	require.Equal(t, created[:2], first["data"])
 	cursor := testutil.RequireType[string](t, first["next_cursor"])
@@ -156,4 +159,13 @@ func TestProjectWebhookManagement(t *testing.T) {
 	unchanged := requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+"/"+id,
 		"", "", http.StatusOK, headers)
 	require.Equal(t, selections[1], unchanged["scope"])
+	// Display names follow the referenced resource; subscriptions store only its identity.
+	requestJSONWithHeaders(t, f.handler, http.MethodPatch, f.project.ProjectPath+"/agent-profiles/"+f.profileID,
+		`{"name":"Renamed webhook profile"}`, "", http.StatusOK, headers)
+	renamed := requestJSONWithHeaders(t, f.handler, http.MethodGet, profileList, "", "", http.StatusOK, headers)
+	for _, row := range testutil.RequireType[[]any](t, renamed["data"]) {
+		require.Equal(t, "Renamed webhook profile", testutil.RequireType[map[string]any](t, row)["scope_name"])
+	}
+	detail := requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+"/"+id, "", "", http.StatusOK, headers)
+	require.Equal(t, "Renamed webhook profile", detail["scope_name"])
 }
