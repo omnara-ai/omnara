@@ -32,7 +32,6 @@ reached is logged as `null` and not observed in metrics:
 
 | Field | Phase |
 | --- | --- |
-| `upload_complete_ms` | transport finished writing the request body |
 | `headers_ms` | response headers received |
 | `ttft_ms` | time to first token: first streamed frame carrying model output |
 | `stream_complete_ms` | stream reached its terminal event (success only) |

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/model/calltrace"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
@@ -360,8 +359,7 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 
 func (c Client) RespondStream(ctx context.Context, input model.Request) (model.Response, error) {
 	attempt := newCallAttempt(ctx, c, input)
-	traced := calltrace.WithTracker(attempt.tracker.WithClientTrace(ctx), attempt.tracker)
-	response, err := c.respondStream(traced, input, attempt)
+	response, err := c.respondStream(context.WithValue(ctx, callAttemptKey{}, attempt), input, attempt)
 	attempt.finish(ctx, response, err)
 	return response, err
 }
@@ -402,7 +400,7 @@ func (c Client) respondStream(ctx context.Context, input model.Request, attempt 
 		attempt.record.StatusCode = resp.StatusCode
 		return model.Response{}, ambiguousTransportError(endpoint, resp.StatusCode, resp.Header, err)
 	}
-	attempt.tracker.MarkHeaders()
+	attempt.markHeaders()
 	attempt.record.StatusCode = resp.StatusCode
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, exceeded, readErr := ReadAllAndClose(resp, c.Transport.errorResponseByteLimit())
@@ -459,7 +457,7 @@ func (c Client) respondStream(ctx context.Context, input model.Request, attempt 
 			Body:       respBody,
 		})
 		if parseErr == nil {
-			attempt.tracker.MarkComplete()
+			attempt.markComplete()
 		}
 		return parsed, parseErr
 	}
@@ -477,7 +475,7 @@ func (c Client) respondStream(ctx context.Context, input model.Request, attempt 
 		attempt.sink(input.DeltaSink),
 	)
 	if consumeErr == nil {
-		attempt.tracker.MarkComplete()
+		attempt.markComplete()
 	}
 	response.ProviderRequestID = model.RequestIDFromHeader(resp.Header)
 	if limitedBody.exceeded || errors.Is(consumeErr, ErrProviderResponseTooLarge) {

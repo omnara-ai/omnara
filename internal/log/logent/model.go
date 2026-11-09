@@ -111,7 +111,6 @@ func ModelCall(ctx context.Context, r calltrace.Record) {
 		"model_call.usage.output_tokens":      output,
 		"model_call.usage.reasoning_tokens":   reasoning,
 		"model_call.started_at":               r.StartedAt.UTC(),
-		"model_call.upload_complete_ms":       optionalMilliseconds(r.UploadComplete),
 		"model_call.headers_ms":               optionalMilliseconds(r.Headers),
 		"model_call.ttft_ms":                  optionalMilliseconds(r.TTFT),
 		"model_call.stream_complete_ms":       optionalMilliseconds(r.StreamComplete),

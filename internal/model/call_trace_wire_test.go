@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"net/http/httptrace"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -96,15 +95,11 @@ func sseFrame(event, data string) string {
 	return "event: " + event + "\ndata: " + data + "\n\n"
 }
 
-// scriptedTransport finishes the upload at 100ms and returns headers at 500ms.
+// scriptedTransport returns headers at 500ms.
 func scriptedTransport(frames [3]string) http.RoundTripper {
 	return timeoutRoundTrip(func(req *http.Request) (*http.Response, error) {
 		_, _ = io.Copy(io.Discard, req.Body)
-		time.Sleep(100 * time.Millisecond) //nolint:omnaralint // Advance synctest's virtual clock.
-		if trace := httptrace.ContextClientTrace(req.Context()); trace != nil && trace.WroteRequest != nil {
-			trace.WroteRequest(httptrace.WroteRequestInfo{})
-		}
-		time.Sleep(400 * time.Millisecond) //nolint:omnaralint // Advance synctest's virtual clock.
+		time.Sleep(500 * time.Millisecond) //nolint:omnaralint // Advance synctest's virtual clock.
 		reader, writer := io.Pipe()
 		go func() {
 			for i, frame := range frames {
@@ -190,7 +185,6 @@ func TestRespondEmitsOneModelCallRecordPerAttemptWithPhaseTimings(t *testing.T) 
 					"model_call.usage.cached_tokens":   float64(40),
 					"model_call.usage.output_tokens":   float64(5),
 					"model_call.cache_ratio":           0.4,
-					"model_call.upload_complete_ms":    float64(100),
 					"model_call.headers_ms":            float64(500),
 					"model_call.ttft_ms":               float64(2000),
 					"model_call.stream_complete_ms":    float64(3000),
@@ -260,7 +254,7 @@ func TestRespondRecordsFailedAttemptWithNullTokenTimings(t *testing.T) {
 		}
 		for _, field := range []string{
 			"model_call.ttft_ms", "model_call.stream_complete_ms",
-			"model_call.upload_complete_ms", "model_call.usage.input_tokens",
+			"model_call.usage.input_tokens",
 		} {
 			value, ok := event[field]
 			if !ok || value != nil {
@@ -309,6 +303,18 @@ func TestRespondTTFTCountsToolArgumentsBeforeToolMetadata(t *testing.T) {
 		event, _ := respondOnce(t, "chat", frames)
 		if event["model_call.ttft_ms"] != float64(2000) {
 			t.Fatalf("ttft = %#v, want the arrival of the buffered arguments", event["model_call.ttft_ms"])
+		}
+	})
+}
+
+func TestRespondTTFTCountsWhitespaceTokens(t *testing.T) {
+	var frames [3]string
+	for i, frame := range callTraceStreams["chat"] {
+		frames[i] = strings.Replace(frame, `"content":"Hello"`, `"content":"\n"`, 1)
+	}
+	synctest.Test(t, func(t *testing.T) {
+		if event, _ := respondOnce(t, "chat", frames); event["model_call.ttft_ms"] != float64(2000) {
+			t.Fatalf("ttft = %#v", event["model_call.ttft_ms"])
 		}
 	})
 }
@@ -412,7 +418,7 @@ func TestRespondSkipsRecordWhenRequestIsNeverSent(t *testing.T) {
 	}
 }
 
-func TestRespondRecordsUploadCompleteFromRealTransport(t *testing.T) {
+func TestRespondRecordsTimingsFromRealTransport(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		frames := callTraceStreams["chat"]
@@ -430,8 +436,7 @@ func TestRespondRecordsUploadCompleteFromRealTransport(t *testing.T) {
 		t.Fatalf("events = %d", len(events))
 	}
 	for _, field := range []string{
-		"model_call.upload_complete_ms", "model_call.headers_ms", "model_call.ttft_ms",
-		"model_call.stream_complete_ms",
+		"model_call.headers_ms", "model_call.ttft_ms", "model_call.stream_complete_ms",
 	} {
 		if events[0][field] == nil {
 			t.Errorf("%s is null", field)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -13,15 +14,43 @@ import (
 )
 
 type callAttempt struct {
-	tracker *calltrace.Tracker
-	record  calltrace.Record
-	sent    bool
+	record calltrace.Record
+	sent   bool
+}
+
+type callAttemptKey struct{}
+
+// MarkToken lets a decoder that holds output back from the stream sink mark
+// the first token when it arrives.
+func MarkToken(ctx context.Context, payload string) {
+	if attempt, ok := ctx.Value(callAttemptKey{}).(*callAttempt); ok {
+		attempt.markToken(payload)
+	}
+}
+
+func (a *callAttempt) since() *time.Duration {
+	elapsed := time.Since(a.record.StartedAt)
+	return &elapsed
+}
+
+func (a *callAttempt) markHeaders() {
+	a.record.Headers = a.since()
+}
+
+func (a *callAttempt) markToken(payload string) {
+	if payload != "" && a.record.TTFT == nil {
+		a.record.TTFT = a.since()
+	}
+}
+
+func (a *callAttempt) markComplete() {
+	a.record.StreamComplete = a.since()
 }
 
 func newCallAttempt(ctx context.Context, c Client, input model.Request) *callAttempt {
 	attempt := &callAttempt{
-		tracker: calltrace.Start(nil),
 		record: calltrace.Record{
+			StartedAt:    time.Now(),
 			CallID:       uuid.NewString(),
 			Scope:        calltrace.ScopeFromContext(ctx),
 			APIFormat:    string(c.APIFormat()),
@@ -41,7 +70,7 @@ func newCallAttempt(ctx context.Context, c Client, input model.Request) *callAtt
 }
 
 func (a *callAttempt) sink(next model.StreamSink) model.StreamSink {
-	return timingSink{next: next, tracker: a.tracker}
+	return timingSink{next: next, attempt: a}
 }
 
 func (a *callAttempt) finish(ctx context.Context, response model.Response, err error) {
@@ -49,7 +78,7 @@ func (a *callAttempt) finish(ctx context.Context, response model.Response, err e
 		return
 	}
 	record := a.record
-	a.tracker.Fill(&record)
+	record.Duration = *a.since()
 	record.ServedModel = response.ServedProviderModelSlug
 	record.ProviderRequestID = response.ProviderRequestID
 	if usage := response.Usage; usage.InputTokens > 0 || usage.OutputTokens > 0 {
@@ -88,16 +117,16 @@ func (a *callAttempt) finish(ctx context.Context, response model.Response, err e
 // A tool call's name counts as its first token: the model generates it before the arguments.
 type timingSink struct {
 	next    model.StreamSink
-	tracker *calltrace.Tracker
+	attempt *callAttempt
 }
 
 func (s timingSink) Emit(ctx context.Context, event model.StreamEvent) {
 	switch event.Kind {
 	case model.StreamEventTextDelta, model.StreamEventThinkingDelta, model.StreamEventToolArgsDelta:
-		s.tracker.MarkToken(event.Delta)
+		s.attempt.markToken(event.Delta)
 	case model.StreamEventBlockStart:
 		if event.Block != nil && event.Block.Kind == model.StreamBlockToolUse {
-			s.tracker.MarkToken(event.Block.ToolName)
+			s.attempt.markToken(event.Block.ToolName)
 		}
 	case model.StreamEventBlockStop, model.StreamEventMessageStop, model.StreamEventError:
 	}

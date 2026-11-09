@@ -2,8 +2,6 @@ package calltrace
 
 import (
 	"context"
-	"net/http/httptrace"
-	"sync"
 	"time"
 
 	"github.com/omnara-ai/omnara/observability/metrics"
@@ -86,7 +84,6 @@ type Record struct {
 	Usage             *Usage
 
 	StartedAt      time.Time
-	UploadComplete *time.Duration
 	Headers        *time.Duration
 	TTFT           *time.Duration
 	StreamComplete *time.Duration
@@ -123,95 +120,4 @@ func (r Record) MetricsSample() metrics.ModelCallSample {
 		sample.ReasoningTokens = r.Usage.ReasoningTokens
 	}
 	return sample
-}
-
-type trackerKey struct{}
-
-func WithTracker(ctx context.Context, tracker *Tracker) context.Context {
-	return context.WithValue(ctx, trackerKey{}, tracker)
-}
-
-func MarkToken(ctx context.Context, payload string) {
-	if tracker, ok := ctx.Value(trackerKey{}).(*Tracker); ok {
-		tracker.MarkToken(payload)
-	}
-}
-
-type Tracker struct {
-	// Upload completion arrives on the transport's goroutine.
-	mu      sync.Mutex
-	now     func() time.Time
-	started time.Time
-
-	upload     *time.Duration
-	headers    *time.Duration
-	firstToken *time.Duration
-	complete   *time.Duration
-}
-
-func Start(now func() time.Time) *Tracker {
-	if now == nil {
-		now = time.Now
-	}
-	return &Tracker{now: now, started: now()}
-}
-
-func (t *Tracker) StartedAt() time.Time {
-	return t.started
-}
-
-func (t *Tracker) elapsed() *time.Duration {
-	d := t.now().Sub(t.started)
-	return &d
-}
-
-func (t *Tracker) WithClientTrace(ctx context.Context) context.Context {
-	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-		WroteRequest: func(info httptrace.WroteRequestInfo) {
-			if info.Err != nil {
-				return
-			}
-			t.mu.Lock()
-			t.upload = t.elapsed()
-			t.mu.Unlock()
-		},
-	})
-}
-
-func (t *Tracker) MarkHeaders() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.headers == nil {
-		t.headers = t.elapsed()
-	}
-}
-
-func (t *Tracker) MarkToken(payload string) {
-	if payload == "" {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.firstToken == nil {
-		t.firstToken = t.elapsed()
-	}
-}
-
-func (t *Tracker) MarkComplete() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.complete == nil {
-		t.complete = t.elapsed()
-	}
-}
-
-func (t *Tracker) Fill(record *Record) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	record.StartedAt = t.started
-	record.UploadComplete = t.upload
-	record.Headers = t.headers
-	record.TTFT = t.firstToken
-	record.StreamComplete = t.complete
-	record.Duration = *t.elapsed()
 }
