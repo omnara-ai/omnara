@@ -149,7 +149,11 @@ function AgentPicker({
 }) {
   const id = useId()
   const search = useTypeaheadSearch()
-  const query = useAgents(orgId, projectId, { filters: search.filters, sort: 'name', pageSize: 25 })
+  const query = useAgents(orgId, projectId, {
+    filters: { ...search.filters, include_subagents: true },
+    sort: 'name',
+    pageSize: 25,
+  })
   const items = useInfiniteQueryItems(query).map((agent) => ({
     id: agent.id,
     name: agent.name || agent.id,

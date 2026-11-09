@@ -62,6 +62,15 @@ func TestProjectWebhookManagement(t *testing.T) {
 		endpoint+"?limit=2&cursor="+url.QueryEscape(cursor), "", "", http.StatusOK, headers)
 	require.Equal(t, created[2:], last["data"])
 	require.Nil(t, last["next_cursor"])
+	// A project-wide continuation cannot be reused for an exact selection.
+	for _, query := range []string{
+		"scope_type=project",
+		"scope_type=profile&agent_profile_id=" + f.profileID,
+		"scope_type=agent&agent_id=" + agentID,
+	} {
+		requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+"?"+query+"&cursor="+url.QueryEscape(cursor),
+			"", "", http.StatusBadRequest, headers)
+	}
 	for _, query := range []string{"?limit=0", "?limit=101", "?cursor=invalid"} {
 		requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+query, "", "", http.StatusBadRequest, headers)
 	}
@@ -96,6 +105,13 @@ func TestProjectWebhookManagement(t *testing.T) {
 	require.Len(t, profileRows, 1)
 	require.Equal(t, id, testutil.RequireType[map[string]any](t, profileRows[0])["id"])
 	require.Nil(t, profileLast["next_cursor"])
+	for _, query := range []string{
+		"", "scope_type=project&",
+		"scope_type=profile&agent_profile_id=" + testPublicID(t, publicid.KindAgentProfile, uuid.New()) + "&",
+	} {
+		requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+"?"+query+"cursor="+url.QueryEscape(profileCursor),
+			"", "", http.StatusBadRequest, headers)
+	}
 	excludedAgent := launch(false)
 	includedAgent := launch(true)
 	pool := integrationPoolForHandler(t, f.handler)
@@ -116,6 +132,8 @@ func TestProjectWebhookManagement(t *testing.T) {
 	require.Equal(t, secret.ID, queuedEndpoint.SigningSecretID)
 
 	other := integrationHTTPSecondProject(t, f.handler, f.project)
+	requestJSONWithHeaders(t, f.handler, http.MethodGet,
+		other.ProjectPath+"/event-webhooks?cursor="+url.QueryEscape(cursor), "", "", http.StatusBadRequest, headers)
 	requestJSONWithHeaders(t, f.handler, http.MethodPatch,
 		other.ProjectPath+"/event-webhooks/"+id, `{"scope":{"type":"project"}}`, "", http.StatusNotFound, headers)
 	otherSubscription := requestJSONWithHeaders(t, f.handler, http.MethodPost, other.ProjectPath+"/event-webhooks",

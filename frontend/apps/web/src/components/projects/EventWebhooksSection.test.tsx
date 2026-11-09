@@ -23,6 +23,10 @@ const agentScope: Extract<EventWebhookScope, { type: 'agent' }> = {
   type: 'agent',
   agent_id: fakeId('agt'),
 }
+const childScope: Extract<EventWebhookScope, { type: 'agent' }> = {
+  type: 'agent',
+  agent_id: 'agt_' + 'b'.repeat(26),
+}
 const profileScope: Extract<EventWebhookScope, { type: 'profile' }> = {
   type: 'profile',
   agent_profile_id: profileId,
@@ -33,11 +37,19 @@ const agent: Agent = {
   id: agentScope.agent_id,
   org_id: orgId,
   project_id: projectId,
-  state: 'archived',
+  state: 'active',
   name: 'Test agent',
   created_at: now,
   updated_at: now,
 }
+const childAgent: Agent = {
+  ...agent,
+  id: childScope.agent_id,
+  name: 'Research worker',
+  parent_agent_id: agent.id,
+  subagent_key: 'research',
+}
+const agents = [agent, childAgent]
 const profile: AgentProfile = {
   id: profileId,
   org_id: orgId,
@@ -127,13 +139,18 @@ function mount(initial: EventWebhook[] = [], canManage = true) {
     {
       method: 'GET',
       path: projectPath + '/agents',
-      respond: () => Response.json({ data: [agent], next_cursor: null }),
+      respond: ({ url }) => {
+        const data = agents.filter(
+          (item) => url.searchParams.get('include_subagents') === 'true' || !item.parent_agent_id,
+        )
+        return Response.json({ data, next_cursor: null })
+      },
     },
-    {
+    ...agents.map((agent) => ({
       method: 'GET',
       path: projectPath + '/agents/' + agent.id,
       respond: () => Response.json({ agent, machine_ids: [], mcp_connections: [] }),
-    },
+    })),
     {
       method: 'POST',
       path,
@@ -200,9 +217,9 @@ function mount(initial: EventWebhook[] = [], canManage = true) {
   }
 }
 
-it('creates all selections from one form, pages through the project, and edits a selection in place', async () => {
+it('creates all selections including subagents, pages through the project, and retargets in place', async () => {
   const { api } = mount()
-  for (const scope of [projectScope, profileScope, agentScope]) {
+  for (const scope of [projectScope, profileScope, childScope]) {
     act(() => {
       button('Add webhook').click()
     })
@@ -216,7 +233,7 @@ it('creates all selections from one form, pages through the project, and edits a
     if (scope.type === 'agent') {
       await choose('Receive events from', 'One agent')
       expect(button('Create webhook').disabled).toBe(true)
-      await choose('Agent', 'Test agent')
+      await choose('Agent', childAgent.name)
     }
     act(() => {
       button('Create webhook').click()
@@ -234,7 +251,7 @@ it('creates all selections from one form, pages through the project, and edits a
   await waitForUI(() => {
     expect(container.querySelectorAll('li')).toHaveLength(3)
     expect(container.textContent).toContain('Agents using profile: Support')
-    expect(container.textContent).toContain('Agent: Test agent')
+    expect(container.textContent).toContain('Agent: ' + childAgent.name)
   })
   expect(
     api.requestsTo('GET', path).every((request) => !request.url.searchParams.has('scope_type')),
@@ -243,7 +260,7 @@ it('creates all selections from one form, pages through the project, and edits a
     api.requestsTo('GET', path).some((request) => request.url.searchParams.has('cursor')),
   ).toBe(true)
   expect(api.requestsTo('POST', path).map((request) => request.body)).toEqual(
-    [projectScope, profileScope, agentScope].map((scope) => ({
+    [projectScope, profileScope, childScope].map((scope) => ({
       scope,
       url: 'https://example.com/' + scope.type,
       event_types: ['tool_call_update'],

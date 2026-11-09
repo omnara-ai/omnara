@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
 func parseEventWebhookScope(input openapi.EventWebhookScope) (executionstore.EventWebhookScope, error) {
@@ -176,7 +177,7 @@ func (s strictOpenAPIServer) ListEventWebhooks(
 	if err != nil {
 		return nil, err
 	}
-	limit, after, err := parseOpenAPIPageParams(request.Params.Limit, request.Params.Cursor, publicid.KindEventWebhook)
+	limit, err := parseOpenAPIPageLimit(request.Params.Limit)
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
@@ -190,6 +191,23 @@ func (s strictOpenAPIServer) ListEventWebhooks(
 		scope = &selection
 	} else if request.Params.AgentProfileId != nil || request.Params.AgentId != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "agent or profile ID requires scope_type")
+	}
+	sort := "created_at"
+	options, err := parseResourceListQuery(resourceListQueryInput{
+		Cursor: request.Params.Cursor, Sort: &sort, AllowedSorts: sortSet(sort),
+		ListKind: "event_webhooks", Scope: projectScope.project.ID.String(),
+		IDKind: publicid.KindEventWebhook, Extra: scope,
+	})
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	var after listing.KeysetCursor
+	if options.After.Set {
+		createdAt, err := listing.ParseTimestampKey(options.After.Key)
+		if err != nil || createdAt.IsZero() || options.After.IsNull {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, errMalformedCursor.Error())
+		}
+		after = listing.KeysetCursor{Set: true, CreatedAt: createdAt, ID: options.After.ID}
 	}
 	page, err := s.server.store.Execution().ListEventWebhooks(ctx, executionstore.ListEventWebhooksInput{
 		ProjectID: projectScope.project.ID, Scope: scope, Limit: limit, After: after,
@@ -207,7 +225,9 @@ func (s strictOpenAPIServer) ListEventWebhooks(
 		response.Data = append(response.Data, webhook)
 		last = record
 	}
-	next, err := encodeNextCursor(page.HasMore, last.CreatedAt, publicid.KindEventWebhook, last.ID)
+	next, err := encodeResourceListNextCursor(page.HasMore,
+		listing.Cursor{Set: last.ID != uuid.Nil, Key: listing.TimestampKey(last.CreatedAt), ID: last.ID},
+		options, "event_webhooks", projectScope.project.ID.String(), publicid.KindEventWebhook, scope)
 	if err != nil {
 		return nil, err
 	}

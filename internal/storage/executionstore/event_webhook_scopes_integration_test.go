@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -281,29 +282,35 @@ func TestEventWebhookScopeValidationAndLimits(t *testing.T) {
 		_, err := store.CreateEventWebhook(t.Context(), input)
 		require.NoError(t, err)
 	}
-	// Competing selections share the final project slot, not independent quotas.
-	results := make(chan error, 2)
-	start := make(chan struct{})
-	for i, scope := range []executionstore.EventWebhookScope{
-		first.Scope, {Type: executionstore.EventWebhookScopeProject},
-	} {
-		candidate := input
-		candidate.Scope = scope
-		candidate.Settings.URL = fmt.Sprintf("https://example.com/final/%d", i)
-		go func() {
-			<-start
-			_, err := store.CreateEventWebhook(t.Context(), candidate)
-			results <- err
-		}()
-	}
-	close(start)
-	one, two := <-results, <-results
-	if one == nil {
-		require.ErrorIs(t, two, storeerr.ErrConflict)
-	} else {
-		require.ErrorIs(t, one, storeerr.ErrConflict)
-		require.NoError(t, two)
-	}
+	// Pause the first create after its quota check by blocking INSERT, while
+	// allowing COUNT. A different selection must wait on the same project lock.
+	gate := integrationdb.BeginTx(t, t.Context(), fixture.Store.pool)
+	_, err = gate.Exec(t.Context(), "LOCK TABLE event_webhooks IN SHARE MODE")
+	require.NoError(t, err)
+	one := input
+	one.Scope = first.Scope
+	one.Settings.URL = "https://example.com/final/agent"
+	firstCreate := integrationdb.RunAsync(func() (executionstore.EventWebhookRecord, error) {
+		return store.CreateEventWebhook(t.Context(), one)
+	})
+	blockingPID := int32(gate.Conn().PgConn().PID())
+	integrationdb.WaitForLockWaitBlockedBy(t, t.Context(), fixture.Store.pool,
+		"-- name: InsertEventWebhook ", blockingPID)
+	two := input
+	two.Scope = executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeProject}
+	two.Settings.URL = "https://example.com/final/project"
+	secondCreate := integrationdb.RunAsync(func() (executionstore.EventWebhookRecord, error) {
+		return store.CreateEventWebhook(t.Context(), two)
+	})
+	integrationdb.WaitForNamedLockWaitersBlockedByChain(t, t.Context(), fixture.Store.pool,
+		"LockResourceCreation", blockingPID, 1)
+	require.NoError(t, gate.Commit(t.Context()))
+	integrationdb.AwaitSuccess(t, firstCreate, "first webhook create")
+	require.ErrorIs(t, integrationdb.Await(t, secondCreate, "competing webhook create").Err, storeerr.ErrConflict)
+	var count int
+	require.NoError(t, fixture.Store.pool.QueryRow(t.Context(),
+		"SELECT count(*) FROM event_webhooks WHERE project_id=$1 AND deleted_at IS NULL", testProjectID).Scan(&count))
+	require.Equal(t, executionstore.MaxEventWebhooksPerProject, count)
 	projectSelection := executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeProject}
 	updated, err := store.UpdateEventWebhook(t.Context(), executionstore.UpdateEventWebhookInput{
 		ProjectID: testProjectID, WebhookID: first.ID, Scope: &projectSelection,
