@@ -102,7 +102,7 @@ func RunProgramToolCall(
 	ctx, cancel := context.WithTimeout(ctx, options.Timeout)
 	defer cancel()
 	caller := newProgramToolCaller(endpoint, processID, capability)
-	defer caller.closeIdleConnections()
+	defer caller.client.CloseIdleConnections()
 	request, err := json.Marshal(daemonprotocol.ProgramToolCallRequest{
 		Key: uuid.NewString(), Name: options.Tool, Input: input,
 	})
@@ -171,17 +171,14 @@ func (e programToolCallStatusError) Error() string { return e.Message }
 type programToolCaller struct {
 	processID  string
 	capability string
-	transport  *http.Transport
 	client     *http.Client
 }
 
 func newProgramToolCaller(endpoint, processID, capability string) *programToolCaller {
-	transport := dialProcessService(endpoint, "daemon is unavailable for tool calls")
-	return &programToolCaller{processID: processID, capability: capability, transport: transport,
-		client: &http.Client{Transport: transport, CheckRedirect: noRedirects}}
+	return &programToolCaller{processID: processID, capability: capability, client: &http.Client{
+		Transport:     dialProcessService(endpoint, "daemon is unavailable for tool calls"),
+		CheckRedirect: noRedirects}}
 }
-
-func (c *programToolCaller) closeIdleConnections() { c.transport.CloseIdleConnections() }
 
 func (c *programToolCaller) submit(ctx context.Context, body []byte) (daemonprotocol.ProgramToolCallResult, error) {
 	return c.retry(ctx, func() (daemonprotocol.ProgramToolCallResult, error) {

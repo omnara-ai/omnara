@@ -41,15 +41,15 @@ func (s *programLoopStore) ClaimNextProgramToolCall(
 }
 
 func (s *programLoopStore) RenewProgramToolCallClaim(
-	_ context.Context, ref executionstore.ProgramToolCallRef, lease time.Duration,
-) (time.Time, error) {
+	_ context.Context, ref executionstore.ProgramToolCallRef, _ time.Duration,
+) error {
 	s.renewals.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if ref.ClaimID != s.claimIDs[len(s.claimIDs)-1] {
-		return time.Time{}, storeerr.ErrProgramToolCallClaimLost
+		return storeerr.ErrProgramToolCallClaimLost
 	}
-	return time.Now().Add(lease), s.renewErr
+	return s.renewErr
 }
 
 // programLoopExecutor starts async work that runs until released or canceled.

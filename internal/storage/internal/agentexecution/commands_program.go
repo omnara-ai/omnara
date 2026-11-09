@@ -34,19 +34,13 @@ const (
 )
 
 type ProgramTool struct {
-	ID             uuid.UUID
-	ParentID       uuid.UUID
-	ProcessID      uuid.UUID
-	Name           string
-	Type           string
-	Input          json.RawMessage
-	State          string
-	ClaimID        uuid.UUID
-	ClaimExpiresAt *time.Time
-	ResultID       uuid.UUID
-	Outcome        string
-	CreatedAt      time.Time
-	Created        bool
+	ID        uuid.UUID
+	ParentID  uuid.UUID
+	ProcessID uuid.UUID
+	State     string
+	ClaimID   uuid.UUID
+	ResultID  uuid.UUID
+	Created   bool
 }
 
 type ProgramToolRef struct {
@@ -65,9 +59,7 @@ type CreateProgramToolInput struct {
 
 func programToolRecord(row executiondb.ReadProgramToolRow) ProgramTool {
 	return ProgramTool{ID: row.ID, ParentID: storeutil.ValueOrZero(row.ParentToolCallID), ProcessID: row.ProcessID,
-		Name: row.Name, Type: row.Type, Input: row.Input,
-		State: row.State, ClaimID: storeutil.ValueOrZero(row.ProgramClaimID), ClaimExpiresAt: row.ProgramClaimExpiresAt,
-		ResultID: storeutil.ValueOrZero(row.ResultID), Outcome: storeutil.ValueOrZero(row.Outcome), CreatedAt: row.CreatedAt}
+		State: row.State, ClaimID: storeutil.ValueOrZero(row.ProgramClaimID), ResultID: storeutil.ValueOrZero(row.ResultID)}
 }
 
 func programCommand[T any](h *Handle, run func() (T, error)) (result T, err error) {
@@ -140,11 +132,6 @@ func (h *Handle) programToolNotification(
 		storeutil.ValueOrZero(row.ParentToolCallID), state, interaction)
 }
 
-func (h *Handle) readProgramTool(ctx context.Context, id uuid.UUID) (ProgramTool, error) {
-	row, err := h.programTool(ctx, id, uuid.Nil)
-	return programToolRecord(row), err
-}
-
 // CreateProgramTool inserts an awaiting_authorization child of the process's
 // run_command call, idempotently on (process call, key).
 func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolInput) (ProgramTool, error) {
@@ -191,14 +178,10 @@ func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolI
 		} else if err != nil {
 			return ProgramTool{}, err
 		}
-		record, err = h.readProgramTool(ctx, id)
-		if err != nil {
-			return ProgramTool{}, err
-		}
-		record.Created = true
 		h.unit.Notifications().AddProgramToolCallUpdate(h.route.AgentID, id, process.ToolCallID,
 			"awaiting_authorization", nil)
-		return record, nil
+		return ProgramTool{ID: id, ParentID: process.ToolCallID, ProcessID: input.ProcessID,
+			State: "awaiting_authorization", Created: true}, nil
 	})
 }
 
@@ -333,8 +316,9 @@ func (h *Handle) ClaimProgramTool(
 		if next != row.State {
 			h.programToolNotification(row, next, nil)
 		}
-		tool, err := h.readProgramTool(ctx, row.ID)
-		return claimed{tool: tool, phase: phase, found: true}, err
+		tool := programToolRecord(row)
+		tool.State, tool.ClaimID = next, ref.ClaimID
+		return claimed{tool: tool, phase: phase, found: true}, nil
 	})
 	if err != nil || !result.found {
 		return ProgramTool{}, 0, false, err
@@ -375,15 +359,11 @@ func (h *Handle) CompleteProgramTool(
 		claimed := storeutil.ValueOrZero(row.ProgramClaimID) == ref.ClaimID
 		switch row.State {
 		case "completed":
-		case "waiting":
+		case "waiting", "awaiting_authorization", "awaiting_permission", "ready":
 			if !claimed {
 				return ProgramTool{}, storeerr.ErrProgramToolCallClaimLost
 			}
-		case "awaiting_authorization", "awaiting_permission", "ready":
-			if !claimed {
-				return ProgramTool{}, storeerr.ErrProgramToolCallClaimLost
-			}
-			if outcome == "succeeded" {
+			if row.State != "waiting" && outcome == "succeeded" {
 				return ProgramTool{}, storeerr.ErrStateTransitionConflict
 			}
 		default:
@@ -440,7 +420,9 @@ func (h *Handle) completeProgramTool(
 		interaction = &notifications.AgentInteractionUpdate{ID: i.ID, InteractionKind: i.InteractionKind, State: i.State}
 	}
 	h.programToolNotification(row, "completed", interaction)
-	return h.readProgramTool(ctx, row.ID)
+	record := programToolRecord(row)
+	record.State, record.ClaimID, record.ResultID = "completed", uuid.Nil, id
+	return record, nil
 }
 
 // ReapProgramTool cancels a call whose agent is inactive or whose process has
@@ -543,7 +525,7 @@ func (h *Handle) resolveProgramInteraction(
 			return Interaction{}, err
 		}
 		_, err = h.completeProgramTool(ctx, call, "denied", []Content{{Kind: "structured_data", Data: body}},
-			&notifications.AgentInteractionUpdate{ID: result.ID, InteractionKind: result.Kind, State: result.State})
+			result.notification())
 		return result, err
 	})
 }
@@ -552,24 +534,20 @@ func (h *Handle) resolveProgramInteraction(
 // so it needs no agent lock.
 func (c *AgentCell) RenewProgramTool(
 	ctx context.Context, agentID uuid.UUID, ref ProgramToolRef, lease time.Duration,
-) (time.Time, error) {
+) error {
 	if agentID == uuid.Nil || ref.ID == uuid.Nil || ref.ProcessID == uuid.Nil || ref.ClaimID == uuid.Nil || lease <= 0 {
-		return time.Time{}, errors.New("agent, program tool, process, claim, and lease are required")
+		return errors.New("agent, program tool, process, claim, and lease are required")
 	}
-	var expires *time.Time
 	err := c.short(ctx, func(tx pgx.Tx) (err error) {
-		expires, err = executiondb.New().RenewProgramToolClaim(ctx, tx, executiondb.RenewProgramToolClaimParams{
+		_, err = executiondb.New().RenewProgramToolClaim(ctx, tx, executiondb.RenewProgramToolClaimParams{
 			AgentID: agentID, ID: ref.ID, ProcessID: ref.ProcessID, ClaimID: &ref.ClaimID,
 			LeaseMicroseconds: lease.Microseconds()})
 		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return time.Time{}, storeerr.ErrProgramToolCallClaimLost
+		return storeerr.ErrProgramToolCallClaimLost
 	}
-	if err != nil {
-		return time.Time{}, err
-	}
-	return storeutil.ValueOrZero(expires), nil
+	return err
 }
 
 type ProgramToolCandidate struct {

@@ -11,12 +11,9 @@ const (
 
 	ProgramToolCallOutcomeSucceeded = "succeeded"
 	ProgramToolCallOutcomeFailed    = "failed"
-	ProgramToolCallOutcomeDenied    = "denied"
-	ProgramToolCallOutcomeCanceled  = "canceled"
 
 	ProgramToolCallContentText           = "text"
 	ProgramToolCallContentStructuredData = "structured_data"
-	ProgramToolCallContentMediaRef       = "media_ref"
 
 	// ProgramToolCallMaxWaitMs bounds how long one poll may be held open.
 	ProgramToolCallMaxWaitMs = 25000

@@ -70,10 +70,9 @@ func (ref ProgramToolCallRef) validate() error {
 type ProgramToolCallRecord struct {
 	ToolCallRecord
 	ProcessID uuid.UUID
-	// ClaimID and ClaimExpiresAt are loaded by command results only.
-	ClaimID        uuid.UUID
-	ClaimExpiresAt *time.Time
-	Created        bool
+	// ClaimID is loaded by command results only.
+	ClaimID uuid.UUID
+	Created bool
 }
 
 type ProgramToolCallClaim struct {
@@ -155,7 +154,7 @@ func programToolCallRecordTx(
 		return ProgramToolCallRecord{}, err
 	}
 	return ProgramToolCallRecord{ToolCallRecord: record, ProcessID: tool.ProcessID,
-		ClaimID: tool.ClaimID, ClaimExpiresAt: tool.ClaimExpiresAt, Created: tool.Created}, nil
+		ClaimID: tool.ClaimID, Created: tool.Created}, nil
 }
 
 // CreateProgramToolCall records an awaiting_authorization call, idempotently
@@ -194,7 +193,9 @@ func (s *Store) AuthorizeProgramToolCall(
 			if _, err := h.AuthorizeProgramTool(ctx, ref.ref(), lease); err != nil {
 				return ProgramToolCallRecord{}, err
 			}
-			return getProgramToolCallTx(ctx, unit.DB(), ref)
+			// The command already checked the call belongs to the process.
+			record, err := getToolCallTx(ctx, unit.DB(), ref.ProjectID, ref.AgentID, ref.ToolCallID)
+			return ProgramToolCallRecord{ToolCallRecord: record, ProcessID: ref.ProcessID}, err
 		})
 }
 
@@ -345,9 +346,9 @@ func (s *Store) claimProgramToolCall(
 // live. It fails with storeerr.ErrProgramToolCallClaimLost otherwise.
 func (s *Store) RenewProgramToolCallClaim(
 	ctx context.Context, ref ProgramToolCallRef, lease time.Duration,
-) (time.Time, error) {
+) error {
 	if err := ref.validate(); err != nil {
-		return time.Time{}, err
+		return err
 	}
 	return s.cell.RenewProgramTool(ctx, ref.AgentID, ref.ref(), lease)
 }

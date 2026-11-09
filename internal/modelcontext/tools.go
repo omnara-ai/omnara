@@ -126,7 +126,7 @@ func runtimeContractToolSpecs(
 		out = append(out, spec)
 	}
 	if only == "" || toolcatalog.IsMCPRuntimeToolName(only) {
-		mcpSpecs, err := runtimeMCPToolSpecs(ctx, store, projectID, agentID, contract)
+		mcpSpecs, err := runtimeMCPToolSpecs(ctx, store, projectID, agentID, contract, only)
 		if err != nil {
 			return nil, err
 		}
@@ -170,6 +170,7 @@ func runtimeMCPToolSpecs(
 	store Store,
 	projectID, agentID uuid.UUID,
 	contract agentconfig.RuntimeContract,
+	only string,
 ) ([]ToolSpec, error) {
 	if len(contract.MCPServers) == 0 {
 		return nil, nil
@@ -186,6 +187,10 @@ func runtimeMCPToolSpecs(
 	for _, server := range contract.MCPServers {
 		conn, found := connByServerKey[server.ServerKey]
 		if !found || conn.State != executionstore.MCPConnectionStateReady {
+			continue
+		}
+		// A single-tool lookup decodes only the snapshot of that tool's server.
+		if only != "" && !strings.HasPrefix(only, toolcatalog.MCPRuntimeToolName(server.ServerKey, "")) {
 			continue
 		}
 		var tools []mcpToolSnapshot

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcp"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -56,6 +57,11 @@ type ToolSpec struct {
 	Description string
 	InputSchema json.RawMessage
 	Deferred    bool
+}
+
+func ToolSpecFromModelContext(spec modelcontext.ToolSpec) ToolSpec {
+	return ToolSpec{Type: spec.Type, Permission: spec.Permission, Description: spec.Description,
+		InputSchema: spec.InputSchema, Deferred: spec.Deferred}
 }
 
 type Executor struct {
