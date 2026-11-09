@@ -82,7 +82,7 @@ curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/tool-calls?state=ready&
 
 To find ready custom calls from every agent in the project, including subagents, query `GET $OMNARA_API/orgs/$ORG/projects/$PROJ/tool-calls?state=ready&type=custom`. Each call includes its `agent_id`; use it when submitting the result. The project endpoint also accepts `agent_profile_id` and repeated `names` filters.
 
-[Webhooks](/events/webhooks) and [SSE](/events/streaming) deliver `tool_call_update` notifications promptly. Connect, check for already-ready calls, and handle incoming updates. Keep periodically checking while connected too: webhook retries end after ten minutes, and SSE lifecycle updates can be dropped when a subscriber is too slow, even without a disconnect. These updates are not saved or replayed by the timeline reconciler.
+[Webhooks](/events/webhooks) and [SSE](/events/streaming) deliver `tool_call_update` notifications promptly. Connect, check for already-ready calls, and handle incoming updates. Keep periodically checking while connected too: webhook retries end after ten minutes, and SSE lifecycle updates can be dropped without a disconnect and are not replayed.
 
 For a single agent tree, use the agent-scoped `GET /agents/{agentID}/tool-calls?state=ready&type=custom&include_subagents=true`. A parent's stream includes its descendants' tool updates, so the recovery query must include those descendants too. The project endpoint above already includes all agents and subagents in its scope.
 
@@ -116,9 +116,9 @@ Pass only authenticated SSE frames or signature-verified webhook updates to `han
 
 ### Recover a result without repeating the action
 
-The client retries a result POST without calling the tool function again. By default it allows two retries, with backoff, jitter and `Retry-After`; configure `maxRetries` and `timeoutMs` on the client. Finite retries do not bound a stalled request: set `timeoutMs` (30 seconds above) or pass an operation `signal`. If delivery still fails, `handle` rejects with `CustomToolDeliveryError`.
+The client's [request policy](https://github.com/omnara-ai/omnara/tree/main/frontend/packages/sdk#retries-and-deadlines) retries a result POST without calling the tool function again. Set `timeoutMs` or pass an operation `signal` to bound a stalled request. If delivery still fails, `handle` rejects with `CustomToolDeliveryError`.
 
-Its `result` is an owned JSON snapshot of the exact computed request body, using the API serializer's BigInt-to-string behavior. Its `call`, `cause`, and optional `retryAt` identify the call, underlying failure, and server's earliest retry time in epoch milliseconds.
+Its `result` is a detached JSON snapshot ready for resubmission. Its `call`, `cause`, and optional `retryAt` identify the call, underlying failure, and server's earliest retry time in epoch milliseconds.
 
 ```typescript
 import { CustomToolDeliveryError, sdk } from '@omnara/sdk'
@@ -139,13 +139,11 @@ await sdk.submitToolCallResult({
 })
 ```
 
-Here `deliveries` is application-owned storage, not an SDK requirement. A repeatable calculation can simply be recomputed on the next check, as the [runnable webhook example](https://github.com/omnara-ai/omnara/tree/main/examples/custom-tool-webhook) does. Consequential actions need duplicate protection and any persistence required across restarts. Once an operation returns, the SDK has no pending obligation to deliver its result.
+Here `deliveries` is application-owned storage. A repeatable calculation can instead be recomputed on the next check, as the [runnable webhook example](https://github.com/omnara-ai/omnara/tree/main/examples/custom-tool-webhook) does. Consequential actions need duplicate protection and any persistence required across restarts.
 
-A typed `409 tool_call_already_completed` establishes that the call is terminal; the helper returns `completed`. This can follow a lost successful response or cancellation and does not prove whose result won. Direct result-submission jobs must handle that response too. A visibility-related `404` or another `409` is a delivery failure and preserves the computed result in the error.
+The helper treats `409 tool_call_already_completed` as `completed`; direct delivery jobs must handle it too. See [result submission](#submit-the-result) for its meaning. Other submission errors preserve the computed result in the delivery error.
 
-Inspect `error.cause` before scheduling another attempt. For authorization or visibility failures, repair credentials/access before resubmitting the saved result.
-
-For a permanent payload rejection such as HTTP 400, 413 or 422, resending the same payload will not help: correct or reduce the result, or deliberately submit an explicit failed result explaining the reporting problem. That is an application decision; do not rerun a successful business action or blindly reinterpret every conflict as completion.
+Inspect `error.cause` before scheduling another attempt. Repair authorization or visibility failures before resubmitting. For a permanent payload rejection such as HTTP 400, 413 or 422, correct or reduce the result, or deliberately submit an explicit failed result explaining the reporting problem. Do not rerun a successful business action to repair result delivery.
 
 Unexpected handler exceptions and locally invalid or unserializable output become a generic failed tool result. The optional `onError` callback receives their original details; it also observes request failures, which still reach the caller. Return an explicit failed result when you intend the model to see a particular explanation. A successfully delivered failed business result counts as `completed`; failed delivery is a separate error.
 
@@ -174,13 +172,13 @@ async function recoverReadyTools() {
 
 `check` processes at most `limit` rows (50 by default, up to 100), returning each call's outcome and `nextCursor`. Consume **every failed outcome** before advancing your checkpoint. A `null` cursor finishes the pass; the next scheduled pass starts at the beginning to find newly ready or deferred calls. If an application job must stop at a time or page budget, save its cursor and arrange prompt continuation rather than waiting for the normal polling interval.
 
-Listing failures reject the check without advancing its cursor. Cancellation after listing appears in individual outcomes, including delivery errors with any computed results. Choose a page size your application can run concurrently and await within its budget. Discovery uses one list request per page and no per-call readiness reads. Result submissions and HTTP retries add requests against your rate limit.
+Listing failures reject the check without advancing its cursor. Cancellation after listing appears in individual outcomes, including delivery errors with any computed results. Choose a page size your application can run concurrently and await within its budget.
 
 For long jobs, return `{ outcome: 'deferred' }` and have the application submit the result directly when its durable job finishes. Recovery checks are a fallback for missed completion delivery, so completion need not wait for another pass through the backlog. The helper submits nothing for a deferred result. Start or find jobs idempotently by tool-call ID and reuse saved results during recovery; the application owns their lifetime after the handler returns.
 
 Both operations accept `signal`. The first invocation for a call owns its cancellation; concurrent duplicates share that invocation, and their signals only stop their own waits.
 
-Handlers must cooperate: JavaScript cannot force them to stop, and the owning operation waits for them to settle so a late computed result can still be returned in a delivery error. A `completed` update signals a local handler to stop. Discovery acts on the list snapshot; notifications get a fresh readiness read. Neither is an execution claim: a call can complete or be canceled elsewhere immediately after either read. Local in-flight joining and protection against completions observed during an outstanding list request apply only within this worker; two processes can both read `ready`, and cancellation cannot undo an external action.
+Handlers must cooperate with cancellation: the owning operation waits for them to settle so a late computed result can still be returned in a delivery error. A `completed` update signals a local handler to stop. Neither a discovery snapshot nor a notification's readiness read claims the call. Two processes can both read `ready`, and cancellation cannot undo an external action.
 
 The optional `onObserve` hook reports admission, readiness, handler, submission and recovery timings/outcomes without identifiers, names, inputs or results. Readiness observations cover notification GETs; discovery is measured per page. Use cheap local callbacks; observer failures never change execution. The SDK sends no telemetry. Request-level observations separately report retries and HTTP failures.
 

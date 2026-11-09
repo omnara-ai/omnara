@@ -64,16 +64,15 @@ repeating a job across calls or process restarts. A key cannot make an endpoint
 replay-safe unless that endpoint supports it. The SDK rejects `Idempotency-Key`
 in client-wide headers: each logical operation needs its own key.
 
-Replay safety protects an operation's effect, not its response. For example,
-`submitToolCallResult` can return `409 tool_call_already_completed` after a lost
-response to a successful submission. This means the call is complete; it does
-not prove which submission supplied the stored result.
+Replay safety protects an operation's effect, not its response: a retried write
+can return a conflict such as `409 tool_call_already_completed` after a lost
+success response.
 
 `timeoutMs` includes authentication, response parsing, and retry waits. If the
 next wait cannot fit, the SDK returns the last API error immediately. Expiring
 during a request raises a `TimeoutError`; caller cancellation preserves
 `signal.reason`. Both settings must be non-negative integers; `timeoutMs` must
-fit a 32-bit timer. The existing `throwOnError: false` response modes still apply.
+fit a 32-bit timer. The `throwOnError: false` response modes still apply.
 
 Authentication, serialization, and interceptors run once per logical call, not
 once per attempt. If a validator changes the method, route template, or base URL,
@@ -87,19 +86,16 @@ returned without another attempt. Streamed request bodies and `parseAs: 'stream'
 requests are not retried. For a successfully returned stream, including automatic
 parsing, the request deadline does not limit subsequent body reads; use `signal`
 to cancel them. HTTP error-body parsing remains covered by the deadline.
-The SDK releases its caller cancellation listener when the request settles, or
-when a returned stream ends, errors, or is canceled. `openAgentEventStream` owns
-its reconnection policy and releases that listener after each connection.
-The lower-level generated `sdk.streamEvents` uses its existing `sse*` options
+`openAgentEventStream` owns its reconnection policy.
+The lower-level generated `sdk.streamEvents` uses its `sse*` options
 instead of `maxRetries` and `timeoutMs`.
 
 Pass your configured `client` to generated functions and TanStack options. Calls
 without one use a shared default client with `maxRetries: 0` and `timeoutMs: 0`.
-Explicit per-call retry and deadline options still work, including through the
-TanStack entry point. This client keeps the generated client's authentication and
-raw error behavior; it does not add `ApiError` mapping. When enabling SDK retries
-with TanStack Query, set `retry: false` to avoid multiplying attempts; query
-refetches on reconnect remain independent of transport retries.
+Per-call retry and deadline options still apply. The shared client returns raw
+errors without `ApiError` mapping. When enabling SDK retries with TanStack Query,
+set `retry: false` to avoid multiplying attempts; query refetches on reconnect
+remain independent of transport retries.
 
 ### Request observations
 

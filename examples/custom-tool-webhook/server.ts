@@ -67,9 +67,7 @@ export function createWebhookApp(options: {
     }
   }
 
-  // This calculation has no external effects and is safe to repeat, even after restart.
-  // For business actions, persist/reuse CustomToolDeliveryError.result instead and
-  // make the action idempotent by tool-call ID across processes.
+  // Recomputing is safe for text_length; external actions need durable duplicate protection.
   async function recover() {
     do {
       options.signal?.throwIfAborted()
@@ -146,7 +144,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   process.once('SIGTERM', close)
   process.once('SIGINT', close)
   try {
-    // Read pages sequentially, then pause between complete recovery passes.
     while (!stop.signal.aborted) {
       try {
         await recover()

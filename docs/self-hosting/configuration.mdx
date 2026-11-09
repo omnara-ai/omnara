@@ -64,31 +64,20 @@ a claiming or scheduling problem instead.
 
 ### Monitoring event delivery
 
-Workers report `omnara_event_webhook_slots_used`, `omnara_event_webhook_capacity`, and
-`omnara_event_webhook_attempts_total{outcome,cause}`. The bounded cause label separates recipient
-failures and signing-secret configuration errors from local payload, database,
-or key-management failures. The
-`omnara_event_webhook_delivery_age_seconds` histogram, labeled by
-`attempt` (`first` or `retry`), separates first-attempt
-latency from delivery age after retries.
-
-Maintenance samples delivery queue depth by state, oldest due scheduling lag,
-and oldest due enqueue age every 15 seconds. Alert on sustained
+Monitor worker capacity, delivery failures, and queue depth. Alert on sustained
 `omnara_event_webhook_oldest_due_lag_seconds` with a fresh
-`omnara_event_webhook_backlog_sample_last_success_timestamp_seconds`; enqueue age alone also grows
-when a customer's endpoint repeatedly fails. Due lag includes work waiting for
-an organization's concurrency allowance, so one slow recipient can cause it.
-Queue gauges use `NaN` for failed samples and must be aggregated with **max**
-across maintenance replicas. Scrapes do not query PostgreSQL.
+`omnara_event_webhook_backlog_sample_last_success_timestamp_seconds`;
+enqueue age alone also grows during recipient outages. Due lag includes work
+waiting for an organization's concurrency allowance. Aggregate these queue gauges
+with **max**, not sum, across maintenance replicas.
 
 The repository includes [tested Prometheus delivery alert rules](https://github.com/omnara-ai/omnara/blob/main/observability/prometheus/delivery.rules.yml)
 and [metric and deployment instructions](https://github.com/omnara-ai/omnara/blob/main/observability/README.md#event-delivery).
-CI runs `make prometheus-check`. Load these rules and configure receiver routing
+Load these rules and configure receiver routing
 in your monitoring deployment; installing Omnara does not install Prometheus or
-activate the alerts. Expired delivery rows and best-effort token drops remain
-dashboard metrics; tool-update loss has a warning alert. The sample freshness
-threshold allows a 60-second scrape interval. Keep target-down alerts for missing services,
-and use ready-call recovery for externally executed custom tools.
+activate the alerts. Keep target-down alerts for missing services, and use
+[ready-call recovery](/tools/custom#schedule-finite-recovery-checks) for externally
+executed custom tools.
 
 ### Integration inbox operation
 

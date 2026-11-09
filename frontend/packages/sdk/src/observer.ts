@@ -1,4 +1,3 @@
-/** Local diagnostics must never change the operation they describe. */
 export function notifyObserver<T>(
   observer: ((observation: T) => void | Promise<void>) | undefined,
   observation: T,

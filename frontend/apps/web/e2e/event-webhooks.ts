@@ -1,7 +1,6 @@
 import { type AgentProfile, type EventWebhook, schemas } from '@omnara/sdk'
 import { expect, type Page } from '@playwright/test'
 
-/** Exercises the project form against the real API; only page size is reduced. */
 export async function exerciseProjectWebhooks(
   page: Page,
   profile: Pick<AgentProfile, 'id' | 'project_id' | 'name'>,

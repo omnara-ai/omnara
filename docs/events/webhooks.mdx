@@ -8,7 +8,7 @@ Event webhooks send JSON POST requests with `event` and `data` matching the [eve
 
 ## Configure
 
-Open the project's **Webhooks** tab to see and manage every subscription. The same create/edit form sets the destination URL, event types, optional signing secret, and **Receive events from** selection: all agents in the project, agents using one profile, or one agent. Each row shows its selection.
+Open the project's **Webhooks** tab to see and manage every subscription. The create/edit form sets the destination URL, event types, optional signing secret, and **Receive events from** selection: all agents in the project, agents using one profile, or one agent.
 
 The API uses `POST /orgs/{orgID}/projects/{projectID}/event-webhooks` to create a subscription:
 
@@ -25,13 +25,13 @@ The API uses `POST /orgs/{orgID}/projects/{projectID}/event-webhooks` to create 
 
 Project selections include all existing and future agents, including subagents. Profile selections cover agents using that profile; an agent selection watches only that agent, not its descendants. To receive events from launch onward, configure a project or profile selection before launching agents.
 
-Projects can have **100 active subscriptions across all selections**. This replaces the former limit of 16 per selection. Creating another subscription at the limit returns `409`; editing an existing subscription does not consume another slot, and deletion frees one. Existing subscriptions are preserved even if a project already exceeds the limit. Each selection can have only one active subscription per URL; conflicting creates and edits return `409`. Overlapping subscriptions with the same URL and signing-secret ID queue only one delivery per event.
+Projects have a creation limit of **100 active subscriptions across all selections**. Creating another subscription at the limit returns `409`; existing subscriptions remain active, editing does not consume another slot, and deletion frees one. Each selection can have only one active subscription per URL; conflicting creates and edits return `409`. Overlapping subscriptions with the same URL and signing-secret ID queue only one delivery per event.
 
-`GET /orgs/{orgID}/projects/{projectID}/event-webhooks` lists subscriptions across the project, ordered by creation time and ID. Pass `limit` (1–100, default 50), then pass the returned `next_cursor` as `cursor` until it is `null`. To list an exact selection, pass `scope_type=project`, `scope_type=profile&agent_profile_id=...`, or `scope_type=agent&agent_id=...`. These filtered lists are paginated too: follow `next_cursor` to read every matching subscription. The filters return directly selected subscriptions, not inherited matches. Listing requires project read permission; changes require project management permission.
+`GET /orgs/{orgID}/projects/{projectID}/event-webhooks` lists subscriptions across the project, ordered by creation time and ID. Pass `limit` (1–100, default 50), then pass the returned `next_cursor` as `cursor` until it is `null`. To list an exact selection, pass `scope_type=project`, `scope_type=profile&agent_profile_id=...`, or `scope_type=agent&agent_id=...`. The filters return directly selected subscriptions, not inherited matches. Listing requires project read permission; changes require project management permission.
 
-Responses include `scope_name`, the current name of the selected agent or profile, so a subscription list can display links without separate resource requests. It is omitted for project scope or an unavailable name; use the selected resource ID as a fallback. Names are derived when read, not stored on subscriptions.
+Responses include `scope_name`, the current name of the selected agent or profile. It is omitted for project scope or an unavailable name; use the selected resource ID as a fallback.
 
-Change a subscription's selection through the existing item PATCH endpoint. Send the complete new `scope`, for example:
+To change a subscription's selection, send its complete new `scope` to `PATCH /orgs/{orgID}/projects/{projectID}/event-webhooks/{webhookID}`:
 
 ```json
 {
@@ -101,12 +101,7 @@ Expose `/webhook` over public HTTPS. This snippet only validates and acknowledge
 
 ## Payload examples
 
-Every event includes `org_id`, `project_id`, `agent_id`, `agent_profile_id`,
-`parent_agent_id`, and `root_agent_id`. The profile belongs to the emitting
-agent, or is `null` when it has none. The parent is its immediate parent, or
-`null` for a top-level agent. The root is the top-level agent in its tree and
-equals `agent_id` for a top-level agent. These fields match SSE and REST
-timeline events.
+Every event includes the same [organization, project, agent, and ancestry fields](/events/streaming) as SSE and REST timeline events.
 
 Timeline events also include event and turn identifiers, an event sequence,
 and a creation timestamp. The examples below include all required fields;

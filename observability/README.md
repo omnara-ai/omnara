@@ -33,16 +33,12 @@ retry/complete persistence failures, and cancellation. The
 `attempt` (`first` or `retry`), measures enqueue-to-2xx
 age, including retry waiting. It excludes skipped endpoints and failed attempts;
 a receiver can acknowledge the same delivery again after a lost response or persistence failure.
-The existing `event_webhook.delivery_attempt` wide event also includes
+The `event_webhook.delivery_attempt` wide event also includes
 `event_webhook.age_seconds` at attempt start and `event_webhook.wait_seconds`
 since the scheduled attempt time. IDs remain in logs, never metric labels.
 
-Maintenance samples the writer's `event_webhook_deliveries` table every 15
-seconds, with a five-second context deadline and three-second SQL statement
-limit. Scrapes read in-memory gauges and never query PostgreSQL. The single
-aggregate scans the pending delivery table, not event history. Exact state counts
-show retry waiting, stranded claims, and cleanup backlog. Rows expire after ten
-minutes and the existing cleanup removes them in bounded batches.
+Maintenance samples the delivery backlog independently of scrapes; scrapes read
+in-memory gauges and never query PostgreSQL.
 `omnara_event_webhook_queue_deliveries{state}` partitions rows into:
 
 - `in_flight`: a live claim, even when its delivery window has just expired;
@@ -75,10 +71,9 @@ to multiple slow subscribers can be counted more than once. Durable agent events
 recover through reconciliation; tool-call updates require ready-call recovery,
 and token previews are best effort. All processes with a routed publisher expose
 `omnara_notifications_publisher_queue_depth` and `publisher_queue_capacity`.
-Depth reads local channel occupancy and excludes the coalesced batch currently
-publishing (up to 256 intents). Existing
+Depth excludes the batch currently publishing.
 `omnara_notifications_total{result="dropped",reason="queue_full",intent}` counts
-publisher overflow. Full buffers increment counters without a log per drop.
+publisher overflow.
 These counters cover Omnara's application queues; they do not count losses
 inside go-redis's pub/sub channel or during Redis reconnects. Ready-call recovery
 remains necessary.
@@ -94,17 +89,13 @@ thresholds, not a latency SLO. Validate them with:
 make prometheus-check
 ```
 
-Run this from the repository root; CI runs the same pinned tool image. All rules
-start at warning severity. Expiry and best-effort token drops remain dashboard
+Run this from the repository root. Expiry and best-effort token drops remain dashboard
 metrics because recipient outages and slow subscribers can cause them.
-The three-minute freshness threshold tolerates a 60-second scrape interval and
-the 15-second sampler. The tests cover empty queues, duplicate maintenance
-replicas, failed/missing sampling, minute scrapes, local versus recipient or
-configuration failures, and tool buffer loss without token-drop alerts.
+Keep the scrape interval below the sample-freshness threshold to avoid false
+stale-sample alerts.
 
-This repository does **not** provision Prometheus, Alertmanager, scrape targets,
-or receiver routing. These files do not install live alerts. In the deployment's
-monitoring configuration, scrape each service's operator `/metrics` endpoint,
+Load the rules in your monitoring deployment; this repository does not provision
+Prometheus, Alertmanager, or receiver routing. Scrape each service's operator `/metrics` endpoint,
 add a stable `cluster` target label when one Prometheus watches multiple clusters,
 load this file through `rule_files` (or the equivalent managed rule resource),
 and route its `severity="warning"` alerts to the owning team. Keep existing

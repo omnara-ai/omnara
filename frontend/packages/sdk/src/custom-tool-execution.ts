@@ -123,7 +123,6 @@ export async function executeCustomTool(
   const submitStarted = performance.now()
   let submission: 'accepted' | 'already_completed' | 'failed' = 'failed'
   try {
-    // One logical POST; only the client's shared request policy retries its transport.
     await deliverToolResult(client, call, body, (fetch) =>
       submitToolCallResult({
         client,
