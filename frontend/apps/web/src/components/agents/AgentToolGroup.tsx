@@ -23,18 +23,22 @@ const toolOutputSchema = z
   .object({ contentBlocks: z.array(z.object({ text: z.string().optional() })).optional() })
   .catch({})
 
-function toolStatus(part: ToolPart): ToolStatus {
-  if (part.state === 'output-error') return 'failed'
-  if (part.state !== 'output-available') return 'running'
-  switch (part.toolOutcome) {
+function outcomeStatus(outcome: ToolPart['toolOutcome']): ToolStatus {
+  switch (outcome) {
     case 'failed':
     case 'denied':
     case 'canceled':
-      return part.toolOutcome
+      return outcome
     case 'succeeded':
     case undefined:
       return 'done'
   }
+}
+
+function toolStatus(part: ToolPart): ToolStatus {
+  if (part.state === 'output-error') return 'failed'
+  if (part.state !== 'output-available') return 'running'
+  return outcomeStatus(part.toolOutcome)
 }
 
 function activityItem(part: ToolPart | ReasoningPart): ActivityItem {
@@ -242,14 +246,5 @@ function ProgramToolCalls({ part, scope }: { part: ToolPart; scope: AgentChatSco
 }
 
 function programToolCallStatus(call: ToolCall): ToolStatus {
-  if (call.state !== 'completed') return 'running'
-  switch (call.outcome) {
-    case 'failed':
-    case 'denied':
-    case 'canceled':
-      return call.outcome
-    case 'succeeded':
-    case undefined:
-      return 'done'
-  }
+  return call.state === 'completed' ? outcomeStatus(call.outcome) : 'running'
 }

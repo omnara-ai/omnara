@@ -29,15 +29,13 @@ export function useProgramToolCalls(
   projectID: string,
   agentID: string,
   parentToolCallID: string,
-  options?: { enabled?: boolean },
 ) {
   const client = useOmnaraClient()
-  return useInfiniteQuery({
-    ...cursorPaginated(
+  return useInfiniteQuery(
+    cursorPaginated(
       programToolCallsOptions(client, { orgID, projectID, agentID }, parentToolCallID),
     ),
-    enabled: options?.enabled,
-  })
+  )
 }
 
 const toolCallRefreshIntervalMs = 500

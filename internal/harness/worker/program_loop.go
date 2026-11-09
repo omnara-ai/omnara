@@ -23,7 +23,7 @@ type ProgramToolStore interface {
 	ClaimNextProgramToolCall(
 		context.Context, uuid.UUID, time.Duration,
 	) (executionstore.ProgramToolCallClaim, bool, error)
-	RenewProgramToolCallClaim(context.Context, executionstore.ProgramToolCallRef, time.Duration) (time.Time, error)
+	RenewProgramToolCallClaim(context.Context, executionstore.ProgramToolCallRef, time.Duration) error
 }
 
 type ProgramToolExecutor interface {
@@ -75,13 +75,13 @@ func (w *Worker) runProgramTools(claimCtx, executionCtx context.Context, calls *
 			defer func() { _ = subscription.Unsubscribe() }()
 		}
 	}
-	w.programClaimLoop(claimCtx, executionCtx, w.programTools, calls, wake)
+	w.programClaimLoop(claimCtx, executionCtx, calls, wake)
 }
 
 func (w *Worker) programClaimLoop(
-	claimCtx, executionCtx context.Context, runner *programToolRunner, calls *sync.WaitGroup, wake <-chan struct{},
+	claimCtx, executionCtx context.Context, calls *sync.WaitGroup, wake <-chan struct{},
 ) {
-	slots := make(chan struct{}, runner.capacity)
+	slots := make(chan struct{}, w.programTools.capacity)
 	idleDelay := minIdleClaimDelay
 	failures := 0
 	for {
@@ -90,14 +90,14 @@ func (w *Worker) programClaimLoop(
 		case <-claimCtx.Done():
 			return
 		}
-		claim, found, err := w.claimProgramToolCall(claimCtx, runner)
+		claim, found, err := w.claimProgramToolCall(claimCtx)
 		if err == nil && found {
 			failures, idleDelay = 0, minIdleClaimDelay
 			calls.Add(1)
 			go func() {
 				defer calls.Done()
 				defer func() { <-slots }()
-				w.runProgramToolCall(executionCtx, runner, claim)
+				w.runProgramToolCall(executionCtx, claim)
 			}()
 			continue
 		}
@@ -131,28 +131,27 @@ func (w *Worker) programClaimLoop(
 }
 
 func (w *Worker) claimProgramToolCall(
-	ctx context.Context, runner *programToolRunner,
+	ctx context.Context,
 ) (claim executionstore.ProgramToolCallClaim, found bool, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			claim, found, err = executionstore.ProgramToolCallClaim{}, false, panicError("program tool claim", recovered)
 		}
 	}()
-	return runner.store.ClaimNextProgramToolCall(ctx, uuid.New(), runner.lease)
+	return w.programTools.store.ClaimNextProgramToolCall(ctx, uuid.New(), w.programTools.lease)
 }
 
 // runProgramToolCall runs one claimed phase and renews the claim until the
 // call's async work, if any, has finished.
-func (w *Worker) runProgramToolCall(
-	ctx context.Context, runner *programToolRunner, claim executionstore.ProgramToolCallClaim,
-) {
+func (w *Worker) runProgramToolCall(ctx context.Context, claim executionstore.ProgramToolCallClaim) {
 	defer w.recoverPanic("program tool call panicked", "tool_call_id", claim.ID)
 	ref := claim.Ref()
 	callCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	stopRenewal := w.startProgramRenewal(callCtx, cancel, runner, ref)
+	stopRenewal := w.startProgramRenewal(callCtx, cancel, ref)
 	scope := tools.NewAsyncExecutionScope(w.asyncToolLimiter)
-	err := runner.executor.RunProgramToolCall(tools.WithAsyncExecutionScope(callCtx, scope), claim, runner.lease)
+	err := w.programTools.executor.RunProgramToolCall(tools.WithAsyncExecutionScope(callCtx, scope), claim,
+		w.programTools.lease)
 	scope.Seal()
 	<-scope.Done()
 	stopRenewal()
@@ -167,14 +166,15 @@ func (w *Worker) runProgramToolCall(
 // startProgramRenewal renews the claim every third of its lease and cancels
 // the call once the claim is lost.
 func (w *Worker) startProgramRenewal(
-	ctx context.Context, cancel context.CancelFunc, runner *programToolRunner, ref executionstore.ProgramToolCallRef,
+	ctx context.Context, cancel context.CancelFunc, ref executionstore.ProgramToolCallRef,
 ) func() {
+	store, lease := w.programTools.store, w.programTools.lease
 	renewalCtx, stop := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		defer w.recoverPanic("program tool claim renewal panicked", "tool_call_id", ref.ToolCallID)
-		ticker := time.NewTicker(runner.lease / 3)
+		ticker := time.NewTicker(lease / 3)
 		defer ticker.Stop()
 		for {
 			select {
@@ -182,8 +182,8 @@ func (w *Worker) startProgramRenewal(
 				return
 			case <-ticker.C:
 			}
-			attemptCtx, cancelAttempt := context.WithTimeout(renewalCtx, runner.lease/3)
-			_, err := runner.store.RenewProgramToolCallClaim(attemptCtx, ref, runner.lease)
+			attemptCtx, cancelAttempt := context.WithTimeout(renewalCtx, lease/3)
+			err := store.RenewProgramToolCallClaim(attemptCtx, ref, lease)
 			cancelAttempt()
 			switch {
 			case err == nil, renewalCtx.Err() != nil:

@@ -75,15 +75,7 @@ func ProgramToolSearch(
 	if err != nil {
 		return modelcontext.ProgramToolSearchResult{}, err
 	}
-	var raw toolSearchRequest
-	if err := json.Unmarshal(input, &raw); err != nil {
-		return modelcontext.ProgramToolSearchResult{}, err
-	}
-	maxResults := 0
-	if len(raw.MaxResults) != 0 {
-		maxResults = request.MaxResults
-	}
-	return modelcontext.SearchTools(specs, request.Pattern, maxResults)
+	return modelcontext.SearchTools(specs, request.Pattern, request.MaxResults)
 }
 
 // RunProgramToolCall runs the claimed phase of a program tool call: the
@@ -118,18 +110,13 @@ func (e Executor) RunProgramToolCall(
 	}
 	// Fail the call rather than leave it to be re-claimed into the same error.
 	// The command gets a fixed message; the caller logs the error.
-	content, contentErr := structuredToolResultContent(map[string]any{
+	parts, contentErr := structuredParts(map[string]any{
 		"error_code": "tool_call_failed", "error": programToolCallInternalError,
 	})
 	if contentErr != nil {
 		return errors.Join(err, contentErr)
 	}
-	parts, contentErr := content.contentParts()
-	if contentErr != nil {
-		return errors.Join(err, contentErr)
-	}
-	authority := programClaimAuthority{ref: claim.Ref(), lease: lease}
-	if _, completeErr := authority.complete(ctx, e, turn, record.ID, executionstore.ToolResultOutcomeFailed,
+	if _, completeErr := turn.toolAuthority().complete(ctx, e, turn, record.ID, executionstore.ToolResultOutcomeFailed,
 		parts); completeErr != nil && !errors.Is(completeErr, storeerr.ErrRuntimeLockInactive) {
 		return errors.Join(err, completeErr)
 	}
@@ -165,8 +152,7 @@ func (e Executor) programTurn(
 	}
 	turn.Tools = map[string]ToolSpec{}
 	if found && modelcontext.ProgramCallable(contract, spec) {
-		turn.Tools[spec.Name] = ToolSpec{Type: spec.Type, Permission: spec.Permission,
-			Description: spec.Description, InputSchema: spec.InputSchema, Deferred: spec.Deferred}
+		turn.Tools[spec.Name] = ToolSpecFromModelContext(spec)
 	}
 	return turn, nil
 }

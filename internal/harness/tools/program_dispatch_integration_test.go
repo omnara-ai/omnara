@@ -261,7 +261,7 @@ func TestProgramMCPToolCallRunsAsyncUnderRenewedClaim(t *testing.T) {
 	require.Equal(t, executionstore.ToolCallStateWaiting, fixture.get(t, ctx, call.ID).State)
 	ref := executionstore.ProgramToolCallRef{ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
 		ProcessID: fixture.ProcessID, ToolCallID: call.ID, ClaimID: claim.ClaimID}
-	_, err := fixture.Store.Execution().RenewProgramToolCallClaim(ctx, ref, time.Minute)
+	err := fixture.Store.Execution().RenewProgramToolCallClaim(ctx, ref, time.Minute)
 	require.NoError(t, err)
 	close(release)
 	settleIntegrationAsyncDispatch(t, scope)
@@ -288,7 +288,7 @@ func TestProgramMCPToolCallRunsAsyncUnderRenewedClaim(t *testing.T) {
 		SourceEndedAt: fixture.Now.Add(time.Minute)})
 	require.NoError(t, err)
 	ref.ToolCallID, ref.ClaimID = blocked.ID, claim.ClaimID
-	_, err = fixture.Store.Execution().RenewProgramToolCallClaim(ctx, ref, time.Minute)
+	err = fixture.Store.Execution().RenewProgramToolCallClaim(ctx, ref, time.Minute)
 	require.ErrorIs(t, err, storeerr.ErrProgramToolCallClaimLost)
 	reaped, err := fixture.Store.Execution().ReapProgramToolCalls(ctx, 10)
 	require.NoError(t, err)

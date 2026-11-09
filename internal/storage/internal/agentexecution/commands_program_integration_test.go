@@ -457,7 +457,7 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	_, found := f.claim(t, tool.ID, first)
 	require.True(t, found)
 	ref := agentexecution.ProgramToolRef{ID: tool.ID, ProcessID: f.process, ClaimID: first}
-	_, err = cell.RenewProgramTool(t.Context(), f.agent, ref, time.Hour)
+	err = cell.RenewProgramTool(t.Context(), f.agent, ref, time.Hour)
 	require.NoError(t, err)
 	expire := func() {
 		_, err := f.pool.Exec(t.Context(), `UPDATE tool_calls
@@ -466,7 +466,7 @@ func TestProgramToolClaimLeases(t *testing.T) {
 		require.NoError(t, err)
 	}
 	expire()
-	_, err = cell.RenewProgramTool(t.Context(), f.agent, ref, time.Hour)
+	err = cell.RenewProgramTool(t.Context(), f.agent, ref, time.Hour)
 	require.ErrorIs(t, err, storeerr.ErrProgramToolCallClaimLost)
 	// An expired authorization lease is claimable again; the old holder loses it.
 	second := uuid.New()
