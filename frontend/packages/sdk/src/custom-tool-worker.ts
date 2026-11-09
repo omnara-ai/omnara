@@ -1,5 +1,9 @@
 import { forwardAbort, untilAborted } from './abort'
-import { type CustomToolTask, executeCustomTool } from './custom-tool-execution'
+import {
+  type CustomToolTask,
+  type CustomToolWork,
+  executeCustomTool,
+} from './custom-tool-execution'
 import { toolError } from './custom-tool-request'
 import type {
   CreateCustomToolWorkerOptions,
@@ -8,7 +12,6 @@ import type {
   CustomToolCheckResult,
   CustomToolOutcome,
   CustomToolWorker,
-  WorkSource,
 } from './custom-tool-worker-types'
 import { listProjectToolCalls } from './generated/sdk.gen'
 import { zListProjectToolCallsQuery } from './generated/zod.gen'
@@ -25,17 +28,19 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       )
   }
   const running = new Map<string, CustomToolTask & { done: Promise<CustomToolOutcome> }>()
+  // Only outstanding list reads need protection from a completion newer than their snapshot.
+  const listingCompletions = new Set<Set<string>>()
+  function observedCompletion(id: string) {
+    for (const completed of listingCompletions) completed.add(id)
+  }
   const observe = options.onObserve
   const report = (cause: unknown, call?: CustomToolCallRef) => {
     notifyObserver((error: Error) => options.onError?.(error, call), toolError(cause))
   }
 
-  function start(
-    call: CustomToolCallRef,
-    source: WorkSource,
-    signal?: AbortSignal,
-  ): Promise<CustomToolOutcome> {
+  function start(work: CustomToolWork, signal?: AbortSignal): Promise<CustomToolOutcome> {
     signal?.throwIfAborted()
+    const { call, source } = work
     const handler = handlers.get(call.name)
     if (handler === undefined) return Promise.resolve({ status: 'ignored' })
     const id = `${call.agentID}/${call.toolCallID}`
@@ -44,7 +49,7 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       notifyObserver(observe, { stage: 'admission', source, outcome: 'joined' })
       return signal ? untilAborted(() => active.done, signal) : active.done
     }
-    const task: CustomToolTask = { call, source, cancel: new AbortController(), completed: false }
+    const task: CustomToolTask = { ...work, cancel: new AbortController(), completed: false }
     const unlink = forwardAbort(signal, task.cancel)
     const done = Promise.resolve()
       .then(() => executeCustomTool(task, { ...options, handler }))
@@ -52,6 +57,10 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
         if (task.completed) return { status: 'completed' }
         report(cause, task.call)
         throw cause
+      })
+      .then((outcome) => {
+        if (outcome.status === 'completed') observedCompletion(id)
+        return outcome
       })
       .finally(() => {
         unlink()
@@ -77,6 +86,8 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
     const started = performance.now()
     let rows = 0
     let outcome: 'page' | 'failed' = 'failed'
+    const completed = new Set<string>()
+    listingCompletions.add(completed)
     try {
       const { data: page } = await listProjectToolCalls({
         client: options.client,
@@ -89,26 +100,32 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       if (page.data.length > query.limit)
         throw new Error('tool-call page exceeded its requested limit')
       rows = page.data.length
-      const results = await Promise.all(
-        page.data
-          .filter(
-            (call) => call.type === 'custom' && call.state === 'ready' && handlers.has(call.name),
-          )
-          .map(async (current) => {
-            const call = { agentID: current.agent_id, toolCallID: current.id, name: current.name }
-            try {
-              return { call, outcome: await start(call, 'recovery', checkOptions.signal) }
-            } catch (cause) {
-              return { call, outcome: { status: 'failed' as const, error: toolError(cause) } }
+      const pending = page.data
+        .filter(
+          (call) => call.type === 'custom' && call.state === 'ready' && handlers.has(call.name),
+        )
+        .map(async (current) => {
+          const call = { agentID: current.agent_id, toolCallID: current.id, name: current.name }
+          try {
+            return {
+              call,
+              outcome: completed.has(`${call.agentID}/${call.toolCallID}`)
+                ? { status: 'completed' as const }
+                : await start({ call, source: 'recovery', current }, checkOptions.signal),
             }
-          }),
-      )
+          } catch (cause) {
+            return { call, outcome: { status: 'failed' as const, error: toolError(cause) } }
+          }
+        })
+      listingCompletions.delete(completed)
+      const results = await Promise.all(pending)
       outcome = 'page'
       return { results, nextCursor: page.next_cursor }
     } catch (cause) {
       report(cause)
       throw cause
     } finally {
+      listingCompletions.delete(completed)
       notifyObserver(observe, {
         stage: 'recovery',
         durationMs: performance.now() - started,
@@ -127,7 +144,9 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       )
         return { status: 'ignored' }
       if (update.state === 'completed') {
-        const task = running.get(`${update.agent_id}/${update.tool_call_id}`)
+        const id = `${update.agent_id}/${update.tool_call_id}`
+        observedCompletion(id)
+        const task = running.get(id)
         if (task) {
           task.completed = true
           task.cancel.abort()
@@ -139,8 +158,10 @@ export function createCustomToolWorker(options: CreateCustomToolWorkerOptions): 
       if (update.state !== 'ready' || update.name === undefined || !handlers.has(update.name))
         return { status: 'ignored' }
       return start(
-        { agentID: update.agent_id, toolCallID: update.tool_call_id, name: update.name },
-        'notification',
+        {
+          call: { agentID: update.agent_id, toolCallID: update.tool_call_id, name: update.name },
+          source: 'notification',
+        },
         operation.signal,
       )
     },

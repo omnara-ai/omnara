@@ -61,7 +61,7 @@ function accepted() {
 }
 
 function receiver(apiFetch: typeof fetch, signal?: AbortSignal) {
-  const { app, check, drain } = createWebhookApp({
+  const { app, recover, drain } = createWebhookApp({
     client: createOmnaraClient({
       baseUrl: 'https://api.example.com/v1',
       fetch: apiFetch,
@@ -88,7 +88,7 @@ function receiver(apiFetch: typeof fetch, signal?: AbortSignal) {
       },
     })
   }
-  return { post, check, drain }
+  return { post, recover, drain }
 }
 
 test(
@@ -132,20 +132,37 @@ test('acknowledges without waiting for result submission', { timeout: 5000 }, as
   assert.equal(completed, true)
 })
 
-test('picks up ready calls that no webhook reported', { timeout: 5000 }, async () => {
-  const { check } = receiver(async (url, init) => {
+test('visits every recovery page promptly and sequentially', { timeout: 5000 }, async () => {
+  const calls = Array.from({ length: 101 }, (_, i) => ({
+    ...readyCall(),
+    id: `tcl_${String.fromCharCode(97 + Math.floor(i / 26))}${String.fromCharCode(97 + (i % 26))}${'a'.repeat(24)}`,
+  }))
+  const submitted: string[] = []
+  let lists = 0
+  const { recover } = receiver(async (url, init) => {
     const request = new Request(url, init)
+    const parsed = new URL(request.url)
     if (request.method === 'GET') {
-      return Response.json(
-        new URL(request.url).pathname.endsWith('/tool-calls')
-          ? { data: [readyCall()], next_cursor: null }
-          : readyCall(),
-      )
+      assert.ok(parsed.pathname.endsWith('/tool-calls'), 'discovery must not refetch each call')
+      const start = Number(parsed.searchParams.get('cursor') ?? 0)
+      assert.equal(submitted.length, start, 'finish the previous page before listing the next')
+      lists++
+      const limit = Number(parsed.searchParams.get('limit'))
+      return Response.json({
+        data: calls.slice(start, start + limit),
+        next_cursor: start + limit < calls.length ? String(start + limit) : null,
+      })
     }
     assert.deepEqual(await request.json(), result)
+    submitted.push(parsed.pathname.split('/').at(-2) ?? '')
     return accepted()
   })
-  await check()
+  await recover()
+  assert.equal(lists, 3)
+  assert.deepEqual(
+    submitted,
+    calls.map((call) => call.id),
+  )
 })
 
 test(
@@ -157,7 +174,7 @@ test(
       errors.push(args)
     })
     let submissions = 0
-    const { post, check, drain } = receiver(async (url, init) => {
+    const { post, recover, drain } = receiver(async (url, init) => {
       const request = new Request(url, init)
       if (request.method === 'GET')
         return Response.json(
@@ -175,8 +192,8 @@ test(
     await drain()
     assert.equal(submissions, 1)
     assert.equal(errors.length, 1)
-    assert.match(String(errors[0]?.[0]), /next recovery check will safely recompute/)
-    await check()
+    assert.match(String(errors[0]?.[0]), /next recovery pass will safely recompute/)
+    await recover()
     assert.equal(submissions, 2)
   },
 )
@@ -206,3 +223,26 @@ test(
     assert.match(String(errors[0]?.[0]), /submit a corrected or explicit failed result/)
   },
 )
+
+test('stops a recovery pass when canceled between pages', { timeout: 5000 }, async (context) => {
+  const stop = new AbortController()
+  const reason = new Error('application stopped')
+  let lists = 0
+  const { recover } = receiver(async (url, init) => {
+    const request = new Request(url, init)
+    if (request.method === 'GET') {
+      lists++
+      return Response.json({ data: [readyCall()], next_cursor: 'more' })
+    }
+    stop.abort(reason)
+    return accepted()
+  }, stop.signal)
+  // Cancellation after a result exists is reported by the real helper before the pass stops.
+  const errors: unknown[] = []
+  context.mock.method(console, 'error', (...args: unknown[]) => {
+    errors.push(args)
+  })
+  await assert.rejects(recover(), reason)
+  assert.equal(lists, 1)
+  assert.equal(errors.length, 1)
+})

@@ -49,6 +49,7 @@ export function createWebhookApp(options: {
   let cursor: string | undefined
 
   function report(error: unknown) {
+    if (options.signal?.aborted && !(error instanceof CustomToolDeliveryError)) return
     if (error instanceof CustomToolDeliveryError) {
       if (error.cause instanceof ApiError && [400, 413, 422].includes(error.cause.status)) {
         console.error(
@@ -58,27 +59,30 @@ export function createWebhookApp(options: {
         return
       }
       console.error(
-        `Result delivery failed for ${error.call.toolCallID}; the next recovery check will safely recompute text_length.`,
+        `Result delivery failed for ${error.call.toolCallID}; the next recovery pass will safely recompute text_length.`,
         error.cause,
       )
     } else {
-      console.error('Custom tool processing failed; the next recovery check will retry:', error)
+      console.error('Custom tool processing failed; the next recovery pass will retry:', error)
     }
   }
 
   // This calculation has no external effects and is safe to repeat, even after restart.
   // For business actions, persist/reuse CustomToolDeliveryError.result instead and
   // make the action idempotent by tool-call ID across processes.
-  async function check() {
-    const page = await worker.check({
-      cursor,
-      limit: 10,
-      signal: options.signal,
-    })
-    for (const { outcome } of page.results) {
-      if (outcome.status === 'failed') report(outcome.error)
-    }
-    cursor = page.nextCursor ?? undefined
+  async function recover() {
+    do {
+      options.signal?.throwIfAborted()
+      const page = await worker.check({
+        cursor,
+        signal: options.signal,
+      })
+      for (const { outcome } of page.results) {
+        if (outcome.status === 'failed') report(outcome.error)
+      }
+      options.signal?.throwIfAborted()
+      cursor = page.nextCursor ?? undefined
+    } while (cursor !== undefined)
   }
 
   const app = new Hono()
@@ -103,7 +107,7 @@ export function createWebhookApp(options: {
     }
     return c.body(null, 204)
   })
-  return { app, check, drain: () => Promise.all([...active]) }
+  return { app, recover, drain: () => Promise.all([...active]) }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -113,7 +117,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     return value
   }
   const stop = new AbortController()
-  const { app, check, drain } = createWebhookApp({
+  const { app, recover, drain } = createWebhookApp({
     client: createOmnaraClient({
       baseUrl: process.env.OMNARA_API_URL ?? 'https://api.omnara.com/v1',
       auth: bearerToken(required('OMNARA_API_KEY')),
@@ -142,11 +146,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   process.once('SIGTERM', close)
   process.once('SIGINT', close)
   try {
-    // Scheduling belongs to this application. Each SDK check reads one bounded page;
-    // the next scheduled invocation resumes its cursor, including while webhooks flow.
+    // Read pages sequentially, then pause between complete recovery passes.
     while (!stop.signal.aborted) {
       try {
-        await check()
+        await recover()
       } catch (error) {
         if (!stop.signal.aborted) console.error('Recovery check failed:', error)
       }

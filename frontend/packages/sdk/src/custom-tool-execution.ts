@@ -5,7 +5,6 @@ import type {
   CustomToolHandler,
   CustomToolObservation,
   CustomToolOutcome,
-  WorkSource,
 } from './custom-tool-worker-types'
 import { ApiError } from './errors'
 import { jsonBodySerializer } from './generated/core/bodySerializer.gen'
@@ -26,9 +25,11 @@ interface ToolExecutionOptions {
   onObserve?: (observation: CustomToolObservation) => void | Promise<void>
 }
 
-export interface CustomToolTask {
+export type CustomToolWork = {
   call: CustomToolCallRef
-  source: WorkSource
+} & ({ source: 'notification' } | { source: 'recovery'; current: ToolCall })
+
+export type CustomToolTask = CustomToolWork & {
   cancel: AbortController
   completed: boolean
 }
@@ -51,30 +52,39 @@ export async function executeCustomTool(
   const { call, cancel } = task
   const { signal } = cancel
   const path = { ...options.path, agentID: call.agentID, toolCallID: call.toolCallID }
-  const readStarted = performance.now()
-  let readiness: 'ready' | 'completed' | 'ignored' | 'failed' = 'failed'
   let current: ToolCall
-  try {
-    // A page or notification can arrive after another invocation completed the call.
-    const response = await getToolCall({
-      client,
-      path,
-      signal,
-      throwOnError: true,
-      responseStyle: 'fields',
-    })
-    current = response.data
-    if (current.state !== 'ready') {
-      readiness = current.state === 'completed' ? 'completed' : 'ignored'
-      return { status: readiness }
+  if (task.source === 'recovery') {
+    current = task.current
+  } else {
+    // Notifications can be delayed or omit input; discovery already read the full call.
+    const readStarted = performance.now()
+    let readiness: 'ready' | 'completed' | 'ignored' | 'failed' = 'failed'
+    try {
+      current = (
+        await getToolCall({
+          client,
+          path,
+          signal,
+          throwOnError: true,
+          responseStyle: 'fields',
+        })
+      ).data
+      if (current.state !== 'ready') {
+        readiness = current.state === 'completed' ? 'completed' : 'ignored'
+        return { status: readiness }
+      }
+      if (current.type !== 'custom' || current.name !== call.name) {
+        readiness = 'ignored'
+        return { status: readiness }
+      }
+      readiness = 'ready'
+    } finally {
+      observe({
+        stage: 'readiness',
+        durationMs: performance.now() - readStarted,
+        outcome: readiness,
+      })
     }
-    if (current.type !== 'custom' || current.name !== call.name) {
-      readiness = 'ignored'
-      return { status: readiness }
-    }
-    readiness = 'ready'
-  } finally {
-    observe({ stage: 'readiness', durationMs: performance.now() - readStarted, outcome: readiness })
   }
   signal.throwIfAborted()
   const handlerStarted = performance.now()

@@ -204,11 +204,17 @@ describe('finite recovery pages', () => {
     const calls = Array.from({ length: 4 }, (_, i) =>
       toolCall(`tcl_${String.fromCharCode(97 + i).repeat(26)}`),
     )
-    const { client, requests } = api((request) => toolPage(request, calls))
-    const handler = vi.fn(() => Promise.resolve({ outcome: 'deferred' as const }))
+    const { client, requests, submitted } = api((request) => toolPage(request, calls))
+    const handler = vi.fn<CustomToolHandler>(() =>
+      Promise.resolve({ outcome: 'deferred' as const }),
+    )
+    const observations: CustomToolObservation[] = []
     const worker = createCustomToolWorker({
       client,
       path,
+      onObserve: (event) => {
+        observations.push(event)
+      },
       agentProfileID: profileID,
       tools: { lookup_customer: handler },
     })
@@ -232,6 +238,15 @@ describe('finite recovery pages', () => {
     expect(params.getAll('names')).toEqual(['lookup_customer'])
     expect(params.get('state')).toBe('ready')
     expect(params.get('type')).toBe('custom')
+    // Deferred jobs remain ready: another pass must still cost only one GET per page.
+    await worker.check({ limit: 2 })
+    expect(requests).toHaveLength(3)
+    expect(
+      requests.every((request) => request.startsWith('GET ') && request.includes('/tool-calls?')),
+    ).toBe(true)
+    expect(submitted).toEqual([])
+    expect(observations.some((event) => event.stage === 'readiness')).toBe(false)
+    expect(handler.mock.calls[0]?.[0]).toMatchObject({ input: calls[0]?.input })
   })
 
   it('supports more than 100 registered tools without an invalid names filter', async () => {
@@ -254,29 +269,86 @@ describe('finite recovery pages', () => {
     expect(page.nextCursor).toBe('later')
   })
 
-  it('rechecks a page which arrives after a concurrent submission completed', async () => {
-    const list = deferred<Response>()
-    let completed = false
+  it.each(['completed', 'deferred'] as const)(
+    'handles a delayed page after a local %s outcome',
+    async (outcome) => {
+      const list = deferred<Response>()
+      let completed = false
+      const handler = vi.fn<CustomToolHandler>(() =>
+        Promise.resolve(outcome === 'completed' ? found : { outcome: 'deferred' }),
+      )
+      const { client, requests } = api(
+        (request, body) => {
+          if (request.method === 'GET') return list.promise
+          completed = true
+          return accepted(body ?? found)
+        },
+        () =>
+          Response.json({
+            ...toolCall(),
+            state: completed ? 'completed' : 'ready',
+            outcome: completed ? 'succeeded' : undefined,
+          }),
+      )
+      const worker = createCustomToolWorker({ client, path, tools: { lookup_customer: handler } })
+      const check = worker.check()
+      await worker.handle(ready)
+      list.resolve(Response.json({ data: [toolCall()], next_cursor: null }))
+      expect((await check).results[0]?.outcome.status).toBe(outcome)
+      expect(handler).toHaveBeenCalledTimes(outcome === 'completed' ? 1 : 2)
+      expect(requests).toHaveLength(outcome === 'completed' ? 3 : 2) // List, notification GET, optional POST.
+    },
+  )
+
+  it('protects overlapping list reads from completion notifications even when one fails', async () => {
+    const lists = [deferred<Response>(), deferred<Response>(), deferred<Response>()]
+    let listed = 0
+    const { client, requests } = api(() => {
+      const list = lists[listed++]
+      if (!list) throw new Error('unexpected request')
+      return list.promise
+    })
     const handler = vi.fn(() => Promise.resolve(found))
-    const { client } = api(
-      (request, body) => {
-        if (request.method === 'GET') return list.promise
-        completed = true
-        return accepted(body ?? found)
-      },
-      () =>
-        Response.json({
-          ...toolCall(),
-          state: completed ? 'completed' : 'ready',
-          outcome: completed ? 'succeeded' : undefined,
-        }),
+    const worker = createCustomToolWorker({ client, path, tools: { lookup_customer: handler } })
+    const checks = [worker.check(), worker.check(), worker.check()]
+    const failed = expect(checks[1]).rejects.toThrow()
+    await vi.waitFor(() => {
+      expect(listed).toBe(3)
+    })
+    await worker.handle({ ...ready, state: 'completed' })
+    lists[1]?.resolve(Response.json({ code: 'not_found', error: 'unavailable' }, { status: 404 }))
+    await failed
+    for (const index of [0, 2]) {
+      lists[index]?.resolve(Response.json({ data: [toolCall()], next_cursor: null }))
+      expect((await checks[index])?.results[0]?.outcome.status).toBe('completed')
+    }
+    expect(handler).not.toHaveBeenCalled()
+    expect(requests).toHaveLength(3)
+  })
+
+  it('joins the same running handler across overlapping discovery pages', async () => {
+    const held = deferred<typeof found>()
+    const handler = vi.fn(() => held.promise)
+    const { client, requests, submitted } = api((request, body) =>
+      request.method === 'GET'
+        ? Response.json({ data: [toolCall()], next_cursor: null })
+        : accepted(body ?? found),
     )
     const worker = createCustomToolWorker({ client, path, tools: { lookup_customer: handler } })
-    const check = worker.check()
-    await worker.handle(ready)
-    list.resolve(Response.json({ data: [toolCall()], next_cursor: null }))
-    expect((await check).results[0]?.outcome.status).toBe('completed')
+    const first = worker.check()
+    await vi.waitFor(() => {
+      expect(handler).toHaveBeenCalledOnce()
+    })
+    const second = worker.check()
+    await vi.waitFor(() => {
+      expect(requests).toHaveLength(2)
+    })
+    held.resolve(found)
+    const pages = await Promise.all([first, second])
+    expect(pages.map((page) => page.results[0]?.outcome.status)).toEqual(['completed', 'completed'])
     expect(handler).toHaveBeenCalledOnce()
+    expect(submitted).toEqual([found])
+    expect(requests).toHaveLength(3)
   })
 
   it.each([0, 101, 1.5])('rejects invalid page limit %s before I/O', async (limit) => {

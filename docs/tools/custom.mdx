@@ -90,7 +90,7 @@ Ready custom-call notifications include `name` and, for inputs up to 64 KiB, `in
 
 ## TypeScript helper
 
-`createCustomToolWorker` provides two finite operations. `handle(update)` checks the event's organization, project and optional profile, reads the call's current state and input, invokes its registered function, and submits the result. `check({ cursor, limit })` discovers one page of ready calls in the project and awaits their handling. Both use the client's HTTP retries; neither schedules future work or retains failed deliveries.
+`createCustomToolWorker` provides two finite operations. `handle(update)` checks the event's organization, project and optional profile, reads the call's current state and input, invokes its registered function, and submits the result. `check({ cursor, limit })` reads one page of ready calls with their full inputs and starts handling them directly, without a GET for each call. Both use the client's HTTP retries; neither schedules future work or retains failed deliveries.
 
 ```typescript
 import { createCustomToolWorker, createOmnaraClient } from '@omnara/sdk'
@@ -151,33 +151,38 @@ Unexpected handler exceptions and locally invalid or unserializable output becom
 
 ### Schedule finite recovery checks
 
-Run a check after connecting, then schedule further checks even while webhook or SSE traffic continues. For example, your application's scheduler can invoke this function every minute. Save the cursor after handling all outcomes so a large backlog advances across invocations:
+Run recovery after connecting and periodically while webhook or SSE traffic continues. Follow pages promptly and sequentially; pause between complete passes, not between pages. For example, your application's scheduler can run this function once a minute without overlapping invocations:
 
 ```typescript
 async function recoverReadyTools() {
-  const cursor = (await checkpoints.load(recoveryKey)) ?? undefined
-  const page = await worker.check({ cursor, limit: 10, signal })
-  for (const { call, outcome } of page.results) {
-    if (outcome.status === 'failed') {
-      // Persist delivery errors' results; explicitly decide how other failures are retried.
-      await recoverFailure(call, outcome.error)
+  let cursor = (await checkpoints.load(recoveryKey)) ?? undefined
+  do {
+    signal.throwIfAborted()
+    const page = await worker.check({ cursor, signal })
+    for (const { call, outcome } of page.results) {
+      if (outcome.status === 'failed') {
+        // Persist delivery errors' results; decide how other failures are retried.
+        await recoverFailure(call, outcome.error)
+      }
     }
-  }
-  await checkpoints.save(recoveryKey, page.nextCursor)
+    signal.throwIfAborted()
+    await checkpoints.save(recoveryKey, page.nextCursor)
+    cursor = page.nextCursor ?? undefined
+  } while (cursor !== undefined)
 }
 ```
 
-`check` processes at most `limit` rows (50 by default, up to 100), returning each call's outcome and `nextCursor`. Consume **every failed outcome** before advancing your checkpoint. A `null` cursor finishes the pass; the next scheduled invocation starts at the beginning to find newly ready or deferred calls.
+`check` processes at most `limit` rows (50 by default, up to 100), returning each call's outcome and `nextCursor`. Consume **every failed outcome** before advancing your checkpoint. A `null` cursor finishes the pass; the next scheduled pass starts at the beginning to find newly ready or deferred calls. If an application job must stop at a time or page budget, save its cursor and arrange prompt continuation rather than waiting for the normal polling interval.
 
-Listing failures reject the check without advancing its cursor. Cancellation after listing appears in individual outcomes, including delivery errors with any computed results. Choose a page size your application can run concurrently and await within its budget. The limit also bounds this batch's readiness reads and result submissions; their HTTP retries add attempts against your rate limit.
+Listing failures reject the check without advancing its cursor. Cancellation after listing appears in individual outcomes, including delivery errors with any computed results. Choose a page size your application can run concurrently and await within its budget. Discovery uses one list request per page and no per-call readiness reads. Result submissions and HTTP retries add requests against your rate limit.
 
-For long jobs, return `{ outcome: 'deferred' }`. The helper submits nothing. Your application must revisit that call, or submit its result directly when its durable job finishes. Start such jobs idempotently by tool-call ID; the application owns their lifetime after the handler returns.
+For long jobs, return `{ outcome: 'deferred' }` and have the application submit the result directly when its durable job finishes. Recovery checks are a fallback for missed completion delivery, so completion need not wait for another pass through the backlog. The helper submits nothing for a deferred result. Start or find jobs idempotently by tool-call ID and reuse saved results during recovery; the application owns their lifetime after the handler returns.
 
 Both operations accept `signal`. The first invocation for a call owns its cancellation; concurrent duplicates share that invocation, and their signals only stop their own waits.
 
-Handlers must cooperate: JavaScript cannot force them to stop, and the owning operation waits for them to settle so a late computed result can still be returned in a delivery error. A `completed` update signals a local handler to stop. Readiness checks and local in-flight joining provide no claim across workers: two processes can both read `ready`, and cancellation cannot undo an external action.
+Handlers must cooperate: JavaScript cannot force them to stop, and the owning operation waits for them to settle so a late computed result can still be returned in a delivery error. A `completed` update signals a local handler to stop. Discovery acts on the list snapshot; notifications get a fresh readiness read. Neither is an execution claim: a call can complete or be canceled elsewhere immediately after either read. Local in-flight joining and protection against completions observed during an outstanding list request apply only within this worker; two processes can both read `ready`, and cancellation cannot undo an external action.
 
-The optional `onObserve` hook reports admission, readiness, handler, submission and recovery timings/outcomes without identifiers, names, inputs or results. Use cheap local callbacks; observer failures never change execution. The SDK sends no telemetry. Request-level observations separately report retries and HTTP failures.
+The optional `onObserve` hook reports admission, readiness, handler, submission and recovery timings/outcomes without identifiers, names, inputs or results. Readiness observations cover notification GETs; discovery is measured per page. Use cheap local callbacks; observer failures never change execution. The SDK sends no telemetry. Request-level observations separately report retries and HTTP failures.
 
 ## Submit the result
 

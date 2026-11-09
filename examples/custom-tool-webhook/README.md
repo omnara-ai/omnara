@@ -2,8 +2,8 @@
 
 A small TypeScript receiver runs a `text_length` custom tool with the SDK's
 `createCustomToolWorker` and posts the result back to Omnara. Webhooks deliver
-ready calls right away, and the application schedules one finite recovery page each minute, resuming its cursor
-to discover missed notifications. It verifies Standard Webhooks signatures
+ready calls right away, and the application scans for missed notifications at startup and once a minute,
+following pages promptly until each pass finishes. It verifies Standard Webhooks signatures
 before parsing the payload and subscribes only to `tool_call_update`.
 
 ## Run
@@ -44,7 +44,7 @@ that profile. `OMNARA_API_URL` optionally overrides `https://api.omnara.com/v1`;
 
 The receiver verifies each webhook's signature and timestamp with `verifyEventWebhook` before using it. The helper checks project/profile scope and reads current readiness before invoking the handler, so a delayed ready event cannot start a call already observed as canceled.
 
-The receiver returns 204 after starting handling in this process. It tracks the promise and reports failures explicitly. This example computes text length, which is safe to repeat: after a delivery failure or process restart, the application's scheduled check can compute it again. The startup check and subsequent once-per-minute checks each process one page of at most ten calls, preserving the cursor between invocations. A null cursor restarts the next pass. The SDK does not schedule those checks or keep a result backlog.
+The receiver returns 204 after starting handling in this process. It tracks the promise and reports failures explicitly. This example computes text length, which is safe to repeat: after a delivery failure or process restart, the application's scheduled check can compute it again. The startup recovery pass and later passes follow pages of up to 50 calls sequentially, without waiting between pages. The application pauses one minute after finishing a pass, then starts again from the beginning. The SDK does not schedule those checks or keep a result backlog.
 
 For an action such as sending an email, make the action idempotent by tool-call ID across processes and keep any required results in your own durable storage. Save a verified event to your job queue before acknowledging it if acceptance must survive process exit. Serverless runtimes may stop background work after an HTTP response; use an awaited job supported by that platform instead.
 
@@ -80,11 +80,13 @@ Local handler exceptions or invalid/unserializable output instead become a sanit
 
 ## Finite checks and cancellation
 
-`check({ cursor, limit, signal })` awaits one page and returns `{ results, nextCursor }`. Consume every `failed` outcome before saving the next cursor; its `error` can be a `CustomToolDeliveryError` whose result needs durable recovery. Listing failures reject without a new cursor. Once listing succeeds, per-call cancellation/failures are returned as outcomes so other calls' computed results are not lost.
+The example follows pages sequentially without a polling delay between them, then waits one minute after a complete pass. A failed list request keeps its cursor for retry. A bounded application job can checkpoint and arrange prompt continuation instead.
 
-For long-running application jobs, a handler may return `{ outcome: 'deferred' }`, then return its saved result on a later check. Start or find that job idempotently by tool-call ID. Alternatively, have the job submit its result directly when ready. The application owns the job's cancellation and persistence.
+`check({ cursor, limit, signal })` uses the full calls already returned by the list response, without per-call GETs. It awaits one page and returns `{ results, nextCursor }`. Consume every `failed` outcome before saving the next cursor; its `error` can be a `CustomToolDeliveryError` whose result needs durable recovery. Listing failures reject without a new cursor. Once listing succeeds, per-call cancellation/failures are returned as outcomes so other calls' computed results are not lost.
 
-Concurrent local invocations for the same call share the first invocation. Only its signal cancels the handler; a duplicate caller can cancel its own wait. Handlers must cooperate with cancellation. The owning call waits for a handler to settle, then exposes any undelivered computed result rather than abandoning it. A completed notification also signals active work to stop; its caller can cancel its own wait without abandoning the original invocation. These local conveniences do not coordinate processes or make external actions exactly once.
+For long-running application jobs, return `{ outcome: 'deferred' }` and have the job submit its result directly when it finishes. Start or find the job idempotently by tool-call ID and reuse its saved result during recovery. Recovery is a fallback for missed completion delivery, so completion does not wait for another pass through the backlog. The application owns the job's cancellation and persistence.
+
+Concurrent local invocations for the same call share the first invocation. Only its signal cancels the handler; a duplicate caller can cancel its own wait. Handlers must cooperate with cancellation. The owning call waits for a handler to settle, then exposes any undelivered computed result rather than abandoning it. A completed notification also signals active work to stop; its caller can cancel its own wait without abandoning the original invocation. Discovery executes from the list snapshot; notifications still read current readiness. A completion or cancellation elsewhere can race either read. These local conveniences do not claim calls, coordinate processes, or make external actions exactly once.
 
 On SIGTERM/SIGINT, the application stops its scheduler/server, aborts its operations, and awaits accepted webhook work. The optional `onError` and `onObserve` hooks provide diagnostics; they never replace consuming failures from operations.
 
