@@ -82,7 +82,7 @@ curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/tool-calls?state=ready&
 
 To find ready custom calls from every agent in the project, including subagents, query `GET $OMNARA_API/orgs/$ORG/projects/$PROJ/tool-calls?state=ready&type=custom`. Each call includes its `agent_id`; use it when submitting the result. The project endpoint also accepts `agent_profile_id` and repeated `names` filters.
 
-[Webhooks](/agents/configuration#event-webhooks) and [SSE](/events/streaming) deliver `tool_call_update` notifications promptly. Connect, check for already-ready calls, and handle incoming updates. Keep periodically checking while connected too: webhook retries end after ten minutes, and SSE lifecycle updates can be dropped when a subscriber is too slow, even without a disconnect. These updates are not saved or replayed by the timeline reconciler.
+[Webhooks](/events/webhooks) and [SSE](/events/streaming) deliver `tool_call_update` notifications promptly. Connect, check for already-ready calls, and handle incoming updates. Keep periodically checking while connected too: webhook retries end after ten minutes, and SSE lifecycle updates can be dropped when a subscriber is too slow, even without a disconnect. These updates are not saved or replayed by the timeline reconciler.
 
 For a single agent tree, use the agent-scoped `GET /agents/{agentID}/tool-calls?state=ready&type=custom&include_subagents=true`. A parent's stream includes its descendants' tool updates, so the recovery query must include those descendants too. The project endpoint above already includes all agents and subagents in its scope.
 

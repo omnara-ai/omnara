@@ -69,7 +69,7 @@ func (s *Store) GetToolCallSummary(
 	}
 	return ToolCallSummary{
 		ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
-		Name: row.Name, Input: row.Input, Type: row.Type, State: ToolCallState(row.State),
+		Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 		Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
 	}, nil
 }
@@ -90,7 +90,7 @@ func (s *Store) GetToolCallStatus(
 	if err != nil {
 		return ToolCallStatus{}, fmt.Errorf("get tool call status: %w", err)
 	}
-	return ToolCallStatus{Type: row.Type, State: ToolCallState(row.State)}, nil
+	return ToolCallStatus{Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State)}, nil
 }
 
 func (s *Store) GetCustomToolCallInput(
@@ -144,7 +144,7 @@ func (s *Store) ListToolCalls(
 	for _, row := range rows {
 		calls = append(calls, ToolCallSummary{
 			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
-			Name: row.Name, Input: row.Input, Type: row.Type, State: ToolCallState(row.State),
+			Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
 		})
 	}
@@ -189,7 +189,7 @@ func (s *Store) ListUnfinishedProjectToolCalls(
 	for _, row := range rows {
 		calls = append(calls, ToolCallSummary{
 			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
-			Name: row.Name, Input: row.Input, Type: row.Type, State: ToolCallState(row.State),
+			Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
 		})
 	}

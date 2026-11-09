@@ -102,7 +102,7 @@ type ToolCallSummary struct {
 	ProviderCallID string
 	Name           string
 	Input          json.RawMessage
-	Type           string
+	Type           toolcatalog.Type
 	State          ToolCallState
 	Outcome        ToolResultOutcome
 	CreatedAt      time.Time
@@ -112,7 +112,7 @@ type ToolCallSummary struct {
 // ToolCallStatus supports a cheap preflight check. Mutations must still validate
 // the state in their transaction; reading it does not claim the call.
 type ToolCallStatus struct {
-	Type  string
+	Type  toolcatalog.Type
 	State ToolCallState
 }
 
@@ -186,7 +186,7 @@ type ToolCallRecord struct {
 func (r ToolCallRecord) Summary() ToolCallSummary {
 	return ToolCallSummary{
 		ID: r.ID, AgentID: r.AgentID, TurnID: r.TurnID, ProviderCallID: r.ProviderCallID,
-		Name: r.Name, Input: r.Input, Type: r.Type, State: r.State, Outcome: r.Outcome,
+		Name: r.Name, Input: r.Input, Type: toolcatalog.Type(r.Type), State: r.State, Outcome: r.Outcome,
 		CreatedAt: r.CreatedAt, CompletedAt: r.CompletedAt,
 	}
 }
