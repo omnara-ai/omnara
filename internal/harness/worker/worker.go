@@ -17,7 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/log/logent"
-	"github.com/omnara-ai/omnara/internal/model/calltrace"
+	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -304,7 +304,7 @@ func (w *Worker) executeClaimedWork(
 	projectID, agentID := claim.ProjectID, claim.AgentID
 	logent.AgentWorkScope(ctx, claim.OrgID, claim.ProjectID, claim.AgentID)
 	logent.RuntimeLock(ctx, runtime)
-	ctx = calltrace.WithRecorder(ctx, w.modelCallMetrics)
+	ctx = route.WithModelCallMetrics(ctx, w.modelCallMetrics)
 	leaseBudgetStartedAt := claim.LocalLeaseBudgetStartedAt
 	turnCtx, active, stopRenewal, err := w.startRuntimeRenewal(
 		ctx,

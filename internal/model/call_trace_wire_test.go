@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/model/calltrace"
+	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/observability/metrics"
 	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
@@ -151,9 +151,9 @@ func TestRespondEmitsOneModelCallRecordPerAttemptWithPhaseTimings(t *testing.T) 
 				var buf bytes.Buffer
 				set := metrics.New()
 				ctx := log.WithLogger(t.Context(), slog.New(log.NewJSONHandler(&buf, nil)))
-				ctx = calltrace.WithRecorder(ctx, metrics.NewModelCallRecorder(set))
-				ctx = calltrace.WithScope(ctx, calltrace.Scope{
-					Purpose: calltrace.PurposeAgentTurn, ModelCallContextID: "ctx-1", Attempt: 2,
+				ctx = route.WithModelCallMetrics(ctx, metrics.NewModelCallRecorder(set))
+				ctx = model.WithCallScope(ctx, model.CallScope{
+					Purpose: model.CallPurposeAgentTurn, ModelCallContextID: "ctx-1", Attempt: 2,
 				})
 				client := clientNamed(t, name, &http.Client{Transport: scriptedTransport(frames)})
 
@@ -362,7 +362,7 @@ func respondOnce(t *testing.T, name string, frames [3]string) (map[string]any, s
 	var buf bytes.Buffer
 	set := metrics.New()
 	ctx := log.WithLogger(t.Context(), slog.New(log.NewJSONHandler(&buf, nil)))
-	ctx = calltrace.WithRecorder(ctx, metrics.NewModelCallRecorder(set))
+	ctx = route.WithModelCallMetrics(ctx, metrics.NewModelCallRecorder(set))
 	client := clientNamed(t, name, &http.Client{Transport: scriptedTransport(frames)})
 	if _, err := client.Respond(ctx, model.Request{ProviderRequest: []byte(`{}`)}); err != nil {
 		t.Fatalf("respond: %v", err)

@@ -10,15 +10,25 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/model/calltrace"
+	"github.com/omnara-ai/omnara/observability/metrics"
 )
 
 type callAttempt struct {
-	record calltrace.Record
+	record logent.ModelCallRecord
 	sent   bool
 }
 
 type callAttemptKey struct{}
+
+type modelCallMetricsKey struct{}
+
+// WithModelCallMetrics makes model calls under ctx report to recorder.
+func WithModelCallMetrics(ctx context.Context, recorder *metrics.ModelCallRecorder) context.Context {
+	if recorder == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, modelCallMetricsKey{}, recorder)
+}
 
 // MarkToken lets a decoder that holds output back from the stream sink mark
 // the first token when it arrives.
@@ -48,15 +58,18 @@ func (a *callAttempt) markComplete() {
 }
 
 func newCallAttempt(ctx context.Context, c Client, input model.Request) *callAttempt {
+	scope := model.CallScopeFromContext(ctx)
 	attempt := &callAttempt{
-		record: calltrace.Record{
-			StartedAt:    time.Now(),
-			CallID:       uuid.NewString(),
-			Scope:        calltrace.ScopeFromContext(ctx),
-			APIFormat:    string(c.APIFormat()),
-			APIVariant:   string(c.ModelAPIVariant()),
-			Model:        c.ProviderModelSlug,
-			RequestBytes: len(input.ProviderRequest),
+		record: logent.ModelCallRecord{
+			StartedAt:          time.Now(),
+			CallID:             uuid.NewString(),
+			Purpose:            string(scope.Purpose),
+			ModelCallContextID: scope.ModelCallContextID,
+			Attempt:            scope.Attempt,
+			APIFormat:          string(c.APIFormat()),
+			APIVariant:         string(c.ModelAPIVariant()),
+			Model:              c.ProviderModelSlug,
+			RequestBytes:       len(input.ProviderRequest),
 		},
 	}
 	if c.Endpoint != nil {
@@ -82,7 +95,7 @@ func (a *callAttempt) finish(ctx context.Context, response model.Response, err e
 	record.ServedModel = response.ServedProviderModelSlug
 	record.ProviderRequestID = response.ProviderRequestID
 	if usage := response.Usage; usage.InputTokens > 0 || usage.OutputTokens > 0 {
-		record.Usage = &calltrace.Usage{
+		record.Usage = &logent.ModelCallUsage{
 			InputTokens:       usage.InputTokens,
 			CachedInputTokens: usage.CacheReadTokens,
 			CacheWriteTokens:  usage.CacheWriteTokens,
@@ -93,11 +106,11 @@ func (a *callAttempt) finish(ctx context.Context, response model.Response, err e
 	}
 	switch {
 	case err == nil:
-		record.Outcome = calltrace.OutcomeSuccess
+		record.Outcome = logent.ModelCallSuccess
 	case ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
-		record.Outcome = calltrace.OutcomeCanceled
+		record.Outcome = logent.ModelCallCanceled
 	default:
-		record.Outcome = calltrace.OutcomeError
+		record.Outcome = logent.ModelCallError
 		record.ErrorKind = string(model.ErrorKindUnknown)
 		if providerErr, ok := model.ClassifyError(err); ok {
 			record.ErrorKind = string(providerErr.Kind)
@@ -111,7 +124,34 @@ func (a *callAttempt) finish(ctx context.Context, response model.Response, err e
 		}
 	}
 	logent.ModelCall(ctx, record)
-	calltrace.RecorderFromContext(ctx).Observe(record.MetricsSample())
+	if recorder, ok := ctx.Value(modelCallMetricsKey{}).(*metrics.ModelCallRecorder); ok {
+		recorder.Observe(metricsSample(record))
+	}
+}
+
+func metricsSample(r logent.ModelCallRecord) metrics.ModelCallSample {
+	sample := metrics.ModelCallSample{
+		APIFormat:    r.APIFormat,
+		APIVariant:   r.APIVariant,
+		Provider:     r.EndpointHost,
+		Model:        r.Model,
+		Purpose:      r.Purpose,
+		Outcome:      string(r.Outcome),
+		ErrorKind:    r.ErrorKind,
+		RequestBytes: r.RequestBytes,
+		TTFT:         r.TTFT,
+		Duration:     r.Duration,
+	}
+	if u := r.Usage; u != nil {
+		sample.UsageReported = true
+		sample.InputTokens = u.InputTokens
+		sample.CachedInputTokens = u.CachedInputTokens
+		sample.CacheWriteTokens = u.CacheWriteTokens
+		sample.CacheReported = u.CacheReported
+		sample.OutputTokens = u.OutputTokens
+		sample.ReasoningTokens = u.ReasoningTokens
+	}
+	return sample
 }
 
 // A tool call's name counts as its first token: the model generates it before the arguments.

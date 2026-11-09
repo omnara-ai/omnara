@@ -9,7 +9,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/model/calltrace"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelretry"
@@ -280,8 +279,8 @@ func (e AgentExecutor) executeModelStep(
 			defer streamSink.Close()
 		}
 	}
-	response, err := client.Respond(calltrace.WithScope(ctx, calltrace.Scope{
-		Purpose:            calltrace.PurposeAgentTurn,
+	response, err := client.Respond(model.WithCallScope(ctx, model.CallScope{
+		Purpose:            model.CallPurposeAgentTurn,
 		ModelCallContextID: claim.Context.ID.String(),
 		Attempt:            claim.Context.AttemptNumber,
 	}), request)

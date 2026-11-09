@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/omnara-ai/omnara/internal/model/calltrace"
 	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
@@ -75,7 +74,57 @@ func ModelResponseProviderCostBYOKComponentMissing(ctx context.Context) {
 	log.Level(ctx, log.WarnLevel)
 }
 
-func ModelCall(ctx context.Context, r calltrace.Record) {
+type ModelCallOutcome string
+
+const (
+	ModelCallSuccess  ModelCallOutcome = "success"
+	ModelCallError    ModelCallOutcome = "error"
+	ModelCallCanceled ModelCallOutcome = "canceled"
+)
+
+type ModelCallUsage struct {
+	InputTokens       int
+	CachedInputTokens int
+	CacheWriteTokens  int
+	CacheReported     bool
+	OutputTokens      int
+	ReasoningTokens   int
+}
+
+type ModelCallRecord struct {
+	CallID             string
+	Purpose            string
+	ModelCallContextID string
+	Attempt            int
+	APIFormat          string
+	APIVariant         string
+	Model              string
+	ServedModel        string
+	EndpointHost       string
+	ProviderRequestID  string
+	Streamed           bool
+	StatusCode         int
+	Outcome            ModelCallOutcome
+	ErrorKind          string
+	ErrorCode          string
+	RequestBytes       int
+	Usage              *ModelCallUsage
+
+	StartedAt      time.Time
+	Headers        *time.Duration
+	TTFT           *time.Duration
+	StreamComplete *time.Duration
+	Duration       time.Duration
+}
+
+func (r ModelCallRecord) CacheRatio() (float64, bool) {
+	if r.Usage == nil || !r.Usage.CacheReported || r.Usage.InputTokens <= 0 {
+		return 0, false
+	}
+	return float64(r.Usage.CachedInputTokens) / float64(r.Usage.InputTokens), true
+}
+
+func ModelCall(ctx context.Context, r ModelCallRecord) {
 	var input, cached, cacheWrite, output, reasoning, cacheRatio any
 	if u := r.Usage; u != nil {
 		input, output, reasoning = u.InputTokens, u.OutputTokens, u.ReasoningTokens
@@ -88,9 +137,9 @@ func ModelCall(ctx context.Context, r calltrace.Record) {
 	}
 	event := log.NewEvent(ctx, "model.call", log.Fields{
 		"model_call.id":                       r.CallID,
-		"model_call.purpose":                  string(r.Scope.Purpose),
-		"model_call.attempt":                  r.Scope.Attempt,
-		"model_call.model_call_context_id":    optional(r.Scope.ModelCallContextID),
+		"model_call.purpose":                  r.Purpose,
+		"model_call.attempt":                  r.Attempt,
+		"model_call.model_call_context_id":    optional(r.ModelCallContextID),
 		"model_call.api_format":               r.APIFormat,
 		"model_call.api_variant":              r.APIVariant,
 		"model_call.model":                    r.Model,
@@ -116,7 +165,7 @@ func ModelCall(ctx context.Context, r calltrace.Record) {
 		"model_call.stream_complete_ms":       optionalMilliseconds(r.StreamComplete),
 		"model_call.duration_ms":              r.Duration.Milliseconds(),
 	})
-	if r.Outcome == calltrace.OutcomeError {
+	if r.Outcome == ModelCallError {
 		event.Level(log.WarnLevel)
 	}
 	event.Done(ctx)
