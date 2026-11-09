@@ -89,7 +89,7 @@
     "@tanstack/react-query-minimum": "npm:@tanstack/react-query@5.62.0",
     "tsup": "^9.0.0",
     "typescript": "^5.6.0",
-    "vitest": "5.0.5",
+    "vitest": "5.1.0",
     "yaml": "^2.9.0"
   }
 }
