@@ -358,9 +358,9 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 }
 
 func (c Client) RespondStream(ctx context.Context, input model.Request) (model.Response, error) {
-	attempt := newCallAttempt(ctx, c, input)
+	attempt := newCallAttempt(ctx, input)
 	response, err := c.respondStream(context.WithValue(ctx, callAttemptKey{}, attempt), input, attempt)
-	attempt.finish(ctx, response, err)
+	attempt.finish(ctx, c, response, err)
 	return response, err
 }
 
@@ -397,11 +397,11 @@ func (c Client) respondStream(ctx context.Context, input model.Request, attempt 
 			attempt.sent = false
 			return model.Response{}, setupErr
 		}
-		attempt.record.StatusCode = resp.StatusCode
+		attempt.statusCode = resp.StatusCode
 		return model.Response{}, ambiguousTransportError(endpoint, resp.StatusCode, resp.Header, err)
 	}
 	attempt.markHeaders()
-	attempt.record.StatusCode = resp.StatusCode
+	attempt.statusCode = resp.StatusCode
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, exceeded, readErr := ReadAllAndClose(resp, c.Transport.errorResponseByteLimit())
 		if readErr != nil {
@@ -461,7 +461,7 @@ func (c Client) respondStream(ctx context.Context, input model.Request, attempt 
 		}
 		return parsed, parseErr
 	}
-	attempt.record.Streamed = true
+	attempt.streamed = true
 	defer func() { _ = resp.Body.Close() }()
 	limitedBody := &responseLimitReader{
 		reader:    resp.Body,

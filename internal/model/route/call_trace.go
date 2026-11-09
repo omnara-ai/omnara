@@ -14,8 +14,17 @@ import (
 )
 
 type callAttempt struct {
-	record logent.ModelCallRecord
-	sent   bool
+	callID       string
+	scope        model.CallScope
+	requestBytes int
+	started      time.Time
+	sent         bool
+	streamed     bool
+	statusCode   int
+
+	headers        *time.Duration
+	ttft           *time.Duration
+	streamComplete *time.Duration
 }
 
 type callAttemptKey struct{}
@@ -38,64 +47,74 @@ func MarkToken(ctx context.Context, payload string) {
 	}
 }
 
+func newCallAttempt(ctx context.Context, input model.Request) *callAttempt {
+	return &callAttempt{
+		callID:       uuid.NewString(),
+		scope:        model.CallScopeFromContext(ctx),
+		requestBytes: len(input.ProviderRequest),
+		started:      time.Now(),
+	}
+}
+
 func (a *callAttempt) since() *time.Duration {
-	elapsed := time.Since(a.record.StartedAt)
+	elapsed := time.Since(a.started)
 	return &elapsed
 }
 
 func (a *callAttempt) markHeaders() {
-	a.record.Headers = a.since()
+	a.headers = a.since()
 }
 
 func (a *callAttempt) markToken(payload string) {
-	if payload != "" && a.record.TTFT == nil {
-		a.record.TTFT = a.since()
+	if payload != "" && a.ttft == nil {
+		a.ttft = a.since()
 	}
 }
 
 func (a *callAttempt) markComplete() {
-	a.record.StreamComplete = a.since()
-}
-
-func newCallAttempt(ctx context.Context, c Client, input model.Request) *callAttempt {
-	scope := model.CallScopeFromContext(ctx)
-	attempt := &callAttempt{
-		record: logent.ModelCallRecord{
-			StartedAt:          time.Now(),
-			CallID:             uuid.NewString(),
-			Purpose:            string(scope.Purpose),
-			ModelCallContextID: scope.ModelCallContextID,
-			Attempt:            scope.Attempt,
-			APIFormat:          string(c.APIFormat()),
-			APIVariant:         string(c.ModelAPIVariant()),
-			Model:              c.ProviderModelSlug,
-			RequestBytes:       len(input.ProviderRequest),
-		},
-	}
-	if c.Endpoint != nil {
-		if endpoint, err := c.Endpoint.URL(); err == nil {
-			if parsed, err := url.Parse(endpoint); err == nil {
-				attempt.record.EndpointHost = parsed.Hostname()
-			}
-		}
-	}
-	return attempt
+	a.streamComplete = a.since()
 }
 
 func (a *callAttempt) sink(next model.StreamSink) model.StreamSink {
 	return timingSink{next: next, attempt: a}
 }
 
-func (a *callAttempt) finish(ctx context.Context, response model.Response, err error) {
+func (a *callAttempt) finish(ctx context.Context, c Client, response model.Response, err error) {
 	if !a.sent {
 		return
 	}
-	record := a.record
-	record.Duration = *a.since()
-	record.ServedModel = response.ServedProviderModelSlug
-	record.ProviderRequestID = response.ProviderRequestID
-	if usage := response.Usage; usage.InputTokens > 0 || usage.OutputTokens > 0 {
-		record.Usage = &logent.ModelCallUsage{
+	duration := *a.since()
+	outcome, errorKind, errorCode := logent.ModelCallSuccess, "", ""
+	statusCode, requestID := a.statusCode, response.ProviderRequestID
+	switch {
+	case err == nil:
+	case ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
+		outcome = logent.ModelCallCanceled
+	default:
+		outcome, errorKind = logent.ModelCallError, string(model.ErrorKindUnknown)
+		if providerErr, ok := model.ClassifyError(err); ok {
+			errorKind, errorCode = string(providerErr.Kind), providerErr.Code
+			if statusCode == 0 {
+				statusCode = providerErr.StatusCode
+			}
+			if requestID == "" {
+				requestID = providerErr.RequestID
+			}
+		}
+	}
+	endpointHost := ""
+	if c.Endpoint != nil {
+		if endpoint, err := c.Endpoint.URL(); err == nil {
+			if parsed, err := url.Parse(endpoint); err == nil {
+				endpointHost = parsed.Hostname()
+			}
+		}
+	}
+	usage := response.Usage
+	usageReported := usage.InputTokens > 0 || usage.OutputTokens > 0
+	var loggedUsage *logent.ModelCallUsage
+	if usageReported {
+		loggedUsage = &logent.ModelCallUsage{
 			InputTokens:       usage.InputTokens,
 			CachedInputTokens: usage.CacheReadTokens,
 			CacheWriteTokens:  usage.CacheWriteTokens,
@@ -104,54 +123,51 @@ func (a *callAttempt) finish(ctx context.Context, response model.Response, err e
 			ReasoningTokens:   usage.ReasoningTokens,
 		}
 	}
-	switch {
-	case err == nil:
-		record.Outcome = logent.ModelCallSuccess
-	case ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
-		record.Outcome = logent.ModelCallCanceled
-	default:
-		record.Outcome = logent.ModelCallError
-		record.ErrorKind = string(model.ErrorKindUnknown)
-		if providerErr, ok := model.ClassifyError(err); ok {
-			record.ErrorKind = string(providerErr.Kind)
-			record.ErrorCode = providerErr.Code
-			if record.StatusCode == 0 {
-				record.StatusCode = providerErr.StatusCode
-			}
-			if record.ProviderRequestID == "" {
-				record.ProviderRequestID = providerErr.RequestID
-			}
-		}
-	}
-	logent.ModelCall(ctx, record)
+	logent.ModelCall(ctx, logent.ModelCallRecord{
+		CallID:             a.callID,
+		Purpose:            string(a.scope.Purpose),
+		ModelCallContextID: a.scope.ModelCallContextID,
+		Attempt:            a.scope.Attempt,
+		APIFormat:          string(c.APIFormat()),
+		APIVariant:         string(c.ModelAPIVariant()),
+		Model:              c.ProviderModelSlug,
+		ServedModel:        response.ServedProviderModelSlug,
+		EndpointHost:       endpointHost,
+		ProviderRequestID:  requestID,
+		Streamed:           a.streamed,
+		StatusCode:         statusCode,
+		Outcome:            outcome,
+		ErrorKind:          errorKind,
+		ErrorCode:          errorCode,
+		RequestBytes:       a.requestBytes,
+		Usage:              loggedUsage,
+		StartedAt:          a.started,
+		Headers:            a.headers,
+		TTFT:               a.ttft,
+		StreamComplete:     a.streamComplete,
+		Duration:           duration,
+	})
 	if recorder, ok := ctx.Value(modelCallMetricsKey{}).(*metrics.ModelCallRecorder); ok {
-		recorder.Observe(metricsSample(record))
+		recorder.Observe(metrics.ModelCallSample{
+			APIFormat:         string(c.APIFormat()),
+			APIVariant:        string(c.ModelAPIVariant()),
+			Provider:          endpointHost,
+			Model:             c.ProviderModelSlug,
+			Purpose:           string(a.scope.Purpose),
+			Outcome:           string(outcome),
+			ErrorKind:         errorKind,
+			RequestBytes:      a.requestBytes,
+			UsageReported:     usageReported,
+			InputTokens:       usage.InputTokens,
+			CachedInputTokens: usage.CacheReadTokens,
+			CacheWriteTokens:  usage.CacheWriteTokens,
+			CacheReported:     usage.CacheReported,
+			OutputTokens:      usage.OutputTokens,
+			ReasoningTokens:   usage.ReasoningTokens,
+			TTFT:              a.ttft,
+			Duration:          duration,
+		})
 	}
-}
-
-func metricsSample(r logent.ModelCallRecord) metrics.ModelCallSample {
-	sample := metrics.ModelCallSample{
-		APIFormat:    r.APIFormat,
-		APIVariant:   r.APIVariant,
-		Provider:     r.EndpointHost,
-		Model:        r.Model,
-		Purpose:      r.Purpose,
-		Outcome:      string(r.Outcome),
-		ErrorKind:    r.ErrorKind,
-		RequestBytes: r.RequestBytes,
-		TTFT:         r.TTFT,
-		Duration:     r.Duration,
-	}
-	if u := r.Usage; u != nil {
-		sample.UsageReported = true
-		sample.InputTokens = u.InputTokens
-		sample.CachedInputTokens = u.CachedInputTokens
-		sample.CacheWriteTokens = u.CacheWriteTokens
-		sample.CacheReported = u.CacheReported
-		sample.OutputTokens = u.OutputTokens
-		sample.ReasoningTokens = u.ReasoningTokens
-	}
-	return sample
 }
 
 // A tool call's name counts as its first token: the model generates it before the arguments.
