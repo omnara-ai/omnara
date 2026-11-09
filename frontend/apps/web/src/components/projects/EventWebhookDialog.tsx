@@ -58,6 +58,11 @@ function signingKeyError(value: string) {
   return 'Use a base64 key of 24–64 bytes, like one from openssl rand -base64 32.'
 }
 
+function generateSigningKey() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  return `whsec_${btoa(String.fromCharCode(...bytes))}`
+}
+
 function signingSecretName(url: string) {
   const fallback = 'webhook-signing-secret'
   if (urlError(url)) return fallback
@@ -242,6 +247,7 @@ export function EventWebhookDialog({
                         projectId={projectId}
                         defaultName={signingSecretName(form.getFieldValue('url'))}
                         valueError={signingKeyError}
+                        generateValue={generateSigningKey}
                         onClose={() => {
                           setCreatingSecret(false)
                         }}
