@@ -144,7 +144,7 @@ func TestProgramToolCallsStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallDispositionRunning, started.Disposition)
 	require.True(t, started.Applied)
-	_, err = execution.RenewProgramToolCallClaim(ctx, ref, time.Minute)
+	err = execution.RenewProgramToolCallClaim(ctx, ref, time.Minute)
 	require.NoError(t, err)
 	completed, err := execution.CompleteProgramToolCall(ctx, executionstore.CompleteProgramToolCallInput{
 		ProgramToolCallRef: ref, Outcome: executionstore.ToolResultOutcomeSucceeded,

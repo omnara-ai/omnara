@@ -134,8 +134,7 @@ func (a programClaimAuthority) refFor(id uuid.UUID) (executionstore.ProgramToolC
 }
 
 func (a programClaimAuthority) ensureActive(ctx context.Context, e Executor, _ Turn) error {
-	_, err := e.Store.Execution().RenewProgramToolCallClaim(ctx, a.ref, a.lease)
-	return programAuthorityError(err)
+	return programAuthorityError(e.Store.Execution().RenewProgramToolCallClaim(ctx, a.ref, a.lease))
 }
 
 func (a programClaimAuthority) recordedToolCall(
@@ -211,14 +210,10 @@ func (a programClaimAuthority) completeRunning(
 
 // requeue fails the call: a claimed program call runs at most once.
 func (a programClaimAuthority) requeue(ctx context.Context, e Executor, turn Turn, id uuid.UUID) error {
-	content, err := structuredToolResultContent(map[string]any{
+	parts, err := structuredParts(map[string]any{
 		"error_code": "async_tool_interrupted",
 		"message":    "The tool call was interrupted before it ran. Retry the call.",
 	})
-	if err != nil {
-		return err
-	}
-	parts, err := content.contentParts()
 	if err != nil {
 		return err
 	}
@@ -261,14 +256,18 @@ func programToolResult(
 	if len(filtered) <= MaxProgramToolResultBytes {
 		return outcome, filtered, nil
 	}
-	content, err := structuredToolResultContent(map[string]any{
+	filtered, err = structuredParts(map[string]any{
 		"error_code": "result_too_large",
 		"error": fmt.Sprintf("The tool result is %d bytes, over the %d byte limit for tool calls from commands.",
 			len(filtered), MaxProgramToolResultBytes),
 	})
-	if err != nil {
-		return "", nil, err
-	}
-	filtered, err = content.contentParts()
 	return executionstore.ToolResultOutcomeFailed, filtered, err
+}
+
+func structuredParts(value any) (json.RawMessage, error) {
+	content, err := structuredToolResultContent(value)
+	if err != nil {
+		return nil, err
+	}
+	return content.contentParts()
 }

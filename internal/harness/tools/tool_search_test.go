@@ -15,7 +15,7 @@ import (
 func TestResolveToolSearchRequest(t *testing.T) {
 	resolved, err := resolveToolSearchRequest(json.RawMessage(`{"pattern":" weather "}`))
 	require.NoError(t, err)
-	require.Equal(t, resolvedToolSearchRequest{Pattern: "weather", MaxResults: 5}, resolved)
+	require.Equal(t, resolvedToolSearchRequest{Pattern: "weather"}, resolved)
 
 	resolved, err = resolveToolSearchRequest(json.RawMessage(`{"pattern":"weather","max_results":7}`))
 	require.NoError(t, err)

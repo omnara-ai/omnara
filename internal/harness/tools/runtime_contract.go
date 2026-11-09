@@ -26,22 +26,5 @@ func (e Executor) runtimeContractForTurn(
 			turn.ModelCallContextID,
 		)
 	}
-	config, found, err := e.Store.Execution().GetAgentConfig(
-		ctx,
-		turn.ProjectID,
-		contextRow.AgentConfigID,
-	)
-	if err != nil {
-		return agentconfig.RuntimeContract{}, err
-	}
-	if !found {
-		return agentconfig.RuntimeContract{}, fmt.Errorf(
-			"agent config %s not found",
-			contextRow.AgentConfigID,
-		)
-	}
-	return agentconfig.RuntimeContractFromCompiled(
-		config.CompiledDefinition,
-		config.EffectiveDefinitionHash,
-	)
+	return agentConfigContract(ctx, e.Store, turn.ProjectID, contextRow.AgentConfigID)
 }

@@ -219,17 +219,7 @@ func (e Executor) integrationRuntimeContract(
 	ctx context.Context,
 	projectID, configID uuid.UUID,
 ) (agentconfig.RuntimeContract, error) {
-	config, found, err := e.Store.Execution().GetAgentConfig(ctx, projectID, configID)
-	if err != nil {
-		return agentconfig.RuntimeContract{}, err
-	}
-	if !found {
-		return agentconfig.RuntimeContract{}, errors.New("integration tool config is unavailable")
-	}
-	return agentconfig.RuntimeContractFromCompiled(
-		config.CompiledDefinition,
-		config.EffectiveDefinitionHash,
-	)
+	return agentConfigContract(ctx, e.Store, projectID, configID)
 }
 
 func (e Executor) ensureIntegrationPostOwnership(ctx context.Context, turn Turn) error {
