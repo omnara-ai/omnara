@@ -23,7 +23,6 @@ const (
 type Definition struct {
 	IntegrationKind    Kind
 	Provider           Provider
-	Tools              []string
 	Subscription       *SubscriptionDefinition
 	Settings           *SettingsDefinition
 	Launcher           *LauncherDefinition
@@ -48,7 +47,6 @@ func Lookup(id Kind) (Definition, bool) {
 		d = Definition{
 			IntegrationKind:    id,
 			Provider:           ProviderSlack,
-			Tools:              []string{"read", "post_message"},
 			Subscription:       &SubscriptionDefinition{Provider: ProviderSlack, Events: []EventKind{EventMessage}},
 			Settings:           chatSettings,
 			Launcher:           newChatLauncher(ProviderSlack),
@@ -60,7 +58,6 @@ func Lookup(id Kind) (Definition, bool) {
 		d = Definition{
 			IntegrationKind:    id,
 			Provider:           ProviderDiscord,
-			Tools:              []string{"read", "post_message"},
 			Subscription:       &SubscriptionDefinition{Provider: ProviderDiscord, Events: []EventKind{EventMessage}},
 			Settings:           chatSettings,
 			Launcher:           newChatLauncher(ProviderDiscord),
@@ -72,9 +69,6 @@ func Lookup(id Kind) (Definition, bool) {
 		d = Definition{
 			IntegrationKind: id,
 			Provider:        ProviderGitHub,
-			Tools: []string{
-				"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
-			},
 			Subscription: &SubscriptionDefinition{
 				Provider: ProviderGitHub,
 				Events:   []EventKind{EventDiscussionComment, EventReviewComment, EventCommit},

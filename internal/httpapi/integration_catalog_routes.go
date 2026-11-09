@@ -35,12 +35,8 @@ func integrationCapabilitiesResponse(id integrationdefinition.Kind) (openapi.Int
 	if !ok {
 		return result, fmt.Errorf("unknown integration type %q", id)
 	}
-	for _, operation := range definition.Tools {
-		tool, ok := toolcatalog.LookupIntegrationTool(id, operation)
-		if !ok {
-			return result, fmt.Errorf("unknown integration tool %s/%s", id, operation)
-		}
-		prepared, err := tool.Prepare(toolcatalog.IntegrationToolName("integration", operation))
+	for _, tool := range toolcatalog.IntegrationTools(id) {
+		prepared, err := tool.Prepare(toolcatalog.IntegrationToolName("integration", tool.Operation))
 		if err != nil {
 			return result, err
 		}
@@ -48,7 +44,7 @@ func integrationCapabilitiesResponse(id integrationdefinition.Kind) (openapi.Int
 		if err != nil {
 			return result, err
 		}
-		result.Tools[operation] = entry
+		result.Tools[tool.Operation] = entry
 	}
 	if subscription := definition.Subscription; subscription != nil {
 		conversation, err := subscription.ConversationSchema()
