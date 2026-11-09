@@ -83,8 +83,7 @@ const (
 	ModelCallCanceled ModelCallOutcome = "canceled"
 )
 
-// ModelCallAttempt is what route observes while one provider attempt runs.
-type ModelCallAttempt struct {
+type ModelCallRecord struct {
 	CallID             string
 	Purpose            string
 	ModelCallContextID string
@@ -92,59 +91,36 @@ type ModelCallAttempt struct {
 	APIFormat          string
 	APIVariant         string
 	Model              string
+	ServedModel        string
 	EndpointHost       string
-	RequestBytes       int
+	ProviderRequestID  string
 	Streamed           bool
 	StatusCode         int
+	Outcome            ModelCallOutcome
+	ErrorKind          string
+	ErrorCode          string
+	RequestBytes       int
+	Usage              modelenvelope.Usage
 
 	StartedAt      time.Time
 	Headers        *time.Duration
 	TTFT           *time.Duration
 	StreamComplete *time.Duration
+	Duration       time.Duration
 }
 
-func (a *ModelCallAttempt) since() *time.Duration {
-	elapsed := time.Since(a.StartedAt)
-	return &elapsed
-}
-
-func (a *ModelCallAttempt) MarkHeaders() {
-	a.Headers = a.since()
-}
-
-// MarkToken records the first nonempty payload of model output.
-func (a *ModelCallAttempt) MarkToken(payload string) {
-	if payload != "" && a.TTFT == nil {
-		a.TTFT = a.since()
-	}
-}
-
-func (a *ModelCallAttempt) MarkComplete() {
-	a.StreamComplete = a.since()
-}
-
-type ModelCallResult struct {
-	Outcome           ModelCallOutcome
-	ErrorKind         string
-	ErrorCode         string
-	ServedModel       string
-	ProviderRequestID string
-	Usage             modelenvelope.Usage
-	Duration          time.Duration
-}
-
-func (r ModelCallResult) UsageReported() bool {
+func (r ModelCallRecord) UsageReported() bool {
 	return r.Usage.InputTokens > 0 || r.Usage.OutputTokens > 0
 }
 
-func (r ModelCallResult) CacheRatio() (float64, bool) {
+func (r ModelCallRecord) CacheRatio() (float64, bool) {
 	if !r.Usage.CacheReported || r.Usage.InputTokens <= 0 {
 		return 0, false
 	}
 	return float64(r.Usage.CacheReadTokens) / float64(r.Usage.InputTokens), true
 }
 
-func ModelCall(ctx context.Context, a ModelCallAttempt, r ModelCallResult) {
+func ModelCall(ctx context.Context, r ModelCallRecord) {
 	var input, cached, cacheWrite, output, reasoning, cacheRatio any
 	if u := r.Usage; r.UsageReported() {
 		input, output, reasoning = u.InputTokens, u.OutputTokens, u.ReasoningTokens
@@ -156,22 +132,22 @@ func ModelCall(ctx context.Context, a ModelCallAttempt, r ModelCallResult) {
 		cacheRatio = ratio
 	}
 	event := log.NewEvent(ctx, "model.call", log.Fields{
-		"model_call.id":                       a.CallID,
-		"model_call.purpose":                  a.Purpose,
-		"model_call.attempt":                  a.Attempt,
-		"model_call.model_call_context_id":    optional(a.ModelCallContextID),
-		"model_call.api_format":               a.APIFormat,
-		"model_call.api_variant":              a.APIVariant,
-		"model_call.model":                    a.Model,
+		"model_call.id":                       r.CallID,
+		"model_call.purpose":                  r.Purpose,
+		"model_call.attempt":                  r.Attempt,
+		"model_call.model_call_context_id":    optional(r.ModelCallContextID),
+		"model_call.api_format":               r.APIFormat,
+		"model_call.api_variant":              r.APIVariant,
+		"model_call.model":                    r.Model,
 		"model_call.served_model":             optional(r.ServedModel),
-		"model_call.endpoint_host":            a.EndpointHost,
+		"model_call.endpoint_host":            r.EndpointHost,
 		"model_call.provider_request_id":      optional(r.ProviderRequestID),
-		"model_call.streamed":                 a.Streamed,
+		"model_call.streamed":                 r.Streamed,
 		"model_call.outcome":                  string(r.Outcome),
-		"model_call.status_code":              optional(a.StatusCode),
+		"model_call.status_code":              optional(r.StatusCode),
 		"model_call.error_kind":               optional(r.ErrorKind),
 		"model_call.error_code":               optional(r.ErrorCode),
-		"model_call.request_bytes":            a.RequestBytes,
+		"model_call.request_bytes":            r.RequestBytes,
 		"model_call.cache_ratio":              cacheRatio,
 		"model_call.usage.reported":           r.UsageReported(),
 		"model_call.usage.input_tokens":       input,
@@ -179,10 +155,10 @@ func ModelCall(ctx context.Context, a ModelCallAttempt, r ModelCallResult) {
 		"model_call.usage.cache_write_tokens": cacheWrite,
 		"model_call.usage.output_tokens":      output,
 		"model_call.usage.reasoning_tokens":   reasoning,
-		"model_call.started_at":               a.StartedAt.UTC(),
-		"model_call.headers_ms":               optionalMilliseconds(a.Headers),
-		"model_call.ttft_ms":                  optionalMilliseconds(a.TTFT),
-		"model_call.stream_complete_ms":       optionalMilliseconds(a.StreamComplete),
+		"model_call.started_at":               r.StartedAt.UTC(),
+		"model_call.headers_ms":               optionalMilliseconds(r.Headers),
+		"model_call.ttft_ms":                  optionalMilliseconds(r.TTFT),
+		"model_call.stream_complete_ms":       optionalMilliseconds(r.StreamComplete),
 		"model_call.duration_ms":              r.Duration.Milliseconds(),
 	})
 	if r.Outcome == ModelCallError {

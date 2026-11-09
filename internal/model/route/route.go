@@ -2,6 +2,7 @@ package route
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -361,8 +362,16 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 }
 
 func (c Client) RespondStream(ctx context.Context, input model.Request) (model.Response, error) {
+	attempt := &callAttempt{started: time.Now()}
+	response, err := c.respondStream(context.WithValue(ctx, callAttemptKey{}, attempt), input, attempt)
+	if setupErr := (SetupError{}); errors.As(err, &setupErr) {
+		return response, err
+	}
+	duration := time.Since(attempt.started)
+	outcome, providerErr := modelCallOutcome(ctx, err)
 	scope := model.CallScopeFromContext(ctx)
-	attempt := &logent.ModelCallAttempt{
+	host := endpointHost(c.Endpoint)
+	record := logent.ModelCallRecord{
 		CallID:             uuid.NewString(),
 		Purpose:            string(scope.Purpose),
 		ModelCallContextID: scope.ModelCallContextID,
@@ -370,35 +379,42 @@ func (c Client) RespondStream(ctx context.Context, input model.Request) (model.R
 		APIFormat:          string(c.APIFormat()),
 		APIVariant:         string(c.ModelAPIVariant()),
 		Model:              c.ProviderModelSlug,
-		EndpointHost:       endpointHost(c.Endpoint),
+		ServedModel:        response.ServedProviderModelSlug,
+		EndpointHost:       host,
+		ProviderRequestID:  cmp.Or(response.ProviderRequestID, providerErr.RequestID),
+		Streamed:           attempt.streamed,
+		StatusCode:         cmp.Or(attempt.statusCode, providerErr.StatusCode),
+		Outcome:            outcome,
+		ErrorKind:          string(providerErr.Kind),
+		ErrorCode:          providerErr.Code,
 		RequestBytes:       len(input.ProviderRequest),
-		StartedAt:          time.Now(),
+		Usage:              response.Usage,
+		StartedAt:          attempt.started,
+		Headers:            attempt.headers,
+		TTFT:               attempt.ttft,
+		StreamComplete:     attempt.streamComplete,
+		Duration:           duration,
 	}
-	response, err := c.respondStream(context.WithValue(ctx, modelCallAttemptKey{}, attempt), input, attempt)
-	if setupErr := (SetupError{}); errors.As(err, &setupErr) {
-		return response, err
-	}
-	result := modelCallResult(ctx, attempt, response, err)
-	logent.ModelCall(ctx, *attempt, result)
+	logent.ModelCall(ctx, record)
 	if recorder, ok := ctx.Value(modelCallMetricsKey{}).(*metrics.ModelCallRecorder); ok {
 		recorder.Observe(metrics.ModelCallSample{
-			APIFormat:         attempt.APIFormat,
-			APIVariant:        attempt.APIVariant,
-			Provider:          attempt.EndpointHost,
-			Model:             attempt.Model,
-			Purpose:           attempt.Purpose,
-			Outcome:           string(result.Outcome),
-			ErrorKind:         result.ErrorKind,
-			RequestBytes:      attempt.RequestBytes,
-			UsageReported:     result.UsageReported(),
+			APIFormat:         record.APIFormat,
+			APIVariant:        record.APIVariant,
+			Provider:          host,
+			Model:             record.Model,
+			Purpose:           record.Purpose,
+			Outcome:           string(outcome),
+			ErrorKind:         record.ErrorKind,
+			RequestBytes:      record.RequestBytes,
+			UsageReported:     record.UsageReported(),
 			InputTokens:       response.Usage.InputTokens,
 			CachedInputTokens: response.Usage.CacheReadTokens,
 			CacheWriteTokens:  response.Usage.CacheWriteTokens,
 			CacheReported:     response.Usage.CacheReported,
 			OutputTokens:      response.Usage.OutputTokens,
 			ReasoningTokens:   response.Usage.ReasoningTokens,
-			TTFT:              attempt.TTFT,
-			Duration:          result.Duration,
+			TTFT:              attempt.ttft,
+			Duration:          duration,
 		})
 	}
 	return response, err
@@ -407,7 +423,7 @@ func (c Client) RespondStream(ctx context.Context, input model.Request) (model.R
 func (c Client) respondStream(
 	ctx context.Context,
 	input model.Request,
-	attempt *logent.ModelCallAttempt,
+	attempt *callAttempt,
 ) (model.Response, error) {
 	if c.Protocol == nil {
 		return model.Response{}, SetupError{Err: errors.New("model route protocol is required")}
@@ -439,11 +455,11 @@ func (c Client) respondStream(
 		if errors.As(err, &setupErr) {
 			return model.Response{}, setupErr
 		}
-		attempt.StatusCode = resp.StatusCode
+		attempt.statusCode = resp.StatusCode
 		return model.Response{}, ambiguousTransportError(endpoint, resp.StatusCode, resp.Header, err)
 	}
-	attempt.MarkHeaders()
-	attempt.StatusCode = resp.StatusCode
+	attempt.markHeaders()
+	attempt.statusCode = resp.StatusCode
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, exceeded, readErr := ReadAllAndClose(resp, c.Transport.errorResponseByteLimit())
 		if readErr != nil {
@@ -499,11 +515,11 @@ func (c Client) respondStream(
 			Body:       respBody,
 		})
 		if parseErr == nil {
-			attempt.MarkComplete()
+			attempt.markComplete()
 		}
 		return parsed, parseErr
 	}
-	attempt.Streamed = true
+	attempt.streamed = true
 	defer func() { _ = resp.Body.Close() }()
 	limitedBody := &responseLimitReader{
 		reader:    resp.Body,
@@ -517,7 +533,7 @@ func (c Client) respondStream(
 		timingSink{next: input.DeltaSink, attempt: attempt},
 	)
 	if consumeErr == nil {
-		attempt.MarkComplete()
+		attempt.markComplete()
 	}
 	response.ProviderRequestID = model.RequestIDFromHeader(resp.Header)
 	if limitedBody.exceeded || errors.Is(consumeErr, ErrProviderResponseTooLarge) {
@@ -660,7 +676,36 @@ func MatchesMediaType(contentType, expected string) bool {
 	return strings.TrimSpace(mediaType) == strings.ToLower(strings.TrimSpace(expected))
 }
 
-type modelCallAttemptKey struct{}
+// callAttempt holds what route measures while one provider attempt runs.
+type callAttempt struct {
+	started        time.Time
+	statusCode     int
+	streamed       bool
+	headers        *time.Duration
+	ttft           *time.Duration
+	streamComplete *time.Duration
+}
+
+func (a *callAttempt) since() *time.Duration {
+	elapsed := time.Since(a.started)
+	return &elapsed
+}
+
+func (a *callAttempt) markHeaders() {
+	a.headers = a.since()
+}
+
+func (a *callAttempt) markToken(payload string) {
+	if payload != "" && a.ttft == nil {
+		a.ttft = a.since()
+	}
+}
+
+func (a *callAttempt) markComplete() {
+	a.streamComplete = a.since()
+}
+
+type callAttemptKey struct{}
 
 type modelCallMetricsKey struct{}
 
@@ -675,8 +720,8 @@ func WithModelCallMetrics(ctx context.Context, recorder *metrics.ModelCallRecord
 // MarkToken lets a decoder that holds output back from the stream sink mark
 // the first token when it arrives.
 func MarkToken(ctx context.Context, payload string) {
-	if attempt, ok := ctx.Value(modelCallAttemptKey{}).(*logent.ModelCallAttempt); ok {
-		attempt.MarkToken(payload)
+	if attempt, ok := ctx.Value(callAttemptKey{}).(*callAttempt); ok {
+		attempt.markToken(payload)
 	}
 }
 
@@ -695,51 +740,32 @@ func endpointHost(endpoint Endpoint) string {
 	return parsed.Hostname()
 }
 
-func modelCallResult(
-	ctx context.Context,
-	attempt *logent.ModelCallAttempt,
-	response model.Response,
-	err error,
-) logent.ModelCallResult {
-	result := logent.ModelCallResult{
-		Outcome:           logent.ModelCallSuccess,
-		ServedModel:       response.ServedProviderModelSlug,
-		ProviderRequestID: response.ProviderRequestID,
-		Usage:             response.Usage,
-		Duration:          time.Since(attempt.StartedAt),
-	}
+func modelCallOutcome(ctx context.Context, err error) (logent.ModelCallOutcome, model.ProviderError) {
 	switch {
 	case err == nil:
+		return logent.ModelCallSuccess, model.ProviderError{}
 	case ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
-		result.Outcome = logent.ModelCallCanceled
-	default:
-		result.Outcome, result.ErrorKind = logent.ModelCallError, string(model.ErrorKindUnknown)
-		if providerErr, ok := model.ClassifyError(err); ok {
-			result.ErrorKind, result.ErrorCode = string(providerErr.Kind), providerErr.Code
-			if attempt.StatusCode == 0 {
-				attempt.StatusCode = providerErr.StatusCode
-			}
-			if result.ProviderRequestID == "" {
-				result.ProviderRequestID = providerErr.RequestID
-			}
-		}
+		return logent.ModelCallCanceled, model.ProviderError{}
 	}
-	return result
+	if providerErr, ok := model.ClassifyError(err); ok {
+		return logent.ModelCallError, providerErr
+	}
+	return logent.ModelCallError, model.ProviderError{Kind: model.ErrorKindUnknown}
 }
 
 // A tool call's name counts as its first token: the model generates it before the arguments.
 type timingSink struct {
 	next    model.StreamSink
-	attempt *logent.ModelCallAttempt
+	attempt *callAttempt
 }
 
 func (s timingSink) Emit(ctx context.Context, event model.StreamEvent) {
 	switch event.Kind {
 	case model.StreamEventTextDelta, model.StreamEventThinkingDelta, model.StreamEventToolArgsDelta:
-		s.attempt.MarkToken(event.Delta)
+		s.attempt.markToken(event.Delta)
 	case model.StreamEventBlockStart:
 		if event.Block != nil && event.Block.Kind == model.StreamBlockToolUse {
-			s.attempt.MarkToken(event.Block.ToolName)
+			s.attempt.markToken(event.Block.ToolName)
 		}
 	case model.StreamEventBlockStop, model.StreamEventMessageStop, model.StreamEventError:
 	}
