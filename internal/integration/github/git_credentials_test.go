@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -95,12 +96,26 @@ func TestInstallationGitCredentialsScopeCacheAndExpiry(t *testing.T) {
 	}
 }
 
-func TestInstallationGitCredentialsDropPullRequestsWhenNotGranted(t *testing.T) {
-	for _, message := range []string{
-		"The permissions requested are not granted to this installation.", "Validation failed",
+func TestInstallationGitCredentialsStepDownPullRequestsWhenNotGranted(t *testing.T) {
+	for _, tc := range []struct {
+		name, granted, reject string
+		write                 bool
+		requested             []string
+	}{
+		{name: "push with read-only pull requests", granted: "read", write: true, requested: []string{"write", "read"}},
+		{name: "push without pull requests", write: true, requested: []string{"write", "read", ""}},
+		{name: "read without pull requests", requested: []string{"read", ""}},
+		{
+			name: "unrelated rejection", granted: "write", reject: "Validation failed", write: true,
+			requested: []string{"write"},
+		},
 	} {
-		t.Run(message, func(t *testing.T) {
-			var requests []map[string]string
+		t.Run(tc.name, func(t *testing.T) {
+			contents := "read"
+			if tc.write {
+				contents = "write"
+			}
+			var requested []string
 			client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 				var input struct {
 					Permissions map[string]string `json:"permissions"`
@@ -109,24 +124,34 @@ func TestInstallationGitCredentialsDropPullRequestsWhenNotGranted(t *testing.T) 
 					t.Error(err)
 					return
 				}
-				requests = append(requests, input.Permissions)
-				if input.Permissions["pull_requests"] != "" {
+				if input.Permissions["contents"] != contents || input.Permissions["metadata"] != "read" {
+					t.Errorf("permissions changed beyond pull_requests: %v", input.Permissions)
+				}
+				level := input.Permissions["pull_requests"]
+				requested = append(requested, level)
+				message := tc.reject
+				if level == "write" && tc.granted != "write" || level == "read" && tc.granted == "" {
+					message = "The permissions requested are not granted to this installation."
+				}
+				if message != "" {
 					w.WriteHeader(http.StatusUnprocessableEntity)
 					fmt.Fprintf(w, `{"message":%q}`, message)
 					return
 				}
-				gitCredentialResponse(w, "contents-only", "write", time.Now().Add(time.Hour))
+				gitCredentialResponse(w, "issued", contents, time.Now().Add(time.Hour))
 			})
-			credentials, err := client.InstallationGitCredentials(t.Context(), true, []int64{789})
-			if message == "Validation failed" {
-				if err == nil || len(requests) != 1 {
-					t.Fatalf("unrelated rejection retried or succeeded: %v, %v", err, requests)
+			credentials, err := client.InstallationGitCredentials(t.Context(), tc.write, []int64{789})
+			if !slices.Equal(requested, tc.requested) {
+				t.Fatalf("requested pull_requests levels = %q, want %q", requested, tc.requested)
+			}
+			if tc.reject != "" {
+				if err == nil {
+					t.Fatal("unrelated rejection succeeded")
 				}
 				return
 			}
-			if err != nil || credentials.Token != "contents-only" || len(requests) != 2 ||
-				requests[1]["contents"] != "write" || requests[1]["metadata"] != "read" || len(requests[1]) != 2 {
-				t.Fatalf("credentials = %+v, err = %v, requests = %v", credentials, err, requests)
+			if err != nil || credentials.Token != "issued" {
+				t.Fatalf("credentials = %+v, err = %v", credentials, err)
 			}
 		})
 	}
