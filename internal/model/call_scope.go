@@ -11,9 +11,10 @@ const (
 )
 
 type CallScope struct {
-	Purpose            CallPurpose
-	ModelCallContextID string
-	Attempt            int
+	Purpose                     CallPurpose
+	ModelCallContextID          string
+	Attempt                     int
+	SourceExcerptReductionCount int
 }
 
 type callScopeKey struct{}

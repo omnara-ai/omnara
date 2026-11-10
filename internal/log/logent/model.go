@@ -84,23 +84,24 @@ const (
 )
 
 type ModelCallRecord struct {
-	CallID             string
-	Purpose            string
-	ModelCallContextID string
-	Attempt            int
-	APIFormat          string
-	APIVariant         string
-	Model              string
-	ServedModel        string
-	EndpointHost       string
-	ProviderRequestID  string
-	Streamed           bool
-	StatusCode         int
-	Outcome            ModelCallOutcome
-	ErrorKind          string
-	ErrorCode          string
-	RequestBytes       int
-	Usage              modelenvelope.Usage
+	CallID                      string
+	Purpose                     string
+	ModelCallContextID          string
+	Attempt                     int
+	SourceExcerptReductionCount int
+	APIFormat                   string
+	APIVariant                  string
+	Model                       string
+	ServedModel                 string
+	EndpointHost                string
+	ProviderRequestID           string
+	Streamed                    bool
+	StatusCode                  int
+	Outcome                     ModelCallOutcome
+	ErrorKind                   string
+	ErrorCode                   string
+	RequestBytes                int
+	Usage                       modelenvelope.Usage
 
 	StartedAt      time.Time
 	Headers        *time.Duration
@@ -132,33 +133,34 @@ func ModelCall(ctx context.Context, r ModelCallRecord) {
 		cacheRatio = ratio
 	}
 	fields := log.Fields{
-		"id":                       r.CallID,
-		"attempt":                  r.Attempt,
-		"model_call_context_id":    optional(r.ModelCallContextID),
-		"api_format":               r.APIFormat,
-		"api_variant":              r.APIVariant,
-		"model":                    r.Model,
-		"served_model":             optional(r.ServedModel),
-		"endpoint_host":            r.EndpointHost,
-		"provider_request_id":      optional(r.ProviderRequestID),
-		"streamed":                 r.Streamed,
-		"outcome":                  string(r.Outcome),
-		"status_code":              optional(r.StatusCode),
-		"error_kind":               optional(r.ErrorKind),
-		"error_code":               optional(r.ErrorCode),
-		"request_bytes":            r.RequestBytes,
-		"cache_ratio":              cacheRatio,
-		"usage.reported":           r.UsageReported(),
-		"usage.input_tokens":       input,
-		"usage.cached_tokens":      cached,
-		"usage.cache_write_tokens": cacheWrite,
-		"usage.output_tokens":      output,
-		"usage.reasoning_tokens":   reasoning,
-		"started_at":               r.StartedAt.UTC(),
-		"headers_ms":               optionalMilliseconds(r.Headers),
-		"ttft_ms":                  optionalMilliseconds(r.TTFT),
-		"stream_complete_ms":       optionalMilliseconds(r.StreamComplete),
-		"duration_ms":              r.Duration.Milliseconds(),
+		"id":                             r.CallID,
+		"attempt":                        r.Attempt,
+		"source_excerpt_reduction_count": r.SourceExcerptReductionCount,
+		"model_call_context_id":          optional(r.ModelCallContextID),
+		"api_format":                     r.APIFormat,
+		"api_variant":                    r.APIVariant,
+		"model":                          r.Model,
+		"served_model":                   optional(r.ServedModel),
+		"endpoint_host":                  r.EndpointHost,
+		"provider_request_id":            optional(r.ProviderRequestID),
+		"streamed":                       r.Streamed,
+		"outcome":                        string(r.Outcome),
+		"status_code":                    optional(r.StatusCode),
+		"error_kind":                     optional(r.ErrorKind),
+		"error_code":                     optional(r.ErrorCode),
+		"request_bytes":                  r.RequestBytes,
+		"cache_ratio":                    cacheRatio,
+		"usage.reported":                 r.UsageReported(),
+		"usage.input_tokens":             input,
+		"usage.cached_tokens":            cached,
+		"usage.cache_write_tokens":       cacheWrite,
+		"usage.output_tokens":            output,
+		"usage.reasoning_tokens":         reasoning,
+		"started_at":                     r.StartedAt.UTC(),
+		"headers_ms":                     optionalMilliseconds(r.Headers),
+		"ttft_ms":                        optionalMilliseconds(r.TTFT),
+		"stream_complete_ms":             optionalMilliseconds(r.StreamComplete),
+		"duration_ms":                    r.Duration.Milliseconds(),
 	}
 	prefixed := make(log.Fields, len(fields))
 	for key, value := range fields {

@@ -170,6 +170,7 @@ func TestRespondEmitsOneModelCallRecordPerAttemptWithPhaseTimings(t *testing.T) 
 				ctx = route.WithModelCallMetrics(ctx, metrics.NewModelCallRecorder(set))
 				ctx = model.WithCallScope(ctx, model.CallScope{
 					Purpose: model.CallPurposeAgentTurn, ModelCallContextID: "ctx-1", Attempt: 2,
+					SourceExcerptReductionCount: 3,
 				})
 				client := clientNamed(t, name, &http.Client{Transport: scriptedTransport(frames)})
 
@@ -187,24 +188,25 @@ func TestRespondEmitsOneModelCallRecordPerAttemptWithPhaseTimings(t *testing.T) 
 				}
 				event := events[0]
 				for field, want := range map[string]any{
-					"model_call.outcome":               "success",
-					"model_call.purpose":               "agent_turn",
-					"model_call.attempt":               float64(2),
-					"model_call.model_call_context_id": "ctx-1",
-					"model_call.model":                 "test-model",
-					"model_call.endpoint_host":         "example.test",
-					"model_call.streamed":              true,
-					"model_call.status_code":           float64(200),
-					"model_call.provider_request_id":   "req_provider_1",
-					"model_call.request_bytes":         float64(len(body)),
-					"model_call.usage.input_tokens":    float64(100),
-					"model_call.usage.cached_tokens":   float64(40),
-					"model_call.usage.output_tokens":   float64(5),
-					"model_call.cache_ratio":           0.4,
-					"model_call.headers_ms":            float64(500),
-					"model_call.ttft_ms":               float64(2000),
-					"model_call.stream_complete_ms":    float64(3000),
-					"model_call.duration_ms":           float64(3000),
+					"model_call.outcome":                        "success",
+					"model_call.purpose":                        "agent_turn",
+					"model_call.attempt":                        float64(2),
+					"model_call.source_excerpt_reduction_count": float64(3),
+					"model_call.model_call_context_id":          "ctx-1",
+					"model_call.model":                          "test-model",
+					"model_call.endpoint_host":                  "example.test",
+					"model_call.streamed":                       true,
+					"model_call.status_code":                    float64(200),
+					"model_call.provider_request_id":            "req_provider_1",
+					"model_call.request_bytes":                  float64(len(body)),
+					"model_call.usage.input_tokens":             float64(100),
+					"model_call.usage.cached_tokens":            float64(40),
+					"model_call.usage.output_tokens":            float64(5),
+					"model_call.cache_ratio":                    0.4,
+					"model_call.headers_ms":                     float64(500),
+					"model_call.ttft_ms":                        float64(2000),
+					"model_call.stream_complete_ms":             float64(3000),
+					"model_call.duration_ms":                    float64(3000),
 				} {
 					if event[field] != want {
 						t.Errorf("%s = %#v, want %#v", field, event[field], want)
