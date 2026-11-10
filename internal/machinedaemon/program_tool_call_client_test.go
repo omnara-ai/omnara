@@ -24,15 +24,13 @@ type fakeToolCallDaemon struct {
 
 	mu       sync.Mutex
 	requests []fakeToolCallRequest
-	// respond returns the status, headers, and body for the nth request.
+	// respond returns the status, headers, and body for the nth request. A 200
+	// body is the call's reports, one JSON line each.
 	respond func(n int, request fakeToolCallRequest) (int, http.Header, string)
 }
 
 type fakeToolCallRequest struct {
-	Method string
-	Path   string
-	WaitMs string
-	Body   daemonprotocol.ProgramToolCallRequest
+	Body daemonprotocol.ProgramToolCallRequest
 }
 
 // startFakeToolCallDaemon serves the daemon's local tool call socket and sets
@@ -60,11 +58,10 @@ func startFakeToolCallDaemon(
 
 func (d *fakeToolCallDaemon) serve(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(d.t, "Bearer cli-capability", r.Header.Get("Authorization"))
-	request := fakeToolCallRequest{Method: r.Method, Path: r.URL.Path, WaitMs: r.URL.Query().Get("wait_ms")}
-	if r.Method == http.MethodPost {
-		assert.Equal(d.t, "/tool-calls/"+d.processID, r.URL.Path)
-		assert.NoError(d.t, json.NewDecoder(r.Body).Decode(&request.Body))
-	}
+	var request fakeToolCallRequest
+	assert.Equal(d.t, http.MethodPost, r.Method)
+	assert.Equal(d.t, "/tool-calls/"+d.processID, r.URL.Path)
+	assert.NoError(d.t, json.NewDecoder(r.Body).Decode(&request.Body))
 	d.mu.Lock()
 	n := len(d.requests)
 	d.requests = append(d.requests, request)
@@ -116,31 +113,20 @@ func TestProgramToolCallCLIPrintsStructuredResult(t *testing.T) {
 }
 
 func TestProgramToolCallCLIWaitsForApprovalThenPrintsTextAsJSONString(t *testing.T) {
-	daemon := startFakeToolCallDaemon(t, func(n int, request fakeToolCallRequest) (int, http.Header, string) {
-		switch n {
-		case 0:
-			return http.StatusOK, nil, `{"tool_call_id":"tc_1","state":"pending"}`
-		case 1, 2:
-			return http.StatusOK, nil, `{"tool_call_id":"tc_1","state":"awaiting_approval"}`
-		default:
-			return http.StatusOK, nil, `{"tool_call_id":"tc_1","state":"completed","outcome":"succeeded",` +
-				`"content":[{"type":"text","text":"hello"},{"type":"media_ref","artifact_id":"art_1"},` +
-				`{"type":"text","text":"world"}]}`
-		}
-	})
+	daemon := startFakeToolCallDaemon(t, reply(http.StatusOK,
+		`{"tool_call_id":"tc_1","state":"awaiting_approval"}`+"\n"+
+			`{"tool_call_id":"tc_1","state":"awaiting_approval"}`+"\n"+
+			`{"tool_call_id":"tc_1","state":"completed","outcome":"succeeded",`+
+			`"content":[{"type":"text","text":"hello"},{"type":"media_ref","artifact_id":"art_1"},`+
+			`{"type":"text","text":"world"}]}`+"\n"))
 	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{Tool: "send_email"}, "")
 	require.Equal(t, ProgramToolCallExitSucceeded, code, stderr)
 	require.Equal(t, `"hello\nworld"`+"\n", stdout)
 	require.Equal(t, "omnarad: waiting for approval of send_email in Omnara...\n", stderr,
 		"the approval notice is printed once")
 	requests := daemon.recorded()
-	require.Len(t, requests, 4)
+	require.Len(t, requests, 1, "one request waits out the whole call")
 	require.JSONEq(t, `{}`, string(requests[0].Body.Input), "input defaults to an empty object")
-	for _, request := range requests[1:] {
-		require.Equal(t, http.MethodGet, request.Method)
-		require.Equal(t, "/tool-calls/"+daemon.processID+"/tc_1", request.Path)
-		require.Equal(t, "25000", request.WaitMs)
-	}
 }
 
 func TestProgramToolCallCLIPrintsTextOutput(t *testing.T) {
@@ -273,6 +259,16 @@ func TestProgramToolCallCLIExitCodesForDaemonErrors(t *testing.T) {
 	}
 }
 
+func TestProgramToolCallCLIExitCodesForRejectedOffers(t *testing.T) {
+	daemon := startFakeToolCallDaemon(t, reply(http.StatusOK,
+		`{"ack_status":"permanent_reject","error_code":"tool_call_unavailable","error":"tool is not callable"}`))
+	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{Tool: "spawn_agent"}, "")
+	require.Equal(t, ProgramToolCallExitUnavailable, code)
+	require.Empty(t, stdout)
+	require.Contains(t, stderr, "spawn_agent: tool is not callable (tool_call_unavailable)")
+	require.Len(t, daemon.recorded(), 1, "a rejected call is not retried")
+}
+
 func TestProgramToolCallCLIRetriesWithTheSameKey(t *testing.T) {
 	daemon := startFakeToolCallDaemon(t, func(n int, _ fakeToolCallRequest) (int, http.Header, string) {
 		switch n {
@@ -282,9 +278,11 @@ func TestProgramToolCallCLIRetriesWithTheSameKey(t *testing.T) {
 			return http.StatusTooManyRequests, http.Header{"Retry-After": {"1"}},
 				`{"error":"slow down","code":"rate_limited"}`
 		case 2:
-			return http.StatusOK, nil, `{"tool_call_id":"tc_1","state":"pending"}`
+			// The daemon stopped before the call completed.
+			return http.StatusOK, nil, `{"tool_call_id":"tc_1","state":"awaiting_approval"}` + "\n"
 		case 3:
-			return http.StatusServiceUnavailable, nil, `{"error":"busy","code":"service_unavailable"}`
+			return http.StatusOK, nil,
+				`{"ack_status":"transient_error","error_code":"storage_unavailable","error":"try again"}`
 		default:
 			return http.StatusOK, nil, `{"tool_call_id":"tc_1","state":"completed","outcome":"succeeded",` +
 				`"content":[{"type":"text","text":"done"}]}`
@@ -299,8 +297,7 @@ func TestProgramToolCallCLIRetriesWithTheSameKey(t *testing.T) {
 	require.Len(t, requests, 5)
 	key := requests[0].Body.Key
 	require.NotEmpty(t, key)
-	for _, request := range requests[:3] {
-		require.Equal(t, http.MethodPost, request.Method)
+	for _, request := range requests {
 		require.Equal(t, key, request.Body.Key)
 	}
 }
@@ -315,16 +312,13 @@ func TestProgramToolCallCLIUsesANewKeyPerInvocation(t *testing.T) {
 }
 
 func TestProgramToolCallCLITimesOut(t *testing.T) {
-	daemon := startFakeToolCallDaemon(t, reply(http.StatusOK, `{"tool_call_id":"tc_slow","state":"pending"}`))
+	startFakeToolCallDaemon(t, reply(http.StatusOK, `{"tool_call_id":"tc_slow","state":"awaiting_approval"}`))
 	code, stdout, stderr := runToolCallCLI(t, ProgramToolCallOptions{
 		Tool: "storage_list", Timeout: 1500 * time.Millisecond,
 	}, "")
 	require.Equal(t, ProgramToolCallExitTransport, code)
 	require.Empty(t, stdout)
 	require.Contains(t, stderr, "timed out; tool call tc_slow may still complete")
-	for _, request := range daemon.recorded()[1:] {
-		require.NotEqual(t, "25000", request.WaitMs, "polls must not outlast --timeout")
-	}
 }
 
 func TestProgramToolCallCLIReportsUnreachableDaemon(t *testing.T) {
@@ -342,7 +336,7 @@ func TestProgramToolCallCLIReportsUnreachableDaemon(t *testing.T) {
 func TestReadProgramToolCallInputLimitsSize(t *testing.T) {
 	_, err := readProgramToolCallInput("-", strings.NewReader(`{"a":"`+
 		strings.Repeat("x", daemonprotocol.ProgramToolCallMaxInputBytes)+`"}`))
-	require.ErrorContains(t, err, "exceeds 1 MiB")
+	require.ErrorContains(t, err, "too large")
 	_, err = readProgramToolCallInput("-", errReader{})
 	require.ErrorContains(t, err, "stdin")
 }

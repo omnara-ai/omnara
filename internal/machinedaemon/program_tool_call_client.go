@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -30,11 +28,8 @@ const (
 const (
 	programToolCallUnavailableMessage = "omnarad call works only inside an Omnara run_command process " +
 		"on a machine with programmatic tool calls enabled"
-	programToolCallMaxAttempts   = 8
-	programToolCallMaxBackoff    = 5 * time.Second
-	programToolCallMinPollPeriod = time.Second
-	// programToolCallRequestMargin covers the daemon's own forwarding margin.
-	programToolCallRequestMargin = programToolCallForwardMargin + 5*time.Second
+	programToolCallMaxAttempts = 8
+	programToolCallMaxBackoff  = 5 * time.Second
 )
 
 // ProgramToolCallOutput is what `omnarad call` prints for a completed call.
@@ -109,18 +104,9 @@ func RunProgramToolCall(
 	if err != nil {
 		return fail(ProgramToolCallExitUnavailable, "cannot encode tool call request")
 	}
-	result, err := caller.submit(ctx, request)
-	announced := false
-	for err == nil && result.State != daemonprotocol.ProgramToolCallStateCompleted {
-		if result.ToolCallID == "" {
-			return fail(ProgramToolCallExitTransport, "daemon returned an incomplete tool call without an ID")
-		}
-		if result.State == daemonprotocol.ProgramToolCallStateAwaitingApproval && !announced {
-			announced = true
-			_, _ = fmt.Fprintf(stderr, "omnarad: waiting for approval of %s in Omnara...\n", options.Tool)
-		}
-		result, err = caller.wait(ctx, result)
-	}
+	result, err := caller.call(ctx, request, func() {
+		_, _ = fmt.Fprintf(stderr, "omnarad: waiting for approval of %s in Omnara...\n", options.Tool)
+	})
 	if err != nil {
 		return reportProgramToolCallError(ctx, options.Tool, result, err, stderr)
 	}
@@ -143,7 +129,7 @@ func readProgramToolCallInput(raw string, stdin io.Reader) (json.RawMessage, err
 		}
 	}
 	if len(data) > daemonprotocol.ProgramToolCallMaxInputBytes {
-		return nil, errors.New("input exceeds 1 MiB")
+		return nil, errors.New("input is too large")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	var object map[string]json.RawMessage
@@ -160,14 +146,6 @@ func readProgramToolCallInput(raw string, stdin io.Reader) (json.RawMessage, err
 	return compact.Bytes(), nil
 }
 
-type programToolCallStatusError struct {
-	StatusCode int
-	Message    string
-	RetryAfter string
-}
-
-func (e programToolCallStatusError) Error() string { return e.Message }
-
 type programToolCaller struct {
 	processID  string
 	capability string
@@ -180,115 +158,87 @@ func newProgramToolCaller(endpoint, processID, capability string) *programToolCa
 		CheckRedirect: noRedirects}}
 }
 
-func (c *programToolCaller) submit(ctx context.Context, body []byte) (daemonprotocol.ProgramToolCallResult, error) {
-	return c.retry(ctx, func() (daemonprotocol.ProgramToolCallResult, error) {
-		return c.do(ctx, http.MethodPost, "/tool-calls/"+c.processID, body,
-			programToolCallSubmitTimeout+programToolCallRequestMargin)
-	})
-}
-
-// wait long-polls until the call changes state or the poll window ends.
-func (c *programToolCaller) wait(
-	ctx context.Context,
-	current daemonprotocol.ProgramToolCallResult,
+// call makes the call and waits for its completed result, calling
+// awaitingApproval when the call first waits for a user. It retries while the
+// daemon or Omnara is briefly unavailable; the request's key keeps every
+// attempt the same call. On failure it returns the last state it saw.
+func (c *programToolCaller) call(
+	ctx context.Context, body []byte, awaitingApproval func(),
 ) (daemonprotocol.ProgramToolCallResult, error) {
-	started := time.Now()
-	result, err := c.retry(ctx, func() (daemonprotocol.ProgramToolCallResult, error) {
-		waitMs := daemonprotocol.ProgramToolCallMaxWaitMs
-		if deadline, ok := ctx.Deadline(); ok {
-			waitMs = min(waitMs, max(0, int(time.Until(deadline).Milliseconds())))
-		}
-		path := "/tool-calls/" + c.processID + "/" + url.PathEscape(current.ToolCallID) +
-			"?wait_ms=" + strconv.Itoa(waitMs)
-		return c.do(ctx, http.MethodGet, path, nil,
-			time.Duration(waitMs)*time.Millisecond+programToolCallRequestMargin)
-	})
-	if err != nil {
-		return current, err
-	}
-	if result.ToolCallID == "" {
-		result.ToolCallID = current.ToolCallID
-	}
-	// Guard against a backend that answers polls immediately without a change.
-	if result.State == current.State && time.Since(started) < programToolCallMinPollPeriod {
-		if err := sleepContext(ctx, programToolCallMinPollPeriod-time.Since(started)); err != nil {
-			return result, err
-		}
-	}
-	return result, nil
-}
-
-func (c *programToolCaller) retry(
-	ctx context.Context,
-	attempt func() (daemonprotocol.ProgramToolCallResult, error),
-) (daemonprotocol.ProgramToolCallResult, error) {
+	var last daemonprotocol.ProgramToolCallResult
 	backoff := 250 * time.Millisecond
 	for try := 1; ; try++ {
-		result, err := attempt()
+		err := c.attempt(ctx, body, func(result daemonprotocol.ProgramToolCallResult) {
+			if result.State == daemonprotocol.ProgramToolCallStateAwaitingApproval && last.State != result.State {
+				awaitingApproval()
+			}
+			last = result
+		})
 		if err == nil || ctx.Err() != nil || try >= programToolCallMaxAttempts {
-			return result, err
+			return last, err
 		}
 		delay := backoff
 		backoff = min(programToolCallMaxBackoff, 2*backoff)
-		var status programToolCallStatusError
+		var status httpStatusError
 		if errors.As(err, &status) {
 			if status.StatusCode != http.StatusTooManyRequests && status.StatusCode != http.StatusServiceUnavailable {
-				return result, err
+				return last, err
 			}
-			if retryAfter, ok := parseRetryAfter(status.RetryAfter, time.Now()); ok {
+			if retryAfter, ok := retryAfterDelay(err, time.Now()); ok {
 				delay = max(delay, retryAfter)
 			}
 		}
 		if err := sleepContext(ctx, delay); err != nil {
-			return result, err
+			return last, err
 		}
 	}
 }
 
-func (c *programToolCaller) do(
-	ctx context.Context,
-	method, path string,
-	body []byte,
-	timeout time.Duration,
-) (daemonprotocol.ProgramToolCallResult, error) {
-	var result daemonprotocol.ProgramToolCallResult
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	var requestBody io.Reader
-	if body != nil {
-		requestBody = bytes.NewReader(body)
-	}
-	request, err := http.NewRequestWithContext(ctx, method, "http://daemon"+path, requestBody)
+// attempt sends the call to the daemon and reads its reports, one JSON line
+// each, until the completed one.
+func (c *programToolCaller) attempt(
+	ctx context.Context, body []byte, seen func(daemonprotocol.ProgramToolCallResult),
+) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://daemon/tool-calls/"+c.processID,
+		bytes.NewReader(body))
 	if err != nil {
-		return result, errors.New("cannot prepare tool call request")
+		return errors.New("cannot prepare tool call request")
 	}
 	request.Header.Set("Authorization", "Bearer "+c.capability)
-	if body != nil {
-		request.Header.Set("Content-Type", "application/json")
-	}
+	request.Header.Set("Content-Type", "application/json")
 	response, err := c.client.Do(request)
 	if err != nil {
-		return result, errors.New("daemon could not be reached for tool calls")
+		return errors.New("daemon could not be reached for tool calls")
 	}
 	defer func() { _ = response.Body.Close() }()
-	data, err := io.ReadAll(io.LimitReader(response.Body, programToolCallMaxResponseBytes+1))
-	if err != nil {
-		return result, errors.New("tool call response could not be read")
-	}
-	if len(data) > programToolCallMaxResponseBytes {
-		return result, errors.New("tool call response exceeds 16 MiB")
-	}
 	if response.StatusCode != http.StatusOK {
-		return result, programToolCallStatusError{
+		data, _ := io.ReadAll(io.LimitReader(response.Body, daemonprotocol.MaxMessageBytes))
+		return httpStatusError{
 			StatusCode: response.StatusCode,
-			Message:    programToolCallErrorMessage(response, data),
+			Status:     response.Status,
+			Body:       programToolCallErrorMessage(response, data),
 			RetryAfter: response.Header.Get("Retry-After"),
 		}
 	}
-	if err := json.Unmarshal(data, &result); err != nil || result.State == "" {
-		return daemonprotocol.ProgramToolCallResult{}, errors.New("invalid tool call response")
+	reports := json.NewDecoder(response.Body)
+	for {
+		var report daemonprotocol.ToolCallReport
+		if err := reports.Decode(&report); err != nil {
+			return errors.New("daemon stopped before the tool call completed")
+		}
+		switch {
+		case report.AckStatus == daemonprotocol.AckStatusTransientError:
+			return httpStatusError{StatusCode: http.StatusServiceUnavailable,
+				Body: report.Error + " (" + report.ErrorCode + ")"}
+		case report.AckStatus != "":
+			return httpStatusError{StatusCode: http.StatusUnprocessableEntity,
+				Body: report.Error + " (" + report.ErrorCode + ")"}
+		}
+		seen(report.ProgramToolCallResult)
+		if report.State == daemonprotocol.ProgramToolCallStateCompleted {
+			return nil
+		}
 	}
-	return result, nil
 }
 
 func programToolCallErrorMessage(response *http.Response, body []byte) string {
@@ -317,10 +267,10 @@ func reportProgramToolCallError(
 	err error,
 	stderr io.Writer,
 ) int {
-	var status programToolCallStatusError
+	var status httpStatusError
 	switch {
 	case errors.As(err, &status):
-		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: %s\n", tool, status.Message)
+		_, _ = fmt.Fprintf(stderr, "omnarad call: %s: %s\n", tool, status.Body)
 		switch status.StatusCode {
 		case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusGone,
 			http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
