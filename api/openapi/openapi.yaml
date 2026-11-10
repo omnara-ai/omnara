@@ -8671,7 +8671,7 @@ paths:
           $ref: '#/components/schemas/ProcessID'
       - name: toolCallID
         in: path
-        description: Tool call ID returned when the call was created.
+        description: Tool call ID (tcl_...) returned when the call was created.
         required: true
         schema:
           $ref: '#/components/schemas/ToolCallID'

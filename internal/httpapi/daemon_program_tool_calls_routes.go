@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -64,6 +65,10 @@ func (s strictOpenAPIServer) CreateDaemonProgramToolCall(
 			ctx, s.server.store, program.ProjectID, program.AgentID, program.AgentConfigID)
 		if err != nil {
 			return nil, daemonProgramToolCallError(ctx, err)
+		}
+		if contract.ProgrammaticToolExcluded(body.Name) {
+			return nil, apierror.FromCode(openapi.ErrorCodeForbidden,
+				fmt.Sprintf("tool %q cannot be called from commands", body.Name))
 		}
 		callable, err := modelcontext.ProgramCallableTools(contract, specs)
 		if err != nil {
@@ -180,7 +185,11 @@ func (s *Server) daemonProgramToolScope(
 	// The scope does not say why it is missing; the machine flag is the
 	// common case worth naming.
 	machine, err := s.store.Execution().GetMachine(ctx, scope.OrgID, scope.MachineID)
-	if err == nil && !machine.ProgrammaticToolCalls {
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return program, err
+	case !machine.ProgrammaticToolCalls:
 		return program, errProgramToolCallsDisabledOnMachine
 	}
 	return program, storeerr.ErrNotFound

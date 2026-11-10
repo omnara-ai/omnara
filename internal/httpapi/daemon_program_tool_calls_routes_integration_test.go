@@ -381,6 +381,9 @@ func TestDaemonProgramToolCallRoutes(t *testing.T) {
 		http.StatusOK)
 	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, revoked.State)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeFailed, revoked.Outcome)
+	// Excluding tool_search turns off discovery itself, not only its results.
+	f.changeConfig(t, programToolAgentYAML("web_search, tool_search"))
+	f.submit(t, "search-excluded", toolcatalog.ToolNameToolSearch, `{"pattern":".*"}`, http.StatusForbidden)
 	// Re-allowing the tool applies to the same process too.
 	f.changeConfig(t, programToolAgentYAML("web_search"))
 	f.submit(t, "restored", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, http.StatusOK)

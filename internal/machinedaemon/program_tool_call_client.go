@@ -379,17 +379,8 @@ func writeProgramToolCallResult(
 		}
 	}
 	text := strings.Join(texts, "\n")
-	if output == ProgramToolCallOutputText && len(texts) > 0 {
-		if !strings.HasSuffix(text, "\n") {
-			text += "\n"
-		}
-		if _, err := io.WriteString(stdout, text); err != nil {
-			return ProgramToolCallExitTransport
-		}
-		return code
-	}
-	// Every success prints exactly one JSON value, so commands can always
-	// parse stdout.
+	// Every success prints exactly one value, the same one in every output
+	// mode, so a note beside a structured result never replaces it.
 	var value any
 	switch {
 	case len(structured) > 0 && string(structured) != "null":
@@ -403,6 +394,16 @@ func writeProgramToolCallResult(
 		value = text
 	case len(result.Content) > 0:
 		value = result.Content
+	}
+	// Text output differs only for a string, printed without JSON quoting.
+	if _, isText := value.(string); isText && output == ProgramToolCallOutputText {
+		if !strings.HasSuffix(text, "\n") {
+			text += "\n"
+		}
+		if _, err := io.WriteString(stdout, text); err != nil {
+			return ProgramToolCallExitTransport
+		}
+		return code
 	}
 	if err := writeJSONLine(stdout, value); err != nil {
 		return ProgramToolCallExitTransport
