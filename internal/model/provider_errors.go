@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -53,16 +52,17 @@ func ErrorKindFromHTTPStatus(statusCode int) ErrorKind {
 }
 
 type ProviderError struct {
-	Kind       ErrorKind       `json:"kind"`
-	Source     string          `json:"source,omitempty"`
-	StatusCode int             `json:"status_code,omitempty"`
-	Code       string          `json:"code,omitempty"`
-	Message    string          `json:"message,omitempty"`
-	RequestID  string          `json:"request_id,omitempty"`
-	RetryAfter *RetryAfter     `json:"retry_after,omitempty"`
-	Retryable  *bool           `json:"retryable,omitempty"`
-	Metadata   json.RawMessage `json:"metadata,omitempty"`
-	Cause      error           `json:"-"`
+	Kind                   ErrorKind       `json:"kind"`
+	Source                 string          `json:"source,omitempty"`
+	StatusCode             int             `json:"status_code,omitempty"`
+	Code                   string          `json:"code,omitempty"`
+	Message                string          `json:"message,omitempty"`
+	RequestID              string          `json:"request_id,omitempty"`
+	RetryAfter             *RetryAfter     `json:"retry_after,omitempty"`
+	AffordableOutputTokens *int            `json:"affordable_output_tokens,omitempty"`
+	Retryable              *bool           `json:"retryable,omitempty"`
+	Metadata               json.RawMessage `json:"metadata,omitempty"`
+	Cause                  error           `json:"-"`
 }
 
 type RetryAfter struct {
@@ -202,24 +202,4 @@ func ClassifyError(err error) (ProviderError, bool) {
 		return providerErr, true
 	}
 	return ProviderError{}, false
-}
-
-const minimumAffordableOutputTokens = 8_192
-
-var affordableOutputTokensPattern = regexp.MustCompile(`can only afford (\d+)`)
-
-func AffordableOutputTokens(err error) (int, bool) {
-	providerErr, ok := ClassifyError(err)
-	if !ok || providerErr.Kind != ErrorKindBillingAccount {
-		return 0, false
-	}
-	match := affordableOutputTokensPattern.FindStringSubmatch(providerErr.Message)
-	if match == nil {
-		return 0, false
-	}
-	tokens, err := strconv.Atoi(match[1])
-	if err != nil || tokens < minimumAffordableOutputTokens {
-		return 0, false
-	}
-	return tokens, true
 }

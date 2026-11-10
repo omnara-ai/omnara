@@ -3,6 +3,7 @@ package providererrors
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -129,7 +130,8 @@ func classifyStructuredCode(value string) (model.ErrorKind, bool) {
 		return model.ErrorKindPayloadTooLarge, false
 	case "insufficient_quota", "billing_hard_limit_reached", "billing_error", "payment_required",
 		"credit_balance_exhausted", "organization_spend_limit_exceeded",
-		"project_spend_limit_exceeded", "organization_usage_limit_exceeded", "enforced_spend_limit_reached":
+		"project_spend_limit_exceeded", "organization_usage_limit_exceeded", "enforced_spend_limit_reached",
+		"openrouter_key_limit", "openrouter_workspace_budget", "openrouter_guardrail_budget":
 		return model.ErrorKindBillingAccount, false
 	case "authentication", "authentication_error", "invalid_api_key":
 		return model.ErrorKindAuth, false
@@ -152,6 +154,20 @@ func classifyStructuredCode(value string) (model.ErrorKind, bool) {
 	default:
 		return model.ErrorKindUnknown, false
 	}
+}
+
+var openRouterAffordableOutputTokensPattern = regexp.MustCompile(`can only afford (\d+)`)
+
+func OpenRouterAffordableOutputTokens(message string) *int {
+	match := openRouterAffordableOutputTokensPattern.FindStringSubmatch(message)
+	if match == nil {
+		return nil
+	}
+	tokens, err := strconv.Atoi(match[1])
+	if err != nil {
+		return nil
+	}
+	return &tokens
 }
 
 func StructuredEvidenceCanBeRefined(values ...string) bool {

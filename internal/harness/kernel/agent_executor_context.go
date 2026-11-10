@@ -34,6 +34,8 @@ const (
 	preSendErrorCodePrepareModelRequestFailed = "prepare_model_request_failed"
 )
 
+const minimumAffordableOutputTokens = 8_192
+
 type modelStep struct {
 	State               modelStepState
 	Context             executionstore.ModelCallContextRecord
@@ -285,9 +287,10 @@ func (e AgentExecutor) executeModelStep(
 		Attempt:            claim.Context.AttemptNumber,
 	})
 	response, err := client.Respond(callCtx, request)
-	if affordable, ok := model.AffordableOutputTokens(err); ok {
+	if providerErr, ok := model.ClassifyError(err); ok && providerErr.AffordableOutputTokens != nil &&
+		*providerErr.AffordableOutputTokens >= minimumAffordableOutputTokens {
 		retryPolicy := policy
-		retryPolicy.MaxOutputTokens = affordable
+		retryPolicy.MaxOutputTokens = *providerErr.AffordableOutputTokens
 		if retry, retryErr := model.PrepareForSend(ctx, client, model.PrepareForSendInput{
 			Context: bundle, Policy: retryPolicy, ErrorSource: modelErrorSourceForClient(client),
 		}); retryErr == nil {

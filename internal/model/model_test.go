@@ -64,35 +64,6 @@ func TestRequestPolicyFromCapabilitiesFallsBackToOutputCeiling(t *testing.T) {
 	}
 }
 
-func TestAffordableOutputTokens(t *testing.T) {
-	refusal := func(kind ErrorKind, message string) error {
-		return ProviderError{Kind: kind, Source: "openrouter", Message: message}
-	}
-	const prefix = "This request requires more credits, or fewer max_tokens. "
-	for _, test := range []struct {
-		name string
-		err  error
-		want int
-		ok   bool
-	}{
-		{"affordable", refusal(ErrorKindBillingAccount,
-			prefix+"You requested up to 599395 tokens, but can only afford 577572."), 577572, true},
-		{"small but usable", refusal(ErrorKindBillingAccount,
-			prefix+"You requested up to 128000 tokens, but can only afford 16384."), 16384, true},
-		{"below retry minimum", refusal(ErrorKindBillingAccount,
-			prefix+"You requested up to 128000 tokens, but can only afford 2048."), 0, false},
-		{"no amount", refusal(ErrorKindBillingAccount, "Insufficient credits"), 0, false},
-		{"not billing", refusal(ErrorKindAuth, "can only afford 577572"), 0, false},
-		{"not a provider error", errors.New("can only afford 577572"), 0, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			got, ok := AffordableOutputTokens(test.err)
-			require.Equal(t, test.ok, ok)
-			require.Equal(t, test.want, got)
-		})
-	}
-}
-
 func TestRequestPolicyAllowsProviderReplayAfterCutoff(t *testing.T) {
 	policy := RequestPolicy{ProviderReplayCutoffEventSequence: 41}
 	if policy.AllowsProviderReplay(41) {

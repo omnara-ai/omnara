@@ -97,6 +97,9 @@ func classifyProviderError(
 	providerStatus := providererrors.StatusCode(providerErr.Code)
 	effectiveStatus := providererrors.EffectiveStatusCode(statusCode, providerStatus)
 	classificationValues := providerErr.classificationValues()
+	if compat.reportsOpenRouterLimits {
+		classificationValues = append([]string{providerErr.Metadata.LimitSource}, classificationValues...)
+	}
 	refineFromRaw := compat.refinesErrorsFromRawDetails &&
 		genericProviderErrorMessage(message) &&
 		rawErrorCanRefine(effectiveStatus, classificationValues)
@@ -117,14 +120,19 @@ func classifyProviderError(
 		message,
 		classificationValues...,
 	)
+	var affordableOutputTokens *int
+	if compat.reportsOpenRouterLimits && kind == model.ErrorKindBillingAccount {
+		affordableOutputTokens = providererrors.OpenRouterAffordableOutputTokens(message)
+	}
 	return model.ProviderError{
-		Kind:       kind,
-		Source:     source,
-		StatusCode: effectiveStatus,
-		Code:       code,
-		Message:    message,
-		RequestID:  model.RequestIDFromHeader(header),
-		RetryAfter: model.RetryAfterFromHeader(header),
+		Kind:                   kind,
+		Source:                 source,
+		StatusCode:             effectiveStatus,
+		Code:                   code,
+		Message:                message,
+		RequestID:              model.RequestIDFromHeader(header),
+		RetryAfter:             model.RetryAfterFromHeader(header),
+		AffordableOutputTokens: affordableOutputTokens,
 	}
 }
 
@@ -247,7 +255,6 @@ func (e chatProviderError) codeText() string {
 
 func (e chatProviderError) classificationValues() []string {
 	return []string{
-		e.Metadata.LimitSource,
 		e.Metadata.ErrorType,
 		e.Metadata.ProviderCode,
 		providererrors.CodeText(e.Code),

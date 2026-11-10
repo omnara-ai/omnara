@@ -225,13 +225,68 @@ func TestRespondClassifiesOpenRouterInFlightBudgetAsTransient(t *testing.T) {
 		))
 	}))
 	defer server.Close()
-	_, err := testRespondClient(server).Respond(
+	client := testRespondClient(server)
+	client.APIVariant = modelprotocol.APIVariantOpenRouter
+	_, err := client.Respond(
 		context.Background(),
 		model.Request{ProviderRequest: json.RawMessage(`{"model":"gpt-test"}`)},
 	)
 	providerErr, ok := model.ClassifyError(err)
 	if !ok || providerErr.Kind != model.ErrorKindTransient || providerErr.RetryAfter == nil {
 		t.Fatalf("OpenRouter in-flight budget = %+v ok=%v err=%v", providerErr, ok, err)
+	}
+}
+
+func TestClassifyOpenRouterLimitErrors(t *testing.T) {
+	const spent = "Limit reached. $10.00 of $10.00 used; does not reset."
+	const refusal = "This request requires more credits, or fewer max_tokens. " +
+		"You requested up to 128000 tokens, but can only afford 40000."
+	for _, test := range []struct {
+		name           string
+		variant        modelprotocol.APIVariant
+		status         int
+		limitSource    string
+		message        string
+		wantKind       model.ErrorKind
+		wantAffordable *int
+	}{
+		{"key limit", modelprotocol.APIVariantOpenRouter, http.StatusForbidden,
+			"openrouter_key_limit", spent, model.ErrorKindBillingAccount, nil},
+		{"workspace budget", modelprotocol.APIVariantOpenRouter, http.StatusForbidden,
+			"openrouter_workspace_budget", spent, model.ErrorKindBillingAccount, nil},
+		{"guardrail budget", modelprotocol.APIVariantOpenRouter, http.StatusForbidden,
+			"openrouter_guardrail_budget", spent, model.ErrorKindBillingAccount, nil},
+		{"limit source ignored without OpenRouter variant", modelprotocol.APIVariantDefault, http.StatusForbidden,
+			"openrouter_key_limit", spent, model.ErrorKindAuth, nil},
+		{"affordable output", modelprotocol.APIVariantOpenRouter, http.StatusPaymentRequired,
+			"", refusal, model.ErrorKindBillingAccount, new(40000)},
+		{"affordable output ignored without OpenRouter variant", modelprotocol.APIVariantDefault,
+			http.StatusPaymentRequired, "", refusal, model.ErrorKindBillingAccount, nil},
+		{"billing without amount", modelprotocol.APIVariantOpenRouter, http.StatusPaymentRequired,
+			"", "Insufficient credits", model.ErrorKindBillingAccount, nil},
+		{"amount ignored on non-billing errors", modelprotocol.APIVariantOpenRouter, http.StatusBadRequest,
+			"", "can only afford 40000", model.ErrorKindInvalidRequest, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := classifyProviderError(
+				"test-provider",
+				compatFor(model.ProviderRoute{APIVariant: test.variant}),
+				test.status,
+				nil,
+				chatProviderError{
+					Message:  test.message,
+					Metadata: chatProviderErrorMetadata{LimitSource: test.limitSource},
+				},
+				"",
+			)
+			if got.Kind != test.wantKind {
+				t.Fatalf("kind = %q, want %q (%+v)", got.Kind, test.wantKind, got)
+			}
+			if (got.AffordableOutputTokens == nil) != (test.wantAffordable == nil) ||
+				got.AffordableOutputTokens != nil && *got.AffordableOutputTokens != *test.wantAffordable {
+				t.Fatalf("affordable output tokens = %v, want %v", got.AffordableOutputTokens, test.wantAffordable)
+			}
+		})
 	}
 }
 
