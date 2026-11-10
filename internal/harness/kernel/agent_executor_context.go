@@ -279,7 +279,11 @@ func (e AgentExecutor) executeModelStep(
 			defer streamSink.Close()
 		}
 	}
-	response, err := client.Respond(ctx, request)
+	response, err := client.Respond(model.WithCallScope(ctx, model.CallScope{
+		Purpose:            model.CallPurposeAgentTurn,
+		ModelCallContextID: claim.Context.ID.String(),
+		Attempt:            claim.Context.AttemptNumber,
+	}), request)
 	if err != nil {
 		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			return modelStep{}, err
