@@ -60,7 +60,8 @@ not narrow the installation access granted through [Git credentials](#git-creden
    if agents will comment, resolve threads or open PRs, and **Issues: Read-only** for incoming PR conversation
    comments. For Git credentials or resolving review threads, also request
    **Contents: Read & write**. To show a check on the PR while the agent works, also request
-   **Checks: Read & write**.
+   **Checks: Read & write**. For `gh` to read CI results, also request at least **Read-only** for
+   **Actions**, **Checks** and **Commit statuses**.
 2. Enable webhooks with URL `https://YOUR_OMNARA_HOST/api/integrations/github/events`
    and a webhook secret. Subscribe to the [events](https://docs.github.com/en/webhooks/webhook-events-and-payloads)
    `pull_request`, `issue_comment`,
@@ -223,7 +224,8 @@ pull requests. The assigned PR and `launcher.repository_id` do not narrow
 these credentials. Existing PR tools retain their assigned-PR restrictions.
 See GitHub's [installation token scope](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app).
 
-Apps registered through Omnara get **Contents** and **Pull requests: Read & write**. If an App only
+Apps registered through Omnara get **Contents**, **Pull requests** and **Checks: Read & write**, plus
+**Actions**, **Commit statuses** and **Issues: Read-only**. If an App only
 has **Contents: Read-only**, its write credentials fail while **Let agents push code** is
 enabled; grant **Read & write** in the App's settings and have the installation
 owner approve it. Pushes remain subject to GitHub's repository rules and can't
@@ -240,9 +242,9 @@ machine, run `OMNARA_GIT_CREDENTIALS=0 omnarad install`; the installer persists
 `git_credentials_disabled`. Commands requesting Git credentials fail during
 preparation on an opted-out machine. This also applies to GitHub-launched agents,
 since their launcher adds the capability automatically. `gh` uses the same credentials unless
-you set `GH_TOKEN` or `GITHUB_TOKEN` yourself. These credentials only cover Git and pull requests,
-so `gh` commands that read CI results, such as `gh pr checks` and plain `gh pr view`, can fail
-on pull requests with checks.
+you set `GH_TOKEN` or `GITHUB_TOKEN` yourself. `gh` commands that read CI results, such as
+`gh pr checks` and plain `gh pr view`, need the App's **Actions**, **Checks** and **Commit statuses**
+access; if the App lacks them, add them in its settings and have the installation owner approve them.
 
 The helper supplies tokens to local workload code; it does not isolate credentials
 from other code running as the same OS user. Tokens refresh on use; disconnecting

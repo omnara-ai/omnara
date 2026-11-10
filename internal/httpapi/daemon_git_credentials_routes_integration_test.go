@@ -411,12 +411,14 @@ func TestDaemonGitCredentialsReadOnlyUnlessIntegrationAllowsCodeWrite(t *testing
 	f.accept(t, f.process)
 	f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
 	requested, _ := f.mintBody.Load().(string)
-	require.JSONEq(t, `{"permissions":{"contents":"read","pull_requests":"read","metadata":"read"}}`, requested)
+	require.JSONEq(t, `{"permissions":{"contents":"read","pull_requests":"read",`+
+		`"checks":"read","statuses":"read","actions":"read","issues":"read","metadata":"read"}}`, requested)
 	setSettings(`{"code_write":true}`)
 	f.contentsPermission = "write"
 	f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
 	requested, _ = f.mintBody.Load().(string)
-	require.JSONEq(t, `{"permissions":{"contents":"write","pull_requests":"write","metadata":"read"}}`, requested)
+	require.JSONEq(t, `{"permissions":{"contents":"write","pull_requests":"write",`+
+		`"checks":"read","statuses":"read","actions":"read","issues":"read","metadata":"read"}}`, requested)
 	require.EqualValues(t, 2, f.minted.Load(), "read-only and write credentials are cached separately")
 	setSettings(`{}`)
 	readOnly := f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
@@ -443,7 +445,8 @@ func TestDaemonGitCredentialsHonorAgentRepositoriesAndReadOnly(t *testing.T) {
 	f.request(t, process.Token, process.ProcessID, http.StatusOK)
 	requested, _ := f.mintBody.Load().(string)
 	require.JSONEq(t,
-		`{"permissions":{"contents":"read","pull_requests":"read","metadata":"read"},"repository_ids":[1,2]}`, requested)
+		`{"permissions":{"contents":"read","pull_requests":"read",`+
+			`"checks":"read","statuses":"read","actions":"read","issues":"read","metadata":"read"},"repository_ids":[1,2]}`, requested)
 	f.changeConfig(t, process, limited(1))
 	f.request(t, process.Token, process.ProcessID, http.StatusNotFound)
 	require.EqualValues(t, 1, f.minted.Load(), "changed Git credentials settings revoke running processes")

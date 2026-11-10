@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"slices"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -96,27 +96,57 @@ func TestInstallationGitCredentialsScopeCacheAndExpiry(t *testing.T) {
 	}
 }
 
-func TestInstallationGitCredentialsStepDownPullRequestsWhenNotGranted(t *testing.T) {
+func TestInstallationGitCredentialsRequestOnlyGrantedOptionalPermissions(t *testing.T) {
+	grants := func(contents string) map[string]string {
+		return map[string]string{
+			"contents": contents, "pull_requests": "write", "metadata": "read",
+			"checks": "write", "statuses": "read", "actions": "read", "issues": "read",
+		}
+	}
+	full := func(contents string) map[string]string {
+		return map[string]string{
+			"contents": contents, "pull_requests": contents, "metadata": "read",
+			"checks": "read", "statuses": "read", "actions": "read", "issues": "read",
+		}
+	}
 	for _, tc := range []struct {
-		name, granted, reject string
-		write                 bool
-		requested             []string
+		name, reject   string
+		write, wantErr bool
+		granted        map[string]string
+		requested      []map[string]string
 	}{
-		{name: "push with read-only pull requests", granted: "read", write: true, requested: []string{"write", "read"}},
-		{name: "push without pull requests", write: true, requested: []string{"write", "read", ""}},
-		{name: "read without pull requests", requested: []string{"read", ""}},
+		{name: "everything granted", write: true, granted: grants("write"), requested: []map[string]string{full("write")}},
 		{
-			name: "unrelated rejection", granted: "write", reject: "Validation failed", write: true,
-			requested: []string{"write"},
+			name: "push with read-only pull requests and no CI", write: true,
+			granted: map[string]string{"contents": "write", "pull_requests": "read", "metadata": "read", "issues": "read"},
+			requested: []map[string]string{
+				full("write"), {"contents": "write", "pull_requests": "read", "metadata": "read", "issues": "read"},
+			},
+		},
+		{
+			name: "read with only contents", granted: map[string]string{"contents": "read", "metadata": "read"},
+			requested: []map[string]string{full("read"), {"contents": "read", "metadata": "read"}},
+		},
+		{
+			name: "push never lowers contents", write: true, wantErr: true, granted: grants("read"),
+			requested: []map[string]string{full("write"), full("write")},
+		},
+		{
+			name: "unrelated rejection", reject: "Validation failed", write: true, wantErr: true, granted: grants("write"),
+			requested: []map[string]string{full("write")},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			contents := "read"
-			if tc.write {
-				contents = "write"
-			}
-			var requested []string
+			var requested []map[string]string
+			var lookups int
 			client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && r.URL.Path == "/app/installations/456" {
+					lookups++
+					if err := json.NewEncoder(w).Encode(map[string]any{"id": 456, "permissions": tc.granted}); err != nil {
+						t.Error(err)
+					}
+					return
+				}
 				var input struct {
 					Permissions map[string]string `json:"permissions"`
 				}
@@ -124,29 +154,27 @@ func TestInstallationGitCredentialsStepDownPullRequestsWhenNotGranted(t *testing
 					t.Error(err)
 					return
 				}
-				if input.Permissions["contents"] != contents || input.Permissions["metadata"] != "read" {
-					t.Errorf("permissions changed beyond pull_requests: %v", input.Permissions)
-				}
-				level := input.Permissions["pull_requests"]
-				requested = append(requested, level)
+				requested = append(requested, input.Permissions)
 				message := tc.reject
-				if level == "write" && tc.granted != "write" || level == "read" && tc.granted == "" {
-					message = "The permissions requested are not granted to this installation."
+				for name, level := range input.Permissions {
+					if granted := tc.granted[name]; granted == "" || level == "write" && granted == "read" {
+						message = "The permissions requested are not granted to this installation."
+					}
 				}
 				if message != "" {
 					w.WriteHeader(http.StatusUnprocessableEntity)
 					fmt.Fprintf(w, `{"message":%q}`, message)
 					return
 				}
-				gitCredentialResponse(w, "issued", contents, time.Now().Add(time.Hour))
+				gitCredentialResponse(w, "issued", input.Permissions["contents"], time.Now().Add(time.Hour))
 			})
 			credentials, err := client.InstallationGitCredentials(t.Context(), tc.write, []int64{789})
-			if !slices.Equal(requested, tc.requested) {
-				t.Fatalf("requested pull_requests levels = %q, want %q", requested, tc.requested)
+			if !reflect.DeepEqual(requested, tc.requested) || lookups != len(tc.requested)-1 {
+				t.Fatalf("requested = %v after %d lookups, want %v", requested, lookups, tc.requested)
 			}
-			if tc.reject != "" {
+			if tc.wantErr {
 				if err == nil {
-					t.Fatal("unrelated rejection succeeded")
+					t.Fatal("credential request succeeded")
 				}
 				return
 			}
@@ -167,7 +195,7 @@ func TestInstallationGitCredentialsReadOnlyUnlessWriteGranted(t *testing.T) {
 		}
 		var input map[string]map[string]string
 		var contents string
-		if json.Unmarshal(body, &input) == nil && len(input) == 1 && len(input["permissions"]) == 3 &&
+		if json.Unmarshal(body, &input) == nil && len(input) == 1 && len(input["permissions"]) == 7 &&
 			input["permissions"]["metadata"] == "read" &&
 			input["permissions"]["pull_requests"] == input["permissions"]["contents"] {
 			contents = input["permissions"]["contents"]
