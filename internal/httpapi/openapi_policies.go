@@ -169,6 +169,11 @@ const (
 	operationGetOrgAPIKey                  operationID = "GetOrgAPIKey"
 	operationGetOrgOverview                operationID = "GetOrgOverview"
 	operationGetOrgUsage                   operationID = "GetOrgUsage"
+	operationListBudgets                   operationID = "ListBudgets"
+	operationCreateBudget                  operationID = "CreateBudget"
+	operationGetBudget                     operationID = "GetBudget"
+	operationUpdateBudget                  operationID = "UpdateBudget"
+	operationDeleteBudget                  operationID = "DeleteBudget"
 	operationGetProjectUsage               operationID = "GetProjectUsage"
 	operationGetAgentProfileUsage          operationID = "GetAgentProfileUsage"
 	operationGetAgentUsage                 operationID = "GetAgentUsage"
@@ -332,6 +337,11 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationGetProject:                 accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationUpdateProject:              accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteProject:              accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListBudgets:                accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationCreateBudget:               accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetBudget:                  accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationUpdateBudget:               accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationDeleteBudget:               accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationDeleteOrganization:         accountPolicy(orgScope(identitystore.OrgActionOwn)),
 	operationListOrgInvitations:         accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationCreateOrgInvitation:        accountPolicy(orgScope(identitystore.OrgActionManage)),

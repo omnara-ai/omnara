@@ -21,6 +21,7 @@ type PublishContextCheckpointInput struct {
 	APIVariant              modelprotocol.APIVariant
 	ProviderRequestID       string
 	ProviderResponseID      string
+	ServedProviderModelSlug string
 	Usage                   modelenvelope.Usage
 	ProviderReportedCostUSD modelenvelope.ProviderReportedCostUSD
 	ProviderMetadata        modelenvelope.ProviderMetadata
@@ -43,7 +44,7 @@ func (s *Store) PublishContextCheckpoint(
 				ctx,
 				agentexecution.PublishCheckpointInput{RuntimeLockID: input.RuntimeLockID,
 					ContextID: input.ModelCallContextID, Summary: input.Summary,
-					Evidence: executionEvidence(input.APIFormat, input.APIVariant,
+					Evidence: executionEvidence(input.APIFormat, input.APIVariant, input.ServedProviderModelSlug,
 						input.ProviderRequestID, input.ProviderResponseID, input.Usage,
 						input.ProviderReportedCostUSD, input.ProviderMetadata)},
 			)

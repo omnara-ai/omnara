@@ -60,6 +60,10 @@ rules:
     message: "skill_revisions query must filter deleted_at (or annotate @sqlc-vet-disable skill-revisions-deleted-at)"
     rule: >-
       query.sql.matches(r'(?i)\b(from|join|update)\s+skill_revisions\b') && !query.sql.contains('deleted_at')
+  - name: budgets-deleted-at
+    message: "budgets query must filter deleted_at (or annotate @sqlc-vet-disable budgets-deleted-at)"
+    rule: >-
+      query.sql.matches(r'(?i)\b(from|join|update)\s+budgets\b') && !query.sql.contains('deleted_at')
 sql:
   - engine: "postgresql"
     schema: "migrations"
@@ -79,6 +83,7 @@ sql:
       - machines-deleted-at
       - skills-deleted-at
       - skill-revisions-deleted-at
+      - budgets-deleted-at
     gen:
       go:
         package: "dbsqlc"

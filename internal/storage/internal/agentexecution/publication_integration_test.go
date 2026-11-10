@@ -62,7 +62,7 @@ func TestExecutionCommitRoundTrips(t *testing.T) {
 				f.create(t, id, root)
 				ids = append(ids, id)
 			}
-			cell := agentexecution.NewCell(f.pool, nil, nil)
+			cell := agentexecution.NewCell(f.pool, nil, nil, nil)
 			u, err := agentexecution.BeginTestUnit(t.Context(), cell)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = u.Rollback(t.Context()) })

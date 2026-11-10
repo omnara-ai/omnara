@@ -3117,6 +3117,70 @@ export const zOrgOverviewAgentProfileReference = z.object({
     agent_count: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
 });
 
+export const zBudgetId = z.string().regex(/^bdg_[a-z2-7]{26}$/);
+
+export const zBudgetScopeType = z.enum(['org', 'project']);
+
+export const zOrgBudgetScope = z.object({
+    type: z.enum(['org'])
+});
+
+export const zProjectBudgetScope = z.object({
+    type: z.enum(['project']),
+    project_id: zProjectId
+});
+
+export const zBudgetScope = z.discriminatedUnion('type', [
+    zOrgBudgetScope.extend({ type: z.literal('org') }),
+    zProjectBudgetScope.extend({ type: z.literal('project') })
+]);
+
+/**
+ * How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime never resets and counts spend recorded since budgets became available.
+ */
+export const zBudgetInterval = z.enum([
+    'day',
+    'week',
+    'month',
+    'lifetime'
+]);
+
+/**
+ * Amount in USD as a positive decimal string.
+ */
+export const zBudgetAmount = z.string().regex(/^(0|[1-9][0-9]{0,14})(\.[0-9]{1,15})?$/);
+
+export const zBudgetUsage = z.object({
+    amount_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    estimated_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
+});
+
+export const zBudget = z.object({
+    id: zBudgetId,
+    org_id: zOrganizationId,
+    scope: zBudgetScope,
+    interval: zBudgetInterval,
+    amount_usd: zBudgetAmount,
+    usage: zBudgetUsage.optional(),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true })
+});
+
+export const zCreateBudgetRequest = z.object({
+    scope: zBudgetScope,
+    interval: zBudgetInterval,
+    amount_usd: zBudgetAmount
+});
+
+export const zUpdateBudgetRequest = z.object({
+    amount_usd: zBudgetAmount
+});
+
+export const zListBudgetsResponse = z.object({
+    data: z.array(zBudget),
+    next_cursor: z.string().nullable()
+});
+
 export const zUsageTimeseriesInterval = z.enum([
     'hour',
     'day',
@@ -3125,7 +3189,7 @@ export const zUsageTimeseriesInterval = z.enum([
 ]);
 
 /**
- * `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
+ * `sum_tokens` is input plus output tokens. `sum_cost` is cost in USD: the provider-reported cost when there is one, otherwise a list-price estimate; calls that could not be priced contribute nothing. `count_model_calls` counts model calls that recorded usage.
  */
 export const zUsageTimeseriesMetric = z.enum([
     'sum_tokens',
@@ -3167,7 +3231,9 @@ export const zUsageTokenTotals = z.object({
 
 export const zUsageCostTotals = z.object({
     provider_reported_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
-    model_calls_with_reported_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+    model_calls_with_reported_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    estimated_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    model_calls_with_estimated_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
 });
 
 export const zUsageTotals = z.object({
@@ -4035,6 +4101,65 @@ export const zGetOrgOverviewPath = z.object({
  * Overview data for the organization.
  */
 export const zGetOrgOverviewResponse = zOrgOverviewResponse;
+
+export const zListBudgetsPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zListBudgetsQuery = z.object({
+    scope_type: zBudgetScopeType.optional(),
+    project_id: zProjectId.optional(),
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * Budgets matching the requested scope.
+ */
+export const zListBudgetsResponse2 = zListBudgetsResponse;
+
+export const zCreateBudgetBody = zCreateBudgetRequest;
+
+export const zCreateBudgetPath = z.object({
+    orgID: zOrganizationId
+});
+
+/**
+ * Budget created.
+ */
+export const zCreateBudgetResponse = zBudget;
+
+export const zDeleteBudgetPath = z.object({
+    orgID: zOrganizationId,
+    budgetID: zBudgetId
+});
+
+/**
+ * Budget deleted.
+ */
+export const zDeleteBudgetResponse = z.void();
+
+export const zGetBudgetPath = z.object({
+    orgID: zOrganizationId,
+    budgetID: zBudgetId
+});
+
+/**
+ * The budget.
+ */
+export const zGetBudgetResponse = zBudget;
+
+export const zUpdateBudgetBody = zUpdateBudgetRequest;
+
+export const zUpdateBudgetPath = z.object({
+    orgID: zOrganizationId,
+    budgetID: zBudgetId
+});
+
+/**
+ * Budget updated.
+ */
+export const zUpdateBudgetResponse = zBudget;
 
 export const zGetOrgUsagePath = z.object({
     orgID: zOrganizationId

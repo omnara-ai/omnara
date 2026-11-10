@@ -12,7 +12,25 @@ const (
 	AgentBacklogFullCode             = "agent_backlog_full"
 	ManagedWorkAdmissionDeniedCode   = "managed_work_admission_denied"
 	InsufficientOmnaraCreditsMessage = "Insufficient Omnara credits."
+	BudgetReachedCode                = "budget_reached"
 )
+
+func BudgetReachedMessage(projectScope bool, interval string) string {
+	scope := "organization"
+	if projectScope {
+		scope = "project"
+	}
+	period := interval
+	switch interval {
+	case "day":
+		period = "daily"
+	case "week":
+		period = "weekly"
+	case "month":
+		period = "monthly"
+	}
+	return fmt.Sprintf("This %s's %s budget has been reached. An org admin can raise it on the Usage page.", scope, period)
+}
 
 var (
 	ErrCheckpointBoundaryUnsafe = errors.New("context checkpoint boundary is unsafe")

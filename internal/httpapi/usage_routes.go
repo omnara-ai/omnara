@@ -233,7 +233,9 @@ func usageTokenTotalsResponse(totals executionstore.ModelUsageTotals) openapi.Us
 
 func usageCostTotalsResponse(totals executionstore.ModelUsageTotals) openapi.UsageCostTotals {
 	return openapi.UsageCostTotals{
-		ProviderReportedUsd:        string(totals.ProviderReportedCostUSD),
-		ModelCallsWithReportedCost: totals.ModelCallsWithReportedCost,
+		ProviderReportedUsd:         string(totals.ProviderReportedCostUSD),
+		ModelCallsWithReportedCost:  totals.ModelCallsWithReportedCost,
+		EstimatedUsd:                string(totals.EstimatedCostUSD),
+		ModelCallsWithEstimatedCost: totals.ModelCallsWithEstimatedCost,
 	}
 }

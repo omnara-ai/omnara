@@ -225,6 +225,7 @@ type Usage struct {
 	CacheReadTokens  int  `json:"cache_read_input_tokens,omitempty"`
 	CacheWriteTokens int  `json:"cache_write_input_tokens,omitempty"`
 	CacheReported    bool `json:"-"`
+	Incomplete       bool `json:"-"`
 }
 
 type ReportedCount struct {

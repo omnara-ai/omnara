@@ -1,6 +1,8 @@
 package modelenvelope
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"strconv"
@@ -174,4 +176,21 @@ func allDecimalDigits(value string) bool {
 		}
 	}
 	return true
+}
+
+const usdTicksPerDollarExponent = "e-10"
+
+func ProviderReportedCostFromTicks(raw json.RawMessage) (ProviderReportedCostUSD, bool) {
+	ticks := string(bytes.TrimSpace(raw))
+	if ticks == "" || ticks == "null" {
+		return "", true
+	}
+	if !allDecimalDigits(ticks) {
+		return "", false
+	}
+	ticks = strings.TrimLeft(ticks, "0")
+	if ticks == "" {
+		ticks = "0"
+	}
+	return ParseProviderReportedCostUSD(ticks + usdTicksPerDollarExponent)
 }
