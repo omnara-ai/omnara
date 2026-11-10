@@ -311,6 +311,10 @@ func daemonProgramToolCallError(ctx context.Context, err error) error {
 	case errors.Is(err, storeerr.ErrIdempotencyConflict):
 		return apierror.FromCode(openapi.ErrorCodeIdempotencyKeyConflict,
 			"key was already used for a different tool call")
+	case errors.Is(err, storeerr.ErrProgramToolCallLimitReached):
+		return apierror.FromCode(openapi.ErrorCodeRateLimited, fmt.Sprintf(
+			"this command already has %d tool calls in flight; wait for one to finish",
+			executionstore.MaxOpenProgramToolCalls))
 	case errors.Is(err, storeerr.ErrInvalidRequest):
 		return apierror.FromCode(openapi.ErrorCodeUnprocessable, "tool call request is invalid")
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):

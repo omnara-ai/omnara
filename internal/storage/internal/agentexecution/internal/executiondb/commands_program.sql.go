@@ -13,6 +13,23 @@ import (
 	"github.com/google/uuid"
 )
 
+const countOpenProgramTools = `-- name: CountOpenProgramTools :one
+SELECT count(*) FROM tool_calls WHERE agent_id=$1 AND caller='program'
+ AND parent_tool_call_id=$2::uuid AND state<>'completed'
+`
+
+type CountOpenProgramToolsParams struct {
+	AgentID  uuid.UUID
+	ParentID uuid.UUID
+}
+
+func (q *Queries) CountOpenProgramTools(ctx context.Context, db DBTX, arg CountOpenProgramToolsParams) (int64, error) {
+	row := db.QueryRow(ctx, countOpenProgramTools, arg.AgentID, arg.ParentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const insertProgramTool = `-- name: InsertProgramTool :one
 INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,created_at)
 SELECT $1,c.project_id,c.agent_id,$2,$3,$4::jsonb,$5,
@@ -56,6 +73,7 @@ JOIN agents a ON a.id=c.agent_id AND a.state='active'
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
  AND p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running')
 WHERE c.caller='program' AND c.state IN ('ready','awaiting_authorization','waiting')
+ AND NOT (c.agent_id=ANY($2::uuid[]))
 ), ranked AS (
 SELECT o.id,o.agent_id,o.project_id,o.process_id,o.created_at,o.claimable,
  count(*) FILTER (WHERE NOT o.claimable) OVER (PARTITION BY o.agent_id)
@@ -67,7 +85,8 @@ ORDER BY r.share,r.created_at,r.id LIMIT $1
 `
 
 type ListProgramToolCandidatesParams struct {
-	LimitCount int32
+	LimitCount   int32
+	SkipAgentIds []uuid.UUID
 }
 
 type ListProgramToolCandidatesRow struct {
@@ -80,7 +99,7 @@ type ListProgramToolCandidatesRow struct {
 // An agent's nth concurrent call ranks nth: calls it already has claimed count
 // ahead of its claimable ones, so one agent's backlog cannot take every worker.
 func (q *Queries) ListProgramToolCandidates(ctx context.Context, db DBTX, arg ListProgramToolCandidatesParams) ([]ListProgramToolCandidatesRow, error) {
-	rows, err := db.Query(ctx, listProgramToolCandidates, arg.LimitCount)
+	rows, err := db.Query(ctx, listProgramToolCandidates, arg.LimitCount, arg.SkipAgentIds)
 	if err != nil {
 		return nil, err
 	}

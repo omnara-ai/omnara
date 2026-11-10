@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,7 +23,12 @@ import (
 // instead of the agent runtime lock. Every write requires the process to be
 // live (execution granted, starting or running) and the agent active.
 
-const programToolClaimCandidates = 16
+const (
+	programToolClaimCandidates = 16
+	// programToolClaimPages bounds how far one claim looks past agents it
+	// could not claim from.
+	programToolClaimPages = 8
+)
 
 // ProgramToolScope is the daemon process's authority to make program tool
 // calls: its agent and the agent's current configuration, which decides the
@@ -33,6 +39,11 @@ type ProgramToolScope struct {
 	ProcessID     uuid.UUID
 	AgentConfigID uuid.UUID
 }
+
+// MaxOpenProgramToolCalls is how many unfinished program tool calls one
+// command may have; CreateProgramToolCall fails a further new call with
+// storeerr.ErrProgramToolCallLimitReached.
+const MaxOpenProgramToolCalls = agentexecution.MaxOpenProgramTools
 
 type ProgramToolCallPhase uint8
 
@@ -275,22 +286,33 @@ func (s *Store) ClaimNextProgramToolCall(
 	if claimID == uuid.Nil || lease <= 0 {
 		return ProgramToolCallClaim{}, false, errors.New("claim and lease are required")
 	}
-	candidates, err := s.cell.ListProgramToolCandidates(ctx, programToolClaimCandidates)
-	if err != nil {
-		return ProgramToolCallClaim{}, false, fmt.Errorf("list program tool call candidates: %w", err)
-	}
-	// A candidate that fails to claim does not hold back the ones behind it.
+	// A candidate that fails to claim does not hold back the ones behind it:
+	// its agent, locked or otherwise unclaimable, is skipped on later pages.
 	var failed error
-	for _, candidate := range candidates {
-		claim, found, err := s.claimProgramToolCall(ctx, candidate, claimID, lease)
-		if found {
-			return claim, true, nil
-		}
-		if ctx.Err() != nil {
-			return ProgramToolCallClaim{}, false, err
-		}
+	var skipped []uuid.UUID
+	for range programToolClaimPages {
+		candidates, err := s.cell.ListProgramToolCandidates(ctx, programToolClaimCandidates, skipped)
 		if err != nil {
-			failed = errors.Join(failed, fmt.Errorf("claim program tool call %s: %w", candidate.ID, err))
+			return ProgramToolCallClaim{}, false, fmt.Errorf("list program tool call candidates: %w", err)
+		}
+		if len(candidates) == 0 {
+			break
+		}
+		for _, candidate := range candidates {
+			if slices.Contains(skipped, candidate.AgentID) {
+				continue
+			}
+			claim, found, err := s.claimProgramToolCall(ctx, candidate, claimID, lease)
+			if found {
+				return claim, true, nil
+			}
+			if ctx.Err() != nil {
+				return ProgramToolCallClaim{}, false, err
+			}
+			if err != nil {
+				failed = errors.Join(failed, fmt.Errorf("claim program tool call %s: %w", candidate.ID, err))
+			}
+			skipped = append(skipped, candidate.AgentID)
 		}
 	}
 	return ProgramToolCallClaim{}, false, failed

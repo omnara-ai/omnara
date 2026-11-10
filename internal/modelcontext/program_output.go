@@ -38,6 +38,16 @@ const programmaticToolCallsGuidance = "Commands you start with `run_command` can
 	"you need. Before relying on fields of a tool's result that `run_command` doesn't show, check its " +
 	"`output_schema` with `tool_search`. Examples:\n```sh\n"
 
+// programmaticParallelExample uses xargs because it owns the calls it starts:
+// it runs at most 16 at once, returns only when all have finished, and exits
+// nonzero if any failed. Background jobs started in a pipeline's loop would
+// outlive a `wait` in the outer shell, and end with the command.
+const programmaticParallelExample = "# Run independent calls in parallel; a command can have 16 calls in flight.\n" +
+	"# xargs waits for every call and exits nonzero if one fails\n" +
+	"\"$OMNARA_BIN\" call storage_list '{\"pattern\":\"/memory/notes/*.md\"}' | jq -r '.entries[]?.path' |\n" +
+	"  tr '\\n' '\\0' | xargs -0 -n 1 -P 16 sh -c 'jq -nc --arg path \"$1\" \"{path: \\$path}\" |\n" +
+	"    \"$OMNARA_BIN\" call storage_read - > \"$(basename \"$1\").json\"' sh\n"
+
 // programmaticToolCallsExamples are shown in the system prompt when the agent
 // may call every tool they use from commands.
 var programmaticToolCallsExamples = []struct {
@@ -64,13 +74,8 @@ var programmaticToolCallsExamples = []struct {
 			"jq -r '.title'; done\n",
 	},
 	{
-		tools: []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead},
-		example: "# Run independent calls in parallel; a command can have 16 calls in flight\n" +
-			"\"$OMNARA_BIN\" call storage_list '{\"pattern\":\"/memory/notes/*.md\"}' | jq -r '.entries[]?.path' |\n" +
-			"  while read -r path; do\n" +
-			"    jq -nc --arg path \"$path\" '{path: $path}' | \"$OMNARA_BIN\" call storage_read - " +
-			"> \"$(basename \"$path\").json\" &\n" +
-			"  done; wait\n",
+		tools:   []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead},
+		example: programmaticParallelExample,
 	},
 	{
 		example: "# For longer logic, wrap calls in a function; a failed or denied call exits nonzero\n" +

@@ -5,6 +5,7 @@ package agentexecution_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -449,7 +450,7 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	f := newProgramFixture(t)
 	tool := f.create(t, "key")
 	cell := agentexecution.NewCell(f.pool, nil, nil)
-	candidates, err := cell.ListProgramToolCandidates(t.Context(), 10)
+	candidates, err := cell.ListProgramToolCandidates(t.Context(), 10, nil)
 	require.NoError(t, err)
 	require.Equal(t, []agentexecution.ProgramToolCandidate{
 		{ID: tool.ID, ProjectID: f.project, AgentID: f.agent, ProcessID: f.process}}, candidates)
@@ -484,7 +485,7 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	})
 	// The authorized call waits under the authorization claim.
 	execute := second
-	candidates, err = cell.ListProgramToolCandidates(t.Context(), 10)
+	candidates, err = cell.ListProgramToolCandidates(t.Context(), 10, nil)
 	require.NoError(t, err)
 	require.Empty(t, candidates)
 	expire()
@@ -518,7 +519,7 @@ func TestProgramToolCandidatesShareWorkersAcrossAgents(t *testing.T) {
 	require.True(t, found)
 	other := busy.sibling(t)
 	late := other.create(t, "late")
-	candidates, err := agentexecution.NewCell(busy.pool, nil, nil).ListProgramToolCandidates(t.Context(), 10)
+	candidates, err := agentexecution.NewCell(busy.pool, nil, nil).ListProgramToolCandidates(t.Context(), 10, nil)
 	require.NoError(t, err)
 	ids := make([]uuid.UUID, len(candidates))
 	for i, candidate := range candidates {
@@ -526,6 +527,48 @@ func TestProgramToolCandidatesShareWorkersAcrossAgents(t *testing.T) {
 	}
 	require.Equal(t, []uuid.UUID{late.ID, second.ID, third.ID}, ids)
 	require.Equal(t, other.agent, candidates[0].AgentID)
+
+	// Skipping an agent that could not be claimed from reaches the calls a
+	// full page of its candidates would otherwise hide.
+	cell := agentexecution.NewCell(busy.pool, nil, nil)
+	hidden, err := cell.ListProgramToolCandidates(t.Context(), 2, []uuid.UUID{other.agent})
+	require.NoError(t, err)
+	require.Len(t, hidden, 2)
+	require.Equal(t, []uuid.UUID{second.ID, third.ID}, []uuid.UUID{hidden[0].ID, hidden[1].ID})
+	none, err := cell.ListProgramToolCandidates(t.Context(), 2, []uuid.UUID{other.agent, busy.agent})
+	require.NoError(t, err)
+	require.Empty(t, none)
+}
+
+func TestProgramToolCreateLimitsOpenCallsPerCommand(t *testing.T) {
+	f := newProgramFixture(t)
+	first := f.create(t, "key-0")
+	for i := 1; i < agentexecution.MaxOpenProgramTools; i++ {
+		f.create(t, fmt.Sprintf("key-%d", i))
+	}
+	create := func(h *agentexecution.Handle, key string) (agentexecution.ProgramTool, error) {
+		return h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{ProcessID: f.process,
+			Key: programKey(key), Name: "storage_read", Type: "built_in", Input: json.RawMessage(`{"path":"a"}`)})
+	}
+	f.try(t, func(h *agentexecution.Handle) {
+		_, err := create(h, "one-too-many")
+		require.ErrorIs(t, err, storeerr.ErrProgramToolCallLimitReached)
+	})
+	// A replay of an existing call is not a new call.
+	replay := f.create(t, "key-0")
+	require.False(t, replay.Created)
+	require.Equal(t, first.ID, replay.ID)
+
+	// A finished call frees its place.
+	claim := uuid.New()
+	_, found := f.claim(t, first.ID, claim)
+	require.True(t, found)
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, err := h.CompleteProgramTool(t.Context(),
+			agentexecution.ProgramToolRef{ID: first.ID, ProcessID: f.process, ClaimID: claim}, "failed", nil)
+		require.NoError(t, err)
+	})
+	require.True(t, f.create(t, "one-too-many").Created)
 }
 
 func TestProgramToolsIgnoredByTurnControl(t *testing.T) {

@@ -33,6 +33,10 @@ const (
 	ProgramToolExecute
 )
 
+// MaxOpenProgramTools is how many unfinished program tool calls one command
+// may have, including calls waiting for approval.
+const MaxOpenProgramTools = 16
+
 type ProgramTool struct {
 	ID        uuid.UUID
 	ParentID  uuid.UUID
@@ -166,6 +170,14 @@ func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolI
 		record, err := existing()
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return record, err
+		}
+		open, err := q.CountOpenProgramTools(ctx, h.unit.DB(), executiondb.CountOpenProgramToolsParams{
+			AgentID: h.route.AgentID, ParentID: process.ToolCallID})
+		if err != nil {
+			return ProgramTool{}, err
+		}
+		if open >= MaxOpenProgramTools {
+			return ProgramTool{}, storeerr.ErrProgramToolCallLimitReached
 		}
 		id, err := uuid.NewV7()
 		if err != nil {
@@ -560,12 +572,19 @@ type ProgramToolCandidate struct {
 
 // ListProgramToolCandidates lists calls that may be claimable without locking
 // them; ClaimProgramTool re-checks under the agent lock. Agents with the fewest
-// calls in flight come first, then older calls.
-func (c *AgentCell) ListProgramToolCandidates(ctx context.Context, limit int32) ([]ProgramToolCandidate, error) {
+// calls in flight come first, then older calls. Calls of skipAgents are left
+// out, so a caller can page past agents it could not claim from.
+func (c *AgentCell) ListProgramToolCandidates(
+	ctx context.Context, limit int32, skipAgents []uuid.UUID,
+) ([]ProgramToolCandidate, error) {
+	if skipAgents == nil {
+		// A nil slice encodes as NULL, which would match no call.
+		skipAgents = []uuid.UUID{}
+	}
 	var rows []executiondb.ListProgramToolCandidatesRow
 	if err := c.short(ctx, func(tx pgx.Tx) (err error) {
 		rows, err = executiondb.New().ListProgramToolCandidates(ctx, tx,
-			executiondb.ListProgramToolCandidatesParams{LimitCount: limit})
+			executiondb.ListProgramToolCandidatesParams{LimitCount: limit, SkipAgentIds: skipAgents})
 		return err
 	}); err != nil {
 		return nil, err

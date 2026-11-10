@@ -60,6 +60,9 @@ func (e Executor) dispatchMCPTool(
 	if err != nil {
 		return toolResultContent{}, err
 	}
+	if err := mcpConnectionServes(turn, conn, server); err != nil {
+		return toolResultContent{}, err
+	}
 	manager := mcp.Manager{
 		Execution:            e.Store.Execution(),
 		Secrets:              e.Store.Secrets(),
@@ -111,6 +114,27 @@ func (e Executor) runtimeMCPServerForTool(
 		"mcp server \"%s\" is not declared in model context config",
 		serverKey,
 	)
+}
+
+// mcpConnectionServes requires a program call's connection to have been
+// initialized for the server configuration it runs under. The connection's
+// endpoint and that configuration's credentials come from different reads, and
+// the agent's config can change between a connection's initialization and the
+// call, so an unmatched pair must not be sent.
+func mcpConnectionServes(
+	turn Turn, conn executionstore.MCPConnectionRecord, server agentconfig.RuntimeMCPServer,
+) error {
+	if turn.contract == nil {
+		return nil
+	}
+	hash, err := executionstore.MCPServerConfigHash(server)
+	if err != nil {
+		return err
+	}
+	if conn.ConfigHash != hash {
+		return fmt.Errorf("mcp server \"%s\" is not ready for the agent's current configuration", server.ServerKey)
+	}
+	return nil
 }
 
 func mcpConnectionFailedToolResult(
@@ -179,7 +203,13 @@ func (e Executor) mcpToolResultContent(
 		if err != nil {
 			return toolResultContent{}, err
 		}
-		parts = append(parts, part)
+		if turn.programCall() {
+			// A command prints the first structured value, so it must be the
+			// one the tool's output schema describes, not a resource link.
+			parts = append([]toolResultPart{part}, parts...)
+		} else {
+			parts = append(parts, part)
+		}
 	}
 	content := newToolResultContent(parts...)
 	if result.IsError {

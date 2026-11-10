@@ -11,6 +11,9 @@ func (e Executor) runtimeContractForTurn(
 	ctx context.Context,
 	turn Turn,
 ) (agentconfig.RuntimeContract, error) {
+	if turn.contract != nil {
+		return *turn.contract, nil
+	}
 	contextRow, found, err := e.Store.Execution().GetModelCallContext(
 		ctx,
 		turn.ProjectID,

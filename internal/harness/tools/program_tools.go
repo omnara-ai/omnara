@@ -100,7 +100,11 @@ func (e Executor) RunProgramToolCall(
 				_, err = e.DispatchRecordedToolCall(ctx, turn, authorized)
 			}
 		case executionstore.ProgramToolCallPhaseExecute:
-			_, err = e.DispatchRecordedToolCall(ctx, turn, record)
+			var approved bool
+			approved, err = e.programApprovalHolds(ctx, turn, record)
+			if err == nil && approved {
+				_, err = e.DispatchRecordedToolCall(ctx, turn, record)
+			}
 		default:
 			err = fmt.Errorf("unsupported program tool call phase %d", claim.Phase)
 		}
@@ -150,6 +154,7 @@ func (e Executor) programTurn(
 	if err != nil {
 		return turn, err
 	}
+	turn.contract = &contract
 	turn.Tools = map[string]ToolSpec{}
 	if found && modelcontext.ProgramCallable(contract, spec) {
 		turn.Tools[spec.Name] = ToolSpecFromModelContext(spec)
