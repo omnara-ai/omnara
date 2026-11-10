@@ -17,9 +17,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-// TestServiceE2EDaemonProgramToolCalls runs `omnarad call` inside a real
-// run_command process: results reach only the command, the call is a child
-// tool call with no agent event, and a machine without the flag refuses.
 func TestServiceE2EDaemonProgramToolCalls(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
@@ -30,7 +27,6 @@ func TestServiceE2EDaemonProgramToolCalls(t *testing.T) {
 		t, ctx, seed, "openai-prod", "service-e2e-local", "run_command", "storage_list",
 	)
 	machine := project.bootstrapDockerMachine(t, ctx, seed+"-machine")
-	// Top-level lines after the machine source enable the agent switch.
 	project.updateAgentProfileConfigWithMachine(
 		t, ctx, seed+"-config", "openai-prod", "service-e2e-local", machine.machineName, "/work",
 		[]string{"programmatic_tool_calls:", "  enabled: true"}, nil, "run_command", "storage_list",
@@ -107,7 +103,6 @@ func TestServiceE2EDaemonProgramToolCalls(t *testing.T) {
 				return
 			}
 			writeOpenAIFunctionCall(w, failModelRequest, "resp_disabled", "call_disabled", "run_command", map[string]any{
-				// Without the flag the daemon injects no tool call environment.
 				"command": `echo "bin=${OMNARA_BIN:-unset}"; /root/.omnarad/bin/omnarad call storage_list '{}'; ` +
 					`echo "disabled_exit=$?"`,
 				"shell": "sh", "cwd": "/work", "wait_ms": 30000,

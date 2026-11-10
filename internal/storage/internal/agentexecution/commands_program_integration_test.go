@@ -25,8 +25,6 @@ type programFixture struct {
 	agent, lease, parent, process uuid.UUID
 }
 
-// newProgramFixture completes a run_command call whose shell process keeps
-// running, the usual state when the process makes program tool calls.
 func newProgramFixture(t *testing.T) programFixture {
 	t.Helper()
 	f, a, lease := commandFixture(t)
@@ -54,7 +52,6 @@ func (f programFixture) tx(t *testing.T, run func(*agentexecution.Unit, *agentex
 	require.NoError(t, u.Commit(t.Context(), "program test"))
 }
 
-// try runs commands expected to fail and rolls them back.
 func (f programFixture) try(t *testing.T, run func(*agentexecution.Handle)) {
 	t.Helper()
 	u, h := f.handle(t, f.agent)
@@ -87,8 +84,6 @@ func (f programFixture) claim(t *testing.T, id, claim uuid.UUID) (agentexecution
 	return phase, found
 }
 
-// fingerprint captures what program calls must never change: the execution
-// head, wakeups, events, inputs, and the model-visible tool batch.
 func (f programFixture) fingerprint(t *testing.T) string {
 	t.Helper()
 	var fingerprint string
@@ -159,8 +154,6 @@ type statement struct {
 
 func stmt(sql string, args ...any) statement { return statement{sql: sql, args: args} }
 
-// sqlState runs statements in a savepoint and returns the SQLSTATE of the
-// last one, checking deferred constraints too. Earlier statements must pass.
 func sqlState(t *testing.T, u pgx.Tx, statements ...statement) string {
 	t.Helper()
 	ctx := t.Context()
@@ -214,7 +207,6 @@ func TestProgramToolSchema(t *testing.T) {
  program_claim_expires_at=statement_timestamp() WHERE id=$1`, child.ID, uuid.New())))
 	require.Empty(t, sqlState(t, u, ready, stmt(`UPDATE tool_calls SET state='waiting',program_claim_id=$2,
  program_claim_expires_at=statement_timestamp() WHERE id=$1`, child.ID, uuid.New())))
-	// A program call cannot own children even if it owned a process.
 	require.Equal(t, "23514", sqlState(t, u, stmt(`INSERT INTO processes(org_id,project_id,agent_id,tool_call_id,
  runtime_lock_id,agent_machine_binding_id,machine_id,execution_spec,state,execution_granted_at,source_started_at,
  state_changed_at,created_at,updated_at,last_activity_at) SELECT org_id,project_id,agent_id,$2,runtime_lock_id,
@@ -333,7 +325,6 @@ func TestProgramToolFlows(t *testing.T) {
 				require.Equal(t, "denied", outcome)
 			} else {
 				if mode == "allow" {
-					// Allowed in the authorize phase: waiting under the same claim.
 					require.Equal(t, "waiting", state)
 				} else {
 					require.Equal(t, "ready", state)
@@ -416,10 +407,15 @@ func TestProgramToolProcessFence(t *testing.T) {
 		require.ErrorIs(t, err, storeerr.ErrProcessTerminal)
 	})
 	cell := agentexecution.NewCell(f.pool, nil, nil)
-	reapable, err := cell.ListProgramToolReapable(t.Context(), 10)
+	reapable, err := cell.ListProgramToolReapable(t.Context(), agentexecution.ReapableProgramTool{}, 10)
 	require.NoError(t, err)
-	require.Equal(t,
-		[]agentexecution.ReapableProgramTool{{ID: tool.ID, ProjectID: f.project, AgentID: f.agent}}, reapable)
+	require.Len(t, reapable, 1)
+	require.False(t, reapable[0].CreatedAt.IsZero())
+	require.Equal(t, agentexecution.ReapableProgramTool{ID: tool.ID, ProjectID: f.project, AgentID: f.agent,
+		CreatedAt: reapable[0].CreatedAt}, reapable[0])
+	behind, err := cell.ListProgramToolReapable(t.Context(), reapable[0], 10)
+	require.NoError(t, err)
+	require.Empty(t, behind)
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
 		reaped, err := h.ReapProgramTool(t.Context(), tool.ID)
 		require.NoError(t, err)
@@ -441,7 +437,6 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	first := uuid.New()
 	_, found := f.claim(t, tool.ID, first)
 	require.True(t, found)
-	// A live authorization lease is not claimable.
 	_, found = f.claim(t, tool.ID, uuid.New())
 	require.False(t, found)
 	ref := agentexecution.ProgramToolRef{ID: tool.ID, ProcessID: f.process, ClaimID: first}
@@ -456,7 +451,6 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	expire()
 	err = cell.RenewProgramTool(t.Context(), f.agent, ref, time.Hour)
 	require.ErrorIs(t, err, storeerr.ErrProgramToolCallClaimLost)
-	// An expired authorization lease is claimable again; the old holder loses it.
 	second := uuid.New()
 	phase, found := f.claim(t, tool.ID, second)
 	require.True(t, found)
@@ -470,29 +464,71 @@ func TestProgramToolClaimLeases(t *testing.T) {
 		_, err := h.AuthorizeProgramTool(t.Context(), ref, time.Minute)
 		require.NoError(t, err)
 	})
-	// The authorized call waits under the authorization claim.
 	execute := second
 	_, found = f.claim(t, tool.ID, uuid.New())
 	require.False(t, found)
 	expire()
-	// An expired execution claim is never re-run: it fails as server_lost.
-	_, found = f.claim(t, tool.ID, uuid.New())
-	require.False(t, found)
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		reaped, err := h.ReapProgramTool(t.Context(), tool.ID)
+		require.NoError(t, err)
+		require.False(t, reaped)
+	})
+	takeover := uuid.New()
+	phase, found = f.claim(t, tool.ID, takeover)
+	require.True(t, found)
+	require.Equal(t, agentexecution.ProgramToolExecute, phase)
 	ref.ClaimID = execute
 	f.try(t, func(h *agentexecution.Handle) {
 		_, err := h.DispatchProgramTool(t.Context(), ref)
 		require.ErrorIs(t, err, storeerr.ErrProgramToolCallClaimLost)
 	})
+	f.try(t, func(h *agentexecution.Handle) {
+		require.ErrorIs(t, h.ReleaseProgramTool(t.Context(), ref), storeerr.ErrProgramToolCallClaimLost)
+	})
+	ref.ClaimID = takeover
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
-		reaped, err := h.ReapProgramTool(t.Context(), tool.ID)
+		require.NoError(t, h.ReleaseProgramTool(t.Context(), ref))
+	})
+	state, _ := programState(t, f, tool.ID)
+	require.Equal(t, "ready", state)
+	ref.ClaimID = uuid.New()
+	phase, found = f.claim(t, tool.ID, ref.ClaimID)
+	require.True(t, found)
+	require.Equal(t, agentexecution.ProgramToolExecute, phase)
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, err := h.CompleteProgramTool(t.Context(), ref, "succeeded", nil)
+		require.NoError(t, err)
+	})
+
+	var mcp agentexecution.ProgramTool
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		var err error
+		mcp, err = h.CreateProgramTool(t.Context(), agentexecution.CreateProgramToolInput{ProcessID: f.process,
+			Key: programKey("mcp"), Name: "mcp__server__tool", Type: "mcp", Input: json.RawMessage(`{}`)})
+		require.NoError(t, err)
+	})
+	mcpRef := agentexecution.ProgramToolRef{ID: mcp.ID, ProcessID: f.process, ClaimID: uuid.New()}
+	_, found = f.claim(t, mcp.ID, mcpRef.ClaimID)
+	require.True(t, found)
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		_, err := h.AuthorizeProgramTool(t.Context(), mcpRef, time.Minute)
+		require.NoError(t, err)
+	})
+	_, err = f.pool.Exec(t.Context(), `UPDATE tool_calls
+		SET program_claim_expires_at=statement_timestamp()-interval '1 second' WHERE id=$1`, mcp.ID)
+	require.NoError(t, err)
+	_, found = f.claim(t, mcp.ID, uuid.New())
+	require.False(t, found)
+	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
+		reaped, err := h.ReapProgramTool(t.Context(), mcp.ID)
 		require.NoError(t, err)
 		require.True(t, reaped)
 	})
-	state, outcome := programState(t, f, tool.ID)
+	state, outcome := programState(t, f, mcp.ID)
 	require.Equal(t, []string{"completed", "failed"}, []string{state, outcome})
 	var code string
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT b.structured_data->>'error_code' FROM content_blocks b
- JOIN tool_call_results r ON r.id=b.owner_tool_call_result_id WHERE r.tool_call_id=$1`, tool.ID).Scan(&code))
+ JOIN tool_call_results r ON r.id=b.owner_tool_call_result_id WHERE r.tool_call_id=$1`, mcp.ID).Scan(&code))
 	require.Equal(t, "server_lost", code)
 }
 
@@ -510,12 +546,10 @@ func TestProgramToolCreateLimitsOpenCallsPerCommand(t *testing.T) {
 		_, err := create(h, "one-too-many")
 		require.ErrorIs(t, err, storeerr.ErrProgramToolCallLimitReached)
 	})
-	// A replay of an existing call is not a new call.
 	replay := f.create(t, "key-0")
 	require.False(t, replay.Created)
 	require.Equal(t, first.ID, replay.ID)
 
-	// A finished call frees its place.
 	claim := uuid.New()
 	_, found := f.claim(t, first.ID, claim)
 	require.True(t, found)
@@ -564,5 +598,4 @@ func TestProgramToolsIgnoredByTurnControl(t *testing.T) {
 	}
 }
 
-// programKey is a stable idempotency key for a test label.
 func programKey(label string) uuid.UUID { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)) }

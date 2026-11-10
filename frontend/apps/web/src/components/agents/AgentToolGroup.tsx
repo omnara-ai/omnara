@@ -105,7 +105,6 @@ export function AgentToolGroup({
   )
 }
 
-/** One call as a plain-English line that expands into its details. */
 function ToolRow({
   name,
   input,
@@ -191,7 +190,6 @@ function ToolDetails({
   )
 }
 
-/** A component, so a collapsed row never serializes its input. */
 function ToolInput({ input }: { input: unknown }) {
   return (
     <pre className="bg-muted/40 type-code max-h-72 overflow-auto rounded-md border p-3">
@@ -208,11 +206,6 @@ function resultText(part: ToolPart): string {
     : JSON.stringify(part.output, null, 2)
 }
 
-/**
- * The tools a command called with `omnarad call`. Their results went to the command, not the
- * model, so they show here rather than as steps of their own. Mounted only while the details
- * are open, so the calls are fetched only when someone looks.
- */
 function ProgramToolCalls({ part, scope }: { part: ToolPart; scope: AgentChatScope }) {
   const programCalls = useProgramToolCalls(scope, part.toolCallId)
   const calls = useInfiniteQueryItems(programCalls)

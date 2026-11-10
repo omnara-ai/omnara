@@ -16,7 +16,6 @@ import { CheckboxField, FieldGroup } from '@/components/ui/field'
 import { Spinner } from '@/components/ui/spinner'
 import { errorMessage } from '@/lib/submit-status'
 
-/** Settings for one machine; today, whether its commands can call their agent's tools. */
 export function MachineSettingsDialog({
   open,
   onOpenChange,
@@ -68,7 +67,6 @@ function MachineSettingsForm({
   onSaved: () => void
 }) {
   const updateMachine = useUpdateMachine(orgId)
-  // Unchanged until toggled, so the form shows the machine's saved value.
   const [toggled, setProgrammaticToolCalls] = useState<boolean>()
   const programmaticToolCalls = toggled ?? machine.programmatic_tool_calls
 

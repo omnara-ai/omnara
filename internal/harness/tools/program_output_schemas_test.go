@@ -46,7 +46,6 @@ func requireMatchesOutputSchema(t *testing.T, schema json.RawMessage, value any)
 	require.NoError(t, jsonschema.Validate(schema, raw), string(raw))
 }
 
-// firstStructuredValue is what `omnarad call` prints for a result.
 func firstStructuredValue(t *testing.T, parts json.RawMessage) json.RawMessage {
 	t.Helper()
 	for _, part := range decodeParts(t, parts) {
@@ -104,8 +103,6 @@ func TestProgramOutputSchemasCoverCallableBuiltIns(t *testing.T) {
 		"tool_search describes what commands get from a server that declares no schema")
 }
 
-// populated sets every field reachable from v, with one element in each slice
-// and map, so a schema check sees every property.
 func populated(v reflect.Value) {
 	if v.Type() == reflect.TypeFor[json.RawMessage]() {
 		v.SetBytes([]byte(`"x"`))
@@ -144,7 +141,6 @@ func populated(v reflect.Value) {
 			}
 		}
 	default:
-		// Interfaces stay nil; result types have no other kinds.
 	}
 }
 

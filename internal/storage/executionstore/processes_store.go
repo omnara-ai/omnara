@@ -19,13 +19,12 @@ import (
 )
 
 type DaemonProcessOffer struct {
-	Process        ProcessRecord     `json:"process"`
-	Env            map[string]string `json:"env"`
-	GitCredentials bool              `json:"git_credentials"`
-	// ProgrammaticToolCalls lets the shell process call agent tools.
-	ProgrammaticToolCalls bool   `json:"programmatic_tool_calls"`
-	PreparationError      string `json:"preparation_error"`
-	RetryError            error  `json:"-"`
+	Process               ProcessRecord     `json:"process"`
+	Env                   map[string]string `json:"env"`
+	GitCredentials        bool              `json:"git_credentials"`
+	ProgrammaticToolCalls bool              `json:"programmatic_tool_calls"`
+	PreparationError      string            `json:"preparation_error"`
+	RetryError            error             `json:"-"`
 }
 
 type DaemonGitCredentialsScope struct {

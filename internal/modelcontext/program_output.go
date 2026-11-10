@@ -11,8 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-// unknownProgramOutputSchema describes what commands get from an MCP tool
-// whose server declares no output schema.
 const unknownProgramOutputSchema = `{"description":"The server declares no output schema. Commands get the ` +
 	`tool's structured result when it returns one, otherwise its text as a JSON string."}`
 
@@ -23,7 +21,9 @@ const programmaticToolCallsRunCommandDescription = "\n\nCommands can call this a
 	"envelope. It exits 1 if the tool fails or is denied, 2 if the tool cannot be called from commands, and 3 " +
 	"if the call could not be made, with the error on stderr. Results go only to the command, not to you, so " +
 	"chain calls with pipes, jq, loops or scripts and print only what you need. This works only on machines " +
-	"where programmatic tool calls are enabled."
+	"where programmatic tool calls are enabled. The syntax shown is for POSIX shells: in PowerShell run " +
+	"`& $env:OMNARA_BIN call <tool> '<json input>'`, and in cmd.exe run `\"%OMNARA_BIN%\" call <tool> -` with " +
+	"the input on stdin."
 
 const programmaticToolCallsTypesHeading = "\n\nWhat these tools print, as TypeScript types (their inputs are " +
 	"the same as when you call them):\n```ts\n"
@@ -36,20 +36,14 @@ const programmaticToolCallsGuidance = "Commands you start with `run_command` can
 	"instead of calling tools one at a time when a task needs many calls, or results you would only filter, " +
 	"join, count or reshape: results reach only the command and stay out of your context, so print only what " +
 	"you need. Before relying on fields of a tool's result that `run_command` doesn't show, check its " +
-	"`output_schema` with `tool_search`. Examples:\n```sh\n"
+	"`output_schema` with `tool_search`. Examples, for a POSIX shell:\n```sh\n"
 
-// programmaticParallelExample uses xargs because it owns the calls it starts:
-// it runs at most 16 at once, returns only when all have finished, and exits
-// nonzero if any failed. Background jobs started in a pipeline's loop would
-// outlive a `wait` in the outer shell, and end with the command.
 const programmaticParallelExample = "# Run independent calls in parallel; a command can have 16 calls in flight.\n" +
 	"# xargs waits for every call and exits nonzero if one fails\n" +
 	"\"$OMNARA_BIN\" call storage_list '{\"pattern\":\"/memory/notes/*.md\"}' | jq -r '.entries[]?.path' |\n" +
 	"  tr '\\n' '\\0' | xargs -0 -n 1 -P 16 sh -c 'jq -nc --arg path \"$1\" \"{path: \\$path}\" |\n" +
 	"    \"$OMNARA_BIN\" call storage_read - > \"$(basename \"$1\").json\"' sh\n"
 
-// programmaticToolCallsExamples are shown in the system prompt when the agent
-// may call every tool they use from commands.
 var programmaticToolCallsExamples = []struct {
 	tools   []string
 	example string
@@ -93,9 +87,6 @@ var programmaticToolCallsExamples = []struct {
 	},
 }
 
-// ProgramCallable reports whether commands may call spec: the agent config
-// enables programmatic tool calls without excluding it, and it is an MCP tool
-// or a tool whose result type commands know.
 func ProgramCallable(contract agentconfig.RuntimeContract, spec ToolSpec) bool {
 	return !contract.ProgrammaticToolExcluded(spec.Name) && programResultKnown(spec)
 }
@@ -115,8 +106,6 @@ func programResultKnown(spec ToolSpec) bool {
 	}
 }
 
-// ProgramOutputSchema returns the schema of the JSON value commands get from
-// spec, or nil when commands cannot call it.
 func ProgramOutputSchema(spec ToolSpec) (json.RawMessage, error) {
 	if !programResultKnown(spec) {
 		return nil, nil
@@ -133,8 +122,6 @@ func ProgramOutputSchema(spec ToolSpec) (json.RawMessage, error) {
 	return programoutput.BuiltIn(spec.Name)
 }
 
-// ProgramCallableTools keeps the specs commands may call under contract,
-// with the output schemas of their results. It does not modify specs.
 func ProgramCallableTools(contract agentconfig.RuntimeContract, specs []ToolSpec) ([]ToolSpec, error) {
 	callable := make([]ToolSpec, 0, len(specs))
 	var err error
@@ -150,10 +137,6 @@ func ProgramCallableTools(contract agentconfig.RuntimeContract, specs []ToolSpec
 	return callable, nil
 }
 
-// programmaticToolCallsDescription is appended to run_command's description:
-// how to call tools and the result types of the built-ins the agent may call
-// from commands. Integration and MCP tools are left to tool_search, which
-// returns their schemas. Examples are in the system prompt.
 func programmaticToolCallsDescription(contract agentconfig.RuntimeContract, specs []ToolSpec) (string, error) {
 	var types strings.Builder
 	for _, spec := range specs {
@@ -180,8 +163,6 @@ func programmaticToolCallsDescription(contract agentconfig.RuntimeContract, spec
 	return description + programmaticToolCallsSearchDescription, nil
 }
 
-// programmaticToolCallsSystemGuidance tells the model when to call tools
-// from commands, with examples that use only tools it may call from them.
 func programmaticToolCallsSystemGuidance(contract agentconfig.RuntimeContract, specs []ToolSpec) string {
 	callable := map[string]bool{}
 	for _, spec := range specs {
@@ -200,9 +181,6 @@ func programmaticToolCallsSystemGuidance(contract agentconfig.RuntimeContract, s
 
 var typeScriptIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
 
-// renderSchemaTypeScript renders a JSON schema as a compact TypeScript type
-// that shows the model the shape of the JSON it will get. Descriptions and
-// bounds are dropped, and shapes TypeScript cannot express become unknown.
 func renderSchemaTypeScript(schema json.RawMessage) (string, error) {
 	var value any
 	if err := json.Unmarshal(schema, &value); err != nil {
@@ -310,7 +288,6 @@ func objectTypeScript(schema map[string]any) string {
 	return "{ " + strings.Join(fields, "; ") + " }"
 }
 
-// typeScriptUnion joins types with null last and duplicates removed.
 func typeScriptUnion(types []string) string {
 	var out []string
 	hasNull := false

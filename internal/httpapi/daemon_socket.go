@@ -37,9 +37,7 @@ type daemonSocket struct {
 	drain             func()
 	acceptedProcesses map[uuid.UUID]struct{}
 	acceptedActions   map[uuid.UUID]struct{}
-	// toolCalls are the offered program tool calls being served, by process
-	// and key.
-	toolCalls         map[string]struct{}
+	toolCalls         map[string]chan struct{}
 	toolCallsDone     sync.WaitGroup
 	leaseRenewAfter   time.Time
 	observedPlatform  string
@@ -84,7 +82,7 @@ func newDaemonSocket(
 		done:              make(chan struct{}),
 		acceptedProcesses: map[uuid.UUID]struct{}{},
 		acceptedActions:   map[uuid.UUID]struct{}{},
-		toolCalls:         map[string]struct{}{},
+		toolCalls:         map[string]chan struct{}{},
 		drainAfterRenewal: drainAfterRenewal,
 	}
 }
@@ -320,6 +318,8 @@ func (s *daemonSocket) handleMessage(ctx context.Context, msg daemonprotocol.Mes
 		return s.handleSkillReport(ctx, msg)
 	case daemonprotocol.MessageToolCallOffer:
 		return s.handleToolCallOffer(ctx, msg)
+	case daemonprotocol.MessageToolCallCancel:
+		return s.handleToolCallCancel(msg)
 	default:
 		return errUnsupportedDaemonMessage
 	}

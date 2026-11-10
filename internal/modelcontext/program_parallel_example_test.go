@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// fakeOmnarad stands in for `omnarad call`: storage_list prints two files, and
-// storage_read blocks until the release file exists, then fails for bad.md.
 const fakeOmnarad = `#!/bin/sh
 if [ "$2" = storage_list ]; then
   echo '{"entries":[{"path":"/memory/notes/good one.md"},{"path":"/memory/notes/bad.md"}]}'
@@ -22,9 +20,6 @@ case "$input" in *bad.md*) exit 1 ;; esac
 printf '%s\n' "$input"
 `
 
-// The example must keep its command alive until every call it started has
-// finished, because the daemon ends a command's remaining processes when the
-// command exits, and it must report a failed call.
 func TestProgrammaticParallelExampleWaitsForItsCalls(t *testing.T) {
 	for _, tool := range []string{"sh", "jq", "xargs", "tr"} {
 		if _, err := exec.LookPath(tool); err != nil {

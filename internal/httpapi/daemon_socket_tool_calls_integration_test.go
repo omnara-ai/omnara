@@ -33,8 +33,6 @@ type daemonProgramToolCallFixture struct {
 	config  uuid.UUID
 }
 
-// programToolAgentYAML is an agent config that lets commands call its tools
-// except those in exclude, asking a user before storage_read.
 func programToolAgentYAML(exclude string) string {
 	return `instruction: Program tool test agent.
 model:
@@ -56,9 +54,6 @@ programmatic_tool_calls:
 `
 }
 
-// newDaemonProgramToolCallFixture creates a run_command process for an agent
-// whose config enables programmatic tool calls and excludes web_search, on a
-// machine that does not allow them yet.
 func newDaemonProgramToolCallFixture(t *testing.T) *daemonProgramToolCallFixture {
 	t.Helper()
 	ctx := t.Context()
@@ -131,7 +126,6 @@ func newDaemonProgramToolCallFixture(t *testing.T) *daemonProgramToolCallFixture
 		config: config.ID}
 }
 
-// changeConfig makes sourceYAML the agent's current config.
 func (f *daemonProgramToolCallFixture) changeConfig(t *testing.T, sourceYAML string) {
 	t.Helper()
 	ctx, store := t.Context(), f.project.Store
@@ -150,8 +144,6 @@ func (f *daemonProgramToolCallFixture) changeConfig(t *testing.T, sourceYAML str
 	f.config = changed.AgentConfig.ID
 }
 
-// socket is a daemon socket of the fixture's machine with no connection: its
-// reports are read from the send queue.
 func (f *daemonProgramToolCallFixture) socket() *daemonSocket {
 	return newDaemonSocket(f.server, nil, uuid.New(), f.process.OrgUUID, f.process.MachineUUID,
 		f.process.RuntimeUUID, f.process.TokenUUID, false)
@@ -178,7 +170,6 @@ func nextToolCallReport(t *testing.T, socket *daemonSocket) daemonprotocol.ToolC
 	}
 }
 
-// offer offers a call on a fresh socket and returns the report that ends it.
 func (f *daemonProgramToolCallFixture) offer(t *testing.T, key, name, input string) daemonprotocol.ToolCallReport {
 	t.Helper()
 	socket := f.socket()
@@ -191,7 +182,6 @@ func (f *daemonProgramToolCallFixture) offer(t *testing.T, key, name, input stri
 	return report
 }
 
-// rejected offers a call that must not be made.
 func (f *daemonProgramToolCallFixture) rejected(t *testing.T, key, name, input, code string) {
 	t.Helper()
 	report := f.offer(t, key, name, input)
@@ -240,22 +230,20 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	}
 	const unavailable, invalid = daemonprotocol.ErrorCodeToolCallUnavailable, daemonprotocol.ErrorCodeValidationFailed
 
-	// Authorization: the machine flag, and a process whose agent did not opt in.
 	f.setMachineFlag(t, false)
 	f.rejected(t, "k", toolcatalog.ToolNameStorageList, `{}`, unavailable)
 	f.setMachineFlag(t, true)
 	optedOut := f.socket()
 	other := programToolOffer(f.base.ProcessID, "k", toolcatalog.ToolNameStorageList, `{}`)
-	optedOut.serveToolCall(ctx, other)
+	optedOut.serveToolCall(ctx, other, nil)
 	require.Equal(t, unavailable, nextToolCallReport(t, optedOut).ErrorCode)
 	require.Error(t, f.socket().handleToolCallOffer(ctx, daemonprotocol.Message{
 		ToolCallOffer: &daemonprotocol.ToolCallOffer{ProcessID: f.process.ProcessID}}), "an offer needs a key")
 
-	// Validation and eligibility.
 	notUUID := programToolOffer(f.process.ProcessID, "", toolcatalog.ToolNameStorageList, `{}`)
 	notUUID.Key = "not-a-uuid"
 	malformed := f.socket()
-	malformed.serveToolCall(ctx, notUUID)
+	malformed.serveToolCall(ctx, notUUID, nil)
 	require.Equal(t, invalid, nextToolCallReport(t, malformed).ErrorCode)
 	f.rejected(t, "k", toolcatalog.ToolNameStorageList, `[1]`, invalid)
 	f.rejected(t, "k", "no_such_tool", `{}`, unavailable)
@@ -263,7 +251,6 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	f.rejected(t, "k", toolcatalog.ToolNameWebSearch, `{"query":"x"}`, unavailable)
 	f.rejected(t, "k", toolcatalog.ToolNameToolSearch, `{"pattern":"("}`, invalid)
 
-	// tool_search is answered inline from callable tools only.
 	search := f.offer(t, "search", toolcatalog.ToolNameToolSearch, `{"pattern":".*"}`)
 	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, search.State)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, search.Outcome)
@@ -291,8 +278,6 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.NotContains(t, names, toolcatalog.ToolNameWebSearch)
 	require.NotContains(t, names, toolcatalog.ToolNameRunCommand)
 
-	// An allowed call runs as it is offered; offering it again reports the same
-	// call, and its key cannot name a different one.
 	listed := f.offer(t, "list", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
 	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, listed.State)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, listed.Outcome)
@@ -303,7 +288,6 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	f.rejected(t, "list", toolcatalog.ToolNameStorageList, `{"pattern":"/memory"}`,
 		daemonprotocol.ErrorCodeIdempotencyConflict)
 
-	// The public tool-call API shows the child with its parent.
 	agentPath := "/api/v1/orgs/" + f.project.OrgID + "/projects/" + f.project.ProjectID + "/agents/" +
 		testPublicID(t, publicid.KindAgent, f.process.AgentUUID)
 	parentID := testPublicID(t, publicid.KindToolCall, f.process.ToolCallUUID)
@@ -319,8 +303,6 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.Equal(t, parentID, child["parent_tool_call_id"])
 	require.Equal(t, "completed", child["state"])
 
-	// An always_ask call reports its wait once, then runs when a user approves
-	// it, on a socket other than the one that offered it first.
 	asking := f.socket()
 	ask := programToolOffer(f.process.ProcessID, "ask", toolcatalog.ToolNameStorageRead,
 		`{"path":"/memory/engineering/notes.md"}`)
@@ -355,9 +337,71 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.Equal(t, waiting.ToolCallID, approved.ToolCallID)
 	reconnected.toolCallsDone.Wait()
 
-	// A config change applies to the running process: a tool it excludes is
-	// refused when offered, and a call recorded before the change fails when
-	// it is picked up.
+	abandoned := f.socket()
+	gone := programToolOffer(f.process.ProcessID, "gone", toolcatalog.ToolNameStorageRead,
+		`{"path":"/memory/engineering/notes.md"}`)
+	require.NoError(t, abandoned.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &gone}))
+	goneWaiting := nextToolCallReport(t, abandoned)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateAwaitingApproval, goneWaiting.State)
+	cancel := daemonprotocol.Message{ToolCallCancel: &daemonprotocol.ToolCallCancel{
+		ProcessID: gone.ProcessID, Key: gone.Key}}
+	require.NoError(t, abandoned.handleToolCallCancel(cancel))
+	require.NoError(t, abandoned.handleToolCallCancel(cancel), "a repeated cancel is ignored")
+	abandoned.toolCallsDone.Wait()
+	require.Empty(t, abandoned.send, "a canceled call reports nothing more")
+	canceled := requestJSONWithHeaders(t, f.handler, http.MethodGet, agentPath+"/tool-calls/"+goneWaiting.ToolCallID,
+		"", "", http.StatusOK, authHeaders(f.project.AdminToken))
+	require.Equal(t, "completed", canceled["state"])
+	require.Equal(t, "canceled", canceled["outcome"])
+	interactions = requestJSONWithHeaders(t, f.handler, http.MethodGet, agentPath+"/interactions?state=open", "", "",
+		http.StatusOK, authHeaders(f.project.AdminToken))
+	require.Empty(t, interactions["data"], "the canceled call's approval prompt is closed")
+	require.NoError(t, abandoned.handleToolCallCancel(cancel), "a cancel for a finished call is ignored")
+
+	busy := f.socket()
+	for range cap(busy.send) {
+		busy.send <- daemonSocketOutbound{msg: daemonprotocol.Message{Type: daemonprotocol.MessageHeartbeatAck}}
+	}
+	queued := programToolOffer(f.process.ProcessID, "queued", toolcatalog.ToolNameToolSearch, `{"pattern":"storage"}`)
+	require.NoError(t, busy.handleToolCallOffer(ctx, daemonprotocol.Message{ToolCallOffer: &queued}))
+	//nolint:omnaralint // nothing signals that the report is waiting on the full queue
+	time.Sleep(200 * time.Millisecond)
+	for range cap(busy.send) {
+		require.Equal(t, daemonprotocol.MessageHeartbeatAck, (<-busy.send).msg.Type)
+	}
+	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, nextToolCallReport(t, busy).State)
+	busy.toolCallsDone.Wait()
+	select {
+	case <-busy.done:
+		t.Fatal("a full send queue closed the socket")
+	default:
+	}
+
+	orphan := func(key string, lease time.Duration) executionstore.ProgramToolCallRef {
+		call, err := execution.CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{
+			ProjectID: f.project.ProjectUUID, AgentID: f.process.AgentUUID, ProcessID: f.process.ProcessUUID,
+			Key: uuid.NewSHA1(uuid.NameSpaceOID, []byte(key)), Name: toolcatalog.ToolNameStorageList,
+			Type: toolcatalog.ToolTypeBuiltIn, Input: json.RawMessage(`{"pattern":"/artifacts"}`)})
+		require.NoError(t, err)
+		ref := executionstore.ProgramToolCallRef{ProjectID: f.project.ProjectUUID, AgentID: f.process.AgentUUID,
+			ProcessID: f.process.ProcessUUID, ToolCallID: call.ID, ClaimID: uuid.New()}
+		_, found, err := execution.ClaimProgramToolCall(ctx, ref, time.Minute)
+		require.NoError(t, err)
+		require.True(t, found)
+		_, err = execution.AuthorizeProgramToolCall(ctx, ref, lease)
+		require.NoError(t, err)
+		return ref
+	}
+	releasedRef := orphan("released", time.Minute)
+	require.NoError(t, execution.ReleaseProgramToolCallClaim(ctx, releasedRef))
+	rerun := f.offer(t, "released", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
+	require.Equal(t, testPublicID(t, publicid.KindToolCall, releasedRef.ToolCallID), rerun.ToolCallID)
+	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, rerun.Outcome)
+	lostRef := orphan("lost", time.Microsecond)
+	rerun = f.offer(t, "lost", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
+	require.Equal(t, testPublicID(t, publicid.KindToolCall, lostRef.ToolCallID), rerun.ToolCallID)
+	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, rerun.Outcome)
+
 	stale, err := execution.CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{
 		ProjectID: f.project.ProjectUUID, AgentID: f.process.AgentUUID, ProcessID: f.process.ProcessUUID,
 		Key: uuid.NewSHA1(uuid.NameSpaceOID, []byte("stale")), Name: toolcatalog.ToolNameStorageList,
@@ -366,22 +410,17 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	f.changeConfig(t, programToolAgentYAML("web_search, storage_list"))
 	f.rejected(t, "revoked", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, unavailable)
 	f.rejected(t, "stale", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, unavailable)
-	// Re-allowing the tool applies to the same process too, and picks up the
-	// call a replica recorded but never ran.
 	f.changeConfig(t, programToolAgentYAML("web_search"))
 	resumed := f.offer(t, "stale", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
 	require.Equal(t, testPublicID(t, publicid.KindToolCall, stale.ID), resumed.ToolCallID)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, resumed.Outcome)
-	// Excluding tool_search turns off discovery itself, not only its results.
 	f.changeConfig(t, programToolAgentYAML("web_search, tool_search"))
 	f.rejected(t, "search-excluded", toolcatalog.ToolNameToolSearch, `{"pattern":".*"}`, unavailable)
 
-	// Without an executor every offer is refused.
 	f.server.programToolExecutor = nil
 	f.rejected(t, "no-executor", toolcatalog.ToolNameStorageList, `{}`, unavailable)
 }
 
-// structuredResult is the first structured value, which `omnarad call` prints.
 func structuredResult(t *testing.T, result daemonprotocol.ProgramToolCallResult) json.RawMessage {
 	t.Helper()
 	for _, part := range result.Content {

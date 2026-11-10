@@ -25,9 +25,6 @@ func RuntimeContractToolSpecs(
 	return runtimeContractToolSpecs(ctx, store, projectID, agentID, contract, now, "")
 }
 
-// RuntimeContractToolSpec returns the spec RuntimeContractToolSpecs gives the
-// tool name, loading only what that tool needs. The run_command spec lacks its
-// programmatic tool call description.
 func RuntimeContractToolSpec(
 	ctx context.Context,
 	store Store,
@@ -47,8 +44,6 @@ func RuntimeContractToolSpec(
 	return spec, found, nil
 }
 
-// runtimeContractToolSpecs builds every spec, or only the kind of tool that
-// only names when it is set.
 func runtimeContractToolSpecs(
 	ctx context.Context,
 	store Store,
@@ -189,7 +184,6 @@ func runtimeMCPToolSpecs(
 		if !found || conn.State != executionstore.MCPConnectionStateReady {
 			continue
 		}
-		// A single-tool lookup decodes only the snapshot of that tool's server.
 		if only != "" && !strings.HasPrefix(only, toolcatalog.MCPRuntimeToolName(server.ServerKey, "")) {
 			continue
 		}

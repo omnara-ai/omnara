@@ -612,7 +612,6 @@ describe('AgentChatSession streaming', () => {
         },
       })
     }
-    // The first frame refreshes at once; the other 19 share one refresh.
     await vi.waitFor(() => {
       expect(invalidate).toHaveBeenCalledTimes(4)
     })

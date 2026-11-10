@@ -30,8 +30,6 @@ func reapRuntimeLocks(
 	}
 }
 
-// reapProgramToolCalls cancels program tool calls of ended processes or
-// inactive agents and fails those whose execution claim expired.
 func reapProgramToolCalls(
 	log *slog.Logger,
 	reap func(context.Context, int) (int, error),
