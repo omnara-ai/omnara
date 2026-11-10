@@ -33,18 +33,6 @@ func newProgramFixture(t *testing.T) programFixture {
 	return programFixtureFor(t, f, a, lease)
 }
 
-// sibling is the same state for another agent in the fixture's database.
-func (f programFixture) sibling(t *testing.T) programFixture {
-	t.Helper()
-	a, lease := f.executionFixture.create(t, uuid.New(), uuid.Nil), uuid.New()
-	_, err := f.pool.Exec(t.Context(),
-		`INSERT INTO agent_runtime_locks(id,agent_id,worker_process_id,started_at,renewed_at,lease_expires_at)
- VALUES($1,$2,$3,statement_timestamp(),statement_timestamp(),statement_timestamp()+interval '90 seconds')`,
-		lease, a, uuid.New())
-	require.NoError(t, err)
-	return programFixtureFor(t, f.executionFixture, a, lease)
-}
-
 func programFixtureFor(t *testing.T, f executionFixture, a, lease uuid.UUID) programFixture {
 	t.Helper()
 	u, h := f.handle(t, a)

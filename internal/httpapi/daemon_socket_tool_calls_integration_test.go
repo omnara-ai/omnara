@@ -161,8 +161,9 @@ func programToolOffer(processID, key, name, input string) daemonprotocol.ToolCal
 	if key != "" {
 		key = uuid.NewSHA1(uuid.NameSpaceOID, []byte(key)).String()
 	}
-	return daemonprotocol.ToolCallOffer{ProcessID: processID, ProgramToolCallRequest: daemonprotocol.ProgramToolCallRequest{
-		Key: key, Name: name, Input: json.RawMessage(input)}}
+	offer := daemonprotocol.ToolCallOffer{ProcessID: processID}
+	offer.Key, offer.Name, offer.Input = key, name, json.RawMessage(input)
+	return offer
 }
 
 func nextToolCallReport(t *testing.T, socket *daemonSocket) daemonprotocol.ToolCallReport {
@@ -343,8 +344,10 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	require.Len(t, open, 1)
 	interaction, ok := open[0].(map[string]any)
 	require.True(t, ok)
+	interactionID, ok := interaction["id"].(string)
+	require.True(t, ok)
 	requestJSONWithHeaders(t, f.handler, http.MethodPost,
-		agentPath+"/interactions/"+interaction["id"].(string)+"/resolve",
+		agentPath+"/interactions/"+interactionID+"/resolve",
 		httpQuestionResolutionRequest(toolpermission.AllowOptionIndex), "", http.StatusOK,
 		authHeaders(f.project.AdminToken))
 	approved := nextToolCallReport(t, reconnected)

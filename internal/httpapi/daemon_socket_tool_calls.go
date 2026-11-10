@@ -34,6 +34,8 @@ const (
 	programToolCallFallbackPoll = 250 * time.Millisecond
 
 	programToolCallContentMediaRef = "media_ref"
+	programToolCallResultTooLarge  = `{"error_code":"result_too_large",` +
+		`"error":"The tool result is too large for a tool call from a command."}`
 )
 
 // ProgramToolExecutor runs the claimed phase of a program tool call; see
@@ -50,17 +52,17 @@ func WithProgramToolExecutor(executor ProgramToolExecutor) Option {
 	}
 }
 
-// toolCallRejection is why an offered call was not made.
-type toolCallRejection struct {
+// toolCallRejectedError is why an offered call was not made.
+type toolCallRejectedError struct {
 	status  daemonprotocol.AckStatus
 	code    string
 	message string
 }
 
-func (r toolCallRejection) Error() string { return r.message }
+func (r toolCallRejectedError) Error() string { return r.message }
 
 func rejectToolCall(code, format string, args ...any) error {
-	return toolCallRejection{status: daemonprotocol.AckStatusPermanentReject, code: code,
+	return toolCallRejectedError{status: daemonprotocol.AckStatusPermanentReject, code: code,
 		message: fmt.Sprintf(format, args...)}
 }
 
@@ -106,9 +108,10 @@ func (s *daemonSocket) reportToolCall(offer daemonprotocol.ToolCallOffer, report
 	report.ProcessID, report.Key = offer.ProcessID, offer.Key
 	msg := daemonprotocol.Message{Type: daemonprotocol.MessageToolCallReport, ToolCallReport: &report}
 	if encoded, err := json.Marshal(msg); err != nil || len(encoded) > daemonprotocol.MaxMessageBytes {
-		report.Outcome, report.Content = daemonprotocol.ProgramToolCallOutcomeFailed, []daemonprotocol.ProgramToolCallContent{{
+		report.Outcome = daemonprotocol.ProgramToolCallOutcomeFailed
+		report.Content = []daemonprotocol.ProgramToolCallContent{{
 			Type:  daemonprotocol.ProgramToolCallContentStructuredData,
-			Value: json.RawMessage(`{"error_code":"result_too_large","error":"The tool result is too large for a tool call from a command."}`),
+			Value: json.RawMessage(programToolCallResultTooLarge),
 		}}
 	}
 	s.enqueueOrClose(msg)
@@ -185,8 +188,10 @@ func (s *daemonSocket) serveToolCall(ctx context.Context, offer daemonprotocol.T
 		case executionstore.ToolCallStateAwaitingAuthorization, executionstore.ToolCallStateReady:
 			// New, approved, or left behind by a replica that stopped: run it.
 			if claim && running == nil {
+				//nolint:contextcheck // the run outlives this socket's context
 				running = server.runProgramToolCall(ref)
 			}
+		case executionstore.ToolCallStateWaiting, executionstore.ToolCallStateRunning:
 		}
 		claim = true
 		timer := time.NewTimer(poll)
@@ -424,10 +429,10 @@ func programToolCallResult(record executionstore.ToolCallRecord) (daemonprotocol
 	return result, nil
 }
 
-func programToolCallRejection(s *Server, err error) toolCallRejection {
-	var rejection toolCallRejection
-	permanent := func(code, message string) toolCallRejection {
-		return toolCallRejection{status: daemonprotocol.AckStatusPermanentReject, code: code, message: message}
+func programToolCallRejection(s *Server, err error) toolCallRejectedError {
+	var rejection toolCallRejectedError
+	permanent := func(code, message string) toolCallRejectedError {
+		return toolCallRejectedError{status: daemonprotocol.AckStatusPermanentReject, code: code, message: message}
 	}
 	switch {
 	case errors.As(err, &rejection):
@@ -443,7 +448,7 @@ func programToolCallRejection(s *Server, err error) toolCallRejection {
 	case errors.Is(err, storeerr.ErrInvalidRequest):
 		return permanent(daemonprotocol.ErrorCodeValidationFailed, "tool call request is invalid")
 	case errors.Is(err, storeerr.ErrProgramToolCallLimitReached):
-		return toolCallRejection{status: daemonprotocol.AckStatusTransientError,
+		return toolCallRejectedError{status: daemonprotocol.AckStatusTransientError,
 			code: daemonprotocol.ErrorCodeToolCallLimitReached, message: fmt.Sprintf(
 				"this command already has %d tool calls in flight; wait for one to finish",
 				executionstore.MaxOpenProgramToolCalls)}
@@ -451,6 +456,6 @@ func programToolCallRejection(s *Server, err error) toolCallRejection {
 	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 		s.log.Error("daemon program tool call", "error", err)
 	}
-	return toolCallRejection{status: daemonprotocol.AckStatusTransientError,
+	return toolCallRejectedError{status: daemonprotocol.AckStatusTransientError,
 		code: daemonprotocol.ErrorCodeStorageUnavailable, message: "tool calls are temporarily unavailable"}
 }
