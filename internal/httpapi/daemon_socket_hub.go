@@ -40,12 +40,14 @@ type daemonSocketHub struct {
 	recorder              *metrics.DaemonRecorder
 	fallbackDrainInterval time.Duration
 	fallbackDrainJitter   time.Duration
-	done                  <-chan struct{}
-	cancel                context.CancelFunc
-	mu                    sync.RWMutex
-	byMachine             map[uuid.UUID]*daemonSocket
-	byRuntime             map[uuid.UUID]*daemonSocket
-	subs                  []notifications.Subscription
+	// ctx ends when the hub closes; work that outlives a socket runs under it.
+	ctx       context.Context
+	done      <-chan struct{}
+	cancel    context.CancelFunc
+	mu        sync.RWMutex
+	byMachine map[uuid.UUID]*daemonSocket
+	byRuntime map[uuid.UUID]*daemonSocket
+	subs      []notifications.Subscription
 
 	pendingSkillMu      sync.Mutex
 	pendingSkillReports map[skillReportKey]skillReportPending
@@ -96,6 +98,7 @@ func newDaemonSocketHub(
 		recorder:              recorder,
 		fallbackDrainInterval: fallbackDrainInterval,
 		fallbackDrainJitter:   fallbackDrainJitter,
+		ctx:                   ctx,
 		done:                  ctx.Done(),
 		cancel:                cancel,
 		byMachine:             map[uuid.UUID]*daemonSocket{},

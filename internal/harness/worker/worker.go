@@ -61,7 +61,6 @@ type Worker struct {
 	activeMu                 sync.Mutex
 	active                   map[uuid.UUID]*activeRuntime
 	retained                 sync.WaitGroup
-	programTools             *programToolRunner
 }
 
 type Options struct {
@@ -73,15 +72,6 @@ type Options struct {
 	ClaimConcurrency         int
 	AsyncToolCapacity        int
 	ControlSubscriber        notifications.WorkerControlSubscriber
-	// ProgramToolStore and ProgramToolExecutor, when both set, run program tool
-	// calls alongside agent work, sharing the async tool capacity.
-	ProgramToolStore    ProgramToolStore
-	ProgramToolExecutor ProgramToolExecutor
-	// ProgramToolWakeups, when set, has the worker claim a program tool call
-	// as soon as it is claimable instead of at its next poll.
-	ProgramToolWakeups  notifications.ProgramToolWakeupSubscriber
-	ProgramToolCapacity int
-	ProgramToolLease    time.Duration
 }
 
 type activeRuntime struct {
@@ -132,7 +122,6 @@ func NewWorker(store Store, executor AgentWorkExecutor, opts Options) *Worker {
 		claimConcurrency:         min(opts.ClaimConcurrency, opts.Capacity),
 		asyncToolLimiter:         tools.NewAsyncExecutionLimiter(opts.AsyncToolCapacity),
 		active:                   make(map[uuid.UUID]*activeRuntime),
-		programTools:             newProgramToolRunner(opts),
 	}
 }
 
@@ -148,13 +137,6 @@ func (w *Worker) Run(ctx context.Context, drain <-chan struct{}) error {
 	slots := make(chan struct{}, w.capacity)
 	w.metrics.RecordSlots(w.capacity, func() int { return len(slots) })
 	var claimers, executions sync.WaitGroup
-	if w.programTools != nil {
-		claimers.Add(1)
-		go func() {
-			defer claimers.Done()
-			w.runProgramTools(claimCtx, ctx, &executions)
-		}()
-	}
 	for range w.claimConcurrency {
 		claimers.Add(1)
 		go func() {

@@ -217,7 +217,7 @@ func main() {
 	if safetyIdentifierKey == nil {
 		log.Warn("OMNARA_SAFETY_IDENTIFIER_KEY is not set; model requests will not carry safety identifiers")
 	}
-	executor := kernel.AgentExecutor{
+	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
 		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
 			Store: store, HTTPClient: integrationHTTPClient,
@@ -255,7 +255,7 @@ func main() {
 		},
 		StreamPublisher: redisBus,
 		StreamLog:       log,
-	}
+	})
 	kernelWorker := workerpkg.NewWorker(store.Execution(), executor, workerpkg.Options{
 		Metrics:           metrics.NewWorkerRecorder(metricSet),
 		ModelCallMetrics:  metrics.NewModelCallRecorder(metricSet),
@@ -264,11 +264,6 @@ func main() {
 		ClaimConcurrency:  cfg.WorkerClaimConcurrency,
 		AsyncToolCapacity: cfg.WorkerAsyncToolCapacity,
 		ControlSubscriber: redisBus,
-		// Program tool calls from `omnarad call` run beside agent work.
-		ProgramToolStore:    store.Execution(),
-		ProgramToolExecutor: executor,
-		ProgramToolWakeups:  redisBus,
-		ProgramToolCapacity: cfg.WorkerProgramToolCapacity,
 	})
 	workerErr := make(chan error, 1)
 	go func() {

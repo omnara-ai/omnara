@@ -13,6 +13,7 @@ import {
 } from '@/components/agents/toolLabels'
 import { ChevronRight, CircleDashed } from '@/components/icons'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { cn } from '@/lib/utils'
 
 export type ToolPart = Extract<OmnaraUIMessage['parts'][number], { type: 'dynamic-tool' }>
@@ -176,9 +177,7 @@ function ToolDetails({
   const result = part.state === 'output-available' ? resultText(part) : undefined
   return (
     <div className={cn('space-y-2', className)}>
-      <pre className="bg-muted/40 type-code max-h-72 overflow-auto rounded-md border p-3">
-        {JSON.stringify(part.input ?? {}, null, 2)}
-      </pre>
+      <ToolInput input={part.input ?? {}} />
       {part.toolName === 'run_command' && <ProgramToolCalls part={part} scope={scope} />}
       {result !== undefined && (
         <pre className="text-muted-foreground type-code max-h-72 overflow-auto whitespace-pre-wrap">
@@ -189,6 +188,15 @@ function ToolDetails({
         <p className="text-destructive text-xs">{part.errorText}</p>
       )}
     </div>
+  )
+}
+
+/** A component, so a collapsed row never serializes its input. */
+function ToolInput({ input }: { input: unknown }) {
+  return (
+    <pre className="bg-muted/40 type-code max-h-72 overflow-auto rounded-md border p-3">
+      {JSON.stringify(input, null, 2)}
+    </pre>
   )
 }
 
@@ -206,13 +214,8 @@ function resultText(part: ToolPart): string {
  * are open, so the calls are fetched only when someone looks.
  */
 function ProgramToolCalls({ part, scope }: { part: ToolPart; scope: AgentChatScope }) {
-  const programCalls = useProgramToolCalls(
-    scope.orgID,
-    scope.projectID,
-    scope.agentID,
-    part.toolCallId,
-  )
-  const calls = programCalls.data?.pages.flatMap((page) => page.data) ?? []
+  const programCalls = useProgramToolCalls(scope, part.toolCallId)
+  const calls = useInfiniteQueryItems(programCalls)
   if (calls.length === 0) return null
   return (
     <div className="space-y-1">
@@ -224,9 +227,7 @@ function ProgramToolCalls({ part, scope }: { part: ToolPart; scope: AgentChatSco
         {calls.map((call) => (
           <li key={call.id}>
             <ToolRow name={call.name} input={call.input} status={programToolCallStatus(call)}>
-              <pre className="bg-muted/40 type-code max-h-72 overflow-auto rounded-md border p-3">
-                {JSON.stringify(call.input, null, 2)}
-              </pre>
+              <ToolInput input={call.input} />
             </ToolRow>
           </li>
         ))}

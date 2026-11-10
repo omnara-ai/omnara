@@ -41,27 +41,6 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program'
  AND p.tool_call_id=c.parent_tool_call_id AND p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running'))
 RETURNING c.program_claim_expires_at;
 
--- name: ListProgramToolCandidates :many
--- An agent's nth concurrent call ranks nth: calls it already has claimed count
--- ahead of its claimable ones, so one agent's backlog cannot take every worker.
-WITH open AS (
-SELECT c.id,c.agent_id,a.project_id,p.id AS process_id,c.created_at,(c.state='ready'
- OR (c.state='awaiting_authorization' AND (c.program_claim_id IS NULL OR c.program_claim_expires_at<=statement_timestamp()))) AS claimable
-FROM tool_calls c
-JOIN agents a ON a.id=c.agent_id AND a.state='active'
-JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
- AND p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running')
-WHERE c.caller='program' AND c.state IN ('ready','awaiting_authorization','waiting')
- AND NOT (c.agent_id=ANY(sqlc.arg(skip_agent_ids)::uuid[]))
-), ranked AS (
-SELECT o.id,o.agent_id,o.project_id,o.process_id,o.created_at,o.claimable,
- count(*) FILTER (WHERE NOT o.claimable) OVER (PARTITION BY o.agent_id)
- +row_number() OVER (PARTITION BY o.agent_id,o.claimable ORDER BY o.created_at,o.id) AS share
-FROM open o
-)
-SELECT r.id,r.agent_id,r.project_id,r.process_id FROM ranked r WHERE r.claimable
-ORDER BY r.share,r.created_at,r.id LIMIT sqlc.arg(limit_count);
-
 -- name: ListProgramToolReapable :many
 SELECT c.id,c.agent_id,a.project_id FROM tool_calls c JOIN agents a ON a.id=c.agent_id
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id

@@ -457,7 +457,7 @@ func (h *Handle) ReapProgramTool(ctx context.Context, id uuid.UUID) (bool, error
 		case h.identity.State != "active":
 			code, message = "agent_inactive", "The agent is no longer active."
 		case process.Live && row.State == "waiting" && row.ClaimExpired:
-			outcome, code, message = "failed", "worker_lost", "The worker running this call stopped before it completed."
+			outcome, code, message = "failed", "server_lost", "The server running this call stopped before it completed."
 		case process.Live:
 			return false, nil
 		}
@@ -563,42 +563,15 @@ func (c *AgentCell) RenewProgramTool(
 	return err
 }
 
-type ProgramToolCandidate struct {
+type ReapableProgramTool struct {
 	ID        uuid.UUID
 	ProjectID uuid.UUID
 	AgentID   uuid.UUID
-	ProcessID uuid.UUID
-}
-
-// ListProgramToolCandidates lists calls that may be claimable without locking
-// them; ClaimProgramTool re-checks under the agent lock. Agents with the fewest
-// calls in flight come first, then older calls. Calls of skipAgents are left
-// out, so a caller can page past agents it could not claim from.
-func (c *AgentCell) ListProgramToolCandidates(
-	ctx context.Context, limit int32, skipAgents []uuid.UUID,
-) ([]ProgramToolCandidate, error) {
-	if skipAgents == nil {
-		// A nil slice encodes as NULL, which would match no call.
-		skipAgents = []uuid.UUID{}
-	}
-	var rows []executiondb.ListProgramToolCandidatesRow
-	if err := c.short(ctx, func(tx pgx.Tx) (err error) {
-		rows, err = executiondb.New().ListProgramToolCandidates(ctx, tx,
-			executiondb.ListProgramToolCandidatesParams{LimitCount: limit, SkipAgentIds: skipAgents})
-		return err
-	}); err != nil {
-		return nil, err
-	}
-	result := make([]ProgramToolCandidate, len(rows))
-	for i, row := range rows {
-		result[i] = ProgramToolCandidate{ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, ProcessID: row.ProcessID}
-	}
-	return result, nil
 }
 
 // ListProgramToolReapable lists open calls of inactive agents or ended
 // processes and waiting calls with expired claims.
-func (c *AgentCell) ListProgramToolReapable(ctx context.Context, limit int32) ([]ProgramToolCandidate, error) {
+func (c *AgentCell) ListProgramToolReapable(ctx context.Context, limit int32) ([]ReapableProgramTool, error) {
 	var rows []executiondb.ListProgramToolReapableRow
 	if err := c.short(ctx, func(tx pgx.Tx) (err error) {
 		rows, err = executiondb.New().ListProgramToolReapable(ctx, tx,
@@ -607,9 +580,9 @@ func (c *AgentCell) ListProgramToolReapable(ctx context.Context, limit int32) ([
 	}); err != nil {
 		return nil, err
 	}
-	result := make([]ProgramToolCandidate, len(rows))
+	result := make([]ReapableProgramTool, len(rows))
 	for i, row := range rows {
-		result[i] = ProgramToolCandidate{ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID}
+		result[i] = ReapableProgramTool{ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID}
 	}
 	return result, nil
 }

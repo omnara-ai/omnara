@@ -80,9 +80,6 @@ func requestBodyLimit(r *http.Request) int64 {
 	case strings.HasPrefix(r.URL.Path, openAPIBasePath+"/daemon/processes/") &&
 		strings.HasSuffix(r.URL.Path, "/file"):
 		return daemonprotocol.MaxFileTransferBytes
-	case strings.HasPrefix(r.URL.Path, openAPIBasePath+"/daemon/processes/") &&
-		strings.HasSuffix(r.URL.Path, "/tool-calls"):
-		return daemonprotocol.ProgramToolCallMaxRequestBytes
 	}
 	return maxRequestBodyBytes
 }

@@ -59,12 +59,6 @@ type WorkerControlSubscriber interface {
 	) (Subscription, error)
 }
 
-// ProgramToolWakeupSubscriber hears when a program tool call becomes
-// claimable. Wakeups are hints: workers also poll for claimable calls.
-type ProgramToolWakeupSubscriber interface {
-	SubscribeProgramToolWakeups(ctx context.Context, handler func(context.Context)) (Subscription, error)
-}
-
 type DaemonWakeupPublisher interface {
 	PublishDaemonReplicaWakeup(ctx context.Context, replicaID uuid.UUID, msg WakeupMessage) error
 }
@@ -149,12 +143,6 @@ type ToolCallUpdatedCommitted struct {
 }
 
 func (ToolCallUpdatedCommitted) postCommitIntent() {}
-
-// programToolClaimable reports whether the update leaves a program tool call
-// for a worker to claim.
-func (u ToolCallUpdatedCommitted) programToolClaimable() bool {
-	return u.ParentToolCallID != uuid.Nil && (u.State == "awaiting_authorization" || u.State == "ready")
-}
 
 type AgentInteractionUpdate struct {
 	ID              uuid.UUID `json:"id"`

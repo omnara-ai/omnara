@@ -98,15 +98,16 @@ func (f programToolFixture) claim(
 	t *testing.T, ctx context.Context, id uuid.UUID, phase executionstore.ProgramToolCallPhase,
 ) executionstore.ProgramToolCallClaim {
 	t.Helper()
-	claim, found, err := f.Store.Execution().ClaimNextProgramToolCall(ctx, uuid.New(), time.Minute)
+	claim, found, err := f.Store.Execution().ClaimProgramToolCall(ctx, executionstore.ProgramToolCallRef{
+		ProjectID: toolsTestProjectID, AgentID: f.Agent.ID, ProcessID: f.ProcessID, ToolCallID: id,
+		ClaimID: uuid.New()}, time.Minute)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, id, claim.ID)
 	require.Equal(t, phase, claim.Phase)
 	return claim
 }
 
-// run runs one claimed phase like the worker loop and waits for its async work.
+// run runs one claimed phase like the API does and waits for its async work.
 func (f programToolFixture) run(
 	t *testing.T, ctx context.Context, executor Executor, claim executionstore.ProgramToolCallClaim,
 ) {

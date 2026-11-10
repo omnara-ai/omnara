@@ -5,30 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 // Program tool calls are tools a run_command process calls through
 // `omnarad call`. They are child tool_calls rows of that run_command call,
-// kept out of the model context, and executed by workers under a claim
+// kept out of the model context, and executed by the API under a claim
 // instead of the agent runtime lock. Every write requires the process to be
 // live (execution granted, starting or running) and the agent active.
-
-const (
-	programToolClaimCandidates = 16
-	// programToolClaimPages bounds how far one claim looks past agents it
-	// could not claim from.
-	programToolClaimPages = 8
-)
 
 // ProgramToolScope is the daemon process's authority to make program tool
 // calls: its agent and the agent's current configuration, which decides the
@@ -63,7 +54,7 @@ type ProgramToolCallRef struct {
 	AgentID    uuid.UUID
 	ProcessID  uuid.UUID
 	ToolCallID uuid.UUID
-	// ClaimID is the worker claim; zero for calls that are not claimed.
+	// ClaimID is the executing claim; zero for calls that are not claimed.
 	ClaimID uuid.UUID
 }
 
@@ -275,92 +266,32 @@ func completeProgramTool(
 	return programToolCallRecordTx(ctx, unit.DB(), ref.ProjectID, ref.AgentID, tool)
 }
 
-// ClaimNextProgramToolCall leases the next claimable call across agents,
-// favoring agents with the fewest calls in flight and skipping agents whose
-// row lock is held. Ready calls move to waiting under
-// the claim (ProgramToolCallPhaseExecute, at most once); awaiting_authorization
-// calls get a re-claimable authorization lease (ProgramToolCallPhaseAuthorize).
-func (s *Store) ClaimNextProgramToolCall(
-	ctx context.Context, claimID uuid.UUID, lease time.Duration,
+// ClaimProgramToolCall leases the call for its next phase under ref.ClaimID.
+// A ready call moves to waiting under the claim (ProgramToolCallPhaseExecute,
+// at most once); an awaiting_authorization call gets an authorization lease
+// that may be claimed again once it expires (ProgramToolCallPhaseAuthorize).
+// It reports false when the call is not claimable: it is claimed, waiting for
+// approval, completed, or its process has ended.
+func (s *Store) ClaimProgramToolCall(
+	ctx context.Context, ref ProgramToolCallRef, lease time.Duration,
 ) (ProgramToolCallClaim, bool, error) {
-	if claimID == uuid.Nil || lease <= 0 {
-		return ProgramToolCallClaim{}, false, errors.New("claim and lease are required")
+	if err := ref.validate(); err != nil {
+		return ProgramToolCallClaim{}, false, err
 	}
-	// A candidate that fails to claim does not hold back the ones behind it:
-	// its agent, locked or otherwise unclaimable, is skipped on later pages.
-	var failed error
-	var skipped []uuid.UUID
-	for range programToolClaimPages {
-		candidates, err := s.cell.ListProgramToolCandidates(ctx, programToolClaimCandidates, skipped)
-		if err != nil {
-			return ProgramToolCallClaim{}, false, fmt.Errorf("list program tool call candidates: %w", err)
-		}
-		if len(candidates) == 0 {
-			break
-		}
-		for _, candidate := range candidates {
-			if slices.Contains(skipped, candidate.AgentID) {
-				continue
-			}
-			claim, found, err := s.claimProgramToolCall(ctx, candidate, claimID, lease)
-			if found {
-				return claim, true, nil
-			}
-			if ctx.Err() != nil {
-				return ProgramToolCallClaim{}, false, err
-			}
-			if err != nil {
-				failed = errors.Join(failed, fmt.Errorf("claim program tool call %s: %w", candidate.ID, err))
-			}
-			skipped = append(skipped, candidate.AgentID)
-		}
-	}
-	return ProgramToolCallClaim{}, false, failed
-}
-
-func (s *Store) claimProgramToolCall(
-	ctx context.Context, candidate agentexecution.ProgramToolCandidate, claimID uuid.UUID, lease time.Duration,
-) (ProgramToolCallClaim, bool, error) {
 	type result struct {
 		claim ProgramToolCallClaim
 		found bool
 	}
-	got, err := agentexecution.Retry(ctx, "claim_program_tool_call", func(ctx context.Context) (result, error) {
-		unit, err := s.cell.Begin(ctx)
-		if err != nil {
-			return result{}, err
-		}
-		defer func() { _ = unit.Rollback(ctx) }()
-		plan, err := unit.PlanAgents(ctx,
-			[]lifecyclelock.AgentRef{{ProjectID: candidate.ProjectID, AgentID: candidate.AgentID}}, nil)
-		if errors.Is(err, storeerr.ErrNotFound) {
-			return result{}, nil
-		}
-		if err != nil {
-			return result{}, err
-		}
-		if locked, err := unit.TryLockAgents(ctx, plan); err != nil || !locked {
-			return result{}, err
-		}
-		h, err := unit.Handle(candidate.ProjectID, candidate.AgentID)
-		if err != nil {
-			return result{}, err
-		}
-		tool, phase, found, err := h.ClaimProgramTool(ctx,
-			agentexecution.ProgramToolRef{ID: candidate.ID, ProcessID: candidate.ProcessID, ClaimID: claimID}, lease)
-		if err != nil || !found {
-			return result{}, err
-		}
-		record, err := programToolCallRecordTx(ctx, unit.DB(), candidate.ProjectID, candidate.AgentID, tool)
-		if err != nil {
-			return result{}, err
-		}
-		if err := unit.Commit(ctx, "claim program tool call"); err != nil {
-			return result{}, err
-		}
-		return result{claim: ProgramToolCallClaim{ProgramToolCallRecord: record, Phase: ProgramToolCallPhase(phase)},
-			found: true}, nil
-	})
+	got, err := programUnit(ctx, s, "claim_program_tool_call", ref.ProjectID, ref.AgentID,
+		func(unit *agentexecution.Unit, h *agentexecution.Handle) (result, error) {
+			tool, phase, found, err := h.ClaimProgramTool(ctx, ref.ref(), lease)
+			if err != nil || !found {
+				return result{}, err
+			}
+			record, err := programToolCallRecordTx(ctx, unit.DB(), ref.ProjectID, ref.AgentID, tool)
+			return result{claim: ProgramToolCallClaim{ProgramToolCallRecord: record, Phase: ProgramToolCallPhase(phase)},
+				found: true}, err
+		})
 	return got.claim, got.found, err
 }
 

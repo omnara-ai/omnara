@@ -9,11 +9,7 @@
 CREATE UNIQUE INDEX CONCURRENTLY tool_calls_program_key_idx
     ON tool_calls(agent_id, parent_tool_call_id, provider_call_id) WHERE caller = 'program';
 
--- Claims scan only claimable calls, skipping ones waiting on a person or on
--- async work; the reaper scans every open call.
-CREATE INDEX CONCURRENTLY tool_calls_program_claimable_idx ON tool_calls(created_at, id)
-    WHERE caller = 'program' AND state IN ('ready', 'awaiting_authorization');
-
+-- The reaper scans every open call.
 CREATE INDEX CONCURRENTLY tool_calls_program_open_idx ON tool_calls(created_at, id)
     WHERE caller = 'program' AND state <> 'completed';
 
