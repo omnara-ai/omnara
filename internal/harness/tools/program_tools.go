@@ -97,9 +97,14 @@ func (e Executor) RunProgramToolCall(
 	}
 	// Fail the call rather than leave it to be re-claimed into the same error.
 	// The command gets a fixed message; the caller logs the error.
-	completeErr := e.completeInvalidToolCall(ctx, turn, claim.ID, "tool_call_failed",
-		errors.New(programToolCallInternalError))
-	if completeErr != nil && !errors.Is(completeErr, storeerr.ErrRuntimeLockInactive) {
+	parts, contentErr := structuredParts(map[string]any{
+		"error_code": "tool_call_failed", "error": programToolCallInternalError,
+	})
+	if contentErr != nil {
+		return errors.Join(err, contentErr)
+	}
+	if _, completeErr := turn.toolAuthority().complete(ctx, e, turn, claim.ID, executionstore.ToolResultOutcomeFailed,
+		parts); completeErr != nil && !errors.Is(completeErr, storeerr.ErrRuntimeLockInactive) {
 		return errors.Join(err, completeErr)
 	}
 	return err
@@ -137,11 +142,19 @@ func (e Executor) programTurn(
 	turn := Turn{ProjectID: claim.ProjectID, AgentID: claim.AgentID, SourceEventID: claim.SourceEventID,
 		ModelCallContextID: claim.ModelCallContextID,
 		authority:          programClaimAuthority{ref: claim.Ref(), lease: lease}}
+	contextRecord, found, err := e.Store.Execution().
+		GetModelCallContext(ctx, claim.ProjectID, claim.AgentID, claim.ModelCallContextID)
+	if err != nil {
+		return turn, err
+	}
+	if !found {
+		return turn, fmt.Errorf("model call context %s not found", claim.ModelCallContextID)
+	}
+	turn.OrgID = contextRecord.OrgID
 	agent, err := e.Store.Execution().GetAgentInProject(ctx, claim.ProjectID, claim.AgentID)
 	if err != nil {
 		return turn, err
 	}
-	turn.OrgID = agent.OrgID
 	spec, contract, found, err := AgentConfigToolSpec(
 		ctx, e.Store, claim.ProjectID, claim.AgentID, agent.CurrentConfigID, claim.Name)
 	if err != nil {

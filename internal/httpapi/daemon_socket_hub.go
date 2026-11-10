@@ -41,7 +41,7 @@ type daemonSocketHub struct {
 	fallbackDrainInterval time.Duration
 	fallbackDrainJitter   time.Duration
 	// ctx ends when the hub closes; work that outlives a socket runs under it.
-	ctx       context.Context
+	ctx       context.Context //nolint:containedctx // the hub owns this server-lifetime context
 	done      <-chan struct{}
 	cancel    context.CancelFunc
 	mu        sync.RWMutex
