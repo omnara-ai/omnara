@@ -238,8 +238,8 @@ func TestProgramToolCallServerOffersAgainOnReconnect(t *testing.T) {
 		done <- body
 	}()
 	require.Eventually(t, func() bool { return len(handler.offers()) == 1 }, 5*time.Second, 10*time.Millisecond)
-	want := daemonprotocol.ToolCallOffer{ProcessID: processID, ProgramToolCallRequest: daemonprotocol.ProgramToolCallRequest{
-		Key: "k-1", Name: "storage_list", Input: json.RawMessage(`{}`)}}
+	want := daemonprotocol.ToolCallOffer{ProcessID: processID}
+	want.Key, want.Name, want.Input = "k-1", "storage_list", json.RawMessage(`{}`)
 	require.Equal(t, []daemonprotocol.ToolCallOffer{want}, handler.offers())
 	select {
 	case body := <-done:

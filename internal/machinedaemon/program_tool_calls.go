@@ -220,7 +220,10 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 		h.mu.Lock()
 		report := *call.report
 		h.mu.Unlock()
-		if encoder.Encode(report) != nil || flusher.Flush() != nil {
+		if err := encoder.Encode(report); err != nil {
+			return
+		}
+		if err := flusher.Flush(); err != nil {
 			return
 		}
 		if report.AckStatus != "" || report.State == daemonprotocol.ProgramToolCallStateCompleted {
