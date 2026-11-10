@@ -45,7 +45,7 @@ instruction: |
   You are an engineering assistant. Use your machine to run commands.
 model:
   provider_config: omnara-openrouter
-  name: anthropic/claude-fable-5.1
+  name: anthropic/claude-fable-5.2
 machine_sources:
   - machine_pool_name: default-pool
 ```
