@@ -174,7 +174,8 @@
             "pages": [
               "organization/model-providers",
               "organization/secrets",
-              "organization/members"
+              "organization/members",
+              "organization/budgets"
             ]
           },
           {

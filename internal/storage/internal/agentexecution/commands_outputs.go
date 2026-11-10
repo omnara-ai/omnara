@@ -135,6 +135,7 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 			InputFingerprint: successfulInputFingerprint(input.Response),
 			RequestID:        input.RequestID,
 			ResponseID:       input.Response.Normalized.ID,
+			ServedModel:      input.Response.ServedProviderModelSlug,
 			Usage:            input.Response.Normalized.Usage,
 			Cost:             input.Response.ProviderReportedCostUSD, Metadata: input.Response.ProviderMetadata}
 		parts, proposals, err := outputParts(input.Response, input.Tools)

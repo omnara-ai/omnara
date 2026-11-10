@@ -9,6 +9,7 @@ SELECT a.current_config_id,(a.next_event_sequence-1)::bigint AS watermark,statem
 FROM agents a WHERE a.id=sqlc.arg(agent_id) AND a.state='active';
 
 -- name: ReadExecutionAttempt :one
+-- @sqlc-vet-disable model-provider-configs-deleted-at
 SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event_sequence,c.source_event_sequence_end,
  c.state,c.recovery_kind,c.retry_at,c.opening_input_ids,c.opening_event_sequence,c.runtime_lock_id,
  c.agent_config_id,c.configured_model_revision_id,c.api_format,c.api_variant,c.provider_request_id,c.provider_response_id,
@@ -19,8 +20,10 @@ SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event
  (SELECT count(*) FROM model_call_contexts prior WHERE prior.agent_id=c.agent_id
  AND prior.operation_kind='compaction' AND prior.input_event_sequence=c.input_event_sequence
  AND prior.source_event_sequence_end=c.source_event_sequence_end AND prior.attempt_number<c.attempt_number
- AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count
+ AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count,
+ p.base_url AS provider_base_url,c.created_at
 FROM model_call_contexts c JOIN configured_model_revisions r ON r.org_id=c.org_id AND r.id=c.configured_model_revision_id
+JOIN model_provider_configs p ON p.org_id=r.org_id AND p.id=r.model_provider_config_id
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
 
 -- name: ReadExecutionModelProvider :one
@@ -35,12 +38,23 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
 -- @sqlc-vet-disable configured-models-deleted-at
 -- @sqlc-vet-disable model-provider-configs-deleted-at
 SELECT m.current_revision_id,CASE WHEN p.management_kind='cluster' THEN coalesce(w.new_managed_work_allowed,true)
- ELSE true END::boolean AS allowed
+ ELSE true END::boolean AS allowed,c.org_id,
+ EXISTS(SELECT 1 FROM budgets b WHERE b.org_id=c.org_id AND (b.project_id IS NULL OR b.project_id=c.project_id)
+ AND b.deleted_at IS NULL)::boolean AS budgeted
 FROM agent_configs c JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
 JOIN configured_models m ON m.org_id=d.org_id AND m.id=d.configured_model_id
 JOIN model_provider_configs p ON p.org_id=m.org_id AND p.id=m.model_provider_config_id
 LEFT JOIN org_managed_work_admission w ON w.org_id=c.org_id
 WHERE c.project_id=sqlc.arg(project_id) AND c.id=sqlc.arg(config_id);
+
+-- name: ExecutionBudgetReached :one
+SELECT (b.project_id IS NOT NULL)::boolean AS project_scope,b.interval
+FROM budgets b CROSS JOIN LATERAL budget_interval_cost(b.org_id,b.project_id,b.interval) cost
+WHERE b.org_id=sqlc.arg(org_id) AND (b.project_id IS NULL OR b.project_id=sqlc.arg(project_id)::uuid)
+ AND b.deleted_at IS NULL AND cost.provider_reported_cost_usd+cost.estimated_cost_usd>=b.amount_usd
+ORDER BY b.project_id IS NOT NULL,
+ CASE b.interval WHEN 'lifetime' THEN 0 WHEN 'month' THEN 1 WHEN 'week' THEN 2 ELSE 3 END
+LIMIT 1;
 
 -- name: CreateExecutionAttempt :one
 INSERT INTO model_call_contexts(org_id,project_id,agent_id,id,turn_id,operation_kind,attempt_number,
@@ -64,7 +78,8 @@ UPDATE model_call_contexts c SET state=sqlc.arg(state),recovery_kind=sqlc.narg(r
  input_tokens_total=sqlc.narg(input_tokens)::integer,uncached_input_tokens=sqlc.narg(uncached_tokens)::integer,
  cache_read_input_tokens=sqlc.narg(cache_read_tokens)::integer,cache_write_input_tokens=sqlc.narg(cache_write_tokens)::integer,
  output_tokens_total=sqlc.narg(output_tokens)::integer,reasoning_output_tokens=sqlc.narg(reasoning_tokens)::integer,
- provider_reported_cost_usd=sqlc.narg(cost)::text::numeric,provider_metadata=sqlc.arg(provider_metadata)::jsonb,
+ provider_reported_cost_usd=sqlc.narg(cost)::text::numeric,estimated_cost_usd=sqlc.narg(estimated_cost)::text::numeric,
+ provider_metadata=sqlc.arg(provider_metadata)::jsonb,
  input_fingerprint=sqlc.narg(input_fingerprint)::text,completed_at=statement_timestamp()
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.state='started' AND c.runtime_lock_id=sqlc.arg(runtime_id)
  AND EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=c.agent_id

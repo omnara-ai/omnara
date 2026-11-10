@@ -329,6 +329,44 @@ func recordHTTPModelUsageForAgent(
 	cost modelenvelope.ProviderReportedCostUSD,
 ) {
 	t.Helper()
+	runtime, modelCall := claimHTTPModelCallForAgent(t, ctx, store, orgID, projectID, userID, agent)
+	providerResponse, err := model.NewResponseEnvelopeForStorage(
+		"http-test",
+		modelprotocol.APIFormatOpenAIResponses,
+		modelprotocol.APIVariantDefault,
+		model.Response{
+			ID:                      "resp_usage_" + agent.ID.String(),
+			StopReason:              model.StopReasonEndTurn,
+			Content:                 []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "done"}},
+			Usage:                   usage,
+			ProviderReportedCostUSD: cost,
+		},
+	)
+	if err != nil {
+		t.Fatalf("build usage provider response: %v", err)
+	}
+	if _, err := store.Execution().RecordModelOutputAndCompleteContext(
+		ctx,
+		executionstore.RecordModelOutputAndCompleteContextInput{
+			ProjectID:          projectID,
+			AgentID:            agent.ID,
+			RuntimeLockID:      runtime.ID,
+			ModelCallContextID: modelCall.Context.ID,
+			ProviderResponse:   providerResponse,
+		},
+	); err != nil {
+		t.Fatalf("record usage model output: %v", err)
+	}
+}
+
+func claimHTTPModelCallForAgent(
+	t *testing.T,
+	ctx context.Context,
+	store *storage.Store,
+	orgID, projectID, userID uuid.UUID,
+	agent executionstore.AgentRecord,
+) (executionstore.AgentRuntimeLockRecord, executionstore.ModelCallClaim) {
+	t.Helper()
 	input, _, _, err := store.Execution().CreateAgentContentInput(
 		ctx,
 		executionstore.CreateAgentContentInputInput{
@@ -365,35 +403,8 @@ func recordHTTPModelUsageForAgent(
 	if err != nil {
 		t.Fatalf("capture config snapshot: %v", err)
 	}
-	modelCall := claimNormalModelCallForHTTPTest(
+	return runtime, claimNormalModelCallForHTTPTest(
 		t, ctx, store, projectID, agent.ID, runtime, []uuid.UUID{input.ID},
 		snapshot.AgentConfig.ID, admitted.Events[0].Sequence,
 	)
-	providerResponse, err := model.NewResponseEnvelopeForStorage(
-		"http-test",
-		modelprotocol.APIFormatOpenAIResponses,
-		modelprotocol.APIVariantDefault,
-		model.Response{
-			ID:                      "resp_usage_" + agent.ID.String(),
-			StopReason:              model.StopReasonEndTurn,
-			Content:                 []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "done"}},
-			Usage:                   usage,
-			ProviderReportedCostUSD: cost,
-		},
-	)
-	if err != nil {
-		t.Fatalf("build usage provider response: %v", err)
-	}
-	if _, err := store.Execution().RecordModelOutputAndCompleteContext(
-		ctx,
-		executionstore.RecordModelOutputAndCompleteContextInput{
-			ProjectID:          projectID,
-			AgentID:            agent.ID,
-			RuntimeLockID:      runtime.ID,
-			ModelCallContextID: modelCall.Context.ID,
-			ProviderResponse:   providerResponse,
-		},
-	); err != nil {
-		t.Fatalf("record usage model output: %v", err)
-	}
 }

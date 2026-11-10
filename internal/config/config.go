@@ -16,6 +16,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/authn"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
@@ -121,6 +122,7 @@ type Config struct {
 	HostedAPIURL                      string
 	HostedAPIToken                    string
 	MCPRegistrySnapshotPath           string
+	ModelPricesURL                    string
 }
 
 type AuthConnectorConfig struct {
@@ -346,6 +348,7 @@ func Load() (Config, error) {
 		HostedAPIURL:                      getenv("OMNARA_HOSTED_API_URL", ""),
 		HostedAPIToken:                    getenv("OMNARA_HOSTED_API_TOKEN", ""),
 		MCPRegistrySnapshotPath:           getenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", "/app/mcp-registry/mcp-registry.json"),
+		ModelPricesURL:                    strings.TrimSpace(getenv("OMNARA_MODEL_PRICES_URL", "")),
 	}
 	cfg.EndpointAllowlist, err = ssrf.ParseAllowlist(getenvCSV("OMNARA_PRIVATE_ENDPOINT_CIDRS"))
 	if err != nil {
@@ -737,6 +740,11 @@ func (cfg Config) ValidateWorker() error {
 	}
 	if err := validateSkillDownloadSigningKeyConfig(cfg); err != nil {
 		return err
+	}
+	if cfg.ModelPricesURL != "" && cfg.ModelPricesURL != modelprice.Off {
+		if err := validateHTTPURL("OMNARA_MODEL_PRICES_URL", cfg.ModelPricesURL); err != nil {
+			return err
+		}
 	}
 	return nil
 }

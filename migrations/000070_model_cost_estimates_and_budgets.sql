@@ -1,0 +1,94 @@
+-- +goose Up
+
+ALTER TABLE model_call_contexts
+    ADD COLUMN estimated_cost_usd numeric(30, 15);
+
+ALTER TABLE model_call_contexts
+    ADD CONSTRAINT model_call_contexts_estimated_cost_valid CHECK (
+        estimated_cost_usd IS NULL
+        OR (
+            estimated_cost_usd <> 'NaN'::numeric
+            AND estimated_cost_usd >= 0
+            AND provider_reported_cost_usd IS NULL
+            AND (input_tokens_total IS NOT NULL OR output_tokens_total IS NOT NULL)
+        )
+    ) NOT VALID;
+
+CREATE TABLE budgets (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    org_id uuid NOT NULL REFERENCES orgs(id),
+    project_id uuid,
+    interval text NOT NULL,
+    amount_usd numeric(30, 15) NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    updated_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    deleted_at timestamptz,
+    CHECK (interval IN ('day', 'week', 'month', 'lifetime')),
+    CHECK (amount_usd <> 'NaN'::numeric AND amount_usd > 0),
+    FOREIGN KEY (org_id, project_id) REFERENCES projects(org_id, id)
+);
+
+CREATE UNIQUE INDEX budgets_active_scope_interval_idx
+    ON budgets(org_id, project_id, interval)
+    NULLS NOT DISTINCT WHERE deleted_at IS NULL;
+
+CREATE TABLE project_daily_model_costs (
+    org_id uuid NOT NULL,
+    day date NOT NULL,
+    project_id uuid NOT NULL,
+    provider_reported_cost_usd numeric(30, 15) NOT NULL,
+    estimated_cost_usd numeric(30, 15) NOT NULL,
+    PRIMARY KEY (org_id, day, project_id),
+    CHECK (provider_reported_cost_usd <> 'NaN'::numeric AND provider_reported_cost_usd >= 0),
+    CHECK (estimated_cost_usd <> 'NaN'::numeric AND estimated_cost_usd >= 0),
+    FOREIGN KEY (org_id, project_id) REFERENCES projects(org_id, id)
+);
+
+-- +goose StatementBegin
+CREATE FUNCTION budget_interval_cost(p_org_id uuid, p_project_id uuid, p_interval text)
+RETURNS TABLE (provider_reported_cost_usd numeric, estimated_cost_usd numeric)
+LANGUAGE sql STABLE PARALLEL SAFE
+AS $$
+    SELECT coalesce(sum(cost.provider_reported_cost_usd), 0), coalesce(sum(cost.estimated_cost_usd), 0)
+    FROM project_daily_model_costs cost
+    WHERE cost.org_id = p_org_id
+      AND (p_project_id IS NULL OR cost.project_id = p_project_id)
+      AND cost.day >= CASE p_interval
+          WHEN 'day' THEN (statement_timestamp() AT TIME ZONE 'UTC')::date
+          WHEN 'week' THEN (date_trunc('week', statement_timestamp(), 'UTC') AT TIME ZONE 'UTC')::date
+          WHEN 'month' THEN (date_trunc('month', statement_timestamp(), 'UTC') AT TIME ZONE 'UTC')::date
+          ELSE '-infinity'::date
+      END
+$$;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE FUNCTION sync_project_daily_model_cost_from_model_call_context() RETURNS trigger AS $$
+BEGIN
+    INSERT INTO project_daily_model_costs(org_id, day, project_id, provider_reported_cost_usd, estimated_cost_usd)
+    VALUES (
+        NEW.org_id,
+        (NEW.created_at AT TIME ZONE 'UTC')::date,
+        NEW.project_id,
+        coalesce(NEW.provider_reported_cost_usd, 0),
+        coalesce(NEW.estimated_cost_usd, 0)
+    )
+    ON CONFLICT (org_id, day, project_id) DO UPDATE
+    SET provider_reported_cost_usd = project_daily_model_costs.provider_reported_cost_usd
+            + EXCLUDED.provider_reported_cost_usd,
+        estimated_cost_usd = project_daily_model_costs.estimated_cost_usd + EXCLUDED.estimated_cost_usd;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+-- +goose StatementEnd
+
+CREATE TRIGGER model_call_contexts_increment_project_daily_model_cost
+    AFTER UPDATE OF state
+    ON model_call_contexts
+    FOR EACH ROW
+    WHEN (
+        OLD.state = 'started'
+        AND NEW.state <> 'started'
+        AND (NEW.provider_reported_cost_usd IS NOT NULL OR NEW.estimated_cost_usd IS NOT NULL)
+    )
+    EXECUTE FUNCTION sync_project_daily_model_cost_from_model_call_context();

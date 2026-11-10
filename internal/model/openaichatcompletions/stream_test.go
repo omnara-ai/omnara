@@ -373,10 +373,25 @@ func TestChatCompletionsConsumeStreamTruncatedIsError(t *testing.T) {
 		t.Fatalf("truncated stream = %T %v, want ambiguous outcome", err, err)
 	}
 	if resp.ID != "chatcmpl_partial" || resp.ServedProviderModelSlug != "gpt-test" ||
-		resp.Usage.InputTokens != 11 || resp.Usage.OutputTokens != 2 {
+		resp.Usage.InputTokens != 11 || resp.Usage.OutputTokens != 2 || !resp.Usage.Incomplete {
 		t.Fatalf("truncated stream evidence = %+v", resp)
 	}
 	assertChatStreamClosedBeforeError(t, sink)
+}
+
+func TestChatCompletionsConsumeStreamKeepsFinalUsageWithoutDone(t *testing.T) {
+	stream := chatCompletionsSSE(
+		`{"id":"chatcmpl_final","model":"gpt-test","choices":[{"index":0,"delta":{"content":"done"}}]}`,
+		`{"id":"chatcmpl_final","model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],`+
+			`"usage":{"prompt_tokens":11,"completion_tokens":4}}`,
+	)
+	resp, err := consumeChatCompletionsStream(t, stream, &chatRecordingSink{}, modelprotocol.APIVariantDefault)
+	if !model.IsAmbiguousProviderOutcome(err) {
+		t.Fatalf("stream without DONE = %T %v, want ambiguous outcome", err, err)
+	}
+	if resp.Usage.OutputTokens != 4 || resp.Usage.Incomplete {
+		t.Fatalf("finished stream usage = %+v, want final usage", resp.Usage)
+	}
 }
 
 func TestChatCompletionsConsumeMalformedStreamClosesOpenBlock(t *testing.T) {

@@ -235,6 +235,7 @@ func (a *openAIStreamAccumulator) handleResponseEvidence(event, data string) err
 	}
 	if evidence.Usage != (model.Usage{}) {
 		a.out.Usage = evidence.Usage
+		a.out.Usage.Incomplete = true
 	}
 	return nil
 }

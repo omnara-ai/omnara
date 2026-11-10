@@ -159,6 +159,9 @@ func deleteProjectOwnedContentTx(
 	if err != nil {
 		return nil, err
 	}
+	if err := q.DeleteBudgetsForProjectDeletion(ctx, dbsqlc.DeleteBudgetsForProjectDeletionParams{OrgID: orgID, ProjectID: projectID}); err != nil {
+		return nil, fmt.Errorf("delete project budgets: %w", err)
+	}
 	if err := q.DeleteSkillsForOwner(ctx, dbsqlc.DeleteSkillsForOwnerParams{OrgID: orgID, OwnerProjectID: &projectID}); err != nil {
 		return nil, fmt.Errorf("delete project skills: %w", err)
 	}
@@ -634,6 +637,9 @@ func (s *Service) deleteOrganizationOnce(
 	skillArchives, err := skillops.ListArchiveRefs(ctx, q, orgID, nil)
 	if err != nil {
 		return nil, err
+	}
+	if err := q.DeleteOrganizationBudgets(ctx, dbsqlc.DeleteOrganizationBudgetsParams{OrgID: orgID}); err != nil {
+		return nil, fmt.Errorf("delete organization budgets: %w", err)
 	}
 	if err := q.DeleteSkillsForOwner(ctx, dbsqlc.DeleteSkillsForOwnerParams{OrgID: orgID, OwnerProjectID: nil}); err != nil {
 		return nil, fmt.Errorf("delete organization skills: %w", err)

@@ -245,6 +245,7 @@ func (r Runner) RunClaimed(
 			APIVariant:              apiVariant,
 			ProviderRequestID:       response.ProviderRequestID,
 			ProviderResponseID:      response.ID,
+			ServedProviderModelSlug: response.ServedProviderModelSlug,
 			Usage:                   response.Usage,
 			ProviderReportedCostUSD: response.ProviderReportedCostUSD,
 			ProviderMetadata:        response.ProviderMetadata,

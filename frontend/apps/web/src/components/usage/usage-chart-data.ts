@@ -7,6 +7,7 @@ import type {
 } from '@omnara/sdk'
 import { addDays, addHours, addMonths, addWeeks } from 'date-fns'
 
+import { totalCostUsd, unpricedModelCalls } from '@/components/usage/cost-totals'
 import { type AgentIconSpec, profileIcon, tintColor } from '@/lib/agent-icon'
 import { formatCompactCount, formatCount, formatUsd } from '@/lib/format'
 
@@ -57,12 +58,12 @@ export interface UsageChartData {
   interval: UsageTimeseriesInterval
   series: UsageSeries[]
   columns: UsageColumn[]
-  /** Shown over an empty chart: no usage, or calls whose provider reported no cost. */
+  /** Shown over an empty chart: no usage, or calls that couldn't be priced. */
   emptyMessage: string
 }
 
 export function usageMeasureValue(totals: UsageTotals, measure: UsageMeasure) {
-  if (measure === 'cost') return Number(totals.cost.provider_reported_usd)
+  if (measure === 'cost') return totalCostUsd(totals.cost)
   if (measure === 'calls') return totals.model_calls
   return totals.tokens.input_tokens_total + totals.tokens.output_tokens_total
 }
@@ -117,10 +118,13 @@ export function usageChartData(timeseries: UsageTimeseries, measure: UsageMeasur
     return { start: new Date(start), total, values }
   })
   const { totals } = timeseries
-  const emptyMessage =
-    measure === 'cost' && totals.model_calls > 0
-      ? `No cost reported for ${formatCount(totals.model_calls)} ${totals.model_calls === 1 ? 'call' : 'calls'}`
-      : 'No usage'
+  const unpriced = unpricedModelCalls(totals.model_calls, totals.cost)
+  let emptyMessage = 'No usage'
+  if (measure === 'cost' && unpriced > 0) {
+    emptyMessage = `${formatCount(unpriced)} ${unpriced === 1 ? 'call' : 'calls'} couldn't be priced`
+  } else if (measure === 'cost' && totals.model_calls > 0) {
+    emptyMessage = `${formatCount(totals.model_calls)} ${totals.model_calls === 1 ? 'call' : 'calls'} cost $0`
+  }
   return { measure, interval: timeseries.interval, series, columns, emptyMessage }
 }
 

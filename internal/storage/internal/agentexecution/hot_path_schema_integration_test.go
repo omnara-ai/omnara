@@ -148,3 +148,39 @@ opening_input_ids,opening_event_sequence)
 		}
 	}
 }
+
+func TestExecutionBudgetReachedPlan(t *testing.T) {
+	f := migratedExecutionFixture(t)
+	ctx := t.Context()
+	tx, err := f.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, `
+INSERT INTO projects(org_id,name,created_at,updated_at)
+SELECT $1,'budget-plan-'||n,now(),now() FROM generate_series(1,20) n`, f.org)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+INSERT INTO project_daily_model_costs(org_id,day,project_id,provider_reported_cost_usd,estimated_cost_usd)
+SELECT $1,day,p.id,1,0 FROM generate_series(current_date-1095,current_date,interval '1 day') day
+CROSS JOIN projects p WHERE p.org_id=$1`, f.org)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+INSERT INTO budgets(org_id,project_id,interval,amount_usd) VALUES
+($1,NULL,'month',1000000),($1,NULL,'week',1000000),($1,$2,'day',1000000)`, f.org, f.project)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `ANALYZE projects; ANALYZE project_daily_model_costs; ANALYZE budgets;
+SET LOCAL plan_cache_mode=force_generic_plan`)
+	require.NoError(t, err)
+	query := integrationdb.GeneratedQuery(
+		t, "internal/executiondb/commands_models.sql.go", "ExecutionBudgetReached",
+	)
+	var raw []byte
+	require.NoError(t, tx.QueryRow(ctx, "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) "+query, f.org, f.project).Scan(&raw))
+	t.Logf("budget check plan=%s", raw)
+	integrationdb.ReadPlan(t, raw).Walk(func(node integrationdb.PlanNode) {
+		if node.Relation == "project_daily_model_costs" {
+			require.Equal(t, "project_daily_model_costs_pkey", node.Index, "%s", raw)
+		}
+	})
+	require.LessOrEqual(t, integrationdb.PlanBuffers(t, raw), 40)
+}

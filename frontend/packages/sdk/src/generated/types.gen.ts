@@ -4370,10 +4370,79 @@ export type OrgOverviewAgentProfileReference = {
     agent_count: number;
 };
 
+export type BudgetId = string;
+
+export type BudgetScopeType = 'org' | 'project';
+
+export type OrgBudgetScope = {
+    type: 'org';
+};
+
+export type ProjectBudgetScope = {
+    type: 'project';
+    project_id: ProjectId;
+};
+
+export type BudgetScope = ({
+    type: 'org';
+} & OrgBudgetScope) | ({
+    type: 'project';
+} & ProjectBudgetScope);
+
+/**
+ * How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime never resets and counts spend recorded since budgets became available.
+ */
+export type BudgetInterval = 'day' | 'week' | 'month' | 'lifetime';
+
+/**
+ * Amount in USD as a positive decimal string.
+ */
+export type BudgetAmount = string;
+
+export type BudgetUsage = {
+    /**
+     * Model spend in USD in the current interval: provider-reported costs plus list-price estimates. Calls that could not be priced contribute nothing.
+     */
+    amount_usd: string;
+    /**
+     * The part of amount_usd that comes from list-price estimates.
+     */
+    estimated_usd: string;
+};
+
+export type Budget = {
+    id: BudgetId;
+    org_id: OrganizationId;
+    scope: BudgetScope;
+    interval: BudgetInterval;
+    amount_usd: BudgetAmount;
+    /**
+     * Spend in the current interval. Populated when the budget is returned by the list or get endpoint.
+     */
+    usage?: BudgetUsage;
+    created_at: string;
+    updated_at: string;
+};
+
+export type CreateBudgetRequest = {
+    scope: BudgetScope;
+    interval: BudgetInterval;
+    amount_usd: BudgetAmount;
+};
+
+export type UpdateBudgetRequest = {
+    amount_usd: BudgetAmount;
+};
+
+export type ListBudgetsResponse = {
+    data: Array<Budget>;
+    next_cursor: string | null;
+};
+
 export type UsageTimeseriesInterval = 'hour' | 'day' | 'week' | 'month';
 
 /**
- * `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
+ * `sum_tokens` is input plus output tokens. `sum_cost` is cost in USD: the provider-reported cost when there is one, otherwise a list-price estimate; calls that could not be priced contribute nothing. `count_model_calls` counts model calls that recorded usage.
  */
 export type UsageTimeseriesMetric = 'sum_tokens' | 'sum_input_tokens' | 'sum_output_tokens' | 'sum_cost' | 'count_model_calls';
 
@@ -4458,6 +4527,11 @@ export type UsageCostTotals = {
      */
     provider_reported_usd: string;
     model_calls_with_reported_cost: number;
+    /**
+     * Decimal sum in USD of list-price estimates for the tallied model calls whose provider reported no cost; it can be higher or lower than the provider's bill. Calls that could not be priced contribute nothing.
+     */
+    estimated_usd: string;
+    model_calls_with_estimated_cost: number;
 };
 
 export type UsageTotals = {
@@ -6198,6 +6272,355 @@ export type GetOrgOverviewResponses = {
 };
 
 export type GetOrgOverviewResponse = GetOrgOverviewResponses[keyof GetOrgOverviewResponses];
+
+export type ListBudgetsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        scope_type?: BudgetScopeType;
+        project_id?: ProjectId;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/budgets';
+};
+
+export type ListBudgetsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListBudgetsError = ListBudgetsErrors[keyof ListBudgetsErrors];
+
+export type ListBudgetsResponses = {
+    /**
+     * Budgets matching the requested scope.
+     */
+    200: ListBudgetsResponse;
+};
+
+export type ListBudgetsResponse2 = ListBudgetsResponses[keyof ListBudgetsResponses];
+
+export type CreateBudgetData = {
+    body: CreateBudgetRequest;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/budgets';
+};
+
+export type CreateBudgetErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateBudgetError = CreateBudgetErrors[keyof CreateBudgetErrors];
+
+export type CreateBudgetResponses = {
+    /**
+     * Budget created.
+     */
+    201: Budget;
+};
+
+export type CreateBudgetResponse = CreateBudgetResponses[keyof CreateBudgetResponses];
+
+export type DeleteBudgetData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        budgetID: BudgetId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/budgets/{budgetID}';
+};
+
+export type DeleteBudgetErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteBudgetError = DeleteBudgetErrors[keyof DeleteBudgetErrors];
+
+export type DeleteBudgetResponses = {
+    /**
+     * Budget deleted.
+     */
+    204: void;
+};
+
+export type DeleteBudgetResponse = DeleteBudgetResponses[keyof DeleteBudgetResponses];
+
+export type GetBudgetData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        budgetID: BudgetId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/budgets/{budgetID}';
+};
+
+export type GetBudgetErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetBudgetError = GetBudgetErrors[keyof GetBudgetErrors];
+
+export type GetBudgetResponses = {
+    /**
+     * The budget.
+     */
+    200: Budget;
+};
+
+export type GetBudgetResponse = GetBudgetResponses[keyof GetBudgetResponses];
+
+export type UpdateBudgetData = {
+    body: UpdateBudgetRequest;
+    path: {
+        orgID: OrganizationId;
+        budgetID: BudgetId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/budgets/{budgetID}';
+};
+
+export type UpdateBudgetErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateBudgetError = UpdateBudgetErrors[keyof UpdateBudgetErrors];
+
+export type UpdateBudgetResponses = {
+    /**
+     * Budget updated.
+     */
+    200: Budget;
+};
+
+export type UpdateBudgetResponse = UpdateBudgetResponses[keyof UpdateBudgetResponses];
 
 export type GetOrgUsageData = {
     body?: never;

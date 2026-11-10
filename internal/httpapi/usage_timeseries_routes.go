@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/cronschedule"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -349,11 +350,17 @@ func usageMetricValue(metric openapi.UsageTimeseriesMetric, totals executionstor
 	case openapi.UsageTimeseriesMetricCountModelCalls:
 		return float64(totals.ModelCalls), nil
 	case openapi.UsageTimeseriesMetricSumCost:
-		cost, err := strconv.ParseFloat(string(totals.ProviderReportedCostUSD), 64)
-		if err != nil {
-			return 0, fmt.Errorf("parse usage cost %q: %w", totals.ProviderReportedCostUSD, err)
+		cost, ok := modelenvelope.SumProviderReportedCostUSD(
+			string(totals.ProviderReportedCostUSD), string(totals.EstimatedCostUSD),
+		)
+		if !ok {
+			return 0, fmt.Errorf("sum usage cost %q + %q", totals.ProviderReportedCostUSD, totals.EstimatedCostUSD)
 		}
-		return cost, nil
+		value, err := strconv.ParseFloat(string(cost), 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse usage cost %q: %w", cost, err)
+		}
+		return value, nil
 	default:
 		return 0, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid metric")
 	}

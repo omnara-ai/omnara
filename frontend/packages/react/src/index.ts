@@ -67,6 +67,7 @@ export {
   useOrgAgents,
   useUpdateAgentConfig,
 } from './domains/agents'
+export { useBudgets, useCreateBudget, useDeleteBudget, useUpdateBudget } from './domains/budgets'
 export {
   type CronTriggerListFilters,
   type CronTriggerListOptions,

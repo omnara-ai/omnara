@@ -1,0 +1,59 @@
+---
+title: Budgets
+description: Cap model spend for an organization or a project per day, week, month, or lifetime
+icon: "wallet"
+---
+
+A **budget** caps how much an organization or a project can spend on model calls in an interval: a day, a week, a month, or its lifetime. Once spend reaches a budget, new model calls stop until an admin raises the budget or the interval resets.
+
+An organization and each of its projects can have one budget per interval, so a project can have a daily and a monthly budget at the same time. Only organization owners and admins can see and change budgets.
+
+## Set a budget
+
+Open **Usage** for the organization or for a project, then choose **Add budget** on the **Budgets** card. To change or remove a budget, choose **Edit** on its row.
+
+With the API, send the amount as a decimal string in US dollars:
+
+<CodeGroup>
+```bash CLI
+npx omnara budgets create --scope-type project --scope-project-id "$PROJ" \
+  --interval month --amount-usd 200
+```
+
+```bash REST
+curl "$OMNARA_API/orgs/$ORG/budgets" \
+  -H "Authorization: Bearer $OMNARA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"scope": {"type": "project", "project_id": "'"$PROJ"'"}, "interval": "month", "amount_usd": "200"}'
+```
+</CodeGroup>
+
+For an organization budget, use `{"type": "org"}` as the scope, or `--scope-type org` with the CLI. Listing or fetching a budget returns its spend so far in the current interval as `usage`.
+
+## Intervals
+
+Intervals follow UTC:
+
+| `interval` | Resets |
+| --- | --- |
+| `day` | Every day at 00:00 UTC |
+| `week` | Every Monday at 00:00 UTC |
+| `month` | On the 1st of every month at 00:00 UTC |
+| `lifetime` | Never. It counts spend from when budgets were introduced; earlier usage isn't included |
+
+A call counts toward the interval it started in.
+
+## What counts
+
+- **Model calls only.** Machines and web search aren't counted.
+- **Reported cost first.** When the provider reports what a call cost, that amount counts. Otherwise Omnara estimates the cost from public list prices, so the total can be higher or lower than your provider's bill.
+- **Unpriced calls don't count.** Some calls can't be priced, for example a model with no published price or a response cut off partway through.
+- **Every project counts toward the organization.** An organization budget includes spend from all of its projects, including deleted ones.
+
+## When a budget is reached
+
+New model calls in that organization or project stop, including calls from subagents and context compaction. The agent shows a message naming the budget that was reached. Calls that are already running finish, so spend can exceed the budget by the cost of those calls, at most one per running agent.
+
+Every budget applies on its own, and the first one reached stops calls. A project budget can be higher than the organization's.
+
+To continue, raise or remove the budget, or wait for its interval to reset, then send the agent a new message.

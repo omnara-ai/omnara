@@ -21,7 +21,7 @@ import (
 
 func TestExecutionCreatedAgentPublication(t *testing.T) {
 	f := migratedExecutionFixture(t)
-	cell := agentexecution.NewCell(f.pool, nil, nil)
+	cell := agentexecution.NewCell(f.pool, nil, nil, nil)
 	u, err := agentexecution.BeginTestUnit(t.Context(), cell)
 	require.NoError(t, err)
 	defer func() { _ = u.Rollback(context.Background()) }()
@@ -71,7 +71,7 @@ func familyFixture(
 		uuid.New(),
 	)
 	require.NoError(t, err)
-	cell := agentexecution.NewCell(f.pool, nil, nil)
+	cell := agentexecution.NewCell(f.pool, nil, nil, nil)
 	u, err := agentexecution.BeginTestUnit(t.Context(), cell)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = u.Rollback(context.Background()) })

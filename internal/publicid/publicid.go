@@ -24,6 +24,7 @@ const (
 	KindAgentProfile             Kind = "agent_profile"
 	KindCronTrigger              Kind = "cron_trigger"
 	KindEventWebhook             Kind = "event_webhook"
+	KindBudget                   Kind = "budget"
 	KindIntegration              Kind = "integration"
 	KindIntegrationProfileChoice Kind = "integration_profile_choice"
 	KindIntegrationSubscription  Kind = "integration_subscription"
@@ -73,6 +74,7 @@ var kindPrefixes = map[Kind]string{
 	KindAgentProfile:             "aprf",
 	KindCronTrigger:              "cron",
 	KindEventWebhook:             "whk",
+	KindBudget:                   "bdg",
 	KindIntegration:              "itg",
 	KindIntegrationProfileChoice: "ipc",
 	KindIntegrationSubscription:  "isub",
