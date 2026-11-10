@@ -10,7 +10,7 @@
 --
 -- tool_calls is large, so this migration only changes metadata under its
 -- ACCESS EXCLUSIVE lock: new constraints start NOT VALID (enforced for new
--- rows, no scan). 000070 builds indexes and validates outside a transaction.
+-- rows, no scan). 000071 builds indexes and validates outside a transaction.
 ALTER TABLE tool_calls
     ALTER COLUMN model_output_id DROP NOT NULL,
     ADD COLUMN caller text NOT NULL DEFAULT 'model',
@@ -58,7 +58,7 @@ EXECUTE FUNCTION enforce_program_tool_call_parent();
 DROP TRIGGER tool_call_facts_immutable ON tool_calls;
 CREATE TRIGGER tool_call_facts_immutable
 BEFORE UPDATE OF
-    id, agent_id, model_output_id, provider_call_id,
+    id, project_id, agent_id, model_output_id, provider_call_id,
     name, input, type, created_at, caller, parent_tool_call_id
 OR DELETE ON tool_calls
 FOR EACH ROW EXECUTE FUNCTION prevent_tool_call_fact_mutation();
@@ -139,7 +139,7 @@ $$;
 -- flattened by LIMIT) so model calls never probe for a parent.
 CREATE OR REPLACE VIEW tool_call_read_projection AS
 SELECT tool_call.id,
-       agent.project_id,
+       tool_call.project_id,
        tool_call.agent_id,
        source_event.turn_id,
        source_event.id AS source_event_id,
@@ -156,7 +156,6 @@ SELECT tool_call.id,
        tool_call.caller,
        tool_call.parent_tool_call_id
 FROM tool_calls tool_call
-JOIN agents agent ON agent.id = tool_call.agent_id
 LEFT JOIN LATERAL (
     SELECT parent.model_output_id FROM tool_calls parent
     WHERE tool_call.parent_tool_call_id IS NOT NULL

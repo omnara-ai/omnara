@@ -68,7 +68,7 @@ type ListToolCallsInput struct {
 	ProjectID uuid.UUID
 	AgentIDs  []uuid.UUID
 	State     ToolCallState
-	Type      string
+	Type      toolcatalog.Type
 	// ParentToolCallID, when set, keeps only the calls that run_command
 	// call's process made.
 	ParentToolCallID uuid.UUID
@@ -108,6 +108,10 @@ type ToolCallSummary struct {
 	Outcome        ToolResultOutcome
 	CreatedAt      time.Time
 	CompletedAt    *time.Time
+	// Caller is "program" for calls made by a run_command process through
+	// `omnarad call`; ParentToolCallID is then that run_command call.
+	Caller           string
+	ParentToolCallID uuid.UUID
 }
 
 type ToolCallStatus struct {
@@ -192,6 +196,7 @@ func (r ToolCallRecord) Summary() ToolCallSummary {
 		ID: r.ID, AgentID: r.AgentID, TurnID: r.TurnID, ProviderCallID: r.ProviderCallID,
 		Name: r.Name, Input: r.Input, Type: toolcatalog.Type(r.Type), State: r.State, Outcome: r.Outcome,
 		CreatedAt: r.CreatedAt, CompletedAt: r.CompletedAt,
+		Caller: r.Caller, ParentToolCallID: r.ParentToolCallID,
 	}
 }
 

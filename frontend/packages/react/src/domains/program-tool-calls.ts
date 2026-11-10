@@ -91,9 +91,8 @@ async function invalidateToolCallQueries(
     const commands = new Map<string, { agentID: string; parentToolCallID: string }>()
     for (const update of updates) {
       if (!update?.parent_tool_call_id) continue
-      const agentID = update.agent_id ?? scope.agentID
-      commands.set(`${agentID}/${update.parent_tool_call_id}`, {
-        agentID,
+      commands.set(`${update.agent_id}/${update.parent_tool_call_id}`, {
+        agentID: update.agent_id,
         parentToolCallID: update.parent_tool_call_id,
       })
     }

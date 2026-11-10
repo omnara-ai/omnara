@@ -76,7 +76,10 @@ func TestProgramOutputSchemasCoverCallableBuiltIns(t *testing.T) {
 	}
 	reads := 0
 	for _, definition := range integrationdefinition.All() {
-		if slices.Contains(definition.Tools, toolcatalog.IntegrationOperationRead) {
+		if slices.ContainsFunc(toolcatalog.IntegrationTools(definition.IntegrationKind),
+			func(tool toolcatalog.IntegrationToolDefinition) bool {
+				return tool.Operation == toolcatalog.IntegrationOperationRead
+			}) {
 			requireProgramOutputSchema(t, integrationReadSpec(definition.IntegrationKind))
 			reads++
 		}

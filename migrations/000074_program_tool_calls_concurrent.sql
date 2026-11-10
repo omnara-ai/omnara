@@ -2,7 +2,7 @@
 -- +goose Up
 
 -- Build the program tool call indexes without blocking tool_calls writes and
--- validate 000069's constraints under SHARE UPDATE EXCLUSIVE, which does not
+-- validate 000070's constraints under SHARE UPDATE EXCLUSIVE, which does not
 -- block reads or writes. Each statement commits on its own. A build
 -- interrupted here leaves an invalid index; drop it and rerun.
 

@@ -3,8 +3,8 @@ SELECT p.id,p.tool_call_id,(p.execution_granted_at IS NOT NULL AND p.state IN ('
 FROM processes p WHERE p.agent_id=sqlc.arg(agent_id) AND p.id=sqlc.arg(id) FOR SHARE;
 
 -- name: InsertProgramTool :one
-INSERT INTO tool_calls(id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,created_at)
-SELECT sqlc.arg(id),c.agent_id,sqlc.arg(key),sqlc.arg(name),sqlc.arg(input)::jsonb,sqlc.arg(type),
+INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,created_at)
+SELECT sqlc.arg(id),c.project_id,c.agent_id,sqlc.arg(key),sqlc.arg(name),sqlc.arg(input)::jsonb,sqlc.arg(type),
  'awaiting_authorization','program',c.id,statement_timestamp()
 FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(parent_id) AND c.caller='model'
 ON CONFLICT (agent_id,parent_tool_call_id,provider_call_id) WHERE caller='program' DO NOTHING
