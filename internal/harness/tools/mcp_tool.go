@@ -80,7 +80,11 @@ func (e Executor) dispatchMCPTool(
 		Name:      remoteName,
 		Arguments: call.Input,
 		BeforeSend: func(ctx context.Context) error {
-			return turn.toolAuthority().ensureActive(ctx, e, turn)
+			if err := turn.toolAuthority().ensureActive(ctx, e, turn); err != nil {
+				return err
+			}
+			turn.markStarted()
+			return nil
 		},
 	})
 	if cause := mcp.InitializationCause(err); cause != nil && mcp.InitializationRecorded(err) {
@@ -116,11 +120,6 @@ func (e Executor) runtimeMCPServerForTool(
 	)
 }
 
-// mcpConnectionServes requires a program call's connection to have been
-// initialized for the server configuration it runs under. The connection's
-// endpoint and that configuration's credentials come from different reads, and
-// the agent's config can change between a connection's initialization and the
-// call, so an unmatched pair must not be sent.
 func mcpConnectionServes(
 	turn Turn, conn executionstore.MCPConnectionRecord, server agentconfig.RuntimeMCPServer,
 ) error {
@@ -204,8 +203,6 @@ func (e Executor) mcpToolResultContent(
 			return toolResultContent{}, err
 		}
 		if turn.programCall() {
-			// A command prints the first structured value, so it must be the
-			// one the tool's output schema describes, not a resource link.
 			parts = append([]toolResultPart{part}, parts...)
 		} else {
 			parts = append(parts, part)

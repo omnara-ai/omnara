@@ -148,7 +148,6 @@ func runStorageReadAsync(
 	return completeFileRead(note, part, digestPart), nil
 }
 
-// storageTextPage is the page of a text file a resolved request reads.
 func storageTextPage(content []byte, input storageReadRequest, contentType string) map[string]any {
 	var result map[string]any
 	if input.OffsetChar != nil {

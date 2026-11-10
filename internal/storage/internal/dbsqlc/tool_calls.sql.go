@@ -300,7 +300,6 @@ type GetToolCallSummaryRow struct {
 	ParentToolCallID *uuid.UUID
 }
 
-// A program call has no model output; it reads as acting in its parent's turn.
 func (q *Queries) GetToolCallSummary(ctx context.Context, arg GetToolCallSummaryParams) (GetToolCallSummaryRow, error) {
 	row := q.db.QueryRow(ctx, getToolCallSummary, arg.ProjectID, arg.AgentID, arg.ID)
 	var i GetToolCallSummaryRow
@@ -603,8 +602,6 @@ type ListToolCallsForParentRow struct {
 	ParentToolCallID *uuid.UUID
 }
 
-// ListToolCallsForParent lists the program calls a run_command call's process
-// made; it seeks on tool_calls_program_key_idx. Rows match ListToolCallsForAgent.
 func (q *Queries) ListToolCallsForParent(ctx context.Context, arg ListToolCallsForParentParams) ([]ListToolCallsForParentRow, error) {
 	rows, err := q.db.Query(ctx, listToolCallsForParent,
 		arg.ProjectID,

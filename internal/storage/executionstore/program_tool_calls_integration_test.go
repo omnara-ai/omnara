@@ -89,7 +89,6 @@ func TestProgramToolCallsStore(t *testing.T) {
 		require.True(t, found)
 		require.Equal(t, phase, claimed.Phase)
 		require.Equal(t, ref, claimed.Ref())
-		// A claimed call is not claimable again.
 		ref.ClaimID = uuid.New()
 		_, found, err = execution.ClaimProgramToolCall(ctx, ref, time.Minute)
 		require.NoError(t, err)
@@ -198,7 +197,6 @@ func TestProgramToolCallsStore(t *testing.T) {
 	ready, err := execution.GetToolCall(ctx, testProjectID, fixture.AgentID, third.ID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallStateReady, ready.State)
-	// The approved call is claimed for execution, once.
 	approved := claim(executionstore.ProgramToolCallPhaseExecute, third.ID)
 	require.Equal(t, third.ID, approved.ToolCallID)
 
@@ -243,5 +241,4 @@ func TestProgramToolCallsStore(t *testing.T) {
 	require.Zero(t, reaped)
 }
 
-// programKey is a stable idempotency key for a test label.
 func programKey(label string) uuid.UUID { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)) }

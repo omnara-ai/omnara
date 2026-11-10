@@ -44,7 +44,6 @@ export function MachinesTable({
   headerAction?: ReactNode
   /** Share/delete handlers; offered only on BYO machines the caller can manage. */
   actions?: MachineActions
-  /** Offer machine settings on rows the caller can manage. */
   settings?: boolean
   emptyMessage: string
   emptyAction?: ReactNode

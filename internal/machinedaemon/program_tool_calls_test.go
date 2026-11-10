@@ -75,8 +75,6 @@ func programToolCallLocalRequest(
 	return response, data
 }
 
-// answerProgramToolCallOffers connects a websocket transport with no backend
-// behind it and answers each offer the daemon sends with answer's reports.
 func answerProgramToolCallOffers(
 	t *testing.T, client *Client, answer func(daemonprotocol.ToolCallOffer) []daemonprotocol.ToolCallReport,
 ) *daemonSocketTransport {
@@ -150,8 +148,6 @@ func TestProgramToolCallServerOffersToBackend(t *testing.T) {
 		return all
 	}
 
-	// The response streams the call's reports until the completed one. Reports
-	// only move a call forward, so a slow reader may see just the latest.
 	response, body := programToolCallLocalRequest(t, local, http.MethodPost, "/tool-calls/"+processID, capability,
 		`{"key":"k-1","name":"storage_list","input":{"prefix":"a"}}`)
 	require.Equal(t, http.StatusOK, response.StatusCode, string(body))
@@ -163,7 +159,6 @@ func TestProgramToolCallServerOffersToBackend(t *testing.T) {
 	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, last.State)
 	require.JSONEq(t, `{"ok":true}`, string(last.Content[0].Value))
 
-	// A rejected offer ends the stream with the backend's reason.
 	_, body = programToolCallLocalRequest(t, local, http.MethodPost, "/tool-calls/"+processID, capability,
 		`{"key":"rejected","name":"storage_list","input":{"prefix":"a"}}`)
 	streamed = reports(body)
@@ -213,8 +208,6 @@ func mustProcessID(t *testing.T) string {
 	return id
 }
 
-// A call made while the websocket is down, or cut off by a reconnect, is
-// offered on the next connection.
 func TestProgramToolCallServerOffersAgainOnReconnect(t *testing.T) {
 	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
 	handler := client.newProgramToolCallHandler()
@@ -246,7 +239,6 @@ func TestProgramToolCallServerOffersAgainOnReconnect(t *testing.T) {
 		t.Fatalf("call returned without a report: %s", body)
 	case <-time.After(100 * time.Millisecond):
 	}
-	// Reports for other calls are ignored.
 	handler.report(daemonprotocol.ToolCallReport{ProcessID: processID, Key: "other"})
 	report := completedProgramToolCall(`1`)
 	report.ProcessID, report.Key = processID, "k-1"
@@ -490,8 +482,6 @@ func TestProgramToolCallCLIThroughDaemonServer(t *testing.T) {
 	require.Contains(t, denied.String(), "tool call request denied")
 }
 
-// approvalNotice is a stderr that approves the call once `omnarad call` says
-// it is waiting.
 type approvalNotice struct {
 	bytes.Buffer
 	once    sync.Once
@@ -501,4 +491,114 @@ type approvalNotice struct {
 func (n *approvalNotice) Write(p []byte) (int, error) {
 	n.once.Do(func() { close(n.waiting) })
 	return n.Buffer.Write(p)
+}
+
+func startAbandonedProgramToolCall(
+	t *testing.T, handler *programToolCallHandler, processID string,
+) (abandon func()) {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	go func() {
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			server.URL+"/tool-calls/"+processID, strings.NewReader(`{"key":"k-1","name":"storage_list","input":{}}`))
+		if !assert.NoError(t, err) {
+			return
+		}
+		request.Header.Set("Authorization", "Bearer "+programToolCallService.capability("supervisor-secret", processID))
+		response, err := server.Client().Do(request)
+		if err == nil {
+			_, _ = io.Copy(io.Discard, response.Body)
+			_ = response.Body.Close()
+		}
+	}()
+	require.Eventually(t, func() bool { return len(handler.offers()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	return cancel
+}
+
+func nextProgramToolCallMessage(t *testing.T, transport *daemonSocketTransport) daemonprotocol.Message {
+	t.Helper()
+	select {
+	case message := <-transport.send:
+		return message
+	case <-time.After(5 * time.Second):
+		t.Fatal("no message was sent")
+		return daemonprotocol.Message{}
+	}
+}
+
+func TestProgramToolCallServerCancelsAbandonedCall(t *testing.T) {
+	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
+	handler := client.newProgramToolCallHandler()
+	client.programToolCalls = handler
+	transport := newDaemonSocketTransport(client, DaemonRuntime{}, localStartupState{})
+	client.setTransport(transport)
+	t.Cleanup(func() { client.clearTransport(transport) })
+
+	abandon := startAbandonedProgramToolCall(t, handler, processID)
+	require.Equal(t, daemonprotocol.MessageToolCallOffer, nextProgramToolCallMessage(t, transport).Type)
+	abandon()
+	message := nextProgramToolCallMessage(t, transport)
+	require.Equal(t, daemonprotocol.MessageToolCallCancel, message.Type)
+	require.Equal(t, daemonprotocol.ToolCallCancel{ProcessID: processID, Key: "k-1"}, *message.ToolCallCancel)
+	require.Eventually(t, func() bool { return len(handler.offers()) == 0 }, 5*time.Second, 10*time.Millisecond)
+}
+
+func TestProgramToolCallServerCancelsAbandonedCallOnReconnect(t *testing.T) {
+	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
+	handler := client.newProgramToolCallHandler()
+	client.programToolCalls = handler
+
+	abandon := startAbandonedProgramToolCall(t, handler, processID)
+	abandon()
+	abandoned := func() int {
+		handler.mu.Lock()
+		defer handler.mu.Unlock()
+		return len(handler.abandoned)
+	}
+	require.Eventually(t, func() bool { return abandoned() == 1 }, 5*time.Second, 10*time.Millisecond)
+
+	transport := newDaemonSocketTransport(client, DaemonRuntime{}, localStartupState{})
+	handler.resume(t.Context(), transport)
+	offer := nextProgramToolCallMessage(t, transport)
+	require.Equal(t, daemonprotocol.MessageToolCallOffer, offer.Type)
+	require.Equal(t, "k-1", offer.ToolCallOffer.Key)
+	cancel := nextProgramToolCallMessage(t, transport)
+	require.Equal(t, daemonprotocol.MessageToolCallCancel, cancel.Type)
+	require.Equal(t, "k-1", cancel.ToolCallCancel.Key)
+	require.Zero(t, abandoned())
+
+	stopping := make(chan struct{})
+	close(stopping)
+	handler.stopping = stopping
+	handler.abandon(t.Context(), daemonprotocol.ToolCallOffer{ProcessID: processID})
+	require.Zero(t, abandoned())
+}
+
+func TestProgramToolCallOfferWaitsForSendQueue(t *testing.T) {
+	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
+	transport := newDaemonSocketTransport(client, DaemonRuntime{}, localStartupState{})
+	for range cap(transport.send) {
+		transport.send <- daemonprotocol.Message{Type: daemonprotocol.MessageHeartbeat}
+	}
+	sent := make(chan bool, 1)
+	go func() {
+		sent <- transport.offerToolCall(t.Context(), daemonprotocol.ToolCallOffer{ProcessID: processID})
+	}()
+	select {
+	case <-sent:
+		t.Fatal("offer did not wait for room")
+	case <-time.After(50 * time.Millisecond):
+	}
+	<-transport.send
+	require.True(t, <-sent)
+	require.Empty(t, transport.fatal, "a full queue must not fail the websocket")
+
+	go func() {
+		sent <- transport.offerToolCall(t.Context(), daemonprotocol.ToolCallOffer{ProcessID: processID})
+	}()
+	close(transport.done)
+	require.False(t, <-sent)
 }

@@ -35,6 +35,7 @@ const (
 	MessageSkillReport      MessageType = "skill_report"
 	MessageToolCallOffer    MessageType = "tool_call_offer"
 	MessageToolCallReport   MessageType = "tool_call_report"
+	MessageToolCallCancel   MessageType = "tool_call_cancel"
 )
 
 type AckStatus string
@@ -83,6 +84,7 @@ type Message struct {
 	SkillReport          *SkillReport
 	ToolCallOffer        *ToolCallOffer
 	ToolCallReport       *ToolCallReport
+	ToolCallCancel       *ToolCallCancel
 	Event                *ReportedEvent
 	DaemonInstanceID     uuid.UUID
 	ObservedPlatform     json.RawMessage
@@ -220,6 +222,11 @@ func (m Message) payloadForType() (json.RawMessage, error) {
 			return nil, errors.New("tool_call_report payload is required")
 		}
 		payload = m.ToolCallReport
+	case MessageToolCallCancel:
+		if m.ToolCallCancel == nil {
+			return nil, errors.New("tool_call_cancel payload is required")
+		}
+		payload = m.ToolCallCancel
 	default:
 		return nil, fmt.Errorf("unsupported daemon protocol message type %q", m.Type)
 	}
@@ -363,6 +370,12 @@ func messageFromEnvelope(env envelope) (Message, error) {
 		}
 		msg.ProcessID = payload.ProcessID
 		msg.ToolCallReport = &payload
+	case MessageToolCallCancel:
+		var payload ToolCallCancel
+		if err := decodeEnvelope(env.Payload, &payload); err != nil {
+			return Message{}, err
+		}
+		msg.ToolCallCancel = &payload
 	default:
 		return msg, nil
 	}

@@ -19,8 +19,6 @@ export function AgentConfigProgrammaticToolCallsField({
 }) {
   const enabled = value?.enabled === true
   const exclude = value?.exclude ?? []
-  // The draft keeps what was typed, such as a trailing comma, and resyncs when the list
-  // changes from outside, such as a YAML edit.
   const [excludeDraft, setExcludeDraft] = useState(() => exclude.join(', '))
   if (!sameNames(namesFromDraft(excludeDraft), exclude)) setExcludeDraft(exclude.join(', '))
 
@@ -39,7 +37,6 @@ export function AgentConfigProgrammaticToolCallsField({
         }
         checked={enabled}
         onChange={(event) => {
-          // A disabled section keeps its excluded tools for when it is enabled again.
           if (event.target.checked) onChange(programmaticToolCalls(exclude))
           else onChange(exclude.length > 0 ? { enabled: false, exclude } : undefined)
         }}

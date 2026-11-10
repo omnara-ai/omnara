@@ -177,7 +177,6 @@ func (h *Handle) ResolveInteraction(ctx context.Context, input ResolveInteractio
 	if _, err := h.Route(); err != nil {
 		return Interaction{}, err
 	}
-	// Program-call interactions resolve without touching the agent's execution.
 	if row, err := executiondb.New().ReadExecutionInteraction(ctx, h.unit.DB(),
 		executiondb.ReadExecutionInteractionParams{AgentID: h.route.AgentID, ID: input.ID},
 	); err == nil && row.Caller == "program" {

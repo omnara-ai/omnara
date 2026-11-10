@@ -7,8 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 )
 
-// MCPServerConfigHash is the MCP connection identity, stored as a connection's
-// ConfigHash: it hashes only the MCP
+// MCPServerConfigHash is the MCP connection identity: it hashes only the MCP
 // projection of the agent config (server key, endpoint, tool surface, and
 // permissions). It deliberately excludes the whole-config definition hash so
 // config changes that leave a server's MCP projection unchanged (model switch,

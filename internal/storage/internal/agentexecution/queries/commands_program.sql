@@ -42,9 +42,11 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.caller='program'
 RETURNING c.program_claim_expires_at;
 
 -- name: ListProgramToolReapable :many
-SELECT c.id,c.agent_id,a.project_id FROM tool_calls c JOIN agents a ON a.id=c.agent_id
+SELECT c.id,c.agent_id,a.project_id,c.created_at FROM tool_calls c JOIN agents a ON a.id=c.agent_id
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active' OR p.execution_granted_at IS NULL
- OR p.state NOT IN ('starting','running') OR (c.state='waiting' AND c.program_claim_expires_at<=statement_timestamp()))
+ OR p.state NOT IN ('starting','running')
+ OR (c.state='waiting' AND c.type<>'built_in' AND c.program_claim_expires_at<=statement_timestamp()))
+ AND (c.created_at,c.id)>(sqlc.arg(after_created_at)::timestamptz,sqlc.arg(after_id)::uuid)
 ORDER BY c.created_at,c.id LIMIT sqlc.arg(limit_count);
 

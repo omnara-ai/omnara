@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,14 +14,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-// Program tool calls are tools a run_command process calls through
-// `omnarad call`. They run under a claim with the permissions of the
-// agent's current config, and never enter model context.
-
-// AgentConfigToolSpecs returns the runtime tools of an agent config, as its
-// model calls see them.
 func AgentConfigToolSpecs(
 	ctx context.Context, store *storage.Store, projectID, agentID, agentConfigID uuid.UUID,
 ) ([]modelcontext.ToolSpec, agentconfig.RuntimeContract, error) {
@@ -33,8 +29,6 @@ func AgentConfigToolSpecs(
 	return specs, contract, err
 }
 
-// AgentConfigToolSpec is AgentConfigToolSpecs for the tool name alone. It
-// loads only what that tool needs.
 func AgentConfigToolSpec(
 	ctx context.Context, store *storage.Store, projectID, agentID, agentConfigID uuid.UUID, name string,
 ) (modelcontext.ToolSpec, agentconfig.RuntimeContract, bool, error) {
@@ -66,8 +60,6 @@ func modelContextStore(store *storage.Store) modelcontext.Store {
 
 const programToolCallInternalError = "The tool call failed because of an internal error."
 
-// ProgramToolSearch answers `omnarad call tool_search`. It takes tool_search's
-// input but returns every match unless max_results is set.
 func ProgramToolSearch(
 	specs []modelcontext.ToolSpec, input json.RawMessage,
 ) (modelcontext.ProgramToolSearchResult, error) {
@@ -78,10 +70,6 @@ func ProgramToolSearch(
 	return modelcontext.SearchTools(specs, request.Pattern, request.MaxResults)
 }
 
-// RunProgramToolCall runs the claimed phase of a program tool call: the
-// permission step, or execution. An async tool keeps running after it returns
-// under the context's async execution scope; the caller renews the claim until
-// that scope is done.
 func (e Executor) RunProgramToolCall(
 	ctx context.Context, claim executionstore.ProgramToolCallClaim, lease time.Duration,
 ) error {
@@ -95,8 +83,6 @@ func (e Executor) RunProgramToolCall(
 	if err == nil || errors.Is(err, storeerr.ErrRuntimeLockInactive) || ctx.Err() != nil {
 		return err
 	}
-	// Fail the call rather than leave it to be re-claimed into the same error.
-	// The command gets a fixed message; the caller logs the error.
 	parts, contentErr := structuredParts(map[string]any{
 		"error_code": "tool_call_failed", "error": programToolCallInternalError,
 	})
@@ -118,7 +104,6 @@ func (e Executor) runProgramPhase(ctx context.Context, turn Turn, claim executio
 		if err != nil || authorized.State != executionstore.ToolCallStateWaiting {
 			return err
 		}
-		// An allowed call is left waiting under this claim: run it now.
 		_, err = e.DispatchRecordedToolCall(ctx, turn, authorized)
 		return err
 	case executionstore.ProgramToolCallPhaseExecute:
@@ -133,15 +118,15 @@ func (e Executor) runProgramPhase(ctx context.Context, turn Turn, claim executio
 	}
 }
 
-// programTurn is the turn a program call acts in: the parent's model call
-// context, the called tool if commands may call it under the agent's current
-// config, and the claim as its authority.
 func (e Executor) programTurn(
 	ctx context.Context, claim executionstore.ProgramToolCallClaim, lease time.Duration,
 ) (Turn, error) {
+	authority := programClaimAuthority{ref: claim.Ref(), lease: lease, stopped: ctx.Done()}
+	if claim.Type != toolcatalog.ToolTypeBuiltIn {
+		authority.started = new(atomic.Bool)
+	}
 	turn := Turn{ProjectID: claim.ProjectID, AgentID: claim.AgentID, SourceEventID: claim.SourceEventID,
-		ModelCallContextID: claim.ModelCallContextID,
-		authority:          programClaimAuthority{ref: claim.Ref(), lease: lease}}
+		ModelCallContextID: claim.ModelCallContextID, authority: authority}
 	contextRecord, found, err := e.Store.Execution().
 		GetModelCallContext(ctx, claim.ProjectID, claim.AgentID, claim.ModelCallContextID)
 	if err != nil {

@@ -12,11 +12,9 @@ import (
 )
 
 type ToolSearchDefinition struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"input_schema"`
-	// OutputSchema is set only in program tool_search results: what calling
-	// the tool from a command prints.
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"input_schema"`
 	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
 }
 
@@ -105,17 +103,12 @@ func SearchDeferredTools(specs []ToolSpec, pattern string, maxResults int) (Tool
 	return result, nil
 }
 
-// ProgramToolSearchResult is tool_search's answer to `omnarad call`: every
-// matching tool, deferred or not, with its output schema when it has one.
-// Total counts matches before MaxResults.
 type ProgramToolSearchResult struct {
 	Pattern string                 `json:"pattern"`
 	Tools   []ToolSearchDefinition `json:"tools"`
 	Total   int                    `json:"total"`
 }
 
-// SearchTools matches pattern like SearchDeferredTools across all specs and
-// returns up to maxResults of them; maxResults <= 0 returns every match.
 func SearchTools(specs []ToolSpec, pattern string, maxResults int) (ProgramToolSearchResult, error) {
 	pattern, matches, err := searchTools(specs, pattern, 0)
 	if err != nil {
@@ -133,8 +126,6 @@ func SearchTools(specs []ToolSpec, pattern string, maxResults int) (ProgramToolS
 	return result, nil
 }
 
-// searchTools returns the trimmed pattern and up to limit matching specs (all
-// when limit <= 0), sorted by name.
 func searchTools(specs []ToolSpec, pattern string, limit int) (string, []ToolSpec, error) {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {

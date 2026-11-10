@@ -174,9 +174,7 @@ func (t *daemonSocketTransport) Run(ctx context.Context) (bool, error) {
 	})
 	t.resumeStartupActions(runCtx)
 	t.reportReadyStorageFailures(runCtx)
-	for _, offer := range t.client.programToolCalls.offers() {
-		t.offerToolCall(offer)
-	}
+	t.launchWorker(func() { t.client.programToolCalls.resume(runCtx, t) })
 
 	heartbeatDelay, err := nextHeartbeatDelay(t.runtime)
 	if err != nil {
@@ -542,7 +540,8 @@ func (t *daemonSocketTransport) handleMessage(
 		daemonprotocol.MessageActionAccept,
 		daemonprotocol.MessageReport,
 		daemonprotocol.MessageSkillReport,
-		daemonprotocol.MessageToolCallOffer:
+		daemonprotocol.MessageToolCallOffer,
+		daemonprotocol.MessageToolCallCancel:
 		return fmt.Errorf(
 			"unexpected server-to-daemon message type %q",
 			message.Type,

@@ -46,7 +46,6 @@ SELECT call.id, call.agent_id, source_event.turn_id, call.provider_call_id,
   coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at,
   call.caller, call.parent_tool_call_id
 FROM tool_calls call
--- A program call has no model output; it reads as acting in its parent's turn.
 LEFT JOIN tool_calls parent ON parent.agent_id = call.agent_id
   AND parent.id = call.parent_tool_call_id
 JOIN agent_events source_event ON source_event.agent_id = call.agent_id
@@ -139,8 +138,6 @@ WHERE call.project_id = sqlc.arg(project_id)
 ORDER BY call.created_at ASC, call.id ASC
 LIMIT sqlc.arg(row_limit)::bigint;
 
--- ListToolCallsForParent lists the program calls a run_command call's process
--- made; it seeks on tool_calls_program_key_idx. Rows match ListToolCallsForAgent.
 -- name: ListToolCallsForParent :many
 SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,

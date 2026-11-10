@@ -1,8 +1,3 @@
-// Package programoutput describes the JSON values `omnarad call` prints for
-// the built-in tools commands may call: a successful call's first structured
-// result part. Struct results are reflected from the types the tools return;
-// storage_read builds maps, so its schema is written out. The tools' tests
-// check real results against every schema.
 package programoutput
 
 import (
@@ -21,8 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
-// storageReadSchema covers the text pages readFileLines and
-// readFileChars return and completeImageRead's metadata.
 const storageReadSchema = `{
 	"description": "One page of a text file, or an image file's metadata (the image is a media_ref in --output=envelope content).",
 	"anyOf": [
@@ -77,7 +70,6 @@ const storageReadSchema = `{
 	]
 }`
 
-// StorageSearch is storage_search's result.
 type StorageSearch struct {
 	Lines            []StorageSearchLine `json:"lines,omitempty"`
 	Files            []StorageSearchFile `json:"files,omitempty"`
@@ -86,7 +78,6 @@ type StorageSearch struct {
 	IncompleteReason string              `json:"incomplete_reason,omitempty"`
 }
 
-// StorageSearchLine is one matching or context line, or a multiline block.
 type StorageSearchLine struct {
 	Path       string `json:"path"`
 	LineNumber int    `json:"line_number"`
@@ -95,33 +86,25 @@ type StorageSearchLine struct {
 	IsMatch    bool   `json:"is_match"`
 }
 
-// StorageSearchFile is a matching file in -l and -c modes.
 type StorageSearchFile struct {
 	Path  string  `json:"path"`
 	Count *uint64 `json:"count,omitempty"`
 }
 
-// WebSearch is web_search's result for commands; model calls get the results
-// rendered as text.
 type WebSearch struct {
 	Query   string                   `json:"query"`
 	Results []webaccess.SearchResult `json:"results"`
 }
 
-// WebFetch is web_fetch's result for commands: the page metadata model calls
-// get, plus the content they get as text.
 type WebFetch struct {
 	webaccess.FetchResult
 	Content string `json:"content"`
 }
 
-// GitHubPendingReview is the pending_review section of a GitHub PR read.
 type GitHubPendingReview struct {
 	Review *github.Review `json:"review"`
 }
 
-// builtInSchemas and integrationReadSchemas are the tools commands may call,
-// besides MCP tools: each one's result type is part of its contract.
 var (
 	builtInSchemas = map[string]func() (json.RawMessage, error){
 		toolcatalog.ToolNameStorageRead: func() (json.RawMessage, error) {
@@ -146,28 +129,21 @@ type schemaSet struct {
 
 var schemas = sync.OnceValues(buildSchemas)
 
-// HasBuiltIn reports whether commands may call the built-in tool name.
 func HasBuiltIn(name string) bool {
 	_, ok := builtInSchemas[name]
 	return ok
 }
 
-// HasIntegrationRead reports whether commands may call the read tool of an
-// integration of kind.
 func HasIntegrationRead(kind integrationdefinition.Kind) bool {
 	_, ok := integrationReadSchemas[kind]
 	return ok
 }
 
-// BuiltIn returns the schema of what commands get from the built-in tool
-// name, or nil when commands cannot call it.
 func BuiltIn(name string) (json.RawMessage, error) {
 	set, err := schemas()
 	return set.builtIns[name], err
 }
 
-// IntegrationRead returns the schema of what commands get from the read tool
-// of an integration of kind, or nil when commands cannot call it.
 func IntegrationRead(kind integrationdefinition.Kind) (json.RawMessage, error) {
 	set, err := schemas()
 	return set.integrations[kind], err
@@ -192,7 +168,6 @@ func buildSchemas() (schemaSet, error) {
 	return set, nil
 }
 
-// githubReadOutputSchema is one alternative per read section, titled with it.
 func githubReadOutputSchema() (json.RawMessage, error) {
 	sections := []struct {
 		section string
@@ -230,7 +205,6 @@ func reflectOutputSchema[T any]() (json.RawMessage, error) {
 }
 
 func reflectSchema[T any]() (*jsonschema.Schema, error) {
-	// Raw JSON fields, such as a Discord message nonce, may hold any value.
 	return jsonschema.For[T](&jsonschema.ForOptions{
 		TypeSchemas: map[reflect.Type]*jsonschema.Schema{reflect.TypeFor[json.RawMessage](): {}},
 	})
