@@ -48,7 +48,7 @@ export type AgentConfigDefinitionGitCredentials = {
      */
     repository_ids?: Array<number>;
     /**
-     * Prevents pushing, even if the integration allows it.
+     * Prevents pushing and opening or approving pull requests, even if the integration allows it.
      */
     read_only?: boolean;
 };
@@ -4598,7 +4598,7 @@ export type GitHubIntegrationSettings = {
     /**
      * Let agents push code
      *
-     * Git credentials can push. Off by default: read-only.
+     * Git credentials can push and open or approve pull requests. Off by default: read-only.
      */
     code_write?: boolean;
 };

@@ -95,6 +95,43 @@ func TestInstallationGitCredentialsScopeCacheAndExpiry(t *testing.T) {
 	}
 }
 
+func TestInstallationGitCredentialsDropPullRequestsWhenNotGranted(t *testing.T) {
+	for _, message := range []string{
+		"The permissions requested are not granted to this installation.", "Validation failed",
+	} {
+		t.Run(message, func(t *testing.T) {
+			var requests []map[string]string
+			client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				var input struct {
+					Permissions map[string]string `json:"permissions"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+					t.Error(err)
+					return
+				}
+				requests = append(requests, input.Permissions)
+				if input.Permissions["pull_requests"] != "" {
+					w.WriteHeader(http.StatusUnprocessableEntity)
+					fmt.Fprintf(w, `{"message":%q}`, message)
+					return
+				}
+				gitCredentialResponse(w, "contents-only", "write", time.Now().Add(time.Hour))
+			})
+			credentials, err := client.InstallationGitCredentials(t.Context(), true, []int64{789})
+			if message == "Validation failed" {
+				if err == nil || len(requests) != 1 {
+					t.Fatalf("unrelated rejection retried or succeeded: %v, %v", err, requests)
+				}
+				return
+			}
+			if err != nil || credentials.Token != "contents-only" || len(requests) != 2 ||
+				requests[1]["contents"] != "write" || requests[1]["metadata"] != "read" || len(requests[1]) != 2 {
+				t.Fatalf("credentials = %+v, err = %v, requests = %v", credentials, err, requests)
+			}
+		})
+	}
+}
+
 func TestInstallationGitCredentialsReadOnlyUnlessWriteGranted(t *testing.T) {
 	var readOnly, writable atomic.Int32
 	client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -105,8 +142,9 @@ func TestInstallationGitCredentialsReadOnlyUnlessWriteGranted(t *testing.T) {
 		}
 		var input map[string]map[string]string
 		var contents string
-		if json.Unmarshal(body, &input) == nil && len(input) == 1 && len(input["permissions"]) == 2 &&
-			input["permissions"]["metadata"] == "read" {
+		if json.Unmarshal(body, &input) == nil && len(input) == 1 && len(input["permissions"]) == 3 &&
+			input["permissions"]["metadata"] == "read" &&
+			input["permissions"]["pull_requests"] == input["permissions"]["contents"] {
 			contents = input["permissions"]["contents"]
 		}
 		switch contents {

@@ -116,9 +116,14 @@ func (c *Client) InstallationGitCredentials(
 	input := struct {
 		Permissions   map[string]string `json:"permissions"`
 		RepositoryIDs []int64           `json:"repository_ids,omitempty"`
-	}{map[string]string{"contents": permission, "metadata": "read"}, repositoryIDs}
+	}{map[string]string{"contents": permission, "pull_requests": permission, "metadata": "read"}, repositoryIDs}
 	path := "/app/installations/" + strconv.FormatInt(c.installationID, 10) + "/access_tokens"
-	if _, err := c.doJSON(ctx, http.MethodPost, path, jwt, input, &result, false); err != nil {
+	_, err = c.doJSON(ctx, http.MethodPost, path, jwt, input, &result, false)
+	if errors.Is(err, errPermissionsNotGranted) {
+		delete(input.Permissions, "pull_requests")
+		_, err = c.doJSON(ctx, http.MethodPost, path, jwt, input, &result, false)
+	}
+	if err != nil {
 		return InstallationCredentials{}, err
 	}
 	if err := ctx.Err(); err != nil {

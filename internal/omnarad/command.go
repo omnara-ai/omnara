@@ -47,6 +47,12 @@ type daemonCommand struct {
 		ProcessID string `arg:"positional,required"`
 		Operation string `arg:"positional,required"`
 	} `arg:"subcommand:__omnara_git_credential,hidden"`
+	GitHubCLI *struct {
+		Endpoint   string   `arg:"positional,required"`
+		ProcessID  string   `arg:"positional,required"`
+		WrapperDir string   `arg:"positional,required"`
+		Args       []string `arg:"positional"`
+	} `arg:"subcommand:__omnara_gh,hidden"`
 	ProcessRunner *struct {
 		BootstrapPath string `arg:"positional,required"`
 		LockFD        int    `arg:"positional,required"`
@@ -231,6 +237,14 @@ func Run(
 			return 1
 		}
 		return 0
+	case command.GitHubCLI != nil:
+		err := machinedaemon.RunGitHubCLI(ctx, command.GitHubCLI.Endpoint, command.GitHubCLI.ProcessID,
+			command.GitHubCLI.WrapperDir, command.GitHubCLI.Args)
+		_, _ = fmt.Fprintln(stderr, err)
+		if errors.Is(err, machinedaemon.ErrGitHubCLINotFound) {
+			return 127
+		}
+		return 1
 	case command.ProcessRunner != nil:
 		if err := machinedaemon.RunCommandSupervisorFromBootstrap(
 			ctx,

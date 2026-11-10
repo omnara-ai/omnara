@@ -1745,6 +1745,11 @@ func prepareLocalRunner(
 			return preparedRunnerWithStartFailure(runner, errors.New("git credential helper is unavailable"))
 		}
 		command.Env = gitCredentialEnvironment(command.Env, assignment.ID, assignment.GitCredentialHelper)
+		command.Env, err = gitHubCLIEnvironment(command.Env, filepath.Join(filepath.Dir(outputPath), "bin"),
+			assignment.ID, assignment.GitCredentialHelper)
+		if err != nil {
+			return preparedRunnerWithStartFailure(runner, err)
+		}
 	}
 	runner.cmd = command
 	return runner, nil

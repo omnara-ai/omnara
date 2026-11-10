@@ -9,7 +9,7 @@
           "type": "string"
         },
         "read_only": {
-          "description": "Prevents pushing, even if the integration allows it.",
+          "description": "Prevents pushing and opening or approving pull requests, even if the integration allows it.",
           "type": "boolean"
         },
         "repository_ids": {

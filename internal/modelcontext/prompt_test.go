@@ -46,7 +46,9 @@ func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 			name:           "command with git credentials",
 			specs:          []ToolSpec{{Name: toolcatalog.ToolNameRunCommand}},
 			gitCredentials: true,
-			want:           []string{"run_command", "authenticated to github.com", "don't cover SSH remotes or the `gh` CLI"},
+			want: []string{
+				"run_command", "Git and `gh` commands", "authenticated to github.com", "don't cover SSH remotes.",
+			},
 		},
 		{
 			name: "process controls",
