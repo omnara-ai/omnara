@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -210,10 +211,22 @@ func (h *Handle) terminalFailure(
 func (h *Handle) publishTerminalFailure(ctx context.Context, m *executionMutation, input ModelFailure,
 	row executiondb.ReadExecutionAttemptRow, snapshot ExecutionSnapshot, changed bool) (bool, error) {
 	q := executiondb.New()
-	parts := []Content{{Kind: "error", Text: input.ErrorMessage}}
 	if !changed {
 		return false, nil
 	}
+	text := input.ErrorMessage
+	if input.ErrorKind == modelprotocol.ErrorKindBillingAccount {
+		provider, err := q.ReadExecutionModelProvider(ctx, h.unit.DB(), executiondb.ReadExecutionModelProviderParams{
+			AgentID: h.route.AgentID, ID: input.ContextID})
+		if err != nil {
+			return false, err
+		}
+		text = fmt.Sprintf("Model provider %q returned a billing error: %s", provider.Name, input.ErrorMessage)
+		if provider.OmnaraCredits {
+			text = storeerr.InsufficientOmnaraCreditsMessage
+		}
+	}
+	parts := []Content{{Kind: "error", Text: text}}
 	output, err := q.CreateExecutionOutput(ctx, h.unit.DB(), executiondb.CreateExecutionOutputParams{
 		AgentID: h.route.AgentID, ContextID: input.ContextID, StopReason: "error", ServedModel: input.ServedModel})
 	if err != nil {
@@ -242,7 +255,7 @@ func (h *Handle) publishTerminalFailure(ctx context.Context, m *executionMutatio
 	}
 	if err = h.parentEffect(ctx,
 		"failed",
-		input.ErrorMessage,
+		text,
 		"model_output:"+output.ID.String(),
 		uuid.Nil); err != nil {
 		return false, err

@@ -52,16 +52,17 @@ func ErrorKindFromHTTPStatus(statusCode int) ErrorKind {
 }
 
 type ProviderError struct {
-	Kind       ErrorKind       `json:"kind"`
-	Source     string          `json:"source,omitempty"`
-	StatusCode int             `json:"status_code,omitempty"`
-	Code       string          `json:"code,omitempty"`
-	Message    string          `json:"message,omitempty"`
-	RequestID  string          `json:"request_id,omitempty"`
-	RetryAfter *RetryAfter     `json:"retry_after,omitempty"`
-	Retryable  *bool           `json:"retryable,omitempty"`
-	Metadata   json.RawMessage `json:"metadata,omitempty"`
-	Cause      error           `json:"-"`
+	Kind                   ErrorKind       `json:"kind"`
+	Source                 string          `json:"source,omitempty"`
+	StatusCode             int             `json:"status_code,omitempty"`
+	Code                   string          `json:"code,omitempty"`
+	Message                string          `json:"message,omitempty"`
+	RequestID              string          `json:"request_id,omitempty"`
+	RetryAfter             *RetryAfter     `json:"retry_after,omitempty"`
+	AffordableOutputTokens *int            `json:"affordable_output_tokens,omitempty"`
+	Retryable              *bool           `json:"retryable,omitempty"`
+	Metadata               json.RawMessage `json:"metadata,omitempty"`
+	Cause                  error           `json:"-"`
 }
 
 type RetryAfter struct {
