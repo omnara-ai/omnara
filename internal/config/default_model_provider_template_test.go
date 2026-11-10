@@ -13,6 +13,59 @@ import (
 
 const testHostedAPIToken = "test-hosted-api-token-with-at-least-32-bytes"
 
+func TestLoadOpenLakeDefaultModelProviderExample(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_HOSTED_API_URL", "https://operator.example.test")
+	t.Setenv("OMNARA_HOSTED_API_TOKEN", testHostedAPIToken)
+	t.Setenv("OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE", filepath.Join("..", "..", "examples", "openlake", "default-model-provider.yaml"))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load OpenLake example: %v", err)
+	}
+	if cfg.DefaultModelProvider == nil {
+		t.Fatal("OpenLake default provider was not loaded")
+	}
+	template := *cfg.DefaultModelProvider
+	if template.Provisioner != "openlake" || template.Name != "omnara-openlake" ||
+		template.CredentialSecretName != "omnara-openlake-key" ||
+		template.APIFormat != modelprotocol.APIFormatOpenAIChatCompletions ||
+		template.APIVariant != modelprotocol.APIVariantDefault ||
+		template.BaseURL != "https://api.theopenlake.com/v1" ||
+		template.EndpointPath != "/chat/completions" ||
+		template.AuthKind != modelstore.ModelProviderAuthKindBearerToken {
+		t.Fatalf("unexpected OpenLake provider: %+v", template)
+	}
+	wantModels := map[string]int{
+		"google/gemma-4-31b-it":           262144,
+		"moonshotai/kimi-k3":              1048576,
+		"z-ai/glm-5":                      204800,
+		"z-ai/glm-5.2":                    1048576,
+		"z-ai/glm-5.3-flash":              1048576,
+		"z-ai/glm-5.3":                    1048576,
+		"deepseek/deepseek-v4-flash-0731": 1048576,
+		"deepseek/deepseek-v4.1-flash":    1048576,
+		"meta/muse-spark-open":            1048576,
+	}
+	if len(template.Models) != len(wantModels) {
+		t.Fatalf("OpenLake model count = %d, want %d", len(template.Models), len(wantModels))
+	}
+	for _, model := range template.Models {
+		contextWindow, ok := wantModels[model.ProviderModelSlug]
+		if !ok || model.Name != model.ProviderModelSlug || model.ContextWindowTokens != contextWindow {
+			t.Fatalf("unexpected OpenLake model: %+v", model)
+		}
+		if model.SupportsTools == nil || !*model.SupportsTools ||
+			model.DefaultMaxOutputTokens == nil || *model.DefaultMaxOutputTokens != 4096 {
+			t.Fatalf("unexpected OpenLake tool support or output allowance: %+v", model)
+		}
+		delete(wantModels, model.ProviderModelSlug)
+	}
+	if len(wantModels) != 0 {
+		t.Fatalf("missing OpenLake models: %v", wantModels)
+	}
+}
+
 func TestLoadDefaultModelProviderTemplate(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	t.Setenv("OMNARA_HOSTED_API_URL", "https://saas.example.test/private")

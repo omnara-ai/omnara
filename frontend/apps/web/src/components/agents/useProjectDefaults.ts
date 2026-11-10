@@ -3,6 +3,8 @@ import { type ConfiguredModelSummary, type MachinePoolSummary, sdk } from '@omna
 import { listProjectMachinePoolGrantsQueryKey } from '@omnara/sdk/tanstack'
 import { useQuery } from '@tanstack/react-query'
 
+import { selectDefaultModel } from '@/components/agents/default-model'
+
 interface ProjectDefaults {
   ready: boolean
   defaultModel?: ConfiguredModelSummary
@@ -10,8 +12,6 @@ interface ProjectDefaults {
 }
 
 const defaultPoolName = 'default-pool'
-
-const preferredModel = { provider_config: 'omnara-openrouter', name: 'openai/gpt-6.1-sol' }
 
 export function useProjectDefaults(orgId: string, projectId: string): ProjectDefaults {
   const client = useOmnaraClient()
@@ -43,12 +43,7 @@ export function useProjectDefaults(orgId: string, projectId: string): ProjectDef
     pageSize: 100,
   })
   const modelGrants = modelGrantsQuery.data?.pages[0]?.data ?? []
-  const defaultModel =
-    modelGrants.find(
-      ({ model }) =>
-        model.provider_config === preferredModel.provider_config &&
-        model.name === preferredModel.name,
-    )?.model ?? modelGrants[0]?.model
+  const defaultModel = selectDefaultModel(modelGrants.map(({ model }) => model))
   return {
     ready: !defaultPoolQuery.isPending && !modelGrantsQuery.isPending,
     defaultModel,

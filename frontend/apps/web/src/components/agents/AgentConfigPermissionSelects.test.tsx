@@ -2,6 +2,7 @@
 
 import { OmnaraClientProvider } from '@omnara/react'
 import {
+  type ConfiguredModelSummary,
   createOmnaraClient,
   type MachinePoolSummary,
   type ToolCatalog,
@@ -629,8 +630,14 @@ it.each([
   },
 )
 
-function NewAgentDraftHarness({ pool }: { pool?: MachinePoolSummary }) {
-  const { form } = useAgentDraft(catalog, pool, undefined, undefined, {
+function NewAgentDraftHarness({
+  pool,
+  model,
+}: {
+  pool?: MachinePoolSummary
+  model?: ConfiguredModelSummary
+}) {
+  const { form } = useAgentDraft(catalog, pool, model, undefined, {
     orgId: 'org-test',
     projectId: 'project-test',
   })
@@ -648,6 +655,27 @@ function NewAgentDraftHarness({ pool }: { pool?: MachinePoolSummary }) {
     </>
   )
 }
+
+it('starts a blank draft with the preferred model without replacing it on rerender', async () => {
+  const model: ConfiguredModelSummary = {
+    id: 'model-test',
+    org_id: 'org-test',
+    model_provider_config_id: 'provider-test',
+    provider_config: 'omnara-openlake',
+    name: 'google/gemma-4-31b-it',
+    provider_model_slug: 'google/gemma-4-31b-it',
+    created_at: '2026-11-10T00:00:00Z',
+    updated_at: '2026-11-10T00:00:00Z',
+  }
+  await renderAndFlush(<NewAgentDraftHarness model={model} />)
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toMatchObject({
+    model: { provider_config: 'omnara-openlake', name: 'google/gemma-4-31b-it' },
+  })
+  await renderAndFlush(<NewAgentDraftHarness model={{ ...model, name: 'moonshotai/kimi-k3' }} />)
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toMatchObject({
+    model: { provider_config: 'omnara-openlake', name: 'google/gemma-4-31b-it' },
+  })
+})
 
 it('seeds the resolved pool only once, using its current name', async () => {
   const pool = machinePool({ name: 'renamed-hosted-pool', management_kind: 'cluster' })

@@ -340,6 +340,28 @@ models:
 Templates support the [token settings and timeouts](/organization/model-providers)
 described for model providers.
 
+**OpenLake:**
+
+The repository includes an [OpenLake template](https://github.com/omnara-ai/omnara/blob/main/examples/openlake/default-model-provider.yaml)
+with nine visible models from a catalog snapshot. Review model availability and
+limits before deployment. The example uses OpenAI Chat Completions at
+`https://api.theopenlake.com/v1`, bearer-token authentication, and the `default`
+API variant.
+
+Set `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` to the template's deployed path on
+both the API and maintenance. Configure `OMNARA_HOSTED_API_URL` and
+`OMNARA_HOSTED_API_TOKEN` for your operator credential service, which must handle
+the `openlake` provisioner and return a usable OpenLake key through the contract
+below. The OpenLake inference URL is not the operator credential-service URL.
+
+Only one default-provider template is supported per installation. Selecting this
+template provisions `omnara-openlake` for new organizations; it does not also
+provision `omnara-openrouter`. Existing providers remain available. In projects
+with shared OpenLake models, new agents prefer `google/gemma-4-31b-it`, then
+another OpenLake model. Projects without OpenLake retain the OpenRouter and
+first-available-model fallbacks. This configuration does not change Omnara Cloud's
+deployment.
+
 To reconcile configured defaults into existing organizations, run these commands
 with the same database and template environment as the API:
 

@@ -39,6 +39,8 @@ export function useAgentDraft(
       ? agentTemplateBasicConfig(initialTemplate, catalog, defaultPool, defaultModel)
       : {
           ...emptyBasicConfig,
+          providerConfig: defaultModel?.provider_config ?? '',
+          modelName: defaultModel?.name ?? '',
           tools: defaultAgentTools(catalog),
           machineSources: defaultAgentMachineSources(defaultPool),
         }
