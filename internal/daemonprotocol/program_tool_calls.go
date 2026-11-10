@@ -3,9 +3,10 @@ package daemonprotocol
 import "encoding/json"
 
 // Program tool calls let a run_command shell call the agent's other tools
-// through `omnarad call`, relayed by the daemon to the backend.
+// through `omnarad call`. The daemon offers each call to the backend on its
+// websocket and the backend reports where the call stands, the reverse of
+// process offers and reports.
 const (
-	ProgramToolCallStatePending          = "pending"
 	ProgramToolCallStateAwaitingApproval = "awaiting_approval"
 	ProgramToolCallStateCompleted        = "completed"
 
@@ -15,13 +16,12 @@ const (
 	ProgramToolCallContentText           = "text"
 	ProgramToolCallContentStructuredData = "structured_data"
 
-	// ProgramToolCallMaxWaitMs bounds how long one poll may be held open.
-	ProgramToolCallMaxWaitMs = 25000
-
-	// ProgramToolCallMaxInputBytes bounds a call's input.
-	// ProgramToolCallMaxRequestBytes leaves room for the key and name around it.
-	ProgramToolCallMaxInputBytes   = 1024 * 1024
-	ProgramToolCallMaxRequestBytes = ProgramToolCallMaxInputBytes + 4096
+	// ProgramToolCallMaxInputBytes and ProgramToolCallMaxResultBytes keep an
+	// offer and a report inside one websocket message.
+	// TODO: decide how calls with larger inputs or results should travel
+	// (paging, artifacts, or a bulk channel) instead of failing them.
+	ProgramToolCallMaxInputBytes  = MaxMessageBytes - 16*1024
+	ProgramToolCallMaxResultBytes = MaxMessageBytes - 16*1024
 )
 
 type ProgramToolCallRequest struct {
@@ -44,4 +44,24 @@ type ProgramToolCallContent struct {
 	Text       string          `json:"text,omitempty"`
 	Value      json.RawMessage `json:"value,omitempty"`
 	ArtifactID string          `json:"artifact_id,omitempty"`
+}
+
+// ToolCallOffer is a call a process asks the backend to make. The daemon
+// offers it again, with the same key, whenever its websocket reconnects before
+// the call's completed report arrived.
+type ToolCallOffer struct {
+	ProcessID string `json:"process_id"`
+	ProgramToolCallRequest
+}
+
+// ToolCallReport is the state of an offered call. A report with an ack status
+// rejects the offer instead: the call was not made, and a transient_error may
+// be offered again.
+type ToolCallReport struct {
+	ProcessID string `json:"process_id"`
+	Key       string `json:"key"`
+	ProgramToolCallResult
+	AckStatus AckStatus `json:"ack_status,omitempty"`
+	ErrorCode string    `json:"error_code,omitempty"`
+	Error     string    `json:"error,omitempty"`
 }

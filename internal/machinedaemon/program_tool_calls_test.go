@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -74,87 +75,103 @@ func programToolCallLocalRequest(
 	return response, data
 }
 
-func TestProgramToolCallServerForwardsToBackend(t *testing.T) {
-	var upstreamCalls atomic.Int32
-	var mu sync.Mutex
-	var seen []*http.Request
-	var seenBodies []string
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamCalls.Add(1)
-		body, _ := io.ReadAll(r.Body)
-		mu.Lock()
-		seen = append(seen, r.Clone(r.Context()))
-		seenBodies = append(seenBodies, string(body))
-		mu.Unlock()
-		assert.Equal(t, "Bearer machine-secret", r.Header.Get("Authorization"))
-		switch {
-		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/tool-calls"):
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"tool_call_id":"tc 1","state":"pending"}`)
-		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/tool-calls/missing"):
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = io.WriteString(w, `{"error":"tool call not found","code":"not_found"}`)
-		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/tool-calls/limited"):
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Retry-After", "7")
-			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = io.WriteString(w, `{"error":"slow down","code":"rate_limited"}`)
-		default:
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"tool_call_id":"tc 1","state":"completed","outcome":"succeeded"}`)
+// answerProgramToolCallOffers connects a websocket transport with no backend
+// behind it and answers each offer the daemon sends with answer's reports.
+func answerProgramToolCallOffers(
+	t *testing.T, client *Client, answer func(daemonprotocol.ToolCallOffer) []daemonprotocol.ToolCallReport,
+) *daemonSocketTransport {
+	t.Helper()
+	transport := newDaemonSocketTransport(client, DaemonRuntime{}, localStartupState{})
+	client.setTransport(transport)
+	t.Cleanup(func() { client.clearTransport(transport) })
+	go func() {
+		for {
+			select {
+			case <-t.Context().Done():
+				return
+			case message := <-transport.send:
+				if !assert.Equal(t, daemonprotocol.MessageToolCallOffer, message.Type) {
+					return
+				}
+				for _, report := range answer(*message.ToolCallOffer) {
+					report.ProcessID, report.Key = message.ToolCallOffer.ProcessID, message.ToolCallOffer.Key
+					assert.NoError(t, transport.handleMessage(t.Context(), daemonprotocol.Message{
+						Type: daemonprotocol.MessageToolCallReport, ToolCallReport: &report}))
+				}
+			}
 		}
-	}))
-	defer upstream.Close()
-	client, processID := newProgramToolCallTestClient(t, upstream.URL)
+	}()
+	return transport
+}
+
+func completedProgramToolCall(value string) daemonprotocol.ToolCallReport {
+	return daemonprotocol.ToolCallReport{ProgramToolCallResult: daemonprotocol.ProgramToolCallResult{
+		ToolCallID: "tc_1", State: daemonprotocol.ProgramToolCallStateCompleted,
+		Outcome: daemonprotocol.ProgramToolCallOutcomeSucceeded,
+		Content: []daemonprotocol.ProgramToolCallContent{
+			{Type: daemonprotocol.ProgramToolCallContentStructuredData, Value: json.RawMessage(value)}},
+	}}
+}
+
+func TestProgramToolCallServerOffersToBackend(t *testing.T) {
+	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
 	stop, err := client.startProgramToolCallServer(t.Context())
 	require.NoError(t, err)
 	defer stop()
+	var offers atomic.Int32
+	answerProgramToolCallOffers(t, client, func(offer daemonprotocol.ToolCallOffer) []daemonprotocol.ToolCallReport {
+		offers.Add(1)
+		assert.Equal(t, processID, offer.ProcessID)
+		assert.Equal(t, "storage_list", offer.Name)
+		assert.JSONEq(t, `{"prefix":"a"}`, string(offer.Input))
+		if offer.Key == "rejected" {
+			return []daemonprotocol.ToolCallReport{{AckStatus: daemonprotocol.AckStatusPermanentReject,
+				ErrorCode: daemonprotocol.ErrorCodeToolCallUnavailable, Error: "not callable"}}
+		}
+		return []daemonprotocol.ToolCallReport{
+			{ProgramToolCallResult: daemonprotocol.ProgramToolCallResult{
+				ToolCallID: "tc_1", State: daemonprotocol.ProgramToolCallStateAwaitingApproval}},
+			completedProgramToolCall(`{"ok":true}`),
+		}
+	})
 	endpoint, err := client.processServiceEndpoint(programToolCallService)
 	require.NoError(t, err)
 	require.Equal(t, "tool-calls.sock", filepath.Base(endpoint))
 	local := programToolCallSocketClient(endpoint)
 	capability := programToolCallService.capability("supervisor-secret", processID)
+	reports := func(body []byte) []daemonprotocol.ToolCallReport {
+		var all []daemonprotocol.ToolCallReport
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		for decoder.More() {
+			var report daemonprotocol.ToolCallReport
+			require.NoError(t, decoder.Decode(&report))
+			all = append(all, report)
+		}
+		return all
+	}
 
+	// The response streams the call's reports until the completed one. Reports
+	// only move a call forward, so a slow reader may see just the latest.
 	response, body := programToolCallLocalRequest(t, local, http.MethodPost, "/tool-calls/"+processID, capability,
-		`{"key":"k-1","name":"storage_list","input":{"prefix":"a"},"extra":true}`)
-	require.Equal(t, http.StatusOK, response.StatusCode)
-	require.JSONEq(t, `{"tool_call_id":"tc 1","state":"pending"}`, string(body))
+		`{"key":"k-1","name":"storage_list","input":{"prefix":"a"}}`)
+	require.Equal(t, http.StatusOK, response.StatusCode, string(body))
 	require.Equal(t, "no-store", response.Header.Get("Cache-Control"))
-	mu.Lock()
-	require.Equal(t, "/daemon/processes/"+processID+"/tool-calls", seen[0].URL.Path)
-	require.Equal(t, "application/json", seen[0].Header.Get("Content-Type"))
-	require.JSONEq(t, `{"key":"k-1","name":"storage_list","input":{"prefix":"a"},"extra":true}`, seenBodies[0],
-		"the backend validates the request")
-	mu.Unlock()
+	streamed := reports(body)
+	require.NotEmpty(t, streamed)
+	last := streamed[len(streamed)-1]
+	require.Equal(t, "k-1", last.Key)
+	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, last.State)
+	require.JSONEq(t, `{"ok":true}`, string(last.Content[0].Value))
 
-	response, _ = programToolCallLocalRequest(t, local, http.MethodGet,
-		"/tool-calls/"+processID+"/tc%201?wait_ms=99999", capability, "")
-	require.Equal(t, http.StatusOK, response.StatusCode)
-	mu.Lock()
-	require.Equal(t, "/daemon/processes/"+processID+"/tool-calls/tc%201", seen[1].URL.EscapedPath())
-	require.Equal(t, "25000", seen[1].URL.Query().Get("wait_ms"), "wait_ms must be clamped")
-	mu.Unlock()
+	// A rejected offer ends the stream with the backend's reason.
+	_, body = programToolCallLocalRequest(t, local, http.MethodPost, "/tool-calls/"+processID, capability,
+		`{"key":"rejected","name":"storage_list","input":{"prefix":"a"}}`)
+	streamed = reports(body)
+	require.Len(t, streamed, 1)
+	require.Equal(t, daemonprotocol.AckStatusPermanentReject, streamed[0].AckStatus)
+	require.Equal(t, "not callable", streamed[0].Error)
 
-	response, _ = programToolCallLocalRequest(t, local, http.MethodGet,
-		"/tool-calls/"+processID+"/tc1?wait_ms=1200", capability, "")
-	require.Equal(t, http.StatusOK, response.StatusCode)
-	mu.Lock()
-	require.Equal(t, "1200", seen[2].URL.Query().Get("wait_ms"))
-	mu.Unlock()
-
-	response, body = programToolCallLocalRequest(t, local, http.MethodGet,
-		"/tool-calls/"+processID+"/limited", capability, "")
-	require.Equal(t, http.StatusTooManyRequests, response.StatusCode)
-	require.Equal(t, "7", response.Header.Get("Retry-After"))
-	require.JSONEq(t, `{"error":"slow down","code":"rate_limited"}`, string(body))
-
-	response, body = programToolCallLocalRequest(t, local, http.MethodGet,
-		"/tool-calls/"+processID+"/missing", capability, "")
-	require.Equal(t, http.StatusNotFound, response.StatusCode)
-	require.JSONEq(t, `{"error":"tool call not found","code":"not_found"}`, string(body))
-
-	before := upstreamCalls.Load()
+	before := offers.Load()
 	for _, tc := range []struct {
 		name, method, path, capability, body string
 		status                               int
@@ -168,13 +185,13 @@ func TestProgramToolCallServerForwardsToBackend(t *testing.T) {
 		{"unknown process", http.MethodPost, "/tool-calls/" + mustProcessID(t),
 			capability, `{}`, http.StatusForbidden},
 		{"invalid process", http.MethodPost, "/tool-calls/not-a-process", capability, `{}`, http.StatusNotFound},
-		{"nested tool call id", http.MethodGet, "/tool-calls/" + processID + "/a/b", capability, "",
-			http.StatusNotFound},
+		{"nested path", http.MethodPost, "/tool-calls/" + processID + "/tc_1", capability, `{}`, http.StatusNotFound},
 		{"wrong method", http.MethodGet, "/tool-calls/" + processID, capability, "", http.StatusMethodNotAllowed},
-		{"invalid wait", http.MethodGet, "/tool-calls/" + processID + "/tc1?wait_ms=-1", capability, "",
+		{"missing key", http.MethodPost, "/tool-calls/" + processID, capability, `{"name":"n","input":{}}`,
 			http.StatusBadRequest},
+		{"not JSON", http.MethodPost, "/tool-calls/" + processID, capability, `nope`, http.StatusBadRequest},
 		{"too large", http.MethodPost, "/tool-calls/" + processID, capability,
-			`{"key":"k","name":"n","input":{"a":"` + strings.Repeat("x", daemonprotocol.ProgramToolCallMaxRequestBytes) + `"}}`,
+			`{"key":"k","name":"n","input":{"a":"` + strings.Repeat("x", daemonprotocol.ProgramToolCallMaxInputBytes) + `"}}`,
 			http.StatusRequestEntityTooLarge},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -186,7 +203,7 @@ func TestProgramToolCallServerForwardsToBackend(t *testing.T) {
 			require.NotContains(t, string(body), "machine-secret")
 		})
 	}
-	require.Equal(t, before, upstreamCalls.Load(), "rejected requests must not reach the backend")
+	require.Equal(t, before, offers.Load(), "rejected requests must not reach the backend")
 }
 
 func mustProcessID(t *testing.T) string {
@@ -196,42 +213,62 @@ func mustProcessID(t *testing.T) string {
 	return id
 }
 
-func TestProgramToolCallServerMapsNetworkFailuresTo503(t *testing.T) {
-	upstream := httptest.NewServer(http.NotFoundHandler())
-	upstreamURL := upstream.URL
-	upstream.Close()
-	client, processID := newProgramToolCallTestClient(t, upstreamURL)
-	server := httptest.NewServer(client.newProgramToolCallHandler())
+// A call made while the websocket is down, or cut off by a reconnect, is
+// offered on the next connection.
+func TestProgramToolCallServerOffersAgainOnReconnect(t *testing.T) {
+	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
+	handler := client.newProgramToolCallHandler()
+	client.programToolCalls = handler
+	server := httptest.NewServer(handler)
 	defer server.Close()
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
-		server.URL+"/tool-calls/"+processID+"/tc1", nil)
-	require.NoError(t, err)
-	request.Header.Set("Authorization", "Bearer "+programToolCallService.capability("supervisor-secret", processID))
-	response, err := server.Client().Do(request)
-	require.NoError(t, err)
-	defer func() { _ = response.Body.Close() }()
-	require.Equal(t, http.StatusServiceUnavailable, response.StatusCode)
+	done := make(chan []byte, 1)
+	go func() {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+			server.URL+"/tool-calls/"+processID, strings.NewReader(`{"key":"k-1","name":"storage_list","input":{}}`))
+		if !assert.NoError(t, err) {
+			return
+		}
+		request.Header.Set("Authorization", "Bearer "+programToolCallService.capability("supervisor-secret", processID))
+		response, err := server.Client().Do(request)
+		if !assert.NoError(t, err) {
+			return
+		}
+		defer func() { _ = response.Body.Close() }()
+		body, _ := io.ReadAll(response.Body)
+		done <- body
+	}()
+	require.Eventually(t, func() bool { return len(handler.offers()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	want := daemonprotocol.ToolCallOffer{ProcessID: processID, ProgramToolCallRequest: daemonprotocol.ProgramToolCallRequest{
+		Key: "k-1", Name: "storage_list", Input: json.RawMessage(`{}`)}}
+	require.Equal(t, []daemonprotocol.ToolCallOffer{want}, handler.offers())
+	select {
+	case body := <-done:
+		t.Fatalf("call returned without a report: %s", body)
+	case <-time.After(100 * time.Millisecond):
+	}
+	// Reports for other calls are ignored.
+	handler.report(daemonprotocol.ToolCallReport{ProcessID: processID, Key: "other"})
+	report := completedProgramToolCall(`1`)
+	report.ProcessID, report.Key = processID, "k-1"
+	handler.report(report)
+	select {
+	case body := <-done:
+		require.Contains(t, string(body), `"state":"completed"`)
+	case <-time.After(5 * time.Second):
+		t.Fatal("call did not return after its report")
+	}
+	require.Empty(t, handler.offers(), "a finished call is not offered again")
 }
 
 func TestProgramToolCallServerLimitsConcurrencyPerProcess(t *testing.T) {
-	release := make(chan struct{})
-	var inFlight atomic.Int32
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		inFlight.Add(1)
-		select {
-		case <-release:
-		case <-r.Context().Done():
-		}
-		_, _ = io.WriteString(w, `{"tool_call_id":"tc1","state":"pending"}`)
-	}))
-	defer upstream.Close()
-	client, processID := newProgramToolCallTestClient(t, upstream.URL)
-	server := httptest.NewServer(client.newProgramToolCallHandler())
+	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
+	handler := client.newProgramToolCallHandler()
+	server := httptest.NewServer(handler)
 	defer server.Close()
 	capability := programToolCallService.capability("supervisor-secret", processID)
-	get := func() (int, string, error) {
-		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
-			server.URL+"/tool-calls/"+processID+"/tc1?wait_ms=25000", nil)
+	post := func(key string) (int, string, error) {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+			server.URL+"/tool-calls/"+processID, strings.NewReader(`{"key":"`+key+`","name":"n","input":{}}`))
 		if err != nil {
 			return 0, "", err
 		}
@@ -246,28 +283,31 @@ func TestProgramToolCallServerLimitsConcurrencyPerProcess(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	statuses := make(chan int, programToolCallProcessLimit)
-	for range programToolCallProcessLimit {
+	for i := range programToolCallProcessLimit {
 		wg.Go(func() {
-			status, _, err := get()
+			status, _, err := post("k-" + strconv.Itoa(i))
 			assert.NoError(t, err)
 			statuses <- status
 		})
 	}
-	require.Eventually(t, func() bool { return inFlight.Load() == programToolCallProcessLimit },
+	require.Eventually(t, func() bool { return len(handler.offers()) == programToolCallProcessLimit },
 		5*time.Second, 10*time.Millisecond)
-	status, retryAfter, err := get()
+	status, retryAfter, err := post("one-more")
 	require.NoError(t, err)
 	require.Equal(t, http.StatusServiceUnavailable, status)
 	require.Equal(t, "1", retryAfter)
-	close(release)
+	for _, offer := range handler.offers() {
+		report := completedProgramToolCall(`1`)
+		report.ProcessID, report.Key = offer.ProcessID, offer.Key
+		handler.report(report)
+	}
 	wg.Wait()
 	close(statuses)
 	for status := range statuses {
 		require.Equal(t, http.StatusOK, status)
 	}
-	status, _, err = get()
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, status, "slots must be released")
+	require.Eventually(t, func() bool { return handler.acquire(processID) }, 5*time.Second, 10*time.Millisecond,
+		"slots must be released")
 }
 
 func TestProgramToolCallPrepare(t *testing.T) {
@@ -405,28 +445,23 @@ func TestProgramToolCallEnvironmentReachesPreparedCommand(t *testing.T) {
 }
 
 func TestProgramToolCallCLIThroughDaemonServer(t *testing.T) {
-	var polls atomic.Int32
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer machine-secret", r.Header.Get("Authorization"))
-		w.Header().Set("Content-Type", "application/json")
-		if r.Method == http.MethodPost {
-			var request daemonprotocol.ProgramToolCallRequest
-			assert.NoError(t, json.NewDecoder(r.Body).Decode(&request))
-			assert.Equal(t, "storage_list", request.Name)
-			assert.JSONEq(t, `{"prefix":"x"}`, string(request.Input))
-			_, _ = io.WriteString(w, `{"tool_call_id":"tc_1","state":"awaiting_approval"}`)
-			return
-		}
-		assert.Equal(t, "25000", r.URL.Query().Get("wait_ms"))
-		polls.Add(1)
-		_, _ = io.WriteString(w, `{"tool_call_id":"tc_1","state":"completed","outcome":"succeeded",`+
-			`"content":[{"type":"structured_data","value":{"files":["x/a"]}}]}`)
-	}))
-	defer upstream.Close()
-	client, processID := newProgramToolCallTestClient(t, upstream.URL)
+	client, processID := newProgramToolCallTestClient(t, "http://unused.invalid")
 	stop, err := client.startProgramToolCallServer(t.Context())
 	require.NoError(t, err)
 	defer stop()
+	approved := make(chan struct{})
+	answerProgramToolCallOffers(t, client, func(offer daemonprotocol.ToolCallOffer) []daemonprotocol.ToolCallReport {
+		assert.Equal(t, "storage_list", offer.Name)
+		assert.JSONEq(t, `{"prefix":"x"}`, string(offer.Input))
+		go func() {
+			<-approved
+			report := completedProgramToolCall(`{"files":["x/a"]}`)
+			report.ProcessID, report.Key = offer.ProcessID, offer.Key
+			client.programToolCalls.report(report)
+		}()
+		return []daemonprotocol.ToolCallReport{{ProgramToolCallResult: daemonprotocol.ProgramToolCallResult{
+			ToolCallID: "tc_1", State: daemonprotocol.ProgramToolCallStateAwaitingApproval}}}
+	})
 	assignment := ProcessAssignment{
 		ID: processID, ProgrammaticToolCalls: true,
 		Process: Process{ExecutionSpec: processcmd.ForShell("true", processcmd.ShellSH, processcmd.IOModePipe)},
@@ -437,20 +472,33 @@ func TestProgramToolCallCLIThroughDaemonServer(t *testing.T) {
 		name, value, _ := strings.Cut(entry, "=")
 		t.Setenv(name, value)
 	}
-	var stdout, stderr bytes.Buffer
+	stderr := &approvalNotice{waiting: approved}
+	var stdout bytes.Buffer
 	code := RunProgramToolCall(t.Context(), ProgramToolCallOptions{
 		Tool: "storage_list", Input: `{"prefix":"x"}`, Timeout: time.Minute,
-	}, nil, &stdout, &stderr)
+	}, nil, &stdout, stderr)
 	require.Equal(t, ProgramToolCallExitSucceeded, code, stderr.String())
 	require.Equal(t, `{"files":["x/a"]}`+"\n", stdout.String())
 	require.Contains(t, stderr.String(), "waiting for approval of storage_list")
-	require.Equal(t, int32(1), polls.Load())
 
 	t.Setenv(programToolCapabilityEnv, "forged")
 	stdout.Reset()
-	stderr.Reset()
+	var denied bytes.Buffer
 	code = RunProgramToolCall(t.Context(), ProgramToolCallOptions{Tool: "storage_list", Timeout: time.Minute},
-		nil, &stdout, &stderr)
+		nil, &stdout, &denied)
 	require.Equal(t, ProgramToolCallExitUnavailable, code)
-	require.Contains(t, stderr.String(), "tool call request denied")
+	require.Contains(t, denied.String(), "tool call request denied")
+}
+
+// approvalNotice is a stderr that approves the call once `omnarad call` says
+// it is waiting.
+type approvalNotice struct {
+	bytes.Buffer
+	once    sync.Once
+	waiting chan struct{}
+}
+
+func (n *approvalNotice) Write(p []byte) (int, error) {
+	n.once.Do(func() { close(n.waiting) })
+	return n.Buffer.Write(p)
 }

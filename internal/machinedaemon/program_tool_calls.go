@@ -1,14 +1,11 @@
 package machinedaemon
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,12 +21,8 @@ const (
 	programToolCapabilityEnv = "OMNARA_TOOL_CAPABILITY"
 	programToolBinEnv        = "OMNARA_BIN"
 
-	programToolCallMaxResponseBytes = 16 * 1024 * 1024
-	programToolCallProcessLimit     = 16
-	programToolCallServerLimit      = 128
-	programToolCallSubmitTimeout    = 30 * time.Second
-	// programToolCallForwardMargin is added to a poll's wait for backend latency.
-	programToolCallForwardMargin = 10 * time.Second
+	programToolCallProcessLimit = 16
+	programToolCallServerLimit  = 128
 )
 
 // prepareProgramToolCalls never fails preparation: the feature is optional, and
@@ -69,22 +62,35 @@ func programToolCallEnvironment(env []string, processID string, helper *processS
 }
 
 func (c *Client) startProgramToolCallServer(ctx context.Context) (func(), error) {
+	c.programToolCalls = c.newProgramToolCallHandler()
+	// A call is held open until its result arrives, so writes have no deadline.
 	return c.serveProcessService(ctx, programToolCallService, &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      time.Duration(daemonprotocol.ProgramToolCallMaxWaitMs)*time.Millisecond + 20*time.Second,
 		IdleTimeout:       30 * time.Second,
 		MaxHeaderBytes:    8192,
-		Handler:           c.newProgramToolCallHandler(),
+		Handler:           c.programToolCalls,
 	})
 }
 
+// programToolCallHandler serves `omnarad call`: it offers each call to the
+// backend on the daemon websocket and streams the backend's reports back as
+// JSON lines until the call completes or is rejected.
 type programToolCallHandler struct {
 	client   *Client
 	requests chan struct{}
 
 	mu       sync.Mutex
 	inFlight map[string]int
+	calls    map[string]*programToolCall
+}
+
+// programToolCall is an offered call waiting for reports. Reports only move a
+// call forward, so a waiter needs just the latest.
+type programToolCall struct {
+	offer   daemonprotocol.ToolCallOffer
+	report  *daemonprotocol.ToolCallReport
+	changed chan struct{}
 }
 
 func (c *Client) newProgramToolCallHandler() *programToolCallHandler {
@@ -92,6 +98,7 @@ func (c *Client) newProgramToolCallHandler() *programToolCallHandler {
 		client:   c,
 		requests: make(chan struct{}, programToolCallServerLimit),
 		inFlight: make(map[string]int),
+		calls:    make(map[string]*programToolCall),
 	}
 }
 
@@ -105,19 +112,13 @@ func (h *programToolCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		h.writeError(w, http.StatusServiceUnavailable, "service_unavailable", "tool call service busy")
 		return
 	}
-	rest, ok := strings.CutPrefix(r.URL.Path, "/tool-calls/")
-	processID, toolCallID, poll := strings.Cut(rest, "/")
-	if _, err := publicid.Decode(publicid.KindProcess, processID); !ok || err != nil ||
-		(poll && !validProgramToolCallID(toolCallID)) {
+	processID, ok := strings.CutPrefix(r.URL.Path, "/tool-calls/")
+	if _, err := publicid.Decode(publicid.KindProcess, processID); !ok || err != nil {
 		h.writeError(w, http.StatusNotFound, "not_found", "not found")
 		return
 	}
-	method := http.MethodPost
-	if poll {
-		method = http.MethodGet
-	}
-	if r.Method != method {
-		w.Header().Set("Allow", method)
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
 		h.writeError(w, http.StatusMethodNotAllowed, "invalid_request", "method not allowed")
 		return
 	}
@@ -132,11 +133,7 @@ func (h *programToolCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer h.release(processID)
-	if poll {
-		h.poll(w, r, processID, toolCallID)
-	} else {
-		h.submit(w, r, processID)
-	}
+	h.call(w, r, processID)
 }
 
 func (h *programToolCallHandler) authorize(r *http.Request, processID string) (int, string, string) {
@@ -172,97 +169,111 @@ func (h *programToolCallHandler) release(processID string) {
 	h.inFlight[processID]--
 }
 
-func (h *programToolCallHandler) submit(w http.ResponseWriter, r *http.Request, processID string) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, daemonprotocol.ProgramToolCallMaxRequestBytes))
-	if err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			h.writeError(w, http.StatusRequestEntityTooLarge, "request_too_large",
-				"tool call input exceeds 1 MiB")
-			return
-		}
+func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, processID string) {
+	// The backend validates the request beyond its size and key.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, daemonprotocol.ProgramToolCallMaxInputBytes+4096))
+	offer := daemonprotocol.ToolCallOffer{ProcessID: processID}
+	if err == nil {
+		err = json.Unmarshal(body, &offer.ProgramToolCallRequest)
+	}
+	var tooLarge *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooLarge) || len(offer.Input) > daemonprotocol.ProgramToolCallMaxInputBytes:
+		h.writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "tool call input is too large")
+		return
+	case err != nil || offer.Key == "":
 		h.writeError(w, http.StatusBadRequest, "invalid_request", "tool call request could not be read")
 		return
 	}
-	// The backend validates the request.
-	h.forward(w, r, http.MethodPost, daemonAPIPath+"/processes/"+processID+"/tool-calls", body,
-		programToolCallSubmitTimeout)
-}
-
-func (h *programToolCallHandler) poll(w http.ResponseWriter, r *http.Request, processID, toolCallID string) {
-	waitMs := 0
-	if raw := r.URL.Query().Get("wait_ms"); raw != "" {
-		value, err := strconv.Atoi(raw)
-		if err != nil || value < 0 {
-			h.writeError(w, http.StatusBadRequest, "invalid_request",
-				"wait_ms must be a non-negative integer")
+	id := processID + "\x00" + offer.Key
+	call := &programToolCall{offer: offer, changed: make(chan struct{}, 1)}
+	h.mu.Lock()
+	_, duplicate := h.calls[id]
+	if !duplicate {
+		h.calls[id] = call
+	}
+	h.mu.Unlock()
+	if duplicate {
+		// An earlier request for this call is still being torn down.
+		w.Header().Set("Retry-After", "1")
+		h.writeError(w, http.StatusServiceUnavailable, "service_unavailable", "tool call is already in flight")
+		return
+	}
+	defer func() {
+		h.mu.Lock()
+		delete(h.calls, id)
+		h.mu.Unlock()
+	}()
+	// With no websocket the offer goes out when the daemon next connects.
+	h.client.sendToolCallOffer(offer)
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.WriteHeader(http.StatusOK)
+	flusher := http.NewResponseController(w)
+	_ = flusher.Flush()
+	encoder := json.NewEncoder(w)
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-call.changed:
+		}
+		h.mu.Lock()
+		report := *call.report
+		h.mu.Unlock()
+		if encoder.Encode(report) != nil || flusher.Flush() != nil {
 			return
 		}
-		waitMs = min(value, daemonprotocol.ProgramToolCallMaxWaitMs)
+		if report.AckStatus != "" || report.State == daemonprotocol.ProgramToolCallStateCompleted {
+			return
+		}
 	}
-	path := daemonAPIPath + "/processes/" + processID + "/tool-calls/" + url.PathEscape(toolCallID) +
-		"?wait_ms=" + strconv.Itoa(waitMs)
-	h.forward(w, r, http.MethodGet, path, nil,
-		time.Duration(waitMs)*time.Millisecond+programToolCallForwardMargin)
 }
 
-// forward relays the backend's status, Retry-After, and body unchanged so
-// `omnarad call` sees the backend's own error codes and messages.
-func (h *programToolCallHandler) forward(
-	w http.ResponseWriter,
-	r *http.Request,
-	method, path string,
-	body []byte,
-	timeout time.Duration,
-) {
-	ctx, cancel := context.WithTimeout(r.Context(), timeout)
-	defer cancel()
-	var requestBody io.Reader
-	if body != nil {
-		requestBody = bytes.NewReader(body)
-	}
-	request, err := http.NewRequestWithContext(ctx, method, h.client.cfg.APIURL+path, requestBody)
-	if err != nil {
-		h.writeError(w, http.StatusServiceUnavailable, "service_unavailable",
-			"tool call service unavailable")
+// report hands the backend's report to the request waiting on the call.
+func (h *programToolCallHandler) report(report daemonprotocol.ToolCallReport) {
+	if h == nil {
 		return
 	}
-	request.Header.Set("Authorization", "Bearer "+h.client.cfg.MachineToken)
-	request.Header.Set("Accept", "application/json")
-	if body != nil {
-		request.Header.Set("Content-Type", "application/json")
-	}
-	response, err := h.client.toolCallHTTP.Do(request)
-	if err != nil {
-		h.client.log.Debug("program tool call could not reach Omnara", "error", err)
-		h.writeError(w, http.StatusServiceUnavailable, "service_unavailable",
-			"Omnara is temporarily unreachable")
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	call, ok := h.calls[report.ProcessID+"\x00"+report.Key]
+	if !ok {
 		return
 	}
-	defer func() { _ = response.Body.Close() }()
-	data, err := io.ReadAll(io.LimitReader(response.Body, programToolCallMaxResponseBytes+1))
-	if err != nil {
-		h.client.log.Debug("program tool call response could not be read", "error", err)
-		h.writeError(w, http.StatusServiceUnavailable, "service_unavailable",
-			"Omnara is temporarily unreachable")
-		return
+	call.report = &report
+	select {
+	case call.changed <- struct{}{}:
+	default:
 	}
-	if len(data) > programToolCallMaxResponseBytes {
-		h.writeError(w, http.StatusBadGateway, "upstream_unavailable",
-			"tool call response exceeds 16 MiB")
-		return
+}
+
+// offers lists the calls in flight, for a new websocket to offer again.
+func (h *programToolCallHandler) offers() []daemonprotocol.ToolCallOffer {
+	if h == nil {
+		return nil
 	}
-	if retryAfter := response.Header.Get("Retry-After"); retryAfter != "" {
-		w.Header().Set("Retry-After", retryAfter)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	offers := make([]daemonprotocol.ToolCallOffer, 0, len(h.calls))
+	for _, call := range h.calls {
+		offers = append(offers, call.offer)
 	}
-	contentType := response.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/json"
+	return offers
+}
+
+// sendToolCallOffer offers a call on the current websocket, if there is one.
+func (c *Client) sendToolCallOffer(offer daemonprotocol.ToolCallOffer) {
+	c.transportMu.RLock()
+	transport, connected := c.transport.(*daemonSocketTransport)
+	c.transportMu.RUnlock()
+	if connected {
+		transport.offerToolCall(offer)
 	}
-	w.Header().Set("Content-Type", contentType)
-	w.WriteHeader(response.StatusCode)
-	if _, err := w.Write(data); err != nil {
-		h.client.log.Debug("program tool call response could not be written")
+}
+
+func (t *daemonSocketTransport) offerToolCall(offer daemonprotocol.ToolCallOffer) {
+	if !t.enqueue(daemonprotocol.Message{Type: daemonprotocol.MessageToolCallOffer, ToolCallOffer: &offer}) {
+		t.fail(errors.New("daemon websocket send queue is full"))
 	}
 }
 
@@ -271,26 +282,11 @@ type programToolCallError struct {
 	Code  string `json:"code"`
 }
 
-// writeError uses the backend's API error shape so the CLI reports local and
-// relayed failures the same way.
+// writeError uses the backend's API error shape, as `omnarad call` expects.
 func (h *programToolCallHandler) writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(programToolCallError{Error: message, Code: code}); err != nil {
 		h.client.log.Debug("program tool call error could not be written")
 	}
-}
-
-// validProgramToolCallID keeps a poll's tool call ID to one path segment;
-// the backend decides whether it names a call.
-func validProgramToolCallID(id string) bool {
-	if id == "" || len(id) > 256 {
-		return false
-	}
-	for _, r := range id {
-		if r < ' ' || r == '/' || r == '\\' || r == 0x7f {
-			return false
-		}
-	}
-	return true
 }

@@ -52,11 +52,10 @@ type Client struct {
 	cfg                         Config
 	instanceID                  uuid.UUID
 	http                        *http.Client
-	// toolCallHTTP has no total timeout so tool call polls can be held open.
-	toolCallHTTP   *http.Client
-	log            *slog.Logger
-	bootstrap      daemonBootstrap
-	runnerLauncher processRunnerLauncher
+	programToolCalls            *programToolCallHandler
+	log                         *slog.Logger
+	bootstrap                   daemonBootstrap
+	runnerLauncher              processRunnerLauncher
 
 	stateMu sync.Mutex
 	state   *statedb.Store

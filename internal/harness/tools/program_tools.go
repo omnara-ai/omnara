@@ -16,7 +16,7 @@ import (
 )
 
 // Program tool calls are tools a run_command process calls through
-// `omnarad call`. They run under a worker claim with the permissions of the
+// `omnarad call`. They run under a claim with the permissions of the
 // agent's current config, and never enter model context.
 
 // AgentConfigToolSpecs returns the runtime tools of an agent config, as its
@@ -88,43 +88,44 @@ func (e Executor) RunProgramToolCall(
 	if e.Store == nil {
 		return errors.New("tool executor store is required")
 	}
-	record := claim.ToolCallRecord
 	turn, err := e.programTurn(ctx, claim, lease)
 	if err == nil {
-		switch claim.Phase {
-		case executionstore.ProgramToolCallPhaseAuthorize:
-			// An allowed call is left waiting under this claim: run it now.
-			var authorized executionstore.ToolCallRecord
-			authorized, err = e.PrepareRecordedToolCallPermission(ctx, turn, record)
-			if err == nil && authorized.State == executionstore.ToolCallStateWaiting {
-				_, err = e.DispatchRecordedToolCall(ctx, turn, authorized)
-			}
-		case executionstore.ProgramToolCallPhaseExecute:
-			var approved bool
-			approved, err = e.programApprovalHolds(ctx, turn, record)
-			if err == nil && approved {
-				_, err = e.DispatchRecordedToolCall(ctx, turn, record)
-			}
-		default:
-			err = fmt.Errorf("unsupported program tool call phase %d", claim.Phase)
-		}
+		err = e.runProgramPhase(ctx, turn, claim)
 	}
 	if err == nil || errors.Is(err, storeerr.ErrRuntimeLockInactive) || ctx.Err() != nil {
 		return err
 	}
 	// Fail the call rather than leave it to be re-claimed into the same error.
 	// The command gets a fixed message; the caller logs the error.
-	parts, contentErr := structuredParts(map[string]any{
-		"error_code": "tool_call_failed", "error": programToolCallInternalError,
-	})
-	if contentErr != nil {
-		return errors.Join(err, contentErr)
-	}
-	if _, completeErr := turn.toolAuthority().complete(ctx, e, turn, record.ID, executionstore.ToolResultOutcomeFailed,
-		parts); completeErr != nil && !errors.Is(completeErr, storeerr.ErrRuntimeLockInactive) {
+	completeErr := e.completeInvalidToolCall(ctx, turn, claim.ID, "tool_call_failed",
+		errors.New(programToolCallInternalError))
+	if completeErr != nil && !errors.Is(completeErr, storeerr.ErrRuntimeLockInactive) {
 		return errors.Join(err, completeErr)
 	}
 	return err
+}
+
+func (e Executor) runProgramPhase(ctx context.Context, turn Turn, claim executionstore.ProgramToolCallClaim) error {
+	record := claim.ToolCallRecord
+	switch claim.Phase {
+	case executionstore.ProgramToolCallPhaseAuthorize:
+		authorized, err := e.PrepareRecordedToolCallPermission(ctx, turn, record)
+		if err != nil || authorized.State != executionstore.ToolCallStateWaiting {
+			return err
+		}
+		// An allowed call is left waiting under this claim: run it now.
+		_, err = e.DispatchRecordedToolCall(ctx, turn, authorized)
+		return err
+	case executionstore.ProgramToolCallPhaseExecute:
+		approved, err := e.programApprovalHolds(ctx, turn, record)
+		if err != nil || !approved {
+			return err
+		}
+		_, err = e.DispatchRecordedToolCall(ctx, turn, record)
+		return err
+	default:
+		return fmt.Errorf("unsupported program tool call phase %d", claim.Phase)
+	}
 }
 
 // programTurn is the turn a program call acts in: the parent's model call
@@ -136,19 +137,11 @@ func (e Executor) programTurn(
 	turn := Turn{ProjectID: claim.ProjectID, AgentID: claim.AgentID, SourceEventID: claim.SourceEventID,
 		ModelCallContextID: claim.ModelCallContextID,
 		authority:          programClaimAuthority{ref: claim.Ref(), lease: lease}}
-	contextRecord, found, err := e.Store.Execution().
-		GetModelCallContext(ctx, claim.ProjectID, claim.AgentID, claim.ModelCallContextID)
-	if err != nil {
-		return turn, err
-	}
-	if !found {
-		return turn, fmt.Errorf("model call context %s not found", claim.ModelCallContextID)
-	}
-	turn.OrgID = contextRecord.OrgID
 	agent, err := e.Store.Execution().GetAgentInProject(ctx, claim.ProjectID, claim.AgentID)
 	if err != nil {
 		return turn, err
 	}
+	turn.OrgID = agent.OrgID
 	spec, contract, found, err := AgentConfigToolSpec(
 		ctx, e.Store, claim.ProjectID, claim.AgentID, agent.CurrentConfigID, claim.Name)
 	if err != nil {

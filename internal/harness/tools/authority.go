@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -15,7 +16,7 @@ import (
 )
 
 // toolAuthority is what lets a turn change a tool call: the agent runtime lock
-// for model calls, or a worker claim for program calls. Losing it surfaces as
+// for model calls, or a claim for program calls. Losing it surfaces as
 // storeerr.ErrRuntimeLockInactive either way.
 type toolAuthority interface {
 	ensureActive(context.Context, Executor, Turn) error
@@ -115,11 +116,12 @@ func (runtimeLockAuthority) requeue(ctx context.Context, e Executor, turn Turn, 
 	})
 }
 
-// MaxProgramToolResultBytes caps a program call's stored result content; the
-// store does not move large program results to artifacts.
-const MaxProgramToolResultBytes = 8 * 1024 * 1024
+// MaxProgramToolResultBytes caps a program call's stored result content, so
+// its report fits one daemon websocket message; the store does not move large
+// program results to artifacts.
+const MaxProgramToolResultBytes = daemonprotocol.ProgramToolCallMaxResultBytes
 
-// programClaimAuthority acts on one program tool call under a worker claim.
+// programClaimAuthority acts on one program tool call under a claim.
 type programClaimAuthority struct {
 	ref   executionstore.ProgramToolCallRef
 	lease time.Duration
@@ -249,14 +251,17 @@ func programToolResult(
 			visible = append(visible, part)
 		}
 	}
-	filtered, err := json.Marshal(visible)
-	if err != nil {
-		return "", nil, err
+	filtered := parts
+	if len(visible) != len(decoded) {
+		var err error
+		if filtered, err = json.Marshal(visible); err != nil {
+			return "", nil, err
+		}
 	}
 	if len(filtered) <= MaxProgramToolResultBytes {
 		return outcome, filtered, nil
 	}
-	filtered, err = structuredParts(map[string]any{
+	filtered, err := structuredParts(map[string]any{
 		"error_code": "result_too_large",
 		"error": fmt.Sprintf("The tool result is %d bytes, over the %d byte limit for tool calls from commands.",
 			len(filtered), MaxProgramToolResultBytes),

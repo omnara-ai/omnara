@@ -86,12 +86,6 @@ func TestRequestBodyLimitSkillUploadRoutes(t *testing.T) {
 			want:   maxAttachmentRequestBodyBytes,
 		},
 		{
-			name:   "program tool calls fit a full input",
-			method: http.MethodPost,
-			path:   "/api/v1/daemon/processes/prc_abc/tool-calls",
-			want:   daemonprotocol.ProgramToolCallMaxRequestBytes,
-		},
-		{
 			name:   "unrelated POST still capped to default",
 			method: http.MethodPost,
 			path:   "/api/v1/orgs",

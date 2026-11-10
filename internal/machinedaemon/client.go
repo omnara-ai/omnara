@@ -38,8 +38,6 @@ func New(cfg Config, httpClient *http.Client, log *slog.Logger) Client {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 	securedHTTPClient := outboundhttp.CloneWithoutRedirects(httpClient)
-	toolCallHTTPClient := outboundhttp.CloneWithoutRedirects(httpClient)
-	toolCallHTTPClient.Timeout = 0
 	if log == nil {
 		log = slog.Default()
 	}
@@ -47,7 +45,6 @@ func New(cfg Config, httpClient *http.Client, log *slog.Logger) Client {
 		cfg:            cfg,
 		instanceID:     uuid.New(),
 		http:           securedHTTPClient,
-		toolCallHTTP:   toolCallHTTPClient,
 		log:            log,
 		runnerLauncher: subprocessRunnerLauncher{},
 		processes:      make(map[string]*processRuntime),

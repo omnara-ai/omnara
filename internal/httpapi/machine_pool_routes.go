@@ -286,17 +286,16 @@ func (s strictOpenAPIServer) createMachinePool(
 		ProviderConfig:                providerConfig,
 		ProviderAuthSecretID:          providerAuthSecretID,
 		RuntimeProtectionEnabled:      runtimeProtectionEnabled,
-		DefaultProgrammaticToolCalls: request.Body.DefaultProgrammaticToolCalls != nil &&
-			*request.Body.DefaultProgrammaticToolCalls,
-		MaxTotalMachines:       request.Body.MaxTotalMachines,
-		MaxTotalCPU:            intPtrFromInt32(request.Body.MaxTotalCpu),
-		MaxTotalMemoryMB:       intPtrFromInt32(request.Body.MaxTotalMemoryMb),
-		MinMachineCPU:          intPtrFromInt32(request.Body.MinMachineCpu),
-		MinMachineMemoryMB:     intPtrFromInt32(request.Body.MinMachineMemoryMb),
-		MaxMachineCPU:          intPtrFromInt32(request.Body.MaxMachineCpu),
-		MaxMachineMemoryMB:     intPtrFromInt32(request.Body.MaxMachineMemoryMb),
-		DeleteAfterIdleMinutes: intPtrFromInt32(request.Body.DeleteAfterIdleMinutes),
-		Metadata:               metadata,
+		DefaultProgrammaticToolCalls:  valueOrZero(request.Body.DefaultProgrammaticToolCalls),
+		MaxTotalMachines:              request.Body.MaxTotalMachines,
+		MaxTotalCPU:                   intPtrFromInt32(request.Body.MaxTotalCpu),
+		MaxTotalMemoryMB:              intPtrFromInt32(request.Body.MaxTotalMemoryMb),
+		MinMachineCPU:                 intPtrFromInt32(request.Body.MinMachineCpu),
+		MinMachineMemoryMB:            intPtrFromInt32(request.Body.MinMachineMemoryMb),
+		MaxMachineCPU:                 intPtrFromInt32(request.Body.MaxMachineCpu),
+		MaxMachineMemoryMB:            intPtrFromInt32(request.Body.MaxMachineMemoryMb),
+		DeleteAfterIdleMinutes:        intPtrFromInt32(request.Body.DeleteAfterIdleMinutes),
+		Metadata:                      metadata,
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)

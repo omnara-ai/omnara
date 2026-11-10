@@ -82,15 +82,19 @@ func TestProgramToolCallsStore(t *testing.T) {
 	}
 	claim := func(phase executionstore.ProgramToolCallPhase, id uuid.UUID) executionstore.ProgramToolCallRef {
 		t.Helper()
-		claimID := uuid.New()
-		claimed, found, err := execution.ClaimNextProgramToolCall(ctx, claimID, time.Minute)
+		ref := executionstore.ProgramToolCallRef{ProjectID: testProjectID, AgentID: fixture.AgentID,
+			ProcessID: process.ID, ToolCallID: id, ClaimID: uuid.New()}
+		claimed, found, err := execution.ClaimProgramToolCall(ctx, ref, time.Minute)
 		require.NoError(t, err)
 		require.True(t, found)
 		require.Equal(t, phase, claimed.Phase)
-		require.Equal(t, id, claimed.ID)
-		require.Equal(t, claimID, claimed.ClaimID)
-		return executionstore.ProgramToolCallRef{ProjectID: testProjectID, AgentID: fixture.AgentID,
-			ProcessID: process.ID, ToolCallID: id, ClaimID: claimID}
+		require.Equal(t, ref, claimed.Ref())
+		// A claimed call is not claimable again.
+		ref.ClaimID = uuid.New()
+		_, found, err = execution.ClaimProgramToolCall(ctx, ref, time.Minute)
+		require.NoError(t, err)
+		require.False(t, found)
+		return claimed.Ref()
 	}
 	authorized := func(id uuid.UUID) executionstore.ProgramToolCallRef {
 		t.Helper()
@@ -117,16 +121,6 @@ func TestProgramToolCallsStore(t *testing.T) {
 		ProjectID: testProjectID, AgentID: fixture.AgentID, ProcessID: process.ID, Key: programKey("first"),
 		Name: "storage_list", Type: "built_in", Input: json.RawMessage(`{}`)})
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
-
-	// Agent row locks are skipped, not waited on.
-	locked, err := store.pool.Begin(ctx)
-	require.NoError(t, err)
-	_, err = locked.Exec(ctx, `SELECT 1 FROM agents WHERE id=$1 FOR UPDATE`, fixture.AgentID)
-	require.NoError(t, err)
-	_, found, err = execution.ClaimNextProgramToolCall(ctx, uuid.New(), time.Minute)
-	require.NoError(t, err)
-	require.False(t, found)
-	require.NoError(t, locked.Rollback(ctx))
 
 	ref := authorized(first.ID)
 	_, err = execution.ExecuteProgramToolCall(ctx, ref,
@@ -204,6 +198,9 @@ func TestProgramToolCallsStore(t *testing.T) {
 	ready, err := execution.GetToolCall(ctx, testProjectID, fixture.AgentID, third.ID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallStateReady, ready.State)
+	// The approved call is claimed for execution, once.
+	approved := claim(executionstore.ProgramToolCallPhaseExecute, third.ID)
+	require.Equal(t, third.ID, approved.ToolCallID)
 
 	listed, err := execution.ListCompletedToolCallsAtWatermark(ctx, testProjectID, fixture.AgentID, 0, 1_000_000_000_000)
 	require.NoError(t, err)

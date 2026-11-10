@@ -33,6 +33,8 @@ const (
 	MessageRuntimeEnded     MessageType = "runtime_ended"
 	MessageSkillOffer       MessageType = "skill_offer"
 	MessageSkillReport      MessageType = "skill_report"
+	MessageToolCallOffer    MessageType = "tool_call_offer"
+	MessageToolCallReport   MessageType = "tool_call_report"
 )
 
 type AckStatus string
@@ -58,6 +60,8 @@ const (
 	ErrorCodePresenceReplaced        = "presence_replaced"
 	ErrorCodeMachineDecommissioned   = "machine_decommissioned"
 	ErrorCodeAuthorizationRevoked    = "authorization_revoked"
+	ErrorCodeToolCallUnavailable     = "tool_call_unavailable"
+	ErrorCodeToolCallLimitReached    = "tool_call_limit_reached"
 	ErrorCodeInternal                = "internal_error"
 )
 
@@ -74,6 +78,8 @@ type Message struct {
 	ActionGrant          *ActionGrant
 	SkillOffer           *SkillOffer
 	SkillReport          *SkillReport
+	ToolCallOffer        *ToolCallOffer
+	ToolCallReport       *ToolCallReport
 	Event                *ReportedEvent
 	DaemonInstanceID     uuid.UUID
 	ObservedPlatform     json.RawMessage
@@ -201,6 +207,16 @@ func (m Message) payloadForType() (json.RawMessage, error) {
 			return nil, errors.New("skill_report payload is required")
 		}
 		payload = m.SkillReport
+	case MessageToolCallOffer:
+		if m.ToolCallOffer == nil {
+			return nil, errors.New("tool_call_offer payload is required")
+		}
+		payload = m.ToolCallOffer
+	case MessageToolCallReport:
+		if m.ToolCallReport == nil {
+			return nil, errors.New("tool_call_report payload is required")
+		}
+		payload = m.ToolCallReport
 	default:
 		return nil, fmt.Errorf("unsupported daemon protocol message type %q", m.Type)
 	}
@@ -330,6 +346,20 @@ func messageFromEnvelope(env envelope) (Message, error) {
 			return Message{}, err
 		}
 		msg.SkillReport = &payload
+	case MessageToolCallOffer:
+		var payload ToolCallOffer
+		if err := decodeEnvelope(env.Payload, &payload); err != nil {
+			return Message{}, err
+		}
+		msg.ProcessID = payload.ProcessID
+		msg.ToolCallOffer = &payload
+	case MessageToolCallReport:
+		var payload ToolCallReport
+		if err := decodeEnvelope(env.Payload, &payload); err != nil {
+			return Message{}, err
+		}
+		msg.ProcessID = payload.ProcessID
+		msg.ToolCallReport = &payload
 	default:
 		return msg, nil
 	}

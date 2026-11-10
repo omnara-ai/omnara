@@ -1812,34 +1812,6 @@ export const zToolCall = z.object({
     created_at: zTimestamp
 });
 
-export const zDaemonProgramToolCallRequest = z.object({
-    key: z.uuid(),
-    name: z.string().min(1).max(128),
-    input: zToolInput
-});
-
-export const zDaemonProgramToolCallContent = z.object({
-    type: z.enum([
-        'text',
-        'structured_data',
-        'media_ref'
-    ]),
-    text: z.string().optional(),
-    value: z.unknown().optional(),
-    artifact_id: zArtifactId.optional()
-});
-
-export const zDaemonProgramToolCall = z.object({
-    tool_call_id: zToolCallId.optional(),
-    state: z.enum([
-        'pending',
-        'awaiting_approval',
-        'completed'
-    ]),
-    outcome: zToolCallOutcome.optional(),
-    content: z.array(zDaemonProgramToolCallContent).optional()
-});
-
 export const zListToolCallsResponse = z.object({
     data: z.array(zToolCall),
     next_cursor: z.string().nullable()
@@ -6224,31 +6196,6 @@ export const zGetDaemonGitCredentialsResponse = z.object({
     token: z.string(),
     expires_at: zTimestamp
 });
-
-export const zCreateDaemonProgramToolCallBody = zDaemonProgramToolCallRequest;
-
-export const zCreateDaemonProgramToolCallPath = z.object({
-    processID: zProcessId
-});
-
-/**
- * The call's current state.
- */
-export const zCreateDaemonProgramToolCallResponse = zDaemonProgramToolCall;
-
-export const zGetDaemonProgramToolCallPath = z.object({
-    processID: zProcessId,
-    toolCallID: zToolCallId
-});
-
-export const zGetDaemonProgramToolCallQuery = z.object({
-    wait_ms: z.int().gte(0).lte(25000).optional().default(0)
-});
-
-/**
- * The call's current state.
- */
-export const zGetDaemonProgramToolCallResponse = zDaemonProgramToolCall;
 
 export const zGetDaemonSkillArchivePath = z.object({
     skillID: z.string().regex(/^skl_[a-z2-7]{26}$/)

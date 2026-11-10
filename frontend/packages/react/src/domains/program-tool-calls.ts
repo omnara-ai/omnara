@@ -9,7 +9,7 @@ import { cursorPaginated } from './pagination'
 
 function programToolCallsOptions(
   client: OmnaraClient,
-  path: { orgID: string; projectID: string; agentID: string },
+  path: AgentChatScope,
   parentToolCallID: string,
 ) {
   return listToolCallsInfiniteOptions({
@@ -24,18 +24,9 @@ function programToolCallsOptions(
  * write no agent events, so the chat session refreshes these queries from
  * tool_call_update stream frames instead.
  */
-export function useProgramToolCalls(
-  orgID: string,
-  projectID: string,
-  agentID: string,
-  parentToolCallID: string,
-) {
+export function useProgramToolCalls(scope: AgentChatScope, parentToolCallID: string) {
   const client = useOmnaraClient()
-  return useInfiniteQuery(
-    cursorPaginated(
-      programToolCallsOptions(client, { orgID, projectID, agentID }, parentToolCallID),
-    ),
-  )
+  return useInfiniteQuery(cursorPaginated(programToolCallsOptions(client, scope, parentToolCallID)))
 }
 
 const toolCallRefreshIntervalMs = 500
@@ -76,10 +67,9 @@ export class ToolCallQueryRefresher {
 async function invalidateToolCallQueries(
   queryClient: QueryClient,
   client: OmnaraClient,
-  scope: AgentChatScope,
+  path: AgentChatScope,
   updates: (ToolCallUpdate | undefined)[],
 ): Promise<void> {
-  const path = { orgID: scope.orgID, projectID: scope.projectID, agentID: scope.agentID }
   const invalidations = [
     queryClient.invalidateQueries({ queryKey: openAgentInteractionsQueryKey(client, path) }),
   ]

@@ -477,7 +477,6 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"GitHubInstallations.name":                                "",
 		"GitHubRepository.name":                                   "",
 		"CurrentUserIdentity.display_name":                        "",
-		"DaemonProgramToolCallRequest.name":                       "",
 		"DiscoveredProviderModel.display_name":                    "",
 		"ExternalActorParams.display_name":                        "",
 		"Integration.provider_agent_display_name":                 "#/components/schemas/IntegrationProviderDisplayName",

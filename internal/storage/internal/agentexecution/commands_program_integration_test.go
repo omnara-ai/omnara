@@ -431,7 +431,7 @@ func TestProgramToolProcessFence(t *testing.T) {
 	reapable, err := cell.ListProgramToolReapable(t.Context(), 10)
 	require.NoError(t, err)
 	require.Equal(t,
-		[]agentexecution.ProgramToolCandidate{{ID: tool.ID, ProjectID: f.project, AgentID: f.agent}}, reapable)
+		[]agentexecution.ReapableProgramTool{{ID: tool.ID, ProjectID: f.project, AgentID: f.agent}}, reapable)
 	f.tx(t, func(_ *agentexecution.Unit, h *agentexecution.Handle) {
 		reaped, err := h.ReapProgramTool(t.Context(), tool.ID)
 		require.NoError(t, err)
@@ -450,15 +450,14 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	f := newProgramFixture(t)
 	tool := f.create(t, "key")
 	cell := agentexecution.NewCell(f.pool, nil, nil)
-	candidates, err := cell.ListProgramToolCandidates(t.Context(), 10, nil)
-	require.NoError(t, err)
-	require.Equal(t, []agentexecution.ProgramToolCandidate{
-		{ID: tool.ID, ProjectID: f.project, AgentID: f.agent, ProcessID: f.process}}, candidates)
 	first := uuid.New()
 	_, found := f.claim(t, tool.ID, first)
 	require.True(t, found)
+	// A live authorization lease is not claimable.
+	_, found = f.claim(t, tool.ID, uuid.New())
+	require.False(t, found)
 	ref := agentexecution.ProgramToolRef{ID: tool.ID, ProcessID: f.process, ClaimID: first}
-	err = cell.RenewProgramTool(t.Context(), f.agent, ref, time.Hour)
+	err := cell.RenewProgramTool(t.Context(), f.agent, ref, time.Hour)
 	require.NoError(t, err)
 	expire := func() {
 		_, err := f.pool.Exec(t.Context(), `UPDATE tool_calls
@@ -485,11 +484,10 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	})
 	// The authorized call waits under the authorization claim.
 	execute := second
-	candidates, err = cell.ListProgramToolCandidates(t.Context(), 10, nil)
-	require.NoError(t, err)
-	require.Empty(t, candidates)
+	_, found = f.claim(t, tool.ID, uuid.New())
+	require.False(t, found)
 	expire()
-	// An expired execution claim is never re-run: it fails as worker_lost.
+	// An expired execution claim is never re-run: it fails as server_lost.
 	_, found = f.claim(t, tool.ID, uuid.New())
 	require.False(t, found)
 	ref.ClaimID = execute
@@ -507,37 +505,7 @@ func TestProgramToolClaimLeases(t *testing.T) {
 	var code string
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT b.structured_data->>'error_code' FROM content_blocks b
  JOIN tool_call_results r ON r.id=b.owner_tool_call_result_id WHERE r.tool_call_id=$1`, tool.ID).Scan(&code))
-	require.Equal(t, "worker_lost", code)
-}
-
-// An agent's claimed calls count against its claimable ones, so another
-// agent's later call is offered before the rest of its backlog.
-func TestProgramToolCandidatesShareWorkersAcrossAgents(t *testing.T) {
-	busy := newProgramFixture(t)
-	running, second, third := busy.create(t, "running"), busy.create(t, "second"), busy.create(t, "third")
-	_, found := busy.claim(t, running.ID, uuid.New())
-	require.True(t, found)
-	other := busy.sibling(t)
-	late := other.create(t, "late")
-	candidates, err := agentexecution.NewCell(busy.pool, nil, nil).ListProgramToolCandidates(t.Context(), 10, nil)
-	require.NoError(t, err)
-	ids := make([]uuid.UUID, len(candidates))
-	for i, candidate := range candidates {
-		ids[i] = candidate.ID
-	}
-	require.Equal(t, []uuid.UUID{late.ID, second.ID, third.ID}, ids)
-	require.Equal(t, other.agent, candidates[0].AgentID)
-
-	// Skipping an agent that could not be claimed from reaches the calls a
-	// full page of its candidates would otherwise hide.
-	cell := agentexecution.NewCell(busy.pool, nil, nil)
-	hidden, err := cell.ListProgramToolCandidates(t.Context(), 2, []uuid.UUID{other.agent})
-	require.NoError(t, err)
-	require.Len(t, hidden, 2)
-	require.Equal(t, []uuid.UUID{second.ID, third.ID}, []uuid.UUID{hidden[0].ID, hidden[1].ID})
-	none, err := cell.ListProgramToolCandidates(t.Context(), 2, []uuid.UUID{other.agent, busy.agent})
-	require.NoError(t, err)
-	require.Empty(t, none)
+	require.Equal(t, "server_lost", code)
 }
 
 func TestProgramToolCreateLimitsOpenCallsPerCommand(t *testing.T) {

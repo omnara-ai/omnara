@@ -61,6 +61,7 @@ type Server struct {
 	agentStreamDeltaSubscriber          notifications.AgentStreamDeltaSubscriber
 	agentEventStreamReconciler          *agentEventStreamReconciler
 	daemonHub                           *daemonSocketHub
+	programToolExecutor                 ProgramToolExecutor
 	recorder                            *metrics.HTTPRecorder
 	integrationInboxIntake              *metrics.IntegrationInboxIntakeRecorder
 	daemonRecorder                      *metrics.DaemonRecorder

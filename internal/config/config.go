@@ -74,7 +74,6 @@ type Config struct {
 	WorkerDiscordCapacity             int
 	WorkerAsyncToolCapacity           int
 	WorkerBackgroundToolCapacity      int
-	WorkerProgramToolCapacity         int
 	WorkerDrainTimeout                time.Duration
 	DaemonSocketFallbackDrainInterval time.Duration
 	DaemonSocketFallbackDrainJitter   time.Duration
@@ -255,10 +254,6 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	workerProgramToolCapacity, err := getenvInt("OMNARA_WORKER_PROGRAM_TOOL_CAPACITY", 16)
-	if err != nil {
-		return Config{}, err
-	}
 	apiRateLimitReadsPerHour, err := getenvInt("OMNARA_API_RATE_LIMIT_READS_PER_HOUR", 100000)
 	if err != nil {
 		return Config{}, err
@@ -306,7 +301,6 @@ func Load() (Config, error) {
 		WorkerDiscordCapacity:             workerDiscordCapacity,
 		WorkerAsyncToolCapacity:           workerAsyncToolCapacity,
 		WorkerBackgroundToolCapacity:      workerBackgroundToolCapacity,
-		WorkerProgramToolCapacity:         workerProgramToolCapacity,
 		WorkerDrainTimeout:                defaultWorkerDrainTimeout,
 		DaemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		DaemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
@@ -707,9 +701,6 @@ func (cfg Config) ValidateWorker() error {
 	}
 	if cfg.WorkerBackgroundToolCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY must be positive")
-	}
-	if cfg.WorkerProgramToolCapacity <= 0 {
-		return fmt.Errorf("OMNARA_WORKER_PROGRAM_TOOL_CAPACITY must be positive")
 	}
 	if cfg.WorkerDrainTimeout < 0 {
 		return fmt.Errorf("OMNARA_WORKER_DRAIN_TIMEOUT must be non-negative")
