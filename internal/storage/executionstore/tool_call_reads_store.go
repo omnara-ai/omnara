@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -71,6 +72,7 @@ func (s *Store) GetToolCallSummary(
 		ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
 		Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 		Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+		Caller: row.Caller, ParentToolCallID: storeutil.IDFromPtr(row.ParentToolCallID),
 	}, nil
 }
 
@@ -152,6 +154,7 @@ func (s *Store) ListToolCalls(
 			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
 			Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+			Caller: row.Caller, ParentToolCallID: storeutil.IDFromPtr(row.ParentToolCallID),
 		})
 	}
 	return toolCallsPage(calls, input.Limit), nil
@@ -197,6 +200,7 @@ func (s *Store) ListUnfinishedProjectToolCalls(
 			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
 			Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+			Caller: row.Caller, ParentToolCallID: storeutil.IDFromPtr(row.ParentToolCallID),
 		})
 	}
 	return toolCallsPage(calls, input.Limit), nil

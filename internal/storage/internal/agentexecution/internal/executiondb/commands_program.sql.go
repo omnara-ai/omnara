@@ -14,8 +14,8 @@ import (
 )
 
 const insertProgramTool = `-- name: InsertProgramTool :one
-INSERT INTO tool_calls(id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,created_at)
-SELECT $1,c.agent_id,$2,$3,$4::jsonb,$5,
+INSERT INTO tool_calls(id,project_id,agent_id,provider_call_id,name,input,type,state,caller,parent_tool_call_id,created_at)
+SELECT $1,c.project_id,c.agent_id,$2,$3,$4::jsonb,$5,
  'awaiting_authorization','program',c.id,statement_timestamp()
 FROM tool_calls c WHERE c.agent_id=$6 AND c.id=$7 AND c.caller='model'
 ON CONFLICT (agent_id,parent_tool_call_id,provider_call_id) WHERE caller='program' DO NOTHING

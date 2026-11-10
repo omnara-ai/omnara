@@ -206,8 +206,8 @@ func TestProgramToolSchema(t *testing.T) {
 	var output uuid.UUID
 	require.NoError(t, u.QueryRow(t.Context(), `SELECT model_output_id FROM tool_calls WHERE id=$1`,
 		f.parent).Scan(&output))
-	insert := `INSERT INTO tool_calls(agent_id,model_output_id,provider_call_id,name,input,type,state,caller,
- parent_tool_call_id,created_at) SELECT agent_id,$5::uuid,$2,'storage_read','{}','built_in',
+	insert := `INSERT INTO tool_calls(project_id,agent_id,model_output_id,provider_call_id,name,input,type,state,caller,
+ parent_tool_call_id,created_at) SELECT project_id,agent_id,$5::uuid,$2,'storage_read','{}','built_in',
  'awaiting_authorization',$3,$4,statement_timestamp() FROM tool_calls WHERE id=$1`
 	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p1", "program", f.parent, output)))
 	require.Equal(t, "23514", sqlState(t, u, stmt(insert, f.parent, "p2", "program", nil, nil)))

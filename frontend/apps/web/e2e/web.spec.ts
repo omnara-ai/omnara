@@ -16,7 +16,7 @@ import {
   readIntegration,
   requiredEnvironmentVariable,
 } from './fixtures'
-import { signIn, signInThroughLoginForm } from './helpers'
+import { selectConfiguredModel, signIn, signInThroughLoginForm } from './helpers'
 import { exerciseGuidedGitHubSetup } from './integration-github'
 import { exerciseDiscordIntegrationSchedule } from './integration-schedules'
 import { exerciseSlackIntegrationSetup } from './integration-slack'
@@ -38,17 +38,6 @@ const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONF
 const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
 const ungrantedModelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_UNGRANTED_MODEL')
 const createAgentPath = `/projects/${projectID}/agents/new`
-
-async function selectConfiguredModel(page: Page) {
-  const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
-  await modelPicker.click()
-  await page.getByPlaceholder('Search shared models…').fill(modelName)
-  await page
-    .getByRole('option')
-    .filter({ hasText: modelName })
-    .filter({ hasText: providerConfig })
-    .click()
-}
 
 async function createProfile(page: Page, name: string, instruction: string) {
   await signIn(page, adminEmail, createAgentPath)

@@ -267,7 +267,8 @@ func (h *Handle) OpenProgramPermission(
 			target = &destination
 		}
 		id, err := q.InsertExecutionInteraction(ctx, h.unit.DB(), executiondb.InsertExecutionInteractionParams{
-			AgentID: h.route.AgentID, ToolID: row.ID, Kind: kind, Request: request, Destination: target})
+			ProjectID: h.route.ProjectID, AgentID: h.route.AgentID, ToolID: row.ID, Kind: kind, Request: request,
+			Destination: target})
 		if err != nil {
 			return Interaction{}, err
 		}

@@ -2620,7 +2620,19 @@ export type ToolCallUpdate = {
     /**
      * The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
      */
-    agent_id?: AgentId;
+    agent_id: AgentId;
+    /**
+     * The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+     */
+    agent_profile_id: AgentProfileId | null;
+    /**
+     * The emitting agent's immediate parent, or null for a top-level agent.
+     */
+    parent_agent_id: AgentId | null;
+    /**
+     * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+     */
+    root_agent_id: AgentId;
     /**
      * The run_command call whose process made this call with `omnarad call`. Present on event stream frames for program calls.
      */

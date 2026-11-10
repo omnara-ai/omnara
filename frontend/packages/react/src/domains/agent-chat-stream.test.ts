@@ -25,6 +25,15 @@ import {
 
 const transport = chatTransport()
 
+const toolCallRouting = {
+  org_id: 'org',
+  project_id: 'project',
+  agent_id: 'agent',
+  agent_profile_id: null,
+  parent_agent_id: null,
+  root_agent_id: 'agent',
+}
+
 function actor(id: string, providerUserId: string): Actor {
   return {
     id,
@@ -553,7 +562,7 @@ describe('AgentChatSession streaming', () => {
 
     stream.push({
       event: 'tool_call_update',
-      data: { tool_call_id: 'model-call', state: 'awaiting_permission' },
+      data: { ...toolCallRouting, tool_call_id: 'model-call', state: 'awaiting_permission' },
     })
     await vi.waitFor(() => {
       expect(invalidate).toHaveBeenCalledTimes(1)
@@ -565,6 +574,7 @@ describe('AgentChatSession streaming', () => {
     stream.push({
       event: 'tool_call_update',
       data: {
+        ...toolCallRouting,
         tool_call_id: 'program-call',
         parent_tool_call_id: 'command',
         state: 'awaiting_permission',
@@ -594,7 +604,12 @@ describe('AgentChatSession streaming', () => {
     for (let call = 0; call < 20; call++) {
       stream.push({
         event: 'tool_call_update',
-        data: { tool_call_id: `call-${call}`, parent_tool_call_id: 'command', state: 'completed' },
+        data: {
+          ...toolCallRouting,
+          tool_call_id: `call-${call}`,
+          parent_tool_call_id: 'command',
+          state: 'completed',
+        },
       })
     }
     // The first frame refreshes at once; the other 19 share one refresh.
