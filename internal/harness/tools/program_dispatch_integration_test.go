@@ -5,6 +5,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -196,6 +197,35 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	require.NotContains(t, string(readResult.ResultContentParts), `"digest"`, "hidden parts must be dropped")
 	requireMatchesOutputSchema(t, outputSchemas[toolcatalog.ToolNameStorageRead],
 		firstStructuredValue(t, readResult.ResultContentParts))
+
+	// An approval does not outlive the permission it was given under: denying
+	// the tool after the user approved a call stops the call before it runs.
+	stale := fixture.create(t, ctx, "stale-approval", toolcatalog.ToolNameStorageRead,
+		`{"path":"/memory/engineering/notes.md"}`)
+	fixture.run(t, ctx, executor, fixture.claim(t, ctx, stale.ID, executionstore.ProgramToolCallPhaseAuthorize))
+	approveToolPermissionForTest(t, ctx, fixture.Store.Execution(), integrationToolInteraction(t, ctx,
+		fixture.integrationToolFixture, stale.ID, executionstore.AgentInteractionKindPermission), fixture.User.ID)
+	const askRead = "storage_read:\n    permission: {mode: always_ask}"
+	require.Contains(t, fixture.AgentConfig.Source, askRead)
+	denyingYAML := strings.Replace(fixture.AgentConfig.Source, askRead,
+		"storage_read:\n    permission: {mode: always_deny}", 1)
+	compiled := compileToolsAgentYAMLResolved(t, ctx, fixture.Store, fixture.User.ID, denyingYAML)
+	denying, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+		ProjectID: toolsTestProjectID, Source: denyingYAML, SourceFormat: "yaml",
+		ConfiguredModelID:  parseConfiguredModelID(t, compiled),
+		CompiledDefinition: json.RawMessage(compiled.CanonicalJSON), EffectiveDefinitionHash: compiled.Hash})
+	require.NoError(t, err)
+	useConfig := func(id uuid.UUID) {
+		t.Helper()
+		_, err := fixture.Pool.Exec(ctx, `UPDATE agents SET current_config_id = $1 WHERE id = $2`, id, fixture.Agent.ID)
+		require.NoError(t, err)
+	}
+	useConfig(denying.ID)
+	fixture.run(t, ctx, executor, fixture.claim(t, ctx, stale.ID, executionstore.ProgramToolCallPhaseExecute))
+	staleResult := fixture.get(t, ctx, stale.ID)
+	require.Equal(t, executionstore.ToolResultOutcomeDenied, staleResult.Outcome, string(staleResult.ResultContentParts))
+	require.NotContains(t, string(staleResult.ResultContentParts), "program note")
+	useConfig(fixture.AgentConfig.ID)
 
 	// always_deny completes denied without running.
 	searchCall := fixture.create(t, ctx, "search", toolcatalog.ToolNameStorageSearch,

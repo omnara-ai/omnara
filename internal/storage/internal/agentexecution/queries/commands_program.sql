@@ -10,6 +10,10 @@ FROM tool_calls c WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(parent_i
 ON CONFLICT (agent_id,parent_tool_call_id,provider_call_id) WHERE caller='program' DO NOTHING
 RETURNING id;
 
+-- name: CountOpenProgramTools :one
+SELECT count(*) FROM tool_calls WHERE agent_id=sqlc.arg(agent_id) AND caller='program'
+ AND parent_tool_call_id=sqlc.arg(parent_id)::uuid AND state<>'completed';
+
 -- name: ReadProgramTool :one
 SELECT c.id,c.name,c.input,c.type,c.state,c.parent_tool_call_id,c.provider_call_id,
  c.program_claim_id,c.program_claim_expires_at,coalesce(c.program_claim_expires_at<=statement_timestamp(),false)::boolean AS claim_expired,
@@ -48,6 +52,7 @@ JOIN agents a ON a.id=c.agent_id AND a.state='active'
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
  AND p.execution_granted_at IS NOT NULL AND p.state IN ('starting','running')
 WHERE c.caller='program' AND c.state IN ('ready','awaiting_authorization','waiting')
+ AND NOT (c.agent_id=ANY(sqlc.arg(skip_agent_ids)::uuid[]))
 ), ranked AS (
 SELECT o.id,o.agent_id,o.project_id,o.process_id,o.created_at,o.claimable,
  count(*) FILTER (WHERE NOT o.claimable) OVER (PARTITION BY o.agent_id)
