@@ -52,13 +52,12 @@ func (contract RuntimeContract) RequiresModelToolSupport() bool {
 }
 
 type RuntimeTool struct {
-	Name        string
-	Type        string
-	Permission  toolpermission.Selection
-	Deferred    bool
-	Description string
-	InputSchema json.RawMessage
-	// IntegrationKind is set on integration tools.
+	Name            string
+	Type            string
+	Permission      toolpermission.Selection
+	Deferred        bool
+	Description     string
+	InputSchema     json.RawMessage
 	IntegrationKind integrationdefinition.Kind
 }
 

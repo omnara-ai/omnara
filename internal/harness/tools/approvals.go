@@ -157,17 +157,11 @@ func (e Executor) PrepareRecordedToolCallPermission(
 	return executionstore.ToolCallRecord{}, nil
 }
 
-// programApprovalHolds checks, before a program call a user approved runs,
-// that the agent's current config still permits it: the tool is always
-// allowed, or its permission is the one the approval was given under. It
-// completes the call denied and reports false otherwise, since the user was
-// not asked under the permission now in force.
 func (e Executor) programApprovalHolds(
 	ctx context.Context, turn Turn, record executionstore.ToolCallRecord,
 ) (bool, error) {
 	spec, configured := turn.Tools[record.Name]
 	if !configured {
-		// Dispatch fails a call to a tool that is no longer available.
 		return true, nil
 	}
 	selection, err := toolpermission.NormalizeSelection(spec.Permission)

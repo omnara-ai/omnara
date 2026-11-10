@@ -24,15 +24,14 @@ import (
 )
 
 type CreateDaemonMachineInput struct {
-	OrgID          uuid.UUID
-	DisplayName    string
-	Description    string
-	Cwd            string
-	Env            json.RawMessage
-	SecretEnv      json.RawMessage
-	IdempotencyKey string
-	Metadata       resourcemeta.Metadata
-	// ProgrammaticToolCalls lets processes on the machine call agent tools.
+	OrgID                 uuid.UUID
+	DisplayName           string
+	Description           string
+	Cwd                   string
+	Env                   json.RawMessage
+	SecretEnv             json.RawMessage
+	IdempotencyKey        string
+	Metadata              resourcemeta.Metadata
 	ProgrammaticToolCalls bool
 }
 

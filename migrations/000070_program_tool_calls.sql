@@ -1,24 +1,11 @@
 -- +goose Up
 
--- Programmatic tool calls: a shell process started by run_command calls other
--- tools through `omnarad call`. Each nested call is a child tool_calls row of
--- the owning run_command call. Children have no model output, so every query
--- that reaches tool calls through a model output skips them; they also have no
--- content block or agent events, never hold the runtime lock, and run under a
--- worker claim lease instead. provider_call_id holds the client's idempotency
--- key, unique per parent.
---
--- tool_calls is large, so this migration only changes metadata under its
--- ACCESS EXCLUSIVE lock: new constraints start NOT VALID (enforced for new
--- rows, no scan). 000071 builds indexes and validates outside a transaction.
 ALTER TABLE tool_calls
     ALTER COLUMN model_output_id DROP NOT NULL,
     ADD COLUMN caller text NOT NULL DEFAULT 'model',
     ADD COLUMN parent_tool_call_id uuid,
     ADD COLUMN program_claim_id uuid,
     ADD COLUMN program_claim_expires_at timestamptz,
-    -- Authorization leases are re-claimable after expiry; execution leases
-    -- (waiting) are not, so a child body runs at most once.
     ADD CONSTRAINT tool_calls_caller_shape CHECK (
         (caller = 'model' AND model_output_id IS NOT NULL AND parent_tool_call_id IS NULL
             AND program_claim_id IS NULL AND program_claim_expires_at IS NULL)
@@ -30,6 +17,60 @@ ALTER TABLE tool_calls
     ) NOT VALID,
     ADD CONSTRAINT tool_calls_program_process_fkey
         FOREIGN KEY (agent_id, parent_tool_call_id) REFERENCES processes(agent_id, tool_call_id) NOT VALID;
+
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION enforce_tool_call_transition()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.state <> 'awaiting_authorization' THEN
+            RAISE EXCEPTION 'tool_calls must be inserted in awaiting_authorization state'
+                USING ERRCODE = '23514';
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF NEW.state = 'running' AND NOT EXISTS (
+        SELECT 1
+        FROM agent_runtime_locks runtime_lock
+        WHERE runtime_lock.agent_id = NEW.agent_id
+          AND runtime_lock.id = NEW.runtime_lock_id
+    ) THEN
+        RAISE EXCEPTION 'running tool_call must be owned by its agent runtime lock'
+            USING ERRCODE = '23514';
+    END IF;
+
+    IF NEW.state IS NOT DISTINCT FROM OLD.state THEN
+        IF NEW.runtime_lock_id IS DISTINCT FROM OLD.runtime_lock_id THEN
+            RAISE EXCEPTION 'tool_call runtime ownership may change only with state'
+                USING ERRCODE = '23514';
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF OLD.state = 'completed' THEN
+        RAISE EXCEPTION 'completed tool_calls are immutable'
+            USING ERRCODE = '25006';
+    END IF;
+
+    IF NOT (
+        (OLD.state = 'awaiting_authorization' AND NEW.state IN ('awaiting_permission', 'ready', 'completed'))
+        OR (OLD.state = 'awaiting_permission' AND NEW.state IN ('ready', 'completed'))
+        OR (OLD.state = 'ready' AND NEW.state IN ('running', 'waiting', 'completed'))
+        OR (OLD.state = 'running' AND NEW.state IN ('ready', 'waiting', 'completed'))
+        OR (OLD.state = 'waiting' AND NEW.state = 'completed')
+        OR (OLD.state = 'waiting' AND NEW.state = 'ready' AND NEW.caller = 'program')
+    ) THEN
+        RAISE EXCEPTION 'invalid tool_call transition % -> %', OLD.state, NEW.state
+            USING ERRCODE = '23514';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+-- +goose StatementEnd
 
 -- +goose StatementBegin
 CREATE FUNCTION enforce_program_tool_call_parent()
@@ -134,9 +175,6 @@ END;
 $$;
 -- +goose StatementEnd
 
--- Program calls have no model output; they read as acting in their parent's
--- turn and model call context. The parent lookup is gated (and kept from being
--- flattened by LIMIT) so model calls never probe for a parent.
 CREATE OR REPLACE VIEW tool_call_read_projection AS
 SELECT tool_call.id,
        tool_call.project_id,
@@ -168,8 +206,6 @@ JOIN agent_events source_event ON source_event.agent_id = model_output.agent_id
   AND source_event.model_output_id = model_output.id
   AND source_event.event_kind = 'model_output';
 
--- Program-call interactions are resolved directly by an actor, without an
--- interaction_response agent input; replays compare the recorded actor.
 ALTER TABLE agent_interactions
     ADD COLUMN resolved_by_actor_id uuid,
     ADD CONSTRAINT agent_interactions_resolved_by_actor_id_fkey

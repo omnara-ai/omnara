@@ -16,10 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localipc"
 )
 
-// A process service is a local HTTP service on a unix socket in the run
-// directory that processes the daemon starts call with a capability from
-// their environment: an HMAC of the process ID under its supervisor token,
-// labeled per service so one service's capability is useless at another.
 type processService struct {
 	name   string
 	label  string
@@ -33,8 +29,6 @@ var (
 		name: "program tool call", label: "omnara-program-tool-call", socket: "tool-calls.sock"}
 )
 
-// processServiceHelper is how a process reaches a service: the omnarad
-// executable, the service's socket, and the process's capability.
 type processServiceHelper struct {
 	Executable string `json:"executable"`
 	Endpoint   string `json:"endpoint"`
@@ -73,9 +67,6 @@ func (c *Client) processServiceHelper(
 		Capability: s.capability(supervisorToken, processID)}, nil
 }
 
-// authorize returns 0 when r carries processID's capability for s and the
-// process is open locally, 403 when it does not, and 503 when the daemon's
-// state cannot be read.
 func (c *Client) authorizeProcessService(
 	ctx context.Context, s processService, r *http.Request, processID string,
 ) int {
@@ -95,7 +86,6 @@ func (c *Client) authorizeProcessService(
 	return 0
 }
 
-// serveProcessService serves server on s's socket until the returned stop.
 func (c *Client) serveProcessService(ctx context.Context, s processService, server *http.Server) (func(), error) {
 	endpoint, err := c.processServiceEndpoint(s)
 	if err != nil {
@@ -129,8 +119,6 @@ func (c *Client) serveProcessService(ctx context.Context, s processService, serv
 	}, nil
 }
 
-// dialProcessService connects to a process service, retrying briefly while
-// the daemon (re)starts it.
 func dialProcessService(endpoint, unavailable string) *http.Transport {
 	return &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {

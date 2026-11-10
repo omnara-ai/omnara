@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -20,39 +22,26 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-// Program tool calls are tools a run_command process calls through
-// `omnarad call`. Its machine's daemon offers each call on the websocket; the
-// replica holding the socket runs it and reports the result back.
-
 const (
-	// daemonToolCallLimit bounds the calls one daemon may have offered at once.
-	daemonToolCallLimit  = 128
-	programToolCallLease = time.Minute
-	// Tool call updates wake a served call; polls only cover missed or
-	// unavailable ones, and retry a call another replica stopped running.
+	daemonToolCallLimit         = 128
+	programToolCallLease        = time.Minute
 	programToolCallPoll         = 2 * time.Second
 	programToolCallFallbackPoll = 250 * time.Millisecond
 
-	programToolCallContentMediaRef = "media_ref"
-	programToolCallResultTooLarge  = `{"error_code":"result_too_large",` +
+	programToolCallResultTooLarge = `{"error_code":"result_too_large",` +
 		`"error":"The tool result is too large for a tool call from a command."}`
 )
 
-// ProgramToolExecutor runs the claimed phase of a program tool call; see
-// tools.Executor.RunProgramToolCall.
 type ProgramToolExecutor interface {
 	RunProgramToolCall(context.Context, executionstore.ProgramToolCallClaim, time.Duration) error
 }
 
-// WithProgramToolExecutor lets daemons offer program tool calls. Without it
-// every offer is rejected.
 func WithProgramToolExecutor(executor ProgramToolExecutor) Option {
 	return func(s *Server) {
 		s.programToolExecutor = executor
 	}
 }
 
-// toolCallRejectedError is why an offered call was not made.
 type toolCallRejectedError struct {
 	status  daemonprotocol.AckStatus
 	code    string
@@ -75,19 +64,19 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 		return errors.New("tool_call_offer process_id and key are required")
 	}
 	id := offer.ProcessID + "\x00" + offer.Key
+	canceled := make(chan struct{})
 	s.workMu.Lock()
 	_, serving := s.toolCalls[id]
 	full := len(s.toolCalls) >= daemonToolCallLimit
 	if !serving && !full {
-		s.toolCalls[id] = struct{}{}
+		s.toolCalls[id] = canceled
 		s.toolCallsDone.Add(1)
 	}
 	s.workMu.Unlock()
 	switch {
 	case serving:
-		// A repeated offer: the call's report is already on its way.
 	case full:
-		s.reportToolCall(offer, daemonprotocol.ToolCallReport{
+		s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{
 			AckStatus: daemonprotocol.AckStatusTransientError, ErrorCode: daemonprotocol.ErrorCodeToolCallLimitReached,
 			Error: "this machine has too many tool calls in flight; wait for one to finish"})
 	default:
@@ -98,13 +87,29 @@ func (s *daemonSocket) handleToolCallOffer(ctx context.Context, msg daemonprotoc
 				delete(s.toolCalls, id)
 				s.workMu.Unlock()
 			}()
-			s.serveToolCall(ctx, offer)
+			s.serveToolCall(ctx, offer, canceled)
 		}()
 	}
 	return nil
 }
 
-func (s *daemonSocket) reportToolCall(offer daemonprotocol.ToolCallOffer, report daemonprotocol.ToolCallReport) {
+func (s *daemonSocket) handleToolCallCancel(msg daemonprotocol.Message) error {
+	if msg.ToolCallCancel == nil {
+		return errors.New("tool_call_cancel payload is required")
+	}
+	id := msg.ToolCallCancel.ProcessID + "\x00" + msg.ToolCallCancel.Key
+	s.workMu.Lock()
+	if canceled := s.toolCalls[id]; canceled != nil {
+		close(canceled)
+		s.toolCalls[id] = nil
+	}
+	s.workMu.Unlock()
+	return nil
+}
+
+func (s *daemonSocket) reportToolCall(
+	ctx context.Context, offer daemonprotocol.ToolCallOffer, report daemonprotocol.ToolCallReport,
+) {
 	report.ProcessID, report.Key = offer.ProcessID, offer.Key
 	msg := daemonprotocol.Message{Type: daemonprotocol.MessageToolCallReport, ToolCallReport: &report}
 	if encoded, err := json.Marshal(msg); err != nil || len(encoded) > daemonprotocol.MaxMessageBytes {
@@ -114,19 +119,21 @@ func (s *daemonSocket) reportToolCall(offer daemonprotocol.ToolCallOffer, report
 			Value: json.RawMessage(programToolCallResultTooLarge),
 		}}
 	}
-	s.enqueueOrClose(msg)
-	s.recordSocketEvent("tool_call_report", report.State, string(report.AckStatus))
+	select {
+	case s.send <- daemonSocketOutbound{msg: msg}:
+		s.recordSocketEvent("tool_call_report", report.State, string(report.AckStatus))
+	case <-s.done:
+	case <-ctx.Done():
+	}
 }
 
-// serveToolCall makes the offered call, or picks up one offered before, and
-// reports its approval wait and its result. It ends once the call completes or
-// is rejected, or the socket closes; the daemon offers an unfinished call again
-// on its next connection.
-func (s *daemonSocket) serveToolCall(ctx context.Context, offer daemonprotocol.ToolCallOffer) {
+func (s *daemonSocket) serveToolCall(
+	ctx context.Context, offer daemonprotocol.ToolCallOffer, canceled <-chan struct{},
+) {
 	server := s.server
 	reject := func(err error) {
 		rejection := programToolCallRejection(server, err)
-		s.reportToolCall(offer, daemonprotocol.ToolCallReport{
+		s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{
 			AckStatus: rejection.status, ErrorCode: rejection.code, Error: rejection.message})
 	}
 	ref, result, err := server.offerProgramToolCall(ctx, s.orgID, s.machineID, offer)
@@ -135,7 +142,7 @@ func (s *daemonSocket) serveToolCall(ctx context.Context, offer daemonprotocol.T
 		return
 	}
 	if result != nil {
-		s.reportToolCall(offer, daemonprotocol.ToolCallReport{ProgramToolCallResult: *result})
+		s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{ProgramToolCallResult: *result})
 		return
 	}
 	poll := programToolCallFallbackPoll
@@ -159,7 +166,8 @@ func (s *daemonSocket) serveToolCall(ctx context.Context, offer daemonprotocol.T
 		}
 	}
 	var running <-chan struct{}
-	claim, awaitingApproval := true, false
+	claim, awaitingApproval, canceling := true, false, false
+	var reclaimAfter time.Time
 	for {
 		record, found, err := server.store.Execution().GetProgramToolCall(
 			ctx, ref.ProjectID, ref.AgentID, ref.ProcessID, ref.ToolCallID)
@@ -176,22 +184,45 @@ func (s *daemonSocket) serveToolCall(ctx context.Context, offer daemonprotocol.T
 			}
 			return
 		}
+		select {
+		case <-canceled:
+			canceling, canceled = true, nil
+		default:
+		}
+		if canceling {
+			if record.State == executionstore.ToolCallStateCompleted {
+				return
+			}
+			over, err := server.store.Execution().CancelProgramToolCall(ctx, ref)
+			if err != nil && ctx.Err() == nil {
+				server.log.Error("cancel program tool call", "tool_call_id", ref.ToolCallID, "error", err)
+			}
+			if err != nil || over || record.State != executionstore.ToolCallStateAwaitingAuthorization {
+				return
+			}
+		}
 		switch record.State {
 		case executionstore.ToolCallStateCompleted:
-			s.reportToolCall(offer, daemonprotocol.ToolCallReport{ProgramToolCallResult: report})
+			s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{ProgramToolCallResult: report})
 			return
 		case executionstore.ToolCallStateAwaitingPermission:
 			if !awaitingApproval {
 				awaitingApproval = true
-				s.reportToolCall(offer, daemonprotocol.ToolCallReport{ProgramToolCallResult: report})
+				s.reportToolCall(ctx, offer, daemonprotocol.ToolCallReport{ProgramToolCallResult: report})
 			}
 		case executionstore.ToolCallStateAwaitingAuthorization, executionstore.ToolCallStateReady:
-			// New, approved, or left behind by a replica that stopped: run it.
-			if claim && running == nil {
+			if claim && running == nil && !canceling {
 				//nolint:contextcheck // the run outlives this socket's context
 				running = server.runProgramToolCall(ref)
 			}
-		case executionstore.ToolCallStateWaiting, executionstore.ToolCallStateRunning:
+		case executionstore.ToolCallStateWaiting:
+			if claim && running == nil && !canceling && record.Type == toolcatalog.ToolTypeBuiltIn &&
+				!time.Now().Before(reclaimAfter) {
+				reclaimAfter = time.Now().Add(programToolCallLease / 3)
+				//nolint:contextcheck // the run outlives this socket's context
+				running = server.runProgramToolCall(ref)
+			}
+		case executionstore.ToolCallStateRunning:
 		}
 		claim = true
 		timer := time.NewTimer(poll)
@@ -201,11 +232,12 @@ func (s *daemonSocket) serveToolCall(ctx context.Context, offer daemonprotocol.T
 			return
 		case <-running:
 			timer.Stop()
-			// Whether it ran or another replica holds the claim, wait for news
-			// before claiming again.
 			running, claim = nil, false
 		case <-updates:
 			timer.Stop()
+		case <-canceled:
+			timer.Stop()
+			canceling, canceled = true, nil
 		case <-timer.C:
 		}
 	}
@@ -213,9 +245,6 @@ func (s *daemonSocket) serveToolCall(ctx context.Context, offer daemonprotocol.T
 
 var errProgramToolCallsDisabledOnMachine = errors.New("programmatic tool calls are disabled on this machine")
 
-// offerProgramToolCall records the offered call, idempotently on its key, and
-// returns its reference. Calls answered without a record, such as tool_search,
-// return their result instead.
 func (s *Server) offerProgramToolCall(
 	ctx context.Context, orgID, machineID uuid.UUID, offer daemonprotocol.ToolCallOffer,
 ) (executionstore.ProgramToolCallRef, *daemonprotocol.ProgramToolCallResult, error) {
@@ -247,8 +276,6 @@ func (s *Server) offerProgramToolCall(
 		return ref, nil, err
 	}
 	if !found {
-		// The scope does not say why it is missing; the machine flag is the
-		// common case worth naming.
 		machine, err := s.store.Execution().GetMachine(ctx, orgID, machineID)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
@@ -311,14 +338,15 @@ func (s *Server) offerProgramToolCall(
 		ProcessID: program.ProcessID, ToolCallID: record.ID}, nil, nil
 }
 
-// runProgramToolCall claims the call's next phase and runs it, renewing the
-// claim until its async work, if any, has finished. The run outlives the
-// socket that asked for it: the returned channel closes once it is over, or at
-// once when the call is not claimable.
 func (s *Server) runProgramToolCall(ref executionstore.ProgramToolCallRef) <-chan struct{} {
 	done := make(chan struct{})
+	if !s.programToolRuns.start() {
+		close(done)
+		return done
+	}
 	go func() {
 		defer close(done)
+		defer s.programToolRuns.done()
 		log := s.log.With("agent_id", ref.AgentID, "tool_call_id", ref.ToolCallID)
 		defer func() {
 			if recovered := recover(); recovered != nil {
@@ -375,6 +403,41 @@ func (s *Server) runProgramToolCall(ref executionstore.ProgramToolCallRef) <-cha
 	return done
 }
 
+const programToolRunStopGrace = 10 * time.Second
+
+type programToolRuns struct {
+	mu      sync.Mutex
+	closing bool
+	running sync.WaitGroup
+}
+
+func (r *programToolRuns) start() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closing {
+		return false
+	}
+	r.running.Add(1)
+	return true
+}
+
+func (r *programToolRuns) done() { r.running.Done() }
+
+func (r *programToolRuns) stop(grace time.Duration) {
+	r.mu.Lock()
+	r.closing = true
+	r.mu.Unlock()
+	idle := make(chan struct{})
+	go func() {
+		r.running.Wait()
+		close(idle)
+	}()
+	select {
+	case <-idle:
+	case <-time.After(grace):
+	}
+}
+
 func programToolClaimGone(err error) bool {
 	return errors.Is(err, storeerr.ErrProgramToolCallClaimLost) || errors.Is(err, storeerr.ErrProcessTerminal) ||
 		errors.Is(err, storeerr.ErrRuntimeLockInactive) || errors.Is(err, context.Canceled)
@@ -395,34 +458,21 @@ func programToolCallResult(record executionstore.ToolCallRecord) (daemonprotocol
 	}
 	result.State = daemonprotocol.ProgramToolCallStateCompleted
 	result.Outcome = string(record.Outcome)
-	var parts []struct {
-		Type       string          `json:"type"`
-		Text       string          `json:"text"`
-		Value      json.RawMessage `json:"value"`
-		ArtifactID string          `json:"artifact_id"`
+	if len(record.ResultContentParts) == 0 {
+		return result, nil
 	}
-	if len(record.ResultContentParts) > 0 {
-		if err := json.Unmarshal(record.ResultContentParts, &parts); err != nil {
-			return result, fmt.Errorf("decode program tool call result: %w", err)
+	blocks, err := publicevents.ToolResultContentBlocks(record.ResultContentParts)
+	if err != nil {
+		return result, fmt.Errorf("decode program tool call result: %w", err)
+	}
+	for _, block := range blocks {
+		encoded, err := block.MarshalJSON()
+		if err != nil {
+			return result, err
 		}
-	}
-	for _, part := range parts {
-		item := daemonprotocol.ProgramToolCallContent{Type: part.Type}
-		switch part.Type {
-		case daemonprotocol.ProgramToolCallContentText:
-			item.Text = part.Text
-		case daemonprotocol.ProgramToolCallContentStructuredData:
-			item.Value = part.Value
-		case programToolCallContentMediaRef:
-			artifactID, err := uuid.Parse(part.ArtifactID)
-			if err != nil {
-				return result, fmt.Errorf("decode program tool call artifact: %w", err)
-			}
-			if item.ArtifactID, err = publicID(publicid.KindArtifact, artifactID); err != nil {
-				return result, err
-			}
-		default:
-			continue
+		var item daemonprotocol.ProgramToolCallContent
+		if err := json.Unmarshal(encoded, &item); err != nil {
+			return result, fmt.Errorf("decode program tool call result: %w", err)
 		}
 		result.Content = append(result.Content, item)
 	}

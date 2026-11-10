@@ -1,15 +1,10 @@
 -- +goose NO TRANSACTION
 -- +goose Up
 
--- Build the program tool call indexes without blocking tool_calls writes and
--- validate 000070's constraints under SHARE UPDATE EXCLUSIVE, which does not
--- block reads or writes. Each statement commits on its own. A build
--- interrupted here leaves an invalid index; drop it and rerun.
 
 CREATE UNIQUE INDEX CONCURRENTLY tool_calls_program_key_idx
     ON tool_calls(agent_id, parent_tool_call_id, provider_call_id) WHERE caller = 'program';
 
--- The reaper scans every open call.
 CREATE INDEX CONCURRENTLY tool_calls_program_open_idx ON tool_calls(created_at, id)
     WHERE caller = 'program' AND state <> 'completed';
 

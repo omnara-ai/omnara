@@ -42,10 +42,9 @@ import (
 )
 
 const (
-	serverIdleTimeout         = 180 * time.Second
-	outboundHTTPClientTimeout = 30 * time.Second
-	apiRateLimitRedisTimeout  = 100 * time.Millisecond
-	// programToolIntegrationHTTPTimeout matches the worker's integration client.
+	serverIdleTimeout                 = 180 * time.Second
+	outboundHTTPClientTimeout         = 30 * time.Second
+	apiRateLimitRedisTimeout          = 100 * time.Millisecond
 	programToolIntegrationHTTPTimeout = 5 * time.Minute
 	defaultReconciliationPlan         = "plan"
 	defaultReconciliationApply        = "apply"
@@ -400,8 +399,6 @@ func requireWebIndex(assets fs.FS, label string) error {
 	return nil
 }
 
-// programToolExecutor runs the tools commands call through `omnarad call`:
-// MCP tools, storage reads, web search and fetch, and integration reads.
 func programToolExecutor(
 	cfg config.Config, store *storage.Store, httpRecorder *metrics.HTTPClientRecorder, log *slog.Logger,
 ) (tools.Executor, error) {

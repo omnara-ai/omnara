@@ -17,24 +17,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-// Program tool calls are children of a run_command call whose process calls
-// tools through `omnarad call`. They never touch the execution head, agent
-// events, or the runtime lock: every write holds the agent row lock and a
-// FOR SHARE lock on the owning live process instead.
-
 type ProgramToolPhase uint8
 
 const (
-	// ProgramToolAuthorize leases an awaiting_authorization call for the
-	// permission step; an expired authorization lease may be claimed again.
 	ProgramToolAuthorize ProgramToolPhase = iota + 1
-	// ProgramToolExecute moves a ready call to waiting under the claim; an
-	// expired execution claim is failed by the reaper, never re-run.
 	ProgramToolExecute
 )
 
-// MaxOpenProgramTools is how many unfinished program tool calls one command
-// may have, including calls waiting for approval.
 const MaxOpenProgramTools = 16
 
 type ProgramTool struct {
@@ -81,8 +70,6 @@ func programCommand[T any](h *Handle, run func() (T, error)) (result T, err erro
 	return run()
 }
 
-// fenceProgram requires an active agent and a live process, held FOR SHARE so
-// the process cannot end before the write commits.
 func (h *Handle) fenceProgram(ctx context.Context, processID uuid.UUID) (executiondb.LockProgramProcessRow, error) {
 	row, err := executiondb.New().LockProgramProcess(ctx, h.unit.DB(),
 		executiondb.LockProgramProcessParams{AgentID: h.route.AgentID, ID: processID})
@@ -136,8 +123,6 @@ func (h *Handle) programToolNotification(
 		storeutil.ValueOrZero(row.ParentToolCallID), state, interaction)
 }
 
-// CreateProgramTool inserts an awaiting_authorization child of the process's
-// run_command call, idempotently on (process call, key).
 func (h *Handle) CreateProgramTool(ctx context.Context, input CreateProgramToolInput) (ProgramTool, error) {
 	return programCommand(h, func() (ProgramTool, error) {
 		if input.Key == uuid.Nil || input.Name == "" || (input.Type != "built_in" && input.Type != "mcp") {
@@ -210,9 +195,6 @@ func (h *Handle) authorizingProgramTool(
 	return row, nil
 }
 
-// AuthorizeProgramTool moves an awaiting_authorization call to waiting under
-// the authorization claim, so its holder executes it next (at most once). A
-// call already waiting under the claim is a no-op.
 func (h *Handle) AuthorizeProgramTool(ctx context.Context, ref ProgramToolRef, lease time.Duration) (bool, error) {
 	return programCommand(h, func() (bool, error) {
 		row, err := h.authorizingProgramTool(ctx, ref)
@@ -225,7 +207,6 @@ func (h *Handle) AuthorizeProgramTool(ctx context.Context, ref ProgramToolRef, l
 		case row.State != "awaiting_authorization":
 			return false, storeerr.ErrStateTransitionConflict
 		}
-		// Through ready, as the tool call transition graph requires.
 		if err = h.transitionProgramTool(ctx, row, "ready", uuid.Nil, 0); err != nil {
 			return false, err
 		}
@@ -238,8 +219,6 @@ func (h *Handle) AuthorizeProgramTool(ctx context.Context, ref ProgramToolRef, l
 	})
 }
 
-// OpenProgramPermission opens the permission interaction the user resolves
-// through the normal interaction API and moves the call to awaiting_permission.
 func (h *Handle) OpenProgramPermission(
 	ctx context.Context, ref ProgramToolRef, permission toolpermission.Request, destination json.RawMessage,
 ) (Interaction, error) {
@@ -294,8 +273,6 @@ func (h *Handle) OpenProgramPermission(
 	})
 }
 
-// ClaimProgramTool leases one call for its next phase. It reports false when
-// the call is not claimable, including when its process has ended.
 func (h *Handle) ClaimProgramTool(
 	ctx context.Context, ref ProgramToolRef, lease time.Duration,
 ) (ProgramTool, ProgramToolPhase, bool, error) {
@@ -318,6 +295,7 @@ func (h *Handle) ClaimProgramTool(
 		next, phase := "waiting", ProgramToolExecute
 		switch {
 		case row.State == "ready":
+		case row.State == "waiting" && row.ClaimExpired && row.Type == "built_in":
 		case row.State == "awaiting_authorization" && (row.ProgramClaimID == nil || row.ClaimExpired):
 			next, phase = row.State, ProgramToolAuthorize
 		default:
@@ -339,7 +317,6 @@ func (h *Handle) ClaimProgramTool(
 	return result.tool, result.phase, true, nil
 }
 
-// DispatchProgramTool fences a transactional execution phase on the claim.
 func (h *Handle) DispatchProgramTool(ctx context.Context, ref ProgramToolRef) (ToolDispatch, error) {
 	return programCommand(h, func() (ToolDispatch, error) {
 		row, err := h.fencedProgramTool(ctx, ref)
@@ -358,9 +335,24 @@ func (h *Handle) DispatchProgramTool(ctx context.Context, ref ProgramToolRef) (T
 	})
 }
 
-// CompleteProgramTool records the call's result. A claimed (waiting) call
-// completes with any outcome under its claim; unexecuted calls may only be
-// failed, denied, or canceled.
+func (h *Handle) ReleaseProgramTool(ctx context.Context, ref ProgramToolRef) error {
+	_, err := programCommand(h, func() (struct{}, error) {
+		row, err := h.fencedProgramTool(ctx, ref)
+		if err != nil {
+			return struct{}{}, err
+		}
+		if row.State != "waiting" || storeutil.ValueOrZero(row.ProgramClaimID) != ref.ClaimID {
+			return struct{}{}, storeerr.ErrProgramToolCallClaimLost
+		}
+		if err = h.transitionProgramTool(ctx, row, "ready", uuid.Nil, 0); err != nil {
+			return struct{}{}, err
+		}
+		h.programToolNotification(row, "ready", nil)
+		return struct{}{}, nil
+	})
+	return err
+}
+
 func (h *Handle) CompleteProgramTool(
 	ctx context.Context, ref ProgramToolRef, outcome string, content []Content,
 ) (ProgramTool, error) {
@@ -438,9 +430,6 @@ func (h *Handle) completeProgramTool(
 	return record, nil
 }
 
-// ReapProgramTool cancels a call whose agent is inactive or whose process has
-// ended, and fails a call whose execution claim expired. It reports whether
-// the call was completed.
 func (h *Handle) ReapProgramTool(ctx context.Context, id uuid.UUID) (bool, error) {
 	return programCommand(h, func() (bool, error) {
 		row, err := h.programTool(ctx, id, uuid.Nil)
@@ -456,7 +445,7 @@ func (h *Handle) ReapProgramTool(ctx context.Context, id uuid.UUID) (bool, error
 		switch {
 		case h.identity.State != "active":
 			code, message = "agent_inactive", "The agent is no longer active."
-		case process.Live && row.State == "waiting" && row.ClaimExpired:
+		case process.Live && row.State == "waiting" && row.ClaimExpired && row.Type != "built_in":
 			outcome, code, message = "failed", "server_lost", "The server running this call stopped before it completed."
 		case process.Live:
 			return false, nil
@@ -470,8 +459,28 @@ func (h *Handle) ReapProgramTool(ctx context.Context, id uuid.UUID) (bool, error
 	})
 }
 
-// resolveProgramInteraction records a user's decision on a program call's
-// permission without an agent input, event, or execution-head change.
+func (h *Handle) CancelProgramTool(ctx context.Context, ref ProgramToolRef) (bool, error) {
+	return programCommand(h, func() (bool, error) {
+		row, err := h.fencedProgramTool(ctx, ref)
+		if err != nil {
+			return false, err
+		}
+		switch {
+		case row.State == "completed":
+			return true, nil
+		case row.ProgramClaimID != nil && !row.ClaimExpired:
+			return false, nil
+		}
+		body, err := json.Marshal(map[string]string{
+			"error_code": "caller_gone", "message": "The command stopped waiting for this call."})
+		if err != nil {
+			return false, err
+		}
+		_, err = h.completeProgramTool(ctx, row, "canceled", []Content{{Kind: "structured_data", Data: body}}, nil)
+		return err == nil, err
+	})
+}
+
 func (h *Handle) resolveProgramInteraction(
 	ctx context.Context, row executiondb.ReadExecutionInteractionRow, input ResolveInteractionInput,
 ) (Interaction, error) {
@@ -543,8 +552,6 @@ func (h *Handle) resolveProgramInteraction(
 	})
 }
 
-// RenewProgramTool extends a live claim. It holds only the call's row lock,
-// so it needs no agent lock.
 func (c *AgentCell) RenewProgramTool(
 	ctx context.Context, agentID uuid.UUID, ref ProgramToolRef, lease time.Duration,
 ) error {
@@ -567,22 +574,25 @@ type ReapableProgramTool struct {
 	ID        uuid.UUID
 	ProjectID uuid.UUID
 	AgentID   uuid.UUID
+	CreatedAt time.Time
 }
 
-// ListProgramToolReapable lists open calls of inactive agents or ended
-// processes and waiting calls with expired claims.
-func (c *AgentCell) ListProgramToolReapable(ctx context.Context, limit int32) ([]ReapableProgramTool, error) {
+func (c *AgentCell) ListProgramToolReapable(
+	ctx context.Context, after ReapableProgramTool, limit int32,
+) ([]ReapableProgramTool, error) {
 	var rows []executiondb.ListProgramToolReapableRow
 	if err := c.short(ctx, func(tx pgx.Tx) (err error) {
 		rows, err = executiondb.New().ListProgramToolReapable(ctx, tx,
-			executiondb.ListProgramToolReapableParams{LimitCount: limit})
+			executiondb.ListProgramToolReapableParams{
+				AfterCreatedAt: after.CreatedAt, AfterID: after.ID, LimitCount: limit})
 		return err
 	}); err != nil {
 		return nil, err
 	}
 	result := make([]ReapableProgramTool, len(rows))
 	for i, row := range rows {
-		result[i] = ReapableProgramTool{ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID}
+		result[i] = ReapableProgramTool{ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID,
+			CreatedAt: row.CreatedAt}
 	}
 	return result, nil
 }

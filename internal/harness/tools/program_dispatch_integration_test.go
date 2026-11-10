@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,9 +29,6 @@ type programToolFixture struct {
 	Authority executionstore.DaemonRuntimeAuthority
 }
 
-// newProgramToolFixture starts a live run_command process on a machine with
-// programmatic tool calls enabled, for an agent that opts in and excludes
-// web_search.
 func newProgramToolFixture(t *testing.T, ctx context.Context, label string, withMCP bool) programToolFixture {
 	t.Helper()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, label, toolFixtureOptions{
@@ -107,7 +105,6 @@ func (f programToolFixture) claim(
 	return claim
 }
 
-// run runs one claimed phase like the API does and waits for its async work.
 func (f programToolFixture) run(
 	t *testing.T, ctx context.Context, executor Executor, claim executionstore.ProgramToolCallClaim,
 ) {
@@ -164,7 +161,6 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	_, err = ProgramToolSearch(specs, json.RawMessage(`{"pattern":"("}`))
 	require.Error(t, err)
 
-	// always_allow runs to completion under its authorization claim.
 	list := fixture.create(t, ctx, "list", toolcatalog.ToolNameStorageList, `{"pattern":"/memory"}`)
 	fixture.run(t, ctx, executor, fixture.claim(t, ctx, list.ID, executionstore.ProgramToolCallPhaseAuthorize))
 	listed := fixture.get(t, ctx, list.ID)
@@ -174,7 +170,6 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	requireMatchesOutputSchema(t, outputSchemas[toolcatalog.ToolNameStorageList],
 		firstStructuredValue(t, listed.ResultContentParts))
 
-	// always_ask opens the model path's permission interaction; approving runs it.
 	scope := memorystore.Scope{OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID,
 		Principal: toolsTestUserPrincipal(fixture.User.ID)}
 	memory, err := fixture.Store.Memories().Resolve(ctx, toolsTestProjectID, "engineering")
@@ -199,8 +194,6 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	requireMatchesOutputSchema(t, outputSchemas[toolcatalog.ToolNameStorageRead],
 		firstStructuredValue(t, readResult.ResultContentParts))
 
-	// An approval does not outlive the permission it was given under: denying
-	// the tool after the user approved a call stops the call before it runs.
 	stale := fixture.create(t, ctx, "stale-approval", toolcatalog.ToolNameStorageRead,
 		`{"path":"/memory/engineering/notes.md"}`)
 	fixture.run(t, ctx, executor, fixture.claim(t, ctx, stale.ID, executionstore.ProgramToolCallPhaseAuthorize))
@@ -228,7 +221,6 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	require.NotContains(t, string(staleResult.ResultContentParts), "program note")
 	useConfig(fixture.AgentConfig.ID)
 
-	// always_deny completes denied without running.
 	searchCall := fixture.create(t, ctx, "search", toolcatalog.ToolNameStorageSearch,
 		`{"path":"/memory/**","args":["-e","note"]}`)
 	fixture.run(t, ctx, executor,
@@ -236,7 +228,6 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	denied := fixture.get(t, ctx, searchCall.ID)
 	require.Equal(t, executionstore.ToolResultOutcomeDenied, denied.Outcome, string(denied.ResultContentParts))
 
-	// Calls that bypassed the API's eligibility check still cannot run.
 	for _, name := range []string{toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameStorageWrite} {
 		forced := fixture.create(t, ctx, "forced-"+name, name, `{"query":"x"}`)
 		fixture.run(t, ctx, executor, fixture.claim(t, ctx, forced.ID, executionstore.ProgramToolCallPhaseAuthorize))
@@ -245,7 +236,6 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 		require.Contains(t, string(rejected.ResultContentParts), "not enabled", name)
 	}
 
-	// An internal failure fails the call without showing the command its cause.
 	broken := fixture.create(t, ctx, "internal-error", toolcatalog.ToolNameStorageList, `{}`)
 	brokenClaim := fixture.claim(t, ctx, broken.ID, executionstore.ProgramToolCallPhaseAuthorize)
 	brokenClaim.ModelCallContextID = uuid.New()
@@ -301,7 +291,6 @@ func TestProgramMCPToolCallRunsAsyncUnderRenewedClaim(t *testing.T) {
 	require.Equal(t, executionstore.ToolResultOutcomeSucceeded, done.Outcome)
 	require.Contains(t, string(done.ResultContentParts), "hello")
 
-	// When the process exits, the claim is lost and the reaper cancels the call.
 	blocked := fixture.create(t, ctx, "blocked", name, `{"name":"Grace"}`)
 	claim = fixture.claim(t, ctx, blocked.ID, executionstore.ProgramToolCallPhaseAuthorize)
 	release = make(chan struct{})
@@ -333,5 +322,44 @@ func TestProgramMCPToolCallRunsAsyncUnderRenewedClaim(t *testing.T) {
 	require.Equal(t, string(executionstore.ToolResultOutcomeCanceled), outcome)
 }
 
-// programKey is a stable idempotency key for a test label.
+func TestProgramToolCallInterruptedRunIsReleased(t *testing.T) {
+	ctx := t.Context()
+	fixture := newProgramToolFixture(t, ctx, "interrupted", false)
+	executor := Executor{Store: fixture.Store}
+	stopped := make(chan struct{})
+	close(stopped)
+	failed, err := structuredParts(map[string]any{"error_code": "async_tool_interrupted"})
+	require.NoError(t, err)
+	failure := executionstore.ToolResultOutcomeFailed
+	waiting := func(key string) (executionstore.ProgramToolCallRecord, programClaimAuthority, Turn) {
+		call := fixture.create(t, ctx, key, toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
+		claim := fixture.claim(t, ctx, call.ID, executionstore.ProgramToolCallPhaseAuthorize)
+		_, err := fixture.Store.Execution().AuthorizeProgramToolCall(ctx, claim.Ref(), time.Minute)
+		require.NoError(t, err)
+		authority := programClaimAuthority{ref: claim.Ref(), lease: time.Minute, stopped: stopped}
+		return call, authority, Turn{ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, authority: authority}
+	}
+
+	call, authority, turn := waiting("released")
+	released, err := authority.completeRunning(ctx, executor, turn, call.ID, failure, failed)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.ToolCallStateReady, released.State)
+	fixture.run(t, ctx, executor, fixture.claim(t, ctx, call.ID, executionstore.ProgramToolCallPhaseExecute))
+	require.Equal(t, executionstore.ToolResultOutcomeSucceeded, fixture.get(t, ctx, call.ID).Outcome)
+
+	call, authority, turn = waiting("finished")
+	done, err := authority.completeRunning(ctx, executor, turn, call.ID, executionstore.ToolResultOutcomeSucceeded, failed)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.ToolCallStateCompleted, done.State)
+
+	call, authority, turn = waiting("started")
+	authority.started = new(atomic.Bool)
+	turn.authority = authority
+	turn.markStarted()
+	done, err = authority.completeRunning(ctx, executor, turn, call.ID, failure, failed)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.ToolCallStateCompleted, done.State)
+	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
+}
+
 func programKey(label string) uuid.UUID { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)) }

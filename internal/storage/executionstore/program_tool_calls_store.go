@@ -15,15 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-// Program tool calls are tools a run_command process calls through
-// `omnarad call`. They are child tool_calls rows of that run_command call,
-// kept out of the model context, and executed by the API under a claim
-// instead of the agent runtime lock. Every write requires the process to be
-// live (execution granted, starting or running) and the agent active.
-
-// ProgramToolScope is the daemon process's authority to make program tool
-// calls: its agent and the agent's current configuration, which decides the
-// tools it may call and their permissions.
 type ProgramToolScope struct {
 	ProjectID     uuid.UUID
 	AgentID       uuid.UUID
@@ -31,22 +22,13 @@ type ProgramToolScope struct {
 	AgentConfigID uuid.UUID
 }
 
-// MaxOpenProgramToolCalls is how many unfinished program tool calls one
-// command may have; CreateProgramToolCall fails a further new call with
-// storeerr.ErrProgramToolCallLimitReached.
 const MaxOpenProgramToolCalls = agentexecution.MaxOpenProgramTools
 
 type ProgramToolCallPhase uint8
 
 const (
-	// ProgramToolCallPhaseAuthorize: decide permission, then call
-	// AuthorizeProgramToolCall (and execute it under the same claim),
-	// OpenProgramPermissionInteraction, or CompleteProgramToolCall
-	// (denied/failed) with the claim.
 	ProgramToolCallPhaseAuthorize = ProgramToolCallPhase(agentexecution.ProgramToolAuthorize)
-	// ProgramToolCallPhaseExecute: the call is waiting under the claim; run it
-	// with ExecuteProgramToolCall and/or CompleteProgramToolCall.
-	ProgramToolCallPhaseExecute = ProgramToolCallPhase(agentexecution.ProgramToolExecute)
+	ProgramToolCallPhaseExecute   = ProgramToolCallPhase(agentexecution.ProgramToolExecute)
 )
 
 type ProgramToolCallRef struct {
@@ -54,8 +36,7 @@ type ProgramToolCallRef struct {
 	AgentID    uuid.UUID
 	ProcessID  uuid.UUID
 	ToolCallID uuid.UUID
-	// ClaimID is the executing claim; zero for calls that are not claimed.
-	ClaimID uuid.UUID
+	ClaimID    uuid.UUID
 }
 
 func (ref ProgramToolCallRef) ref() agentexecution.ProgramToolRef {
@@ -72,9 +53,8 @@ func (ref ProgramToolCallRef) validate() error {
 type ProgramToolCallRecord struct {
 	ToolCallRecord
 	ProcessID uuid.UUID
-	// ClaimID is loaded by command results only.
-	ClaimID uuid.UUID
-	Created bool
+	ClaimID   uuid.UUID
+	Created   bool
 }
 
 type ProgramToolCallClaim struct {
@@ -82,7 +62,6 @@ type ProgramToolCallClaim struct {
 	Phase ProgramToolCallPhase
 }
 
-// Ref fences later writes on this claim.
 func (claim ProgramToolCallClaim) Ref() ProgramToolCallRef {
 	return ProgramToolCallRef{ProjectID: claim.ProjectID, AgentID: claim.AgentID,
 		ProcessID: claim.ProcessID, ToolCallID: claim.ID, ClaimID: claim.ClaimID}
@@ -124,8 +103,6 @@ func (s *Store) GetDaemonProgramToolScope(
 		AgentConfigID: row.AgentConfigID}, true, nil
 }
 
-// programUnit runs one program command under the agent's lifecycle lock,
-// without a runtime authority, and commits it.
 func programUnit[T any](
 	ctx context.Context, s *Store, operation string, projectID, agentID uuid.UUID,
 	run func(*agentexecution.Unit, *agentexecution.Handle) (T, error),
@@ -159,9 +136,6 @@ func programToolCallRecordTx(
 		ClaimID: tool.ClaimID, Created: tool.Created}, nil
 }
 
-// CreateProgramToolCall records an awaiting_authorization call, idempotently
-// on (process, key). A replay with a different name, type, or input fails with
-// storeerr.ErrIdempotencyConflict.
 func (s *Store) CreateProgramToolCall(
 	ctx context.Context, input CreateProgramToolCallInput,
 ) (ProgramToolCallRecord, error) {
@@ -179,8 +153,6 @@ func (s *Store) CreateProgramToolCall(
 		})
 }
 
-// AuthorizeProgramToolCall authorizes a call claimed in the authorize phase,
-// leaving it waiting under the claim for the holder to execute.
 func (s *Store) AuthorizeProgramToolCall(
 	ctx context.Context, ref ProgramToolCallRef, lease time.Duration,
 ) (ProgramToolCallRecord, error) {
@@ -195,14 +167,11 @@ func (s *Store) AuthorizeProgramToolCall(
 			if _, err := h.AuthorizeProgramTool(ctx, ref.ref(), lease); err != nil {
 				return ProgramToolCallRecord{}, err
 			}
-			// The command already checked the call belongs to the process.
 			record, err := getToolCallTx(ctx, unit.DB(), ref.ProjectID, ref.AgentID, ref.ToolCallID)
 			return ProgramToolCallRecord{ToolCallRecord: record, ProcessID: ref.ProcessID}, err
 		})
 }
 
-// OpenProgramPermissionInteraction asks the user to approve a call claimed in
-// the authorize phase. The user resolves it with ResolveAgentInteraction.
 func (s *Store) OpenProgramPermissionInteraction(
 	ctx context.Context, ref ProgramToolCallRef, request toolpermission.Request,
 ) (AgentInteractionRecord, error) {
@@ -228,9 +197,6 @@ func (s *Store) OpenProgramPermissionInteraction(
 		})
 }
 
-// CompleteProgramToolCall stores the call's result outside the model context.
-// A waiting call completes under its claim; unclaimed or authorize-phase calls
-// may only fail, be denied, or be canceled.
 func (s *Store) CompleteProgramToolCall(
 	ctx context.Context, input CompleteProgramToolCallInput,
 ) (ProgramToolCallRecord, error) {
@@ -266,12 +232,31 @@ func completeProgramTool(
 	return programToolCallRecordTx(ctx, unit.DB(), ref.ProjectID, ref.AgentID, tool)
 }
 
-// ClaimProgramToolCall leases the call for its next phase under ref.ClaimID.
-// A ready call moves to waiting under the claim (ProgramToolCallPhaseExecute,
-// at most once); an awaiting_authorization call gets an authorization lease
-// that may be claimed again once it expires (ProgramToolCallPhaseAuthorize).
-// It reports false when the call is not claimable: it is claimed, waiting for
-// approval, completed, or its process has ended.
+func (s *Store) CancelProgramToolCall(ctx context.Context, ref ProgramToolCallRef) (bool, error) {
+	if err := ref.validate(); err != nil {
+		return false, err
+	}
+	done, err := programUnit(ctx, s, "cancel_program_tool_call", ref.ProjectID, ref.AgentID,
+		func(_ *agentexecution.Unit, h *agentexecution.Handle) (bool, error) {
+			return h.CancelProgramTool(ctx, ref.ref())
+		})
+	if errors.Is(err, storeerr.ErrProcessTerminal) || errors.Is(err, storeerr.ErrNotFound) {
+		return true, nil
+	}
+	return done, err
+}
+
+func (s *Store) ReleaseProgramToolCallClaim(ctx context.Context, ref ProgramToolCallRef) error {
+	if err := ref.validate(); err != nil {
+		return err
+	}
+	_, err := programUnit(ctx, s, "release_program_tool_call", ref.ProjectID, ref.AgentID,
+		func(_ *agentexecution.Unit, h *agentexecution.Handle) (struct{}, error) {
+			return struct{}{}, h.ReleaseProgramTool(ctx, ref.ref())
+		})
+	return err
+}
+
 func (s *Store) ClaimProgramToolCall(
 	ctx context.Context, ref ProgramToolCallRef, lease time.Duration,
 ) (ProgramToolCallClaim, bool, error) {
@@ -295,8 +280,6 @@ func (s *Store) ClaimProgramToolCall(
 	return got.claim, got.found, err
 }
 
-// RenewProgramToolCallClaim extends an unexpired claim while the process is
-// live. It fails with storeerr.ErrProgramToolCallClaimLost otherwise.
 func (s *Store) RenewProgramToolCallClaim(
 	ctx context.Context, ref ProgramToolCallRef, lease time.Duration,
 ) error {
@@ -306,8 +289,6 @@ func (s *Store) RenewProgramToolCallClaim(
 	return s.cell.RenewProgramTool(ctx, ref.AgentID, ref.ref(), lease)
 }
 
-// GetProgramToolCall reads a call made by the process, including its result
-// content once completed. Key and claim fields are not loaded.
 func (s *Store) GetProgramToolCall(
 	ctx context.Context, projectID, agentID, processID, toolCallID uuid.UUID,
 ) (ProgramToolCallRecord, bool, error) {
@@ -341,46 +322,44 @@ func getProgramToolCallTx(ctx context.Context, tx dbsqlc.DBTX, ref ProgramToolCa
 	return ProgramToolCallRecord{ToolCallRecord: record, ProcessID: ref.ProcessID}, nil
 }
 
-// ReapProgramToolCalls cancels open calls of inactive agents or ended
-// processes (closing their interactions) and fails waiting calls whose claim
-// expired. It returns the number of calls completed, and the errors of the
-// calls it could not reap.
+const programToolReapPages = 10
+
 func (s *Store) ReapProgramToolCalls(ctx context.Context, batch int) (int, error) {
 	if batch <= 0 {
 		return 0, errors.New("batch must be positive")
 	}
-	rows, err := s.cell.ListProgramToolReapable(ctx, int32(min(batch, 1000)))
-	if err != nil {
-		return 0, fmt.Errorf("list reapable program tool calls: %w", err)
-	}
-	// A call that fails to reap does not hold back the ones behind it.
+	page := int32(min(batch, 1000))
 	reaped := 0
 	var failed error
-	for _, row := range rows {
-		done, err := programUnit(ctx, s, "reap_program_tool_call", row.ProjectID, row.AgentID,
-			func(_ *agentexecution.Unit, h *agentexecution.Handle) (bool, error) {
-				return h.ReapProgramTool(ctx, row.ID)
-			})
-		switch {
-		case errors.Is(err, storeerr.ErrNotFound):
-		case ctx.Err() != nil:
-			return reaped, errors.Join(failed, err)
-		case err != nil:
-			failed = errors.Join(failed, fmt.Errorf("reap program tool call %s: %w", row.ID, err))
-		case done:
-			reaped++
+	var after agentexecution.ReapableProgramTool
+	for range programToolReapPages {
+		rows, err := s.cell.ListProgramToolReapable(ctx, after, page)
+		if err != nil {
+			return reaped, errors.Join(failed, fmt.Errorf("list reapable program tool calls: %w", err))
+		}
+		for _, row := range rows {
+			after = row
+			done, err := programUnit(ctx, s, "reap_program_tool_call", row.ProjectID, row.AgentID,
+				func(_ *agentexecution.Unit, h *agentexecution.Handle) (bool, error) {
+					return h.ReapProgramTool(ctx, row.ID)
+				})
+			switch {
+			case errors.Is(err, storeerr.ErrNotFound):
+			case ctx.Err() != nil:
+				return reaped, errors.Join(failed, err)
+			case err != nil:
+				failed = errors.Join(failed, fmt.Errorf("reap program tool call %s: %w", row.ID, err))
+			case done:
+				reaped++
+			}
+		}
+		if len(rows) < int(page) || reaped >= batch {
+			break
 		}
 	}
 	return reaped, failed
 }
 
-// ExecuteProgramToolCall is ExecuteToolCall for a program call claimed in the
-// execute phase: the plan's command runs fenced on the claim and live process
-// instead of a runtime lock. CompleteToolCallInExecution completes the call;
-// StartToolCallAsync leaves it waiting under the claim (Disposition Running)
-// for a later CompleteProgramToolCall. Commands that need the runtime lock
-// (processes, questions, machines, subagents) fail with
-// storeerr.ErrInvalidToolCallDisposition.
 func (s *Store) ExecuteProgramToolCall(
 	ctx context.Context, ref ProgramToolCallRef, plan ToolCallPlan,
 ) (ExecuteToolCallResult, error) {

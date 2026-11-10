@@ -19,11 +19,6 @@ function programToolCallsOptions(
   })
 }
 
-/**
- * The tool calls a run_command call's process made with `omnarad call`. They
- * write no agent events, so the chat session refreshes these queries from
- * tool_call_update stream frames instead.
- */
 export function useProgramToolCalls(scope: AgentChatScope, parentToolCallID: string) {
   const client = useOmnaraClient()
   return useInfiniteQuery(cursorPaginated(programToolCallsOptions(client, scope, parentToolCallID)))
@@ -31,14 +26,6 @@ export function useProgramToolCalls(scope: AgentChatScope, parentToolCallID: str
 
 const toolCallRefreshIntervalMs = 500
 
-/**
- * Refreshes what tool_call_update frames report: open interactions and, for a
- * program call, its command's tool calls, which write no agent events. Without
- * a frame, as after a reconnect, every command's tool calls refresh.
- *
- * A command can make hundreds of calls, so the first frame refreshes at once
- * and the frames of the next interval share one refresh at its end.
- */
 export class ToolCallQueryRefresher {
   private timer: ReturnType<typeof setTimeout> | null = null
   private pending: (ToolCallUpdate | undefined)[] = []

@@ -65,12 +65,10 @@ type RequeueRuntimeToolCallInput struct {
 }
 
 type ListToolCallsInput struct {
-	ProjectID uuid.UUID
-	AgentIDs  []uuid.UUID
-	State     ToolCallState
-	Type      toolcatalog.Type
-	// ParentToolCallID, when set, keeps only the calls that run_command
-	// call's process made.
+	ProjectID        uuid.UUID
+	AgentIDs         []uuid.UUID
+	State            ToolCallState
+	Type             toolcatalog.Type
 	ParentToolCallID uuid.UUID
 	Limit            int
 	After            listing.KeysetCursor
@@ -97,19 +95,17 @@ type ListToolCallsResult struct {
 }
 
 type ToolCallSummary struct {
-	ID             uuid.UUID
-	AgentID        uuid.UUID
-	TurnID         uuid.UUID
-	ProviderCallID string
-	Name           string
-	Input          json.RawMessage
-	Type           toolcatalog.Type
-	State          ToolCallState
-	Outcome        ToolResultOutcome
-	CreatedAt      time.Time
-	CompletedAt    *time.Time
-	// Caller is "program" for calls made by a run_command process through
-	// `omnarad call`; ParentToolCallID is then that run_command call.
+	ID               uuid.UUID
+	AgentID          uuid.UUID
+	TurnID           uuid.UUID
+	ProviderCallID   string
+	Name             string
+	Input            json.RawMessage
+	Type             toolcatalog.Type
+	State            ToolCallState
+	Outcome          ToolResultOutcome
+	CreatedAt        time.Time
+	CompletedAt      *time.Time
 	Caller           string
 	ParentToolCallID uuid.UUID
 }
@@ -185,8 +181,6 @@ type ToolCallRecord struct {
 	ToolResultEventSequence int64           `json:"tool_result_event_sequence,omitempty"`
 	ResultContentParts      json.RawMessage `json:"result_content_parts"`
 
-	// Caller is "program" for calls made by a run_command process through
-	// `omnarad call`; ParentToolCallID is then that run_command call.
 	Caller           string    `json:"caller"`
 	ParentToolCallID uuid.UUID `json:"parent_tool_call_id,omitempty"`
 }

@@ -40,14 +40,13 @@ type daemonSocketHub struct {
 	recorder              *metrics.DaemonRecorder
 	fallbackDrainInterval time.Duration
 	fallbackDrainJitter   time.Duration
-	// ctx ends when the hub closes; work that outlives a socket runs under it.
-	ctx       context.Context //nolint:containedctx // the hub owns this server-lifetime context
-	done      <-chan struct{}
-	cancel    context.CancelFunc
-	mu        sync.RWMutex
-	byMachine map[uuid.UUID]*daemonSocket
-	byRuntime map[uuid.UUID]*daemonSocket
-	subs      []notifications.Subscription
+	ctx                   context.Context //nolint:containedctx // the hub owns this server-lifetime context
+	done                  <-chan struct{}
+	cancel                context.CancelFunc
+	mu                    sync.RWMutex
+	byMachine             map[uuid.UUID]*daemonSocket
+	byRuntime             map[uuid.UUID]*daemonSocket
+	subs                  []notifications.Subscription
 
 	pendingSkillMu      sync.Mutex
 	pendingSkillReports map[skillReportKey]skillReportPending

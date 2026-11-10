@@ -124,9 +124,8 @@ type daemonBootstrap struct {
 type daemonReportedEvent = daemonprotocol.ReportedEvent
 
 type ProcessAssignment struct {
-	GitCredentials      bool                  `json:"git_credentials,omitempty"`
-	GitCredentialHelper *processServiceHelper `json:"git_credential_helper,omitempty"`
-	// ProgrammaticToolCalls is optional: without a helper the shell runs without `omnarad call`.
+	GitCredentials        bool                  `json:"git_credentials,omitempty"`
+	GitCredentialHelper   *processServiceHelper `json:"git_credential_helper,omitempty"`
 	ProgrammaticToolCalls bool                  `json:"programmatic_tool_calls,omitempty"`
 	ProgramToolHelper     *processServiceHelper `json:"program_tool_helper,omitempty"`
 	Process               Process               `json:"process"`

@@ -62,6 +62,7 @@ type Server struct {
 	agentEventStreamReconciler          *agentEventStreamReconciler
 	daemonHub                           *daemonSocketHub
 	programToolExecutor                 ProgramToolExecutor
+	programToolRuns                     programToolRuns
 	recorder                            *metrics.HTTPRecorder
 	integrationInboxIntake              *metrics.IntegrationInboxIntakeRecorder
 	daemonRecorder                      *metrics.DaemonRecorder
@@ -533,6 +534,7 @@ func (s *Server) Close() {
 		}
 		if s.daemonHub != nil {
 			s.daemonHub.Close()
+			s.programToolRuns.stop(programToolRunStopGrace)
 		}
 	})
 }

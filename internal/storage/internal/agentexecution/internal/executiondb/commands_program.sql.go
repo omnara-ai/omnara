@@ -65,25 +65,30 @@ func (q *Queries) InsertProgramTool(ctx context.Context, db DBTX, arg InsertProg
 }
 
 const listProgramToolReapable = `-- name: ListProgramToolReapable :many
-SELECT c.id,c.agent_id,a.project_id FROM tool_calls c JOIN agents a ON a.id=c.agent_id
+SELECT c.id,c.agent_id,a.project_id,c.created_at FROM tool_calls c JOIN agents a ON a.id=c.agent_id
 JOIN processes p ON p.agent_id=c.agent_id AND p.tool_call_id=c.parent_tool_call_id
 WHERE c.caller='program' AND c.state<>'completed' AND (a.state<>'active' OR p.execution_granted_at IS NULL
- OR p.state NOT IN ('starting','running') OR (c.state='waiting' AND c.program_claim_expires_at<=statement_timestamp()))
-ORDER BY c.created_at,c.id LIMIT $1
+ OR p.state NOT IN ('starting','running')
+ OR (c.state='waiting' AND c.type<>'built_in' AND c.program_claim_expires_at<=statement_timestamp()))
+ AND (c.created_at,c.id)>($1::timestamptz,$2::uuid)
+ORDER BY c.created_at,c.id LIMIT $3
 `
 
 type ListProgramToolReapableParams struct {
-	LimitCount int32
+	AfterCreatedAt time.Time
+	AfterID        uuid.UUID
+	LimitCount     int32
 }
 
 type ListProgramToolReapableRow struct {
 	ID        uuid.UUID
 	AgentID   uuid.UUID
 	ProjectID uuid.UUID
+	CreatedAt time.Time
 }
 
 func (q *Queries) ListProgramToolReapable(ctx context.Context, db DBTX, arg ListProgramToolReapableParams) ([]ListProgramToolReapableRow, error) {
-	rows, err := db.Query(ctx, listProgramToolReapable, arg.LimitCount)
+	rows, err := db.Query(ctx, listProgramToolReapable, arg.AfterCreatedAt, arg.AfterID, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +96,12 @@ func (q *Queries) ListProgramToolReapable(ctx context.Context, db DBTX, arg List
 	items := []ListProgramToolReapableRow{}
 	for rows.Next() {
 		var i ListProgramToolReapableRow
-		if err := rows.Scan(&i.ID, &i.AgentID, &i.ProjectID); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.ProjectID,
+			&i.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

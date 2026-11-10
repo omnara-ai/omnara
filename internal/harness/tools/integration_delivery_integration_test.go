@@ -894,12 +894,10 @@ type toolFixtureOptions struct {
 	withToolContext        bool
 	toolContextAddress     integrationstore.ConversationAddress
 	slackPermission        string
-	// withMachine binds the agent to a new BYO machine with a live daemon runtime.
-	withMachine bool
-	machineName string
-	// extraTools is appended inside tools:, extraYAML at the top level.
-	extraTools string
-	extraYAML  string
+	withMachine            bool
+	machineName            string
+	extraTools             string
+	extraYAML              string
 }
 
 func newIntegrationToolFixtureWithOptions(

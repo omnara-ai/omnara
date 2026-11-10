@@ -47,12 +47,8 @@ type Turn struct {
 	RuntimeLockID      uuid.UUID
 	ModelCallContextID uuid.UUID
 	Tools              map[string]ToolSpec
-	// authority is nil for model calls, which act under RuntimeLockID.
-	authority toolAuthority
-	// contract, when set, replaces the model call context's config as the
-	// turn's runtime contract. Program calls run under the agent's current
-	// config.
-	contract *agentconfig.RuntimeContract
+	authority          toolAuthority
+	contract           *agentconfig.RuntimeContract
 }
 
 type ToolSpec struct {

@@ -243,8 +243,6 @@ func TestProgramMCPCallsBindConnectionToCurrentServerConfig(t *testing.T) {
 		}
 		return executionstore.MCPConnectionRecord{ServerKey: server.ServerKey, EndpointURL: server.URL, ConfigHash: hash}
 	}
-	// A program turn resolves the server from the agent's current config, not
-	// from the parent's model call context; the nil store proves no lookup.
 	turn := Turn{contract: &agentconfig.RuntimeContract{MCPServers: []agentconfig.RuntimeMCPServer{current}}}
 	resolved, err := (Executor{}).runtimeMCPServerForTool(context.Background(), turn, "docs")
 	if err != nil {
@@ -256,8 +254,6 @@ func TestProgramMCPCallsBindConnectionToCurrentServerConfig(t *testing.T) {
 	if err := mcpConnectionServes(turn, connectionFor(current), resolved); err != nil {
 		t.Fatalf("matching connection rejected: %v", err)
 	}
-	// Either half of a mismatched pair would send one config's credentials to
-	// the other's endpoint.
 	if err := mcpConnectionServes(turn, connectionFor(historical), resolved); err == nil {
 		t.Fatal("current credentials paired with a connection initialized for another config")
 	}

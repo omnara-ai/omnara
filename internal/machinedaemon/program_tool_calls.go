@@ -21,12 +21,11 @@ const (
 	programToolCapabilityEnv = "OMNARA_TOOL_CAPABILITY"
 	programToolBinEnv        = "OMNARA_BIN"
 
-	programToolCallProcessLimit = 16
-	programToolCallServerLimit  = 128
+	programToolCallProcessLimit  = 16
+	programToolCallServerLimit   = 128
+	programToolCallCancelTimeout = 10 * time.Second
 )
 
-// prepareProgramToolCalls never fails preparation: the feature is optional, and
-// `omnarad call` explains itself when its environment is missing.
 func (c *Client) prepareProgramToolCalls(assignment *ProcessAssignment, supervisorToken string) {
 	assignment.ProgramToolHelper = nil
 	if assignment.Process.ExecutionSpec.Kind != processcmd.KindShell || !assignment.ProgrammaticToolCalls ||
@@ -63,30 +62,35 @@ func programToolCallEnvironment(env []string, processID string, helper *processS
 
 func (c *Client) startProgramToolCallServer(ctx context.Context) (func(), error) {
 	c.programToolCalls = c.newProgramToolCallHandler()
-	// A call is held open until its result arrives, so writes have no deadline.
-	return c.serveProcessService(ctx, programToolCallService, &http.Server{
+	stopping := make(chan struct{})
+	c.programToolCalls.stopping = stopping
+	stop, err := c.serveProcessService(ctx, programToolCallService, &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		IdleTimeout:       30 * time.Second,
 		MaxHeaderBytes:    8192,
 		Handler:           c.programToolCalls,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		close(stopping)
+		stop()
+	}, nil
 }
 
-// programToolCallHandler serves `omnarad call`: it offers each call to the
-// backend on the daemon websocket and streams the backend's reports back as
-// JSON lines until the call completes or is rejected.
 type programToolCallHandler struct {
 	client   *Client
 	requests chan struct{}
+	stopping <-chan struct{}
 
-	mu       sync.Mutex
-	inFlight map[string]int
-	calls    map[string]*programToolCall
+	mu        sync.Mutex
+	inFlight  map[string]int
+	calls     map[string]*programToolCall
+	abandoned []daemonprotocol.ToolCallOffer
 }
 
-// programToolCall is an offered call waiting for reports. Reports only move a
-// call forward, so a waiter needs just the latest.
 type programToolCall struct {
 	offer   daemonprotocol.ToolCallOffer
 	report  *daemonprotocol.ToolCallReport
@@ -170,7 +174,6 @@ func (h *programToolCallHandler) release(processID string) {
 }
 
 func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, processID string) {
-	// The backend validates the request beyond its size and key.
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, daemonprotocol.ProgramToolCallMaxInputBytes+4096))
 	offer := daemonprotocol.ToolCallOffer{ProcessID: processID}
 	if err == nil {
@@ -194,7 +197,6 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 	}
 	h.mu.Unlock()
 	if duplicate {
-		// An earlier request for this call is still being torn down.
 		w.Header().Set("Retry-After", "1")
 		h.writeError(w, http.StatusServiceUnavailable, "service_unavailable", "tool call is already in flight")
 		return
@@ -204,8 +206,7 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 		delete(h.calls, id)
 		h.mu.Unlock()
 	}()
-	// With no websocket the offer goes out when the daemon next connects.
-	h.client.sendToolCallOffer(offer)
+	h.client.sendToolCallOffer(r.Context(), offer)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
 	flusher := http.NewResponseController(w)
@@ -214,25 +215,69 @@ func (h *programToolCallHandler) call(w http.ResponseWriter, r *http.Request, pr
 	for {
 		select {
 		case <-r.Context().Done():
+			h.abandon(r.Context(), offer)
 			return
 		case <-call.changed:
 		}
 		h.mu.Lock()
 		report := *call.report
 		h.mu.Unlock()
-		if err := encoder.Encode(report); err != nil {
-			return
+		over := report.AckStatus != "" || report.State == daemonprotocol.ProgramToolCallStateCompleted
+		err := encoder.Encode(report)
+		if err == nil {
+			err = flusher.Flush()
 		}
-		if err := flusher.Flush(); err != nil {
-			return
+		if err != nil && !over {
+			h.abandon(r.Context(), offer)
 		}
-		if report.AckStatus != "" || report.State == daemonprotocol.ProgramToolCallStateCompleted {
+		if err != nil || over {
 			return
 		}
 	}
 }
 
-// report hands the backend's report to the request waiting on the call.
+func (h *programToolCallHandler) abandon(ctx context.Context, offer daemonprotocol.ToolCallOffer) {
+	select {
+	case <-h.stopping:
+		return
+	default:
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), programToolCallCancelTimeout)
+	defer cancel()
+	if h.client.sendToolCallCancel(ctx, offer) {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.abandoned) >= programToolCallServerLimit {
+		h.abandoned = h.abandoned[1:]
+	}
+	h.abandoned = append(h.abandoned, offer)
+}
+
+func (h *programToolCallHandler) resume(ctx context.Context, transport *daemonSocketTransport) {
+	if h == nil {
+		return
+	}
+	for _, offer := range h.offers() {
+		if !transport.offerToolCall(ctx, offer) {
+			return
+		}
+	}
+	h.mu.Lock()
+	abandoned := h.abandoned
+	h.abandoned = nil
+	h.mu.Unlock()
+	for i, offer := range abandoned {
+		if !transport.offerToolCall(ctx, offer) || !transport.cancelToolCall(ctx, offer) {
+			h.mu.Lock()
+			h.abandoned = append(abandoned[i:], h.abandoned...)
+			h.mu.Unlock()
+			return
+		}
+	}
+}
+
 func (h *programToolCallHandler) report(report daemonprotocol.ToolCallReport) {
 	if h == nil {
 		return
@@ -250,7 +295,6 @@ func (h *programToolCallHandler) report(report daemonprotocol.ToolCallReport) {
 	}
 }
 
-// offers lists the calls in flight, for a new websocket to offer again.
 func (h *programToolCallHandler) offers() []daemonprotocol.ToolCallOffer {
 	if h == nil {
 		return nil
@@ -264,19 +308,41 @@ func (h *programToolCallHandler) offers() []daemonprotocol.ToolCallOffer {
 	return offers
 }
 
-// sendToolCallOffer offers a call on the current websocket, if there is one.
-func (c *Client) sendToolCallOffer(offer daemonprotocol.ToolCallOffer) {
+func (c *Client) socketTransport() (*daemonSocketTransport, bool) {
 	c.transportMu.RLock()
+	defer c.transportMu.RUnlock()
 	transport, connected := c.transport.(*daemonSocketTransport)
-	c.transportMu.RUnlock()
-	if connected {
-		transport.offerToolCall(offer)
+	return transport, connected && transport != nil
+}
+
+func (c *Client) sendToolCallOffer(ctx context.Context, offer daemonprotocol.ToolCallOffer) {
+	if transport, connected := c.socketTransport(); connected {
+		transport.offerToolCall(ctx, offer)
 	}
 }
 
-func (t *daemonSocketTransport) offerToolCall(offer daemonprotocol.ToolCallOffer) {
-	if !t.enqueue(daemonprotocol.Message{Type: daemonprotocol.MessageToolCallOffer, ToolCallOffer: &offer}) {
-		t.fail(errors.New("daemon websocket send queue is full"))
+func (c *Client) sendToolCallCancel(ctx context.Context, offer daemonprotocol.ToolCallOffer) bool {
+	transport, connected := c.socketTransport()
+	return connected && transport.cancelToolCall(ctx, offer)
+}
+
+func (t *daemonSocketTransport) offerToolCall(ctx context.Context, offer daemonprotocol.ToolCallOffer) bool {
+	return t.enqueueWait(ctx, daemonprotocol.Message{Type: daemonprotocol.MessageToolCallOffer, ToolCallOffer: &offer})
+}
+
+func (t *daemonSocketTransport) cancelToolCall(ctx context.Context, offer daemonprotocol.ToolCallOffer) bool {
+	return t.enqueueWait(ctx, daemonprotocol.Message{Type: daemonprotocol.MessageToolCallCancel,
+		ToolCallCancel: &daemonprotocol.ToolCallCancel{ProcessID: offer.ProcessID, Key: offer.Key}})
+}
+
+func (t *daemonSocketTransport) enqueueWait(ctx context.Context, message daemonprotocol.Message) bool {
+	select {
+	case t.send <- message:
+		return true
+	case <-t.done:
+		return false
+	case <-ctx.Done():
+		return false
 	}
 }
 
@@ -285,7 +351,6 @@ type programToolCallError struct {
 	Code  string `json:"code"`
 }
 
-// writeError uses the backend's API error shape, as `omnarad call` expects.
 func (h *programToolCallHandler) writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

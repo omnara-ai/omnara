@@ -86,9 +86,8 @@ type MachineRecord struct {
 	UpdatedAt                    time.Time              `json:"updated_at"`
 	LifecycleChangedAt           time.Time              `json:"-"`
 	LifecycleVersion             int64                  `json:"-"`
-	// ProgrammaticToolCalls is loaded by machine create, get, and update reads only.
-	ProgrammaticToolCalls bool `json:"-"`
-	Created               bool `json:"-"`
+	ProgrammaticToolCalls        bool                   `json:"-"`
+	Created                      bool                   `json:"-"`
 }
 
 type MachineSummaryRecord struct {

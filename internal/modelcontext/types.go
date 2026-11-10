@@ -121,16 +121,13 @@ type Message struct {
 }
 
 type ToolSpec struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"input_schema"`
-	// OutputSchema describes the tool's structured result, when known. Only
-	// program tool calls read it; it is not sent to models.
-	OutputSchema json.RawMessage          `json:"-"`
-	Deferred     bool                     `json:"deferred,omitempty"`
-	Type         string                   `json:"-"`
-	Permission   toolpermission.Selection `json:"-"`
-	// IntegrationKind is set on integration tools.
+	Name            string                     `json:"name"`
+	Description     string                     `json:"description"`
+	InputSchema     json.RawMessage            `json:"input_schema"`
+	OutputSchema    json.RawMessage            `json:"-"`
+	Deferred        bool                       `json:"deferred,omitempty"`
+	Type            string                     `json:"-"`
+	Permission      toolpermission.Selection   `json:"-"`
 	IntegrationKind integrationdefinition.Kind `json:"-"`
 }
 

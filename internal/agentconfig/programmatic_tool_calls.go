@@ -13,9 +13,6 @@ const MaxProgrammaticToolCallExcludes = 256
 
 var builtInToolNamePattern = regexp.MustCompile(toolcatalog.ToolNamePattern)
 
-// ProgrammaticToolCallsSource lets commands started by run_command call the
-// agent's other tools with `omnarad call`. Excluded names are not checked
-// against the agent's tools because MCP tool lists are only known at runtime.
 type ProgrammaticToolCallsSource struct {
 	Enabled bool     `json:"enabled"`
 	Exclude []string `json:"exclude,omitempty"`
@@ -26,9 +23,6 @@ type ProgrammaticToolCallsCompiled struct {
 	Exclude []string `json:"exclude,omitempty"`
 }
 
-// compileProgrammaticToolCalls validates the section even when it is
-// disabled. Callers store only an enabled result, so a disabled section leaves
-// no trace in the compiled definition.
 func compileProgrammaticToolCalls(source ProgrammaticToolCallsSource) (ProgrammaticToolCallsCompiled, error) {
 	if len(source.Exclude) > MaxProgrammaticToolCallExcludes {
 		return ProgrammaticToolCallsCompiled{}, issuef(
@@ -95,14 +89,10 @@ func validateProgrammaticToolName(name string) error {
 	return nil
 }
 
-// ProgrammaticToolCallsEnabled reports whether commands can call this agent's
-// tools with `omnarad call`.
 func (contract RuntimeContract) ProgrammaticToolCallsEnabled() bool {
 	return contract.ProgrammaticToolCalls != nil && contract.ProgrammaticToolCalls.Enabled
 }
 
-// ProgrammaticToolExcluded reports whether commands cannot call the named
-// tool: programmatic tool calls are disabled or the config excludes it.
 func (contract RuntimeContract) ProgrammaticToolExcluded(name string) bool {
 	if !contract.ProgrammaticToolCallsEnabled() {
 		return true

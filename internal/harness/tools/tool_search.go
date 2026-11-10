@@ -42,7 +42,6 @@ func resolveToolSearchRequest(raw json.RawMessage) (resolvedToolSearchRequest, e
 			toolcatalog.ToolSearchMaxPatternLength,
 		)
 	}
-	// MaxResults stays zero when unset; the search applies its own default.
 	resolved := resolvedToolSearchRequest{Pattern: pattern}
 	if len(input.MaxResults) != 0 {
 		var maxResults *int

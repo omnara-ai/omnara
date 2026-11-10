@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,9 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-// toolAuthority is what lets a turn change a tool call: the agent runtime lock
-// for model calls, or a claim for program calls. Losing it surfaces as
-// storeerr.ErrRuntimeLockInactive either way.
 type toolAuthority interface {
 	ensureActive(context.Context, Executor, Turn) error
 	recordedToolCall(context.Context, Executor, Turn, model.ToolCall) (executionstore.ToolCallRecord, error)
@@ -28,19 +26,15 @@ type toolAuthority interface {
 	execute(
 		context.Context, Executor, Turn, uuid.UUID, executionstore.ToolCallPlan,
 	) (executionstore.ExecuteToolCallResult, error)
-	// complete records a result for a call that is not running.
 	complete(
 		context.Context, Executor, Turn, uuid.UUID, executionstore.ToolResultOutcome, json.RawMessage,
 	) (executionstore.ToolCallRecord, error)
-	// completeRunning records the result of a call whose async phase ran.
 	completeRunning(
 		context.Context, Executor, Turn, uuid.UUID, executionstore.ToolResultOutcome, json.RawMessage,
 	) (executionstore.ToolCallRecord, error)
 	requeue(context.Context, Executor, Turn, uuid.UUID) error
 }
 
-// programCall reports whether the turn runs a program tool call, whose result
-// goes only to the calling command.
 func (t Turn) programCall() bool {
 	_, ok := t.authority.(programClaimAuthority)
 	return ok
@@ -116,15 +110,28 @@ func (runtimeLockAuthority) requeue(ctx context.Context, e Executor, turn Turn, 
 	})
 }
 
-// MaxProgramToolResultBytes caps a program call's stored result content, so
-// its report fits one daemon websocket message; the store does not move large
-// program results to artifacts.
 const MaxProgramToolResultBytes = daemonprotocol.ProgramToolCallMaxResultBytes
 
-// programClaimAuthority acts on one program tool call under a claim.
 type programClaimAuthority struct {
-	ref   executionstore.ProgramToolCallRef
-	lease time.Duration
+	ref     executionstore.ProgramToolCallRef
+	lease   time.Duration
+	stopped <-chan struct{}
+	started *atomic.Bool
+}
+
+func (a programClaimAuthority) interrupted() bool {
+	select {
+	case <-a.stopped:
+		return a.started == nil || !a.started.Load()
+	default:
+		return false
+	}
+}
+
+func (t Turn) markStarted() {
+	if a, ok := t.authority.(programClaimAuthority); ok && a.started != nil {
+		a.started.Store(true)
+	}
 }
 
 func (a programClaimAuthority) refFor(id uuid.UUID) (executionstore.ProgramToolCallRef, error) {
@@ -207,20 +214,21 @@ func (a programClaimAuthority) completeRunning(
 	ctx context.Context, e Executor, turn Turn, id uuid.UUID,
 	outcome executionstore.ToolResultOutcome, parts json.RawMessage,
 ) (executionstore.ToolCallRecord, error) {
+	if outcome != executionstore.ToolResultOutcomeSucceeded && a.interrupted() {
+		if err := a.requeue(ctx, e, turn, id); err != nil {
+			return executionstore.ToolCallRecord{}, err
+		}
+		return e.Store.Execution().GetToolCall(ctx, turn.ProjectID, turn.AgentID, id)
+	}
 	return a.complete(ctx, e, turn, id, outcome, parts)
 }
 
-// requeue fails the call: a claimed program call runs at most once.
-func (a programClaimAuthority) requeue(ctx context.Context, e Executor, turn Turn, id uuid.UUID) error {
-	parts, err := structuredParts(map[string]any{
-		"error_code": "async_tool_interrupted",
-		"message":    "The tool call was interrupted before it ran. Retry the call.",
-	})
+func (a programClaimAuthority) requeue(ctx context.Context, e Executor, _ Turn, id uuid.UUID) error {
+	ref, err := a.refFor(id)
 	if err != nil {
 		return err
 	}
-	_, err = a.complete(ctx, e, turn, id, executionstore.ToolResultOutcomeFailed, parts)
-	return err
+	return programAuthorityError(e.Store.Execution().ReleaseProgramToolCallClaim(ctx, ref))
 }
 
 func programAuthorityError(err error) error {
@@ -230,8 +238,6 @@ func programAuthorityError(err error) error {
 	return err
 }
 
-// programToolResult drops parts hidden from the model, which a program call
-// has no use for, and fails results over MaxProgramToolResultBytes.
 func programToolResult(
 	outcome executionstore.ToolResultOutcome, parts json.RawMessage,
 ) (executionstore.ToolResultOutcome, json.RawMessage, error) {

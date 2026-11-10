@@ -17,7 +17,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-// Exit codes of `omnarad call`.
 const (
 	ProgramToolCallExitSucceeded   = 0
 	ProgramToolCallExitToolFailed  = 1
@@ -32,31 +31,21 @@ const (
 	programToolCallMaxBackoff  = 5 * time.Second
 )
 
-// ProgramToolCallOutput is what `omnarad call` prints for a completed call.
 type ProgramToolCallOutput string
 
 const (
-	// ProgramToolCallOutputResult prints one JSON value: the structured
-	// result, or the text as a JSON string when there is none.
-	ProgramToolCallOutputResult ProgramToolCallOutput = "result"
-	// ProgramToolCallOutputEnvelope prints the full result envelope, whatever
-	// the outcome.
+	ProgramToolCallOutputResult   ProgramToolCallOutput = "result"
 	ProgramToolCallOutputEnvelope ProgramToolCallOutput = "envelope"
-	// ProgramToolCallOutputText prints the text as plain text, or the result
-	// as JSON when there is no text.
-	ProgramToolCallOutputText ProgramToolCallOutput = "text"
+	ProgramToolCallOutputText     ProgramToolCallOutput = "text"
 )
 
 type ProgramToolCallOptions struct {
-	Tool string
-	// Input is a JSON object, "-" to read one from stdin, or empty for {}.
-	Input string
-	// Output defaults to ProgramToolCallOutputResult.
+	Tool    string
+	Input   string
 	Output  ProgramToolCallOutput
 	Timeout time.Duration
 }
 
-// RunProgramToolCall implements `omnarad call` and returns its exit code.
 func RunProgramToolCall(
 	ctx context.Context,
 	options ProgramToolCallOptions,
@@ -158,10 +147,6 @@ func newProgramToolCaller(endpoint, processID, capability string) *programToolCa
 		CheckRedirect: noRedirects}}
 }
 
-// call makes the call and waits for its completed result, calling
-// awaitingApproval when the call first waits for a user. It retries while the
-// daemon or Omnara is briefly unavailable; the request's key keeps every
-// attempt the same call. On failure it returns the last state it saw.
 func (c *programToolCaller) call(
 	ctx context.Context, body []byte, awaitingApproval func(),
 ) (daemonprotocol.ProgramToolCallResult, error) {
@@ -194,8 +179,6 @@ func (c *programToolCaller) call(
 	}
 }
 
-// attempt sends the call to the daemon and reads its reports, one JSON line
-// each, until the completed one.
 func (c *programToolCaller) attempt(
 	ctx context.Context, body []byte, seen func(daemonprotocol.ProgramToolCallResult),
 ) error {
@@ -329,8 +312,6 @@ func writeProgramToolCallResult(
 		}
 	}
 	text := strings.Join(texts, "\n")
-	// Every success prints exactly one value, the same one in every output
-	// mode, so a note beside a structured result never replaces it.
 	var value any
 	switch {
 	case len(structured) > 0 && string(structured) != "null":
@@ -345,7 +326,6 @@ func writeProgramToolCallResult(
 	case len(result.Content) > 0:
 		value = result.Content
 	}
-	// Text output differs only for a string, printed without JSON quoting.
 	if _, isText := value.(string); isText && output == ProgramToolCallOutputText {
 		if !strings.HasSuffix(text, "\n") {
 			text += "\n"

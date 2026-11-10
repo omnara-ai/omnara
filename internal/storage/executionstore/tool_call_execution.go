@@ -59,8 +59,7 @@ type toolCallTransaction struct {
 	requiresWaitingDisposition bool
 	owner                      agentexecution.ToolOwner
 	completed                  *ToolCallRecord
-	// program fences a program tool call on its claim instead of a runtime lock.
-	program *ProgramToolCallRef
+	program                    *ProgramToolCallRef
 }
 
 func (s *Store) ExecuteToolCall(
@@ -201,8 +200,6 @@ func (t *toolCallTransaction) startToolCall(ctx context.Context, retainRuntimeOw
 		return err
 	}
 	if t.program != nil {
-		// A claimed program call is already waiting under its claim; the async
-		// phase completes it with CompleteProgramToolCall.
 		if !retainRuntimeOwnership {
 			return storeerr.ErrInvalidToolCallDisposition
 		}
@@ -289,8 +286,6 @@ func (r *ToolCallReader) GetModelCallContext(
 	return record, true, nil
 }
 
-// requireRuntime rejects commands that need the agent runtime lock, which
-// program tool calls never hold.
 func (t *toolCallTransaction) requireRuntime() error {
 	if t.program != nil {
 		return fmt.Errorf("%w: program tool calls cannot run this command", storeerr.ErrInvalidToolCallDisposition)
