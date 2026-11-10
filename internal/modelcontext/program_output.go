@@ -19,7 +19,7 @@ const unknownProgramOutputSchema = `{"description":"The server declares no outpu
 const programmaticToolCallsRunCommandDescription = "\n\nCommands can call this agent's other tools with " +
 	"`\"$OMNARA_BIN\" call <tool> '<json input>'`; pass `-` as the input to read it from stdin. On success it " +
 	"prints one JSON value to stdout: the tool's structured result, or its text as a JSON string when it has " +
-	"none. `--output=text` prints text as plain text instead, and `--output=envelope` prints the full result " +
+	"none. `--output=text` prints a text result as plain text instead, and `--output=envelope` prints the full result " +
 	"envelope. It exits 1 if the tool fails or is denied, 2 if the tool cannot be called from commands, and 3 " +
 	"if the call could not be made, with the error on stderr. Results go only to the command, not to you, so " +
 	"chain calls with pipes, jq, loops or scripts and print only what you need. This works only on machines " +

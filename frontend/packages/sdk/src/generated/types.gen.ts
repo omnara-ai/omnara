@@ -19973,7 +19973,7 @@ export type GetDaemonProgramToolCallData = {
          */
         processID: ProcessId;
         /**
-         * Tool call ID returned when the call was created.
+         * Tool call ID (tcl_...) returned when the call was created.
          */
         toolCallID: ToolCallId;
     };

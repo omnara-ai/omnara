@@ -155,6 +155,16 @@ func TestProgramToolCallCLIPrintsTextOutput(t *testing.T) {
 	code, stdout, _ = runToolCallCLI(t, ProgramToolCallOptions{Tool: "list", Output: ProgramToolCallOutputText}, "")
 	require.Equal(t, ProgramToolCallExitSucceeded, code)
 	require.Equal(t, `{"a":1}`+"\n", stdout, "text output falls back to the result without text")
+
+	// A note beside the result, like storage_read's stale-read warning, does
+	// not replace it.
+	startFakeToolCallDaemon(t, reply(http.StatusOK, `{"state":"completed","outcome":"succeeded","content":[`+
+		`{"type":"text","text":"The file changed since you last read it."},`+
+		`{"type":"structured_data","value":{"content":"page"}}]}`))
+	code, stdout, _ = runToolCallCLI(t,
+		ProgramToolCallOptions{Tool: "storage_read", Output: ProgramToolCallOutputText}, "")
+	require.Equal(t, ProgramToolCallExitSucceeded, code)
+	require.Equal(t, `{"content":"page"}`+"\n", stdout)
 }
 
 func TestProgramToolCallCLIRejectsUnknownOutput(t *testing.T) {
