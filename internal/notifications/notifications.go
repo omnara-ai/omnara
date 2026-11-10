@@ -359,10 +359,7 @@ func (n *TxNotifications) AddProgramToolCallUpdate(
 	state string,
 	interactionUpdate *AgentInteractionUpdate,
 ) {
-	if n == nil || agentID == uuid.Nil || toolCallID == uuid.Nil || state == "" {
-		return
-	}
-	n.toolCallUpdates = append(n.toolCallUpdates, ToolCallUpdatedCommitted{
+	n.addToolCallUpdate(ToolCallUpdatedCommitted{
 		AgentID:           agentID,
 		ToolCallID:        toolCallID,
 		ParentToolCallID:  parentID,

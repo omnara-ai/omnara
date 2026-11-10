@@ -5,6 +5,8 @@ import { requiredEnvironmentVariable } from './fixtures'
 export { installFailureTracking, requiredEnvironmentVariable } from './fixtures'
 
 const password = requiredEnvironmentVariable('OMNARA_WEB_E2E_PASSWORD')
+const providerConfig = requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_CONFIG')
+const modelName = requiredEnvironmentVariable('OMNARA_WEB_E2E_MODEL_NAME')
 
 const sessionCookies = new Map<string, Cookie[]>()
 
@@ -33,4 +35,15 @@ export async function signIn(page: Page, email: string, returnTo: string) {
     return
   }
   await signInThroughLoginForm(page, email, returnTo)
+}
+
+export async function selectConfiguredModel(page: Page) {
+  const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
+  await modelPicker.click()
+  await page.getByPlaceholder('Search shared models…').fill(modelName)
+  await page
+    .getByRole('option')
+    .filter({ hasText: modelName })
+    .filter({ hasText: providerConfig })
+    .click()
 }

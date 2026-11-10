@@ -43,10 +43,14 @@ LEFT JOIN LATERAL (
 -- name: GetToolCallSummary :one
 SELECT call.id, call.agent_id, source_event.turn_id, call.provider_call_id,
   call.name, call.input, call.type, call.state,
-  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at
+  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at,
+  call.caller, call.parent_tool_call_id
 FROM tool_calls call
+-- A program call has no model output; it reads as acting in its parent's turn.
+LEFT JOIN tool_calls parent ON parent.agent_id = call.agent_id
+  AND parent.id = call.parent_tool_call_id
 JOIN agent_events source_event ON source_event.agent_id = call.agent_id
-  AND source_event.model_output_id = call.model_output_id
+  AND source_event.model_output_id = coalesce(call.model_output_id, parent.model_output_id)
   AND source_event.event_kind = 'model_output'
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
   AND result.tool_call_id = call.id
@@ -115,8 +119,7 @@ LEFT JOIN LATERAL (
 SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
-  coalesce(result.outcome, '') AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
+  coalesce(result.outcome, '') AS outcome,
   call.created_at, result.completed_at,
   call.caller, call.parent_tool_call_id
 FROM tool_call_read_projection call
@@ -139,13 +142,10 @@ LIMIT sqlc.arg(row_limit)::bigint;
 -- ListToolCallsForParent lists the program calls a run_command call's process
 -- made; it seeks on tool_calls_program_key_idx. Rows match ListToolCallsForAgent.
 -- name: ListToolCallsForParent :many
-SELECT call.id, call.project_id, call.agent_id,
-  call.turn_id, call.source_event_id,
-  call.model_call_context_id, call.provider_call_id,
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
-  coalesce(result.outcome, '') AS outcome, call.runtime_lock_id,
-  '[]'::jsonb AS result_content_parts,
+  coalesce(result.outcome, '') AS outcome,
   call.created_at, result.completed_at,
   call.caller, call.parent_tool_call_id
 FROM tool_call_read_projection call
@@ -194,7 +194,8 @@ SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
   ''::text AS outcome,
-  call.created_at, NULL::timestamptz AS completed_at
+  call.created_at, NULL::timestamptz AS completed_at,
+  call.caller, call.parent_tool_call_id
 FROM page
 JOIN tool_call_read_projection call ON call.agent_id = page.agent_id
   AND call.id = page.id
