@@ -13,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelretry"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type modelStepState string
@@ -96,8 +95,7 @@ func (e AgentExecutor) executeModelStep(
 		return modelStep{}, err
 	}
 	if !claim.Claimed {
-		if claim.Created &&
-			claim.Context.ErrorCode == storeerr.ManagedWorkAdmissionDeniedCode {
+		if claim.Created {
 			e.notifyModelFailure(ctx, input)
 		}
 		state := modelStepWaiting
@@ -514,6 +512,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 			APIVariant:              failureEvidence.APIVariant,
 			ProviderRequestID:       failureEvidence.ProviderRequestID,
 			ProviderResponseID:      failureEvidence.ProviderResponseID,
+			ServedProviderModelSlug: failureEvidence.ServedModelSlug,
 			ErrorKind:               evidence.Kind,
 			ErrorCode:               evidence.Code,
 			ErrorMessage:            evidence.Message,

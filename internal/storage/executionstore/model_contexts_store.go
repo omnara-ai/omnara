@@ -83,6 +83,7 @@ type ReplaceCompactionSourceInput struct {
 	APIVariant                 modelprotocol.APIVariant
 	ProviderRequestID          string
 	ProviderResponseID         string
+	ServedProviderModelSlug    string
 	ErrorKind                  modelprotocol.ErrorKind
 	ErrorCode                  string
 	ErrorMessage               string
@@ -103,6 +104,7 @@ type RecordRecoverableModelCallFailureInput struct {
 	APIVariant              modelprotocol.APIVariant
 	ProviderRequestID       string
 	ProviderResponseID      string
+	ServedProviderModelSlug string
 	ErrorKind               modelprotocol.ErrorKind
 	ErrorCode               string
 	ErrorMessage            string

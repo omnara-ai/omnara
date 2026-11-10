@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/ssrf"
@@ -45,6 +46,7 @@ type storeConfig struct {
 	machinePoolProviders  executionstore.MachinePoolProviders
 	modelCallRetryBackoff func(int, string) time.Duration
 	endpointAllowlist     *ssrf.Allowlist
+	modelCostEstimator    modelprice.Estimator
 }
 
 type Option func(*storeConfig)
@@ -91,6 +93,12 @@ func WithEndpointAllowlist(endpointAllowlist *ssrf.Allowlist) Option {
 	}
 }
 
+func WithModelCostEstimator(estimator modelprice.Estimator) Option {
+	return func(config *storeConfig) {
+		config.modelCostEstimator = estimator
+	}
+}
+
 func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	config := storeConfig{}
 	for _, opt := range opts {
@@ -112,6 +120,7 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	store.execution = executionstore.New(pool, executionstore.Config{
 		PostCommitPublisher:   config.postCommitPublisher,
 		ModelCallRetryBackoff: config.modelCallRetryBackoff,
+		ModelCostEstimator:    config.modelCostEstimator,
 		Integrations:          store.integrations,
 		MachinePoolProviders:  config.machinePoolProviders,
 		Identity:              store.identity,

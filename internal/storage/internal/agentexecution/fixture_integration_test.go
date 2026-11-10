@@ -92,7 +92,7 @@ func seedExecutionFixture(
 
 func (f executionFixture) create(t *testing.T, id, parent uuid.UUID) uuid.UUID {
 	t.Helper()
-	cell := agentexecution.NewCell(f.pool, nil, nil)
+	cell := agentexecution.NewCell(f.pool, nil, nil, nil)
 	u, err := agentexecution.BeginTestUnit(t.Context(), cell)
 	require.NoError(t, err)
 	defer func() { _ = u.Rollback(t.Context()) }()

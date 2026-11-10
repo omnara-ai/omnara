@@ -31,7 +31,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { ReportedCost } from '@/components/usage/ReportedCost'
+import { UsageCost } from '@/components/usage/UsageCost'
 import { type PaginationControls, usePagedQuery } from '@/hooks/use-paged-query'
 import { useProjectDirectory } from '@/hooks/use-project-directory'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
@@ -278,7 +278,7 @@ function AgentInstanceCard({
         <>
           {agent.usage && (
             <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
-              <ReportedCost modelCalls={agent.usage.model_calls} cost={agent.usage.cost} />
+              <UsageCost modelCalls={agent.usage.model_calls} cost={agent.usage.cost} />
               <span className="ml-0.5" aria-hidden="true">
                 ·
               </span>

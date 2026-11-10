@@ -63,6 +63,33 @@ func (q *Queries) CreateExecutionAttempt(ctx context.Context, db DBTX, arg Creat
 	return id, err
 }
 
+const executionBudgetReached = `-- name: ExecutionBudgetReached :one
+SELECT (b.project_id IS NOT NULL)::boolean AS project_scope,b.interval
+FROM budgets b CROSS JOIN LATERAL budget_interval_cost(b.org_id,b.project_id,b.interval) cost
+WHERE b.org_id=$1 AND (b.project_id IS NULL OR b.project_id=$2::uuid)
+ AND b.deleted_at IS NULL AND cost.provider_reported_cost_usd+cost.estimated_cost_usd>=b.amount_usd
+ORDER BY b.project_id IS NOT NULL,
+ CASE b.interval WHEN 'lifetime' THEN 0 WHEN 'month' THEN 1 WHEN 'week' THEN 2 ELSE 3 END
+LIMIT 1
+`
+
+type ExecutionBudgetReachedParams struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+}
+
+type ExecutionBudgetReachedRow struct {
+	ProjectScope bool
+	Interval     string
+}
+
+func (q *Queries) ExecutionBudgetReached(ctx context.Context, db DBTX, arg ExecutionBudgetReachedParams) (ExecutionBudgetReachedRow, error) {
+	row := db.QueryRow(ctx, executionBudgetReached, arg.OrgID, arg.ProjectID)
+	var i ExecutionBudgetReachedRow
+	err := row.Scan(&i.ProjectScope, &i.Interval)
+	return i, err
+}
+
 const executionCompactionBoundary = `-- name: ExecutionCompactionBoundary :one
 SELECT coalesce((SELECT summarized_through_event_sequence FROM context_checkpoints
  WHERE agent_id=$1 AND summarized_through_event_sequence<=$2
@@ -83,7 +110,9 @@ func (q *Queries) ExecutionCompactionBoundary(ctx context.Context, db DBTX, arg 
 
 const executionModelRevision = `-- name: ExecutionModelRevision :one
 SELECT m.current_revision_id,CASE WHEN p.management_kind='cluster' THEN coalesce(w.new_managed_work_allowed,true)
- ELSE true END::boolean AS allowed
+ ELSE true END::boolean AS allowed,c.org_id,
+ EXISTS(SELECT 1 FROM budgets b WHERE b.org_id=c.org_id AND (b.project_id IS NULL OR b.project_id=c.project_id)
+ AND b.deleted_at IS NULL)::boolean AS budgeted
 FROM agent_configs c JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
 JOIN configured_models m ON m.org_id=d.org_id AND m.id=d.configured_model_id
 JOIN model_provider_configs p ON p.org_id=m.org_id AND p.id=m.model_provider_config_id
@@ -99,6 +128,8 @@ type ExecutionModelRevisionParams struct {
 type ExecutionModelRevisionRow struct {
 	CurrentRevisionID uuid.UUID
 	Allowed           bool
+	OrgID             uuid.UUID
+	Budgeted          bool
 }
 
 // @sqlc-vet-disable configured-models-deleted-at
@@ -106,7 +137,12 @@ type ExecutionModelRevisionRow struct {
 func (q *Queries) ExecutionModelRevision(ctx context.Context, db DBTX, arg ExecutionModelRevisionParams) (ExecutionModelRevisionRow, error) {
 	row := db.QueryRow(ctx, executionModelRevision, arg.ProjectID, arg.ConfigID)
 	var i ExecutionModelRevisionRow
-	err := row.Scan(&i.CurrentRevisionID, &i.Allowed)
+	err := row.Scan(
+		&i.CurrentRevisionID,
+		&i.Allowed,
+		&i.OrgID,
+		&i.Budgeted,
+	)
 	return i, err
 }
 
@@ -168,11 +204,12 @@ UPDATE model_call_contexts c SET state=$1,recovery_kind=$2,
  input_tokens_total=$12::integer,uncached_input_tokens=$13::integer,
  cache_read_input_tokens=$14::integer,cache_write_input_tokens=$15::integer,
  output_tokens_total=$16::integer,reasoning_output_tokens=$17::integer,
- provider_reported_cost_usd=$18::text::numeric,provider_metadata=$19::jsonb,
- input_fingerprint=$20::text,completed_at=statement_timestamp()
-WHERE c.agent_id=$21 AND c.id=$22 AND c.state='started' AND c.runtime_lock_id=$23
+ provider_reported_cost_usd=$18::text::numeric,estimated_cost_usd=$19::text::numeric,
+ provider_metadata=$20::jsonb,
+ input_fingerprint=$21::text,completed_at=statement_timestamp()
+WHERE c.agent_id=$22 AND c.id=$23 AND c.state='started' AND c.runtime_lock_id=$24
  AND EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=c.agent_id
- AND r.id=$23 AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp())
+ AND r.id=$24 AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp())
 `
 
 type FinishExecutionAttemptParams struct {
@@ -194,6 +231,7 @@ type FinishExecutionAttemptParams struct {
 	OutputTokens      *int32
 	ReasoningTokens   *int32
 	Cost              *string
+	EstimatedCost     *string
 	ProviderMetadata  json.RawMessage
 	InputFingerprint  *string
 	AgentID           uuid.UUID
@@ -221,6 +259,7 @@ func (q *Queries) FinishExecutionAttempt(ctx context.Context, db DBTX, arg Finis
 		arg.OutputTokens,
 		arg.ReasoningTokens,
 		arg.Cost,
+		arg.EstimatedCost,
 		arg.ProviderMetadata,
 		arg.InputFingerprint,
 		arg.AgentID,
@@ -290,8 +329,10 @@ SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event
  (SELECT count(*) FROM model_call_contexts prior WHERE prior.agent_id=c.agent_id
  AND prior.operation_kind='compaction' AND prior.input_event_sequence=c.input_event_sequence
  AND prior.source_event_sequence_end=c.source_event_sequence_end AND prior.attempt_number<c.attempt_number
- AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count
+ AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count,
+ p.base_url AS provider_base_url,c.created_at
 FROM model_call_contexts c JOIN configured_model_revisions r ON r.org_id=c.org_id AND r.id=c.configured_model_revision_id
+JOIN model_provider_configs p ON p.org_id=r.org_id AND p.id=r.model_provider_config_id
 WHERE c.agent_id=$1 AND c.id=$2
 `
 
@@ -335,8 +376,11 @@ type ReadExecutionAttemptRow struct {
 	ProviderModelSlug           string
 	InputFingerprint            string
 	SourceExcerptReductionCount int64
+	ProviderBaseUrl             string
+	CreatedAt                   time.Time
 }
 
+// @sqlc-vet-disable model-provider-configs-deleted-at
 func (q *Queries) ReadExecutionAttempt(ctx context.Context, db DBTX, arg ReadExecutionAttemptParams) (ReadExecutionAttemptRow, error) {
 	row := db.QueryRow(ctx, readExecutionAttempt, arg.AgentID, arg.ID)
 	var i ReadExecutionAttemptRow
@@ -375,6 +419,8 @@ func (q *Queries) ReadExecutionAttempt(ctx context.Context, db DBTX, arg ReadExe
 		&i.ProviderModelSlug,
 		&i.InputFingerprint,
 		&i.SourceExcerptReductionCount,
+		&i.ProviderBaseUrl,
+		&i.CreatedAt,
 	)
 	return i, err
 }

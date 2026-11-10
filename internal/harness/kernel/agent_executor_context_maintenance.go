@@ -158,6 +158,7 @@ func (e AgentExecutor) enterContextMaintenance(
 		APIVariant:              evidence.APIVariant,
 		ProviderRequestID:       evidence.ProviderRequestID,
 		ProviderResponseID:      evidence.ProviderResponseID,
+		ServedProviderModelSlug: evidence.ServedModelSlug,
 		ErrorKind:               trigger.Kind,
 		ErrorCode:               trigger.Code,
 		ErrorMessage:            trigger.Message,

@@ -2,11 +2,13 @@ import { useOrgUsage } from '@omnara/react'
 import { Link } from '@tanstack/react-router'
 
 import { Button } from '@/components/ui/button'
+import { BudgetCard } from '@/components/usage/BudgetCard'
 import { defaultUsageDays, isDefaultUsageRange } from '@/components/usage/usage-date-range'
 import { updateUsageViewState, useUsageViewState } from '@/components/usage/usage-view-state'
 import { UsageDateRangeMenu } from '@/components/usage/UsageDateRangeMenu'
 import { UsageReportView } from '@/components/usage/UsageReport'
 import { UsageTimeseriesPanel } from '@/components/usage/UsageTimeseriesPanel'
+import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 export function OrganizationUsagePage() {
@@ -38,6 +40,7 @@ export function OrganizationUsagePage() {
               onSelectionChange={updateUsageViewState}
             />
           }
+          budget={canManageOrg(activeOrg.role) && <BudgetCard orgId={activeOrg.id} />}
           emptyMessage={
             filtered
               ? 'No model usage in this time range.'

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -24,6 +25,7 @@ type ModelEvidence struct {
 	RequestID        string
 	ResponseID       string
 	InputFingerprint string
+	ServedModel      string
 	Usage            modelenvelope.Usage
 	Cost             modelenvelope.ProviderReportedCostUSD
 	Metadata         modelenvelope.ProviderMetadata
@@ -122,6 +124,7 @@ func (h *Handle) finishAttempt(
 	if err != nil {
 		return false, err
 	}
+	args.EstimatedCost = h.estimatedCost(ctx, row, evidence)
 	details, err := objectJSON(failure.ErrorDetails)
 	if err != nil {
 		return false, err
@@ -157,6 +160,29 @@ func (h *Handle) finishAttempt(
 	}
 	m.changed()
 	return true, nil
+}
+
+func (h *Handle) estimatedCost(
+	ctx context.Context,
+	row executiondb.ReadExecutionAttemptRow,
+	evidence ModelEvidence,
+) *string {
+	estimator := h.unit.cell.costEstimator
+	usage := normalizedUsage(evidence.Usage)
+	if estimator == nil || evidence.Cost != "" || usage.InputTokens <= 0 && usage.OutputTokens <= 0 {
+		return nil
+	}
+	cost := estimator.Estimate(ctx, modelprice.Input{
+		BaseURL:         row.ProviderBaseUrl,
+		APIFormat:       evidence.APIFormat,
+		APIVariant:      evidence.APIVariant,
+		ConfiguredModel: row.ProviderModelSlug,
+		ServedModel:     evidence.ServedModel,
+		Usage:           usage,
+		Metadata:        evidence.Metadata,
+		CreatedAt:       row.CreatedAt,
+	})
+	return storeutil.TextFromEmpty(string(cost))
 }
 
 func (h *Handle) FailModel(ctx context.Context, input ModelFailure) (bool, error) {

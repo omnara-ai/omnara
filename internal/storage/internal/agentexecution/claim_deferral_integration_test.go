@@ -15,7 +15,7 @@ func TestDeferClaimPreservesChangedWakeup(t *testing.T) {
 	ctx := t.Context()
 	f := migratedExecutionFixture(t)
 	agent := f.create(t, uuid.New(), uuid.Nil)
-	cell := agentexecution.NewCell(f.pool, nil, nil)
+	cell := agentexecution.NewCell(f.pool, nil, nil, nil)
 	_, err := f.pool.Exec(ctx, `INSERT INTO agent_wakeups(agent_id,ready_at,updated_at)
 VALUES($1,statement_timestamp()+interval '5 minutes',statement_timestamp())`, agent)
 	require.NoError(t, err)
