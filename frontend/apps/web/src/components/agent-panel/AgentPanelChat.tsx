@@ -18,12 +18,10 @@ import { MessageScrollerProvider } from '@/components/ui/message-scroller'
 
 export function AgentPanelChat({
   selection,
-  hidden,
   getContext,
   archived: panelArchived,
 }: {
   selection: AgentPanelSelection
-  hidden: boolean
   getContext: () => string
   archived: boolean
 }) {
@@ -54,7 +52,7 @@ export function AgentPanelChat({
   )
 
   return (
-    <div className={hidden ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
+    <div className="flex min-h-0 flex-1 flex-col">
       <MessageScrollerProvider autoScroll>
         {agentQuery.error != null && (
           <p role="alert" className="text-destructive p-3 text-sm">
@@ -90,7 +88,7 @@ export function AgentPanelChat({
                 cancelError={cancel.error}
                 onCancel={() => cancelAgentChatTurn(chat, () => cancel.mutateAsync())}
                 canOperate={canOperate}
-                hidden={hidden}
+                hidden={false}
                 fileDropScope="composer"
               />
             </>

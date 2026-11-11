@@ -1,11 +1,6 @@
 /** @vitest-environment happy-dom */
 
-import {
-  OmnaraClientProvider,
-  useAgentPanel,
-  useCreateAssistantAgent,
-  useUpdateAgentPanel,
-} from '@omnara/react'
+import { OmnaraClientProvider, useAgentPanel } from '@omnara/react'
 import {
   type Agent,
   type AgentPanel,
@@ -62,7 +57,7 @@ afterEach(() => {
   restore()
 })
 
-async function render(routes: FakeRoute[]) {
+async function render(routes: FakeRoute[], settings = false) {
   const api = fakeApi([
     ...routes,
     { method: 'GET', path: '/api/v1/me/agent-panel', respond: () => jsonResponse(panel) },
@@ -83,12 +78,15 @@ async function render(routes: FakeRoute[]) {
   cache.setQueryData(getCurrentUserQueryKey({ client }), currentUser([owner, admin]))
   cache.setQueryData(getAgentPanelQueryKey({ client }), panel)
   const connected = vi.fn()
+  const closed = vi.fn()
   function Harness() {
     const query = useAgentPanel()
-    const create = useCreateAssistantAgent()
-    const update = useUpdateAgentPanel()
     return query.data == null ? null : (
-      <AgentPanelSetup panel={query.data} actions={{ create, update }} onConnected={connected} />
+      <AgentPanelSetup
+        panel={query.data}
+        onConnected={connected}
+        onClose={settings ? closed : undefined}
+      />
     )
   }
   await act(async () => {
@@ -101,7 +99,7 @@ async function render(routes: FakeRoute[]) {
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
-  return { api, connected }
+  return { api, connected, closed }
 }
 
 async function click(element: Element | null | undefined) {
@@ -233,4 +231,64 @@ it('never offers an agent from the previous project while the next project loads
   await waitForUI(() => {
     expect(document.querySelector('[role="option"]')?.textContent).toContain('Second agent')
   })
+})
+
+it('shares settings pending state and shows a failed update before allowing recovery', async () => {
+  panel = {
+    ...panel,
+    state: 'ready',
+    selection: {
+      agent_id: fakeId('agt'),
+      name: 'Connected agent',
+      can_operate: true,
+      scope: {
+        org_id: owner.id,
+        org_name: owner.name,
+        project_id: first.id,
+        project_name: first.name,
+      },
+    },
+  }
+  let finish!: (response: Response) => void
+  const pending = new Promise<Response>((resolve) => {
+    finish = resolve
+  })
+  let calls = 0
+  const { api, closed } = await render(
+    [
+      {
+        method: 'PATCH',
+        path: '/api/v1/me/agent-panel',
+        respond: () => {
+          if (++calls === 1) return pending
+          panel = { ...panel, enabled: false, revision: 1 }
+          return jsonResponse(panel)
+        },
+      },
+    ],
+    true,
+  )
+  await click(button('Disconnect'))
+  await waitForUI(() => {
+    expect(button('Disconnect')?.disabled).toBe(true)
+    expect(button('Turn off panel')?.disabled).toBe(true)
+    expect(button('Create new')?.disabled).toBe(true)
+  })
+  await act(async () => {
+    finish(jsonResponse({ code: 'service_unavailable', error: 'Try again' }, 503))
+    await Promise.resolve()
+  })
+  await waitForUI(() => {
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('Try again')
+    expect(button('Turn off panel')?.disabled).toBe(false)
+  })
+  expect(closed).not.toHaveBeenCalled()
+  await click(button('Turn off panel'))
+  await waitForUI(() => {
+    expect(closed).toHaveBeenCalledOnce()
+  })
+  expect(api.requestsTo('PATCH', '/api/v1/me/agent-panel').map(({ body }) => body)).toEqual([
+    { agent_id: null },
+    { enabled: false },
+  ])
 })

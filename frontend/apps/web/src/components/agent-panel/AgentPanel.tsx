@@ -1,7 +1,16 @@
-import { useAgentPanel, useCreateAssistantAgent, useUpdateAgentPanel } from '@omnara/react'
+import { useAgentPanel } from '@omnara/react'
 import type { AgentPanel as Panel } from '@omnara/sdk'
 import { CatchBoundary, useParams, useRouterState } from '@tanstack/react-router'
-import { lazy, type ReactNode, Suspense, useContext, useEffect, useRef, useState } from 'react'
+import {
+  Activity,
+  lazy,
+  type ReactNode,
+  Suspense,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 
 import { ChevronDown, MessageCircleQuestion } from '@/components/icons'
 import { Button } from '@/components/ui/button'
@@ -155,8 +164,6 @@ function PanelContents({
   onConnected: () => void
   onClose: () => void
 }) {
-  const create = useCreateAssistantAgent()
-  const update = useUpdateAgentPanel()
   const activeOrg = useContext(ActiveOrgContext)
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const params = useParams({ strict: false })
@@ -175,21 +182,22 @@ function PanelContents({
         <AgentPanelBootstrap setup={panel.setup} revision={panel.revision} />
       )}
       {selection != null && opened && (
-        <CatchBoundary getResetKey={() => selection.agent_id} errorComponent={PanelContentError}>
-          <Suspense
-            fallback={<p className="text-muted-foreground p-4 text-sm">Loading assistant…</p>}
-          >
-            <LazyAgentPanelChat
-              key={selection.agent_id}
-              selection={selection}
-              archived={panel.state === 'archived'}
-              hidden={!visible || choosing}
-              getContext={() =>
-                dashboardPageContext(pathname, params, activeOrg?.activeOrg, selection)
-              }
-            />
-          </Suspense>
-        </CatchBoundary>
+        <Activity mode={visible && !choosing ? 'visible' : 'hidden'}>
+          <CatchBoundary getResetKey={() => selection.agent_id} errorComponent={PanelContentError}>
+            <Suspense
+              fallback={<p className="text-muted-foreground p-4 text-sm">Loading assistant…</p>}
+            >
+              <LazyAgentPanelChat
+                key={selection.agent_id}
+                selection={selection}
+                archived={panel.state === 'archived'}
+                getContext={() =>
+                  dashboardPageContext(pathname, params, activeOrg?.activeOrg, selection)
+                }
+              />
+            </Suspense>
+          </CatchBoundary>
+        </Activity>
       )}
       {choosing && opened && (
         <CatchBoundary
@@ -199,37 +207,11 @@ function PanelContents({
           <Suspense fallback={<p className="text-muted-foreground p-4 text-sm">Loading setup…</p>}>
             <LazyAgentPanelSetup
               panel={panel}
-              actions={{ create, update }}
               onConnected={onConnected}
+              onClose={settings ? onClose : undefined}
             />
           </Suspense>
         </CatchBoundary>
-      )}
-      {settings && (
-        <footer className="flex shrink-0 gap-2 border-t p-3">
-          {selection != null && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={update.isPending}
-              onClick={() => {
-                update.mutate({ agent_id: null })
-              }}
-            >
-              Disconnect
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={update.isPending}
-            onClick={() => {
-              update.mutate({ enabled: false }, { onSuccess: onClose })
-            }}
-          >
-            Turn off panel
-          </Button>
-        </footer>
       )}
     </>
   )

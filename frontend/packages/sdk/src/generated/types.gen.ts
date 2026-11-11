@@ -4533,6 +4533,9 @@ export type AgentPanelScope = {
 };
 
 export type AgentPanelSelection = {
+    /**
+     * Whether the current user has permission to operate the selected agent. Archived agents still cannot accept input.
+     */
     can_operate: boolean;
     scope: AgentPanelScope;
     agent_id: AgentId;
@@ -4540,6 +4543,9 @@ export type AgentPanelSelection = {
 };
 
 export type AgentPanelSetup = {
+    /**
+     * Stable request ID to pass to automatic assistant creation, including retries of the same setup.
+     */
     request_id: string;
     scope: AgentPanelScope;
     /**
@@ -4557,6 +4563,9 @@ export type AgentPanel = {
      * Current preference revision. Pass this as expected_revision when creating an assistant.
      */
     revision: number;
+    /**
+     * Empty means no agent is selected. Ready means the selected agent is accessible. Archived means it is accessible but cannot accept input. Unavailable means the selected agent was removed or the user no longer has access; selection details are omitted.
+     */
     state: 'empty' | 'ready' | 'archived' | 'unavailable';
     selection?: AgentPanelSelection;
     setup?: AgentPanelSetup;

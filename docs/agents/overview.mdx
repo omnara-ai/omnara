@@ -119,6 +119,9 @@ You can turn it back on in **Account** settings. Hiding or disconnecting the pan
 does not stop the agent or revoke its token. Deleting its home project or
 organization revokes the dedicated token. You can also revoke it on the
 **Personal tokens** page; its name begins with **Omnara assistant**.
+To identify the token for a particular assistant, find the secret used by its
+Omnara MCP connection in the agent configuration. The UUID in the secret name
+`omnara-assistant-<uuid>` matches the token name `Omnara assistant (<uuid>)`.
 Leaving the home organization or losing access to the agent does not revoke this
 token; revoke it explicitly if the organization should no longer use it.
 

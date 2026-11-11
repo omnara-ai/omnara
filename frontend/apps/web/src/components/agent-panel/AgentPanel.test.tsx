@@ -14,7 +14,7 @@ import {
 } from '@tanstack/react-router'
 import { act, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 
 import { fakeApi, jsonResponse, neverResponds } from '@/test/fake-api'
 import { currentUser, currentUserOrg, fakeId } from '@/test/fixtures'
@@ -148,6 +148,7 @@ it('loads chat only after opening and aborts its pending history when turned off
     act(() => {
       button('Assistant').click()
     })
+    await act(() => vi.dynamicImportSettled())
     await waitForUI(() => {
       expect(historyRequests).toHaveLength(1)
     })
@@ -170,12 +171,14 @@ it('keeps the agent picker accessible when the selected conversation fails to lo
     act(() => {
       button('Assistant').click()
     })
+    await act(() => vi.dynamicImportSettled())
     await waitForUI(() => {
       expect(container.textContent).toContain('Could not load your assistant.')
     })
     act(() => {
       button('Assistant settings').click()
     })
+    await act(() => vi.dynamicImportSettled())
     await waitForUI(() => {
       expect(button('Connect existing').getAttribute('aria-pressed')).toBe('true')
       expect(container.querySelector('#panel-organization')).not.toBeNull()

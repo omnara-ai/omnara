@@ -171,11 +171,9 @@ export class AgentChatSession {
         void this.queryClient.invalidateQueries({
           queryKey: agentInputBacklogQueryKey(this.client, this.scope),
         })
-        const signal = this.runController?.signal
         await new Promise((resolve) =>
           globalThis.setTimeout(resolve, this.inputReconciliationDelayMs),
         )
-        if (signal?.aborted && this.listeners.length === 0) return
         if (this.inputEchoLoaded(id)) {
           this.clearLocalInput(id)
           return
@@ -371,6 +369,10 @@ export class AgentChatSession {
   disconnect = (): void => {
     this.runController?.abort()
     this.runController = null
+    if (this.deltas.length > 0) {
+      this.deltas = []
+      this.notify()
+    }
   }
 
   reconnect = (): void => {

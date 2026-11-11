@@ -525,6 +525,75 @@ describe('AgentChatSession input lifecycle', () => {
     }
   })
 
+  it('preserves a failed send and its retry identity when the last subscriber leaves during confirmation', async () => {
+    vi.useFakeTimers()
+    transport.createAgentInput.mockRejectedValueOnce(new Error('response lost'))
+    const session = createChatTestSession()
+    session.start(0)
+    const unsubscribe = session.subscribe(() => undefined)
+    await connection(0)
+    const originalHint = vi.fn().mockResolvedValue('Original page context')
+    const changedHint = vi.fn().mockResolvedValue('Different page context')
+    try {
+      const rejected = expect(
+        session.sendMessage({ text: 'Keep this draft' }, 'conversation', originalHint),
+      ).rejects.toThrow('response lost')
+      await vi.advanceTimersByTimeAsync(0)
+      unsubscribe()
+      expect(transport.openAgentEventStream.mock.calls[0]?.[0].signal?.aborted).toBe(true)
+      await vi.advanceTimersByTimeAsync(1)
+      await rejected
+      expect(read(session).messages).toEqual([])
+      expect(read(session).error?.message).toBe('response lost')
+
+      const stop = session.subscribe(() => undefined)
+      await session.sendMessage({ text: 'Keep this draft' }, 'conversation', changedHint)
+      expect(changedHint).not.toHaveBeenCalled()
+      expect(sentIdempotencyKey(1)).toBe(sentIdempotencyKey(0))
+      expect(transport.createAgentInput.mock.calls[1]?.[0].body).toEqual(
+        transport.createAgentInput.mock.calls[0]?.[0].body,
+      )
+      stop()
+    } finally {
+      session.disconnect()
+      vi.useRealTimers()
+    }
+  })
+
+  it('accepts an in-flight send while unsubscribed and reconciles one echo on resubscription', async () => {
+    let resolveSend!: (value: CreateAgentInputResult) => void
+    transport.createAgentInput.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSend = resolve
+      }),
+    )
+    const session = createChatTestSession()
+    session.start(0)
+    const unsubscribe = session.subscribe(() => undefined)
+    await connection(0)
+    const send = session.sendMessage({ text: 'Hello' })
+    unsubscribe()
+    resolveSend(acceptedInput('input-1', 'Hello'))
+    await send
+    expect(session.getData().localInputs).toMatchObject([{ agentInputID: 'input-1' }])
+
+    const stop = session.subscribe(() => undefined)
+    try {
+      const stream = await connection(1)
+      stream.push({
+        event: 'agent_input',
+        data: userInputEvent({ input_idempotency_key: sentIdempotencyKey() }),
+      })
+      await waitForSnapshot(session, (state) => state.messages[0]?.id === 'input-event')
+      expect(read(session).messages.flatMap(messageText)).toEqual(['Hello'])
+      expect(read(session).error).toBeUndefined()
+      expect(session.getData().localInputs).toEqual([])
+      expect(transport.createAgentInput).toHaveBeenCalledOnce()
+    } finally {
+      stop()
+    }
+  })
+
   it('uses backlog confirmation when the event stream fails during the grace period', async () => {
     vi.useFakeTimers()
     transport.createAgentInput.mockRejectedValueOnce(new Error('response lost'))

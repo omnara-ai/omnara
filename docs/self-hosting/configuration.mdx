@@ -43,6 +43,9 @@ The default dashboard assistant connects to `/mcp` on the origin of
 that configured origin to the API. Workers must be able to reach the origin.
 The connection follows the same outbound URL and local-development rules as
 other MCP servers; the dashboard request's host is never used to choose the endpoint.
+For a private origin, include its destination IP or CIDR (optionally restricted to
+a port) in `OMNARA_PRIVATE_ENDPOINT_CIDRS` on the API and workers. The allowlist
+permits that destination; it does not make it reachable across networks.
 
 ### Monitoring agent execution
 

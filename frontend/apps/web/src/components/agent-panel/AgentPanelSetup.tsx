@@ -1,9 +1,9 @@
 import {
   useAgents,
-  type useCreateAssistantAgent,
+  useCreateAssistantAgent,
   useMe,
   useProjectModelGrants,
-  type useUpdateAgentPanel,
+  useUpdateAgentPanel,
   useVisibleProjectsList,
 } from '@omnara/react'
 import type {
@@ -49,13 +49,16 @@ interface Actions {
 
 export function AgentPanelSetup({
   panel,
-  actions,
   onConnected,
+  onClose,
 }: {
   panel: AgentPanel
-  actions: Actions
   onConnected: () => void
+  onClose?: () => void
 }) {
+  const create = useCreateAssistantAgent()
+  const update = useUpdateAgentPanel()
+  const actions = { create, update }
   const { data: me } = useMe()
   const activeOrg = useContext(ActiveOrgContext)?.activeOrg
   const [mode, setMode] = useState<'connect' | 'create'>('connect')
@@ -76,69 +79,107 @@ export function AgentPanelSetup({
   }
 
   return (
-    <div className="space-y-4 overflow-y-auto p-4">
-      <p className="text-muted-foreground text-sm">
-        Connect an agent to keep it with you across organizations and pages.
-      </p>
-      <div className="flex gap-2" role="group" aria-label="Assistant setup">
-        <Button
-          size="sm"
-          variant={mode === 'connect' ? 'secondary' : 'outline'}
-          aria-pressed={mode === 'connect'}
-          disabled={pending}
-          onClick={() => {
-            chooseMode('connect')
-          }}
-        >
-          Connect existing
-        </Button>
-        <Button
-          size="sm"
-          variant={mode === 'create' ? 'secondary' : 'outline'}
-          aria-pressed={mode === 'create'}
-          disabled={pending}
-          onClick={() => {
-            chooseMode('create')
-          }}
-        >
-          Create new
-        </Button>
-      </div>
-      {orgs.length === 0 ? (
+    <>
+      <div className="space-y-4 overflow-y-auto p-4">
         <p className="text-muted-foreground text-sm">
-          {mode === 'create'
-            ? 'Create or become an owner of an organization to create an assistant.'
-            : 'Create or join an organization to connect an agent.'}
+          Connect an agent to keep it with you across organizations and pages.
         </p>
-      ) : (
-        <>
-          <div className="space-y-2">
-            <Label htmlFor="panel-organization">Organization</Label>
-            <OrgPicker
-              id="panel-organization"
-              items={orgs}
-              value={org ?? null}
-              clearable={false}
+        <div className="flex gap-2" role="group" aria-label="Assistant setup">
+          <Button
+            size="sm"
+            variant={mode === 'connect' ? 'secondary' : 'outline'}
+            aria-pressed={mode === 'connect'}
+            disabled={pending}
+            onClick={() => {
+              chooseMode('connect')
+            }}
+          >
+            Connect existing
+          </Button>
+          <Button
+            size="sm"
+            variant={mode === 'create' ? 'secondary' : 'outline'}
+            aria-pressed={mode === 'create'}
+            disabled={pending}
+            onClick={() => {
+              chooseMode('create')
+            }}
+          >
+            Create new
+          </Button>
+        </div>
+        {orgs.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            {mode === 'create'
+              ? 'Create or become an owner of an organization to create an assistant.'
+              : 'Create or join an organization to connect an agent.'}
+          </p>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="panel-organization">Organization</Label>
+              <OrgPicker
+                id="panel-organization"
+                items={orgs}
+                value={org ?? null}
+                clearable={false}
+                disabled={pending}
+                onValueChange={(value) => {
+                  setSelectedOrg(value?.id ?? '')
+                  resetActions()
+                }}
+              />
+            </div>
+            {org != null && (
+              <PanelConnectionForm
+                key={`${mode}:${org.id}`}
+                org={org}
+                mode={mode}
+                panel={panel}
+                actions={actions}
+                onConnected={onConnected}
+              />
+            )}
+          </>
+        )}
+        {create.error != null && (
+          <p role="alert" className="text-destructive text-sm">
+            {create.error.message}
+          </p>
+        )}
+        {update.error != null && (
+          <p role="alert" className="text-destructive text-sm">
+            {update.error.message}
+          </p>
+        )}
+      </div>
+      {onClose != null && (
+        <footer className="flex shrink-0 gap-2 border-t p-3">
+          {panel.selection != null && (
+            <Button
+              size="sm"
+              variant="outline"
               disabled={pending}
-              onValueChange={(value) => {
-                setSelectedOrg(value?.id ?? '')
-                resetActions()
+              onClick={() => {
+                update.mutate({ agent_id: null })
               }}
-            />
-          </div>
-          {org != null && (
-            <PanelConnectionForm
-              key={`${mode}:${org.id}`}
-              org={org}
-              mode={mode}
-              panel={panel}
-              actions={actions}
-              onConnected={onConnected}
-            />
+            >
+              Disconnect
+            </Button>
           )}
-        </>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={pending}
+            onClick={() => {
+              update.mutate({ enabled: false }, { onSuccess: onClose })
+            }}
+          >
+            Turn off panel
+          </Button>
+        </footer>
       )}
-    </div>
+    </>
   )
 }
 
@@ -255,16 +296,6 @@ function PanelConnectionForm({
       >
         {mode === 'connect' ? 'Connect agent' : 'Create assistant'}
       </Button>
-      {actions.create.error != null && (
-        <p role="alert" className="text-destructive text-sm">
-          {actions.create.error.message}
-        </p>
-      )}
-      {actions.update.error != null && (
-        <p role="alert" className="text-destructive text-sm">
-          {actions.update.error.message}
-        </p>
-      )}
     </>
   )
 }

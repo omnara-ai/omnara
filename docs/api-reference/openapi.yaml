@@ -17533,6 +17533,7 @@ components:
       properties:
         can_operate:
           type: boolean
+          description: Whether the current user has permission to operate the selected agent. Archived agents still cannot accept input.
         scope:
           $ref: '#/components/schemas/AgentPanelScope'
         agent_id:
@@ -17547,6 +17548,7 @@ components:
         request_id:
           type: string
           format: uuid
+          description: Stable request ID to pass to automatic assistant creation, including retries of the same setup.
         scope:
           $ref: '#/components/schemas/AgentPanelScope'
         ready:
@@ -17568,6 +17570,10 @@ components:
         state:
           type: string
           enum: [empty, ready, archived, unavailable]
+          description: >-
+            Empty means no agent is selected. Ready means the selected agent is accessible.
+            Archived means it is accessible but cannot accept input. Unavailable means the selected
+            agent was removed or the user no longer has access; selection details are omitted.
           x-enum-varnames: [AgentPanelStateEmpty, AgentPanelStateReady, AgentPanelStateArchived, AgentPanelStateUnavailable]
         selection:
           $ref: '#/components/schemas/AgentPanelSelection'
