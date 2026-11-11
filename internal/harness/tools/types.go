@@ -52,16 +52,19 @@ type Turn struct {
 }
 
 type ToolSpec struct {
-	Type        string
-	Permission  toolpermission.Selection
-	Description string
-	InputSchema json.RawMessage
-	Deferred    bool
+	Type         string
+	Permission   toolpermission.Selection
+	Description  string
+	InputSchema  json.RawMessage
+	Deferred     bool
+	CodeMode     bool
+	OutputSchema json.RawMessage
 }
 
 func ToolSpecFromModelContext(spec modelcontext.ToolSpec) ToolSpec {
 	return ToolSpec{Type: spec.Type, Permission: spec.Permission, Description: spec.Description,
-		InputSchema: spec.InputSchema, Deferred: spec.Deferred}
+		InputSchema: spec.InputSchema, Deferred: spec.Deferred,
+		CodeMode: spec.CodeMode, OutputSchema: spec.OutputSchema}
 }
 
 type Executor struct {

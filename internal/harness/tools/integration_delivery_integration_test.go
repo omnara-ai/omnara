@@ -883,6 +883,7 @@ func newIntegrationToolFixtureWithMCP(
 
 type toolFixtureOptions struct {
 	withMCP                bool
+	mcpDeferred            bool
 	withSubagents          bool
 	withMemory             bool
 	memoryReadWrite        bool
@@ -1317,6 +1318,9 @@ tools:
       mode: always_allow
       parameters: {}
 `
+		if fixtureOptions.mcpDeferred {
+			sourceYAML += "    deferred: true\n"
+		}
 	}
 	if fixtureOptions.withSubagents {
 		sourceYAML += `subagents:

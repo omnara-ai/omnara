@@ -503,25 +503,23 @@ test('edits a profile with the Builder', async ({ page }) => {
   expect(failures).toEqual([])
 })
 
-test('turns on programmatic tool calls with the Builder', async ({ page }) => {
+test('turns on code mode for deferred tools with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
-  await createProfile(page, uniqueName('Builder Programmatic Agent'), 'Call tools from commands.')
+  await createProfile(page, uniqueName('Builder Code Mode Agent'), 'Call tools from commands.')
 
   await page.getByRole('button', { name: 'Advanced' }).click()
-  await page.getByLabel('Programmatic tool calls').check()
-  await page.getByLabel('Excluded tools').fill('web_search, web_fetch')
+  await page.getByLabel('Code mode for deferred tools').check()
   const save = page.getByRole('button', { name: 'Save revision' })
   await save.click()
   await expect(save).toBeDisabled()
 
   await page.getByRole('button', { name: 'YAML' }).click()
   const editor = page.locator('.monaco-editor')
-  await expect(editor).toContainText('programmatic_tool_calls:')
-  await expect(editor).toContainText('- web_fetch')
+  await expect(editor).toContainText('deferred_tools:')
+  await expect(editor).toContainText('mode: code_mode')
   await page.getByRole('button', { name: 'Builder' }).click()
   await page.getByRole('button', { name: 'Advanced' }).click()
-  await expect(page.getByLabel('Programmatic tool calls')).toBeChecked()
-  await expect(page.getByLabel('Excluded tools')).toHaveValue('web_search, web_fetch')
+  await expect(page.getByLabel('Code mode for deferred tools')).toBeChecked()
 
   expect(failures).toEqual([])
 })

@@ -9705,14 +9705,14 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
+        deferred_tools:
+          $ref: '#/components/schemas/AgentConfigDefinitionDeferredTools'
         mcp:
           $ref: '#/components/schemas/AgentConfigDefinitionMCPServers'
         memory_stores:
           $ref: '#/components/schemas/AgentConfigDefinitionMemoryStores'
         model:
           $ref: '#/components/schemas/AgentConfigDefinitionModel'
-        programmatic_tool_calls:
-          $ref: '#/components/schemas/AgentConfigDefinitionProgrammaticToolCalls'
         skills:
           $ref: '#/components/schemas/AgentConfigDefinitionSkills'
         subagents:
@@ -9768,28 +9768,23 @@ components:
           description: Prevents pushing and opening or approving pull requests, even if the integration allows it.
           type: boolean
       x-go-type: json.RawMessage
-    AgentConfigDefinitionProgrammaticToolCalls:
+    AgentConfigDefinitionDeferredTools:
       description: >-
-        Lets commands started by run_command call the agent's other tools with
-        `omnarad call <tool> '<json input>'`. Subagents do not inherit this
+        How the agent reaches tools marked `deferred`. With `tool_add`, the
+        default, `tool_search` adds matching tools to the model's tool list.
+        With `code_mode`, commands started by run_command call them with
+        `omnarad call <tool> '<json input>'` and `tool_search` returns their
+        input and output schemas instead; a tool commands cannot call, or any
+        tool while the agent has no machine that allows programmatic tool
+        calls, is added as with `tool_add`. Subagents do not inherit this
         setting.
       type: object
       additionalProperties: false
-      required: [enabled]
+      required: [mode]
       properties:
-        enabled:
-          type: boolean
-        exclude:
-          description: >-
-            Tool names commands cannot call, such as web_search or
-            mcp__github__create_issue. Names are not checked against the
-            agent's tools, since MCP tools are only known at runtime.
-          type: array
-          maxItems: 256
-          items:
-            type: string
-            minLength: 1
-            maxLength: 64
+        mode:
+          type: string
+          enum: [tool_add, code_mode]
       x-go-type: json.RawMessage
     AgentConfigDefinitionInteractionHandler:
       description: Enables an integration's interaction handler. Takes no settings.
@@ -12574,8 +12569,8 @@ components:
             $ref: '#/components/schemas/CompiledIntegrationCapability'
         git_credentials:
           $ref: '#/components/schemas/CompiledGitCredentials'
-        programmatic_tool_calls:
-          $ref: '#/components/schemas/CompiledProgrammaticToolCalls'
+        deferred_tools:
+          $ref: '#/components/schemas/CompiledDeferredTools'
         skills:
           type: array
           x-go-type-skip-optional-pointer: true
@@ -12743,19 +12738,15 @@ components:
         read_only:
           type: boolean
           x-go-type-skip-optional-pointer: true
-    CompiledProgrammaticToolCalls:
+    CompiledDeferredTools:
       type: object
       additionalProperties: false
-      description: Lets commands started by run_command call the agent's other tools, except the sorted excluded tool names.
-      required: [enabled]
+      description: Present when commands started by run_command call the agent's deferred tools.
+      required: [mode]
       properties:
-        enabled:
-          type: boolean
-        exclude:
-          type: array
-          x-go-type-skip-optional-pointer: true
-          items:
-            type: string
+        mode:
+          type: string
+          enum: [code_mode]
     CompiledMCPServer:
       type: object
       additionalProperties: false

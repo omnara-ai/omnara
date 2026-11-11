@@ -127,3 +127,24 @@ func mustContentParts(t *testing.T, content toolResultContent) json.RawMessage {
 	require.NoError(t, err)
 	return parts
 }
+
+func TestRunToolSearchAddsCodeModeToolsWithoutAMachine(t *testing.T) {
+	turn := toolSearchTurn()
+	spec := turn.Tools["get_weather"]
+	spec.CodeMode, spec.OutputSchema = true, json.RawMessage(`{"type":"object"}`)
+	turn.Tools["get_weather"] = spec
+	dispatch, err := runToolSearch(context.Background(), transactionalToolContext{
+		Turn: turn,
+		Call: model.ToolCall{Name: toolcatalog.ToolNameToolSearch, Input: json.RawMessage(`{"pattern":"weather"}`)},
+	})
+	require.NoError(t, err)
+	completed, ok := dispatch.(completeTransaction)
+	require.True(t, ok)
+	search, ok := modelcontext.ToolSearchResultFromToolResult(modelcontext.ToolResultRef{
+		Name:         toolcatalog.ToolNameToolSearch,
+		ContentParts: mustContentParts(t, completed.content),
+	})
+	require.True(t, ok)
+	require.Equal(t, []string{"get_weather"}, search.ToolNames)
+	require.Empty(t, search.CodeModeTools)
+}

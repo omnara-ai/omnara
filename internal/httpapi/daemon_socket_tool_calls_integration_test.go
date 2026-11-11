@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -33,7 +35,14 @@ type daemonProgramToolCallFixture struct {
 	config  uuid.UUID
 }
 
-func programToolAgentYAML(exclude string) string {
+func programToolAgentYAML(mode string, deferred ...string) string {
+	tool := func(name, permission string) string {
+		line := "  " + name + ":\n"
+		if permission != "" {
+			line += "    permission: {mode: " + permission + "}\n"
+		}
+		return line + "    deferred: " + strconv.FormatBool(slices.Contains(deferred, name)) + "\n"
+	}
 	return `instruction: Program tool test agent.
 model:
   provider_config: openai-prod
@@ -44,13 +53,8 @@ machine_sources:
 tools:
   run_command:
     permission: {mode: always_allow}
-  storage_list: {}
-  storage_read:
-    permission: {mode: always_ask}
-  web_search: {}
-programmatic_tool_calls:
-  enabled: true
-  exclude: [` + exclude + `]
+` + tool("storage_list", "") + tool("storage_read", "always_ask") + tool("web_search", "") + `deferred_tools:
+  mode: ` + mode + `
 `
 }
 
@@ -66,7 +70,7 @@ func newDaemonProgramToolCallFixture(t *testing.T) *daemonProgramToolCallFixture
 	handler := newIntegrationHTTPHandler(server.Handler(), pool, store)
 	project := bootstrapPublicHTTPProject(t, handler, "program-tools")
 	base := createDaemonProcessFixture(t, ctx, pool, store, project, time.Now(), "program-tools", "run_command")
-	sourceYAML := programToolAgentYAML("web_search")
+	sourceYAML := programToolAgentYAML("code_mode", "storage_list", "storage_read")
 	compiled := compileHTTPAgentYAMLResolved(t, ctx, store, project.OrgUUID, project.ProjectUUID,
 		project.AdminUserUUID, sourceYAML)
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
@@ -407,15 +411,15 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 		Key: uuid.NewSHA1(uuid.NameSpaceOID, []byte("stale")), Name: toolcatalog.ToolNameStorageList,
 		Type: toolcatalog.ToolTypeBuiltIn, Input: json.RawMessage(`{"pattern":"/artifacts"}`)})
 	require.NoError(t, err)
-	f.changeConfig(t, programToolAgentYAML("web_search, storage_list"))
+	f.changeConfig(t, programToolAgentYAML("code_mode", "storage_read"))
 	f.rejected(t, "revoked", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, unavailable)
 	f.rejected(t, "stale", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`, unavailable)
-	f.changeConfig(t, programToolAgentYAML("web_search"))
+	f.changeConfig(t, programToolAgentYAML("code_mode", "storage_list", "storage_read"))
 	resumed := f.offer(t, "stale", toolcatalog.ToolNameStorageList, `{"pattern":"/artifacts"}`)
 	require.Equal(t, testPublicID(t, publicid.KindToolCall, stale.ID), resumed.ToolCallID)
 	require.Equal(t, daemonprotocol.ProgramToolCallOutcomeSucceeded, resumed.Outcome)
-	f.changeConfig(t, programToolAgentYAML("web_search, tool_search"))
-	f.rejected(t, "search-excluded", toolcatalog.ToolNameToolSearch, `{"pattern":".*"}`, unavailable)
+	f.changeConfig(t, programToolAgentYAML("tool_add", "storage_list", "storage_read"))
+	f.rejected(t, "search-tool-add", toolcatalog.ToolNameToolSearch, `{"pattern":".*"}`, unavailable)
 
 	f.server.programToolExecutor = nil
 	f.rejected(t, "no-executor", toolcatalog.ToolNameStorageList, `{}`, unavailable)

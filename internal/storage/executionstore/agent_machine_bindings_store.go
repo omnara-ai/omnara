@@ -56,6 +56,13 @@ func (s *Store) ListAgentMachineBindings(
 	return out, nil
 }
 
+func (r *ToolCallReader) AgentHasCodeModeMachine(ctx context.Context) (bool, error) {
+	t := r.transaction
+	return t.q.AgentHasCodeModeMachine(ctx, dbsqlc.AgentHasCodeModeMachineParams{
+		ProjectID: t.input.ProjectID, AgentID: t.input.AgentID,
+	})
+}
+
 func (r *ToolCallReader) ListExecutableAgentMachineBindings(
 	ctx context.Context,
 ) ([]AgentMachineBindingRecord, error) {

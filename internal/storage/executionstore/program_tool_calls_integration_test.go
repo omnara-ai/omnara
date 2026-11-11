@@ -23,7 +23,7 @@ func TestProgramToolCallsStore(t *testing.T) {
 	fixture := newProcessDaemonFixture(t, ctx, "program-tool-calls")
 	store, execution := fixture.Store, fixture.Store.Execution()
 	config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), execution, testOrgID, testProjectID,
-		testAgentConfigYAML()+"programmatic_tool_calls:\n  enabled: true\n  exclude: [storage_write]\n")
+		testAgentConfigYAML()+"deferred_tools:\n  mode: code_mode\n")
 	_, err := store.pool.Exec(ctx, `UPDATE agents SET current_config_id=$1 WHERE id=$2`, config.ID, fixture.AgentID)
 	require.NoError(t, err)
 	parent := createToolCallForProcessTest(t, ctx, fixture, "program_parent", "run_command")

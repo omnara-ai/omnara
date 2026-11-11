@@ -19,19 +19,19 @@ import (
 )
 
 type RuntimeContract struct {
-	Instruction           string
-	Model                 ModelCompiled
-	MachineSources        []RuntimeMachine
-	Tools                 []RuntimeTool
-	MCPServers            []RuntimeMCPServer
-	IntegrationTools      map[string]ToolCompiled
-	InteractionHandlers   map[string]IntegrationCapabilityCompiled
-	GitCredentials        *GitCredentialsCompiled
-	Skills                []SkillCompiled
-	Subagents             map[string]SubagentCompiled
-	MaxSubagents          *int
-	MaxDepth              *int
-	ProgrammaticToolCalls *ProgrammaticToolCallsCompiled
+	Instruction         string
+	Model               ModelCompiled
+	MachineSources      []RuntimeMachine
+	Tools               []RuntimeTool
+	MCPServers          []RuntimeMCPServer
+	IntegrationTools    map[string]ToolCompiled
+	InteractionHandlers map[string]IntegrationCapabilityCompiled
+	GitCredentials      *GitCredentialsCompiled
+	Skills              []SkillCompiled
+	Subagents           map[string]SubagentCompiled
+	MaxSubagents        *int
+	MaxDepth            *int
+	DeferredTools       *DeferredToolsCompiled
 }
 
 func (contract RuntimeContract) SubagentDepthLimit() int {
@@ -108,7 +108,7 @@ func RuntimeContractFromCompiled(
 	if err := validateCompiledIntegrations(compiled); err != nil {
 		return RuntimeContract{}, fmt.Errorf("compiled integration capabilities: %w", err)
 	}
-	if err := validateCompiledProgrammaticToolCalls(compiled.ProgrammaticToolCalls); err != nil {
+	if err := validateCompiledDeferredTools(compiled.DeferredTools); err != nil {
 		return RuntimeContract{}, err
 	}
 	tools, err := runtimeTools(compiled.Tools)
@@ -120,19 +120,19 @@ func RuntimeContractFromCompiled(
 		return RuntimeContract{}, err
 	}
 	contract := RuntimeContract{
-		Instruction:           compiled.Instruction,
-		Model:                 compiled.Model,
-		MachineSources:        runtimeMachineSources(compiled.MachineSources),
-		Tools:                 tools,
-		MCPServers:            mcpServers,
-		IntegrationTools:      integrationToolsFromCompiled(compiled),
-		InteractionHandlers:   compiled.InteractionHandlers,
-		GitCredentials:        compiled.GitCredentials,
-		Skills:                compiled.Skills,
-		Subagents:             compiled.Subagents,
-		MaxSubagents:          compiled.MaxSubagents,
-		MaxDepth:              compiled.MaxDepth,
-		ProgrammaticToolCalls: compiled.ProgrammaticToolCalls,
+		Instruction:         compiled.Instruction,
+		Model:               compiled.Model,
+		MachineSources:      runtimeMachineSources(compiled.MachineSources),
+		Tools:               tools,
+		MCPServers:          mcpServers,
+		IntegrationTools:    integrationToolsFromCompiled(compiled),
+		InteractionHandlers: compiled.InteractionHandlers,
+		GitCredentials:      compiled.GitCredentials,
+		Skills:              compiled.Skills,
+		Subagents:           compiled.Subagents,
+		MaxSubagents:        compiled.MaxSubagents,
+		MaxDepth:            compiled.MaxDepth,
+		DeferredTools:       compiled.DeferredTools,
 	}
 	return contract, nil
 }

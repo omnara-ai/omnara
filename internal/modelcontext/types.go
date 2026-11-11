@@ -129,6 +129,7 @@ type ToolSpec struct {
 	Type            string                     `json:"-"`
 	Permission      toolpermission.Selection   `json:"-"`
 	IntegrationKind integrationdefinition.Kind `json:"-"`
+	CodeMode        bool                       `json:"-"`
 }
 
 type ToolResultRef struct {

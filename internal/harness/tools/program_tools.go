@@ -147,7 +147,7 @@ func (e Executor) programTurn(
 	}
 	turn.contract = &contract
 	turn.Tools = map[string]ToolSpec{}
-	if found && modelcontext.ProgramCallable(contract, spec) {
+	if found && modelcontext.ProgramCallable(spec) {
 		turn.Tools[spec.Name] = ToolSpecFromModelContext(spec)
 	}
 	return turn, nil

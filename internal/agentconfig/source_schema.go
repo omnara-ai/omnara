@@ -27,20 +27,20 @@ const (
 )
 
 type AgentConfigSource struct {
-	Version               string                                            `json:"version,omitempty"`
-	Instruction           string                                            `json:"instruction"`
-	Model                 AgentConfigModelSource                            `json:"model"`
-	MachineSources        []AgentConfigMachineSource                        `json:"machine_sources,omitempty"`
-	Tools                 map[string]AgentConfigToolSource                  `json:"tools,omitempty"`
-	MCP                   map[string]AgentConfigMCPSource                   `json:"mcp,omitempty"`
-	InteractionHandlers   map[string]AgentConfigIntegrationCapabilitySource `json:"interaction_handlers,omitempty"`
-	GitCredentials        *GitCredentialsSource                             `json:"git_credentials,omitempty"`
-	Skills                []string                                          `json:"skills,omitempty"`
-	Subagents             map[string]AgentConfigSubagentSource              `json:"subagents,omitempty"`
-	MaxSubagents          *int                                              `json:"max_subagents,omitempty"`
-	MaxDepth              *int                                              `json:"max_depth,omitempty"`
-	MemoryStores          []MemoryStoreSource                               `json:"memory_stores,omitempty"`
-	ProgrammaticToolCalls *ProgrammaticToolCallsSource                      `json:"programmatic_tool_calls,omitempty"`
+	Version             string                                            `json:"version,omitempty"`
+	Instruction         string                                            `json:"instruction"`
+	Model               AgentConfigModelSource                            `json:"model"`
+	MachineSources      []AgentConfigMachineSource                        `json:"machine_sources,omitempty"`
+	Tools               map[string]AgentConfigToolSource                  `json:"tools,omitempty"`
+	MCP                 map[string]AgentConfigMCPSource                   `json:"mcp,omitempty"`
+	InteractionHandlers map[string]AgentConfigIntegrationCapabilitySource `json:"interaction_handlers,omitempty"`
+	GitCredentials      *GitCredentialsSource                             `json:"git_credentials,omitempty"`
+	Skills              []string                                          `json:"skills,omitempty"`
+	Subagents           map[string]AgentConfigSubagentSource              `json:"subagents,omitempty"`
+	MaxSubagents        *int                                              `json:"max_subagents,omitempty"`
+	MaxDepth            *int                                              `json:"max_depth,omitempty"`
+	MemoryStores        []MemoryStoreSource                               `json:"memory_stores,omitempty"`
+	DeferredTools       *DeferredToolsSource                              `json:"deferred_tools,omitempty"`
 }
 
 type MemoryStoreAccess string

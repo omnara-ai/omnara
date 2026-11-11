@@ -33,7 +33,7 @@ func TestProgrammaticParallelExampleWaitsForItsCalls(t *testing.T) {
 	}
 	command := exec.CommandContext(t.Context(), "sh", "-c", programmaticParallelExample)
 	command.Dir = dir
-	command.Env = append(os.Environ(), "OMNARA_BIN="+bin, "FAKE_DIR="+dir)
+	command.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "FAKE_DIR="+dir)
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}

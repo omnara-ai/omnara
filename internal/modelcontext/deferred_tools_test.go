@@ -156,3 +156,28 @@ func TestSearchToolsReturnsOutputSchemas(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, deferred.Tools[0].OutputSchema, "model-facing tool_search does not load output schemas")
 }
+
+func TestSearchDeferredToolsSeparatesCodeModeTools(t *testing.T) {
+	specs := []ToolSpec{
+		{Name: "orders_list", Deferred: true, CodeMode: true, OutputSchema: json.RawMessage(`{"type":"array"}`)},
+		{Name: "orders_write", Deferred: true},
+		{Name: "orders_loaded"},
+	}
+	search, err := SearchDeferredTools(specs, "orders", 0)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(search.ToolNames) != 1 || search.ToolNames[0] != "orders_write" || len(search.Tools) != 1 {
+		t.Fatalf("added tools = %v, want only orders_write", search.ToolNames)
+	}
+	if len(search.CodeModeTools) != 1 || search.CodeModeTools[0].Name != "orders_list" ||
+		string(search.CodeModeTools[0].OutputSchema) != `{"type":"array"}` {
+		t.Fatalf("code mode tools = %+v, want orders_list with its output schema", search.CodeModeTools)
+	}
+	if search.TotalDeferredTools != 2 {
+		t.Fatalf("total deferred tools = %d, want 2", search.TotalDeferredTools)
+	}
+	if loaded := DeferredToolSearchDefinitions(specs, search); len(loaded) != 1 || loaded[0].Name != "orders_write" {
+		t.Fatalf("definitions to add = %+v, want only orders_write", loaded)
+	}
+}

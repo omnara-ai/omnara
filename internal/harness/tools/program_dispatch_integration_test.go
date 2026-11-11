@@ -5,6 +5,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -32,12 +34,12 @@ type programToolFixture struct {
 func newProgramToolFixture(t *testing.T, ctx context.Context, label string, withMCP bool) programToolFixture {
 	t.Helper()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, label, toolFixtureOptions{
-		withMCP: withMCP, withMemory: true, withMachine: true,
-		extraTools: "  storage_list: {}\n" +
-			"  storage_read:\n    permission: {mode: always_ask}\n" +
-			"  storage_search:\n    permission: {mode: always_deny}\n" +
-			"  storage_write: {}\n  web_search: {}\n",
-		extraYAML: "programmatic_tool_calls:\n  enabled: true\n  exclude: [web_search]\n",
+		withMCP: withMCP, mcpDeferred: true, withMemory: true, withMachine: true,
+		extraTools: "  storage_list: {deferred: true}\n" +
+			"  storage_read:\n    deferred: true\n    permission: {mode: always_ask}\n" +
+			"  storage_search:\n    deferred: true\n    permission: {mode: always_deny}\n" +
+			"  storage_write: {deferred: true}\n  web_search: {}\n",
+		extraYAML: "deferred_tools:\n  mode: code_mode\n",
 	})
 	execution := fixture.Store.Execution()
 	enabled := true
@@ -135,17 +137,16 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	}
 	eventsBefore := events()
 
-	specs, contract, err := AgentConfigToolSpecs(
+	specs, _, err := AgentConfigToolSpecs(
 		ctx, fixture.Store, toolsTestProjectID, fixture.Agent.ID, fixture.AgentConfig.ID)
 	require.NoError(t, err)
-	specs, err = modelcontext.ProgramCallableTools(contract, specs)
-	require.NoError(t, err)
+	specs = modelcontext.ProgramCallableTools(specs)
 	var names []string
 	for _, spec := range specs {
 		names = append(names, spec.Name)
 	}
 	require.ElementsMatch(t, []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead,
-		toolcatalog.ToolNameStorageSearch}, names, "excluded and non-allowlisted tools must not be callable")
+		toolcatalog.ToolNameStorageSearch}, names, "tools that are not deferred or not allowlisted must not be callable")
 	search, err := ProgramToolSearch(specs, json.RawMessage(`{"pattern":".*"}`))
 	require.NoError(t, err)
 	require.Equal(t, 3, search.Total)
@@ -199,10 +200,10 @@ func TestProgramToolCallsRunUnderPermissionModes(t *testing.T) {
 	fixture.run(t, ctx, executor, fixture.claim(t, ctx, stale.ID, executionstore.ProgramToolCallPhaseAuthorize))
 	approveToolPermissionForTest(t, ctx, fixture.Store.Execution(), integrationToolInteraction(t, ctx,
 		fixture.integrationToolFixture, stale.ID, executionstore.AgentInteractionKindPermission), fixture.User.ID)
-	const askRead = "storage_read:\n    permission: {mode: always_ask}"
+	const askRead = "storage_read:\n    deferred: true\n    permission: {mode: always_ask}"
 	require.Contains(t, fixture.AgentConfig.Source, askRead)
 	denyingYAML := strings.Replace(fixture.AgentConfig.Source, askRead,
-		"storage_read:\n    permission: {mode: always_deny}", 1)
+		"storage_read:\n    deferred: true\n    permission: {mode: always_deny}", 1)
 	compiled := compileToolsAgentYAMLResolved(t, ctx, fixture.Store, fixture.User.ID, denyingYAML)
 	denying, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID: toolsTestProjectID, Source: denyingYAML, SourceFormat: "yaml",
@@ -360,6 +361,80 @@ func TestProgramToolCallInterruptedRunIsReleased(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ToolCallStateCompleted, done.State)
 	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
+}
+
+func TestToolSearchReturnsCodeModeToolsOnlyWithAMachineThatAllowsThem(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "code-mode-search", toolFixtureOptions{
+		withMemory: true, withMachine: true,
+		extraTools: "  storage_list: {deferred: true}\n  storage_read: {deferred: true}\n" +
+			"  storage_search: {deferred: true}\n  storage_write: {deferred: true}\n",
+		extraYAML: "deferred_tools:\n  mode: code_mode\n",
+	})
+	setMachineFlag := func(enabled bool) {
+		t.Helper()
+		_, err := fixture.Store.Execution().UpdateMachine(ctx, executionstore.UpdateMachineInput{
+			OrgID: toolsTestOrgID, MachineID: fixture.Machine.MachineID, ProgrammaticToolCalls: &enabled})
+		require.NoError(t, err)
+	}
+	setMachineFlag(true)
+	specs, _, err := AgentConfigToolSpecs(
+		ctx, fixture.Store, toolsTestProjectID, fixture.Agent.ID, fixture.AgentConfig.ID)
+	require.NoError(t, err)
+	turn := Turn{ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, Tools: map[string]ToolSpec{}}
+	for _, spec := range specs {
+		turn.Tools[spec.Name] = ToolSpecFromModelContext(spec)
+	}
+	input := json.RawMessage(`{"pattern":"storage"}`)
+	fixture.recordToolCalls(t, ctx, []model.ToolCall{
+		{ID: "call_search_code_mode", Name: toolcatalog.ToolNameToolSearch, Input: input},
+		{ID: "call_search_tool_add", Name: toolcatalog.ToolNameToolSearch, Input: input},
+	}, fixture.Now.Add(time.Second))
+	search := func(providerCallID string) modelcontext.ToolSearchResult {
+		t.Helper()
+		var parts json.RawMessage
+		_, err := fixture.Store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
+			ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, ToolCallID: fixture.toolCallID(t, ctx, providerCallID),
+			RuntimeLockID: fixture.Lock.ID,
+		}, func(reader *executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+			result, err := runToolSearch(ctx, transactionalToolContext{Reader: reader, Turn: turn, Call: model.ToolCall{
+				Name: toolcatalog.ToolNameToolSearch, Input: input}})
+			if err != nil {
+				return nil, err
+			}
+			completed, ok := result.(completeTransaction)
+			if !ok {
+				return nil, fmt.Errorf("tool_search returned %T", result)
+			}
+			if parts, err = completed.content.contentParts(); err != nil {
+				return nil, err
+			}
+			return executionstore.CompleteToolCallInExecution(executionstore.ToolCallCompletionInput{
+				Outcome: executionstore.ToolResultOutcomeSucceeded, ResultContentParts: parts}), nil
+		})
+		require.NoError(t, err)
+		found, ok := modelcontext.ToolSearchResultFromToolResult(modelcontext.ToolResultRef{
+			Name: toolcatalog.ToolNameToolSearch, ContentParts: parts})
+		require.True(t, ok)
+		return found
+	}
+
+	withMachine := search("call_search_code_mode")
+	require.Equal(t, []string{toolcatalog.ToolNameStorageWrite}, withMachine.ToolNames,
+		"a deferred tool commands cannot call is added")
+	var names []string
+	for _, tool := range withMachine.CodeModeTools {
+		require.NotEmpty(t, tool.OutputSchema, tool.Name)
+		names = append(names, tool.Name)
+	}
+	require.Equal(t, []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead,
+		toolcatalog.ToolNameStorageSearch}, names)
+
+	setMachineFlag(false)
+	withoutMachine := search("call_search_tool_add")
+	require.Empty(t, withoutMachine.CodeModeTools)
+	require.Equal(t, []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead,
+		toolcatalog.ToolNameStorageSearch, toolcatalog.ToolNameStorageWrite}, withoutMachine.ToolNames)
 }
 
 func programKey(label string) uuid.UUID { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)) }

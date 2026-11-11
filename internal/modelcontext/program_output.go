@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/programoutput"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -14,35 +13,34 @@ import (
 const unknownProgramOutputSchema = `{"description":"The server declares no output schema. Commands get the ` +
 	`tool's structured result when it returns one, otherwise its text as a JSON string."}`
 
-const programmaticToolCallsRunCommandDescription = "\n\nCommands can call this agent's other tools with " +
-	"`\"$OMNARA_BIN\" call <tool> '<json input>'`; pass `-` as the input to read it from stdin. On success it " +
+const programmaticToolCallsRunCommandDescription = "\n\nCommands can call this agent's deferred tools with " +
+	"`omnarad call <tool> '<json input>'`; pass `-` as the input to read it from stdin. On success it " +
 	"prints one JSON value to stdout: the tool's structured result, or its text as a JSON string when it has " +
 	"none. `--output=text` prints a text result as plain text instead, and `--output=envelope` prints the full result " +
 	"envelope. It exits 1 if the tool fails or is denied, 2 if the tool cannot be called from commands, and 3 " +
 	"if the call could not be made, with the error on stderr. Results go only to the command, not to you, so " +
 	"chain calls with pipes, jq, loops or scripts and print only what you need. This works only on machines " +
-	"where programmatic tool calls are enabled. The syntax shown is for POSIX shells: in PowerShell run " +
-	"`& $env:OMNARA_BIN call <tool> '<json input>'`, and in cmd.exe run `\"%OMNARA_BIN%\" call <tool> -` with " +
-	"the input on stdin."
+	"where programmatic tool calls are enabled. In PowerShell and cmd.exe, pass the input on stdin with " +
+	"`-` instead of quoting it."
 
 const programmaticToolCallsTypesHeading = "\n\nWhat these tools print, as TypeScript types (their inputs are " +
 	"the same as when you call them):\n```ts\n"
 
-const programmaticToolCallsSearchDescription = "\n\nFind other tools, including ones not loaded here, with " +
-	"their input and output schemas: `\"$OMNARA_BIN\" call tool_search '{\"pattern\":\"<regex>\"}'`."
+const programmaticToolCallsSearchDescription = "\n\nFind the tools commands can call, with " +
+	"their input and output schemas: `omnarad call tool_search '{\"pattern\":\"<regex>\"}'`."
 
-const programmaticToolCallsGuidance = "Commands you start with `run_command` can call your other tools with " +
-	"`\"$OMNARA_BIN\" call`; the `run_command` description explains what it prints and its exit codes. Use it " +
+const programmaticToolCallsGuidance = "Commands you start with `run_command` can call your deferred tools with " +
+	"`omnarad call`; the `run_command` description explains what it prints and its exit codes. Use it " +
 	"instead of calling tools one at a time when a task needs many calls, or results you would only filter, " +
 	"join, count or reshape: results reach only the command and stay out of your context, so print only what " +
 	"you need. Before relying on fields of a tool's result that `run_command` doesn't show, check its " +
 	"`output_schema` with `tool_search`. Examples, for a POSIX shell:\n```sh\n"
 
-const programmaticParallelExample = "# Run independent calls in parallel; a command can have 16 calls in flight.\n" +
+const programmaticParallelExample = "# Run independent calls in parallel; a command can have 128 calls in flight.\n" +
 	"# xargs waits for every call and exits nonzero if one fails\n" +
-	"\"$OMNARA_BIN\" call storage_list '{\"pattern\":\"/memory/notes/*.md\"}' | jq -r '.entries[]?.path' |\n" +
+	"omnarad call storage_list '{\"pattern\":\"/memory/notes/*.md\"}' | jq -r '.entries[]?.path' |\n" +
 	"  tr '\\n' '\\0' | xargs -0 -n 1 -P 16 sh -c 'jq -nc --arg path \"$1\" \"{path: \\$path}\" |\n" +
-	"    \"$OMNARA_BIN\" call storage_read - > \"$(basename \"$1\").json\"' sh\n"
+	"    omnarad call storage_read - > \"$(basename \"$1\").json\"' sh\n"
 
 var programmaticToolCallsExamples = []struct {
 	tools   []string
@@ -50,21 +48,21 @@ var programmaticToolCallsExamples = []struct {
 }{
 	{
 		example: "# Find tools you can call, with what they take and print\n" +
-			"\"$OMNARA_BIN\" call tool_search '{\"pattern\":\"issue|ticket\"}' | " +
+			"omnarad call tool_search '{\"pattern\":\"issue|ticket\"}' | " +
 			"jq -c '.tools[] | {name, input_schema, output_schema}'\n",
 	},
 	{
 		tools: []string{toolcatalog.ToolNameStorageList},
 		example: "# Keep only the fields you need\n" +
-			"\"$OMNARA_BIN\" call storage_list '{\"pattern\":\"/memory/**\"}' | " +
+			"omnarad call storage_list '{\"pattern\":\"/memory/**\"}' | " +
 			"jq -r '.entries[]? | select(.type == \"file\") | .path'\n",
 	},
 	{
 		tools: []string{toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameWebFetch},
 		example: "# Build inputs with jq so values are escaped, pass them on stdin, and chain calls\n" +
-			"jq -n --arg q \"$TOPIC\" '{query: $q, num_results: 5}' | \"$OMNARA_BIN\" call web_search - |\n" +
+			"jq -n --arg q \"$TOPIC\" '{query: $q, num_results: 5}' | omnarad call web_search - |\n" +
 			"  jq -c '.results[]? | {url}' |\n" +
-			"  while read -r input; do printf '%s' \"$input\" | \"$OMNARA_BIN\" call web_fetch - | " +
+			"  while read -r input; do printf '%s' \"$input\" | omnarad call web_fetch - | " +
 			"jq -r '.title'; done\n",
 	},
 	{
@@ -76,7 +74,7 @@ var programmaticToolCallsExamples = []struct {
 			"python3 - <<'PY'\n" +
 			"import json, os, subprocess\n\n" +
 			"def call(tool, **tool_input):\n" +
-			"    done = subprocess.run([os.environ[\"OMNARA_BIN\"], \"call\", tool, \"-\"],\n" +
+			"    done = subprocess.run([\"omnarad\", \"call\", tool, \"-\"],\n" +
 			"                          input=json.dumps(tool_input), capture_output=True, text=True)\n" +
 			"    if done.returncode != 0:\n" +
 			"        raise RuntimeError(f\"{tool} exited {done.returncode}: {done.stderr.strip()}\")\n" +
@@ -87,8 +85,8 @@ var programmaticToolCallsExamples = []struct {
 	},
 }
 
-func ProgramCallable(contract agentconfig.RuntimeContract, spec ToolSpec) bool {
-	return !contract.ProgrammaticToolExcluded(spec.Name) && programResultKnown(spec)
+func ProgramCallable(spec ToolSpec) bool {
+	return spec.CodeMode
 }
 
 func programResultKnown(spec ToolSpec) bool {
@@ -122,25 +120,20 @@ func ProgramOutputSchema(spec ToolSpec) (json.RawMessage, error) {
 	return programoutput.BuiltIn(spec.Name)
 }
 
-func ProgramCallableTools(contract agentconfig.RuntimeContract, specs []ToolSpec) ([]ToolSpec, error) {
+func ProgramCallableTools(specs []ToolSpec) []ToolSpec {
 	callable := make([]ToolSpec, 0, len(specs))
-	var err error
 	for _, spec := range specs {
-		if !ProgramCallable(contract, spec) {
-			continue
+		if spec.CodeMode {
+			callable = append(callable, spec)
 		}
-		if spec.OutputSchema, err = ProgramOutputSchema(spec); err != nil {
-			return nil, err
-		}
-		callable = append(callable, spec)
 	}
-	return callable, nil
+	return callable
 }
 
-func programmaticToolCallsDescription(contract agentconfig.RuntimeContract, specs []ToolSpec) (string, error) {
+func programmaticToolCallsDescription(specs []ToolSpec) (string, error) {
 	var types strings.Builder
 	for _, spec := range specs {
-		if spec.Type != toolcatalog.ToolTypeBuiltIn || !ProgramCallable(contract, spec) {
+		if spec.Type != toolcatalog.ToolTypeBuiltIn || !spec.CodeMode {
 			continue
 		}
 		if _, _, ok := toolcatalog.SplitIntegrationToolName(spec.Name); ok {
@@ -163,10 +156,10 @@ func programmaticToolCallsDescription(contract agentconfig.RuntimeContract, spec
 	return description + programmaticToolCallsSearchDescription, nil
 }
 
-func programmaticToolCallsSystemGuidance(contract agentconfig.RuntimeContract, specs []ToolSpec) string {
+func programmaticToolCallsSystemGuidance(specs []ToolSpec) string {
 	callable := map[string]bool{}
 	for _, spec := range specs {
-		callable[spec.Name] = ProgramCallable(contract, spec)
+		callable[spec.Name] = spec.CodeMode
 	}
 	var guidance strings.Builder
 	guidance.WriteString(programmaticToolCallsGuidance)
