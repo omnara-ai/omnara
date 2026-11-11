@@ -132,7 +132,7 @@ func (s strictOpenAPIServer) trackedUploadDigest(
 	target := process.Transfer.Target.Memory
 	memories := s.server.store.Memories()
 	current, _, err := memories.Read(ctx, scope, target.StoreID, target.Path)
-	if storeerr.IsNotFound(err) {
+	if errors.Is(err, storeerr.ErrPathNotFound) {
 		return "", false, nil
 	}
 	if err != nil {

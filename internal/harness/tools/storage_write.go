@@ -80,7 +80,7 @@ func runStorageWriteAsync(ctx context.Context, call asyncToolContext) (asyncPhas
 	write := memorystore.WriteInput{Scope: scope, StoreID: store.ID, Path: path}
 	current, err := memories.ReadFile(ctx, scope, store.ID, path)
 	exists := err == nil
-	if errors.Is(err, storeerr.ErrNotFound) && input.Script == nil {
+	if errors.Is(err, storeerr.ErrPathNotFound) && input.Script == nil {
 		err = nil
 	}
 	if err != nil {

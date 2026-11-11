@@ -205,6 +205,12 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 		t.Fatal(err)
 	}
 	agentScope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, AgentID: agent.ID}
+	if err := store.Memories().VisitSearchStores(
+		ctx, testProjectID, agent.ID, "/memory/engineering/missing.md",
+		func(memorystore.SearchStore) error { return nil },
+	); !errors.Is(err, storeerr.ErrPathNotFound) {
+		t.Fatalf("empty store search error = %v, want path not found", err)
+	}
 	for _, path := range []string{
 		"a.md",
 		"deployment/b.md",
