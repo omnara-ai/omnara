@@ -172,7 +172,7 @@ export function AgentPanelSetup({
             variant="ghost"
             disabled={pending}
             onClick={() => {
-              update.mutate({ enabled: false }, { onSuccess: onClose })
+              void update.mutateAsync({ enabled: false }).then(onClose, () => undefined)
             }}
           >
             Turn off panel

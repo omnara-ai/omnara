@@ -1,7 +1,7 @@
 /** @vitest-environment happy-dom */
 
 import { OmnaraClientProvider } from '@omnara/react'
-import { type AgentPanel as Panel, createOmnaraClient } from '@omnara/sdk'
+import { type AgentPanel as Panel, createOmnaraClient, schemas } from '@omnara/sdk'
 import { getAgentPanelQueryKey, getCurrentUserQueryKey } from '@omnara/sdk/tanstack'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -24,7 +24,10 @@ import { waitForUI } from '@/test/secret-editor'
 import { AgentPanel } from './AgentPanel'
 import { AgentPanelSetting } from './AgentPanelSetting'
 
-async function mountPanel(actorsUnavailable = false) {
+async function mountPanel({
+  actorsUnavailable = false,
+  panelRefresh,
+}: { actorsUnavailable?: boolean; panelRefresh?: Promise<void> } = {}) {
   const restore = enableReactActEnvironment()
   const container = document.createElement('div')
   document.body.append(container)
@@ -66,12 +69,20 @@ async function mountPanel(actorsUnavailable = false) {
       path: `/api/v1/orgs/${org.id}/projects`,
       respond: () => jsonResponse({ data: [], next_cursor: null }),
     },
-    { method: 'GET', path: '/api/v1/me/agent-panel', respond: () => jsonResponse(panel) },
+    {
+      method: 'GET',
+      path: '/api/v1/me/agent-panel',
+      respond: async () => {
+        await panelRefresh
+        return jsonResponse(panel)
+      },
+    },
     {
       method: 'PATCH',
       path: '/api/v1/me/agent-panel',
-      respond: () => {
-        panel = { ...panel, enabled: false, revision: 2 }
+      respond: ({ body }) => {
+        const update = schemas.zUpdateAgentPanelRequest.parse(body)
+        panel = { ...panel, enabled: update.enabled ?? panel.enabled, revision: panel.revision + 1 }
         return jsonResponse(panel)
       },
     },
@@ -166,7 +177,7 @@ it('loads chat only after opening and aborts its pending history when turned off
 })
 
 it('keeps the agent picker accessible when the selected conversation fails to load', async () => {
-  const { container, button, cleanup } = await mountPanel(true)
+  const { container, button, cleanup } = await mountPanel({ actorsUnavailable: true })
   try {
     act(() => {
       button('Assistant').click()
@@ -185,6 +196,48 @@ it('keeps the agent picker accessible when the selected conversation fails to lo
     })
     expect(button('Disconnect')).toBeDefined()
   } finally {
+    cleanup()
+  }
+})
+
+it('stays collapsed after turning off in panel settings and re-enabling from Account', async () => {
+  let finishRefresh: () => void = () => undefined
+  const panelRefresh = new Promise<void>((resolve) => {
+    finishRefresh = resolve
+  })
+  const { container, api, button, cleanup } = await mountPanel({ panelRefresh })
+  try {
+    act(() => {
+      button('Assistant').click()
+      button('Assistant settings').click()
+    })
+    await act(() => vi.dynamicImportSettled())
+    await waitForUI(() => {
+      expect(button('Turn off panel')).toBeDefined()
+    })
+    act(() => {
+      button('Turn off panel').click()
+    })
+    await waitForUI(() => {
+      expect(button('Turn on assistant panel')).toBeDefined()
+      expect(container.textContent).not.toContain('Turn off panel')
+      expect(api.requestsTo('GET', '/api/v1/me/agent-panel')).toHaveLength(1)
+    })
+    // The PATCH response unmounts setup before its invalidation request finishes.
+    await act(async () => {
+      finishRefresh()
+      await panelRefresh
+    })
+    act(() => {
+      button('Turn on assistant panel').click()
+    })
+    await waitForUI(() => {
+      expect(button('Turn off assistant panel')).toBeDefined()
+      expect(button('Assistant').getAttribute('aria-expanded')).toBe('false')
+      expect(container.querySelector('#agent-panel')?.hasAttribute('open')).toBe(false)
+    })
+  } finally {
+    finishRefresh()
     cleanup()
   }
 })
