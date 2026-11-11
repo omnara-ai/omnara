@@ -91,6 +91,18 @@ jobs:
 
       - run: make ${{ matrix.target }}
 
+  container-images:
+    name: Container Image (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        target: [web, gateway, api, maintenance, migrations]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - run: docker build --target ${{ matrix.target }} .
+
   worker-image:
     name: Worker Image Tests
     runs-on: ubuntu-latest

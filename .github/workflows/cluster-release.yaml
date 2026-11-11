@@ -25,6 +25,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: gateway
+            image: ghcr.io/omnara-ai/omnara-gateway
           - name: web
             image: ghcr.io/omnara-ai/omnara-web
           - name: api

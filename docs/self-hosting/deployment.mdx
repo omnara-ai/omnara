@@ -21,6 +21,8 @@ That builds from source (a checkout auto-loads `compose.override.yaml`). To run 
 docker compose -f compose.yaml --profile app up -d
 ```
 
+The gateway is released alongside the application images and shares their patched Nginx runtime. Use the Compose files from the same release when pinning `OMNARA_RELEASE`.
+
 Open `http://localhost:8000` and sign up — the local email driver is `console`, so the verification link will appear in `docker compose logs api`.
 
 ## Production database upgrades

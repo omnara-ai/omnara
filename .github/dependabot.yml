@@ -7,6 +7,34 @@ updates:
       day: monday
       time: "09:00"
       timezone: America/Los_Angeles
+    ignore:
+      - dependency-name: "*node"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "*golang"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    ignore:
+      - dependency-name: postgres
+        update-types:
+          - version-update:semver-major
+      - dependency-name: valkey/valkey
+        update-types:
+          - version-update:semver-major
+      - dependency-name: ghcr.io/omnara-ai/*
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: github-actions
     directory: /

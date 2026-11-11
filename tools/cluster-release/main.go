@@ -21,6 +21,7 @@ import (
 const (
 	manifestFilename = "cluster-release.json"
 	notesFilename    = "release-notes.md"
+	imageGateway     = "gateway"
 	imageWeb         = "web"
 	imageAPI         = "api"
 	imageWorker      = "worker"
@@ -31,6 +32,7 @@ const (
 var (
 	digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	images        = []imageDefinition{
+		{Name: imageGateway, Repository: "ghcr.io/omnara-ai/omnara-gateway"},
 		{Name: imageWeb, Repository: "ghcr.io/omnara-ai/omnara-web"},
 		{Name: imageAPI, Repository: "ghcr.io/omnara-ai/omnara-api"},
 		{Name: imageWorker, Repository: "ghcr.io/omnara-ai/omnara-worker"},
@@ -52,6 +54,7 @@ type digestRecord struct {
 }
 
 type manifestImages struct {
+	Gateway     string `json:"gateway"`
 	Web         string `json:"web"`
 	API         string `json:"api"`
 	Worker      string `json:"worker"`
@@ -306,6 +309,7 @@ func generate(
 		Version:      version,
 		SourceCommit: sourceCommit,
 		Images: manifestImages{
+			Gateway:     records[imageGateway].Reference,
 			Web:         records[imageWeb].Reference,
 			API:         records[imageAPI].Reference,
 			Worker:      records[imageWorker].Reference,
@@ -464,6 +468,8 @@ func validateManifest(manifest clusterManifest) error {
 
 func manifestReference(manifest clusterManifest, name string) string {
 	switch name {
+	case imageGateway:
+		return manifest.Images.Gateway
 	case imageWeb:
 		return manifest.Images.Web
 	case imageAPI:

@@ -33,3 +33,9 @@ services:
     build:
       context: .
       target: web
+
+  gateway:
+    image: omnara-gateway:local
+    build:
+      context: .
+      target: gateway
