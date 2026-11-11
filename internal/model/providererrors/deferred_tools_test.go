@@ -21,8 +21,8 @@ func TestUserFacingMessageRewritesDeferredToolsUnsupported(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := UserFacingMessage(tt.message); got != tt.want {
-				t.Fatalf("UserFacingMessage(%q) = %q, want %q", tt.message, got, tt.want)
+			if got := userFacingMessage(tt.message); got != tt.want {
+				t.Fatalf("userFacingMessage(%q) = %q, want %q", tt.message, got, tt.want)
 			}
 		})
 	}
@@ -30,10 +30,10 @@ func TestUserFacingMessageRewritesDeferredToolsUnsupported(t *testing.T) {
 
 func TestUserFacingCodeRewritesDeferredToolsUnsupported(t *testing.T) {
 	unsupported := "Tool 'tool_search' is not supported with gpt-5-mini."
-	if got := UserFacingCode("invalid_request_error", unsupported); got != DeferredToolsUnsupportedCode {
+	if got := userFacingCode("invalid_request_error", unsupported); got != DeferredToolsUnsupportedCode {
 		t.Fatalf("code = %q", got)
 	}
-	if got := UserFacingCode("invalid_request_error", "bad field"); got != "invalid_request_error" {
+	if got := userFacingCode("invalid_request_error", "bad field"); got != "invalid_request_error" {
 		t.Fatalf("code = %q", got)
 	}
 }

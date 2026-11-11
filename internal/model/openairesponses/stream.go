@@ -241,10 +241,10 @@ func (a *openAIStreamAccumulator) handleResponseEvidence(event, data string) err
 
 func (a *openAIStreamAccumulator) handleErrorEvent(event, data string) error {
 	var frame struct {
-		ErrorType string         `json:"error_type"`
-		Error     responsesError `json:"error"`
-		Code      any            `json:"code"`
-		Message   string         `json:"message"`
+		ErrorType json.RawMessage `json:"error_type"`
+		Error     responsesError  `json:"error"`
+		Code      any             `json:"code"`
+		Message   string          `json:"message"`
 	}
 	if err := json.Unmarshal([]byte(data), &frame); err != nil {
 		return a.recordMalformedErrorEvent(event, data, err)
@@ -255,7 +255,7 @@ func (a *openAIStreamAccumulator) handleErrorEvent(event, data string) error {
 	if frame.Error.Message == "" {
 		frame.Error.Message = frame.Message
 	}
-	if !frame.Error.present() && frame.ErrorType == "" &&
+	if !frame.Error.present() && !providererrors.OpenRouterType(frame.ErrorType).Present() &&
 		providererrors.CodeText(frame.Code) == "" && frame.Message == "" {
 		return a.recordMalformedErrorEvent(event, data, errors.New("payload missing error evidence"))
 	}
@@ -263,30 +263,10 @@ func (a *openAIStreamAccumulator) handleErrorEvent(event, data string) error {
 	if message == "" {
 		message = "openai-responses stream failed"
 	}
-	a.streamErr = model.ProviderError{
-		Kind: classifyResponsesError(
-			a.statusCode,
-			0,
-			message,
-			frame.ErrorType,
-			frame.Error.codeText(),
-			frame.Error.Type,
-		),
-		Source:     a.protocol.errorSource(),
-		StatusCode: a.statusCode,
-		Code: providererrors.UserFacingCode(
-			firstNonEmpty(
-				frame.ErrorType,
-				frame.Error.codeText(),
-				frame.Error.Type,
-				providererrors.CodeText(frame.Code),
-			),
-			message,
-		),
-		Message:    providererrors.UserFacingMessage(message),
-		RequestID:  model.RequestIDFromHeader(a.header),
-		RetryAfter: model.RetryAfterFromHeader(a.header),
-	}
+	a.streamErr = interpretResponsesError(
+		a.protocol.errorSource(), a.protocol.client.ModelAPIVariant(), a.statusCode, a.header,
+		frame.Error, frame.ErrorType, message,
+	)
 	a.completed = true
 	return nil
 }

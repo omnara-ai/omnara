@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 type recordingSink struct {
@@ -39,9 +40,14 @@ func anthropicSSE(events ...[2]string) string {
 	return b.String()
 }
 
-func consumeAnthropicStream(t *testing.T, stream string, sink model.StreamSink) (model.Response, error) {
+func consumeAnthropicStream(
+	t *testing.T, stream string, sink model.StreamSink, variants ...modelprotocol.APIVariant,
+) (model.Response, error) {
 	t.Helper()
 	p := protocol{client: Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test"}}
+	if len(variants) > 0 {
+		p.client.APIVariant = variants[0]
+	}
 	return p.ConsumeStream(context.Background(), strings.NewReader(stream), http.StatusOK, http.Header{}, sink)
 }
 
@@ -358,7 +364,7 @@ func TestAnthropicConsumeStreamClassifiesInStreamError(t *testing.T) {
 		[2]string{"message_start", `{"message":`},
 	)
 	sink := &recordingSink{}
-	resp, err := consumeAnthropicStream(t, stream, sink)
+	resp, err := consumeAnthropicStream(t, stream, sink, modelprotocol.APIVariantOpenRouter)
 	var providerErr model.ProviderError
 	if !errors.As(err, &providerErr) {
 		t.Fatalf("expected provider error, got %v", err)

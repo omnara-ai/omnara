@@ -37,6 +37,7 @@ func (p protocol) invalidResponseError(
 
 func responseFailureError(
 	source string,
+	variant modelprotocol.APIVariant,
 	response responsesResponse,
 	statusCode int,
 	header http.Header,
@@ -45,65 +46,45 @@ func responseFailureError(
 	if message == "" {
 		message = "openai-responses request failed"
 	}
-	code := firstNonEmpty(response.ErrorType, response.Error.codeText(), response.Error.Type)
-	return model.ProviderError{
-		Kind: classifyResponsesError(
-			statusCode,
-			0,
-			message,
-			response.ErrorType,
-			response.Error.codeText(),
-			response.Error.Type,
-		),
-		Source:     source,
-		StatusCode: statusCode,
-		Code:       providererrors.UserFacingCode(code, message),
-		Message:    providererrors.UserFacingMessage(message),
-		RequestID:  model.RequestIDFromHeader(header),
-		RetryAfter: model.RetryAfterFromHeader(header),
-	}
+	return interpretResponsesError(source, variant, statusCode, header, response.Error, response.ErrorType, message)
 }
 
-func classifyHTTPError(source string, statusCode int, header http.Header, body []byte) model.ProviderError {
+func classifyHTTPError(
+	source string,
+	variant modelprotocol.APIVariant,
+	statusCode int,
+	header http.Header,
+	body []byte,
+) model.ProviderError {
 	message := strings.TrimSpace(string(body))
 	var envelope struct {
-		ErrorType string         `json:"error_type"`
-		Error     responsesError `json:"error"`
+		ErrorType json.RawMessage `json:"error_type"`
+		Error     responsesError  `json:"error"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		return model.ProviderError{
-			Kind:       classifyResponsesError(statusCode, 0, message),
-			Source:     source,
-			StatusCode: statusCode,
-			Message:    message,
-			RequestID:  model.RequestIDFromHeader(header),
-			RetryAfter: model.RetryAfterFromHeader(header),
-		}
+		return interpretResponsesError(source, variant, statusCode, header, responsesError{}, nil, message)
 	}
-	if envelope.Error.Message != "" {
-		message = envelope.Error.Message
-	}
-	code := firstNonEmpty(envelope.ErrorType, envelope.Error.codeText(), envelope.Error.Type)
-	return model.ProviderError{
-		Kind: classifyResponsesError(
-			statusCode,
-			0,
-			message,
-			envelope.ErrorType,
-			envelope.Error.codeText(),
-			envelope.Error.Type,
-		),
-		Source:     source,
-		StatusCode: statusCode,
-		Code:       providererrors.UserFacingCode(code, message),
-		Message:    providererrors.UserFacingMessage(message),
-		RequestID:  model.RequestIDFromHeader(header),
-		RetryAfter: model.RetryAfterFromHeader(header),
-	}
+	return interpretResponsesError(source, variant, statusCode, header, envelope.Error, envelope.ErrorType, message)
 }
 
-func classifyResponsesError(statusCode, providerStatus int, message string, codes ...string) model.ErrorKind {
-	return providererrors.Classify(statusCode, providerStatus, message, codes...)
+func interpretResponsesError(
+	source string,
+	variant modelprotocol.APIVariant,
+	statusCode int,
+	header http.Header,
+	native responsesError,
+	openRouterType json.RawMessage,
+	fallbackMessage string,
+) model.ProviderError {
+	result := providererrors.Interpret(variant, providererrors.Evidence{
+		HTTPStatus: statusCode, Message: firstNonEmpty(native.Message, fallbackMessage),
+		Native:     providererrors.OpenAI(native.codeText(), native.Type),
+		OpenRouter: providererrors.OpenRouterType(openRouterType),
+	})
+	result.Source = source
+	result.RequestID = model.RequestIDFromHeader(header)
+	result.RetryAfter = model.RetryAfterFromHeader(header)
+	return result
 }
 
 func firstNonEmpty(values ...string) string {

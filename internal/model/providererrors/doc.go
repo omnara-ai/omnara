@@ -1,5 +1,6 @@
-// Package providererrors classifies evidence extracted by protocol adapters
-// from provider-specific error envelopes.
+// Package providererrors interprets native error fields, configured gateway
+// extensions and relayed upstream evidence without making recovery decisions.
+// Protocol adapters own envelope decoding; execution owns retries.
 //
 // Provider error contracts used by the adapters:
 //

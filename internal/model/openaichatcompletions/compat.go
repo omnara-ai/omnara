@@ -28,8 +28,6 @@ type compat struct {
 	conversationKeyField         conversationKeyField
 	usageViaStreamOptions        bool
 	usageChunkCompletesStream    bool
-	refinesErrorsFromRawDetails  bool
-	reportsOpenRouterLimits      bool
 	reportsServedProviderAndCost bool
 	reportsNativeFinishReason    bool
 	parsesPDFDocuments           bool
@@ -43,8 +41,6 @@ func compatFor(route model.ProviderRoute) compat {
 			sendsStrictFalse:             true,
 			reasoningFormat:              reasoningFormatOpenRouter,
 			conversationKeyField:         conversationKeyFieldSessionID,
-			refinesErrorsFromRawDetails:  true,
-			reportsOpenRouterLimits:      true,
 			reportsServedProviderAndCost: true,
 			reportsNativeFinishReason:    true,
 			parsesPDFDocuments:           true,
