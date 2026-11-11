@@ -1477,4 +1477,7 @@ func TestConfiguredModelPricing(t *testing.T) {
 
 	request(http.MethodPut, modelPath,
 		`{"pricing":{"input_usd_per_million":"-1","output_usd_per_million":"15"}}`, http.StatusBadRequest)
+	request(http.MethodPut, modelPath,
+		`{"pricing":{"input_usd_per_million":"0.123456789012345678901234567890","output_usd_per_million":"15"}}`,
+		http.StatusBadRequest)
 }
