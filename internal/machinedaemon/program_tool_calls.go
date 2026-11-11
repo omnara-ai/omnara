@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +23,7 @@ const (
 	programToolCapabilityEnv = "OMNARA_TOOL_CAPABILITY"
 	programToolBinEnv        = "OMNARA_BIN"
 
-	programToolCallProcessLimit  = 16
+	programToolCallProcessLimit  = 128
 	programToolCallServerLimit   = 128
 	programToolCallCancelTimeout = 10 * time.Second
 )
@@ -44,10 +46,16 @@ func (c *Client) prepareProgramToolCalls(assignment *ProcessAssignment, supervis
 
 func programToolCallEnvironment(env []string, processID string, helper *processServiceHelper) []string {
 	result := make([]string, 0, len(env)+4)
+	bin := filepath.Dir(helper.Executable)
 	for _, entry := range env {
-		name, _, _ := strings.Cut(entry, "=")
+		name, value, _ := strings.Cut(entry, "=")
 		switch strings.ToUpper(name) {
 		case programToolProcessIDEnv, programToolEndpointEnv, programToolCapabilityEnv, programToolBinEnv:
+		case "PATH":
+			if value != bin && !strings.HasPrefix(value, bin+string(os.PathListSeparator)) {
+				value = bin + string(os.PathListSeparator) + value
+			}
+			result = append(result, name+"="+value)
 		default:
 			result = append(result, entry)
 		}

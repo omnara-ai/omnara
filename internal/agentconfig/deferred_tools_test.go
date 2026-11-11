@@ -2,186 +2,131 @@ package agentconfig
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
-func compileRuntimeContract(t *testing.T, source string) RuntimeContract {
-	t.Helper()
-	compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(source)), CompileOptions{})
+func TestDeferredToolsCompile(t *testing.T) {
+	base, err := Compile(SourceFormatYAML, []byte(validAgentSource("")), CompileOptions{})
 	require.NoError(t, err)
-	contract, err := RuntimeContractFromCompiled(json.RawMessage(compiled.CanonicalJSON), compiled.Hash)
-	require.NoError(t, err)
-	return contract
-}
-
-func runtimeToolByName(contract RuntimeContract, name string) (RuntimeTool, bool) {
-	for _, tool := range contract.Tools {
-		if tool.Name == name {
-			return tool, true
-		}
-	}
-	return RuntimeTool{}, false
-}
-
-func TestDeferredToolsAddImplicitToolSearch(t *testing.T) {
-	contract := compileRuntimeContract(t, `
-tools:
-  web_search: {}
-  web_fetch:
-    deferred: true
-  create_ticket:
-    type: custom
-    deferred: true
-    description: Create a ticket.
-    input_schema:
-      type: object
-      properties:
-        title:
-          type: string
-`)
-	webFetch, ok := runtimeToolByName(contract, toolcatalog.ToolNameWebFetch)
-	require.True(t, ok)
-	require.True(t, webFetch.Deferred)
-	webSearch, ok := runtimeToolByName(contract, toolcatalog.ToolNameWebSearch)
-	require.True(t, ok)
-	require.False(t, webSearch.Deferred)
-	ticket, ok := runtimeToolByName(contract, "create_ticket")
-	require.True(t, ok)
-	require.True(t, ticket.Deferred)
-	search, ok := runtimeToolByName(contract, toolcatalog.ToolNameToolSearch)
-	require.True(t, ok)
-	require.False(t, search.Deferred)
-	require.True(t, contract.DefersAnyTool())
-}
-
-func TestNoDeferredToolsSkipsToolSearch(t *testing.T) {
-	contract := compileRuntimeContract(t, `
-tools:
-  web_search: {}
-`)
-	_, ok := runtimeToolByName(contract, toolcatalog.ToolNameToolSearch)
-	require.False(t, ok)
-	require.False(t, contract.DefersAnyTool())
-}
-
-func TestMCPDeferredResolution(t *testing.T) {
-	contract := compileRuntimeContract(t, `
-mcp:
-  crm:
-    url: https://example.com/mcp
-    deferred: true
-    tools:
-      search:
-        deferred: false
-  docs:
-    url: https://example.com/docs
-    tools:
-      lookup:
-        deferred: true
-`)
-	require.Len(t, contract.MCPServers, 2)
-	crm := contract.MCPServers[0]
-	require.Equal(t, "crm", crm.ServerKey)
-	resolution, ok := crm.ResolveTool("search")
-	require.True(t, ok)
-	require.False(t, resolution.Deferred)
-	resolution, ok = crm.ResolveTool("anything_else")
-	require.True(t, ok)
-	require.True(t, resolution.Deferred)
-	docs := contract.MCPServers[1]
-	resolution, ok = docs.ResolveTool("lookup")
-	require.True(t, ok)
-	require.True(t, resolution.Deferred)
-	resolution, ok = docs.ResolveTool("other")
-	require.True(t, ok)
-	require.False(t, resolution.Deferred)
-	_, ok = runtimeToolByName(contract, toolcatalog.ToolNameToolSearch)
-	require.True(t, ok)
-}
-
-func TestToolSearchCannotBeDeferred(t *testing.T) {
-	_, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
-tools:
-  tool_search:
-    deferred: true
-`)), CompileOptions{})
-	require.ErrorContains(t, err, "tool_search cannot be deferred")
-}
-
-func TestCustomToolCannotUseReservedWireName(t *testing.T) {
-	_, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
-tools:
-  call_deferred_tool:
-    type: custom
-    description: Nope.
-    input_schema:
-      type: object
-`)), CompileOptions{})
-	require.ErrorContains(t, err, "reserved")
-}
-
-func TestToolSearchDefaultMatchesCompiledAndPreview(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		source     string
-		wantSearch bool
-		wantOn     bool
+		name  string
+		extra string
+		want  *DeferredToolsCompiled
 	}{
-		{"no deferred tools", "tools: {web_search: {}}\n", false, false},
-		{"deferred built-in", "tools: {web_fetch: {deferred: true}}\n", true, true},
-		{"deferred but disabled", "tools: {web_search: {}, web_fetch: {deferred: true, enabled: false}}\n", false, false},
-		{"deferred MCP server", "mcp: {docs: {url: https://example.com/mcp, deferred: true}}\n", true, true},
-		{"deferred MCP tool", "mcp: {docs: {url: https://example.com/mcp, tools: {lookup: {deferred: true}}}}\n", true, true},
-		{"explicitly disabled", "tools: {web_fetch: {deferred: true}, tool_search: {enabled: false}}\n", true, false},
-		{"explicitly configured", "tools: {web_fetch: {deferred: true}, tool_search: {}}\n", true, true},
+		{name: "absent"},
+		{name: "tool_add", extra: "deferred_tools: {mode: tool_add}"},
+		{
+			name:  "code_mode",
+			extra: "deferred_tools: {mode: code_mode}",
+			want:  &DeferredToolsCompiled{Mode: DeferredToolsModeCodeMode},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			source := validAgentSource(test.source)
-			result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
+			result, err := Compile(SourceFormatYAML, []byte(validAgentSource(test.extra)), CompileOptions{})
 			require.NoError(t, err)
-			require.Equal(t, source, result.Source)
-			compiledSearch, compiledHas := result.Compiled.Tools[toolcatalog.ToolNameToolSearch]
-			require.Equal(t, test.wantSearch, compiledHas)
-			if compiledHas {
-				require.Equal(t, test.wantOn, compiledSearch.Enabled)
+			require.Equal(t, test.want, result.Compiled.DeferredTools)
+			var fields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(result.CanonicalJSON, &fields))
+			if test.want == nil {
+				require.NotContains(t, fields, "deferred_tools")
+				require.Equal(t, base.Hash, result.Hash, "the default mode compiles byte-identically to no section")
+				require.Equal(t, string(base.CanonicalJSON), string(result.CanonicalJSON))
+			} else {
+				require.Equal(t, `{"mode":"code_mode"}`, string(fields["deferred_tools"]))
 			}
-
-			preview, err := ToolsFromSource(SourceFormatYAML, []byte(source), CompileOptions{})
-			require.NoError(t, err)
-			previewHas := false
-			for _, tool := range preview {
-				if tool.Name != toolcatalog.ToolNameToolSearch {
-					continue
-				}
-				previewHas = true
-				require.Equal(t, test.wantOn, tool.Enabled)
-				require.Equal(t, compiledSearch.Permission, tool.Permission)
-			}
-			require.Equal(t, test.wantSearch, previewHas)
-
 			contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 			require.NoError(t, err)
-			runtimeSearch, runtimeHas := runtimeToolByName(contract, toolcatalog.ToolNameToolSearch)
-			require.Equal(t, test.wantOn, runtimeHas)
-			if runtimeHas {
-				require.Equal(t, compiledSearch.Permission, runtimeSearch.Permission)
-			}
+			require.Equal(t, test.want, contract.DeferredTools)
+			require.Equal(t, test.want != nil, contract.CodeMode())
 		})
 	}
 }
 
-func TestRuntimeDoesNotAddToolSearch(t *testing.T) {
-	source := validAgentSource("tools: {web_fetch: {deferred: true}}\n")
-	result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{})
+func TestDeferredToolsRejectInvalidSources(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		source string
+		path   string
+	}{
+		{name: "null", source: "null", path: "/deferred_tools"},
+		{name: "missing mode", source: "{}", path: "/deferred_tools/mode"},
+		{name: "unknown mode", source: "{mode: programmatic}", path: "/deferred_tools/mode"},
+		{name: "mode not string", source: "{mode: true}", path: "/deferred_tools/mode"},
+		{name: "unknown field", source: "{mode: code_mode, exclude: [web_search]}", path: "/deferred_tools/exclude"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Compile(
+				SourceFormatYAML, []byte(validAgentSource("deferred_tools: "+test.source)), CompileOptions{},
+			)
+			var validationErr *ValidationError
+			require.True(t, errors.As(err, &validationErr), "error %v", err)
+			paths := make([]string, 0, len(validationErr.Issues))
+			for _, issue := range validationErr.Issues {
+				paths = append(paths, issue.Path)
+			}
+			require.Contains(t, paths, test.path, "error %v", err)
+		})
+	}
+}
+
+func TestDeferredToolsRoundTripThroughSource(t *testing.T) {
+	result, err := Compile(SourceFormatYAML, []byte(validAgentSource("deferred_tools: {mode: code_mode}")),
+		CompileOptions{})
 	require.NoError(t, err)
-	delete(result.Compiled.Tools, toolcatalog.ToolNameToolSearch)
-	encoded, err := EncodeCompiled(result.Compiled)
+	source, err := SourceFromCompiled(result.Compiled, SourceNames{
+		Model: func(uuid.UUID) (string, string, error) { return "openai-prod", "gpt-test", nil },
+	})
 	require.NoError(t, err)
-	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, encoded.Hash)
+	require.Equal(t, &DeferredToolsSource{Mode: DeferredToolsModeCodeMode}, source.DeferredTools)
+	for _, format := range []SourceFormat{SourceFormatYAML, SourceFormatJSON} {
+		encoded, err := EncodeSource(source, format)
+		require.NoError(t, err)
+		recompiled, err := Compile(format, []byte(encoded), CompileOptions{})
+		require.NoError(t, err)
+		require.Equal(t, result.Hash, recompiled.Hash)
+	}
+}
+
+func TestDeferredToolsModeIsNotInheritedBySelfSubagents(t *testing.T) {
+	result, err := Compile(SourceFormatYAML, []byte(validAgentSource(`
+deferred_tools: {mode: code_mode}
+subagents:
+  fork: {type: self}
+`)), subagentCompileOptions())
 	require.NoError(t, err)
-	_, ok := runtimeToolByName(contract, toolcatalog.ToolNameToolSearch)
-	require.False(t, ok)
+	require.NotNil(t, result.Compiled.DeferredTools)
+	child := SubagentCompiledFrom(result.Compiled, result.Compiled.Subagents["fork"], SubagentDepth{Depth: 1})
+	require.Nil(t, child.DeferredTools)
+	require.NotNil(t, result.Compiled.DeferredTools, "deriving a subagent leaves the parent unchanged")
+	encoded, err := EncodeCompiled(child)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded.CanonicalJSON), "deferred_tools")
+}
+
+func TestRuntimeContractRejectsInvalidCompiledDeferredTools(t *testing.T) {
+	base := `{"instruction":"Help.","model":{},"deferred_tools":%s}`
+	for _, test := range []struct {
+		section string
+		valid   bool
+	}{
+		{section: `{"mode":"code_mode"}`, valid: true},
+		{section: `{"mode":"tool_add"}`},
+		{section: `{"mode":"other"}`},
+		{section: `{"mode":"code_mode","unknown":true}`},
+	} {
+		t.Run(test.section, func(t *testing.T) {
+			encoded := fmt.Appendf(nil, base, test.section)
+			_, err := RuntimeContractFromCompiled(encoded, hashJSON(encoded))
+			if test.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
 }

@@ -44,7 +44,7 @@ mcp:
           mode: always_deny    # never, even with approval
 ```
 
-A permission mode applies to every call, including calls a command makes with [`"$OMNARA_BIN" call`](/tools/built-in#calling-tools-from-commands): an `always_ask` tool opens the same permission interaction while the command waits. Changing a mode requires creating a new config and [updating the agent](/events/sending-input#change-the-config-mid-conversation).
+A permission mode applies to every call, including calls a command makes with [`omnarad call`](/tools/built-in#calling-tools-from-commands): an `always_ask` tool opens the same permission interaction while the command waits. Changing a mode requires creating a new config and [updating the agent](/events/sending-input#change-the-config-mid-conversation).
 
 <Note>
 Provider tools such as `int__engineering__post_message` use the ordinary permission modes.

@@ -62,12 +62,15 @@ func resolveToolSearchRequest(raw json.RawMessage) (resolvedToolSearchRequest, e
 	return resolved, nil
 }
 
-func runToolSearch(_ context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
+func runToolSearch(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
 	request, err := resolveToolSearchRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
 	}
 	specs := searchableToolSpecs(call.Turn.Tools)
+	if err := addWhereCommandsCannotCall(ctx, call, specs); err != nil {
+		return nil, err
+	}
 	search, err := modelcontext.SearchDeferredTools(specs, request.Pattern, request.MaxResults)
 	if err != nil {
 		content, contentErr := toolFailureContent("invalid_tool_input", err.Error(), true)
@@ -86,6 +89,31 @@ func runToolSearch(_ context.Context, call transactionalToolContext) (transactio
 	)), nil
 }
 
+func addWhereCommandsCannotCall(
+	ctx context.Context, call transactionalToolContext, specs []modelcontext.ToolSpec,
+) error {
+	codeMode := false
+	for _, spec := range specs {
+		codeMode = codeMode || spec.CodeMode
+	}
+	if !codeMode {
+		return nil
+	}
+	available := false
+	if call.Reader != nil {
+		var err error
+		if available, err = call.Reader.AgentHasCodeModeMachine(ctx); err != nil {
+			return err
+		}
+	}
+	if !available {
+		for i := range specs {
+			specs[i].CodeMode = false
+		}
+	}
+	return nil
+}
+
 func searchableToolSpecs(turnTools map[string]ToolSpec) []modelcontext.ToolSpec {
 	names := make([]string, 0, len(turnTools))
 	for name := range turnTools {
@@ -96,19 +124,21 @@ func searchableToolSpecs(turnTools map[string]ToolSpec) []modelcontext.ToolSpec 
 	for _, name := range names {
 		tool := turnTools[name]
 		specs = append(specs, modelcontext.ToolSpec{
-			Name:        name,
-			Description: tool.Description,
-			InputSchema: tool.InputSchema,
-			Deferred:    tool.Deferred,
-			Type:        tool.Type,
-			Permission:  tool.Permission,
+			Name:         name,
+			Description:  tool.Description,
+			InputSchema:  tool.InputSchema,
+			Deferred:     tool.Deferred,
+			Type:         tool.Type,
+			Permission:   tool.Permission,
+			CodeMode:     tool.CodeMode,
+			OutputSchema: tool.OutputSchema,
 		})
 	}
 	return specs
 }
 
 func toolSearchSummary(specs []modelcontext.ToolSpec, search modelcontext.ToolSearchResult) string {
-	if len(search.ToolNames) == 0 {
+	if len(search.ToolNames) == 0 && len(search.CodeModeTools) == 0 {
 		return fmt.Sprintf(
 			"No deferred tools matched \"%s\" (%d deferred tools available). Try a broader pattern.",
 			search.Pattern,
@@ -116,14 +146,31 @@ func toolSearchSummary(specs []modelcontext.ToolSpec, search modelcontext.ToolSe
 		)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Loaded %d tool(s) matching \"%s\":", len(search.ToolNames), search.Pattern)
-	for _, name := range search.ToolNames {
-		b.WriteString("\n- ")
-		b.WriteString(name)
-		if spec, ok := modelcontext.ToolSpecByName(specs, name); ok && spec.Description != "" {
-			b.WriteString(": ")
-			b.WriteString(spec.Description)
+	if len(search.ToolNames) > 0 {
+		fmt.Fprintf(&b, "Loaded %d tool(s) matching \"%s\":", len(search.ToolNames), search.Pattern)
+		for _, name := range search.ToolNames {
+			writeToolSearchLine(&b, specs, name)
+		}
+	}
+	if len(search.CodeModeTools) > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		fmt.Fprintf(&b, "%d tool(s) matching \"%s\" are called from a command with "+
+			"`omnarad call <tool> '<json input>'`, not as tools of yours; code_mode_tools has their input "+
+			"and output schemas:", len(search.CodeModeTools), search.Pattern)
+		for _, tool := range search.CodeModeTools {
+			writeToolSearchLine(&b, specs, tool.Name)
 		}
 	}
 	return b.String()
+}
+
+func writeToolSearchLine(b *strings.Builder, specs []modelcontext.ToolSpec, name string) {
+	b.WriteString("\n- ")
+	b.WriteString(name)
+	if spec, ok := modelcontext.ToolSpecByName(specs, name); ok && spec.Description != "" {
+		b.WriteString(": ")
+		b.WriteString(spec.Description)
+	}
 }

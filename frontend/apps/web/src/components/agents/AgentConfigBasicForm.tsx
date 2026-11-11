@@ -1,10 +1,10 @@
 import { useToolCatalog } from '@omnara/react'
 
+import { AgentConfigDeferredToolsField } from '@/components/agents/AgentConfigDeferredToolsField'
 import { AgentConfigGitCredentialsField } from '@/components/agents/AgentConfigGitCredentialsField'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import { AgentConfigMemoryField } from '@/components/agents/AgentConfigMemoryField'
-import { AgentConfigProgrammaticToolCallsField } from '@/components/agents/AgentConfigProgrammaticToolCallsField'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigSubagentsField } from '@/components/agents/AgentConfigSubagentsField'
@@ -150,10 +150,10 @@ export function AgentConfigBasicForm({
                   onChange={form.setGitCredentials}
                 />
               )}
-              {form.isManaged('programmatic_tool_calls') && (
-                <AgentConfigProgrammaticToolCallsField
-                  value={form.programmaticToolCalls}
-                  onChange={form.setProgrammaticToolCalls}
+              {form.isManaged('deferred_tools') && (
+                <AgentConfigDeferredToolsField
+                  value={form.deferredTools}
+                  onChange={form.setDeferredTools}
                 />
               )}
             </CollapsibleContent>

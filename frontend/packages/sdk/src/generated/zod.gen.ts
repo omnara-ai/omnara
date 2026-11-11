@@ -12,11 +12,10 @@ export const zAgentConfigDefinitionGitCredentials = z.object({
 });
 
 /**
- * Lets commands started by run_command call the agent's other tools with `omnarad call <tool> '<json input>'`. Subagents do not inherit this setting.
+ * How the agent reaches tools marked `deferred`. With `tool_add`, the default, `tool_search` adds matching tools to the model's tool list. With `code_mode`, commands started by run_command call them with `omnarad call <tool> '<json input>'` and `tool_search` returns their input and output schemas instead; a tool commands cannot call, or any tool while the agent has no machine that allows programmatic tool calls, is added as with `tool_add`. Subagents do not inherit this setting.
  */
-export const zAgentConfigDefinitionProgrammaticToolCalls = z.object({
-    enabled: z.boolean(),
-    exclude: z.array(z.string().min(1).max(64)).max(256).optional()
+export const zAgentConfigDefinitionDeferredTools = z.object({
+    mode: z.enum(['tool_add', 'code_mode'])
 });
 
 /**
@@ -197,10 +196,10 @@ export const zAgentConfigDefinition = z.object({
     machine_sources: zAgentConfigDefinitionMachineSources.optional(),
     max_depth: z.int().gte(1).lte(8).optional(),
     max_subagents: z.int().gte(1).lte(2147483647).optional(),
+    deferred_tools: zAgentConfigDefinitionDeferredTools.optional(),
     mcp: zAgentConfigDefinitionMcpServers.optional(),
     memory_stores: zAgentConfigDefinitionMemoryStores.optional(),
     model: zAgentConfigDefinitionModel,
-    programmatic_tool_calls: zAgentConfigDefinitionProgrammaticToolCalls.optional(),
     skills: zAgentConfigDefinitionSkills.optional(),
     subagents: zAgentConfigDefinitionSubagents.optional(),
     tools: zAgentConfigDefinitionTools.optional(),
@@ -1286,11 +1285,10 @@ export const zCompiledMachineSource = z.object({
 });
 
 /**
- * Lets commands started by run_command call the agent's other tools, except the sorted excluded tool names.
+ * Present when commands started by run_command call the agent's deferred tools.
  */
-export const zCompiledProgrammaticToolCalls = z.object({
-    enabled: z.boolean(),
-    exclude: z.array(z.string()).optional()
+export const zCompiledDeferredTools = z.object({
+    mode: z.enum(['code_mode'])
 });
 
 export const zCompiledMcpAuthBearer = z.object({
@@ -3517,7 +3515,7 @@ export const zCompiledAgentConfig = z.object({
     mcp: z.record(z.string(), zCompiledMcpServer).optional(),
     interaction_handlers: z.record(z.string(), zCompiledIntegrationCapability).optional(),
     git_credentials: zCompiledGitCredentials.optional(),
-    programmatic_tool_calls: zCompiledProgrammaticToolCalls.optional(),
+    deferred_tools: zCompiledDeferredTools.optional(),
     skills: z.array(zCompiledSkill).optional(),
     memory_stores: z.array(zCompiledMemoryStore).optional(),
     subagents: z.record(z.string(), zCompiledSubagent).optional(),

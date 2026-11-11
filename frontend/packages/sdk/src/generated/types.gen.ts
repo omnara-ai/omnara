@@ -32,6 +32,7 @@ export type AgentConfigDefinition = {
      * Maximum active subagents across all keys. Unset means no overall limit.
      */
     max_subagents?: number;
+    deferred_tools?: AgentConfigDefinitionDeferredTools;
     /**
      * MCP servers the agent can use, keyed by server name. Their tools are named mcp__{server}__{tool}.
      */
@@ -44,7 +45,6 @@ export type AgentConfigDefinition = {
      * Model the agent runs on, with optional overrides of its defaults.
      */
     model: AgentConfigDefinitionModel;
-    programmatic_tool_calls?: AgentConfigDefinitionProgrammaticToolCalls;
     /**
      * Skills the agent can load. The project must own or be granted each one.
      */
@@ -97,14 +97,10 @@ export type AgentConfigDefinitionGitCredentials = {
 };
 
 /**
- * Lets commands started by run_command call the agent's other tools with `omnarad call <tool> '<json input>'`. Subagents do not inherit this setting.
+ * How the agent reaches tools marked `deferred`. With `tool_add`, the default, `tool_search` adds matching tools to the model's tool list. With `code_mode`, commands started by run_command call them with `omnarad call <tool> '<json input>'` and `tool_search` returns their input and output schemas instead; a tool commands cannot call, or any tool while the agent has no machine that allows programmatic tool calls, is added as with `tool_add`. Subagents do not inherit this setting.
  */
-export type AgentConfigDefinitionProgrammaticToolCalls = {
-    enabled: boolean;
-    /**
-     * Tool names commands cannot call, such as web_search or mcp__github__create_issue. Names are not checked against the agent's tools, since MCP tools are only known at runtime.
-     */
-    exclude?: Array<string>;
+export type AgentConfigDefinitionDeferredTools = {
+    mode: 'tool_add' | 'code_mode';
 };
 
 /**
@@ -2106,7 +2102,7 @@ export type CompiledAgentConfig = {
         [key: string]: CompiledIntegrationCapability;
     };
     git_credentials?: CompiledGitCredentials;
-    programmatic_tool_calls?: CompiledProgrammaticToolCalls;
+    deferred_tools?: CompiledDeferredTools;
     skills?: Array<CompiledSkill>;
     memory_stores?: Array<CompiledMemoryStore>;
     subagents?: {
@@ -2176,11 +2172,10 @@ export type CompiledGitCredentials = {
 };
 
 /**
- * Lets commands started by run_command call the agent's other tools, except the sorted excluded tool names.
+ * Present when commands started by run_command call the agent's deferred tools.
  */
-export type CompiledProgrammaticToolCalls = {
-    enabled: boolean;
-    exclude?: Array<string>;
+export type CompiledDeferredTools = {
+    mode: 'code_mode';
 };
 
 export type CompiledMcpServer = {

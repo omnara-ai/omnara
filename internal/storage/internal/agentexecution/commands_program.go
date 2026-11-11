@@ -24,7 +24,7 @@ const (
 	ProgramToolExecute
 )
 
-const MaxOpenProgramTools = 16
+const MaxOpenProgramTools = 128
 
 type ProgramTool struct {
 	ID        uuid.UUID
