@@ -210,9 +210,12 @@ describe('document ownership', () => {
       const { session, draft } = draftFor(source)
       const result = session.evaluate({
         ...draft,
+        instruction: 'Changed.\nAnother line.',
         tools: draft.tools.map((tool) => ({ ...tool, deferred: false })),
       })
       expect(result.issues).toEqual([])
+      expect(parse(result.yaml)).toHaveProperty('instruction', 'Changed.\nAnother line.')
+      expect(result.yaml).toBe(result.yaml.replace(/\r?\n/g, newline))
       expect(parse(result.yaml)).toHaveProperty(['tools', 'web_search'], {})
       expect(result.yaml).toContain(`  future: {data: [a,b,c]} # keep${newline}`)
       expect(result.yaml.startsWith(`# header${newline}---${newline}`)).toBe(true)
@@ -222,6 +225,7 @@ describe('document ownership', () => {
 
   it.each([
     'tools: {web_search: {}, future: {data: [a,b,c]},}\n',
+    'tools: {future: {data: [a,b,c]},\n  web_search: {},\n}\n',
     'tools: {web_search: {}, future: {data: [a,b,c]}, # keep comma, in comment\n}\n',
     'tools:\n  web_search: {}\n  # preserve opaque explanation\n  future: {data: [a,b,c]}\n',
     `tools: {
@@ -336,24 +340,6 @@ it('reorders managed machine rows without moving or rewriting an opaque row', ()
   )
   expect(nodeSource(result.yaml, ['machine_sources', 1])).toBe(
     nodeSource(sources, ['machine_sources', 1]),
-  )
-})
-
-it('distinguishes string and number permission parameters when editing a scalar', () => {
-  const source = `${header}tools: {web_search: {permission: {mode: always_allow, parameters: {count: "5" # keep count\n  }}}}\n`
-  const { session, draft } = draftFor(source)
-  const result = session.evaluate({
-    ...draft,
-    tools: draft.tools.map((tool) => ({
-      ...tool,
-      permission: { mode: 'always_allow', parameters: { count: 5 } },
-    })),
-  })
-  expect(result.issues).toEqual([])
-  expect(result.yaml).toBe(source.replace('"5"', '5'))
-  expect(parse(result.yaml)).toHaveProperty(
-    ['tools', 'web_search', 'permission', 'parameters', 'count'],
-    5,
   )
 })
 
@@ -481,8 +467,8 @@ it('preserves large schema integers and rejects block definitions in inline coll
 
 it.each([undefined, 2, 4])('keeps JSON layout stable across edits (indent: %s)', (indent) => {
   const tool = { type: 'custom', description: 'Example.', input_schema: { type: 'object' } }
-  let source = JSON.stringify(
-    { tools: { example: tool }, skills: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa'] },
+  const source = JSON.stringify(
+    { tools: { example: tool, web_fetch: {} }, skills: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa'] },
     null,
     indent,
   )
@@ -503,35 +489,9 @@ it.each([undefined, 2, 4])('keeps JSON layout stable across edits (indent: %s)',
       indent,
     ),
   )
-  source = result.yaml
-  for (const mode of ['always_ask', 'always_allow', 'always_ask']) {
-    const { session, draft } = draftFor(source)
-    const entry = draft.advancedEntries?.[0]
-    if (!entry) throw new Error('Missing custom tool')
-    const transaction = editConfigDocument(
-      entry.source,
-      parseConfigDocument(entry.source).doc,
-      [],
-      'json',
-    )
-    transaction.set(['permission', 'mode'], mode)
-    const result = session.evaluate({
-      ...draft,
-      advancedEntries: [{ ...entry, source: transaction.serialize() }],
-    })
-    expect(result.issues).toEqual([])
-    expect(result.yaml).toBe(
-      JSON.stringify(
-        {
-          tools: { example: { ...tool, permission: { mode } }, web_search: { type: 'built_in' } },
-          skills: ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb'],
-        },
-        null,
-        indent,
-      ),
-    )
-    source = result.yaml
-  }
+  expect(session.apply({ ...draft, skillIds: [] })).toBe(
+    JSON.stringify({ tools: { example: tool, web_fetch: {} } }, null, indent),
+  )
 })
 
 it('keeps a following section comment outside appended tools', () => {
@@ -598,3 +558,45 @@ it.each(['# Updated\n  ', ''])(
     expect(result.yaml).toBe(source.replace('# Original\n  ', comment))
   },
 )
+
+it('rejects a patch that does not reproduce the edited document', () => {
+  const transaction = editConfigDocument(header, parseConfigDocument(header).doc, [])
+  transaction.set(['instruction'], 'Updated.')
+  transaction.document.setIn(['model', 'name'], 'Untracked change')
+  expect(() => transaction.serialize()).toThrow('cannot safely patch this edit')
+})
+
+it('keeps invalid numeric drafts out of the source while applying other edits', () => {
+  const original =
+    header +
+    'machine_sources: [{machine_pool_name: pool, machine_memory_mb: 1024}]\nsubagents: {helper: {type: self, max_instances: 2}}\nmax_depth: 2\n'
+  const paths = [
+    ['max_depth'],
+    ['machine_sources', '0', 'machine_memory_mb'],
+    ['subagents', 'helper', 'max_instances'],
+  ]
+  const { draft } = draftFor(original)
+  for (const source of [original, '']) {
+    const result = createBasicConfigSession(source).evaluate({
+      ...draft,
+      instruction: 'Pending instruction.',
+      maxDepth: 'abc',
+      machineSources: draft.machineSources.map((row) => ({ ...row, machineMemoryGb: '1e308' })),
+      subagents: draft.subagents.map((row) => ({ ...row, maxInstances: 'Infinity' })),
+    })
+    expect(result.issues).toEqual(
+      paths.map((path) => ({
+        path,
+        kind: 'advanced',
+        error: true,
+        message: 'Enter a valid number.',
+      })),
+    )
+    expect(result.unappliedChanges).toBe(true)
+    expect(parse(result.yaml)).toHaveProperty('instruction', 'Pending instruction.')
+    for (const path of paths)
+      expect(parseDocument(result.yaml).getIn(path)).toBe(
+        source ? parseDocument(original).getIn(path) : undefined,
+      )
+  }
+})

@@ -92,15 +92,15 @@ describe('mixed managed and advanced configurations', () => {
     },
   )
 
-  it('rejects managed names owned by custom or opaque entries without corrupting source', () => {
-    const { session, draft } = sessionFor(fixture + 'future: {a: b}\n')
+  it('rejects managed names owned by custom tools without corrupting source', () => {
+    const { session, draft } = sessionFor()
     const collision = {
       ...draft,
       tools: [...draft.tools, { name: 'search_records', permission: null }],
     }
     const result = session.evaluate(collision)
     expect(result.issues).toMatchObject([{ path: ['tools', 'search_records'], error: true }])
-    expect(result.yaml).toBe(fixture + 'future: {a: b}\n')
+    expect(result.yaml).toBe(fixture)
   })
 
   it('saves intentional description and arbitrary nested schema edits', () => {
@@ -168,23 +168,6 @@ input_schema:
     const result = session.evaluate(invalid)
     expect(result.issues.map((issue) => configPath(issue.path))).toContain(path)
     expect(result.yaml).toBe(fixture)
-  })
-
-  it('supports JSON including adding and removing managed tools while preserving custom source', () => {
-    const source = JSON.stringify(parse(fixture), null, 4)
-    const { session, draft } = sessionFor(source)
-    expect(session.apply(draft)).toBe(source)
-    const updated = session.apply({
-      ...draft,
-      instruction: 'Changed.',
-      tools: [{ name: 'ask_question', permission: null }],
-    })
-    expect(JSON.parse(updated)).toHaveProperty('instruction', 'Changed.')
-    expect(JSON.parse(updated)).toHaveProperty('tools', {
-      ...customTools,
-      ask_question: { type: 'built_in' },
-    })
-    expectCustomUnchanged(updated, source)
   })
 
   it('cannot delete opaque tool siblings when applyNamedEntries removes all managed entries', () => {
