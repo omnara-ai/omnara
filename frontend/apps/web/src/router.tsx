@@ -1,6 +1,3 @@
-import { ApiError, type CurrentUser, type OmnaraClient } from '@omnara/sdk'
-import { getCurrentUserOptions } from '@omnara/sdk/tanstack'
-import type { QueryClient } from '@tanstack/react-query'
 import {
   createRootRouteWithContext,
   createRoute,
@@ -16,48 +13,10 @@ import { FullPageSpinner } from '@/components/ui/spinner'
 import { safeReturnTo } from '@/lib/auth-return-to'
 import { queryClient } from '@/lib/query'
 import { requireOrganization } from '@/lib/require-organization'
+import { ensureMe, redirectSignedInStaleCallback, type RouterContext } from '@/lib/router-auth'
 import { claimStaleChunkReload } from '@/lib/stale-chunk'
 import { RootError } from '@/routes/RootError'
 import { omnaraClient } from '@/transport'
-
-export interface RouterContext {
-  queryClient: QueryClient
-  omnaraClient: OmnaraClient
-}
-
-async function ensureMe(
-  queryClient: QueryClient,
-  client: OmnaraClient,
-  returnTo: string,
-): Promise<CurrentUser> {
-  try {
-    return await queryClient.query({ ...getCurrentUserOptions({ client }), staleTime: 'static' })
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
-      throw redirect({ href: `/login?return_to=${encodeURIComponent(returnTo)}` })
-    }
-    throw error
-  }
-}
-
-export async function redirectSignedInStaleCallback({
-  context: { queryClient, omnaraClient: client },
-  location,
-}: {
-  context: RouterContext
-  location: { href: string }
-}) {
-  const authError = new URL(location.href, window.location.origin).searchParams.get('auth_error')
-  if (authError !== 'invalid_state') return
-  try {
-    await queryClient.query({ ...getCurrentUserOptions({ client }), staleTime: 'static' })
-  } catch {
-    return
-  }
-  // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
-  throw redirect({ href: '/' })
-}
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: () => (
@@ -75,7 +34,10 @@ const authenticatedRoute = createRoute({
     const me = await ensureMe(context.queryClient, context.omnaraClient, location.href)
     return { me }
   },
-  component: Outlet,
+  component: lazyRouteComponent(
+    () => import('@/routes/AuthenticatedLayout'),
+    'AuthenticatedLayout',
+  ),
 })
 
 const onboardedRoute = createRoute({

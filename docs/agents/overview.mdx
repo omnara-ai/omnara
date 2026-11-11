@@ -89,6 +89,42 @@ launch envelope, and reusing the key within the project returns `200` with only
 the current agent. The retry body is not applied, even if it has changed or an integration
 reference has since been deleted.
 
+## Dashboard assistant
+
+The **Assistant** button in the bottom-right corner connects to an ordinary agent.
+Your selection stays with your account across organizations and dashboard pages.
+Connect an agent you can access, or choose **Create new**, an organization
+you own, and a project. You can optionally choose a tool-capable model granted to
+that project.
+
+New accounts receive a default assistant in the Default project when they create
+their first organization. Setup finishes in the dashboard once a suitable model
+is available. Joining an organization does not create one; existing accounts can
+use **Create new**. An earlier manual panel choice takes precedence.
+
+The preset can use Omnara's API on your behalf and explain steps in the UI. It
+cannot click your screen or control your computer. Each panel message includes
+the viewed page and organization as context, separately from the agent's home
+project. API writes and external web fetches use the agent's ordinary approval flow.
+
+Creating the preset also creates a dedicated personal access token stored in an
+encrypted project secret. The token carries your permissions across all your
+organizations. Other people who can operate this agent can use those credentials
+through its tools. Project configuration managers and organization owners and
+admins can also reference the project secret from other agent configurations.
+The agent uses the project's normal models, usage limits, and billing.
+
+Panel settings let you change or disconnect the agent, or turn the panel off.
+You can turn it back on in **Account** settings. Hiding or disconnecting the panel
+does not stop the agent or revoke its token. Deleting its home project or
+organization revokes the dedicated token. You can also revoke it on the
+**Personal tokens** page; its name begins with **Omnara assistant**.
+To identify the token for a particular assistant, find the secret used by its
+Omnara MCP connection in the agent configuration. The UUID in the secret name
+`omnara-assistant-<uuid>` matches the token name `Omnara assistant (<uuid>)`.
+Leaving the home organization or losing access to the agent does not revoke this
+token; revoke it explicitly if the organization should no longer use it.
+
 ## Find agents
 
 The project's **Agents** page opens on **Profiles**; switch to the **Instances** tab to list active agents, and click one to open its conversation. `omnara agents list` and the API return active agents newest first; fetch one by ID with `omnara agents get {agent-id}`. Both responses include each agent's `activity`, whose `state` is `running`, `waiting_on_interaction`, `idle`, or `archived`. Alongside the state, `activity` always reports what else is open or in progress: `open_interactions` counts open questions and permission requests, `running_processes` lists commands the agent left running that will message it when they end, and `working_subagents` lists subagents that are still working. An agent can be `waiting_on_interaction` with a process running, or `idle` but about to wake when its build finishes. Pass `activity_state` (`--activity-state` in the CLI) to keep only agents in that activity. `activity_state=archived` includes archived agents even when `include_archived` is omitted. The Instances filters menu offers the same status choices. Archived agents are otherwise omitted from the list but remain retrievable by ID.

@@ -766,7 +766,8 @@ export const zConfiguredModelSummary = z.object({
 export const zProjectModelGrantListItem = z.object({
     grant: zProjectModelGrant,
     model: zConfiguredModelSummary,
-    effective_reasoning: zProjectModelGrantEffectiveReasoning
+    effective_reasoning: zProjectModelGrantEffectiveReasoning,
+    supports_tools: z.boolean()
 });
 
 export const zListProjectModelGrantsResponse = z.object({
@@ -3250,6 +3251,57 @@ export const zListOrganizationsResponse = z.object({
     data: z.array(zCurrentUserOrg)
 });
 
+export const zAgentPanelScope = z.object({
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    org_name: zResourceName,
+    project_name: zResourceName
+});
+
+export const zAgentPanelSelection = z.object({
+    can_operate: z.boolean(),
+    scope: zAgentPanelScope,
+    agent_id: zAgentId,
+    name: zAgentName
+});
+
+export const zAgentPanelSetup = z.object({
+    request_id: z.uuid(),
+    scope: zAgentPanelScope,
+    ready: z.boolean()
+});
+
+export const zAgentPanel = z.object({
+    enabled: z.boolean(),
+    revision: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    state: z.enum([
+        'empty',
+        'ready',
+        'archived',
+        'unavailable'
+    ]),
+    selection: zAgentPanelSelection.optional(),
+    setup: zAgentPanelSetup.optional()
+});
+
+export const zUpdateAgentPanelRequest = z.object({
+    agent_id: z.string().regex(/^agt_[a-z2-7]{26}$/).nullish(),
+    enabled: z.boolean().optional()
+});
+
+export const zCreateAssistantAgentRequest = z.object({
+    project_id: zProjectId,
+    request_id: z.uuid(),
+    expected_revision: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    automatic: z.boolean(),
+    model_id: zConfiguredModelId.optional()
+});
+
+export const zCreateAssistantAgentResponse = z.object({
+    agent_id: zAgentId,
+    panel: zAgentPanel
+});
+
 export const zCurrentUser = z.object({
     user: zCurrentUserIdentity,
     orgs: z.array(zCurrentUserOrg)
@@ -3987,6 +4039,29 @@ export const zDeleteOrganizationPath = z.object({
  * Organization deleted.
  */
 export const zDeleteOrganizationResponse = z.void();
+
+/**
+ * Current panel preference and any pending first-organization setup.
+ */
+export const zGetAgentPanelResponse = zAgentPanel;
+
+export const zUpdateAgentPanelBody = zUpdateAgentPanelRequest;
+
+/**
+ * Updated preference.
+ */
+export const zUpdateAgentPanelResponse = zAgentPanel;
+
+export const zCreateAssistantAgentBody = zCreateAssistantAgentRequest;
+
+export const zCreateAssistantAgentPath = z.object({
+    orgID: zOrganizationId
+});
+
+/**
+ * Assistant created, or a replay of the same request.
+ */
+export const zCreateAssistantAgentResponse2 = zCreateAssistantAgentResponse;
 
 /**
  * Account deleted.

@@ -32,6 +32,7 @@ export const knownOperations: ReadonlySet<string> = new Set([
   "GET /invitations",
   "GET /mcp-servers",
   "GET /me",
+  "GET /me/agent-panel",
   "GET /orgs",
   "GET /orgs/{orgID}/agent-profiles",
   "GET /orgs/{orgID}/agents",
@@ -115,6 +116,7 @@ export const knownOperations: ReadonlySet<string> = new Set([
   "GET /orgs/{orgID}/usage/timeseries",
   "GET /personal-access-tokens",
   "GET /tool-catalog",
+  "PATCH /me/agent-panel",
   "PATCH /orgs/{orgID}/api-keys/{keyID}",
   "PATCH /orgs/{orgID}/machines/{machineID}",
   "PATCH /orgs/{orgID}/members/{userID}",
@@ -138,6 +140,7 @@ export const knownOperations: ReadonlySet<string> = new Set([
   "POST /orgs",
   "POST /orgs/{orgID}/api-keys",
   "POST /orgs/{orgID}/api-keys/{keyID}/revoke",
+  "POST /orgs/{orgID}/assistant-agents",
   "POST /orgs/{orgID}/invitations",
   "POST /orgs/{orgID}/machine-pools",
   "POST /orgs/{orgID}/machine-pools/check-connection",
@@ -212,6 +215,7 @@ export const keyedOperations: ReadonlySet<string> = new Set([
 ])
 
 export const idempotentOperations: ReadonlySet<string> = new Set([
+  "POST /orgs/{orgID}/assistant-agents",
   "POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/archive",
   "POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result",
   "PUT /orgs/{orgID}/projects/{projectID}/memory-stores/{memoryStoreID}/file"

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createOmnaraClient } from './client'
 import { ApiError } from './errors'
-import { writeMemoryFile } from './generated/sdk.gen'
+import { createAssistantAgent, writeMemoryFile } from './generated/sdk.gen'
 
 const baseUrl = 'https://api.example.test/v1'
 const agentUrl = '/orgs/{orgID}/projects/{projectID}/agents'
@@ -190,6 +190,32 @@ describe('SDK transport retries', () => {
     await vi.runAllTimersAsync()
     await done
     expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries assistant creation with the original request ID and preference revision', async () => {
+    const sent: string[] = []
+    const client = createOmnaraClient({
+      baseUrl,
+      fetch: async (input) => {
+        sent.push(await new Request(input).text())
+        return sent.length === 1
+          ? failure()
+          : Response.json({
+              agent_id: 'agt_abcdefghijklmnopqrstuvwxyz',
+              panel: { enabled: true, revision: 1, state: 'ready' },
+            })
+      },
+    })
+    const body = {
+      project_id: path.projectID,
+      request_id: '12345678-1234-4234-8234-123456789abc',
+      expected_revision: 0,
+      automatic: false,
+    }
+    const done = createAssistantAgent({ client, path: { orgID: path.orgID }, body })
+    await vi.runAllTimersAsync()
+    expect((await done).data.agent_id).toBe('agt_abcdefghijklmnopqrstuvwxyz')
+    expect(sent).toEqual([JSON.stringify(body), JSON.stringify(body)])
   })
 
   it('replays binary memory uploads with exactly the original bytes', async () => {

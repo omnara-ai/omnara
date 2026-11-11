@@ -4,8 +4,7 @@ import {
   type AgentInput,
   type OmnaraClient,
 } from '@omnara/sdk'
-import { getAgentOptions } from '@omnara/sdk/tanstack'
-import { type QueryClient, type QueryStatus, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import { useOmnaraClient } from '../omnara-client'
@@ -17,7 +16,6 @@ import {
   isControlEvent,
   isTerminalEvent,
   type ModelOutputDelta,
-  type OmnaraUIMessage,
   parseStreamData,
   projectAgentChat,
   sequenceNumber,
@@ -25,9 +23,9 @@ import {
 import {
   createAgentChatInput,
   isDefiniteSendFailure,
+  resolveAgentChatHint,
   sameMessage,
   sdkAgentChatTransport,
-  sourceHint,
 } from './agent-chat-transport'
 import type {
   AgentChatData,
@@ -35,12 +33,11 @@ import type {
   AgentChatOptions,
   AgentChatScope,
   AgentChatSessionOptions,
-  AgentChatStatus,
   AgentChatTransport,
   LocalAgentInput,
+  UseAgentChatResult,
 } from './agent-chat-types'
 import {
-  type AgentInputBacklogControls,
   agentInputBacklogQueryKey,
   cacheAgentInputBacklog,
   useAgentInputBacklog,
@@ -52,6 +49,7 @@ export type { OmnaraUIMessage } from './agent-chat-messages'
 export type {
   AgentChatAttachmentInput,
   AgentChatData,
+  AgentChatHistoryStatus,
   AgentChatMessageInput,
   AgentChatOptions,
   AgentChatScope,
@@ -60,27 +58,8 @@ export type {
   AgentChatStatus,
   AgentChatTransport,
   OmnaraMessageMetadata,
+  UseAgentChatResult,
 } from './agent-chat-types'
-
-export type AgentChatHistoryStatus = QueryStatus
-
-export interface UseAgentChatResult {
-  events: AgentEvent[]
-  messages: OmnaraUIMessage[]
-  status: AgentChatStatus
-  isWorking: boolean
-  error: Error | undefined
-  streamError: Error | undefined
-  historyStatus: AgentChatHistoryStatus
-  historyError: Error | null
-  retryHistory: () => void
-  reconnect: () => void
-  hasOlderMessages: boolean
-  isLoadingOlderMessages: boolean
-  loadOlderMessages: () => void
-  sendMessage: (message: AgentChatMessageInput) => Promise<void>
-  inputBacklog: AgentInputBacklogControls
-}
 
 const emptyBacklogInputs: AgentInput[] = []
 
@@ -99,7 +78,7 @@ export class AgentChatSession {
   private completedCalls = new Set<string>()
   private cursor: number | undefined
   private localInputs = new Map<string, LocalAgentInput>()
-  private lastFailedSend: LocalAgentInput | null = null
+  private lastFailedSend: (LocalAgentInput & { hint?: string; hintResolved: boolean }) | null = null
   private error: Error | undefined
   private errorSource: 'send' | 'stream' | undefined
 
@@ -152,22 +131,27 @@ export class AgentChatSession {
     resolveHint?: () => Promise<string | undefined>,
   ): Promise<void> => {
     const text = message.text.trim()
-    const attachments = message.attachments ?? []
+    const attachments = message.attachments?.map((attachment) => ({ ...attachment })) ?? []
     if (text === '' && attachments.length === 0) {
       throw new Error('Agent messages must contain text or an attachment')
     }
     this.connect()
     const normalized = { text, attachments, attachmentCount: attachments.length }
     const previous = this.lastFailedSend
-    const id =
-      previous != null && sameMessage(previous, normalized) ? previous.id : crypto.randomUUID()
+    const retry = previous != null && sameMessage(previous, normalized) ? previous : null
+    const id = retry?.id ?? crypto.randomUUID()
+    let hint = retry?.hint
+    let hintResolved = retry?.hintResolved ?? false
     this.lastFailedSend = null
     this.error = undefined
     this.errorSource = undefined
     this.localInputs.set(id, { id, ...normalized, placement })
     this.notify()
     try {
-      const hint = resolveHint == null ? undefined : await resolveHint()
+      if (!hintResolved) {
+        hint = resolveHint == null ? undefined : await resolveHint()
+        hintResolved = true
+      }
       const input = await createAgentChatInput(
         this.transport,
         this.client,
@@ -187,17 +171,15 @@ export class AgentChatSession {
         void this.queryClient.invalidateQueries({
           queryKey: agentInputBacklogQueryKey(this.client, this.scope),
         })
-        const signal = this.runController?.signal
         await new Promise((resolve) =>
           globalThis.setTimeout(resolve, this.inputReconciliationDelayMs),
         )
-        if (signal?.aborted && this.listeners.length === 0) return
         if (this.inputEchoLoaded(id)) {
           this.clearLocalInput(id)
           return
         }
         if (this.localInputs.get(id)?.agentInputID != null) return
-        this.lastFailedSend = { id, ...normalized, placement }
+        this.lastFailedSend = { id, ...normalized, placement, hint, hintResolved }
       }
       this.localInputs.delete(id)
       this.error = sendError
@@ -387,6 +369,10 @@ export class AgentChatSession {
   disconnect = (): void => {
     this.runController?.abort()
     this.runController = null
+    if (this.deltas.length > 0) {
+      this.deltas = []
+      this.notify()
+    }
   }
 
   reconnect = (): void => {
@@ -440,14 +426,18 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
   const queryClient = useQueryClient()
   const { orgID, projectID, agentID } = scope
   const inputBacklog = useAgentInputBacklog(scope)
-  const { source } = options
-  const resolveHint = useCallback(async () => {
-    const { agent } = await queryClient.query({
-      ...getAgentOptions({ path: { orgID, projectID, agentID }, client }),
-      staleTime: 'static',
-    })
-    return agent.integration_target == null ? undefined : sourceHint(source)
-  }, [agentID, client, orgID, projectID, queryClient, source])
+  const { source, getContext } = options
+  const resolveHint = useCallback(
+    () =>
+      resolveAgentChatHint(
+        client,
+        queryClient,
+        { orgID, projectID, agentID },
+        source,
+        getContext?.(),
+      ),
+    [agentID, client, getContext, orgID, projectID, queryClient, source],
+  )
 
   const history = useAgentChatHistory(client, scope)
 

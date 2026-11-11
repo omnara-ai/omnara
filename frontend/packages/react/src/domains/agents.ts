@@ -113,12 +113,17 @@ export function useAgent(
   })
 }
 
-export function useAgentQuery(orgID: string, projectID: string, agentID?: string) {
+export function useAgentQuery(
+  orgID: string,
+  projectID: string,
+  agentID?: string,
+  options?: { refetchInterval?: (data: GetAgentResponse | undefined) => number | false },
+) {
   const client = useOmnaraClient()
   return useQuery({
     ...getAgentOptions({ path: { orgID, projectID, agentID: agentID ?? '' }, client }),
     enabled: agentID !== undefined,
-    refetchInterval: agentRefetchInterval(),
+    refetchInterval: agentRefetchInterval(options?.refetchInterval),
   })
 }
 

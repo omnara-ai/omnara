@@ -2,7 +2,6 @@ import { useMe, usePendingInvitations } from '@omnara/react'
 import type { OrgInvitation } from '@omnara/sdk'
 import { Link, useNavigate } from '@tanstack/react-router'
 
-import { ActiveOrgProvider } from '@/components/active-org/ActiveOrgProvider'
 import { AppShell } from '@/components/app-shell/AppShell'
 import { BrandMark } from '@/components/brand/OmnaraMark'
 import { MailCheck } from '@/components/icons'
@@ -40,11 +39,7 @@ export function Invitations() {
     )
   }
 
-  return (
-    <ActiveOrgProvider>
-      <OrganizationInvitations />
-    </ActiveOrgProvider>
-  )
+  return <OrganizationInvitations />
 }
 
 function OrganizationInvitations() {

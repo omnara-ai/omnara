@@ -10,6 +10,7 @@ import {
   client,
   connection,
   controlEvent,
+  createChatTestSession,
   delta,
   event,
   messageText,
@@ -40,6 +41,44 @@ function actor(id: string, providerUserId: string): Actor {
 
 describe('AgentChatSession streaming', () => {
   beforeEach(resetChatTestHarness)
+
+  it('resumes from the durable cursor without retaining a partial preview across subscriptions', async () => {
+    const session = createChatTestSession()
+    session.start(0)
+    const unsubscribe = session.subscribe(() => undefined)
+    const first = await connection(0)
+    first.push({ event: 'agent_input', data: userInputEvent() })
+    first.push({
+      event: 'model_output_delta',
+      data: delta(1, { kind: 'block_start', block_index: 0, block: { kind: 'text' } }),
+    })
+    first.push({
+      event: 'model_output_delta',
+      data: delta(2, { kind: 'text_delta', block_index: 0, delta: 'Partial preview' }),
+    })
+    await waitForSnapshot(session, (state) =>
+      state.messages.flatMap(messageText).includes('Partial preview'),
+    )
+    unsubscribe()
+    expect(transport.openAgentEventStream.mock.calls[0]?.[0].signal?.aborted).toBe(true)
+    expect(session.getData().deltas).toEqual([])
+    const stop = session.subscribe(() => undefined)
+    try {
+      const resumed = await connection(1)
+      expect(transport.openAgentEventStream.mock.calls[1]?.[0].query?.after_sequence).toBe(11)
+      first.fail(new Error('late failure from closed stream'))
+      resumed.push({
+        event: 'model_output',
+        data: event({ sequence: 12, content_blocks: [{ type: 'text', text: 'Complete answer' }] }),
+      })
+      await waitForSnapshot(session, (state) => state.status === 'ready')
+      expect(read(session).messages.flatMap(messageText)).toEqual(['Hello', 'Complete answer'])
+      expect(read(session).error).toBeUndefined()
+      expect(transport.openAgentEventStream.mock.calls[1]?.[0].signal?.aborted).toBe(false)
+    } finally {
+      stop()
+    }
+  })
 
   it('streams accepted deltas as a live preview and swaps to the durable output', async () => {
     const session = startSession()

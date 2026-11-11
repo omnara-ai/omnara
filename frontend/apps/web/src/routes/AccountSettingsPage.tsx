@@ -1,7 +1,7 @@
 import { useMe } from '@omnara/react'
 import { Link } from '@tanstack/react-router'
 
-import { ActiveOrgProvider } from '@/components/active-org/ActiveOrgProvider'
+import { AgentPanelSetting } from '@/components/agent-panel/AgentPanelSetting'
 import { AppShell } from '@/components/app-shell/AppShell'
 import { BrandMark } from '@/components/brand/OmnaraMark'
 import { DetailList } from '@/components/data-table/DetailList'
@@ -39,11 +39,9 @@ export function AccountSettingsPage() {
   }
 
   return (
-    <ActiveOrgProvider>
-      <AppShell>
-        <OrganizationAccountSettings />
-      </AppShell>
-    </ActiveOrgProvider>
+    <AppShell>
+      <OrganizationAccountSettings />
+    </AppShell>
   )
 }
 
@@ -72,6 +70,7 @@ function AccountSettingsContent({ breadcrumb }: { breadcrumb: Crumb[] }) {
           ]}
         />
       </section>
+      <AgentPanelSetting />
       <DeleteAccountSection />
     </div>
   )

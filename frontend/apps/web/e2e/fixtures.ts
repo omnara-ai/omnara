@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto'
 
 import { type Integration, type IntegrationKind, schemas, zJsonText } from '@omnara/sdk'
-import { expect, type Page, type Request, type Response } from '@playwright/test'
+import { expect, type Locator, type Page, type Request, type Response } from '@playwright/test'
 import { z } from 'zod'
 
 export async function mockSlackSetupReturn(
@@ -41,6 +41,37 @@ export function requiredEnvironmentVariable(name: string): string {
   const value = process.env[name]
   if (!value) throw new Error(`${name} is required. Run \`make web-e2e\` from the repository root.`)
   return value
+}
+
+/**
+ * At the end of the page's scroll, the action is fully visible and clear of the floating assistant
+ * launcher. With widths, checks each one at the current height and then restores the viewport.
+ */
+export async function expectClearOfAssistantLauncher(
+  page: Page,
+  action: Locator,
+  widths?: readonly number[],
+) {
+  const viewport = page.viewportSize()
+  if (!viewport) throw new Error('Launcher clearance requires a viewport')
+  for (const width of widths ?? [viewport.width]) {
+    await page.setViewportSize({ width, height: viewport.height })
+    await action.scrollIntoViewIfNeeded()
+    await action.evaluate((element) => {
+      for (let node = element.parentElement; node; node = node.parentElement) {
+        node.scrollTop = node.scrollHeight
+      }
+    })
+    await expect(action).toBeInViewport({ ratio: 1 })
+    const launcher = page.getByRole('button', { name: 'Assistant', exact: true })
+    await expect(launcher).toBeInViewport()
+    const [a, b] = await Promise.all([launcher.boundingBox(), action.boundingBox()])
+    if (!a || !b) throw new Error('Assistant launcher or action is not rendered')
+    const overlaps =
+      a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+    expect(overlaps).toBe(false)
+  }
+  await page.setViewportSize(viewport)
 }
 
 interface FailureTrackingPage {
@@ -240,7 +271,9 @@ export async function connectIntegrationWithCredentialRetry(
     )
   const created = integrationCreation(page)
   const failedSetup = setupResponse()
-  await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
+  const connect = page.getByRole('button', { name: 'Create and connect', exact: true })
+  await expectClearOfAssistantLauncher(page, connect, [390, 768])
+  await connect.click()
   const creation = await created
   expect(creation.status()).toBe(201)
   expect(creation.request().postDataJSON()).toEqual({
@@ -261,6 +294,13 @@ export async function connectIntegrationWithCredentialRetry(
   expect((await configured).status()).toBe(200)
   await expect(page).toHaveURL(`/projects/${projectID}/integrations/new/${integrationKind}`)
   await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
+  for (const name of ['Skip for now', 'Save changes']) {
+    await expectClearOfAssistantLauncher(
+      page,
+      page.getByRole('button', { name, exact: true }),
+      [390, 768],
+    )
+  }
   await expect(page.getByRole('dialog')).toHaveCount(0)
   const integration = await readIntegration(page, apiProjectPath, draft.id)
   expect(integration).toMatchObject({

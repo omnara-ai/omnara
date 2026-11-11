@@ -1,18 +1,19 @@
 import { Outlet } from '@tanstack/react-router'
-import { Suspense } from 'react'
+import { Suspense, useContext } from 'react'
 
-import { ActiveOrgProvider } from '@/components/active-org/ActiveOrgProvider'
 import { AppShell } from '@/components/app-shell/AppShell'
 import { FullPageSpinner } from '@/components/ui/spinner'
+import { ActiveOrgContext } from '@/lib/active-org-context'
 
 export function AuthedLayout() {
+  const activeOrg = useContext(ActiveOrgContext)
+  if (activeOrg == null) return <FullPageSpinner />
+
   return (
-    <ActiveOrgProvider>
-      <AppShell>
-        <Suspense fallback={<FullPageSpinner />}>
-          <Outlet />
-        </Suspense>
-      </AppShell>
-    </ActiveOrgProvider>
+    <AppShell>
+      <Suspense fallback={<FullPageSpinner />}>
+        <Outlet />
+      </Suspense>
+    </AppShell>
   )
 }

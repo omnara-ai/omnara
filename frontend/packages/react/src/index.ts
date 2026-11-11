@@ -38,6 +38,7 @@ export {
   useCancelAgent,
   useResolveAgentInteraction,
 } from './domains/agent-interactions'
+export { useAgentPanel, useCreateAssistantAgent, useUpdateAgentPanel } from './domains/agent-panel'
 export {
   type AgentProfileListFilters,
   type AgentProfileListOptions,

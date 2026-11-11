@@ -471,3 +471,39 @@ func TestManifestRejectsUnknownOperation(t *testing.T) {
 		t.Fatal("expected an error for an unknown operation id")
 	}
 }
+
+func TestReadOnlyToolNamesMatchManifestOperations(t *testing.T) {
+	t.Parallel()
+	spec, err := openapi.GetSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	names, err := ReadOnlyToolNames(spec, Tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := make(map[string]bool)
+	for _, name := range names {
+		allowed[name] = true
+	}
+	for _, name := range []string{"whoami", "agents_list"} {
+		if !allowed[name] {
+			t.Errorf("read tool %s must be allowed", name)
+		}
+	}
+	for _, name := range []string{"agents_launch", "secrets_create", "agents_interactions_resolve"} {
+		if allowed[name] {
+			t.Errorf("write tool %s must require approval", name)
+		}
+	}
+	operations := indexOperations(spec)
+	for _, tool := range Tools {
+		want := operations[operationKey(tool.OperationID)].method == http.MethodGet
+		if allowed[tool.Name] != want {
+			t.Errorf("%s read-only=%v, want %v", tool.Name, allowed[tool.Name], want)
+		}
+	}
+	if _, err := ReadOnlyToolNames(spec, []Tool{{Name: "unknown", OperationID: "notAnOperation"}}); err == nil {
+		t.Fatal("unknown operation must not receive a permission rule")
+	}
+}

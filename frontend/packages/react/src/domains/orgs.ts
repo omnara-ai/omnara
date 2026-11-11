@@ -7,6 +7,7 @@ import {
   sdk,
 } from '@omnara/sdk'
 import {
+  getAgentPanelQueryKey,
   getCurrentUserQueryKey,
   getOrgOverviewOptions,
   listOrgInvitationsInfiniteOptions,
@@ -47,6 +48,7 @@ export function useCreateOrganization() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: getCurrentUserQueryKey({ client }) })
+      await queryClient.invalidateQueries({ queryKey: getAgentPanelQueryKey({ client }) })
     },
   })
 }
@@ -67,6 +69,7 @@ export function useDeleteOrganization() {
         me ? { ...me, orgs: me.orgs.filter((org) => org.id !== orgID) } : me,
       )
       await queryClient.invalidateQueries({ queryKey })
+      await queryClient.invalidateQueries({ queryKey: getAgentPanelQueryKey({ client }) })
     },
   })
 }

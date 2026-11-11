@@ -334,6 +334,11 @@ JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND agent.state = 'active'
   AND agent.parent_agent_id IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM assistant_agent_creations creation WHERE creation.agent_id = agent.id AND creation.automatic
+      AND NOT EXISTS (SELECT 1 FROM agent_inputs input WHERE input.project_id = agent.project_id
+        AND input.agent_id = agent.id AND input.input_kind = 'content')
+  )
 ORDER BY agent.updated_at DESC, agent.id DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 

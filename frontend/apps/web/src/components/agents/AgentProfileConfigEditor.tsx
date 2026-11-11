@@ -93,16 +93,21 @@ export function AgentProfileConfigEditor({
           <p className="text-destructive text-sm whitespace-pre-wrap">{error.message}</p>
         )}
         {canManage && (
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
             {editor.dirty && !pending && (
-              <Button type="button" variant="ghost" onClick={onDiscard}>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full sm:w-auto"
+                onClick={onDiscard}
+              >
                 Discard changes
               </Button>
             )}
             <Button
               type="button"
               variant="ghost"
-              className="text-destructive hover:text-destructive"
+              className="text-destructive hover:text-destructive w-full sm:w-auto"
               onClick={onDelete}
             >
               Delete profile
@@ -111,6 +116,7 @@ export function AgentProfileConfigEditor({
               type="submit"
               disabled={pending || !editor.dirty || editor.saveBlocked}
               loading={pending}
+              className="w-full sm:w-auto"
             >
               Save revision
             </Button>

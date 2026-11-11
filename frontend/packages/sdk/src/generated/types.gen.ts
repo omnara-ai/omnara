@@ -986,6 +986,10 @@ export type ProjectModelGrantListItem = {
     grant: ProjectModelGrant;
     model: ConfiguredModelSummary;
     effective_reasoning: ProjectModelGrantEffectiveReasoning;
+    /**
+     * Whether the effective model after project overrides is valid and supports tool calls.
+     */
+    supports_tools: boolean;
 };
 
 /**
@@ -4521,6 +4525,91 @@ export type ListOrganizationsResponse = {
     data: Array<CurrentUserOrg>;
 };
 
+export type AgentPanelScope = {
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    org_name: ResourceName;
+    project_name: ResourceName;
+};
+
+export type AgentPanelSelection = {
+    /**
+     * Whether the current user has permission to operate the selected agent. Archived agents still cannot accept input.
+     */
+    can_operate: boolean;
+    scope: AgentPanelScope;
+    agent_id: AgentId;
+    name: AgentName;
+};
+
+export type AgentPanelSetup = {
+    /**
+     * Stable request ID to pass to automatic assistant creation, including retries of the same setup.
+     */
+    request_id: string;
+    scope: AgentPanelScope;
+    /**
+     * Whether the project currently has a model that supports tools.
+     */
+    ready: boolean;
+};
+
+export type AgentPanel = {
+    /**
+     * Whether to show the panel. Hiding it does not stop the agent or revoke its credentials.
+     */
+    enabled: boolean;
+    /**
+     * Current preference revision. Pass this as expected_revision when creating an assistant.
+     */
+    revision: number;
+    /**
+     * Empty means no agent is selected. Ready means the selected agent is accessible. Archived means it is accessible but cannot accept input. Unavailable means the selected agent was removed or the user no longer has access; selection details are omitted.
+     */
+    state: 'empty' | 'ready' | 'archived' | 'unavailable';
+    selection?: AgentPanelSelection;
+    setup?: AgentPanelSetup;
+};
+
+export type UpdateAgentPanelRequest = {
+    /**
+     * Agent to connect, or null to disconnect. Omit to preserve the selection.
+     */
+    agent_id?: string | null;
+    /**
+     * Whether to show the panel. Hiding it does not stop the agent or revoke its credentials.
+     */
+    enabled?: boolean;
+};
+
+export type CreateAssistantAgentRequest = {
+    /**
+     * Public project ID (proj_ prefix) within the selected organization where the assistant will live.
+     */
+    project_id: ProjectId;
+    /**
+     * Stable UUID for retries. Automatic setup uses the pending project's UUID.
+     */
+    request_id: string;
+    /**
+     * The revision returned by GET /me/agent-panel. A new request returns 409 if the preference changed. Replaying a completed request with its original parameters returns the original agent without changing the current selection.
+     */
+    expected_revision: number;
+    /**
+     * Complete pending first-organization setup; otherwise explicitly create an assistant.
+     */
+    automatic: boolean;
+    /**
+     * Optional configured model ID (mdl_ prefix), granted to the project and supporting tools. If omitted, selects the first eligible grant in creation order.
+     */
+    model_id?: ConfiguredModelId;
+};
+
+export type CreateAssistantAgentResponse = {
+    agent_id: AgentId;
+    panel: AgentPanel;
+};
+
 export type CurrentUser = {
     user: CurrentUserIdentity;
     orgs: Array<CurrentUserOrg>;
@@ -5796,6 +5885,206 @@ export type DeleteOrganizationResponses = {
 };
 
 export type DeleteOrganizationResponse = DeleteOrganizationResponses[keyof DeleteOrganizationResponses];
+
+export type GetAgentPanelData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/me/agent-panel';
+};
+
+export type GetAgentPanelErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetAgentPanelError = GetAgentPanelErrors[keyof GetAgentPanelErrors];
+
+export type GetAgentPanelResponses = {
+    /**
+     * Current panel preference and any pending first-organization setup.
+     */
+    200: AgentPanel;
+};
+
+export type GetAgentPanelResponse = GetAgentPanelResponses[keyof GetAgentPanelResponses];
+
+export type UpdateAgentPanelData = {
+    body: UpdateAgentPanelRequest;
+    path?: never;
+    query?: never;
+    url: '/me/agent-panel';
+};
+
+export type UpdateAgentPanelErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateAgentPanelError = UpdateAgentPanelErrors[keyof UpdateAgentPanelErrors];
+
+export type UpdateAgentPanelResponses = {
+    /**
+     * Updated preference.
+     */
+    200: AgentPanel;
+};
+
+export type UpdateAgentPanelResponse = UpdateAgentPanelResponses[keyof UpdateAgentPanelResponses];
+
+export type CreateAssistantAgentData = {
+    body: CreateAssistantAgentRequest;
+    path: {
+        /**
+         * Organization ID (org_...).
+         */
+        orgID: OrganizationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/assistant-agents';
+};
+
+export type CreateAssistantAgentErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateAssistantAgentError = CreateAssistantAgentErrors[keyof CreateAssistantAgentErrors];
+
+export type CreateAssistantAgentResponses = {
+    /**
+     * Assistant created, or a replay of the same request.
+     */
+    200: CreateAssistantAgentResponse;
+};
+
+export type CreateAssistantAgentResponse2 = CreateAssistantAgentResponses[keyof CreateAssistantAgentResponses];
 
 export type DeleteCurrentUserData = {
     body?: never;

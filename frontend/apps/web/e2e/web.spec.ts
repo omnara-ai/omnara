@@ -16,7 +16,7 @@ import {
   readIntegration,
   requiredEnvironmentVariable,
 } from './fixtures'
-import { signIn, signInThroughLoginForm } from './helpers'
+import { expectClearOfAssistantLauncher, signIn, signInThroughLoginForm } from './helpers'
 import { exerciseGuidedGitHubSetup } from './integration-github'
 import { exerciseDiscordIntegrationSchedule } from './integration-schedules'
 import { exerciseSlackIntegrationSetup } from './integration-slack'
@@ -177,33 +177,41 @@ test('opens and answers pending invitations outside onboarding', async ({ page }
   expect(failures).toEqual([])
 })
 
-test('creates an agent from YAML', async ({ page }) => {
-  const failures = installFailureTracking(page)
-  await signIn(page, adminEmail, createAgentPath)
+for (const viewport of [
+  { name: 'desktop', width: 1280, height: 720 },
+  { name: 'mobile', width: 390, height: 844 },
+]) {
+  test(`creates an agent from YAML on ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    const failures = installFailureTracking(page)
+    await signIn(page, adminEmail, createAgentPath)
 
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'YAML' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'YAML' }).click()
-  await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toHaveAttribute(
-    'aria-required',
-    'true',
-  )
+    await page.getByRole('button', { name: 'YAML' }).click()
+    await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toHaveAttribute(
+      'aria-required',
+      'true',
+    )
 
-  const agentName = uniqueName('YAML E2E Agent')
-  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
-  const yamlLines = [
-    'instruction: Test agent creation from YAML.',
-    `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
-  ]
-  await replaceConfigEditor(page, yamlLines.join('\n'))
-  await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
-  await page.getByRole('button', { name: 'Create & launch agent' }).click()
+    const agentName = uniqueName(`YAML E2E Agent ${viewport.name}`)
+    await page.getByRole('textbox', { name: 'Name', exact: true }).fill(agentName)
+    const yamlLines = [
+      'instruction: Test agent creation from YAML.',
+      `model: { provider_config: "${providerConfig}", name: "${modelName}" }`,
+    ]
+    await replaceConfigEditor(page, yamlLines.join('\n'))
+    await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
+    await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
-  await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(agentName)
-  expect(failures).toEqual([])
-})
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
+    await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(
+      agentName,
+    )
+    expect(failures).toEqual([])
+  })
+}
 
 test('creates an agent with the Builder', async ({ page }) => {
   const failures = installFailureTracking(page)
@@ -471,6 +479,11 @@ test('deletes a profile from its detail page', async ({ page }) => {
   ])
   const profileName = uniqueName('Deleted Profile E2E')
   await createProfile(page, profileName, 'Delete this profile from its detail page.')
+  await page.getByLabel('Instruction').fill('Edited before deletion.')
+  for (const name of ['Discard changes', 'Delete profile', 'Save revision']) {
+    const action = page.getByRole('button', { name, exact: true })
+    await expectClearOfAssistantLauncher(page, action, [390, 768])
+  }
 
   page.once('dialog', (dialog) => void dialog.accept())
   const profilesListed = page.waitForResponse(

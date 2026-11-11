@@ -949,6 +949,7 @@ func (s strictOpenAPIServer) ListProjectModelGrants(
 			Grant:              response,
 			Model:              model,
 			EffectiveReasoning: projectModelGrantEffectiveReasoningResponse(record.Effective),
+			SupportsTools:      record.Effective != nil && record.Effective.SupportsTools,
 		})
 	}
 	nextCursor, err := encodeResourceListNextCursor(

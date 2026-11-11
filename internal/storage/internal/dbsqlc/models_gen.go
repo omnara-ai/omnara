@@ -132,6 +132,14 @@ type AgentMcpConnection struct {
 	CatalogID          *uuid.UUID
 }
 
+type AgentPanelPreference struct {
+	UserID           uuid.UUID
+	AgentID          *uuid.UUID
+	Enabled          bool
+	Revision         int64
+	PendingProjectID *uuid.UUID
+}
+
 type AgentRuntimeLock struct {
 	ID                uuid.UUID
 	AgentID           uuid.UUID
@@ -140,6 +148,18 @@ type AgentRuntimeLock struct {
 	RenewedAt         time.Time
 	LeaseExpiresAt    time.Time
 	CancelRequestedAt *time.Time
+}
+
+type AssistantAgentCreation struct {
+	UserID                uuid.UUID
+	RequestID             uuid.UUID
+	OrgID                 uuid.UUID
+	ProjectID             uuid.UUID
+	AgentID               uuid.UUID
+	PersonalAccessTokenID uuid.UUID
+	SecretID              uuid.UUID
+	RequestedModelID      *uuid.UUID
+	Automatic             bool
 }
 
 type AuthConnector struct {
@@ -566,11 +586,12 @@ type SkillGrant struct {
 }
 
 type User struct {
-	ID          uuid.UUID
-	DisplayName string
-	DeletedAt   *time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID                          uuid.UUID
+	DisplayName                 string
+	DeletedAt                   *time.Time
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	AgentPanelBootstrapEligible bool
 }
 
 type UserAuthIdentity struct {

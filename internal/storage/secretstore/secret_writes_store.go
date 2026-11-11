@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
@@ -19,10 +20,10 @@ import (
 
 func (s *Store) CreateTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	input CreateSecretInput,
 ) (SecretRecord, SecretVersionRecord, error) {
-	return s.createSecretTx(ctx, tx, s.q.WithTx(tx), input)
+	return s.createSecretTx(ctx, tx, dbsqlc.New(tx), input)
 }
 
 func (s *Store) CreateSecret(
@@ -33,7 +34,7 @@ func (s *Store) CreateSecret(
 		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("cluster-managed secrets are reserved")
 	}
 	input.ManagementKind = management.Tenant
-	if err := s.validateCreateSecretInput(ctx, &input); err != nil {
+	if err := s.validateCreateSecretInput(ctx, s.q, &input); err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -46,43 +47,8 @@ func (s *Store) CreateSecret(
 	if err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
 	}
-	if err := resourceguard.Lock(
-		ctx,
-		qtx,
-		resourceSecrets,
-		resourceguard.OwnerScope(
-			input.OrgID,
-			input.OwnerKind,
-			input.OwnerProjectID,
-			input.OwnerUserID,
-		),
-	); err != nil {
+	if err := resourceguard.CheckCreations(ctx, tx, []resourceguard.Creation{secretCreation(input)}); err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, err
-	}
-	limits, err := resourceguard.ResolveLimits(ctx, qtx, input.OrgID)
-	if err != nil {
-		return SecretRecord{}, SecretVersionRecord{}, err
-	}
-	secretCount, err := qtx.CountActiveTenantSecretsForOwner(
-		ctx,
-		dbsqlc.CountActiveTenantSecretsForOwnerParams{
-			OrgID:          input.OrgID,
-			OwnerKind:      input.OwnerKind,
-			OwnerProjectID: storeutil.IDFromNil(input.OwnerProjectID),
-			OwnerUserID:    storeutil.IDFromNil(input.OwnerUserID),
-		},
-	)
-	if err != nil {
-		return SecretRecord{}, SecretVersionRecord{}, fmt.Errorf(
-			"count active tenant secrets: %w",
-			err,
-		)
-	}
-	if secretCount > limits.MaxActiveTenantSecretsPerOwner {
-		return SecretRecord{}, SecretVersionRecord{}, resourceguard.LimitExceeded(
-			"active secrets",
-			limits.MaxActiveTenantSecretsPerOwner,
-		)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return SecretRecord{}, SecretVersionRecord{}, fmt.Errorf("commit create secret: %w", err)
@@ -90,9 +56,36 @@ func (s *Store) CreateSecret(
 	return record, version, nil
 }
 
+// CreateTenantSecretInUnit applies ordinary tenant validation and defers quota
+// checks to the unit's final creation phase, alongside its other resources.
+func (s *Store) CreateTenantSecretInUnit(
+	ctx context.Context, unit *agentexecution.Unit, input CreateSecretInput,
+) (SecretRecord, SecretVersionRecord, error) {
+	if input.ManagementKind == management.Cluster {
+		return SecretRecord{}, SecretVersionRecord{}, invalidSecretRequest("cluster-managed secrets are reserved")
+	}
+	input.ManagementKind = management.Tenant
+	if err := s.validateCreateSecretInput(ctx, dbsqlc.New(unit.DB()), &input); err != nil {
+		return SecretRecord{}, SecretVersionRecord{}, err
+	}
+	record, version, err := s.CreateTx(ctx, unit.DB(), input)
+	if err != nil {
+		return SecretRecord{}, SecretVersionRecord{}, err
+	}
+	unit.TrackCreation(secretCreation(input))
+	return record, version, nil
+}
+
+func secretCreation(input CreateSecretInput) resourceguard.Creation {
+	return resourceguard.Creation{
+		Kind: resourceguard.Secrets, OrgID: input.OrgID, OwnerKind: input.OwnerKind,
+		ProjectID: input.OwnerProjectID, UserID: input.OwnerUserID,
+	}
+}
+
 func (s *Store) createSecretTx(
 	ctx context.Context,
-	tx pgx.Tx,
+	tx dbsqlc.DBTX,
 	qtx *dbsqlc.Queries,
 	input CreateSecretInput,
 ) (SecretRecord, SecretVersionRecord, error) {
@@ -569,7 +562,7 @@ func (s *Store) deleteSecretOnce(
 	return record, nil
 }
 
-func (s *Store) validateCreateSecretInput(ctx context.Context, input *CreateSecretInput) error {
+func (s *Store) validateCreateSecretInput(ctx context.Context, q *dbsqlc.Queries, input *CreateSecretInput) error {
 	if s.secretKeyWrapper == nil {
 		return errors.New("secret key wrapper is required")
 	}
@@ -585,7 +578,7 @@ func (s *Store) validateCreateSecretInput(ctx context.Context, input *CreateSecr
 	if err := management.Validate(input.ManagementKind); err != nil {
 		return invalidSecretRequest("%v", err)
 	}
-	return s.AuthorizeSecretOwnerManage(ctx, input.OrgID, SecretOwner{
+	return authorizeSecretOwnerManage(ctx, q, input.OrgID, SecretOwner{
 		Kind: input.OwnerKind, ProjectID: input.OwnerProjectID, UserID: input.OwnerUserID,
 	}, input.Actor)
 }

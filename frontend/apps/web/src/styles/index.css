@@ -7,6 +7,11 @@
 @source '../../node_modules/streamdown/dist/*.js';
 
 @custom-variant dark (&:is(.dark *));
+/* While the floating assistant launcher is shown. Scroll areas it overlaps keep room at their
+   end so their last items can scroll clear of it. */
+@custom-variant floating-launcher (&:is(:root:has([data-floating-launcher]) *));
+/* The scroll area that ends at pinned actions, where the launcher above them overlaps its end. */
+@custom-variant before-pinned-actions (&:is(:has(+ .pinned-actions), :has(+ .pinned-actions) *));
 
 .message-scroll-fade {
   --message-scroll-fade-size: 2.5rem;
@@ -59,6 +64,36 @@
     #000 calc(100% - var(--message-scroll-fade-size)),
     transparent 100%
   );
+}
+
+/* Actions pinned to the bottom of the viewport, such as a form's submit bar.
+   Floating controls stay above the last one on the page. */
+.pinned-actions {
+  anchor-name: --pinned-actions;
+}
+
+.above-pinned-actions {
+  bottom: 1rem;
+}
+
+@supports (anchor-name: --pinned-actions) {
+  .above-pinned-actions {
+    bottom: max(1rem, calc(anchor(--pinned-actions top, 0px) + 0.75rem));
+  }
+
+  /* With the agent pane open the launcher sits over the pane, beside the page's pinned actions. */
+  :root:has([data-side='right'][data-state='expanded']) .above-pinned-actions {
+    bottom: 1rem;
+  }
+}
+
+/* Without anchor positioning the launcher stays in the corner, beside the pinned actions. */
+@supports not (anchor-name: --pinned-actions) {
+  :root:not(:has([data-side='right'][data-state='expanded'])) .pinned-actions {
+    @variant floating-launcher {
+      padding-inline-end: 4.5rem;
+    }
+  }
 }
 
 @theme inline {
