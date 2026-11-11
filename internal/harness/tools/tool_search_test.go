@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -147,4 +148,15 @@ func TestRunToolSearchAddsCodeModeToolsWithoutAMachine(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []string{"get_weather"}, search.ToolNames)
 	require.Empty(t, search.CodeModeTools)
+}
+
+func TestProgramToolSearchLimitsResultsByDefault(t *testing.T) {
+	specs := make([]modelcontext.ToolSpec, toolcatalog.ToolSearchMaxResults+5)
+	for i := range specs {
+		specs[i] = modelcontext.ToolSpec{Name: fmt.Sprintf("tool_%03d", i)}
+	}
+	search, err := ProgramToolSearch(specs, json.RawMessage(`{"pattern":"."}`))
+	require.NoError(t, err)
+	require.Equal(t, len(specs), search.Total)
+	require.Len(t, search.Tools, toolcatalog.ToolSearchMaxResults)
 }
