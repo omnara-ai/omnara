@@ -316,6 +316,25 @@ const agent37: MachinePoolProviderDefinition = {
   },
 }
 
+const maritime: MachinePoolProviderDefinition = {
+  label: 'Maritime',
+  resource: {
+    key: 'template',
+    label: 'Template',
+    placeholder: 'base',
+    optional: true,
+    description:
+      "Leave empty to use base, Maritime's Linux template, or enter a stock template or a snapshot saved from a Maritime sandbox. Machines take 1 to 16 vCPU and 1 to 64 GB of memory in whole GB.",
+    descriptionHref: 'https://maritime.sh/docs/persistent-sandboxes',
+  },
+  resources: {
+    cpu: 'configured',
+    memoryMb: 'configured',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
@@ -329,6 +348,7 @@ export const machinePoolProviderDefinitions = {
   e2b,
   superserve,
   agent37,
+  maritime,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {

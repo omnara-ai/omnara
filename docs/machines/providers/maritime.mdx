@@ -1,0 +1,61 @@
+---
+title: Maritime
+description: Linux micro-VMs for agents, each with its own kernel, systemd, and Docker
+icon: "/logo/providers/maritime.svg"
+---
+
+[Maritime](https://maritime.sh) gives each machine its own Linux micro-VM with its own kernel. Connect your Maritime account with a custom pool.
+
+## Why Maritime
+
+- **A whole Linux machine.** Each sandbox boots with systemd as PID 1 and Docker available, so agents can run services and containers the way they would on a server.
+- **Size each machine.** Pick 1 to 16 vCPU and 1 to 64 GB of memory per pool, in whole GB, and a disk from 5 to 500 GB.
+- **Start from a snapshot.** Set up one sandbox the way you want it, save it as a snapshot with its disk and memory, and start every machine in the pool from that snapshot.
+
+## Set up a Maritime pool
+
+<Steps>
+  <Step title="Create an API key">
+    Create a Maritime API key with the `sandboxes` scope, for example with `maritime keys create --name omnara --scopes sandboxes`, and store it as an org-owned [secret](/organization/secrets) in Omnara. Machines run and bill on that key's account, which needs an active Maritime plan.
+  </Step>
+  <Step title="Choose a template">
+    Leave the template empty to use `base`: Linux with Python, `curl`, and passwordless `sudo`. Agents run commands as `user` and can install anything else with `sudo`.
+
+    For your own tools, start a sandbox from `base`, install what your agents need, and save it as a snapshot with `maritime sandbox save`. Then enter the snapshot's name as the template. A pool can also use Maritime's other stock template, `code-interpreter`.
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Maritime**. Enter the credential, the template (or leave it empty), the CPU and memory, and capacity limits.
+
+    Each machine has 1 to 16 vCPU and 1 to 64 GB of memory in whole GB. Only environment variables whose names use letters, digits, and underscores, and don't start with a digit, reach the machine. Each value can be at most 32 KB, the startup script at most about 24 KB, and the environment and startup script together at most about 255 KB.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields).
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "maritime-pool",
+  "provider": "maritime",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "default_machine_provider_options": {
+    "template": "omnara-machine", // optional
+    "disk_gb": 40 // optional
+  },
+  "default_machine_cpu": 2,
+  "default_machine_memory_mb": 4096,
+  "max_machine_cpu": 4,
+  "max_machine_memory_mb": 8192,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 40960,
+  "max_total_machines": 10
+}
+```
+
+- `template` is optional. Omit it to use `base`, or set a stock template or the name of a snapshot saved in your Maritime account.
+- `disk_gb` is optional, from 5 to 500. Omit it to use the template's or snapshot's disk size.
+- CPU is 1 to 16 vCPU, and memory is 1024 to 65536 MB in multiples of 1024. A snapshot started at its own size keeps its memory and running processes; at another size it starts from its disk.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_templates` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).

@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/daytona"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/e2b"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/freestyle"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/maritime"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/modal"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/superserve"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/tenki"
@@ -37,6 +38,7 @@ func DefaultCatalog() Catalog {
 			providers.Daytona:    daytona.Definition{},
 			providers.E2B:        e2b.Definition{},
 			providers.Freestyle:  freestyle.Definition{},
+			providers.Maritime:   maritime.Definition{},
 			providers.Modal:      modal.Definition{},
 			providers.Superserve: superserve.Definition{},
 			providers.Tenki:      tenki.Definition{},

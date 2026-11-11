@@ -157,6 +157,7 @@
                   "machines/providers/daytona",
                   "machines/providers/e2b",
                   "machines/providers/freestyle",
+                  "machines/providers/maritime",
                   "machines/providers/modal",
                   "machines/providers/superserve",
                   "machines/providers/tenki",

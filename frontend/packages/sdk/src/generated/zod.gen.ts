@@ -2566,6 +2566,7 @@ export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.uni
             'agent37',
             'arker',
             'freestyle',
+            'maritime',
             'modal',
             'tenki',
             'unikraft'
