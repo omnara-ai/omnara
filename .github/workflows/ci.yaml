@@ -107,6 +107,16 @@ jobs:
         if: matrix.target == 'web'
         run: docker run --rm --volume "$PWD/gateway.nginx.conf:/etc/nginx/conf.d/default.conf:ro" omnara-web:ci nginx -t
 
+      - name: Verify Compose web and gateway
+        if: matrix.target == 'web'
+        run: |
+          docker compose --profile app up --build --no-deps --detach web gateway
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 --max-time 5 --retry-max-time 60 http://localhost:8000/ > /dev/null
+
+      - name: Stop Compose web services
+        if: always() && matrix.target == 'web'
+        run: docker compose --profile app down
+
   worker-image:
     name: Worker Image Tests
     runs-on: ubuntu-latest

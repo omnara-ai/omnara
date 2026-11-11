@@ -15,7 +15,6 @@ FROM nginx/nginx-unprivileged:1.31.8-alpine-slim@sha256:2f293597c9eea53645c61d70
 USER root
 RUN apk add --no-cache 'zlib>=1.4-r0'
 USER 101
-
 COPY --chown=101:101 frontend/apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --chown=101:101 --from=web-build /src/frontend/apps/web/dist /usr/share/nginx/omnara
 RUN nginx -t
