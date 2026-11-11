@@ -8,13 +8,13 @@ export type ClientOptions = {
  * An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.
  */
 export type AgentConfigDefinition = {
-    deferred_tools?: AgentConfigDefinitionDeferredTools;
     git_credentials?: AgentConfigDefinitionGitCredentials;
     instruction: string;
     interaction_handlers?: AgentConfigDefinitionInteractionHandlers;
     machine_sources?: AgentConfigDefinitionMachineSources;
     max_depth?: number;
     max_subagents?: number;
+    deferred_tools?: AgentConfigDefinitionDeferredTools;
     mcp?: AgentConfigDefinitionMcpServers;
     memory_stores?: AgentConfigDefinitionMemoryStores;
     model: AgentConfigDefinitionModel;
