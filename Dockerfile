@@ -11,10 +11,9 @@ COPY internal/agentconfig/generated/agent_config.schema.json /src/internal/agent
 RUN pnpm run generate:api && pnpm run typecheck && pnpm run build \
     && rm apps/web/dist/.gitkeep
 
-FROM nginxinc/nginx-unprivileged:1.31.7-alpine-slim@sha256:a8cb0f33d51fa107c96fd2bd3a71aaf564ec131e9d2bdf8700944f0ed8b170d7 AS web
+FROM nginx/nginx-unprivileged:1.31.8-alpine-slim@sha256:2f293597c9eea53645c61d70942d32b544a8007aeb586e0237e6ad637323b81b AS web
 USER root
-# Apply Alpine security fixes published after the pinned base image.
-RUN apk upgrade --no-cache
+RUN apk add --no-cache 'zlib>=1.4-r0'
 USER 101
 COPY --chown=101:101 frontend/apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --chown=101:101 --from=web-build /src/frontend/apps/web/dist /usr/share/nginx/omnara
@@ -70,7 +69,6 @@ COPY --from=api-build /out/omnara-api /usr/local/bin/omnara-api
 COPY --from=mcp-registry-snapshot --chown=nonroot:nonroot /out/mcp-registry.json /app/mcp-registry/mcp-registry.json
 ENTRYPOINT ["/usr/local/bin/omnara-api"]
 
-# Keep native tools on the same Debian release as the worker runtime.
 FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS file-tools
 RUN --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
