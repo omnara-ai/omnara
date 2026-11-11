@@ -24,6 +24,7 @@ const (
 	mantleURL    = "https://bedrock-mantle.us-east-1.api.aws/anthropic/v1"
 	runtimeURL   = "https://bedrock-runtime.us-east-1.amazonaws.com"
 	geminiURL    = "https://generativelanguage.googleapis.com/v1beta/openai"
+	groqURL      = "https://api.groq.com/openai/v1"
 	mistralURL   = "https://api.mistral.ai/v1"
 	openRouter   = "https://openrouter.ai/api/v1"
 )
@@ -120,6 +121,32 @@ func TestEstimatePricesFromBuiltInData(t *testing.T) {
 			name: "openai ultrafast tier",
 			input: Input{BaseURL: openAIURL, ServedModel: "gpt-5", Usage: tokens(1_000, 1_000),
 				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "ultrafast"}}},
+			reason: "unpriced_service_tier",
+		},
+		{
+			name: "groq on_demand tier",
+			input: Input{BaseURL: groqURL, ServedModel: "llama-3.3-70b-versatile", Usage: tokens(1_000, 1_000),
+				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "on_demand"}}},
+			cost:  "0.00138",
+			model: "llama-3.3-70b-versatile",
+		},
+		{
+			name: "groq flex tier",
+			input: Input{BaseURL: groqURL, ServedModel: "llama-3.3-70b-versatile", Usage: tokens(1_000, 1_000),
+				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "flex"}}},
+			cost:  "0.00138",
+			model: "llama-3.3-70b-versatile",
+		},
+		{
+			name: "groq auto tier",
+			input: Input{BaseURL: groqURL, ServedModel: "llama-3.3-70b-versatile", Usage: tokens(1_000, 1_000),
+				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "auto"}}},
+			reason: "unpriced_service_tier",
+		},
+		{
+			name: "groq performance tier",
+			input: Input{BaseURL: groqURL, ServedModel: "llama-3.3-70b-versatile", Usage: tokens(1_000, 1_000),
+				Metadata: modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIMetadata{ServiceTier: "performance"}}},
 			reason: "unpriced_service_tier",
 		},
 		{

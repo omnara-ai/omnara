@@ -179,7 +179,7 @@ SET LOCAL plan_cache_mode=force_generic_plan`)
 	t.Logf("budget check plan=%s", raw)
 	integrationdb.ReadPlan(t, raw).Walk(func(node integrationdb.PlanNode) {
 		if node.Relation == "project_daily_model_costs" {
-			require.Equal(t, "project_daily_model_costs_pkey", node.Index, "%s", raw)
+			require.Equal(t, "project_daily_model_costs_day_call_idx", node.Index, "%s", raw)
 		}
 	})
 	require.LessOrEqual(t, integrationdb.PlanBuffers(t, raw), 40)

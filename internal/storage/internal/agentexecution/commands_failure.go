@@ -22,6 +22,7 @@ import (
 type ModelEvidence struct {
 	APIFormat        modelprotocol.APIFormat
 	APIVariant       modelprotocol.APIVariant
+	BaseURL          string
 	RequestID        string
 	ResponseID       string
 	InputFingerprint string
@@ -158,6 +159,9 @@ func (h *Handle) finishAttempt(
 	if n != 1 {
 		return false, storeerr.ErrRuntimeLockInactive
 	}
+	if args.Cost != nil || args.EstimatedCost != nil {
+		h.unit.pricedCall = &dbsqlc.MergeProjectDailyModelCostsParams{AgentID: h.route.AgentID, ID: row.ID}
+	}
 	m.changed()
 	return true, nil
 }
@@ -173,7 +177,7 @@ func (h *Handle) estimatedCost(
 		return nil
 	}
 	cost := estimator.Estimate(ctx, modelprice.Input{
-		BaseURL:         row.ProviderBaseUrl,
+		BaseURL:         evidence.BaseURL,
 		APIFormat:       evidence.APIFormat,
 		APIVariant:      evidence.APIVariant,
 		ConfiguredModel: row.ProviderModelSlug,

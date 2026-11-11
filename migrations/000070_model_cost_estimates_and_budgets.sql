@@ -36,13 +36,19 @@ CREATE TABLE project_daily_model_costs (
     org_id uuid NOT NULL,
     day date NOT NULL,
     project_id uuid NOT NULL,
+    model_call_context_id uuid,
     provider_reported_cost_usd numeric(30, 15) NOT NULL,
     estimated_cost_usd numeric(30, 15) NOT NULL,
-    PRIMARY KEY (org_id, day, project_id),
     CHECK (provider_reported_cost_usd <> 'NaN'::numeric AND provider_reported_cost_usd >= 0),
-    CHECK (estimated_cost_usd <> 'NaN'::numeric AND estimated_cost_usd >= 0),
-    FOREIGN KEY (org_id, project_id) REFERENCES projects(org_id, id)
+    CHECK (estimated_cost_usd <> 'NaN'::numeric AND estimated_cost_usd >= 0)
 );
+
+CREATE UNIQUE INDEX project_daily_model_costs_day_call_idx
+    ON project_daily_model_costs(org_id, day, project_id, model_call_context_id)
+    NULLS NOT DISTINCT;
+
+CREATE INDEX project_daily_model_costs_unmerged_idx
+    ON project_daily_model_costs(org_id, project_id) WHERE model_call_context_id IS NOT NULL;
 
 -- +goose StatementBegin
 CREATE FUNCTION budget_interval_cost(p_org_id uuid, p_project_id uuid, p_interval text)
@@ -65,24 +71,22 @@ $$;
 -- +goose StatementBegin
 CREATE FUNCTION sync_project_daily_model_cost_from_model_call_context() RETURNS trigger AS $$
 BEGIN
-    INSERT INTO project_daily_model_costs(org_id, day, project_id, provider_reported_cost_usd, estimated_cost_usd)
-    VALUES (
+    INSERT INTO project_daily_model_costs(
+        org_id, day, project_id, model_call_context_id, provider_reported_cost_usd, estimated_cost_usd
+    ) VALUES (
         NEW.org_id,
         (NEW.created_at AT TIME ZONE 'UTC')::date,
         NEW.project_id,
+        NEW.id,
         coalesce(NEW.provider_reported_cost_usd, 0),
         coalesce(NEW.estimated_cost_usd, 0)
-    )
-    ON CONFLICT (org_id, day, project_id) DO UPDATE
-    SET provider_reported_cost_usd = project_daily_model_costs.provider_reported_cost_usd
-            + EXCLUDED.provider_reported_cost_usd,
-        estimated_cost_usd = project_daily_model_costs.estimated_cost_usd + EXCLUDED.estimated_cost_usd;
+    );
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 -- +goose StatementEnd
 
-CREATE TRIGGER model_call_contexts_increment_project_daily_model_cost
+CREATE TRIGGER model_call_contexts_insert_project_daily_model_cost
     AFTER UPDATE OF state
     ON model_call_contexts
     FOR EACH ROW
