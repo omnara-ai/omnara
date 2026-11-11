@@ -25,14 +25,13 @@ type processService struct {
 var (
 	gitCredentialService = processService{
 		name: "Git credential", label: "omnara-git-credential", socket: "git-credentials.sock"}
-	programToolCallService = processService{
-		name: "program tool call", label: "omnara-program-tool-call", socket: "tool-calls.sock"}
+	programToolCallService = processService{name: "program tool call", socket: "tool-calls.sock"}
 )
 
 type processServiceHelper struct {
 	Executable string `json:"executable"`
 	Endpoint   string `json:"endpoint"`
-	Capability string `json:"capability"`
+	Capability string `json:"capability,omitempty"`
 }
 
 func (s processService) capability(supervisorToken, processID string) string {
@@ -49,9 +48,7 @@ func (c *Client) processServiceEndpoint(s processService) (string, error) {
 	return filepath.Join(machine.RunDir(), s.socket), nil
 }
 
-func (c *Client) processServiceHelper(
-	s processService, supervisorToken, processID string,
-) (*processServiceHelper, error) {
+func (c *Client) processServiceHelper(s processService) (*processServiceHelper, error) {
 	endpoint, err := c.processServiceEndpoint(s)
 	if err != nil {
 		return nil, err
@@ -63,8 +60,7 @@ func (c *Client) processServiceHelper(
 	if err != nil {
 		return nil, err
 	}
-	return &processServiceHelper{Executable: executable, Endpoint: endpoint,
-		Capability: s.capability(supervisorToken, processID)}, nil
+	return &processServiceHelper{Executable: executable, Endpoint: endpoint}, nil
 }
 
 func (c *Client) authorizeProcessService(
