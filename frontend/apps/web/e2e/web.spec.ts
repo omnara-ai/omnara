@@ -533,7 +533,6 @@ test('walks a new organization through onboarding to its first chat', async ({ p
   await page.getByRole('button', { name: 'or set up manually' }).click()
   await expect(step(1)).toHaveAttribute('data-status', 'active')
   await expect(step(1)).toContainText('npx omnara login')
-  // The browser can create the profile without the CLI login.
   await expect(step(2)).toHaveAttribute('data-status', 'active')
   await expect(step(3)).toHaveAttribute('data-status', 'upcoming')
 
@@ -809,7 +808,6 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       )
       await expect(page.getByRole('link', { name: 'Add bot to server', exact: true })).toBeVisible()
     }
-    // The Conversations tab stays selected through reconnecting; the profile lives on the launcher tab.
     await openIntegrationTab(page, integrationKind === 'github_pr' ? 'Pull requests' : 'Mentions')
     await expect(selectedProfile).toBeVisible()
     if (integrationKind === 'github_pr') await expect(selectedProfile).toContainText(profileName)

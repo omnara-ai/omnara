@@ -53,7 +53,6 @@ export function AgentConfigSubagentsField({
   orgId: string
   projectId: string
   subagents: BasicSubagent[]
-  /** The agent's explicit reasoning effort, which clones keep unless they set their own. */
   parentReasoningEffort: string
   maxSubagents: string
   maxDepth: string
@@ -213,8 +212,6 @@ function SubagentFields({
         <PillTabs
           value={subagent.type}
           onValueChange={(type) => {
-            // Both types accept a model override, so it carries over; profile subagents show
-            // the notice below instead of the picker.
             edit({ type })
           }}
           tabs={subagentTypeOptions}
