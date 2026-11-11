@@ -29,7 +29,8 @@ func TestServiceE2EDaemonProgramToolCalls(t *testing.T) {
 	machine := project.bootstrapDockerMachine(t, ctx, seed+"-machine")
 	project.updateAgentProfileConfigWithMachine(
 		t, ctx, seed+"-config", "openai-prod", "service-e2e-local", machine.machineName, "/work",
-		[]string{"programmatic_tool_calls:", "  enabled: true"}, nil, "run_command", "storage_list",
+		[]string{"deferred_tools:", "  mode: code_mode", "tools:", "  run_command: {}",
+			"  storage_list: {deferred: true}"}, nil,
 	)
 	machinePath := "/api/v1/orgs/" + project.orgID + "/machines/" + machine.machineID
 	setMachineFlag := func(ctx context.Context, enabled bool) error {
@@ -59,7 +60,7 @@ func TestServiceE2EDaemonProgramToolCalls(t *testing.T) {
 	waitForDockerMachineOnline(t, ctx, env, project.orgID, machine.machineID)
 
 	nonce := strings.ToUpper(strings.ReplaceAll(env.seed, "-", "_"))
-	script := `"$OMNARA_BIN" call storage_list '{"pattern":"/artifacts"}'; echo "list_exit=$?"; ` +
+	script := `omnarad call storage_list '{"pattern":"/artifacts"}'; echo "list_exit=$?"; ` +
 		`"$OMNARA_BIN" call tool_search '{"pattern":"storage_l"}'; echo "search_exit=$?"`
 	var requestCount atomic.Int64
 	modelFailures := make(chan string, 1)

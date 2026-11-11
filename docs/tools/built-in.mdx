@@ -115,10 +115,10 @@ If Omnara cannot choose a machine, the tool returns an error to the agent so it 
 
 ### Calling tools from commands
 
-When [programmatic tool calls](/agents/configuration#programmatic-tool-calls) are enabled in the agent's config and [on the machine](/machines/connect#programmatic-tool-calls), commands started with `run_command` can call the agent's other tools with `"$OMNARA_BIN" call <tool> '<json input>'`. The `run_command` description then tells the model how. For example, to list the paths of Markdown files in a memory store:
+When the agent's config sets [`deferred_tools.mode: code_mode`](/agents/configuration#code-mode) and the machine [allows programmatic tool calls](/machines/connect#programmatic-tool-calls), commands started with `run_command` can call the agent's deferred tools with `omnarad call <tool> '<json input>'`. The `run_command` description then tells the model how. For example, to list the paths of Markdown files in a memory store:
 
 ```bash
-"$OMNARA_BIN" call storage_list '{"pattern":"/memory/notes/**/*.md"}' | jq -r '.entries[]?.path'
+omnarad call storage_list '{"pattern":"/memory/notes/**/*.md"}' | jq -r '.entries[]?.path'
 ```
 
 On success, stdout is always one JSON value: the tool's structured result, or its text as a JSON string when it has none. A result with no content prints `null`. Pass `-` as the input to read it from stdin; omit it to send `{}`. `--timeout` (default `10m`) sets how long to wait for the call to finish, and `--output` chooses what to print:
@@ -129,21 +129,21 @@ On success, stdout is always one JSON value: the tool's structured result, or it
 | `envelope` | The full result envelope, with `tool_call_id`, `outcome` and `content`, whatever the outcome. The exit code still reflects the outcome |
 | `text` | The same value, with a text result printed as plain text instead of a JSON string, like `jq -r` |
 
-The examples use POSIX shell syntax. On a Windows machine, run `& $env:OMNARA_BIN call <tool> '<json input>'` in PowerShell, or `"%OMNARA_BIN%" call <tool> -` with the input on stdin in `cmd.exe`.
+The daemon puts `omnarad` on the command's `PATH`. The examples use POSIX shell syntax; in PowerShell and `cmd.exe`, pass the input on stdin with `-` instead of quoting it.
 
-Results go only to the command, never into the model's context, so an agent can chain calls with pipes, `jq`, loops, or scripts, or run them in parallel with `xargs -P`, and print only what it needs. A command can have up to 16 calls in flight. A call's input and its result can each be up to about 1 MiB; a larger result fails with `error_code: "result_too_large"`, so narrow the call or page through it.
+Results go only to the command, never into the model's context, so an agent can chain calls with pipes, `jq`, loops, or scripts, or run them in parallel with `xargs -P`, and print only what it needs. A command can have up to 128 calls in flight. A call's input and its result can each be up to about 1 MiB; a larger result fails with `error_code: "result_too_large"`, so narrow the call or page through it.
 
 | Exit code | Meaning |
 | --- | --- |
 | `0` | The tool succeeded |
 | `1` | The tool failed, was denied, or was canceled. The outcome and content are printed to stderr as JSON |
-| `2` | The tool can't be called from commands, programmatic tool calls are off, or the input isn't a JSON object |
+| `2` | The tool can't be called from commands, code mode or the machine's programmatic tool calls are off, or the input isn't a JSON object |
 | `3` | The daemon couldn't be reached or the call timed out. A timed-out call may still complete |
 
-To find tools and their schemas, call `tool_search` with a case-insensitive regular expression. It returns every matching tool the command can call, deferred or not, unless `max_results` limits it:
+To find tools and their schemas, call `tool_search` with a case-insensitive regular expression. It returns every matching tool the command can call, unless `max_results` limits it:
 
 ```bash
-"$OMNARA_BIN" call tool_search '{"pattern":"linear","max_results":10}'
+omnarad call tool_search '{"pattern":"linear","max_results":10}'
 ```
 
 Each tool has an `input_schema` and an `output_schema` for the JSON the call prints on success. A built-in's output schema describes its result exactly. An MCP tool's is its server's `outputSchema`; when the server declares none, it says only that the call prints the tool's structured result if it returns one, and otherwise its text as a JSON string. The `run_command` description also shows the model the result types of the storage and web built-ins it can call from commands, as TypeScript types, so it can use them without searching first, and the system prompt adds examples of finding tools, filtering results with `jq`, chaining and parallel calls, and calling tools from a Python script. Called from a command, `web_search` returns `{"query", "results": [{"url", "title", "snippet", "published"}]}` and `web_fetch` returns the page's metadata with its extracted text in `content`, instead of the text the model sees.

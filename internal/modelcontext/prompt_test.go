@@ -42,7 +42,7 @@ func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 			name:      "command only",
 			specs:     []ToolSpec{{Name: toolcatalog.ToolNameRunCommand}},
 			want:      []string{"daemon-backed machine", "run_command"},
-			forbidden: []string{"write_process", "read_process", "stop_process", "github.com", "OMNARA_BIN"},
+			forbidden: []string{"write_process", "read_process", "stop_process", "github.com", "omnarad call"},
 		},
 		{
 			name:           "command with git credentials",
@@ -66,10 +66,10 @@ func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 			name: "command with programmatic tool calls",
 			specs: []ToolSpec{
 				{Name: toolcatalog.ToolNameRunCommand, Type: toolcatalog.ToolTypeBuiltIn},
-				{Name: toolcatalog.ToolNameStorageList, Type: toolcatalog.ToolTypeBuiltIn},
+				{Name: toolcatalog.ToolNameStorageList, Type: toolcatalog.ToolTypeBuiltIn, Deferred: true, CodeMode: true},
 			},
 			programmaticToolCalls: true,
-			want: []string{"`\"$OMNARA_BIN\" call`", "call tool_search", "call storage_list",
+			want: []string{"`omnarad call`", "call tool_search", "call storage_list",
 				"def call(tool, **tool_input)"},
 			forbidden: []string{"web_search", "storage_read"},
 		},
@@ -77,7 +77,7 @@ func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 			name:                  "programmatic tool calls without command",
 			specs:                 []ToolSpec{{Name: toolcatalog.ToolNameStorageList, Type: toolcatalog.ToolTypeBuiltIn}},
 			programmaticToolCalls: true,
-			forbidden:             []string{"OMNARA_BIN"},
+			forbidden:             []string{"omnarad call"},
 		},
 		{
 			name:           "git credentials without command",
@@ -92,7 +92,7 @@ func TestCapabilityGuidanceNamesOnlyEnabledTools(t *testing.T) {
 				contract.GitCredentials = &agentconfig.GitCredentialsCompiled{}
 			}
 			if test.programmaticToolCalls {
-				contract.ProgrammaticToolCalls = &agentconfig.ProgrammaticToolCallsCompiled{Enabled: true}
+				contract.DeferredTools = &agentconfig.DeferredToolsCompiled{Mode: agentconfig.DeferredToolsModeCodeMode}
 			}
 			prompt := capabilityGuidance(test.specs, contract)
 			for _, want := range test.want {

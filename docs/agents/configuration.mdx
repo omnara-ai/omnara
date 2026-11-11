@@ -171,38 +171,41 @@ subagents do not receive Git credentials, including those configured in their
 selected profile. Agents bound to the same machine run commands as the same OS user,
 so any of them can reach credentials issued to another.
 
-### Programmatic tool calls
-
-Let commands the agent runs with `run_command` call its other tools with
-[`"$OMNARA_BIN" call`](/tools/built-in#calling-tools-from-commands):
-
-```yaml
-programmatic_tool_calls:
-  enabled: true
-  exclude: [web_fetch, mcp__linear__save_issue]  # optional
-```
-
-Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`,
-`web_search`, `web_fetch`, and integration `read` tools, except those listed in
-`exclude`. Exclude names aren't checked against the agent's tools, since MCP tools
-are known only at runtime. Each call is checked against the agent's current
-config, so a config change applies to commands that are already running. The machine must also
-[allow programmatic tool calls](/machines/connect#programmatic-tool-calls), which is
-off by default. Spawned subagents do not inherit this setting. In the Builder, it is
-**Programmatic tool calls** under **Advanced**.
-
 ### Deferred tools
 
-Set `deferred: true` on any tool (built-in, custom, or MCP) to keep its definition out of the model's context until the model asks for it. Deferring a tool implicitly enables the built-in `tool_search` tool, which the model calls with a regular expression to load matching deferred tools by name, description, and argument names. Keep the tools the agent needs on almost every turn loaded; defer large or rarely used tool sets.
+Set `deferred: true` on any tool (built-in, custom, or MCP) to keep its definition out of the model's context until the model asks for it. Deferring a tool implicitly enables the built-in `tool_search` tool, which the model calls with a regular expression to find matching deferred tools by name, description, and argument names. Keep the tools the agent needs on almost every turn loaded; defer large or rarely used tool sets.
 
 ```yaml
 tools:
   web_search: {}                # always loaded
   web_fetch:
-    deferred: true              # loaded only after a tool_search match
+    deferred: true              # reached only after a tool_search match
 ```
 
-Deferred loading keeps the provider's prompt cache intact on Anthropic Messages and OpenAI Responses. On Chat Completions the model calls loaded tools through `call_deferred_tool` with the tool's name and arguments, so `call_deferred_tool` is a reserved tool name.
+`deferred_tools.mode` sets how the agent reaches a deferred tool once it has found it:
+
+```yaml
+deferred_tools:
+  mode: code_mode               # default: tool_add
+```
+
+| Mode | What `tool_search` does | How the tool is called |
+| --- | --- | --- |
+| `tool_add` | Adds matching tools to the model's tool list | By the model, like any loaded tool |
+| `code_mode` | Returns each match's input and output schemas | From a command the agent runs, with [`omnarad call`](/tools/built-in#calling-tools-from-commands) |
+
+With `tool_add`, deferred loading keeps the provider's prompt cache intact on Anthropic Messages and OpenAI Responses. On Chat Completions the model calls loaded tools through `call_deferred_tool` with the tool's name and arguments, so `call_deferred_tool` is a reserved tool name.
+
+#### Code mode
+
+In `code_mode`, commands started with `run_command` can call the agent's deferred tools, and only those: to keep a tool away from commands, don't defer it. Results go to the command, not into the model's context, so the agent can loop over a tool, filter what comes back, and print only what it needs.
+
+Two cases fall back to `tool_add` for a tool, so it is added to the model's tool list instead:
+
+- **The tool is a kind commands can't call.** Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools.
+- **The agent has no machine that allows it.** A machine must [allow programmatic tool calls](/machines/connect#programmatic-tool-calls), which is off by default, and be online when `tool_search` runs.
+
+Each call is checked against the agent's current config, so a config change applies to commands that are already running. Spawned subagents do not inherit the mode. In the Builder, it is **Deferred tools** under **Advanced**.
 
 ### Custom tools
 

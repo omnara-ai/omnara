@@ -23,6 +23,7 @@ type ToolSearchResult struct {
 	ToolNames          []string               `json:"tool_names"`
 	TotalDeferredTools int                    `json:"total_deferred_tools"`
 	Tools              []ToolSearchDefinition `json:"tools"`
+	CodeModeTools      []ToolSearchDefinition `json:"code_mode_tools,omitempty"`
 }
 
 func toolSearchDefinition(spec ToolSpec) ToolSearchDefinition {
@@ -97,8 +98,14 @@ func SearchDeferredTools(specs []ToolSpec, pattern string, maxResults int) (Tool
 		Tools:              []ToolSearchDefinition{},
 	}
 	for _, spec := range matches {
+		definition := toolSearchDefinition(spec)
+		if spec.CodeMode {
+			definition.OutputSchema = spec.OutputSchema
+			result.CodeModeTools = append(result.CodeModeTools, definition)
+			continue
+		}
 		result.ToolNames = append(result.ToolNames, spec.Name)
-		result.Tools = append(result.Tools, toolSearchDefinition(spec))
+		result.Tools = append(result.Tools, definition)
 	}
 	return result, nil
 }

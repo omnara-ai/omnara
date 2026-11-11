@@ -127,11 +127,23 @@ func runtimeContractToolSpecs(
 		}
 		out = append(out, mcpSpecs...)
 	}
-	if only == "" && contract.ProgrammaticToolCallsEnabled() {
+	if contract.CodeMode() {
+		for i := range out {
+			if !out[i].Deferred || !programResultKnown(out[i]) {
+				continue
+			}
+			schema, err := ProgramOutputSchema(out[i])
+			if err != nil {
+				return nil, err
+			}
+			out[i].CodeMode, out[i].OutputSchema = true, schema
+		}
+	}
+	if only == "" && contract.CodeMode() {
 		if index := slices.IndexFunc(out, func(spec ToolSpec) bool {
 			return spec.Name == toolcatalog.ToolNameRunCommand
 		}); index >= 0 {
-			description, err := programmaticToolCallsDescription(contract, out)
+			description, err := programmaticToolCallsDescription(out)
 			if err != nil {
 				return nil, err
 			}

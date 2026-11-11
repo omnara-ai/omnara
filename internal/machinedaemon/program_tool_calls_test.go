@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -372,6 +373,9 @@ func TestProgramToolCallEnvironmentReplacesUserValues(t *testing.T) {
 	require.Equal(t, []string{"/run/tool-calls.sock"}, values["OMNARA_TOOL_ENDPOINT"])
 	require.Equal(t, []string{"cap"}, values["OMNARA_TOOL_CAPABILITY"])
 	require.Equal(t, []string{"/opt/omnara/omnarad"}, values["OMNARA_BIN"])
+	require.Equal(t, []string{"/opt/omnara" + string(os.PathListSeparator) + "/bin"}, values["PATH"])
+	again := programToolCallEnvironment(env, "prc_real", helper)
+	require.Contains(t, again, "PATH=/opt/omnara"+string(os.PathListSeparator)+"/bin")
 	require.Equal(t, []string{"1"}, values["KEEP"])
 	require.Equal(t, []string{"/home/omnara"}, values["OMNARA_HOME"])
 }

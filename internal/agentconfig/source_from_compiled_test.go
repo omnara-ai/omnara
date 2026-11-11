@@ -106,7 +106,7 @@ mcp:
 interaction_handlers:
   engineering-team: {}
 git_credentials: {integration: reviews, repository_ids: [123], read_only: true}
-programmatic_tool_calls: {enabled: true, exclude: [web_search, mcp__docs__search]}
+deferred_tools: {mode: code_mode}
 skills: [`+testMachineSourcePublicID(t, publicid.KindSkill, "test-skill")+`]
 subagents:
   helper:

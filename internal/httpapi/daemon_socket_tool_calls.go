@@ -294,14 +294,10 @@ func (s *Server) offerProgramToolCall(
 		if err != nil {
 			return ref, nil, err
 		}
-		if contract.ProgrammaticToolExcluded(offer.Name) {
+		if !contract.CodeMode() {
 			return ref, nil, uncallable
 		}
-		callable, err := modelcontext.ProgramCallableTools(contract, specs)
-		if err != nil {
-			return ref, nil, err
-		}
-		search, err := tools.ProgramToolSearch(callable, offer.Input)
+		search, err := tools.ProgramToolSearch(modelcontext.ProgramCallableTools(specs), offer.Input)
 		if err != nil {
 			return ref, nil, invalid("%s", err.Error())
 		}
@@ -315,7 +311,7 @@ func (s *Server) offerProgramToolCall(
 				{Type: daemonprotocol.ProgramToolCallContentStructuredData, Value: value}},
 		}, nil
 	}
-	spec, contract, found, err := tools.AgentConfigToolSpec(
+	spec, _, found, err := tools.AgentConfigToolSpec(
 		ctx, s.store, program.ProjectID, program.AgentID, program.AgentConfigID, offer.Name)
 	if err != nil {
 		return ref, nil, err
@@ -324,7 +320,7 @@ func (s *Server) offerProgramToolCall(
 		return ref, nil, rejectToolCall(daemonprotocol.ErrorCodeToolCallUnavailable,
 			"tool %q is not available to this agent", offer.Name)
 	}
-	if !modelcontext.ProgramCallable(contract, spec) {
+	if !modelcontext.ProgramCallable(spec) {
 		return ref, nil, uncallable
 	}
 	record, err := s.store.Execution().CreateProgramToolCall(ctx, executionstore.CreateProgramToolCallInput{

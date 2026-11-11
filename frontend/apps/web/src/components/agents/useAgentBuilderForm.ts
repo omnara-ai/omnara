@@ -88,7 +88,7 @@ export interface BasicConfig {
   tools: BasicTool[]
   interactionHandlers: Record<string, AgentConfigDefinitionInteractionHandler>
   gitCredentials: AgentConfigDefinition['git_credentials']
-  programmaticToolCalls: AgentConfigDefinition['programmatic_tool_calls']
+  deferredTools: AgentConfigDefinition['deferred_tools']
   mcpServers: BasicMcpServer[]
   skillIds: string[]
   memoryStores: BasicMemoryStore[]
@@ -125,7 +125,7 @@ export const emptyBasicConfig: BasicConfig = {
   tools: [],
   interactionHandlers: {},
   gitCredentials: undefined,
-  programmaticToolCalls: undefined,
+  deferredTools: undefined,
   mcpServers: [],
   skillIds: [],
   memoryStores: [],
@@ -197,7 +197,7 @@ export function useAgentBuilderForm(
     tools: draft.tools,
     interactionHandlers: draft.interactionHandlers,
     gitCredentials: draft.gitCredentials,
-    programmaticToolCalls: draft.programmaticToolCalls,
+    deferredTools: draft.deferredTools,
     skillIds: draft.skillIds,
     memoryStores: draft.memoryStores,
     mcpServers: draft.mcpServers,
@@ -223,8 +223,8 @@ export function useAgentBuilderForm(
     setGitCredentials: (gitCredentials: BasicConfig['gitCredentials']) => {
       patch({ gitCredentials })
     },
-    setProgrammaticToolCalls: (programmaticToolCalls: BasicConfig['programmaticToolCalls']) => {
-      patch({ programmaticToolCalls })
+    setDeferredTools: (deferredTools: BasicConfig['deferredTools']) => {
+      patch({ deferredTools })
     },
     setSkillIds: (skillIds: string[]) => {
       patch({ skillIds })
@@ -363,9 +363,9 @@ function applyToDocument(
     if (config.gitCredentials == null) del(['git_credentials'])
     else set(['git_credentials'], config.gitCredentials)
   }
-  if (!deepEqual(config.programmaticToolCalls, baseline?.programmaticToolCalls)) {
-    if (config.programmaticToolCalls == null) del(['programmatic_tool_calls'])
-    else set(['programmatic_tool_calls'], config.programmaticToolCalls)
+  if (!deepEqual(config.deferredTools, baseline?.deferredTools)) {
+    if (config.deferredTools == null) del(['deferred_tools'])
+    else set(['deferred_tools'], config.deferredTools)
   }
   applyList('memory_stores', config.memoryStores, baseline?.memoryStores ?? null)
   applyList('skills', config.skillIds, baseline?.skillIds ?? null)
