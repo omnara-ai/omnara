@@ -27,8 +27,7 @@ type BudgetRecord struct {
 }
 
 type BudgetUsage struct {
-	AmountUSD    string
-	EstimatedUSD string
+	AmountUSD string
 }
 
 type CreateBudgetInput struct {
@@ -177,14 +176,10 @@ func budgetRecordWithUsage(row dbsqlc.ListBudgetsRow) (BudgetRecord, error) {
 	if !ok {
 		return BudgetRecord{}, errors.New("invalid budget spend")
 	}
-	estimated, ok := modelenvelope.ParseProviderReportedCostUSD(row.EstimatedUsd)
-	if !ok {
-		return BudgetRecord{}, errors.New("invalid budget estimated spend")
-	}
 	return budgetRecord(dbsqlc.UpdateBudgetAmountRow{
 		ID: row.ID, OrgID: row.OrgID, ProjectID: row.ProjectID, Interval: row.Interval,
 		AmountUsd: row.AmountUsd, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
-	}, &BudgetUsage{AmountUSD: string(spent), EstimatedUSD: string(estimated)})
+	}, &BudgetUsage{AmountUSD: string(spent)})
 }
 
 func budgetRecord(row dbsqlc.UpdateBudgetAmountRow, usage *BudgetUsage) (BudgetRecord, error) {

@@ -67,7 +67,7 @@ const executionBudgetReached = `-- name: ExecutionBudgetReached :one
 SELECT (b.project_id IS NOT NULL)::boolean AS project_scope,b.interval
 FROM budgets b CROSS JOIN LATERAL budget_interval_cost(b.org_id,b.project_id,b.interval) cost
 WHERE b.org_id=$1 AND (b.project_id IS NULL OR b.project_id=$2::uuid)
- AND b.deleted_at IS NULL AND cost.provider_reported_cost_usd+cost.estimated_cost_usd>=b.amount_usd
+ AND b.deleted_at IS NULL AND cost.effective_cost_usd>=b.amount_usd
 ORDER BY b.project_id IS NOT NULL,
  CASE b.interval WHEN 'lifetime' THEN 0 WHEN 'month' THEN 1 WHEN 'week' THEN 2 ELSE 3 END
 LIMIT 1
@@ -204,12 +204,13 @@ UPDATE model_call_contexts c SET state=$1,recovery_kind=$2,
  input_tokens_total=$12::integer,uncached_input_tokens=$13::integer,
  cache_read_input_tokens=$14::integer,cache_write_input_tokens=$15::integer,
  output_tokens_total=$16::integer,reasoning_output_tokens=$17::integer,
- provider_reported_cost_usd=$18::text::numeric,estimated_cost_usd=$19::text::numeric,
- provider_metadata=$20::jsonb,
- input_fingerprint=$21::text,completed_at=statement_timestamp()
-WHERE c.agent_id=$22 AND c.id=$23 AND c.state='started' AND c.runtime_lock_id=$24
+ provider_reported_cost_usd=$18::text::numeric,effective_cost_usd=$19::text::numeric,
+ effective_cost_kind=$20::text,
+ provider_metadata=$21::jsonb,
+ input_fingerprint=$22::text,completed_at=statement_timestamp()
+WHERE c.agent_id=$23 AND c.id=$24 AND c.state='started' AND c.runtime_lock_id=$25
  AND EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=c.agent_id
- AND r.id=$24 AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp())
+ AND r.id=$25 AND r.cancel_requested_at IS NULL AND r.lease_expires_at>statement_timestamp())
 `
 
 type FinishExecutionAttemptParams struct {
@@ -231,7 +232,8 @@ type FinishExecutionAttemptParams struct {
 	OutputTokens      *int32
 	ReasoningTokens   *int32
 	Cost              *string
-	EstimatedCost     *string
+	EffectiveCost     *string
+	EffectiveCostKind *string
 	ProviderMetadata  json.RawMessage
 	InputFingerprint  *string
 	AgentID           uuid.UUID
@@ -259,7 +261,8 @@ func (q *Queries) FinishExecutionAttempt(ctx context.Context, db DBTX, arg Finis
 		arg.OutputTokens,
 		arg.ReasoningTokens,
 		arg.Cost,
-		arg.EstimatedCost,
+		arg.EffectiveCost,
+		arg.EffectiveCostKind,
 		arg.ProviderMetadata,
 		arg.InputFingerprint,
 		arg.AgentID,
@@ -325,7 +328,7 @@ SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event
  c.error_kind,c.error_code,c.error_message,c.error_details,c.input_tokens_total,c.uncached_input_tokens,
  c.cache_read_input_tokens,c.cache_write_input_tokens,c.output_tokens_total,c.reasoning_output_tokens,
  coalesce(c.provider_reported_cost_usd::text,'')::text AS provider_reported_cost_usd,c.provider_metadata,
- r.provider_model_slug,coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
+ r.provider_model_slug,r.pricing,coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
  (SELECT count(*) FROM model_call_contexts prior WHERE prior.agent_id=c.agent_id
  AND prior.operation_kind='compaction' AND prior.input_event_sequence=c.input_event_sequence
  AND prior.source_event_sequence_end=c.source_event_sequence_end AND prior.attempt_number<c.attempt_number
@@ -373,6 +376,7 @@ type ReadExecutionAttemptRow struct {
 	ProviderReportedCostUsd     string
 	ProviderMetadata            json.RawMessage
 	ProviderModelSlug           string
+	Pricing                     *json.RawMessage
 	InputFingerprint            string
 	SourceExcerptReductionCount int64
 	CreatedAt                   time.Time
@@ -414,6 +418,7 @@ func (q *Queries) ReadExecutionAttempt(ctx context.Context, db DBTX, arg ReadExe
 		&i.ProviderReportedCostUsd,
 		&i.ProviderMetadata,
 		&i.ProviderModelSlug,
+		&i.Pricing,
 		&i.InputFingerprint,
 		&i.SourceExcerptReductionCount,
 		&i.CreatedAt,

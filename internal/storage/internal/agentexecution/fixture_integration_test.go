@@ -32,18 +32,36 @@ func migratedExecutionFixture(t *testing.T) executionFixture {
 	)
 }
 
-// seedSchema52AgentConfig writes the config in the shape released schema 52
-// stored it, before compiled content moved to agent_config_definitions.
+// seedSchema52AgentConfig writes the model and config in the shape released
+// schema 52 stored them, before compiled content moved to agent_config_definitions.
 func seedSchema52AgentConfig(
 	t *testing.T,
 	pool *pgxpool.Pool,
 ) func(*storage.Store, storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID) {
 	return func(store *storage.Store, ids storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID) {
 		ctx := t.Context()
-		compiled := storagefixture.SeedModelAndCompileAgentYAML(
-			t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID, executionFixtureSource,
+		var modelID uuid.UUID
+		var supportsTools bool
+		require.NoError(t, pool.QueryRow(ctx, `WITH model AS (
+ INSERT INTO configured_models(id,org_id,model_provider_config_id,management_kind,name,current_revision_id,
+  created_at,updated_at)
+ SELECT uuidv7(),org_id,id,'tenant','test',uuidv7(),now(),now()
+ FROM model_provider_configs WHERE org_id=$1 AND name='openai-prod'
+ RETURNING id,org_id,model_provider_config_id,current_revision_id
+), revision AS (
+ INSERT INTO configured_model_revisions(id,org_id,configured_model_id,model_provider_config_id,provider_model_slug,
+  context_window_tokens,max_output_tokens,default_max_output_tokens,created_at)
+ SELECT current_revision_id,org_id,id,model_provider_config_id,'test',128000,8192,4096,now() FROM model
+ RETURNING supports_tools
+), granted AS (
+ INSERT INTO project_model_grants(org_id,project_id,configured_model_id,created_at,updated_at)
+ SELECT org_id,$2,id,now(),now() FROM model
+)
+SELECT model.id, revision.supports_tools FROM model, revision`, ids.OrgID, ids.ProjectID).
+			Scan(&modelID, &supportsTools))
+		compiled := storagefixture.CompileAgentYAML(
+			t, ctx, store.Execution(), ids.OrgID, ids.ProjectID, executionFixtureSource, modelID, supportsTools,
 		)
-		modelID := compiled.Compiled.Model.ConfiguredModelID
 		var configID uuid.UUID
 		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO agent_configs(org_id,project_id,configured_model_id,
  source,source_format,source_hash,compiled_definition,effective_definition_hash,created_at)
