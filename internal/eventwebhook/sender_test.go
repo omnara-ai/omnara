@@ -34,18 +34,19 @@ import (
 )
 
 type testStore struct {
-	retryResult executionstore.EventWebhookDeliveryRetryResult
-	endpoint    executionstore.EventWebhookEndpoint
-	record      executionstore.AgentEventReadRecord
-	toolCall    *executionstore.CustomToolCallInput
-	toolCallErr error
-	secret      string
-	secretErr   error
-	pending     chan executionstore.EventWebhookDelivery
-	completed   atomic.Int64
-	retried     atomic.Int64
-	claims      atomic.Int64
-	perOrgLimit atomic.Int64
+	retryResult      executionstore.EventWebhookDeliveryRetryResult
+	endpoint         executionstore.EventWebhookEndpoint
+	record           executionstore.AgentEventReadRecord
+	toolCall         *executionstore.CustomToolCallInput
+	toolCallErr      error
+	parentToolCallID uuid.UUID
+	secret           string
+	secretErr        error
+	pending          chan executionstore.EventWebhookDelivery
+	completed        atomic.Int64
+	retried          atomic.Int64
+	claims           atomic.Int64
+	perOrgLimit      atomic.Int64
 }
 
 func (s *testStore) GetEventWebhookEndpoint(
@@ -73,6 +74,12 @@ func (s *testStore) GetCustomToolCallInput(
 		return executionstore.CustomToolCallInput{}, false, nil
 	}
 	return *s.toolCall, true, nil
+}
+
+func (s *testStore) GetToolCallSummary(
+	context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
+) (executionstore.ToolCallSummary, error) {
+	return executionstore.ToolCallSummary{ParentToolCallID: s.parentToolCallID}, nil
 }
 
 func (s *testStore) ReadEventWebhookSigningSecret(
@@ -150,6 +157,7 @@ func TestSenderReachesOnlyListedPrivateEndpoints(t *testing.T) {
 func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 	sender, store, delivery := testSender()
 	interactionID := uuid.New()
+	store.parentToolCallID = uuid.New()
 	delivery.InteractionUpdate = &notifications.AgentInteractionUpdate{
 		ID: interactionID, InteractionKind: "permission", State: "resolved",
 	}
@@ -206,6 +214,9 @@ func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {
 		Id: publicInteractionID, InteractionKind: openapi.AgentInteractionKindPermission,
 		State: openapi.AgentInteractionStateResolved,
 	}, payload.Data.InteractionUpdate)
+	publicParentID, err := publicid.Encode(publicid.KindToolCall, store.parentToolCallID)
+	require.NoError(t, err)
+	require.Equal(t, &publicParentID, payload.Data.ParentToolCallId)
 }
 
 func TestSenderRetriesToolCallUpdateWhenInputLookupFails(t *testing.T) {

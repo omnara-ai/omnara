@@ -303,6 +303,11 @@ func TestTranscriptReadsStayAgentBound(t *testing.T) {
 		})
 		require.NoError(t, err)
 		contextID := lt.id("context1", last)
+		_, err = reads.GetToolCallByProviderCall(ctx, dbsqlc.GetToolCallByProviderCallParams{
+			ProjectID: testProjectID, AgentID: lt.agentID, ModelCallContextID: contextID,
+			ProviderCallID: fmt.Sprintf("call_a_%d", last),
+		})
+		require.NoError(t, err)
 		_, err = reads.GetModelCallContext(ctx, dbsqlc.GetModelCallContextParams{
 			ProjectID: testProjectID, AgentID: lt.agentID, ID: contextID,
 		})
