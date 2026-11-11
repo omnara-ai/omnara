@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/agent37"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/arker"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/bead"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/blaxel"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/boxd"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/createos"
@@ -25,14 +26,15 @@ import (
 
 func TestDefaultCatalogProviders(t *testing.T) {
 	catalog := DefaultCatalog()
-	if len(catalog.definitions) != 12 {
-		t.Fatalf("default catalog providers = %d, want 12", len(catalog.definitions))
+	if len(catalog.definitions) != 13 {
+		t.Fatalf("default catalog providers = %d, want 13", len(catalog.definitions))
 	}
 	for _, test := range []struct {
 		name       string
 		definition any
 	}{
 		{name: "agent37", definition: agent37.Definition{}},
+		{name: "bead", definition: bead.Definition{}},
 		{name: "arker", definition: arker.Definition{}},
 		{name: "blaxel", definition: blaxel.Definition{}},
 		{name: "boxd", definition: boxd.Definition{}},
@@ -135,7 +137,8 @@ func TestCatalogConfigurableMachineResources(t *testing.T) {
 		provider    string
 		cpu, memory bool
 	}{
-		{"agent37", true, true}, {"arker", true, true}, {"blaxel", false, true}, {"boxd", false, false},
+		{"agent37", true, true}, {"arker", true, true}, {"bead", false, false},
+		{"blaxel", false, true}, {"boxd", false, false},
 		{"createos", false, false}, {"daytona", false, false}, {"e2b", false, false}, {"freestyle", true, true},
 		{"modal", true, true}, {"superserve", false, false}, {"tenki", true, true}, {"unikraft", true, true},
 	} {

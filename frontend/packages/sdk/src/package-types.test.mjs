@@ -116,7 +116,7 @@ export const redeliver = (error: CustomToolDeliveryError) => sdk.submitToolCallR
       }
       const destination = join(consumer, 'node_modules', '@tanstack', 'react-query')
       mkdirSync(dirname(destination), { recursive: true })
-      rmSync(destination, { force: true })
+      rmSync(destination, { recursive: true, force: true })
       symlinkSync(source, destination, 'dir')
       execFileSync(process.execPath, ['tanstack-only.mjs'], {
         cwd: consumer,

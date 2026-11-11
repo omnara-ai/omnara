@@ -15718,7 +15718,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [boxd, createos, daytona, e2b, superserve]
+                  enum: [bead, boxd, createos, daytona, e2b, superserve]
                 max_total_cpu:
                   type: integer
                   format: int32

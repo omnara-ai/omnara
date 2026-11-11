@@ -214,6 +214,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
         max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
+    case 'bead':
     case 'boxd':
     case 'createos':
     case 'daytona':
@@ -391,6 +392,7 @@ export function machinePoolUpdateRequest(
             pool.max_machine_memory_mb,
           ) ?? memoryMb,
       }
+    case 'bead':
     case 'boxd':
     case 'createos':
     case 'daytona':
@@ -466,6 +468,7 @@ function clusterMachinePoolUpdateRequest(
             pool.max_machine_memory_mb,
           ) ?? memoryMb,
       }
+    case 'bead':
     case 'boxd':
     case 'createos':
     case 'daytona':

@@ -2579,6 +2579,7 @@ export const zCreateMachinePoolRequest = zCreateMachinePoolRequestBase.and(z.uni
     }),
     z.object({
         provider: z.enum([
+            'bead',
             'boxd',
             'createos',
             'daytona',

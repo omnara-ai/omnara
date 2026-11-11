@@ -7,6 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/agent37"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/arker"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/bead"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/blaxel"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/boxd"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/createos"
@@ -30,6 +31,7 @@ func DefaultCatalog() Catalog {
 	return Catalog{
 		definitions: map[string]providers.Definition{
 			providers.Agent37:    agent37.Definition{},
+			providers.Bead:       bead.Definition{},
 			providers.Arker:      arker.Definition{},
 			providers.Blaxel:     blaxel.Definition{},
 			providers.Boxd:       boxd.Definition{},

@@ -1,0 +1,56 @@
+---
+title: bead
+description: Linux microVM sandboxes with an E2B-compatible API and prepaid credit
+icon: "/logo/providers/bead.svg"
+---
+
+[bead](https://bead.run) provides Linux microVM sandboxes with an E2B-compatible API. Connect your bead organization to provision machines from approved templates, with usage billed against prepaid credit.
+
+## Set up a bead pool
+
+<Steps>
+  <Step title="Get an API key">
+    Run `bead signup` with the [bead CLI](https://bead.run/install), or sign in at [app.bead.run](https://app.bead.run). Store the API key as an org-owned [secret](/organization/secrets) in Omnara. Check your organization's credit and admission limits before provisioning.
+  </Step>
+  <Step title="Choose a template">
+    Omit the template to use `base`, or choose an approved template such as `computer` from your bead catalog. Templates select installed tools and minimum resource requirements. Omnara selects the smallest published bead shape that covers those requirements. Omnara installs and launches its daemon through envd; a template must meet the [custom image requirements](/machines/providers/overview#custom-image-requirements).
+
+    The live catalog is available from `GET https://api.bead.run/templates` with your `X-API-Key` header. Read each template's `cpuCount` and `memoryMB` alongside the pricing shapes, and set pool maximums to cover the selected shape. Omnara sends that shape's CPU and memory explicitly to bead. The public [pricing catalog](https://api.bead.run/v1/pricing) lists offered shapes and current rates; template availability and organization limits can be narrower.
+  </Step>
+  <Step title="Create the pool">
+    Open **Machines**, click **New pool**, and choose **bead**. Select the API key secret, enter the template (or leave it empty for `base`), and set capacity limits. You can add a startup script to install project tools before the daemon starts.
+  </Step>
+</Steps>
+
+## API fields
+
+For [Create a pool](/machines/pools#create-a-pool), use:
+
+```json
+{
+  "name": "bead-pool",
+  "provider": "bead",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "provider_config": {
+    "allowed_templates": ["base", "computer"]
+  },
+  "default_machine_provider_options": {
+    "template": "base"
+  },
+  "max_machine_cpu": 2,
+  "max_machine_memory_mb": 4096,
+  "max_total_cpu": 6,
+  "max_total_memory_mb": 12288,
+  "max_total_machines": 3
+}
+```
+
+- `provider_auth_secret_id` holds the bead API key. Omnara sends it in `X-API-Key`.
+- `provider_config.api_url` is optional and defaults to `https://api.bead.run`.
+- `provider_config.allowed_templates` is an optional [allowlist](/machines/providers/overview#allowlists). Without it, machines use the pool's default template. Use `["*"]` to allow any template accessible to the key.
+- `template` defaults to `base`. `startup_script` in `default_machine_provider_options` runs before the daemon starts. Project grants and agent configs can override these options within the allowlist.
+- CPU and memory are resolved by rounding the template requirements up to the smallest published shape. The pricing catalog currently lists 1 vCPU/2048 MB, 2/4096, 4/8192, 8/16384, and 16/32768 shapes. For example, base advertises 2 vCPU/2048 MB and uses the 2 vCPU/4096 MB shape. Pool maximums must cover the selected shape.
+
+Retries discover the existing sandbox using Omnara ownership metadata. Omnara explicitly requests `kind: "persistent"` so machines retain memory when paused and resume in place. Persistent machines have no lifetime expiry; bead's default idle timeout is 900 seconds. Paused machines pay storage only, and prepaid credit and admission limits still apply. Deleting an Omnara machine deletes its bead sandbox.
+
+bead also supports `kind: "temporary"`; when omitted, kind follows the template's `default_kind`. Base defaults to temporary, while computer defaults to persistent. Omnara overrides that default to support pause/wake. CI templates are always temporary and cannot be used with this provider. The CLI equivalent is `bead create --template base --kind persistent`. See [bead pricing](https://api.bead.run/v1/pricing).
