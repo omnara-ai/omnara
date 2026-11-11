@@ -48,12 +48,10 @@ func startFakeToolCallDaemon(
 	})
 	t.Setenv(programToolProcessIDEnv, daemon.processID)
 	t.Setenv(programToolEndpointEnv, endpoint)
-	t.Setenv(programToolCapabilityEnv, "cli-capability")
 	return daemon
 }
 
 func (d *fakeToolCallDaemon) serve(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(d.t, "Bearer cli-capability", r.Header.Get("Authorization"))
 	var request fakeToolCallRequest
 	assert.Equal(d.t, http.MethodPost, r.Method)
 	assert.Equal(d.t, "/tool-calls/"+d.processID, r.URL.Path)
@@ -218,7 +216,7 @@ func TestProgramToolCallCLIRejectsInvalidInput(t *testing.T) {
 }
 
 func TestProgramToolCallCLIRequiresProcessEnvironment(t *testing.T) {
-	for _, missing := range []string{programToolProcessIDEnv, programToolEndpointEnv, programToolCapabilityEnv} {
+	for _, missing := range []string{programToolProcessIDEnv, programToolEndpointEnv} {
 		t.Run(missing, func(t *testing.T) {
 			startFakeToolCallDaemon(t, reply(http.StatusOK, `{"state":"completed","outcome":"succeeded"}`))
 			t.Setenv(missing, "")
@@ -320,7 +318,6 @@ func TestProgramToolCallCLIReportsUnreachableDaemon(t *testing.T) {
 	}
 	t.Setenv(programToolProcessIDEnv, mustProcessID(t))
 	t.Setenv(programToolEndpointEnv, filepath.Join(t.TempDir(), "missing.sock"))
-	t.Setenv(programToolCapabilityEnv, "cli-capability")
 	code, _, stderr := runToolCallCLI(t, ProgramToolCallOptions{Tool: "storage_list", Timeout: 2 * time.Second}, "")
 	require.Equal(t, ProgramToolCallExitTransport, code)
 	require.Contains(t, stderr, "timed out")

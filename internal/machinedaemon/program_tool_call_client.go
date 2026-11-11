@@ -65,8 +65,7 @@ func RunProgramToolCall(
 	}
 	processID := os.Getenv(programToolProcessIDEnv)
 	endpoint := os.Getenv(programToolEndpointEnv)
-	capability := os.Getenv(programToolCapabilityEnv)
-	if processID == "" || endpoint == "" || capability == "" {
+	if processID == "" || endpoint == "" {
 		_, _ = fmt.Fprintln(stderr, programToolCallUnavailableMessage)
 		return ProgramToolCallExitUnavailable
 	}
@@ -85,7 +84,7 @@ func RunProgramToolCall(
 	}
 	ctx, cancel := context.WithTimeout(ctx, options.Timeout)
 	defer cancel()
-	caller := newProgramToolCaller(endpoint, processID, capability)
+	caller := newProgramToolCaller(endpoint, processID)
 	defer caller.client.CloseIdleConnections()
 	request, err := json.Marshal(daemonprotocol.ProgramToolCallRequest{
 		Key: uuid.NewString(), Name: options.Tool, Input: input,
@@ -136,13 +135,12 @@ func readProgramToolCallInput(raw string, stdin io.Reader) (json.RawMessage, err
 }
 
 type programToolCaller struct {
-	processID  string
-	capability string
-	client     *http.Client
+	processID string
+	client    *http.Client
 }
 
-func newProgramToolCaller(endpoint, processID, capability string) *programToolCaller {
-	return &programToolCaller{processID: processID, capability: capability, client: &http.Client{
+func newProgramToolCaller(endpoint, processID string) *programToolCaller {
+	return &programToolCaller{processID: processID, client: &http.Client{
 		Transport:     dialProcessService(endpoint, "daemon is unavailable for tool calls"),
 		CheckRedirect: noRedirects}}
 }
@@ -187,7 +185,6 @@ func (c *programToolCaller) attempt(
 	if err != nil {
 		return errors.New("cannot prepare tool call request")
 	}
-	request.Header.Set("Authorization", "Bearer "+c.capability)
 	request.Header.Set("Content-Type", "application/json")
 	response, err := c.client.Do(request)
 	if err != nil {

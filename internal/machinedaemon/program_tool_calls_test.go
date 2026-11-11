@@ -55,7 +55,7 @@ func programToolCallSocketClient(endpoint string) *http.Client {
 func programToolCallLocalRequest(
 	t *testing.T,
 	client *http.Client,
-	method, path, capability string,
+	method, path string,
 	body string,
 ) (*http.Response, []byte) {
 	t.Helper()
@@ -65,9 +65,6 @@ func programToolCallLocalRequest(
 	}
 	request, err := http.NewRequestWithContext(t.Context(), method, "http://daemon"+path, reader)
 	require.NoError(t, err)
-	if capability != "" {
-		request.Header.Set("Authorization", "Bearer "+capability)
-	}
 	response, err := client.Do(request)
 	require.NoError(t, err)
 	defer func() { _ = response.Body.Close() }()
@@ -137,7 +134,6 @@ func TestProgramToolCallServerOffersToBackend(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "tool-calls.sock", filepath.Base(endpoint))
 	local := programToolCallSocketClient(endpoint)
-	capability := programToolCallService.capability("supervisor-secret", processID)
 	reports := func(body []byte) []daemonprotocol.ToolCallReport {
 		var all []daemonprotocol.ToolCallReport
 		decoder := json.NewDecoder(bytes.NewReader(body))
@@ -149,7 +145,7 @@ func TestProgramToolCallServerOffersToBackend(t *testing.T) {
 		return all
 	}
 
-	response, body := programToolCallLocalRequest(t, local, http.MethodPost, "/tool-calls/"+processID, capability,
+	response, body := programToolCallLocalRequest(t, local, http.MethodPost, "/tool-calls/"+processID,
 		`{"key":"k-1","name":"storage_list","input":{"prefix":"a"}}`)
 	require.Equal(t, http.StatusOK, response.StatusCode, string(body))
 	require.Equal(t, "no-store", response.Header.Get("Cache-Control"))
@@ -160,7 +156,7 @@ func TestProgramToolCallServerOffersToBackend(t *testing.T) {
 	require.Equal(t, daemonprotocol.ProgramToolCallStateCompleted, last.State)
 	require.JSONEq(t, `{"ok":true}`, string(last.Content[0].Value))
 
-	_, body = programToolCallLocalRequest(t, local, http.MethodPost, "/tool-calls/"+processID, capability,
+	_, body = programToolCallLocalRequest(t, local, http.MethodPost, "/tool-calls/"+processID,
 		`{"key":"rejected","name":"storage_list","input":{"prefix":"a"}}`)
 	streamed = reports(body)
 	require.Len(t, streamed, 1)
@@ -169,29 +165,22 @@ func TestProgramToolCallServerOffersToBackend(t *testing.T) {
 
 	before := offers.Load()
 	for _, tc := range []struct {
-		name, method, path, capability, body string
-		status                               int
+		name, method, path, body string
+		status                   int
 	}{
-		{"wrong capability", http.MethodPost, "/tool-calls/" + processID, "wrong", `{}`, http.StatusForbidden},
-		{"missing capability", http.MethodPost, "/tool-calls/" + processID, "", `{}`, http.StatusForbidden},
-		{"other process capability", http.MethodPost, "/tool-calls/" + processID,
-			programToolCallService.capability("supervisor-secret", "prc_other"), `{}`, http.StatusForbidden},
-		{"git capability", http.MethodPost, "/tool-calls/" + processID,
-			gitCredentialService.capability("supervisor-secret", processID), `{}`, http.StatusForbidden},
-		{"unknown process", http.MethodPost, "/tool-calls/" + mustProcessID(t),
-			capability, `{}`, http.StatusForbidden},
-		{"invalid process", http.MethodPost, "/tool-calls/not-a-process", capability, `{}`, http.StatusNotFound},
-		{"nested path", http.MethodPost, "/tool-calls/" + processID + "/tc_1", capability, `{}`, http.StatusNotFound},
-		{"wrong method", http.MethodGet, "/tool-calls/" + processID, capability, "", http.StatusMethodNotAllowed},
-		{"missing key", http.MethodPost, "/tool-calls/" + processID, capability, `{"name":"n","input":{}}`,
+		{"unknown process", http.MethodPost, "/tool-calls/" + mustProcessID(t), `{}`, http.StatusNotFound},
+		{"invalid process", http.MethodPost, "/tool-calls/not-a-process", `{}`, http.StatusNotFound},
+		{"nested path", http.MethodPost, "/tool-calls/" + processID + "/tc_1", `{}`, http.StatusNotFound},
+		{"wrong method", http.MethodGet, "/tool-calls/" + processID, "", http.StatusMethodNotAllowed},
+		{"missing key", http.MethodPost, "/tool-calls/" + processID, `{"name":"n","input":{}}`,
 			http.StatusBadRequest},
-		{"not JSON", http.MethodPost, "/tool-calls/" + processID, capability, `nope`, http.StatusBadRequest},
-		{"too large", http.MethodPost, "/tool-calls/" + processID, capability,
+		{"not JSON", http.MethodPost, "/tool-calls/" + processID, `nope`, http.StatusBadRequest},
+		{"too large", http.MethodPost, "/tool-calls/" + processID,
 			`{"key":"k","name":"n","input":{"a":"` + strings.Repeat("x", daemonprotocol.ProgramToolCallMaxInputBytes) + `"}}`,
 			http.StatusRequestEntityTooLarge},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			response, body := programToolCallLocalRequest(t, local, tc.method, tc.path, tc.capability, tc.body)
+			response, body := programToolCallLocalRequest(t, local, tc.method, tc.path, tc.body)
 			require.Equal(t, tc.status, response.StatusCode, string(body))
 			var apiError programToolCallError
 			require.NoError(t, json.Unmarshal(body, &apiError))
@@ -222,7 +211,6 @@ func TestProgramToolCallServerOffersAgainOnReconnect(t *testing.T) {
 		if !assert.NoError(t, err) {
 			return
 		}
-		request.Header.Set("Authorization", "Bearer "+programToolCallService.capability("supervisor-secret", processID))
 		response, err := server.Client().Do(request)
 		if !assert.NoError(t, err) {
 			return
@@ -258,14 +246,12 @@ func TestProgramToolCallServerLimitsConcurrencyPerProcess(t *testing.T) {
 	handler := client.newProgramToolCallHandler()
 	server := httptest.NewServer(handler)
 	defer server.Close()
-	capability := programToolCallService.capability("supervisor-secret", processID)
 	post := func(key string) (int, string, error) {
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
 			server.URL+"/tool-calls/"+processID, strings.NewReader(`{"key":"`+key+`","name":"n","input":{}}`))
 		if err != nil {
 			return 0, "", err
 		}
-		request.Header.Set("Authorization", "Bearer "+capability)
 		response, err := server.Client().Do(request)
 		if err != nil {
 			return 0, "", err
@@ -331,9 +317,9 @@ func TestProgramToolCallPrepare(t *testing.T) {
 			assignment := ProcessAssignment{
 				ID: processID, ProgrammaticToolCalls: tc.offered, PreparationError: tc.preparation,
 				Process:           Process{ExecutionSpec: tc.spec},
-				ProgramToolHelper: &processServiceHelper{Capability: "stale"},
+				ProgramToolHelper: &processServiceHelper{Endpoint: "stale"},
 			}
-			client.prepareProgramToolCalls(&assignment, "supervisor-secret")
+			client.prepareProgramToolCalls(&assignment)
 			require.Equal(t, tc.preparation, assignment.PreparationError, "the feature must never fail preparation")
 			if !tc.want {
 				require.Nil(t, assignment.ProgramToolHelper)
@@ -343,20 +329,17 @@ func TestProgramToolCallPrepare(t *testing.T) {
 			require.NotNil(t, assignment.ProgramToolHelper)
 			require.True(t, filepath.IsAbs(assignment.ProgramToolHelper.Executable))
 			require.Equal(t, "tool-calls.sock", filepath.Base(assignment.ProgramToolHelper.Endpoint))
-			require.Equal(t, programToolCallService.capability("supervisor-secret", processID),
-				assignment.ProgramToolHelper.Capability)
-			require.NotEqual(t, gitCredentialService.capability("supervisor-secret", processID),
-				assignment.ProgramToolHelper.Capability)
+			require.Empty(t, assignment.ProgramToolHelper.Capability)
 		})
 	}
 }
 
 func TestProgramToolCallEnvironmentReplacesUserValues(t *testing.T) {
-	helper := &processServiceHelper{Executable: "/opt/omnara/omnarad", Endpoint: "/run/tool-calls.sock", Capability: "cap"}
+	helper := &processServiceHelper{Executable: "/opt/omnara/omnarad", Endpoint: "/run/tool-calls.sock"}
 	base := workloadProcessEnv(
 		[]string{"PATH=/bin", "OMNARA_TOOL_ENDPOINT=/ambient.sock", "OMNARA_HOME=/home/omnara"},
 		"/bin",
-		map[string]string{"OMNARA_TOOL_CAPABILITY": "forged", "OMNARA_BIN": "/tmp/evil", "KEEP": "1"},
+		map[string]string{"OMNARA_TOOL_ENDPOINT": "/forged.sock", "OMNARA_BIN": "/tmp/evil", "KEEP": "1"},
 	)
 	for _, entry := range base {
 		require.False(t, strings.HasPrefix(entry, "OMNARA_TOOL_"), entry)
@@ -371,7 +354,7 @@ func TestProgramToolCallEnvironmentReplacesUserValues(t *testing.T) {
 	}
 	require.Equal(t, []string{"prc_real"}, values["OMNARA_PROCESS_ID"])
 	require.Equal(t, []string{"/run/tool-calls.sock"}, values["OMNARA_TOOL_ENDPOINT"])
-	require.Equal(t, []string{"cap"}, values["OMNARA_TOOL_CAPABILITY"])
+	require.NotContains(t, values, "OMNARA_TOOL_CAPABILITY")
 	require.Equal(t, []string{"/opt/omnara/omnarad"}, values["OMNARA_BIN"])
 	require.Equal(t, []string{"/opt/omnara" + string(os.PathListSeparator) + "/bin"}, values["PATH"])
 	again := programToolCallEnvironment(env, "prc_real", helper)
@@ -410,7 +393,7 @@ func TestProgramToolCallOfferReachesAssignment(t *testing.T) {
 
 func TestProgramToolCallEnvironmentReachesPreparedCommand(t *testing.T) {
 	bootstrap, _, _ := acceptedRunnerServerState(t)
-	helper := &processServiceHelper{Executable: "/opt/omnara/omnarad", Endpoint: "/run/tool-calls.sock", Capability: "cap"}
+	helper := &processServiceHelper{Executable: "/opt/omnara/omnarad", Endpoint: "/run/tool-calls.sock"}
 	for _, withHelper := range []bool{false, true} {
 		assignment := ProcessAssignment{
 			ID: bootstrap.ProcessID,
@@ -432,7 +415,6 @@ func TestProgramToolCallEnvironmentReachesPreparedCommand(t *testing.T) {
 		if withHelper {
 			require.Contains(t, runner.cmd.Env, "OMNARA_TOOL_ENDPOINT=/run/tool-calls.sock")
 			require.Contains(t, runner.cmd.Env, "OMNARA_PROCESS_ID="+bootstrap.ProcessID)
-			require.Contains(t, runner.cmd.Env, "OMNARA_TOOL_CAPABILITY=cap")
 			require.Contains(t, runner.cmd.Env, "OMNARA_BIN=/opt/omnara/omnarad")
 		} else {
 			require.NotContains(t, env, "OMNARA_TOOL_")
@@ -462,7 +444,7 @@ func TestProgramToolCallCLIThroughDaemonServer(t *testing.T) {
 		ID: processID, ProgrammaticToolCalls: true,
 		Process: Process{ExecutionSpec: processcmd.ForShell("true", processcmd.ShellSH, processcmd.IOModePipe)},
 	}
-	client.prepareProgramToolCalls(&assignment, "supervisor-secret")
+	client.prepareProgramToolCalls(&assignment)
 	require.NotNil(t, assignment.ProgramToolHelper)
 	for _, entry := range programToolCallEnvironment(nil, processID, assignment.ProgramToolHelper) {
 		name, value, _ := strings.Cut(entry, "=")
@@ -477,13 +459,13 @@ func TestProgramToolCallCLIThroughDaemonServer(t *testing.T) {
 	require.Equal(t, `{"files":["x/a"]}`+"\n", stdout.String())
 	require.Contains(t, stderr.String(), "waiting for approval of storage_list")
 
-	t.Setenv(programToolCapabilityEnv, "forged")
 	stdout.Reset()
+	t.Setenv(programToolProcessIDEnv, mustProcessID(t))
 	var denied bytes.Buffer
 	code = RunProgramToolCall(t.Context(), ProgramToolCallOptions{Tool: "storage_list", Timeout: time.Minute},
 		nil, &stdout, &denied)
 	require.Equal(t, ProgramToolCallExitUnavailable, code)
-	require.Contains(t, denied.String(), "tool call request denied")
+	require.Contains(t, denied.String(), "no running process can call tools here")
 }
 
 type approvalNotice struct {
@@ -511,7 +493,6 @@ func startAbandonedProgramToolCall(
 		if !assert.NoError(t, err) {
 			return
 		}
-		request.Header.Set("Authorization", "Bearer "+programToolCallService.capability("supervisor-secret", processID))
 		response, err := server.Client().Do(request)
 		if err == nil {
 			_, _ = io.Copy(io.Discard, response.Body)

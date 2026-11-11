@@ -18,24 +18,23 @@ import (
 )
 
 const (
-	programToolProcessIDEnv  = "OMNARA_PROCESS_ID"
-	programToolEndpointEnv   = "OMNARA_TOOL_ENDPOINT"
-	programToolCapabilityEnv = "OMNARA_TOOL_CAPABILITY"
-	programToolBinEnv        = "OMNARA_BIN"
+	programToolProcessIDEnv = "OMNARA_PROCESS_ID"
+	programToolEndpointEnv  = "OMNARA_TOOL_ENDPOINT"
+	programToolBinEnv       = "OMNARA_BIN"
 
 	programToolCallProcessLimit  = 128
 	programToolCallServerLimit   = 128
 	programToolCallCancelTimeout = 10 * time.Second
 )
 
-func (c *Client) prepareProgramToolCalls(assignment *ProcessAssignment, supervisorToken string) {
+func (c *Client) prepareProgramToolCalls(assignment *ProcessAssignment) {
 	assignment.ProgramToolHelper = nil
 	if assignment.Process.ExecutionSpec.Kind != processcmd.KindShell || !assignment.ProgrammaticToolCalls ||
 		assignment.PreparationError != "" || c.programToolCallsUnavailable {
 		assignment.ProgrammaticToolCalls = false
 		return
 	}
-	helper, err := c.processServiceHelper(programToolCallService, supervisorToken, assignment.ID)
+	helper, err := c.processServiceHelper(programToolCallService)
 	if err != nil {
 		c.log.Warn("program tool call helper unavailable", "error", err)
 		assignment.ProgrammaticToolCalls = false
@@ -50,7 +49,7 @@ func programToolCallEnvironment(env []string, processID string, helper *processS
 	for _, entry := range env {
 		name, value, _ := strings.Cut(entry, "=")
 		switch strings.ToUpper(name) {
-		case programToolProcessIDEnv, programToolEndpointEnv, programToolCapabilityEnv, programToolBinEnv:
+		case programToolProcessIDEnv, programToolEndpointEnv, programToolBinEnv:
 		case "PATH":
 			if value != bin && !strings.HasPrefix(value, bin+string(os.PathListSeparator)) {
 				value = bin + string(os.PathListSeparator) + value
@@ -63,7 +62,6 @@ func programToolCallEnvironment(env []string, processID string, helper *processS
 	return append(result,
 		programToolProcessIDEnv+"="+processID,
 		programToolEndpointEnv+"="+helper.Endpoint,
-		programToolCapabilityEnv+"="+helper.Capability,
 		programToolBinEnv+"="+helper.Executable,
 	)
 }
@@ -134,7 +132,7 @@ func (h *programToolCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		h.writeError(w, http.StatusMethodNotAllowed, "invalid_request", "method not allowed")
 		return
 	}
-	if status, code, message := h.authorize(r, processID); status != 0 {
+	if status, code, message := h.processOpen(r, processID); status != 0 {
 		h.writeError(w, status, code, message)
 		return
 	}
@@ -148,17 +146,24 @@ func (h *programToolCallHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	h.call(w, r, processID)
 }
 
-func (h *programToolCallHandler) authorize(r *http.Request, processID string) (int, string, string) {
+func (h *programToolCallHandler) processOpen(r *http.Request, processID string) (int, string, string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	switch h.client.authorizeProcessService(ctx, programToolCallService, r, processID) {
-	case 0:
-		return 0, "", ""
-	case http.StatusForbidden:
-		return http.StatusForbidden, "forbidden", "tool call request denied"
-	default:
+	unavailable := func() (int, string, string) {
 		return http.StatusServiceUnavailable, "service_unavailable", "tool call service unavailable"
 	}
+	state, err := h.client.stateStore(ctx)
+	if err != nil {
+		return unavailable()
+	}
+	process, found, err := state.Process(ctx, processID)
+	if err != nil {
+		return unavailable()
+	}
+	if !found || process.LocalClosed {
+		return http.StatusNotFound, "not_found", "no running process can call tools here"
+	}
+	return 0, "", ""
 }
 
 func (h *programToolCallHandler) acquire(processID string) bool {
