@@ -297,6 +297,25 @@ const superserve: MachinePoolProviderDefinition = {
   },
 }
 
+const bead: MachinePoolProviderDefinition = {
+  label: 'bead',
+  resource: {
+    key: 'template',
+    label: 'Template',
+    placeholder: 'base',
+    optional: true,
+    description:
+      "Leave empty to use base. Machines use the smallest bead shape covering the template's CPU and memory; set the maximums to cover that shape.",
+    descriptionHref: 'https://bead.run/references/templates.md',
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
+  },
+}
+
 const agent37: MachinePoolProviderDefinition = {
   label: 'Agent37',
   resource: {
@@ -329,6 +348,7 @@ export const machinePoolProviderDefinitions = {
   e2b,
   superserve,
   agent37,
+  bead,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {

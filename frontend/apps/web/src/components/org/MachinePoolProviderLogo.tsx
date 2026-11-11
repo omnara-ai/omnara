@@ -12,6 +12,10 @@ interface LogoMark {
 }
 
 const logoMarks: Record<MachinePoolProvider, LogoMark> = {
+  bead: {
+    viewBox: '0 0 64 64',
+    paths: ['M18 12v40h15c22 0 22-31 0-31H27v-9zm9 18h6c10 0 10 13 0 13h-6z'],
+  },
   unikraft: {
     viewBox: '0.164 0.1 499.8 499.8',
     paths: [

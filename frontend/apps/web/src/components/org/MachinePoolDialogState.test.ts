@@ -837,6 +837,7 @@ it('lists providers alphabetically', () => {
   expect(machinePoolProviders.map((provider) => provider.label)).toEqual([
     'Agent37',
     'Arker',
+    'bead',
     'Blaxel',
     'boxd',
     'CreateOS',

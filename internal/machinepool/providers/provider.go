@@ -16,6 +16,7 @@ import (
 
 const (
 	Agent37    = "agent37"
+	Bead       = "bead"
 	Arker      = "arker"
 	Blaxel     = "blaxel"
 	Boxd       = "boxd"
