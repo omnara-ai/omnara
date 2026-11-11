@@ -19,14 +19,13 @@ import { summaryWidth, toolCallSummary } from './agent-rendering.ts'
 import { InteractionPrompt, Label, TextInput } from './chat-prompts.tsx'
 
 type MessagePart = OmnaraUIMessage['parts'][number]
-type ToolPart = Extract<MessagePart, { type: 'dynamic-tool' }>
+export type ToolPart = Extract<MessagePart, { type: 'dynamic-tool' }>
 
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const streamingTailLines = 8
 const streamingTailChars = 1500
 const zToolInput = z.record(z.string(), z.json())
 const zToolOutput = z.object({
-  outcome: schemas.zToolCallOutcome,
   contentBlocks: z.array(schemas.zToolResultContentBlock),
 })
 
@@ -46,16 +45,19 @@ function toolSummary(part: ToolPart): string | undefined {
   return input.success ? toolCallSummary(part.toolName, input.data) : undefined
 }
 
-function toolOutput(part: ToolPart): { outcome: string; text: string | undefined } | undefined {
+export function toolOutput(
+  part: ToolPart,
+): { outcome: string; text: string | undefined } | undefined {
   if (part.state !== 'output-available') return undefined
   const output = zToolOutput.safeParse(part.output)
   if (!output.success) return undefined
+  const outcome = part.toolOutcome ?? 'succeeded'
   for (const block of output.data.contentBlocks) {
     if (block.type !== 'text' && block.type !== 'structured_data') continue
     const text = blockText(block)
-    if (text.trim() !== '') return { outcome: output.data.outcome, text }
+    if (text.trim() !== '') return { outcome, text }
   }
-  return { outcome: output.data.outcome, text: undefined }
+  return { outcome, text: undefined }
 }
 
 function ToolPartView({ part }: { part: ToolPart }) {
@@ -404,6 +406,7 @@ export function Chat({ scope }: { scope: AgentChatScope }) {
         <InteractionPrompt
           key={interaction.id}
           interaction={interaction}
+          agentID={scope.agentID}
           onAnswer={(answers) => {
             void resolveInteraction
               .mutateAsync({

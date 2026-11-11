@@ -28,6 +28,15 @@ const (
 	AgentInteractionKindQuestion   AgentInteractionKind = "question"
 )
 
+func (kind AgentInteractionKind) Valid() bool {
+	return kind == AgentInteractionKindPermission || kind == AgentInteractionKindQuestion
+}
+
+func (state AgentInteractionState) Valid() bool {
+	return state == AgentInteractionStateOpen || state == AgentInteractionStateResolved ||
+		state == AgentInteractionStateCanceled
+}
+
 type CreatePermissionInteractionInput struct {
 	ProjectID     uuid.UUID
 	AgentID       uuid.UUID
@@ -301,7 +310,7 @@ func (s *Store) GetAgentInteractionByToolCallKind(
 	interactionKind AgentInteractionKind,
 ) (AgentInteractionRecord, bool, error) {
 	if projectID == uuid.Nil || agentID == uuid.Nil || toolCallID == uuid.Nil ||
-		(interactionKind != AgentInteractionKindPermission && interactionKind != AgentInteractionKindQuestion) {
+		!interactionKind.Valid() {
 		return AgentInteractionRecord{}, false, errors.New(
 			"project, agent, tool call id, and interaction kind are required",
 		)

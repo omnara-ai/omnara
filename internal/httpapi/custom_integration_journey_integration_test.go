@@ -5,6 +5,7 @@ package httpapi
 import (
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -61,7 +62,9 @@ func TestCustomIntegrationPublicInputInteractionAndToolJourney(t *testing.T) {
 				integrationHTTPJSON(t, answers), "", http.StatusOK, headers)
 			require.Equal(t, "resolved", resolved["state"])
 			require.NotEmpty(t, resolved["resolved_by_input_id"])
-			require.Equal(t, resolved, customIntegrationHTTPInteraction(t, f, f.project.adminBrowserAuthHeaders()))
+			expectedListed := maps.Clone(resolved)
+			expectedListed["agent_name"] = "Support"
+			require.Equal(t, expectedListed, customIntegrationHTTPInteraction(t, f, f.project.adminBrowserAuthHeaders()))
 			requestJSONWithHeaders(t, f.handler, http.MethodPost, resolvePath,
 				integrationHTTPJSON(t, answers), "", http.StatusOK, headers)
 			requestJSONWithHeaders(

@@ -39,7 +39,8 @@ SET attempt_count = attempt_count + 1,
 FROM candidate
 WHERE delivery.id = candidate.id
 RETURNING delivery.id, delivery.webhook_id, delivery.agent_id, delivery.org_id, delivery.event_sequence, delivery.tool_call_id,
-    delivery.tool_state, delivery.interaction_update, delivery.attempt_count, delivery.claim_token
+    delivery.tool_state, delivery.interaction_update, delivery.attempt_count, delivery.claim_token, delivery.created_at,
+    delivery.next_attempt_at
 `
 
 type ClaimEventWebhookDeliveryParams struct {
@@ -58,6 +59,8 @@ type ClaimEventWebhookDeliveryRow struct {
 	InteractionUpdate *json.RawMessage
 	AttemptCount      int32
 	ClaimToken        *uuid.UUID
+	CreatedAt         time.Time
+	NextAttemptAt     time.Time
 }
 
 func (q *Queries) ClaimEventWebhookDelivery(ctx context.Context, arg ClaimEventWebhookDeliveryParams) (ClaimEventWebhookDeliveryRow, error) {
@@ -74,6 +77,8 @@ func (q *Queries) ClaimEventWebhookDelivery(ctx context.Context, arg ClaimEventW
 		&i.InteractionUpdate,
 		&i.AttemptCount,
 		&i.ClaimToken,
+		&i.CreatedAt,
+		&i.NextAttemptAt,
 	)
 	return i, err
 }
@@ -90,6 +95,22 @@ type CompleteEventWebhookDeliveryParams struct {
 func (q *Queries) CompleteEventWebhookDelivery(ctx context.Context, arg CompleteEventWebhookDeliveryParams) error {
 	_, err := q.db.Exec(ctx, completeEventWebhookDelivery, arg.ID, arg.ClaimToken)
 	return err
+}
+
+const countProjectEventWebhooks = `-- name: CountProjectEventWebhooks :one
+SELECT count(*) FROM event_webhooks
+WHERE project_id = $1 AND deleted_at IS NULL
+`
+
+type CountProjectEventWebhooksParams struct {
+	ProjectID uuid.UUID
+}
+
+func (q *Queries) CountProjectEventWebhooks(ctx context.Context, arg CountProjectEventWebhooksParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countProjectEventWebhooks, arg.ProjectID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const deleteEventWebhook = `-- name: DeleteEventWebhook :execrows
@@ -182,8 +203,12 @@ func (q *Queries) EnqueueEventWebhookDelivery(ctx context.Context, arg EnqueueEv
 }
 
 const getEventWebhook = `-- name: GetEventWebhook :one
-SELECT webhook.id, webhook.org_id, webhook.project_id, webhook.agent_profile_id, webhook.agent_id, webhook.url, webhook.event_types, webhook.signing_secret_id,
-          webhook.created_at, webhook.updated_at, webhook.deleted_at FROM event_webhooks webhook
+SELECT webhook.id, webhook.org_id, webhook.project_id, webhook.agent_profile_id, webhook.agent_id,
+       webhook.url, webhook.event_types, webhook.signing_secret_id, webhook.created_at, webhook.updated_at,
+       webhook.deleted_at, coalesce(profile.name, agent.name, '')::text AS scope_name
+FROM event_webhooks webhook
+LEFT JOIN agent_profiles profile ON profile.project_id = webhook.project_id AND profile.id = webhook.agent_profile_id AND profile.deleted_at IS NULL
+LEFT JOIN agents agent ON agent.project_id = webhook.project_id AND agent.id = webhook.agent_id
 JOIN orgs org ON org.id = webhook.org_id AND org.deleted_at IS NULL
 JOIN projects project ON project.id = webhook.project_id AND project.deleted_at IS NULL
 WHERE webhook.project_id = $1 AND webhook.id = $2 AND webhook.deleted_at IS NULL
@@ -194,9 +219,24 @@ type GetEventWebhookParams struct {
 	ID        uuid.UUID
 }
 
-func (q *Queries) GetEventWebhook(ctx context.Context, arg GetEventWebhookParams) (EventWebhook, error) {
+type GetEventWebhookRow struct {
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	Url             string
+	EventTypes      []string
+	SigningSecretID *uuid.UUID
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+	ScopeName       string
+}
+
+func (q *Queries) GetEventWebhook(ctx context.Context, arg GetEventWebhookParams) (GetEventWebhookRow, error) {
 	row := q.db.QueryRow(ctx, getEventWebhook, arg.ProjectID, arg.ID)
-	var i EventWebhook
+	var i GetEventWebhookRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -209,12 +249,14 @@ func (q *Queries) GetEventWebhook(ctx context.Context, arg GetEventWebhookParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.ScopeName,
 	)
 	return i, err
 }
 
 const getEventWebhookEndpoint = `-- name: GetEventWebhookEndpoint :one
-SELECT webhook.org_id, webhook.project_id, webhook.url, webhook.signing_secret_id
+SELECT webhook.org_id, webhook.project_id, webhook.url, webhook.signing_secret_id,
+       agent.agent_profile_id, agent.parent_agent_id, agent.root_agent_id
 FROM event_webhooks webhook
 JOIN orgs org ON org.id = webhook.org_id AND org.deleted_at IS NULL
 JOIN agents agent ON agent.project_id = webhook.project_id AND agent.id = $1
@@ -235,6 +277,9 @@ type GetEventWebhookEndpointRow struct {
 	ProjectID       uuid.UUID
 	Url             string
 	SigningSecretID *uuid.UUID
+	AgentProfileID  *uuid.UUID
+	ParentAgentID   *uuid.UUID
+	RootAgentID     uuid.UUID
 }
 
 func (q *Queries) GetEventWebhookEndpoint(ctx context.Context, arg GetEventWebhookEndpointParams) (GetEventWebhookEndpointRow, error) {
@@ -245,38 +290,9 @@ func (q *Queries) GetEventWebhookEndpoint(ctx context.Context, arg GetEventWebho
 		&i.ProjectID,
 		&i.Url,
 		&i.SigningSecretID,
-	)
-	return i, err
-}
-
-const getEventWebhookForUpdate = `-- name: GetEventWebhookForUpdate :one
-SELECT id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
-       created_at, updated_at, deleted_at
-FROM event_webhooks
-WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
-FOR UPDATE
-`
-
-type GetEventWebhookForUpdateParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) GetEventWebhookForUpdate(ctx context.Context, arg GetEventWebhookForUpdateParams) (EventWebhook, error) {
-	row := q.db.QueryRow(ctx, getEventWebhookForUpdate, arg.ProjectID, arg.ID)
-	var i EventWebhook
-	err := row.Scan(
-		&i.ID,
-		&i.OrgID,
-		&i.ProjectID,
 		&i.AgentProfileID,
-		&i.AgentID,
-		&i.Url,
-		&i.EventTypes,
-		&i.SigningSecretID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
+		&i.ParentAgentID,
+		&i.RootAgentID,
 	)
 	return i, err
 }
@@ -326,30 +342,68 @@ func (q *Queries) InsertEventWebhook(ctx context.Context, arg InsertEventWebhook
 }
 
 const listEventWebhooks = `-- name: ListEventWebhooks :many
-SELECT id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
-          created_at, updated_at, deleted_at FROM event_webhooks
-WHERE project_id = $1
-  AND agent_profile_id IS NOT DISTINCT FROM $2::uuid
-  AND agent_id IS NOT DISTINCT FROM $3::uuid
-  AND deleted_at IS NULL
-ORDER BY created_at, id
+SELECT webhook.id, webhook.org_id, webhook.project_id, webhook.agent_profile_id, webhook.agent_id,
+       webhook.url, webhook.event_types, webhook.signing_secret_id, webhook.created_at, webhook.updated_at,
+       webhook.deleted_at, coalesce(profile.name, agent.name, '')::text AS scope_name
+FROM event_webhooks webhook
+LEFT JOIN agent_profiles profile ON profile.project_id = webhook.project_id AND profile.id = webhook.agent_profile_id AND profile.deleted_at IS NULL
+LEFT JOIN agents agent ON agent.project_id = webhook.project_id AND agent.id = webhook.agent_id
+WHERE webhook.project_id = $1
+  AND (NOT $2::boolean OR (
+    webhook.agent_profile_id IS NOT DISTINCT FROM $3::uuid
+    AND webhook.agent_id IS NOT DISTINCT FROM $4::uuid
+  ))
+  AND webhook.deleted_at IS NULL
+  AND (webhook.created_at, webhook.id) > (
+    coalesce($5::timestamptz, '-infinity'::timestamptz),
+    coalesce($6::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+  )
+ORDER BY webhook.created_at, webhook.id
+LIMIT $7
 `
 
 type ListEventWebhooksParams struct {
-	ProjectID      uuid.UUID
-	AgentProfileID *uuid.UUID
-	AgentID        *uuid.UUID
+	ProjectID       uuid.UUID
+	FilterScope     bool
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	CursorCreatedAt *time.Time
+	CursorID        *uuid.UUID
+	RowLimit        int32
 }
 
-func (q *Queries) ListEventWebhooks(ctx context.Context, arg ListEventWebhooksParams) ([]EventWebhook, error) {
-	rows, err := q.db.Query(ctx, listEventWebhooks, arg.ProjectID, arg.AgentProfileID, arg.AgentID)
+type ListEventWebhooksRow struct {
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	Url             string
+	EventTypes      []string
+	SigningSecretID *uuid.UUID
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+	ScopeName       string
+}
+
+func (q *Queries) ListEventWebhooks(ctx context.Context, arg ListEventWebhooksParams) ([]ListEventWebhooksRow, error) {
+	rows, err := q.db.Query(ctx, listEventWebhooks,
+		arg.ProjectID,
+		arg.FilterScope,
+		arg.AgentProfileID,
+		arg.AgentID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []EventWebhook{}
+	items := []ListEventWebhooksRow{}
 	for rows.Next() {
-		var i EventWebhook
+		var i ListEventWebhooksRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -362,6 +416,7 @@ func (q *Queries) ListEventWebhooks(ctx context.Context, arg ListEventWebhooksPa
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.ScopeName,
 		); err != nil {
 			return nil, err
 		}
@@ -461,8 +516,59 @@ func (q *Queries) RetryEventWebhookDelivery(ctx context.Context, arg RetryEventW
 	return i, err
 }
 
+const sampleEventWebhookBacklog = `-- name: SampleEventWebhookBacklog :one
+WITH queue AS (
+    SELECT created_at, next_attempt_at,
+        CASE
+            WHEN claim_expires_at > statement_timestamp() THEN 'in_flight'
+            WHEN created_at <= statement_timestamp()
+                - $1::double precision * interval '1 second' THEN 'expired'
+            WHEN next_attempt_at <= statement_timestamp() THEN 'due'
+            ELSE 'delayed'
+        END AS state
+    FROM event_webhook_deliveries
+)
+SELECT count(*) FILTER (WHERE state = 'due') AS due_count,
+       count(*) FILTER (WHERE state = 'delayed') AS delayed_count,
+       count(*) FILTER (WHERE state = 'in_flight') AS in_flight_count,
+       count(*) FILTER (WHERE state = 'expired') AS expired_count,
+       coalesce(max(extract(epoch FROM statement_timestamp() - created_at))
+           FILTER (WHERE state = 'due'), 0)::double precision AS oldest_due_age_seconds,
+       coalesce(max(extract(epoch FROM statement_timestamp() - next_attempt_at))
+           FILTER (WHERE state = 'due'), 0)::double precision AS oldest_due_lag_seconds
+FROM queue
+`
+
+type SampleEventWebhookBacklogParams struct {
+	DeliveryWindowSeconds float64
+}
+
+type SampleEventWebhookBacklogRow struct {
+	DueCount            int64
+	DelayedCount        int64
+	InFlightCount       int64
+	ExpiredCount        int64
+	OldestDueAgeSeconds float64
+	OldestDueLagSeconds float64
+}
+
+func (q *Queries) SampleEventWebhookBacklog(ctx context.Context, arg SampleEventWebhookBacklogParams) (SampleEventWebhookBacklogRow, error) {
+	row := q.db.QueryRow(ctx, sampleEventWebhookBacklog, arg.DeliveryWindowSeconds)
+	var i SampleEventWebhookBacklogRow
+	err := row.Scan(
+		&i.DueCount,
+		&i.DelayedCount,
+		&i.InFlightCount,
+		&i.ExpiredCount,
+		&i.OldestDueAgeSeconds,
+		&i.OldestDueLagSeconds,
+	)
+	return i, err
+}
+
 const updateEventWebhook = `-- name: UpdateEventWebhook :one
-UPDATE event_webhooks SET url = $3, event_types = $4, signing_secret_id = $5, updated_at = statement_timestamp()
+UPDATE event_webhooks SET url = $3, event_types = $4, signing_secret_id = $5,
+    agent_profile_id = $6, agent_id = $7, updated_at = statement_timestamp()
 WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL
 RETURNING id, org_id, project_id, agent_profile_id, agent_id, url, event_types, signing_secret_id,
           created_at, updated_at, deleted_at
@@ -474,6 +580,8 @@ type UpdateEventWebhookParams struct {
 	Url             string
 	EventTypes      []string
 	SigningSecretID *uuid.UUID
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
 }
 
 func (q *Queries) UpdateEventWebhook(ctx context.Context, arg UpdateEventWebhookParams) (EventWebhook, error) {
@@ -483,6 +591,8 @@ func (q *Queries) UpdateEventWebhook(ctx context.Context, arg UpdateEventWebhook
 		arg.Url,
 		arg.EventTypes,
 		arg.SigningSecretID,
+		arg.AgentProfileID,
+		arg.AgentID,
 	)
 	var i EventWebhook
 	err := row.Scan(

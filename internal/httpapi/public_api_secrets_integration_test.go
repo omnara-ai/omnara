@@ -208,6 +208,12 @@ func TestPublicCanonicalSecretsAndProjectAvailability(t *testing.T) {
 		"/api/v1/orgs/"+project.OrgID+"/secrets/"+orgSecretID+"/grants",
 		`{"target_project_id":"`+secondID+`"}`, "", http.StatusCreated, authHeaders(project.AdminToken))
 	grantID := testutil.RequireType[string](t, grant["id"])
+	grantPath := "/api/v1/orgs/" + project.OrgID + "/secrets/" + orgSecretID + "/grants/" + grantID
+	fetchedGrant := requestJSONWithHeaders(t, handler, http.MethodGet, grantPath, "", "", http.StatusOK,
+		authHeaders(project.AdminToken))
+	if fetchedGrant["id"] != grantID || fetchedGrant["target_project_id"] != secondID {
+		t.Fatalf("get secret grant = %+v", fetchedGrant)
+	}
 	granted := testutil.RequireType[[]any](t, requestJSONWithHeaders(t, handler, http.MethodGet, secondPath+"/secrets",
 		"", "", http.StatusOK, authHeaders(project.AdminToken))["data"])
 	if len(granted) != 1 {
@@ -233,9 +239,12 @@ func TestPublicCanonicalSecretsAndProjectAvailability(t *testing.T) {
 	requestJSONWithHeaders(t, handler, http.MethodGet,
 		"/api/v1/orgs/"+project.OrgID+"/secrets/"+orgSecretID+"/grants", "", "", http.StatusNotFound,
 		authHeaders(targetToken))
+	requestJSONWithHeaders(t, handler, http.MethodGet, grantPath, "", "", http.StatusNotFound, authHeaders(targetToken))
 	requestJSONWithHeaders(t, handler, http.MethodDelete,
 		"/api/v1/orgs/"+project.OrgID+"/secrets/"+orgSecretID+"/grants/"+grantID,
 		"", "", http.StatusNoContent, authHeaders(targetToken))
+	requestJSONWithHeaders(t, handler, http.MethodGet, grantPath, "", "", http.StatusNotFound,
+		authHeaders(project.AdminToken))
 	requestJSONWithHeaders(t, handler, http.MethodGet, secondPath+"/secrets/"+orgSecretID,
 		"", "", http.StatusNotFound, authHeaders(targetToken))
 	requestJSONWithHeaders(t, handler, http.MethodDelete,

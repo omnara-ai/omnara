@@ -35,7 +35,7 @@ it('waits for a model, attempts once in StrictMode, and retries the same request
       },
     },
   ])
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', maxRetries: 0 })
   client.setConfig({ fetch: api.fetch })
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const setup = {

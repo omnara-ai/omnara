@@ -6,11 +6,20 @@ import {
   openAgentEventStream,
 } from './agent-event-stream'
 import { createOmnaraClient } from './client'
-import type { ModelOutputEvent } from './generated/types.gen'
+import type { ModelOutputEvent, ToolCallUpdate } from './generated/types.gen'
 
 const path = { orgID: 'org', projectID: 'project', agentID: 'agent' }
 const idSuffix = 'a'.repeat(26)
-const toolUpdate = { tool_call_id: `tcl_${idSuffix}`, state: 'running' as const }
+const toolUpdate: ToolCallUpdate = {
+  org_id: `org_${idSuffix}`,
+  project_id: `proj_${idSuffix}`,
+  agent_id: `agt_${idSuffix}`,
+  agent_profile_id: null,
+  parent_agent_id: null,
+  root_agent_id: `agt_${idSuffix}`,
+  tool_call_id: `tcl_${idSuffix}`,
+  state: 'running',
+}
 
 function durableEvent(
   sequence: number,
@@ -21,6 +30,9 @@ function durableEvent(
     org_id: `org_${idSuffix}`,
     project_id: `proj_${idSuffix}`,
     agent_id: `agt_${idSuffix}`,
+    agent_profile_id: null,
+    parent_agent_id: null,
+    root_agent_id: `agt_${idSuffix}`,
     turn_id: `trn_${idSuffix}`,
     turn_sequence: 1,
     is_opening_event: false,
@@ -126,6 +138,67 @@ afterEach(() => {
 })
 
 describe('openAgentEventStream', () => {
+  it('surfaces a JSON-body authentication error without reconnecting', async () => {
+    const { client, fetch } = scriptedClient(
+      Response.json({ code: 'unauthorized', error: 'Session expired' }, { status: 401 }),
+    )
+    const states = vi.fn()
+    await expect(
+      openAgentEventStream({ client, path, onConnectionStateChange: states }).next(),
+    ).rejects.toMatchObject({
+      kind: 'http',
+      status: 401,
+      code: 'unauthorized',
+      message: 'Session expired',
+    })
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(states).not.toHaveBeenCalled()
+  })
+
+  it('preserves a JSON-body HTTP error and Retry-After before reconnecting', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    const { client, fetch } = scriptedClient(
+      Response.json(
+        { code: 'service_unavailable', error: 'Try later' },
+        { status: 503, headers: { 'Retry-After': '2' } },
+      ),
+      Response.json({ code: 'unauthorized', error: 'Session expired' }, { status: 401 }),
+    )
+    let reconnecting!: () => void
+    const sawReconnect = new Promise<void>((resolve) => {
+      reconnecting = resolve
+    })
+    const states = vi.fn(() => {
+      reconnecting()
+    })
+    const done = expect(
+      openAgentEventStream({ client, path, onConnectionStateChange: states }).next(),
+    ).rejects.toMatchObject({ kind: 'http', status: 401, code: 'unauthorized' })
+    await sawReconnect
+    expect(states).toHaveBeenCalledOnce()
+    expect(states.mock.calls).toMatchObject([
+      [
+        {
+          state: 'reconnecting',
+          attempt: 1,
+          delayMs: 2000,
+          error: {
+            kind: 'http',
+            status: 503,
+            code: 'service_unavailable',
+            retryAfterMs: 2000,
+          },
+        },
+      ],
+    ])
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(fetch).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(1)
+    await done
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
   it('is lazy, validates frames, and reconnects after clean EOF', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0)
     const { client, fetch } = scriptedClient(sse(toolUpdate), new Response(null, { status: 401 }))
@@ -304,6 +377,7 @@ describe('openAgentEventStream', () => {
       new Response(null, { status: 503, headers: { 'Retry-After': '2' } }),
       new Response(null, { status: 401 }),
     )
+    client.setConfig({ maxRetries: 10, timeoutMs: 100 })
     const result = collectUntilError(
       openAgentEventStream({
         client,
@@ -322,6 +396,21 @@ describe('openAgentEventStream', () => {
 
     await expect(result).resolves.toMatchObject({ error: { status: 401 } })
     expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a connected stream alive past the SDK request deadline', async () => {
+    vi.useFakeTimers()
+    const connection = controlledSse(`data: ${JSON.stringify(toolUpdate)}\n\n`)
+    const client = clientWithFetch(connection.fetch)
+    client.setConfig({ maxRetries: 10, timeoutMs: 10 })
+    const controller = new AbortController()
+    const stream = openAgentEventStream({ client, path, signal: controller.signal })
+    expect(await stream.next()).toMatchObject({ value: toolUpdate })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(connection.aborted).toBe(false)
+    controller.abort()
+    expect(await stream.next()).toEqual({ value: undefined, done: true })
+    expect(connection.aborted).toBe(true)
   })
 
   async function firstReconnectDelay(retryAfter: string): Promise<number | undefined> {

@@ -26,8 +26,11 @@ function shareKey({ resourceId, projectId }: ProjectShare) {
  * created resources with every selected project they don't already reach, so removing
  * a failed project drops its shares and adding one shares with it too.
  */
-export function useProjectShares(grant: (share: ProjectShare) => Promise<void>) {
-  const [projectIds, setProjectIds] = useState<string[]>([])
+export function useProjectShares(
+  grant: (share: ProjectShare) => Promise<void>,
+  defaultProjectIds: string[] = [],
+) {
+  const [projectIds, setProjectIds] = useState(defaultProjectIds)
   const [unfinished, setUnfinished] = useState<UnfinishedShares | null>(null)
   const [sharing, setSharing] = useState(false)
 
@@ -83,7 +86,7 @@ export function useProjectShares(grant: (share: ProjectShare) => Promise<void>) 
         ? shareWithSelection(unfinished.resourceIds, new Set(unfinished.granted))
         : Promise.resolve(true),
     reset: () => {
-      setProjectIds([])
+      setProjectIds(defaultProjectIds)
       setUnfinished(null)
     },
   }

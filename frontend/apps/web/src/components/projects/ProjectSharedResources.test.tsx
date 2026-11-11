@@ -8,6 +8,7 @@ import {
   type ProjectMachineGrantListItem,
   type ProjectModelGrantListItem,
   type ProjectSkillAccess,
+  type Skill,
   type VisibleProject,
 } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -133,6 +134,16 @@ const sharedSkill: ProjectSkillAccess = {
   availability: { source: 'grant', grant_id: fakeId('skg') },
 }
 
+function skill(name: string, idChar: string, owner: Skill['owner']): Skill {
+  return { ...sharedSkill.skill, id: `skl_${idChar.repeat(26)}`, name, owner }
+}
+const personalSkill = skill('personal-skill', 'b', { kind: 'user', user_id: fakeId('usr') })
+const orgSkill = skill('org-skill', 'c', { kind: 'org' })
+const otherProjectSkill = skill('other-project-skill', 'd', {
+  kind: 'project',
+  project_id: `proj_${'b'.repeat(26)}`,
+})
+
 const TestContentContext = createContext<ReactNode>(null)
 function TestContent() {
   return useContext(TestContentContext)
@@ -229,6 +240,20 @@ async function renderAt(
       path: `${projectPath}/skills`,
       respond: () => jsonResponse({ data: [sharedSkill], next_cursor: null }),
     },
+    {
+      method: 'GET',
+      path: `/api/v1/orgs/${orgId}/skills`,
+      respond: () =>
+        jsonResponse({
+          data: [sharedSkill.skill, personalSkill, orgSkill, otherProjectSkill],
+          next_cursor: null,
+        }),
+    },
+    {
+      method: 'POST',
+      path: `/api/v1/orgs/${orgId}/skills/${personalSkill.id}/grants`,
+      respond: () => jsonResponse({}, 201),
+    },
   ])
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
   client.setConfig({ fetch: api.fetch })
@@ -251,6 +276,7 @@ async function renderAt(
       </OmnaraClientProvider>,
     )
   })
+  return api
 }
 
 function buttonsLabelled(label: string) {
@@ -353,3 +379,64 @@ it.each([
     expect(buttonsLabelled('Skill actions')).toHaveLength(actions)
   },
 )
+
+function clickButton(text: string) {
+  const button = [...document.querySelectorAll('button')].find(
+    (candidate) => candidate.textContent === text,
+  )
+  if (!button) throw new Error(`Missing button: ${text}`)
+  act(() => {
+    button.click()
+  })
+}
+
+it.each([
+  { role: 'member' as const, offered: ['personal-skill'] },
+  { role: 'admin' as const, offered: ['personal-skill', 'org-skill'] },
+])('offers $role only skills they can share that are not shared yet', async ({ role, offered }) => {
+  const api = await renderAt('/content', {
+    access: developerAccess,
+    role,
+    content: (
+      <ProjectSharedSkills
+        orgId={orgId}
+        projectId={projectId}
+        projectName="Shared project"
+        canManage
+      />
+    ),
+  })
+  await vi.waitFor(() => {
+    expect(container.textContent).toContain('shared-skill')
+  })
+
+  clickButton('Share skills')
+  const input = await vi.waitFor(() => {
+    const found = document.querySelector<HTMLInputElement>('[role="dialog"] input')
+    expect(found?.disabled).toBe(false)
+    return found
+  })
+  act(() => {
+    input?.focus()
+    input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+  })
+  const options = await vi.waitFor(() => {
+    const found = [...document.querySelectorAll('[role="option"]')]
+    expect(found.length).toBeGreaterThan(0)
+    return found
+  })
+  expect(options.map((option) => option.querySelector('.truncate')?.textContent)).toEqual(offered)
+
+  const personal = options.find((option) => option.textContent.includes('personal-skill'))
+  act(() => {
+    personal?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  act(() => {
+    document.querySelector<HTMLButtonElement>('[role="dialog"] button[type="submit"]')?.click()
+  })
+  await vi.waitFor(() => {
+    expect(
+      api.requestsTo('POST', `/api/v1/orgs/${orgId}/skills/${personalSkill.id}/grants`),
+    ).toEqual([expect.objectContaining({ body: { target_project_id: projectId } })])
+  })
+})

@@ -139,6 +139,56 @@ func (q *Queries) GetIntegrationSubscription(ctx context.Context, arg GetIntegra
 	return i, err
 }
 
+const getIntegrationSubscriptionDisplay = `-- name: GetIntegrationSubscriptionDisplay :one
+SELECT subscription.id, subscription.project_id, subscription.agent_id, subscription.integration_id,
+       subscription.scope_kind, subscription.scope_ref,
+       subscription.created_at, agent.name AS agent_name,
+       COALESCE(target.display_name, '') AS conversation_name
+FROM integration_subscriptions subscription
+JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
+LEFT JOIN integration_targets target ON target.project_id = subscription.project_id
+  AND target.integration_id = subscription.integration_id AND target.agent_id = subscription.agent_id
+  AND target.scope_kind = subscription.scope_kind AND target.scope_ref = subscription.scope_ref
+  AND target.deleted_at IS NULL
+WHERE subscription.project_id = $1 AND subscription.integration_id = $2
+  AND subscription.id = $3
+`
+
+type GetIntegrationSubscriptionDisplayParams struct {
+	ProjectID     uuid.UUID
+	IntegrationID uuid.UUID
+	ID            uuid.UUID
+}
+
+type GetIntegrationSubscriptionDisplayRow struct {
+	ID               uuid.UUID
+	ProjectID        uuid.UUID
+	AgentID          uuid.UUID
+	IntegrationID    uuid.UUID
+	ScopeKind        string
+	ScopeRef         string
+	CreatedAt        time.Time
+	AgentName        string
+	ConversationName string
+}
+
+func (q *Queries) GetIntegrationSubscriptionDisplay(ctx context.Context, arg GetIntegrationSubscriptionDisplayParams) (GetIntegrationSubscriptionDisplayRow, error) {
+	row := q.db.QueryRow(ctx, getIntegrationSubscriptionDisplay, arg.ProjectID, arg.IntegrationID, arg.ID)
+	var i GetIntegrationSubscriptionDisplayRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.AgentID,
+		&i.IntegrationID,
+		&i.ScopeKind,
+		&i.ScopeRef,
+		&i.CreatedAt,
+		&i.AgentName,
+		&i.ConversationName,
+	)
+	return i, err
+}
+
 const getIntegrationSubscriptionForConversation = `-- name: GetIntegrationSubscriptionForConversation :one
 SELECT id, project_id, agent_id, integration_id, scope_kind, scope_ref, created_at
 FROM integration_subscriptions

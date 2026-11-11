@@ -55,6 +55,9 @@ function objectMembers(schema: JsonSchema, conditional: boolean): ObjectMember[]
 }
 
 function nonNullVariants(property: JsonSchema): JsonSchema[] | undefined {
+  if (Array.isArray(property.type)) {
+    return property.type.filter((type) => type !== 'null').map((type) => ({ ...property, type }))
+  }
   const variants = property.anyOf ?? property.oneOf
   if (variants === undefined) return undefined
   return variants.filter((variant) => variant.type !== 'null')
@@ -175,8 +178,14 @@ function finalizeFlag(draft: FlagDraft): FlagSpec {
   }
 }
 
+function inputJsonSchema(schema: z.core.$ZodType): JsonSchema {
+  return schema instanceof z.ZodIntersection
+    ? { allOf: [inputJsonSchema(schema.def.left), inputJsonSchema(schema.def.right)] }
+    : z.toJSONSchema(schema, { io: 'input' })
+}
+
 export function deriveFlags(schema: z.ZodType): FlagSpec[] {
-  const jsonSchema: JsonSchema = z.toJSONSchema(schema, { io: 'input' })
+  const jsonSchema = inputJsonSchema(schema)
   const drafts = new Map<string, FlagDraft>()
   collectDrafts(drafts, jsonSchema, [], false)
   return [...drafts.values()].map(finalizeFlag)

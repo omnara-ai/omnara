@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,10 +63,12 @@ func TestEventWebhookScopeFanoutAndLifecycle(t *testing.T) {
 	otherEndpoint, err := store.GetEventWebhookEndpoint(f.ctx, testOrgID, otherWebhook.ID, first.Agent.ID)
 	require.NoError(t, err)
 	require.Empty(t, otherEndpoint.URL)
-	own, err := store.ListEventWebhooks(f.ctx, testProjectID, executionstore.EventWebhookScope{
-		Type: executionstore.EventWebhookScopeAgent,
-		ID:   first.Agent.ID,
+	ownPage, err := store.ListEventWebhooks(f.ctx, executionstore.ListEventWebhooksInput{
+		ProjectID: testProjectID, Limit: 100, Scope: &executionstore.EventWebhookScope{
+			Type: executionstore.EventWebhookScopeAgent, ID: first.Agent.ID,
+		},
 	})
+	own := ownPage.Webhooks
 	require.NoError(t, err)
 	require.Len(t, own, 2)
 	second, err := store.LaunchAgent(f.ctx, launch)
@@ -270,14 +273,52 @@ func TestEventWebhookScopeValidationAndLimits(t *testing.T) {
 	}
 	first, err := store.CreateEventWebhook(t.Context(), input)
 	require.NoError(t, err)
-	for i := range executionstore.MaxEventWebhooksPerScope - 1 {
+	for i := range executionstore.MaxEventWebhooksPerProject - 2 {
+		input.Scope = executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeProject}
+		if i%2 == 0 {
+			input.Scope = first.Scope
+		}
 		input.Settings.URL = fmt.Sprintf("https://example.com/events/%d", i)
 		_, err := store.CreateEventWebhook(t.Context(), input)
 		require.NoError(t, err)
 	}
+	gate := integrationdb.BeginTx(t, t.Context(), fixture.Store.pool)
+	_, err = gate.Exec(t.Context(), "LOCK TABLE event_webhooks IN SHARE MODE")
+	require.NoError(t, err)
+	one := input
+	one.Scope = first.Scope
+	one.Settings.URL = "https://example.com/final/agent"
+	firstCreate := integrationdb.RunAsync(func() (executionstore.EventWebhookRecord, error) {
+		return store.CreateEventWebhook(t.Context(), one)
+	})
+	blockingPID := int32(gate.Conn().PgConn().PID())
+	integrationdb.WaitForLockWaitBlockedBy(t, t.Context(), fixture.Store.pool,
+		"-- name: InsertEventWebhook ", blockingPID)
+	two := input
+	two.Scope = executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeProject}
+	two.Settings.URL = "https://example.com/final/project"
+	secondCreate := integrationdb.RunAsync(func() (executionstore.EventWebhookRecord, error) {
+		return store.CreateEventWebhook(t.Context(), two)
+	})
+	integrationdb.WaitForNamedLockWaitersBlockedByChain(t, t.Context(), fixture.Store.pool,
+		"LockResourceCreation", blockingPID, 1)
+	require.NoError(t, gate.Commit(t.Context()))
+	integrationdb.AwaitSuccess(t, firstCreate, "first webhook create")
+	require.ErrorIs(t, integrationdb.Await(t, secondCreate, "competing webhook create").Err, storeerr.ErrConflict)
+	var count int
+	require.NoError(t, fixture.Store.pool.QueryRow(t.Context(),
+		"SELECT count(*) FROM event_webhooks WHERE project_id=$1 AND deleted_at IS NULL", testProjectID).Scan(&count))
+	require.Equal(t, executionstore.MaxEventWebhooksPerProject, count)
+	projectSelection := executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeProject}
+	updated, err := store.UpdateEventWebhook(t.Context(), executionstore.UpdateEventWebhookInput{
+		ProjectID: testProjectID, WebhookID: first.ID, Scope: &projectSelection,
+	})
+	require.NoError(t, err, "editing does not consume another quota slot")
+	require.Equal(t, projectSelection, updated.Scope)
 	input.Settings.URL = "https://example.com/over-limit"
 	_, err = store.CreateEventWebhook(t.Context(), input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
+	require.ErrorContains(t, err, "event webhooks per project")
 	require.NoError(t, store.DeleteEventWebhook(t.Context(), testProjectID, first.ID))
 	input.Settings.URL = first.Settings.URL
 	recreated, err := store.CreateEventWebhook(t.Context(), input)
@@ -395,7 +436,7 @@ func TestEventWebhookConcurrentURLConflict(t *testing.T) {
 	}
 	existing, err := store.CreateEventWebhook(t.Context(), input)
 	require.NoError(t, err)
-	input.Settings.URL = "https://example.com/shared"
+	input.Scope = executionstore.EventWebhookScope{Type: executionstore.EventWebhookScopeProject}
 	results := make(chan error, 2)
 	start := make(chan struct{})
 	go func() {
@@ -408,7 +449,7 @@ func TestEventWebhookConcurrentURLConflict(t *testing.T) {
 		_, err := store.UpdateEventWebhook(t.Context(), executionstore.UpdateEventWebhookInput{
 			ProjectID: testProjectID,
 			WebhookID: existing.ID,
-			URL:       &input.Settings.URL,
+			Scope:     &input.Scope,
 		})
 		results <- err
 	}()

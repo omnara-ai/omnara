@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -276,6 +277,79 @@ func TestReviewThreadGraphQLErrorsAndHTTPFailuresAreReads(t *testing.T) {
 			if scenario == "secondary rate limit" {
 				require.EqualValues(t, 23, apiErr.RetryAfter.Seconds())
 			}
+		})
+	}
+}
+
+func TestResolveReviewThreadOnSelectedPR(t *testing.T) {
+	for _, mode := range []string{"resolves", "already-resolved", "other-pr", "ambiguous"} {
+		t.Run(mode, func(t *testing.T) {
+			var mutations atomic.Int32
+			var contentsGrant map[string]string
+			client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/app/installations/456/access_tokens" {
+					var input struct {
+						Permissions map[string]string `json:"permissions"`
+					}
+					_ = json.NewDecoder(r.Body).Decode(&input)
+					token := "installation-token"
+					if input.Permissions["contents"] != "" {
+						contentsGrant, token = input.Permissions, "contents-token"
+					}
+					fmt.Fprintf(w, `{"token":%q,"expires_at":%q}`, token, time.Now().Add(time.Hour).Format(time.RFC3339))
+					return
+				}
+				if servePreparedPull(w, r) {
+					return
+				}
+				var input struct {
+					Query     string            `json:"query"`
+					Variables map[string]string `json:"variables"`
+				}
+				if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&input)) {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				assert.Equal(t, "/graphql", r.URL.Path)
+				assert.Equal(t, map[string]string{"id": "PRRT_1"}, input.Variables)
+				if strings.HasPrefix(input.Query, "mutation ") {
+					mutations.Add(1)
+					assert.Equal(t, "Bearer contents-token", r.Header.Get("Authorization"))
+					if mode == "ambiguous" {
+						fmt.Fprint(w, `{"data":{"resolveReviewThread":{"thread":null}}}`)
+						return
+					}
+					fmt.Fprint(w, `{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}`)
+					return
+				}
+				assert.Equal(t, "Bearer installation-token", r.Header.Get("Authorization"))
+				pull := 7
+				if mode == "other-pr" {
+					pull = 8
+				}
+				fmt.Fprintf(w, `{"data":{"node":{"__typename":"PullRequestReviewThread","isResolved":%t,`+
+					`"pullRequest":{"fullDatabaseId":"%d"}}}}`, mode == "already-resolved", pull)
+			})
+			result, err := client.ResolveReviewThread(t.Context(), testScope(), "PRRT_1")
+			switch mode {
+			case "resolves", "already-resolved":
+				require.NoError(t, err)
+				require.Equal(t, ResolvedReviewThread{ID: "PRRT_1", IsResolved: true}, result)
+			case "other-pr":
+				requireAPIError(t, err, ScopeMismatch)
+			case "ambiguous":
+				requireAPIError(t, err, DeliveryUnknown)
+			}
+			wantMutations := int32(0)
+			if mode == "resolves" || mode == "ambiguous" {
+				wantMutations = 1
+				require.Equal(t, map[string]string{
+					"pull_requests": "write", "contents": "write", "metadata": "read",
+				}, contentsGrant)
+			} else {
+				require.Nil(t, contentsGrant)
+			}
+			require.Equal(t, wantMutations, mutations.Load())
 		})
 	}
 }

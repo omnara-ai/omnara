@@ -40,6 +40,7 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 				destinationFields = []string{"repository_id", "pull_request"}
 				operations = []string{
 					"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
+					"resolve_thread",
 				}
 			default:
 				t.Fatalf("unexpected integration %q", definition.IntegrationKind)

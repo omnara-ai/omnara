@@ -1,6 +1,7 @@
 import * as z from 'zod'
 
 import type { AuthStrategy } from './auth'
+import { createOmnaraClient } from './client'
 import { ApiError } from './errors'
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
@@ -102,9 +103,7 @@ async function authJSON(path: string, body?: AuthRequestBody): Promise<void> {
 }
 
 export async function listAuthConnectors(): Promise<AuthConnector[]> {
-  const response = await fetch('/api/auth/connectors', { credentials: 'include' })
-  if (!response.ok) throw await ApiError.fromResponse(response)
-  const data = zAuthConnectorsResponse.parse(await response.json())
+  const data = await readBrowserJSON('/api/auth/connectors', zAuthConnectorsResponse)
   return data.connectors.map((connector) => ({
     slug: connector.slug,
     kind: connector.kind,
@@ -114,23 +113,35 @@ export async function listAuthConnectors(): Promise<AuthConnector[]> {
 }
 
 export async function fetchWebConfig(): Promise<WebConfig> {
-  const response = await fetch('/api/web-config', { credentials: 'include' })
-  if (!response.ok) throw await ApiError.fromResponse(response)
-  const data = zWebConfigResponse.parse(await response.json())
+  const data = await readBrowserJSON('/api/web-config', zWebConfigResponse)
   return { billingURL: data.billing_url, apiURL: data.api_url, publicURL: data.public_url }
 }
 
 export async function pendingDeviceAuth(userCode: string): Promise<DeviceAuthPending> {
   const params = new URLSearchParams({ user_code: userCode })
-  const response = await fetch(`/api/auth/device/pending?${params}`, { credentials: 'include' })
-  if (!response.ok) throw await ApiError.fromResponse(response)
-  const data = zDeviceAuthPendingResponse.parse(await response.json())
+  const data = await readBrowserJSON(
+    `/api/auth/device/pending?${params}`,
+    zDeviceAuthPendingResponse,
+  )
   return {
     clientName: data.client_name,
     tokenName: data.token_name,
     createdAt: data.created_at,
     expiresAt: data.expires_at,
   }
+}
+
+async function readBrowserJSON<T>(url: string, schema: z.ZodType<T>): Promise<T> {
+  const data = await createOmnaraClient({
+    baseUrl: globalThis.location.origin,
+    credentials: 'include',
+  }).get({
+    url,
+    responseStyle: 'data',
+    throwOnError: true,
+    parseAs: 'json',
+  })
+  return schema.parse(data)
 }
 
 export async function approveDeviceAuth(userCode: string): Promise<void> {

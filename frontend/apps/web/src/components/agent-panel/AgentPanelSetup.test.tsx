@@ -77,7 +77,7 @@ async function render(routes: FakeRoute[]) {
       respond: () => jsonResponse({ data: [], next_cursor: null }),
     },
   ])
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', maxRetries: 0 })
   client.setConfig({ fetch: api.fetch })
   cache = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
   cache.setQueryData(getCurrentUserQueryKey({ client }), currentUser([owner, admin]))

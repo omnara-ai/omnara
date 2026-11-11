@@ -21,6 +21,9 @@ import { cn } from '@/lib/utils'
 export const agentCardMoreLinkClass =
   'text-muted-foreground hover:text-foreground relative inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs hover:underline'
 
+/** A row's own action (e.g. Launch), as a ghost button in the card's meta. */
+export const agentCardActionClass = 'text-primary hover:text-primary h-9 px-2 sm:h-7'
+
 export const agentCardLinkClass =
   'truncate font-medium outline-none underline-offset-2 after:absolute after:inset-0 after:rounded-xl hover:underline'
 

@@ -2,6 +2,7 @@ import { schemas } from '@omnara/sdk'
 import { expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
+import { exerciseProjectWebhooks } from './event-webhooks'
 import {
   connectIntegrationWithCredentialRetry,
   expectIntegrationCapabilities,
@@ -264,6 +265,18 @@ test('creates a profile without launching an agent', async ({ page }) => {
   const profileName = uniqueName('Profile Only Agent')
   await createProfile(page, profileName, 'Save this config as a profile without launching.')
   await expect(page.getByText(profileName).first()).toBeVisible()
+  expect(failures).toEqual([])
+})
+
+test('manages every webhook selection from the project Webhooks tab', async ({ page }) => {
+  test.setTimeout(60_000)
+  const failures = installFailureTracking(page)
+  const profile = await createProfile(
+    page,
+    uniqueName('Webhook Browser Profile'),
+    'Exercise webhook subscription management.',
+  )
+  await exerciseProjectWebhooks(page, profile)
   expect(failures).toEqual([])
 })
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -317,8 +318,9 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 	if name := labels.StoredDisplayName(event.User); name != "" {
 		normalized.Actor.DisplayName = &name
 	}
-	text := labels.RenderText(strings.TrimSpace(event.Text))
-	display := labels.RenderDisplayText(strings.TrimSpace(event.Text))
+	raw := slack.MessageText(event.Text, event.Blocks, event.Attachments)
+	text := labels.RenderText(raw)
+	display := labels.RenderDisplayText(raw)
 	var historyText string
 	if status == "fetched" {
 		historyText = slack.FormatRecentContext(history, event, labels)
@@ -337,7 +339,17 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 		}
 		blocks = append(blocks, block)
 	}
-	downloads, err := slack.DownloadEventFiles(ctx, config, token, event.Files, slackInboxFileOptions())
+	slackFiles := slices.Clone(event.Files)
+	if event.ThreadTS != "" && event.ThreadTS != event.TS {
+		for _, message := range history {
+			for _, file := range message.Files {
+				if !slices.ContainsFunc(slackFiles, func(added slack.File) bool { return added.ID == file.ID }) {
+					slackFiles = append(slackFiles, file)
+				}
+			}
+		}
+	}
+	downloads, err := slack.DownloadEventFiles(ctx, config, token, slackFiles, slackInboxFileOptions())
 	if err != nil {
 		return IntegrationInboxExpansion{}, err
 	}
@@ -429,22 +441,18 @@ func (p *SlackIntegrationInboxProvider) DownloadFile(
 	if !ok {
 		return IntegrationInboxFile{}, fmt.Errorf("receipt is not a Slack message")
 	}
-	var selected *slack.File
+	selected := slack.File{ID: fileID}
 	for _, file := range envelope.Event.Files {
 		if file.ID == fileID {
-			snapshot := file
-			selected = &snapshot
+			selected = file
 			break
 		}
-	}
-	if selected == nil {
-		return IntegrationInboxFile{}, fmt.Errorf("file is not in the captured Slack message")
 	}
 	config, token, check, err := p.requestAccess(ctx, integrationSetup)
 	if err != nil {
 		return IntegrationInboxFile{}, err
 	}
-	downloads, err := slack.DownloadEventFiles(ctx, config, token, []slack.File{*selected}, slackInboxFileOptions())
+	downloads, err := slack.DownloadEventFiles(ctx, config, token, []slack.File{selected}, slackInboxFileOptions())
 	if err != nil {
 		return IntegrationInboxFile{}, err
 	}

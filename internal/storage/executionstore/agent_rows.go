@@ -25,6 +25,7 @@ func agentRecordFromIdempotencySQLC(row dbsqlc.GetAgentByIdempotencyKeyRow) Agen
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
+		row.RootAgentID,
 		row.SubagentKey,
 	)
 	record.Model = AgentModelDisplay{
@@ -50,6 +51,7 @@ func agentRecordFromProjectSQLC(row dbsqlc.GetAgentInProjectRow) AgentRecord {
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
+		row.RootAgentID,
 		row.SubagentKey,
 	)
 	record.Model = AgentModelDisplay{
@@ -75,6 +77,7 @@ func agentRecordFromListForProjectsSQLC(row dbsqlc.ListAgentsForProjectsRow) Age
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
+		row.RootAgentID,
 		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
@@ -109,6 +112,7 @@ func agentRecordFromListRecentForProjectsSQLC(row dbsqlc.ListRecentAgentsForProj
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
+		row.RootAgentID,
 		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
@@ -145,6 +149,7 @@ func agentRecordFromListForProjectsByCreatedAtDescSQLC(
 		row.UpdatedAt,
 		row.ArchivedAt,
 		row.ParentAgentID,
+		row.RootAgentID,
 		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
@@ -178,6 +183,7 @@ func agentRecordFromSQLC(
 	updatedAt time.Time,
 	archivedAt *time.Time,
 	parentAgentID *uuid.UUID,
+	rootAgentID uuid.UUID,
 	subagentKey string,
 ) AgentRecord {
 	return AgentRecord{
@@ -195,6 +201,7 @@ func agentRecordFromSQLC(
 		UpdatedAt:           updatedAt,
 		ArchivedAt:          archivedAt,
 		ParentAgentID:       storeutil.IDFromPtr(parentAgentID),
+		RootAgentID:         rootAgentID,
 		SubagentKey:         subagentKey,
 	}
 }

@@ -46,19 +46,18 @@ func compileAssistantPreset(
 		return agentconfig.Result{}, err
 	}
 	supportsTools := true
-	return agentconfig.Compile(agentconfig.SourceFormatJSON, source, agentconfig.CompileOptions{
-		AllowInsecureLocalMCPHTTP: input.AllowInsecureLocalMCPHTTP,
-		ResolveModelSelection: func(provider, name string) (agentconfig.ResolvedModelSelection, error) {
-			if provider != model.ProviderConfigName || name != model.Name {
-				return agentconfig.ResolvedModelSelection{}, errors.New("unexpected assistant model reference")
-			}
-			return agentconfig.ResolvedModelSelection{ConfiguredModelID: model.ID, SupportsTools: &supportsTools}, nil
-		},
-		ValidateSecretID: func(id uuid.UUID, kind secrets.Kind) error {
-			if id != secretID || kind != secrets.KindGeneric {
-				return errors.New("unexpected assistant secret reference")
-			}
-			return nil
-		},
-	})
+	opts := input.AgentConfigOptions
+	opts.ResolveModelSelection = func(provider, name string) (agentconfig.ResolvedModelSelection, error) {
+		if provider != model.ProviderConfigName || name != model.Name {
+			return agentconfig.ResolvedModelSelection{}, errors.New("unexpected assistant model reference")
+		}
+		return agentconfig.ResolvedModelSelection{ConfiguredModelID: model.ID, SupportsTools: &supportsTools}, nil
+	}
+	opts.ValidateSecretID = func(id uuid.UUID, kind secrets.Kind) error {
+		if id != secretID || kind != secrets.KindGeneric {
+			return errors.New("unexpected assistant secret reference")
+		}
+		return nil
+	}
+	return agentconfig.Compile(agentconfig.SourceFormatJSON, source, opts)
 }

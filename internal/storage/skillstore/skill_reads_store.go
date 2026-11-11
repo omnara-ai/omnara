@@ -302,6 +302,13 @@ type ListSkillGrantsResult struct {
 	Next    listing.Cursor
 }
 
+type GetSkillGrantInput struct {
+	OrgID   uuid.UUID
+	SkillID uuid.UUID
+	GrantID uuid.UUID
+	Actor   identitystore.PrincipalRecord
+}
+
 type DeleteSkillGrantInput struct {
 	OrgID   uuid.UUID
 	SkillID uuid.UUID

@@ -1,13 +1,12 @@
 import { type ProjectAvailableSkillListSort, useProjectAvailableSkills } from '@omnara/react'
-import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
 import { AgentCardList } from '@/components/agents/AgentCardList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
+import { GrantProjectSkillsButton } from '@/components/projects/GrantProjectSkillsButton'
 import { SkillCard } from '@/components/skills/SkillCard'
 import { SkillRowActions } from '@/components/skills/SkillRowActions'
-import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   resourceSortOptions,
@@ -27,7 +26,7 @@ export function ProjectSharedSkills({
   orgId: string
   projectId: string
   projectName: string
-  /** Whether the viewer may stop sharing (requires managing the target project). */
+  /** Whether the viewer may share and stop sharing (requires managing the target project). */
   canManage: boolean
   /** Header controls, e.g. tabs. */
   actions?: ReactNode
@@ -39,6 +38,7 @@ export function ProjectSharedSkills({
   })
   const paged = usePagedQuery(query, list.queryKey)
   const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
+  const shareButton = canManage && <GrantProjectSkillsButton orgId={orgId} projectId={projectId} />
 
   return (
     <div className="flex flex-col gap-3">
@@ -57,6 +57,7 @@ export function ProjectSharedSkills({
         }
       >
         {actions}
+        {shareButton}
       </SearchHeader>
       <AgentCardList
         items={paged.rows}
@@ -84,12 +85,8 @@ export function ProjectSharedSkills({
         onRetry={() => {
           void query.refetch()
         }}
-        emptyMessage="No skills shared with this project. Share one from its owner’s Skills page."
-        emptyAction={
-          <Button asChild size="sm" variant="outline">
-            <Link to="/skills">Go to skills</Link>
-          </Button>
-        }
+        emptyMessage="No skills shared with this project yet."
+        emptyAction={shareButton}
       />
     </div>
   )

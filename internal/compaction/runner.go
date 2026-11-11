@@ -193,7 +193,12 @@ func (r Runner) RunClaimed(
 	}
 
 	response, err := summaryClient.Respond(
-		ctx,
+		model.WithCallScope(ctx, model.CallScope{
+			Purpose:                     model.CallPurposeCompaction,
+			ModelCallContextID:          claim.Context.ID.String(),
+			Attempt:                     claim.Context.AttemptNumber,
+			SourceExcerptReductionCount: claim.Context.SourceExcerptReductionCount,
+		}),
 		model.Request{
 			ProviderRequest: prepared.Body,
 		},

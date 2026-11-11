@@ -1,0 +1,145 @@
+rule_files:
+  - delivery.rules.yml
+evaluation_interval: 15s
+tests:
+  - name: healthy empty queue
+    interval: 15s
+    input_series:
+      - series: omnara_event_webhook_backlog_sample_last_success_timestamp_seconds{cluster="test",instance="maintenance"}
+        values: '0+15x20'
+      - series: omnara_event_webhook_oldest_due_lag_seconds{cluster="test",instance="maintenance"}
+        values: '0x24'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: OmnaraWebhookQueueSampleStale
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: OmnaraWebhookDeliveryBacklog
+        exp_alerts: []
+  - name: old queue with current samples and duplicate maintenance replicas
+    interval: 15s
+    input_series:
+      - series: omnara_event_webhook_backlog_sample_last_success_timestamp_seconds{cluster="test",instance="a"}
+        values: '0+15x20'
+      - series: omnara_event_webhook_backlog_sample_last_success_timestamp_seconds{cluster="test",instance="b"}
+        values: '0+15x20'
+      - series: omnara_event_webhook_oldest_due_lag_seconds{cluster="test",instance="a"}
+        values: '150x20'
+      - series: omnara_event_webhook_oldest_due_lag_seconds{cluster="test",instance="b"}
+        values: '150x20'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: OmnaraWebhookDeliveryBacklog
+        exp_alerts:
+          - exp_labels: {cluster: test, severity: warning}
+            exp_annotations:
+              summary: Due webhook deliveries are waiting to be claimed
+              description: The oldest due delivery has waited over two minutes past its scheduled attempt for two minutes. Check worker slots, organization throttling, and local failures.
+  - name: failed sampler never appears to be a healthy empty queue
+    interval: 15s
+    input_series:
+      - series: omnara_event_webhook_backlog_sample_last_success_timestamp_seconds{cluster="test",instance="maintenance"}
+        values: '0x24'
+      - series: omnara_event_webhook_oldest_due_lag_seconds{cluster="test",instance="maintenance"}
+        values: 'NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: OmnaraWebhookQueueSampleStale
+        exp_alerts:
+          - exp_labels: {cluster: test, severity: warning}
+            exp_annotations:
+              summary: Webhook queue sampling is unavailable
+              description: No successful queue sample for over three minutes. Check maintenance health and PostgreSQL before interpreting queue gauges.
+      - eval_time: 3m
+        alertname: OmnaraWebhookDeliveryBacklog
+        exp_alerts: []
+  - name: missing sampler series
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: OmnaraWebhookQueueSampleStale
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: Webhook queue sampling is unavailable
+              description: No successful queue sample for over three minutes. Check maintenance health and PostgreSQL before interpreting queue gauges.
+  - name: full tool and publisher buffers
+    interval: 1m
+    input_series:
+      - series: omnara_agent_stream_buffer_dropped_total{cluster="test",instance="api",frame="tool_call_update"}
+        values: '0 0 1 1 1 1'
+      - series: omnara_notifications_total{cluster="test",instance="worker",intent="tool_call_update",result="dropped",reason="queue_full"}
+        values: '0 0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: OmnaraAgentStreamBufferDrops
+        exp_alerts:
+          - exp_labels: {cluster: test, frame: tool_call_update, severity: warning}
+            exp_annotations:
+              summary: Agent SSE subscriber buffers dropped tool updates
+              description: A full application subscriber buffer discarded tool updates. Tool workers must recover ready calls through the API.
+      - eval_time: 4m
+        alertname: OmnaraNotificationPublisherDrops
+        exp_alerts:
+          - exp_labels: {cluster: test, intent: tool_call_update, severity: warning}
+            exp_annotations:
+              summary: Post-commit notification publisher queues overflowed
+              description: Check local publisher queue depth, Redis latency, and publish errors. Durable work remains in PostgreSQL; live delivery is degraded.
+
+  - name: stalled sampler cannot keep an old queue alert alive
+    interval: 15s
+    input_series:
+      - series: omnara_event_webhook_backlog_sample_last_success_timestamp_seconds{cluster="test",instance="maintenance"}
+        values: '0x24'
+      - series: omnara_event_webhook_oldest_due_lag_seconds{cluster="test",instance="maintenance"}
+        values: '150x20'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: OmnaraWebhookDeliveryBacklog
+        exp_alerts: []
+
+  - name: local delivery failures are distinct from recipient and configuration failures
+    interval: 1m
+    input_series:
+      - series: omnara_event_webhook_attempts_total{cluster="local",cause="local",outcome="retry_failed"}
+        values: '0 0 1 1 1 1'
+      - series: omnara_event_webhook_attempts_total{cluster="recipient",cause="recipient",outcome="retry_scheduled"}
+        values: '0 0 1 1 1 1'
+      - series: omnara_event_webhook_attempts_total{cluster="configuration",cause="configuration",outcome="retry_scheduled"}
+        values: '0 0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: OmnaraWebhookLocalFailures
+        exp_alerts:
+          - exp_labels: {cluster: local, severity: warning}
+            exp_annotations:
+              summary: Webhook delivery attempts failed locally
+              description: Delivery preparation or persistence failed inside Omnara. Inspect attempt logs for database, payload, or key-management failures.
+
+  - name: minute scrapes do not reset sustained backlog alerts
+    interval: 1m
+    input_series:
+      - series: omnara_event_webhook_backlog_sample_last_success_timestamp_seconds{cluster="test",instance="maintenance"}
+        values: '-15+60x6'
+      - series: omnara_event_webhook_oldest_due_lag_seconds{cluster="test",instance="maintenance"}
+        values: '150x6'
+    alert_rule_test:
+      - eval_time: 3m45s
+        alertname: OmnaraWebhookQueueSampleStale
+        exp_alerts: []
+      - eval_time: 3m45s
+        alertname: OmnaraWebhookDeliveryBacklog
+        exp_alerts:
+          - exp_labels: {cluster: test, severity: warning}
+            exp_annotations:
+              summary: Due webhook deliveries are waiting to be claimed
+              description: The oldest due delivery has waited over two minutes past its scheduled attempt for two minutes. Check worker slots, organization throttling, and local failures.
+
+  - name: best-effort token preview drops do not alert
+    interval: 1m
+    input_series:
+      - series: omnara_agent_stream_buffer_dropped_total{cluster="test",instance="api",frame="model_output_delta"}
+        values: '0 0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: OmnaraAgentStreamBufferDrops
+        exp_alerts: []

@@ -23,6 +23,7 @@ export function AddConfiguredModelsView({
   orgId,
   providers,
   defaultProviderId,
+  defaultProjectIds,
   dismissLabel,
   onDone,
   onEditProvider,
@@ -30,13 +31,15 @@ export function AddConfiguredModelsView({
   orgId: string
   providers: ModelProviderConfig[]
   defaultProviderId?: string
+  /** Projects the new models are shared with unless deselected. */
+  defaultProjectIds?: string[]
   /** Shows a secondary button that closes without adding models. */
   dismissLabel?: string
   onDone: () => void
   /** Discards the provider and returns to its settings, offered while its catalog fails. */
   onEditProvider?: () => Promise<void>
 }) {
-  const submission = useConfiguredModelSubmission(orgId, onDone)
+  const submission = useConfiguredModelSubmission(orgId, onDone, defaultProjectIds)
   const [providerId, setProviderId] = useState(defaultProviderId ?? providers[0]?.id ?? '')
   const [search, setSearch] = useState('')
   const [drafts, setDrafts] = useState<ConfiguredModelDraft[]>([])

@@ -161,7 +161,7 @@ func (s strictOpenAPIServer) CreateAssistantAgent(
 		Principal: principal, OrgID: org.ID, ProjectID: projectID, ModelID: modelID,
 		RequestID: body.RequestId, ExpectedRevision: body.ExpectedRevision, Automatic: body.Automatic,
 		MCPURL: origin.url + apimcp.Path, ReadOnlyTools: s.server.apiMCPReadOnlyTools,
-		AllowInsecureLocalMCPHTTP: s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
+		AgentConfigOptions: s.server.agentConfigOptions,
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)

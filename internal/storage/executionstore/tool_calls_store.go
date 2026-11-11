@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type CompleteToolCallInput struct {
@@ -67,14 +68,48 @@ type ListToolCallsInput struct {
 	ProjectID uuid.UUID
 	AgentIDs  []uuid.UUID
 	State     ToolCallState
-	Type      string
+	Type      toolcatalog.Type
 	Limit     int
 	After     listing.KeysetCursor
 }
 
+type ListUnfinishedProjectToolCallsInput struct {
+	ProjectID      uuid.UUID
+	AgentProfileID *uuid.UUID
+	State          ToolCallState
+	Type           toolcatalog.Type
+	Names          []string
+	Limit          int
+	After          listing.KeysetCursor
+}
+
+type CustomToolCallInput struct {
+	Name  string
+	Input json.RawMessage
+}
+
 type ListToolCallsResult struct {
-	ToolCalls []ToolCallRecord
+	ToolCalls []ToolCallSummary
 	HasMore   bool
+}
+
+type ToolCallSummary struct {
+	ID             uuid.UUID
+	AgentID        uuid.UUID
+	TurnID         uuid.UUID
+	ProviderCallID string
+	Name           string
+	Input          json.RawMessage
+	Type           toolcatalog.Type
+	State          ToolCallState
+	Outcome        ToolResultOutcome
+	CreatedAt      time.Time
+	CompletedAt    *time.Time
+}
+
+type ToolCallStatus struct {
+	Type  toolcatalog.Type
+	State ToolCallState
 }
 
 type ToolCallState string
@@ -87,6 +122,16 @@ const (
 	ToolCallStateWaiting               ToolCallState = "waiting"
 	ToolCallStateCompleted             ToolCallState = "completed"
 )
+
+func (state ToolCallState) Valid() bool {
+	switch state {
+	case ToolCallStateAwaitingAuthorization, ToolCallStateAwaitingPermission,
+		ToolCallStateReady, ToolCallStateRunning, ToolCallStateWaiting, ToolCallStateCompleted:
+		return true
+	default:
+		return false
+	}
+}
 
 type ToolResultOutcome string
 
@@ -132,6 +177,14 @@ type ToolCallRecord struct {
 	SourceEventSequence     int64           `json:"source_event_sequence,omitempty"`
 	ToolResultEventSequence int64           `json:"tool_result_event_sequence,omitempty"`
 	ResultContentParts      json.RawMessage `json:"result_content_parts"`
+}
+
+func (r ToolCallRecord) Summary() ToolCallSummary {
+	return ToolCallSummary{
+		ID: r.ID, AgentID: r.AgentID, TurnID: r.TurnID, ProviderCallID: r.ProviderCallID,
+		Name: r.Name, Input: r.Input, Type: toolcatalog.Type(r.Type), State: r.State, Outcome: r.Outcome,
+		CreatedAt: r.CreatedAt, CompletedAt: r.CompletedAt,
+	}
 }
 
 func (s *Store) CompleteToolCall(

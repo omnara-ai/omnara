@@ -29,7 +29,10 @@ export async function resolveAgentChatHint(
   source: AgentChatSource,
   context?: string,
 ): Promise<string | undefined> {
-  const { agent } = await queryClient.ensureQueryData(getAgentOptions({ path: scope, client }))
+  const { agent } = await queryClient.query({
+    ...getAgentOptions({ path: scope, client }),
+    staleTime: 'static',
+  })
   const sourceContext = agent.integration_target == null ? undefined : sourceHint(source)
   return [sourceContext, context].filter(Boolean).join('\n\n') || undefined
 }

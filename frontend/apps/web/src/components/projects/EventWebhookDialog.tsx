@@ -1,8 +1,10 @@
 import { useCreateEventWebhook, useUpdateEventWebhook } from '@omnara/react'
-import type { EventWebhook, EventWebhookEventType, EventWebhookScope } from '@omnara/sdk'
+import type { EventWebhook, EventWebhookEventType, EventWebhookScope, Secret } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
 import { useId, useState } from 'react'
 
+import { EventWebhookScopeField } from '@/components/projects/EventWebhookScopeField'
+import { NewSecretDialog } from '@/components/secrets/NewSecretDialog'
 import { SecretSelect } from '@/components/secrets/SecretTypeaheadField'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,6 +18,7 @@ import {
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
+import { resourceNameSuggestion } from '@/lib/resource-name'
 import { errorMessage } from '@/lib/submit-status'
 
 const eventTypeOptions: { value: EventWebhookEventType; label: string }[] = [
@@ -42,16 +45,38 @@ function urlError(value: string) {
   return undefined
 }
 
+function signingKeyError(value: string) {
+  const key = value.replace(/^whsec_/, '')
+  const padding = key.endsWith('==') ? 2 : key.endsWith('=') ? 1 : 0
+  const bytes = (key.length / 4) * 3 - padding
+  if (
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(key) &&
+    bytes >= 24 &&
+    bytes <= 64
+  )
+    return undefined
+  return 'Use a base64 key of 24–64 bytes, like one from openssl rand -base64 32.'
+}
+
+function generateSigningKey() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  return `whsec_${btoa(String.fromCharCode(...bytes))}`
+}
+
+function signingSecretName(url: string) {
+  const fallback = 'webhook-signing-secret'
+  if (urlError(url)) return fallback
+  return resourceNameSuggestion(`${new URL(url.trim()).hostname}-signing-secret`, fallback)
+}
+
 export function EventWebhookDialog({
   orgId,
   projectId,
-  scope,
   webhook,
   onClose,
 }: {
   orgId: string
   projectId: string
-  scope: EventWebhookScope
   webhook?: EventWebhook
   onClose: () => void
 }) {
@@ -59,19 +84,36 @@ export function EventWebhookDialog({
   const update = useUpdateEventWebhook(orgId, projectId)
   const pending = create.isPending || update.isPending
   const [error, setError] = useState('')
+  const [creatingSecret, setCreatingSecret] = useState(false)
+  const [createdSecret, setCreatedSecret] = useState<Secret>()
   const id = useId()
   const eventTypes: EventWebhookEventType[] = webhook?.event_types ?? ['tool_call_update']
+  const initialScope: EventWebhookScope = webhook?.scope ?? { type: 'project' }
+  const initialSelectionId =
+    initialScope.type === 'project'
+      ? undefined
+      : initialScope.type === 'agent'
+        ? initialScope.agent_id
+        : initialScope.agent_profile_id
   const form = useForm({
     defaultValues: {
+      scope: initialScope,
       url: webhook?.url ?? '',
       eventTypes,
       signingSecretId: webhook?.signing_secret_id ?? '',
     },
     onSubmit: async ({ value }) => {
-      if (pending || urlError(value.url) || value.eventTypes.length === 0) return
+      if (
+        pending ||
+        urlError(value.url) ||
+        value.eventTypes.length === 0 ||
+        !hasWebhookSelection(value.scope)
+      )
+        return
       setError('')
       try {
         const settings = {
+          scope: value.scope,
           url: value.url.trim(),
           event_types: value.eventTypes,
         }
@@ -84,7 +126,6 @@ export function EventWebhookDialog({
         else
           await create.mutateAsync({
             ...settings,
-            scope,
             signing_secret_id: value.signingSecretId || undefined,
           })
         onClose()
@@ -105,9 +146,8 @@ export function EventWebhookDialog({
         <DialogHeader>
           <DialogTitle>{webhook ? 'Edit webhook' : 'Add webhook'}</DialogTitle>
           <DialogDescription>
-            {scope.type === 'profile'
-              ? 'Receive future events from existing and new agents of this profile.'
-              : 'Receive future events from this agent only, not its descendants.'}
+            Choose the events to send to your endpoint. Notifications already queued can still
+            arrive after an edit.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -118,6 +158,24 @@ export function EventWebhookDialog({
         >
           <fieldset disabled={pending}>
             <FieldGroup>
+              <form.Field name="scope">
+                {(field) => (
+                  <EventWebhookScopeField
+                    orgId={orgId}
+                    projectId={projectId}
+                    value={field.state.value}
+                    initialSelection={
+                      initialSelectionId
+                        ? {
+                            id: initialSelectionId,
+                            name: webhook?.scope_name ?? initialSelectionId,
+                          }
+                        : undefined
+                    }
+                    onChange={field.handleChange}
+                  />
+                )}
+              </form.Field>
               <form.Field name="url">
                 {(field) => (
                   <Field>
@@ -170,6 +228,7 @@ export function EventWebhookDialog({
                   <Field>
                     <FieldLabel htmlFor={id + '-secret'}>Signing secret (optional)</FieldLabel>
                     <SecretSelect
+                      key={String(creatingSecret)}
                       inputId={id + '-secret'}
                       orgId={orgId}
                       projectId={projectId}
@@ -177,9 +236,31 @@ export function EventWebhookDialog({
                       value={field.state.value}
                       onChange={field.handleChange}
                       placeholder="Select a signing secret…"
+                      knownSecret={createdSecret}
+                      onCreateSecret={() => {
+                        setCreatingSecret(true)
+                      }}
                     />
+                    {creatingSecret && (
+                      <NewSecretDialog
+                        orgId={orgId}
+                        projectId={projectId}
+                        defaultName={signingSecretName(form.getFieldValue('url'))}
+                        valueError={signingKeyError}
+                        generateValue={generateSigningKey}
+                        onClose={() => {
+                          setCreatingSecret(false)
+                        }}
+                        onCreated={(secret) => {
+                          setCreatedSecret(secret)
+                          field.handleChange(secret.id)
+                          setCreatingSecret(false)
+                        }}
+                      />
+                    )}
                     <FieldDescription>
-                      Use the same secret to verify requests on your server.
+                      A base64 key, like one from <code>openssl rand -base64 32</code>. Verify
+                      requests on your server with the same key.
                     </FieldDescription>
                   </Field>
                 )}
@@ -199,7 +280,12 @@ export function EventWebhookDialog({
                   <Button
                     type="submit"
                     loading={pending}
-                    disabled={pending || !!urlError(value.url) || value.eventTypes.length === 0}
+                    disabled={
+                      pending ||
+                      !!urlError(value.url) ||
+                      value.eventTypes.length === 0 ||
+                      !hasWebhookSelection(value.scope)
+                    }
                   >
                     {webhook ? 'Save changes' : 'Create webhook'}
                   </Button>
@@ -210,5 +296,12 @@ export function EventWebhookDialog({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function hasWebhookSelection(scope: EventWebhookScope) {
+  return (
+    scope.type === 'project' ||
+    (scope.type === 'profile' ? !!scope.agent_profile_id : !!scope.agent_id)
   )
 }

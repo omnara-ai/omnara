@@ -96,12 +96,12 @@ paths:
     get:
       operationId: listEventWebhooks
       tags: [Events]
-      summary: List event webhooks for one scope
-      description: Returns the webhooks directly attached to the requested scope, not inherited matches.
+      summary: List event webhooks
+      description: Lists all subscriptions in the project, ordered by created_at then id ascending. An explicit scope returns only subscriptions with that exact selection, not inherited matches. Agent or profile IDs require the corresponding scope_type.
       parameters:
         - name: scope_type
           in: query
-          required: true
+          required: false
           schema:
             $ref: '#/components/schemas/EventWebhookScopeType'
         - name: agent_profile_id
@@ -114,9 +114,11 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/AgentID'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Webhooks for the requested scope.
+          description: Webhooks matching the requested selection.
           content:
             application/json:
               schema:
@@ -141,7 +143,7 @@ paths:
       operationId: createEventWebhook
       tags: [Events]
       summary: Create an event webhook
-      description: Subscribes to future events from agents matching the scope. Each scope can have only one active webhook per URL; duplicates return 409. Matching scopes are additive. Requires project management permission.
+      description: Subscribes to future events from agents matching the scope. Projects can have up to 100 active subscriptions across all selections. Each selection can have only one active webhook per URL; duplicates return 409. Matching scopes are additive. Requires project management permission.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -192,11 +194,39 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/EventWebhookID'
+    get:
+      operationId: getEventWebhook
+      tags: [Events]
+      summary: Get event webhook
+      description: Returns one event webhook in the project.
+      responses:
+        '200':
+          description: The event webhook.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventWebhook'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     patch:
       operationId: updateEventWebhook
       tags: [Events]
       summary: Update event webhook settings
-      description: Updates a webhook's URL, event filters, and signing settings. The scope cannot change. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Event filters affect newly queued deliveries; URL and signing changes also apply to pending attempts.
+      description: Updates a webhook's URL, event filters, signing settings, or complete scope selection. Omitted fields stay unchanged; set signing_secret_id to null to remove signing. Selected agents and profiles must belong to the project. Selection and event filters affect newly queued deliveries; notifications selected before an edit may still arrive afterward. URL and signing changes also apply to pending attempts. The same selection and URL cannot duplicate another active subscription.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -640,10 +670,12 @@ paths:
       - name: orgID
         in: path
         required: true
+        description: Organization ID (org_...).
         schema:
           $ref: '#/components/schemas/OrganizationID'
     post:
       operationId: createAssistantAgent
+      x-omnara-idempotent: true
       tags: [Agents]
       summary: Create and connect an Omnara assistant
       description: >-
@@ -1272,6 +1304,70 @@ paths:
         schema:
           type: string
           pattern: '^proj_[a-z2-7]{26}$'
+    get:
+      operationId: getProject
+      tags: [Organizations and Projects]
+      summary: Get project
+      description: Returns one project the caller can access.
+      responses:
+        '200':
+          description: The project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      operationId: updateProject
+      tags: [Organizations and Projects]
+      summary: Update project
+      description: Renames the project.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectRequest'
+      responses:
+        '200':
+          description: The updated project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteProject
       tags: [Organizations and Projects]
@@ -2402,6 +2498,34 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/SkillGrantID'
+    get:
+      operationId: getSkillGrant
+      tags: [Skills]
+      summary: Get skill grant
+      description: Returns one project grant for the skill.
+      responses:
+        '200':
+          description: The skill grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillGrant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteSkillGrant
       tags: [Skills]
@@ -2872,6 +2996,7 @@ paths:
           $ref: '#/components/responses/ServerError'
     put:
       operationId: writeMemoryFile
+      x-omnara-idempotent: true
       tags: [Memory Stores]
       summary: Write memory file
       security:
@@ -3352,6 +3477,34 @@ paths:
         schema:
           type: string
           pattern: '^sgr_[a-z2-7]{26}$'
+    get:
+      operationId: getSecretGrant
+      tags: [Secrets]
+      summary: Get secret grant
+      description: Returns one project grant for the secret.
+      responses:
+        '200':
+          description: The secret grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretGrant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteSecretGrant
       tags: [Secrets]
@@ -4838,6 +4991,7 @@ paths:
           pattern: '^agt_[a-z2-7]{26}$'
     post:
       operationId: archiveAgent
+      x-omnara-idempotent: true
       tags: [Agents]
       summary: Archive agent
       description: >-
@@ -5010,6 +5164,84 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/tool-calls:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+    get:
+      operationId: listProjectToolCalls
+      tags: [Agents]
+      summary: List unfinished tool calls across agents
+      description: >-
+        Lists unfinished tool calls from every agent in the project, including subagents.
+        Archived agents are excluded. Items are ordered by created_at ascending, then id ascending.
+        Submit custom tool results against each call's agent_id.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: Same values as each call's `state`, except `completed`, which is never listed.
+          schema:
+            type: string
+            enum: [awaiting_authorization, awaiting_permission, ready, running, waiting]
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ToolCallType'
+        - name: names
+          in: query
+          required: false
+          description: Return only calls to these tools.
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              type: string
+              minLength: 1
+              maxLength: 64
+        - name: agent_profile_id
+          in: query
+          required: false
+          description: Return only calls from agents launched from this agent profile.
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Unfinished tool calls in the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListToolCallsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls:
     parameters:
       - name: orgID
@@ -5080,6 +5312,61 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: agentID
+        in: path
+        description: Agent ID (agt_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^agt_[a-z2-7]{26}$'
+      - name: toolCallID
+        in: path
+        description: Tool call ID (tcl_...).
+        required: true
+        schema:
+          $ref: '#/components/schemas/ToolCallID'
+    get:
+      operationId: getToolCall
+      tags: [Agents]
+      summary: Get a tool call
+      description: Returns one tool call, including its name and input.
+      responses:
+        '200':
+          description: Tool call.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolCall'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/agents/{agentID}/tool-calls/{toolCallID}/result:
     parameters:
       - name: orgID
@@ -5111,12 +5398,16 @@ paths:
           $ref: '#/components/schemas/ToolCallID'
     post:
       operationId: submitToolCallResult
+      x-omnara-idempotent: true
       tags: [Agents]
       summary: Submit a result for a ready custom tool call
       description: >-
         Only ready custom tool calls accept externally supplied results.
-        The first accepted result completes the call. Any later submission,
-        or a result for a non-custom tool call, returns 409.
+        The first accepted result completes the call. A later submission returns 409 with code
+        tool_call_already_completed; a result for a call that isn't ready, or for a non-custom
+        tool call, returns 409. If the first response is lost, a safe retry can return
+        tool_call_already_completed even when the original submission succeeded. This
+        confirms that the call is terminal, not which submission completed it.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -5525,6 +5816,65 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/interactions:
+    parameters:
+      - name: orgID
+        in: path
+        description: Organization ID (org_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        description: Project ID (proj_...).
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+    get:
+      operationId: listProjectInteractions
+      tags: [Interactions]
+      summary: List open interactions across agents
+      description: >-
+        Lists open permission prompts and ask_question questions from every agent in the project,
+        including subagents, oldest first. Archived agents are excluded. Resolve each one against
+        its agent_id.
+      parameters:
+        - name: interaction_kind
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgentInteractionKind'
+        - name: agent_profile_id
+          in: query
+          required: false
+          description: Return only interactions from agents launched from this agent profile.
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Open interactions in the project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAgentInteractionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '4XX':
@@ -6176,6 +6526,9 @@ paths:
       description: >-
         Lets a project's agent configs use one BYO machine by name and returns the grant with the
         machine's record. Pooled machines can't be granted this way and return 404.
+        Idempotency keys are retained only while the grant exists. Retrying creation after the
+        grant is revoked or deleted can recreate it and restore access, including through automatic SDK retries.
+        A replay compares the request with the current grant.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6276,6 +6629,34 @@ paths:
         schema:
           type: string
           pattern: '^pmg_[a-z2-7]{26}$'
+    get:
+      operationId: getProjectMachineGrant
+      tags: [Machines]
+      summary: Get project machine grant
+      description: Returns one explicit machine grant with its machine. Pool-derived machine access is managed through project machine pool grants.
+      responses:
+        '200':
+          description: The machine grant and its machine.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateProjectMachineGrantResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteProjectMachineGrant
       tags: [Machines]
@@ -7160,6 +7541,34 @@ paths:
         schema:
           type: string
           pattern: '^mdl_[a-z2-7]{26}$'
+    get:
+      operationId: getConfiguredModel
+      tags: [Models]
+      summary: Get configured model
+      description: Returns one configured model under the model provider config.
+      responses:
+        '200':
+          description: The configured model.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfiguredModel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     put:
       operationId: updateConfiguredModel
       tags: [Models]
@@ -7352,6 +7761,34 @@ paths:
         schema:
           type: string
           pattern: '^pmog_[a-z2-7]{26}$'
+    get:
+      operationId: getProjectModelGrant
+      tags: [Models]
+      summary: Get project model grant
+      description: Returns one of the project's model grants with its overrides.
+      responses:
+        '200':
+          description: The model grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectModelGrantEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteProjectModelGrant
       tags: [Models]
@@ -7713,6 +8150,10 @@ paths:
         Lets a project create machines from a machine pool, optionally with its own defaults and
         usage caps within the pool's limits, and returns the grant. No machines are created by this
         call.
+        Idempotency keys are retained only while the grant exists. Retrying creation after the
+        grant is revoked or deleted can recreate it and restore access, including through automatic SDK retries.
+        A replay compares the request with the current grant, so later edits can return 409 with
+        code idempotency_key_conflict.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -8781,6 +9222,32 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/IntegrationSubscriptionID'
+    get:
+      operationId: getIntegrationSubscription
+      tags: [Integrations]
+      summary: Get integration conversation subscription
+      description: Returns one conversation subscription for the integration. Requires project read permission.
+      responses:
+        '200':
+          description: The subscription.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationSubscription'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
       operationId: deleteIntegrationSubscription
       tags: [Integrations]
@@ -9903,6 +10370,7 @@ components:
             - idempotency_key_conflict
             - agent_backlog_full
             - state_transition_conflict
+            - tool_call_already_completed
             - managed_work_admission_denied
             - pending_work
             - not_wake_capable
@@ -9934,6 +10402,7 @@ components:
         - idempotency_key_conflict
         - agent_backlog_full
         - state_transition_conflict
+        - tool_call_already_completed
         - managed_work_admission_denied
         - pending_work
         - not_wake_capable
@@ -9959,6 +10428,7 @@ components:
         - idempotency_key_conflict
         - agent_backlog_full
         - state_transition_conflict
+        - tool_call_already_completed
         - pending_work
         - not_wake_capable
         - gone
@@ -10072,6 +10542,9 @@ components:
       additionalProperties: false
       minProperties: 1
       properties:
+        scope:
+          $ref: '#/components/schemas/EventWebhookScope'
+          description: Replaces the complete selection. Omit to preserve the current selection.
         url:
           type: string
           minLength: 1
@@ -10133,6 +10606,9 @@ components:
           description: Optional project-available generic secret.
         scope:
           $ref: '#/components/schemas/EventWebhookScope'
+        scope_name:
+          $ref: '#/components/schemas/ResourceName'
+          description: Current name of the selected agent or profile, derived when read. Omitted for project scope or an unavailable name; use the scope ID as a display fallback.
         id:
           $ref: '#/components/schemas/EventWebhookID'
         org_id:
@@ -10148,12 +10624,14 @@ components:
     ListEventWebhooksResponse:
       type: object
       additionalProperties: false
-      required: [data]
+      required: [data, next_cursor]
       properties:
         data:
           type: array
           items:
             $ref: '#/components/schemas/EventWebhook'
+        next_cursor:
+          type: [string, 'null']
     CronTriggerID:
       type: string
       pattern: '^cron_[a-z2-7]{26}$'
@@ -13721,15 +14199,38 @@ components:
         for the current rows.
       type: object
       additionalProperties: false
-      required: [tool_call_id, state]
+      required: [org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, tool_call_id, state]
       properties:
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
         tool_call_id:
           $ref: '#/components/schemas/ToolCallID'
         agent_id:
           description: The agent that made the call. Differs from the streamed agent when the call belongs to a subagent.
           $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
+          $ref: '#/components/schemas/AgentID'
         state:
           $ref: '#/components/schemas/ToolCallState'
+        name:
+          type: string
+          description: The tool name. Present when a custom tool call becomes ready.
+        input:
+          description: The tool arguments. Present with name when the JSON-encoded input is at most 64 KiB; for larger inputs, fetch the tool call.
+          $ref: '#/components/schemas/ToolInput'
         interaction_update:
           description: Only present when this transition opens, resolves, or cancels an interaction.
           $ref: '#/components/schemas/AgentInteractionUpdate'
@@ -13804,7 +14305,7 @@ components:
     AgentInputEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, agent_input_id, input_kind, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, agent_input_id, input_kind, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -13813,6 +14314,19 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
+          $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
           $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
@@ -13853,7 +14367,7 @@ components:
     ModelOutputEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, model_call_context_id, stop_reason, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -13862,6 +14376,19 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
+          $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
           $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
@@ -13900,7 +14427,7 @@ components:
     ToolResultEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, tool_call_id, outcome, content_blocks, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, tool_call_id, outcome, content_blocks, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -13909,6 +14436,19 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
+          $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
           $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
@@ -13936,7 +14476,7 @@ components:
     ContextCheckpointEvent:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, context_checkpoint_id, summarized_through_event_sequence, summary, created_at]
+      required: [id, org_id, project_id, agent_id, agent_profile_id, parent_agent_id, root_agent_id, turn_id, turn_sequence, is_opening_event, sequence, event_kind, context_checkpoint_id, summarized_through_event_sequence, summary, created_at]
       properties:
         id:
           $ref: '#/components/schemas/AgentEventID'
@@ -13945,6 +14485,19 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         agent_id:
+          $ref: '#/components/schemas/AgentID'
+        agent_profile_id:
+          description: The emitting agent's own profile, or null when it has none. This is not the parent agent's or webhook subscription's profile.
+          anyOf:
+            - $ref: '#/components/schemas/AgentProfileID'
+            - type: 'null'
+        parent_agent_id:
+          description: The emitting agent's immediate parent, or null for a top-level agent.
+          anyOf:
+            - $ref: '#/components/schemas/AgentID'
+            - type: 'null'
+        root_agent_id:
+          description: The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
           $ref: '#/components/schemas/AgentID'
         turn_id:
           $ref: '#/components/schemas/AgentTurnID'
@@ -14550,10 +15103,11 @@ components:
           type: string
           description: The tool whose invocation a permission interaction guards. Present only when interaction_kind is permission.
         agent_name:
+          description: Name of the owning agent. Included by both interaction list endpoints.
           $ref: '#/components/schemas/AgentName'
         subagent_key:
           type: string
-          description: Present when the interaction belongs to a subagent of the listed agent.
+          description: Key of the owning agent when it is a subagent. Included by both interaction list endpoints.
         interaction_kind:
           $ref: '#/components/schemas/AgentInteractionKind'
         state:
@@ -16576,6 +17130,13 @@ components:
       properties:
         name:
           $ref: '#/components/schemas/ResourceName'
+    UpdateProjectRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          $ref: '#/components/schemas/ResourceName'
     ProjectFields:
       type: object
       description: Shared project fields composed into project response schemas. Composing schemas close their final shape with unevaluatedProperties.
@@ -16998,7 +17559,9 @@ components:
       properties:
         enabled:
           type: boolean
+          description: Whether to show the panel. Hiding it does not stop the agent or revoke its credentials.
         revision:
+          description: Current preference revision. Pass this as expected_revision when creating an assistant.
           type: integer
           format: int64
           minimum: 0
@@ -17021,18 +17584,24 @@ components:
           description: Agent to connect, or null to disconnect. Omit to preserve the selection.
         enabled:
           type: boolean
+          description: Whether to show the panel. Hiding it does not stop the agent or revoke its credentials.
     CreateAssistantAgentRequest:
       type: object
       additionalProperties: false
       required: [project_id, request_id, expected_revision, automatic]
       properties:
         project_id:
+          description: Public project ID (proj_ prefix) within the selected organization where the assistant will live.
           $ref: '#/components/schemas/ProjectID'
         request_id:
           type: string
           format: uuid
           description: Stable UUID for retries. Automatic setup uses the pending project's UUID.
         expected_revision:
+          description: >-
+            The revision returned by GET /me/agent-panel. A new request returns 409 if the preference
+            changed. Replaying a completed request with its original parameters returns the original
+            agent without changing the current selection.
           type: integer
           format: int64
           minimum: 0
@@ -17040,6 +17609,9 @@ components:
           type: boolean
           description: Complete pending first-organization setup; otherwise explicitly create an assistant.
         model_id:
+          description: >-
+            Optional configured model ID (mdl_ prefix), granted to the project and supporting tools.
+            If omitted, selects the first eligible grant in creation order.
           $ref: '#/components/schemas/ConfiguredModelID'
     CreateAssistantAgentResponse:
       type: object

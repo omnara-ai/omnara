@@ -1,5 +1,6 @@
 import { ProjectModelsView } from '@/components/projects/ProjectModelsView'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
+import { canManageOrg } from '@/lib/permissions'
 
 export function ProjectModelsPage() {
   return (
@@ -10,6 +11,7 @@ export function ProjectModelsPage() {
             orgId={activeOrg.id}
             projectId={projectId}
             canManageAccess={project.access.can_manage_access}
+            canCreateModels={project.access.can_manage_access && canManageOrg(activeOrg.role)}
           />
         ) : (
           <p className="text-muted-foreground text-sm">

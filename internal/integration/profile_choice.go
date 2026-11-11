@@ -121,7 +121,8 @@ func (l *ChatIntegrationLauncher) decideProfiles(
 		integrationstore.EnsureIntegrationProfileChoiceInput{
 			IntegrationID: input.Integration.ID, Address: input.Address, SourceKey: sourceKey,
 			Event: raw, Payload: input.Receipt.Payload, Options: options,
-			HasAttachments: len(source.Files) != 0 || (source.Sibling != nil && source.Sibling.AttachmentNotice != ""),
+			HasAttachments: (source.Sibling == nil && len(source.Files) != 0) ||
+				(source.Sibling != nil && source.Sibling.AttachmentNotice != ""),
 		})
 	if errors.Is(err, integrationstore.ErrIntegrationLaunchSettled) {
 		return nil, nil

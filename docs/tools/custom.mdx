@@ -20,7 +20,14 @@ sequenceDiagram
     O->>M: tool_result → agent continues
 ```
 
-Because the call is a durable event, your worker can crash, redeploy, or take minutes to respond — the agent simply waits, and nothing is lost.
+Omnara keeps the ready call until it is answered or canceled. Your application owns any external work or computed result that must survive a crash or redeploy.
+
+Running the tool in your own system also means:
+
+- **Any language.** Your worker is any code that can make HTTPS requests, and it can share types, database access, and tests with the rest of your backend.
+- **No inbound access.** A worker that polls for ready calls only makes outbound requests, so your database and internal services never have to be reachable from Omnara.
+- **Separate deploys.** You ship and scale tool code on your own schedule, and running agents aren't affected.
+- **One result per call.** Omnara accepts the first result submitted for a call and rejects later ones, so a retried worker can't complete a call twice.
 
 ## Declare the tool
 
@@ -73,11 +80,107 @@ curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/agents/$AGENT/tool-calls?state=ready&
 
 `ready` means the permission check has passed and the call is waiting for your result. A custom call using `always_ask` remains in `awaiting_permission` until someone responds to its [interaction](/events/interactions). After you submit a result, it moves to `completed`.
 
-<Tip>
-To avoid continuous polling, which counts against your [rate limits](/api/overview#rate-limits), connect to the agent's [event stream](/events/streaming), then query `GET /tool-calls?state=ready&type=custom` for already-ready calls and watch for future `tool_call_update` frames whose `state` is `ready`. Repeat the query after reconnecting because lifecycle updates are not replayed. Subagents can call custom tools too: the parent's stream carries their `tool_call_update` frames with the subagent's `agent_id`, and `include_subagents=true` on the query returns their calls.
+To find ready custom calls from every agent in the project, including subagents, query `GET $OMNARA_API/orgs/$ORG/projects/$PROJ/tool-calls?state=ready&type=custom`. Each call includes its `agent_id`; use it when submitting the result. The project endpoint also accepts `agent_profile_id` and repeated `names` filters.
 
-You can also configure an [Event webhook](/agents/configuration#event-webhooks) to trigger custom-tool execution when a `tool_call_update` arrives with `state: ready`. See the runnable [custom-tool webhook example](https://github.com/omnara-ai/omnara/tree/main/examples/custom-tool-webhook) for signature verification and duplicate handling.
-</Tip>
+[Webhooks](/events/webhooks) and [SSE](/events/streaming) deliver `tool_call_update` notifications promptly. Connect, check for already-ready calls, and handle incoming updates. Keep periodically checking while connected too: webhook retries end after ten minutes, and SSE lifecycle updates can be dropped without a disconnect and are not replayed.
+
+For a single agent tree, use the agent-scoped `GET /agents/{agentID}/tool-calls?state=ready&type=custom&include_subagents=true`. A parent's stream includes its descendants' tool updates, so the recovery query must include those descendants too. The project endpoint above already includes all agents and subagents in its scope.
+
+Ready custom-call notifications include `name` and, for inputs up to 64 KiB, `input`. Fetch a call directly with `GET /agents/{agentID}/tool-calls/{toolCallID}` when needed. Notifications can arrive late; read current readiness before starting work.
+
+## TypeScript helper
+
+`createCustomToolWorker` provides two finite operations. `handle(update)` checks the event's organization, project and optional profile, reads the call's current state and input, invokes its registered function, and submits the result. `check({ cursor, limit })` reads one page of ready calls with their full inputs and starts handling them directly, without a GET for each call. Both use the client's HTTP retries; neither schedules future work or retains failed deliveries.
+
+```typescript
+import { createCustomToolWorker, createOmnaraClient } from '@omnara/sdk'
+
+const client = createOmnaraClient({ auth, timeoutMs: 30_000 })
+const worker = createCustomToolWorker({
+  client,
+  path: { orgID, projectID },
+  tools: {
+    create_ticket: async ({ toolCallID, input, signal }) => {
+      // The application makes this external action safe to repeat across processes.
+      const ticket = await tickets.createOnce(toolCallID, input, { signal })
+      return {
+        outcome: 'succeeded',
+        content_blocks: [{ type: 'structured_data', value: ticket }],
+      }
+    },
+  },
+})
+```
+
+Pass only authenticated SSE frames or signature-verified webhook updates to `handle`. Verify webhook bodies with `verifyEventWebhook` before using their contents. A signing secret authorizes requests to your tool handlers; keep it out of agent machines and tool inputs.
+
+### Recover a result without repeating the action
+
+The client's [request policy](https://github.com/omnara-ai/omnara/tree/main/frontend/packages/sdk#retries-and-deadlines) retries a result POST without calling the tool function again. Set `timeoutMs` or pass an operation `signal` to bound a stalled request. If delivery still fails, `handle` rejects with `CustomToolDeliveryError`.
+
+Its `result` is a detached JSON snapshot ready for resubmission. Its `call`, `cause`, and optional `retryAt` identify the call, underlying failure, and server's earliest retry time in epoch milliseconds.
+
+```typescript
+import { CustomToolDeliveryError, sdk } from '@omnara/sdk'
+
+try {
+  await worker.handle(update, { signal })
+} catch (error) {
+  if (!(error instanceof CustomToolDeliveryError)) throw error
+  // Your job/storage layer keeps this result and schedules delivery at or after retryAt.
+  await deliveries.save({ call: error.call, result: error.result, retryAt: error.retryAt })
+}
+
+// In the application's delivery job, submit the saved result, not the business action.
+await sdk.submitToolCallResult({
+  client,
+  path: { orgID, projectID, agentID: saved.call.agentID, toolCallID: saved.call.toolCallID },
+  body: saved.result,
+})
+```
+
+Here `deliveries` is application-owned storage. A repeatable calculation can instead be recomputed on the next check, as the [runnable webhook example](https://github.com/omnara-ai/omnara/tree/main/examples/custom-tool-webhook) does. Consequential actions need duplicate protection and any persistence required across restarts.
+
+The helper treats `409 tool_call_already_completed` as `completed`; direct delivery jobs must handle it too. See [result submission](#submit-the-result) for its meaning. Other submission errors preserve the computed result in the delivery error.
+
+Inspect `error.cause` before scheduling another attempt. Repair authorization or visibility failures before resubmitting. For a permanent payload rejection such as HTTP 400, 413 or 422, correct or reduce the result, or deliberately submit an explicit failed result explaining the reporting problem. Do not rerun a successful business action to repair result delivery.
+
+Unexpected handler exceptions and locally invalid or unserializable output become a generic failed tool result. The optional `onError` callback receives their original details; it also observes request failures, which still reach the caller. Return an explicit failed result when you intend the model to see a particular explanation. A successfully delivered failed business result counts as `completed`; failed delivery is a separate error.
+
+### Schedule finite recovery checks
+
+Run recovery after connecting and periodically while webhook or SSE traffic continues. Follow pages promptly and sequentially; pause between complete passes, not between pages. For example, your application's scheduler can run this function once a minute without overlapping invocations:
+
+```typescript
+async function recoverReadyTools() {
+  let cursor = (await checkpoints.load(recoveryKey)) ?? undefined
+  do {
+    signal.throwIfAborted()
+    const page = await worker.check({ cursor, signal })
+    for (const { call, outcome } of page.results) {
+      if (outcome.status === 'failed') {
+        // Persist delivery errors' results; decide how other failures are retried.
+        await recoverFailure(call, outcome.error)
+      }
+    }
+    signal.throwIfAborted()
+    await checkpoints.save(recoveryKey, page.nextCursor)
+    cursor = page.nextCursor ?? undefined
+  } while (cursor !== undefined)
+}
+```
+
+`check` processes at most `limit` rows (50 by default, up to 100), returning each call's outcome and `nextCursor`. Consume **every failed outcome** before advancing your checkpoint. A `null` cursor finishes the pass; the next scheduled pass starts at the beginning to find newly ready or deferred calls. If an application job must stop at a time or page budget, save its cursor and arrange prompt continuation rather than waiting for the normal polling interval.
+
+Listing failures reject the check without advancing its cursor. Cancellation after listing appears in individual outcomes, including delivery errors with any computed results. Choose a page size your application can run concurrently and await within its budget.
+
+For long jobs, return `{ outcome: 'deferred' }` and have the application submit the result directly when its durable job finishes. Recovery checks are a fallback for missed completion delivery, so completion need not wait for another pass through the backlog. The helper submits nothing for a deferred result. Start or find jobs idempotently by tool-call ID and reuse saved results during recovery; the application owns their lifetime after the handler returns.
+
+Both operations accept `signal`. The first invocation for a call owns its cancellation; concurrent duplicates share that invocation, and their signals only stop their own waits.
+
+Handlers must cooperate with cancellation: the owning operation waits for them to settle so a late computed result can still be returned in a delivery error. A `completed` update signals a local handler to stop. Neither a discovery snapshot nor a notification's readiness read claims the call. Two processes can both read `ready`, and cancellation cannot undo an external action.
+
+The optional `onObserve` hook reports admission, readiness, handler, submission and recovery timings/outcomes without identifiers, names, inputs or results. Readiness observations cover notification GETs; discovery is measured per page. Use cheap local callbacks; observer failures never change execution. The SDK sends no telemetry. Request-level observations separately report retries and HTTP failures.
 
 ## Submit the result
 
@@ -123,14 +226,16 @@ The agent wakes and continues its turn with your result in context. If your syst
 
 Result text, structured-data string keys and values, and metadata must not contain U+0000.
 
-**The first result wins.** Only `ready` custom calls accept results; a second submission for the same call, or a result for a built-in or MCP call, returns `409`:
+**The first result wins.** Only `ready` custom calls accept results. Submitting to a call that has already finished returns `409` with code `tool_call_already_completed`, including when the call was canceled:
 
 ```json
-{ "error": "custom tool call is not ready for a result", "code": "conflict" }
+{ "error": "custom tool call is already completed", "code": "tool_call_already_completed" }
 ```
 
-That makes result submission naturally safe to retry from multiple workers — losers of the race get a clean `409`, not a corrupted timeline.
+A result for a call that isn't ready, or for a built-in or MCP call, returns `409` with code `conflict`.
+
+That makes result submission safe when several workers race for the same call: the losers get a clean `409`, not a corrupted timeline. The specific `tool_call_already_completed` code means no further submission is needed. It does not establish whose result was accepted or whether the call was canceled.
 
 <Info>
-Full schema and playground: [List tool calls](/api-reference/endpoints/agents/list-tool-calls) · [Submit a result](/api-reference/endpoints/agents/submit-a-result-for-a-ready-custom-tool-call).
+Full schema and playground: [List tool calls](/api-reference/endpoints/agents/list-tool-calls) · [Get a tool call](/api-reference/endpoints/agents/get-a-tool-call) · [List unfinished tool calls across agents](/api-reference/endpoints/agents/list-unfinished-tool-calls-across-agents) · [Submit a result](/api-reference/endpoints/agents/submit-a-result-for-a-ready-custom-tool-call).
 </Info>

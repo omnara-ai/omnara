@@ -263,6 +263,16 @@
   background: color-mix(in oklab, var(--muted) 35%, var(--card));
 }
 
+/* The auth panel is translucent card over a glow, so default inputs (card on card) vanish
+   into it; give their borders the weight of text and a lift off the panel. */
+.auth-panel {
+  --input: color-mix(in oklab, var(--foreground) 22%, transparent);
+}
+
+.auth-panel [data-slot='input'] {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+}
+
 .dark .expanded-surface {
   --color-border: color-mix(in oklab, var(--border) 60%, transparent);
   --color-input: color-mix(in oklab, var(--input) 60%, transparent);

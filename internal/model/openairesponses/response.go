@@ -262,9 +262,9 @@ type responsesUsage struct {
 }
 
 type responsesTokenDetails struct {
-	CachedTokens     int `json:"cached_tokens"`
-	CacheWriteTokens int `json:"cache_write_tokens"`
-	ReasoningTokens  int `json:"reasoning_tokens"`
+	CachedTokens     modelenvelope.ReportedCount `json:"cached_tokens,omitzero"`
+	CacheWriteTokens int                         `json:"cache_write_tokens"`
+	ReasoningTokens  int                         `json:"reasoning_tokens"`
 }
 
 type responsesOutputItem struct {
@@ -307,25 +307,26 @@ func reasoningSummaryText(item responsesOutputItem) string {
 
 func usageFromResponse(usage responsesUsage) modelenvelope.Usage {
 	if usage.InputTokens < 0 ||
-		usage.InputTokensDetails.CachedTokens < 0 ||
+		usage.InputTokensDetails.CachedTokens.Count < 0 ||
 		usage.InputTokensDetails.CacheWriteTokens < 0 ||
 		usage.OutputTokens < 0 ||
 		usage.OutputTokensDetails.ReasoningTokens < 0 ||
-		usage.InputTokensDetails.CachedTokens > usage.InputTokens ||
+		usage.InputTokensDetails.CachedTokens.Count > usage.InputTokens ||
 		usage.InputTokensDetails.CacheWriteTokens >
-			usage.InputTokens-usage.InputTokensDetails.CachedTokens ||
+			usage.InputTokens-usage.InputTokensDetails.CachedTokens.Count ||
 		usage.OutputTokensDetails.ReasoningTokens > usage.OutputTokens {
 		return modelenvelope.Usage{}
 	}
 	uncachedInputTokens := usage.InputTokens -
-		usage.InputTokensDetails.CachedTokens -
+		usage.InputTokensDetails.CachedTokens.Count -
 		usage.InputTokensDetails.CacheWriteTokens
 	return modelenvelope.Usage{
 		InputTokens:         usage.InputTokens,
 		UncachedInputTokens: uncachedInputTokens,
 		OutputTokens:        usage.OutputTokens,
 		ReasoningTokens:     usage.OutputTokensDetails.ReasoningTokens,
-		CacheReadTokens:     usage.InputTokensDetails.CachedTokens,
+		CacheReadTokens:     usage.InputTokensDetails.CachedTokens.Count,
+		CacheReported:       usage.InputTokensDetails.CachedTokens.Reported && usage.InputTokens > 0,
 		CacheWriteTokens:    usage.InputTokensDetails.CacheWriteTokens,
 	}
 }

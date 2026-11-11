@@ -473,6 +473,40 @@ func TestChatProfileChoiceRetainsAttachmentDigestBeforeSelection(t *testing.T) {
 	require.Equal(t, 1, artifacts)
 }
 
+func TestChatProfileChoiceHistoryOnlySiblingKeepsOwnFiles(t *testing.T) {
+	t.Parallel()
+	f := newChoiceJourney(t, 2)
+	content := []byte("original file")
+	withFile := func(event IntegrationEvent, providerFileID string) IntegrationEvent {
+		id := uuid.New()
+		event.Files = []executionstore.InboxPlannedFile{{
+			ArtifactID: id, ProviderFileID: providerFileID, Expected: &artifactstore.PreparedArtifact{
+				ID: id, ContentType: "text/plain", Filename: "review.txt",
+				Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content)),
+			}}}
+		blocks, err := json.Marshal([]map[string]any{
+			{"type": "text", "text": "review my original request"}, {"type": "media_ref", "artifact_id": id.String()},
+		})
+		require.NoError(t, err)
+		event.ContentBlocks = blocks
+		return event
+	}
+	own := withFile(f.event, "F_OWN")
+	own.SemanticKey = "files-callback"
+	own.Sibling = &executionstore.InboxMessageSibling{Key: f.event.SemanticKey, AttachmentNotice: "Original files"}
+	require.Empty(t, f.receive("own-files", own))
+	history := withFile(f.event, "F_HISTORY")
+	history.Sibling = &executionstore.InboxMessageSibling{Key: own.SemanticKey}
+	require.Empty(t, f.receive("history-files", history))
+	require.Len(t, f.provider.menus, 1)
+	choice, err := f.store.Integrations().GetIntegrationProfileChoice(
+		t.Context(), f.ids.ProjectID, f.integration.ID, f.provider.menus[0].ID,
+	)
+	require.NoError(t, err)
+	require.Contains(t, string(choice.Event), "F_OWN")
+	require.NotContains(t, string(choice.Event), "F_HISTORY")
+}
+
 func TestChatProfileChoiceRemovedOfferedProfileCannotLaunchReplacement(t *testing.T) {
 	t.Parallel()
 	f := newChoiceJourney(t, 2)

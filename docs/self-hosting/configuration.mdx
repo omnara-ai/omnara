@@ -39,11 +39,10 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 ### Dashboard assistant connectivity
 
 The default dashboard assistant connects to `/mcp` on the origin of
-`OMNARA_PUBLIC_API_URL`, falling back to `OMNARA_PUBLIC_URL`. Configure a trusted
-public origin and route `/mcp` to the API. Workers must be able to reach that
-origin. The connection follows the same outbound URL and local-development
-rules as other MCP servers; the dashboard request's host is never used to
-choose the endpoint.
+`OMNARA_PUBLIC_API_URL`, falling back to `OMNARA_PUBLIC_URL`. Route `/mcp` on
+that configured origin to the API. Workers must be able to reach the origin.
+The connection follows the same outbound URL and local-development rules as
+other MCP servers; the dashboard request's host is never used to choose the endpoint.
 
 ### Monitoring agent execution
 
@@ -70,6 +69,10 @@ across maintenance replicas rather than summing.
 Alert on sustained `omnara_agent_oldest_ready_age_seconds` with a fresh sample. High
 utilization alongside the backlog means workers are at capacity; low utilization points to
 a claiming or scheduling problem instead.
+
+### Monitoring event delivery
+
+See the [event-delivery monitoring guide](https://github.com/omnara-ai/omnara/blob/main/observability/README.md#event-delivery) for metrics and Prometheus alert setup.
 
 ### Integration inbox operation
 

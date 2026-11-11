@@ -38,6 +38,7 @@ import (
 )
 
 const (
+	serverIdleTimeout          = 180 * time.Second
 	outboundHTTPClientTimeout  = 30 * time.Second
 	apiRateLimitRedisTimeout   = 100 * time.Millisecond
 	defaultReconciliationPlan  = "plan"
@@ -210,6 +211,7 @@ func main() {
 		Addr:              cfg.APIAddr,
 		Handler:           apiServer.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       serverIdleTimeout,
 	}
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -413,6 +415,7 @@ func apiOptions(
 	}
 	opts := []httpapi.Option{
 		httpapi.WithHTTPRecorder(metrics.NewHTTPRecorder(metricSet, metrics.SubsystemAPI)),
+		httpapi.WithAgentStreamRecorder(metrics.NewAgentStreamRecorder(metricSet)),
 		httpapi.WithIntegrationInboxIntakeRecorder(metrics.NewIntegrationInboxIntakeRecorder(metricSet)),
 		httpapi.WithDaemonRecorder(daemonRecorder),
 		httpapi.WithDaemonNotifications(redisBus, presence, replicaID),

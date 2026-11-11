@@ -220,10 +220,36 @@ type Usage struct {
 	InputTokens         int `json:"input_tokens_total,omitempty"`
 	UncachedInputTokens int `json:"uncached_input_tokens,omitempty"`
 	// OutputTokens includes visible output and reasoning tokens.
-	OutputTokens     int `json:"output_tokens_total,omitempty"`
-	ReasoningTokens  int `json:"reasoning_output_tokens,omitempty"`
-	CacheReadTokens  int `json:"cache_read_input_tokens,omitempty"`
-	CacheWriteTokens int `json:"cache_write_input_tokens,omitempty"`
+	OutputTokens     int  `json:"output_tokens_total,omitempty"`
+	ReasoningTokens  int  `json:"reasoning_output_tokens,omitempty"`
+	CacheReadTokens  int  `json:"cache_read_input_tokens,omitempty"`
+	CacheWriteTokens int  `json:"cache_write_input_tokens,omitempty"`
+	CacheReported    bool `json:"-"`
+}
+
+type ReportedCount struct {
+	Count    int
+	Reported bool
+}
+
+func (c *ReportedCount) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*c = ReportedCount{}
+		return nil
+	}
+	if err := json.Unmarshal(data, &c.Count); err != nil {
+		return err
+	}
+	c.Reported = true
+	return nil
+}
+
+func (c ReportedCount) IsZero() bool {
+	return !c.Reported
+}
+
+func (c ReportedCount) MarshalJSON() ([]byte, error) {
+	return json.Marshal(c.Count)
 }
 
 func OptionalCount(value int) *int {

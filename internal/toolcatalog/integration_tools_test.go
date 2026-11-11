@@ -14,18 +14,15 @@ func TestConversationBoundIntegrationToolActionSchemas(t *testing.T) {
 	for _, integrationKind := range []integrationdefinition.Kind{
 		integrationdefinition.SlackThread, integrationdefinition.DiscordThread, integrationdefinition.GitHubPR,
 	} {
-		definition, ok := integrationdefinition.Lookup(integrationKind)
-		require.True(t, ok)
-		for _, operation := range definition.Tools {
-			t.Run(string(definition.IntegrationKind)+"/"+operation, func(t *testing.T) {
-				tool, ok := LookupIntegrationTool(definition.IntegrationKind, operation)
-				require.True(t, ok)
+		for _, tool := range IntegrationTools(integrationKind) {
+			operation := tool.Operation
+			t.Run(string(integrationKind)+"/"+operation, func(t *testing.T) {
 				require.Equal(t, IntegrationToolScopeConversation, tool.Scope)
 				action := `{}`
 				switch operation {
 				case IntegrationOperationPostMessage:
 					action = `{"text":"hello"}`
-					if definition.IntegrationKind == integrationdefinition.DiscordThread {
+					if integrationKind == integrationdefinition.DiscordThread {
 						action = `{"content":"hello"}`
 					}
 				case IntegrationOperationDiscussionComment:
@@ -40,6 +37,8 @@ func TestConversationBoundIntegrationToolActionSchemas(t *testing.T) {
 					action = `{"review_id":42}`
 				case IntegrationOperationReply:
 					action = `{"body":"reply","comment_id":9007199254740995}`
+				case IntegrationOperationResolveThread:
+					action = `{"review_thread_id":"PRRT_1"}`
 				}
 				entry, err := tool.Prepare(IntegrationToolName("engineering-team", operation))
 				require.NoError(t, err)
@@ -83,19 +82,6 @@ func TestIntegrationToolScopeDeclaration(t *testing.T) {
 				require.ErrorContains(t, err, "explicit scope")
 			}
 		})
-	}
-}
-
-func TestDeclaredIntegrationToolsHaveValidSchemas(t *testing.T) {
-	for _, integration := range integrationdefinition.All() {
-		for _, operation := range integration.Tools {
-			t.Run(string(integration.IntegrationKind)+"/"+operation, func(t *testing.T) {
-				tool, found := LookupIntegrationTool(integration.IntegrationKind, operation)
-				require.True(t, found)
-				_, err := tool.Prepare(IntegrationToolName("example", operation))
-				require.NoError(t, err)
-			})
-		}
 	}
 }
 

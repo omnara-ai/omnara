@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react'
 
 export {
   ArrowDownIcon,
+  ArrowLeftIcon as ArrowLeft,
   ArrowRightIcon as ArrowRight,
   ArrowUpRightIcon as ArrowUpRight,
   BoltIcon,

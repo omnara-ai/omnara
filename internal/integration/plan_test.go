@@ -444,11 +444,11 @@ func TestIntegrationLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing
 			} else {
 				require.Nil(t, compiled.GitCredentials)
 			}
-			for _, operation := range definition.Tools {
+			for _, tool := range toolcatalog.IntegrationTools(integration.IntegrationKind) {
 				require.Equal(
 					t,
 					integration.ID,
-					compiled.Tools[toolcatalog.IntegrationToolName(integration.Name, operation)].IntegrationID,
+					compiled.Tools[toolcatalog.IntegrationToolName(integration.Name, tool.Operation)].IntegrationID,
 				)
 			}
 			require.Equal(t, integration.ID, subscription.IntegrationID)

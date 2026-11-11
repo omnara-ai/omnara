@@ -87,6 +87,35 @@ func (s strictOpenAPIServer) CreateIntegrationSubscription(
 	return openapi.CreateIntegrationSubscription201JSONResponse(response), nil
 }
 
+func (s strictOpenAPIServer) GetIntegrationSubscription(
+	ctx context.Context,
+	request openapi.GetIntegrationSubscriptionRequestObject,
+) (openapi.GetIntegrationSubscriptionResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	integrationID, ok := parseOpenAPIPublicID(publicid.KindIntegration, request.IntegrationID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid integration id")
+	}
+	id, ok := parseOpenAPIPublicID(publicid.KindIntegrationSubscription, request.SubscriptionID)
+	if !ok {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid subscription id")
+	}
+	subscription, err := s.server.store.Integrations().GetIntegrationSubscription(
+		ctx, scope.project.ID, integrationID, id,
+	)
+	if err != nil {
+		return nil, apierror.ProjectScoped(err)
+	}
+	response, err := integrationSubscriptionResponse(subscription)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.GetIntegrationSubscription200JSONResponse(response), nil
+}
+
 func (s strictOpenAPIServer) DeleteIntegrationSubscription(
 	ctx context.Context,
 	request openapi.DeleteIntegrationSubscriptionRequestObject,

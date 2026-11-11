@@ -93,7 +93,7 @@ func TestExecutionToolCustody(t *testing.T) {
 				require.NoError(t, u.Commit(t.Context(), "complete custom tool"))
 				u, h = f.handle(t, a)
 				_, err = complete()
-				require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+				require.ErrorIs(t, err, storeerr.ErrToolCallCompleted)
 				require.NoError(t, u.Rollback(t.Context()))
 				return
 			}

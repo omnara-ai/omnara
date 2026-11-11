@@ -70,6 +70,17 @@ func projectRecordFromGetSQLC(row dbsqlc.GetProjectRow) ProjectRecord {
 	}
 }
 
+func projectRecordFromRenameSQLC(row dbsqlc.RenameProjectRow) ProjectRecord {
+	return ProjectRecord{
+		ID:             row.ID,
+		OrgID:          row.OrgID,
+		Name:           row.Name,
+		IdempotencyKey: row.IdempotencyKey,
+		CreatedAt:      row.CreatedAt,
+		UpdatedAt:      row.UpdatedAt,
+	}
+}
+
 func projectRecordFromVisibleSQLC(row dbsqlc.ListVisibleProjectRolesForPrincipalRow) ProjectRecord {
 	return ProjectRecord{
 		ID:             row.ID,

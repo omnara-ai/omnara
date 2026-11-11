@@ -525,23 +525,6 @@ func (q *Queries) ConsumeUserAuthToken(ctx context.Context, arg ConsumeUserAuthT
 	return result.RowsAffected(), nil
 }
 
-const countOrgMemberships = `-- name: CountOrgMemberships :one
-SELECT count(*)::bigint
-FROM org_memberships
-WHERE org_id = $1
-`
-
-type CountOrgMembershipsParams struct {
-	OrgID uuid.UUID
-}
-
-func (q *Queries) CountOrgMemberships(ctx context.Context, arg CountOrgMembershipsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countOrgMemberships, arg.OrgID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const countOrgMembershipsForUser = `-- name: CountOrgMembershipsForUser :one
 SELECT count(*)::bigint
 FROM org_memberships om
@@ -4563,6 +4546,41 @@ func (q *Queries) RemoveUserOrgMembership(ctx context.Context, arg RemoveUserOrg
 		&i.UserID,
 		&i.Role,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const renameProject = `-- name: RenameProject :one
+UPDATE projects SET name = $1, updated_at = transaction_timestamp()
+WHERE org_id = $2 AND id = $3 AND deleted_at IS NULL
+RETURNING id, org_id, name, coalesce(idempotency_key, '') AS idempotency_key, created_at, updated_at
+`
+
+type RenameProjectParams struct {
+	Name  string
+	OrgID uuid.UUID
+	ID    uuid.UUID
+}
+
+type RenameProjectRow struct {
+	ID             uuid.UUID
+	OrgID          uuid.UUID
+	Name           string
+	IdempotencyKey string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+func (q *Queries) RenameProject(ctx context.Context, arg RenameProjectParams) (RenameProjectRow, error) {
+	row := q.db.QueryRow(ctx, renameProject, arg.Name, arg.OrgID, arg.ID)
+	var i RenameProjectRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

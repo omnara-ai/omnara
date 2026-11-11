@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -222,16 +223,16 @@ func (s *Service) lockAgentPanelUser(
 }
 
 type CreateAssistantAgentInput struct {
-	Principal                 identitystore.PrincipalRecord
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	ModelID                   uuid.UUID
-	RequestID                 uuid.UUID
-	ExpectedRevision          int64
-	Automatic                 bool
-	MCPURL                    string
-	ReadOnlyTools             []string
-	AllowInsecureLocalMCPHTTP bool
+	Principal          identitystore.PrincipalRecord
+	OrgID              uuid.UUID
+	ProjectID          uuid.UUID
+	ModelID            uuid.UUID
+	RequestID          uuid.UUID
+	ExpectedRevision   int64
+	Automatic          bool
+	MCPURL             string
+	ReadOnlyTools      []string
+	AgentConfigOptions agentconfig.CompileOptions
 }
 
 func (s *Service) CreateAssistantAgent(ctx context.Context, input CreateAssistantAgentInput) (uuid.UUID, error) {
