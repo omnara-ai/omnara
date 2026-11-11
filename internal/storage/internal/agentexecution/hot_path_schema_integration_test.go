@@ -160,8 +160,8 @@ INSERT INTO projects(org_id,name,created_at,updated_at)
 SELECT $1,'budget-plan-'||n,now(),now() FROM generate_series(1,20) n`, f.org)
 	require.NoError(t, err)
 	_, err = tx.Exec(ctx, `
-INSERT INTO project_daily_model_costs(org_id,day,project_id,provider_reported_cost_usd,estimated_cost_usd)
-SELECT $1,day,p.id,1,0 FROM generate_series(current_date-1095,current_date,interval '1 day') day
+INSERT INTO project_daily_model_costs(org_id,day,project_id,effective_cost_usd)
+SELECT $1,day,p.id,1 FROM generate_series(current_date-1095,current_date,interval '1 day') day
 CROSS JOIN projects p WHERE p.org_id=$1`, f.org)
 	require.NoError(t, err)
 	_, err = tx.Exec(ctx, `

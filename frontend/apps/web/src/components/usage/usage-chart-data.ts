@@ -7,7 +7,6 @@ import type {
 } from '@omnara/sdk'
 import { addDays, addHours, addMonths, addWeeks } from 'date-fns'
 
-import { totalCostUsd, unpricedModelCalls } from '@/components/usage/cost-totals'
 import { type AgentIconSpec, profileIcon, tintColor } from '@/lib/agent-icon'
 import { formatCompactCount, formatCount, formatUsd } from '@/lib/format'
 
@@ -63,7 +62,7 @@ export interface UsageChartData {
 }
 
 export function usageMeasureValue(totals: UsageTotals, measure: UsageMeasure) {
-  if (measure === 'cost') return totalCostUsd(totals.cost)
+  if (measure === 'cost') return Number(totals.cost.effective_usd)
   if (measure === 'calls') return totals.model_calls
   return totals.tokens.input_tokens_total + totals.tokens.output_tokens_total
 }
@@ -118,7 +117,7 @@ export function usageChartData(timeseries: UsageTimeseries, measure: UsageMeasur
     return { start: new Date(start), total, values }
   })
   const { totals } = timeseries
-  const unpriced = unpricedModelCalls(totals.model_calls, totals.cost)
+  const unpriced = totals.model_calls - totals.cost.model_calls_with_effective_cost
   let emptyMessage = 'No usage'
   if (measure === 'cost' && unpriced > 0) {
     emptyMessage = `${formatCount(unpriced)} ${unpriced === 1 ? 'call' : 'calls'} couldn't be priced`

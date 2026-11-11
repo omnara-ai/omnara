@@ -95,11 +95,25 @@ func SeedModelAndCompileAgentYAML(
 ) agentconfig.Result {
 	t.Helper()
 	configuredModel := SeedModelForAgentYAML(t, ctx, models, orgID, projectID, sourceYAML)
+	return CompileAgentYAML(
+		t, ctx, execution, orgID, projectID, sourceYAML, configuredModel.ID, configuredModel.SupportsTools,
+	)
+}
+
+func CompileAgentYAML(
+	t testing.TB,
+	ctx context.Context,
+	execution *executionstore.Store,
+	orgID, projectID uuid.UUID,
+	sourceYAML string,
+	configuredModelID uuid.UUID,
+	supportsTools bool,
+) agentconfig.Result {
+	t.Helper()
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(sourceYAML), agentconfig.CompileOptions{
 		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
-			supportsTools := configuredModel.SupportsTools
 			return agentconfig.ResolvedModelSelection{
-				ConfiguredModelID: configuredModel.ID,
+				ConfiguredModelID: configuredModelID,
 				SupportsTools:     &supportsTools,
 			}, nil
 		},

@@ -15,7 +15,7 @@ SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event
  c.error_kind,c.error_code,c.error_message,c.error_details,c.input_tokens_total,c.uncached_input_tokens,
  c.cache_read_input_tokens,c.cache_write_input_tokens,c.output_tokens_total,c.reasoning_output_tokens,
  coalesce(c.provider_reported_cost_usd::text,'')::text AS provider_reported_cost_usd,c.provider_metadata,
- r.provider_model_slug,coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
+ r.provider_model_slug,r.pricing,coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
  (SELECT count(*) FROM model_call_contexts prior WHERE prior.agent_id=c.agent_id
  AND prior.operation_kind='compaction' AND prior.input_event_sequence=c.input_event_sequence
  AND prior.source_event_sequence_end=c.source_event_sequence_end AND prior.attempt_number<c.attempt_number
@@ -49,7 +49,7 @@ WHERE c.project_id=sqlc.arg(project_id) AND c.id=sqlc.arg(config_id);
 SELECT (b.project_id IS NOT NULL)::boolean AS project_scope,b.interval
 FROM budgets b CROSS JOIN LATERAL budget_interval_cost(b.org_id,b.project_id,b.interval) cost
 WHERE b.org_id=sqlc.arg(org_id) AND (b.project_id IS NULL OR b.project_id=sqlc.arg(project_id)::uuid)
- AND b.deleted_at IS NULL AND cost.provider_reported_cost_usd+cost.estimated_cost_usd>=b.amount_usd
+ AND b.deleted_at IS NULL AND cost.effective_cost_usd>=b.amount_usd
 ORDER BY b.project_id IS NOT NULL,
  CASE b.interval WHEN 'lifetime' THEN 0 WHEN 'month' THEN 1 WHEN 'week' THEN 2 ELSE 3 END
 LIMIT 1;
@@ -76,7 +76,8 @@ UPDATE model_call_contexts c SET state=sqlc.arg(state),recovery_kind=sqlc.narg(r
  input_tokens_total=sqlc.narg(input_tokens)::integer,uncached_input_tokens=sqlc.narg(uncached_tokens)::integer,
  cache_read_input_tokens=sqlc.narg(cache_read_tokens)::integer,cache_write_input_tokens=sqlc.narg(cache_write_tokens)::integer,
  output_tokens_total=sqlc.narg(output_tokens)::integer,reasoning_output_tokens=sqlc.narg(reasoning_tokens)::integer,
- provider_reported_cost_usd=sqlc.narg(cost)::text::numeric,estimated_cost_usd=sqlc.narg(estimated_cost)::text::numeric,
+ provider_reported_cost_usd=sqlc.narg(cost)::text::numeric,effective_cost_usd=sqlc.narg(effective_cost)::text::numeric,
+ effective_cost_kind=sqlc.narg(effective_cost_kind)::text,
  provider_metadata=sqlc.arg(provider_metadata)::jsonb,
  input_fingerprint=sqlc.narg(input_fingerprint)::text,completed_at=statement_timestamp()
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.state='started' AND c.runtime_lock_id=sqlc.arg(runtime_id)

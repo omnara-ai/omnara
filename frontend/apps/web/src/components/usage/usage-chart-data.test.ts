@@ -30,8 +30,8 @@ function totals(input: number, output: number, cost: string, calls: number): Usa
     cost: {
       provider_reported_usd: cost,
       model_calls_with_reported_cost: calls,
-      estimated_usd: '0',
-      model_calls_with_estimated_cost: 0,
+      effective_usd: cost,
+      model_calls_with_effective_cost: calls,
     },
   }
 }
@@ -174,8 +174,8 @@ describe('usageChartData', () => {
       cost: {
         provider_reported_usd: '0',
         model_calls_with_reported_cost: 0,
-        estimated_usd: '0',
-        model_calls_with_estimated_cost: 0,
+        effective_usd: '0',
+        model_calls_with_effective_cost: 0,
       },
     }
     expect(usageChartData(unreported, 'cost').emptyMessage).toBe("10 calls couldn't be priced")
@@ -183,7 +183,7 @@ describe('usageChartData', () => {
       ...unreported,
       totals: {
         ...unreported.totals,
-        cost: { ...unreported.totals.cost, model_calls_with_reported_cost: 10 },
+        cost: { ...unreported.totals.cost, model_calls_with_effective_cost: 10 },
       },
     }
     expect(usageChartData(free, 'cost').emptyMessage).toBe('10 calls cost $0')

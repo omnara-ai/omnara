@@ -441,7 +441,7 @@ export const zModelCacheRetention = z.enum([
 ]);
 
 /**
- * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
+ * Prices in USD per million tokens, as exact decimal strings. Cache prices are omitted when not set.
  */
 export const zDiscoveredModelPricing = z.object({
     input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
@@ -482,7 +482,8 @@ export const zCreateConfiguredModelRequest = z.object({
     supported_reasoning_efforts: z.array(z.string()).optional(),
     input_modalities: z.array(z.string()).optional(),
     output_modalities: z.array(z.string()).optional(),
-    api_variant_options: zModelApiVariantOptions.optional()
+    api_variant_options: zModelApiVariantOptions.optional(),
+    pricing: zDiscoveredModelPricing.optional()
 });
 
 /**
@@ -501,7 +502,8 @@ export const zUpdateConfiguredModelRequest = z.object({
     supported_reasoning_efforts: z.array(z.string()).optional(),
     input_modalities: z.array(z.string()).optional(),
     output_modalities: z.array(z.string()).optional(),
-    api_variant_options: zModelApiVariantOptions.optional()
+    api_variant_options: zModelApiVariantOptions.optional(),
+    pricing: zDiscoveredModelPricing.nullish()
 });
 
 /**
@@ -720,6 +722,7 @@ export const zConfiguredModel = z.object({
     input_modalities: z.array(z.string()),
     output_modalities: z.array(z.string()),
     api_variant_options: zModelApiVariantOptions,
+    pricing: zDiscoveredModelPricing.optional(),
     created_at: zTimestamp,
     updated_at: zTimestamp,
     revision_created_at: zTimestamp
@@ -3151,8 +3154,7 @@ export const zBudgetInterval = z.enum([
 export const zBudgetAmount = z.string().regex(/^(0|[1-9][0-9]{0,14})(\.[0-9]{1,15})?$/);
 
 export const zBudgetUsage = z.object({
-    amount_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
-    estimated_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
+    amount_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
 });
 
 export const zBudget = z.object({
@@ -3189,7 +3191,7 @@ export const zUsageTimeseriesInterval = z.enum([
 ]);
 
 /**
- * `sum_tokens` is input plus output tokens. `sum_cost` is cost in USD: the provider-reported cost when there is one, otherwise a list-price estimate; calls that could not be priced contribute nothing. `count_model_calls` counts model calls that recorded usage.
+ * `sum_tokens` is input plus output tokens. `sum_cost` is cost in USD: the model's own pricing when set, otherwise the provider-reported cost, otherwise a list-price estimate; calls that could not be priced contribute nothing. `count_model_calls` counts model calls that recorded usage.
  */
 export const zUsageTimeseriesMetric = z.enum([
     'sum_tokens',
@@ -3232,8 +3234,8 @@ export const zUsageTokenTotals = z.object({
 export const zUsageCostTotals = z.object({
     provider_reported_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
     model_calls_with_reported_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
-    estimated_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
-    model_calls_with_estimated_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+    effective_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    model_calls_with_effective_cost: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
 });
 
 export const zUsageTotals = z.object({
