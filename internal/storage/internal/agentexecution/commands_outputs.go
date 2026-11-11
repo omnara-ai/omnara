@@ -132,6 +132,7 @@ func (h *Handle) AcceptOutput(ctx context.Context, input AcceptOutputInput) (Acc
 			return AcceptedOutput{}, storeerr.ErrStateTransitionConflict
 		}
 		evidence := ModelEvidence{APIFormat: input.Response.APIFormat, APIVariant: input.Response.APIVariant,
+			BaseURL:          input.Response.ProviderBaseURL,
 			InputFingerprint: successfulInputFingerprint(input.Response),
 			RequestID:        input.RequestID,
 			ResponseID:       input.Response.Normalized.ID,

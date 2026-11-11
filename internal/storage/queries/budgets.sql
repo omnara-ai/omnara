@@ -45,3 +45,19 @@ WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id)::uuid AND 
 -- name: DeleteOrganizationBudgets :exec
 UPDATE budgets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id) AND deleted_at IS NULL;
+
+-- name: MergeProjectDailyModelCosts :exec
+WITH calls AS (
+    DELETE FROM project_daily_model_costs cost USING model_call_contexts c
+    WHERE c.agent_id = sqlc.arg(agent_id) AND c.id = sqlc.arg(id)
+      AND pg_try_advisory_xact_lock(hashtextextended('project_daily_model_costs:' || c.project_id::text, 0))
+      AND cost.org_id = c.org_id AND cost.project_id = c.project_id AND cost.model_call_context_id IS NOT NULL
+    RETURNING cost.org_id, cost.day, cost.project_id, cost.provider_reported_cost_usd, cost.estimated_cost_usd
+)
+INSERT INTO project_daily_model_costs(org_id, day, project_id, provider_reported_cost_usd, estimated_cost_usd)
+SELECT org_id, day, project_id, sum(provider_reported_cost_usd), sum(estimated_cost_usd)
+FROM calls GROUP BY org_id, day, project_id
+ON CONFLICT (org_id, day, project_id, model_call_context_id) DO UPDATE
+SET provider_reported_cost_usd = project_daily_model_costs.provider_reported_cost_usd
+        + EXCLUDED.provider_reported_cost_usd,
+    estimated_cost_usd = project_daily_model_costs.estimated_cost_usd + EXCLUDED.estimated_cost_usd;

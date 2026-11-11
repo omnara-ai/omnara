@@ -9,7 +9,6 @@ SELECT a.current_config_id,(a.next_event_sequence-1)::bigint AS watermark,statem
 FROM agents a WHERE a.id=sqlc.arg(agent_id) AND a.state='active';
 
 -- name: ReadExecutionAttempt :one
--- @sqlc-vet-disable model-provider-configs-deleted-at
 SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event_sequence,c.source_event_sequence_end,
  c.state,c.recovery_kind,c.retry_at,c.opening_input_ids,c.opening_event_sequence,c.runtime_lock_id,
  c.agent_config_id,c.configured_model_revision_id,c.api_format,c.api_variant,c.provider_request_id,c.provider_response_id,
@@ -21,9 +20,8 @@ SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event
  AND prior.operation_kind='compaction' AND prior.input_event_sequence=c.input_event_sequence
  AND prior.source_event_sequence_end=c.source_event_sequence_end AND prior.attempt_number<c.attempt_number
  AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count,
- p.base_url AS provider_base_url,c.created_at
+ c.created_at
 FROM model_call_contexts c JOIN configured_model_revisions r ON r.org_id=c.org_id AND r.id=c.configured_model_revision_id
-JOIN model_provider_configs p ON p.org_id=r.org_id AND p.id=r.model_provider_config_id
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
 
 -- name: ReadExecutionModelProvider :one

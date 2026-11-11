@@ -81,6 +81,7 @@ type ReplaceCompactionSourceInput struct {
 	ModelCallContextID         uuid.UUID
 	APIFormat                  modelprotocol.APIFormat
 	APIVariant                 modelprotocol.APIVariant
+	ProviderBaseURL            string
 	ProviderRequestID          string
 	ProviderResponseID         string
 	ServedProviderModelSlug    string
@@ -102,6 +103,7 @@ type RecordRecoverableModelCallFailureInput struct {
 	RecoveryKind            ModelCallRecoveryKind
 	APIFormat               modelprotocol.APIFormat
 	APIVariant              modelprotocol.APIVariant
+	ProviderBaseURL         string
 	ProviderRequestID       string
 	ProviderResponseID      string
 	ServedProviderModelSlug string

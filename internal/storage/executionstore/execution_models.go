@@ -35,7 +35,7 @@ func prepareExecutionModel(
 func executionFailure(input RecordRecoverableModelCallFailureInput) agentexecution.ModelFailure {
 	failure := executionFailureDetails(input.ModelCallContextID, input.RuntimeLockID,
 		input.ErrorKind, input.ErrorCode, input.ErrorMessage, input.ErrorDetails,
-		executionEvidence(input.APIFormat, input.APIVariant, input.ServedProviderModelSlug,
+		executionEvidence(input.APIFormat, input.APIVariant, input.ProviderBaseURL, input.ServedProviderModelSlug,
 			input.ProviderRequestID, input.ProviderResponseID,
 			input.Usage, input.ProviderReportedCostUSD, input.ProviderMetadata))
 	failure.Recovery = agentexecution.RecoveryKind(input.RecoveryKind)
@@ -65,7 +65,7 @@ func executionClaim(
 func executionTerminalFailure(input RecordModelCallErrorAndCompleteContextInput) agentexecution.ModelFailure {
 	failure := executionFailureDetails(input.ModelCallContextID, input.RuntimeLockID,
 		input.ErrorKind, input.ErrorCode, input.ErrorMessage, input.ErrorDetails,
-		executionEvidence(input.APIFormat, input.APIVariant, input.ServedProviderModelSlug,
+		executionEvidence(input.APIFormat, input.APIVariant, input.ProviderBaseURL, input.ServedProviderModelSlug,
 			input.ProviderRequestID, input.ProviderResponseID,
 			input.Usage, input.ProviderReportedCostUSD, input.ProviderMetadata))
 	failure.ServedModel = input.ServedProviderModelSlug
@@ -80,9 +80,9 @@ func executionFailureDetails(contextID, runtimeID uuid.UUID, kind modelprotocol.
 	}
 }
 
-func executionEvidence(format modelprotocol.APIFormat, variant modelprotocol.APIVariant, servedModel,
+func executionEvidence(format modelprotocol.APIFormat, variant modelprotocol.APIVariant, baseURL, servedModel,
 	requestID, responseID string, usage modelenvelope.Usage, cost modelenvelope.ProviderReportedCostUSD,
 	metadata modelenvelope.ProviderMetadata) agentexecution.ModelEvidence {
-	return agentexecution.ModelEvidence{APIFormat: format, APIVariant: variant, ServedModel: servedModel,
+	return agentexecution.ModelEvidence{APIFormat: format, APIVariant: variant, BaseURL: baseURL, ServedModel: servedModel,
 		RequestID: requestID, ResponseID: responseID, Usage: usage, Cost: cost, Metadata: metadata}
 }

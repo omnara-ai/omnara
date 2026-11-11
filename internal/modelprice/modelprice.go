@@ -41,6 +41,8 @@ var knownBadAliases = map[string]bool{
 
 var pricedServiceTiers = map[string]bool{"flex": true, "priority": true, "fast": true}
 
+var standardServiceTiers = map[string][]string{"groq": {"flex", "on_demand"}}
+
 type Input struct {
 	BaseURL         string
 	APIFormat       modelprotocol.APIFormat
@@ -236,9 +238,6 @@ func estimate(calculator priceCalculator, input Input) (result Result) {
 		return Result{Reason: "unpriced_rate_class"}
 	}
 	tier := input.Metadata.OpenAI.ServiceTier
-	if tier != "" && !pricedServiceTiers[tier] {
-		return Result{Reason: "unpriced_service_tier"}
-	}
 
 	request := genai.PriceRequest{Timestamp: input.CreatedAt, Usage: genai.Usage{
 		genai.UsageInputTokens:      float64(usage.InputTokens),
@@ -280,7 +279,10 @@ func estimate(calculator priceCalculator, input Input) (result Result) {
 		if err != nil {
 			return Result{Reason: "price_lookup_error"}
 		}
-		if tier != "" {
+		if tier != "" && !slices.Contains(standardServiceTiers[calculation.ProviderID], tier) {
+			if !pricedServiceTiers[tier] {
+				return Result{Reason: "unpriced_service_tier"}
+			}
 			standard := calculation.TotalPrice
 			request.PriceContext = map[string]string{"service_tier": tier}
 			calculation, err = calculator.Calculate(request)

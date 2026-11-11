@@ -54,9 +54,14 @@ func (r LiveGrant) Resolve(
 		}
 		return model.ResolvedClient{}, err
 	}
+	providerConfig, err := r.Store.Models().GetModelProviderConfig(ctx, orgID, revision.ModelProviderConfigID)
+	if err != nil {
+		return model.ResolvedClient{}, err
+	}
 	return model.ResolvedClient{
 		Client:                    r.Client,
 		ConfiguredModelRevisionID: revision.ID.String(),
+		BaseURL:                   providerConfig.BaseURL,
 	}, nil
 }
 

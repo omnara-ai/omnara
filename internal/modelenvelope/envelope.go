@@ -12,6 +12,7 @@ import (
 
 type ResponseEnvelope struct {
 	InputFingerprint           string                   `json:"-"`
+	ProviderBaseURL            string                   `json:"-"`
 	RequestedProviderModelSlug string                   `json:"requested_provider_model_slug"`
 	ServedProviderModelSlug    string                   `json:"served_provider_model_slug,omitempty"`
 	APIFormat                  modelprotocol.APIFormat  `json:"api_format"`

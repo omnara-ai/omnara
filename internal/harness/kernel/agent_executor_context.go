@@ -331,6 +331,7 @@ func (e AgentExecutor) executeModelStep(
 		)
 	}
 	envelope.InputFingerprint = prepared.InputFingerprint
+	envelope.ProviderBaseURL = resolved.BaseURL
 	step := modelStep{
 		Context:             claim.Context,
 		Bundle:              bundle,
@@ -494,6 +495,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 			RecoveryKind:            executionstore.ModelCallRecoveryRetry,
 			APIFormat:               failureEvidence.APIFormat,
 			APIVariant:              failureEvidence.APIVariant,
+			ProviderBaseURL:         failureEvidence.BaseURL,
 			ProviderRequestID:       failureEvidence.ProviderRequestID,
 			ProviderResponseID:      failureEvidence.ProviderResponseID,
 			ServedProviderModelSlug: failureEvidence.ServedModelSlug,
@@ -521,6 +523,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 			ModelCallContextID:      claim.Context.ID,
 			APIFormat:               failureEvidence.APIFormat,
 			APIVariant:              failureEvidence.APIVariant,
+			ProviderBaseURL:         failureEvidence.BaseURL,
 			ServedProviderModelSlug: failureEvidence.ServedModelSlug,
 			ProviderRequestID:       failureEvidence.ProviderRequestID,
 			ProviderResponseID:      failureEvidence.ProviderResponseID,

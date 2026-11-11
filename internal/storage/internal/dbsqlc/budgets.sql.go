@@ -222,6 +222,33 @@ func (q *Queries) ListBudgets(ctx context.Context, arg ListBudgetsParams) ([]Lis
 	return items, nil
 }
 
+const mergeProjectDailyModelCosts = `-- name: MergeProjectDailyModelCosts :exec
+WITH calls AS (
+    DELETE FROM project_daily_model_costs cost USING model_call_contexts c
+    WHERE c.agent_id = $1 AND c.id = $2
+      AND pg_try_advisory_xact_lock(hashtextextended('project_daily_model_costs:' || c.project_id::text, 0))
+      AND cost.org_id = c.org_id AND cost.project_id = c.project_id AND cost.model_call_context_id IS NOT NULL
+    RETURNING cost.org_id, cost.day, cost.project_id, cost.provider_reported_cost_usd, cost.estimated_cost_usd
+)
+INSERT INTO project_daily_model_costs(org_id, day, project_id, provider_reported_cost_usd, estimated_cost_usd)
+SELECT org_id, day, project_id, sum(provider_reported_cost_usd), sum(estimated_cost_usd)
+FROM calls GROUP BY org_id, day, project_id
+ON CONFLICT (org_id, day, project_id, model_call_context_id) DO UPDATE
+SET provider_reported_cost_usd = project_daily_model_costs.provider_reported_cost_usd
+        + EXCLUDED.provider_reported_cost_usd,
+    estimated_cost_usd = project_daily_model_costs.estimated_cost_usd + EXCLUDED.estimated_cost_usd
+`
+
+type MergeProjectDailyModelCostsParams struct {
+	AgentID uuid.UUID
+	ID      uuid.UUID
+}
+
+func (q *Queries) MergeProjectDailyModelCosts(ctx context.Context, arg MergeProjectDailyModelCostsParams) error {
+	_, err := q.db.Exec(ctx, mergeProjectDailyModelCosts, arg.AgentID, arg.ID)
+	return err
+}
+
 const updateBudgetAmount = `-- name: UpdateBudgetAmount :one
 UPDATE budgets SET amount_usd = $1::text::numeric, updated_at = statement_timestamp()
 WHERE org_id = $2 AND id = $3 AND deleted_at IS NULL
