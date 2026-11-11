@@ -159,9 +159,7 @@ func (h *Handle) finishAttempt(
 	if n != 1 {
 		return false, storeerr.ErrRuntimeLockInactive
 	}
-	if args.Cost != nil || args.EstimatedCost != nil {
-		h.unit.pricedCall = &dbsqlc.MergeProjectDailyModelCostsParams{AgentID: h.route.AgentID, ID: row.ID}
-	}
+	h.unit.finishedCall = &dbsqlc.MergeProjectDailyModelCostsParams{AgentID: h.route.AgentID, ID: row.ID}
 	m.changed()
 	return true, nil
 }

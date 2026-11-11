@@ -482,7 +482,7 @@ func projectDailyModelCostForKernelTest(t *testing.T, ctx context.Context, f ker
 	var reported, estimated string
 	require.NoError(t, f.Pool.QueryRow(ctx, `
 SELECT coalesce(sum(provider_reported_cost_usd), 0)::text, coalesce(sum(estimated_cost_usd), 0)::text
-FROM project_daily_model_costs WHERE org_id = $1 AND project_id = $2`, kernelTestOrgID, kernelTestProjectID).
+FROM project_daily_model_costs WHERE org_id = $1`, kernelTestOrgID).
 		Scan(&reported, &estimated))
 	return reported, estimated
 }
@@ -515,12 +515,35 @@ FROM model_call_contexts WHERE project_id = $1`, kernelTestProjectID).Scan(&rawR
 	require.Equal(t, [2]int{1, 0}, projectDailyModelCostRowsForKernelTest(t, ctx, f))
 }
 
+func TestProjectDailyModelCostsMergeInBatches(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newKernelFixture(t, ctx)
+	_, err := f.Pool.Exec(ctx, `
+INSERT INTO project_daily_model_costs(
+	org_id, day, project_id, model_call_context_id, provider_reported_cost_usd, estimated_cost_usd
+)
+SELECT $1, (statement_timestamp() AT TIME ZONE 'UTC')::date, $2, gen_random_uuid(), 1, 0
+FROM generate_series(1, 1500)`, kernelTestOrgID, uuid.New())
+	require.NoError(t, err)
+	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
+	runBudgetTurn(t, ctx, f, agentID, userID, "first", f.Now.Add(time.Second), budgetResponse("resp_first", "1"), nil)
+	require.Equal(t, 501, projectDailyModelCostRowsForKernelTest(t, ctx, f)[1])
+	createBudgetForKernelTest(t, ctx, f, kernelTestBudget{project: true, interval: "day", amount: "1"})
+	denied := runBudgetTurn(t, ctx, f, agentID, userID, "denied", f.Now.Add(time.Minute),
+		budgetResponse("resp_denied", "1"), nil)
+	require.Zero(t, denied.responded)
+	require.Zero(t, projectDailyModelCostRowsForKernelTest(t, ctx, f)[1], "a denied call must still drain pending costs")
+	reported, _ := projectDailyModelCostForKernelTest(t, ctx, f)
+	require.Equal(t, "1501.000000000000000", reported)
+}
+
 func projectDailyModelCostRowsForKernelTest(t *testing.T, ctx context.Context, f kernelFixture) [2]int {
 	t.Helper()
 	var rows [2]int
 	require.NoError(t, f.Pool.QueryRow(ctx, `
-SELECT count(*), count(model_call_context_id) FROM project_daily_model_costs WHERE project_id = $1`,
-		kernelTestProjectID).Scan(&rows[0], &rows[1]))
+SELECT count(*), count(model_call_context_id) FROM project_daily_model_costs WHERE org_id = $1`,
+		kernelTestOrgID).Scan(&rows[0], &rows[1]))
 	return rows
 }
 
@@ -557,7 +580,7 @@ VALUES ($1, (statement_timestamp() AT TIME ZONE 'UTC')::date, $2, 0, 0)`, kernel
 	require.NoError(t, err)
 	defer func() { _ = merging.Rollback(ctx) }()
 	_, err = merging.Exec(ctx,
-		`SELECT pg_advisory_xact_lock(hashtextextended('project_daily_model_costs:' || $1::text, 0))`, kernelTestProjectID)
+		`SELECT pg_advisory_xact_lock(hashtextextended('project_daily_model_costs:' || $1::text, 0))`, kernelTestOrgID)
 	require.NoError(t, err)
 	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -603,7 +626,7 @@ VALUES ($1, (statement_timestamp() AT TIME ZONE 'UTC')::date, $2, 0, 0)`, kernel
 	)
 	runBudgetTurn(t, ctx, f, agentID, userID, "skipped", at, budgetResponse("resp_skipped", "1"), nil)
 	require.Equal(t, [2]int{2 + agents, 1 + agents}, projectDailyModelCostRowsForKernelTest(t, ctx, f),
-		"a merge must skip while another merge holds the project")
+		"a merge must skip while another merge holds the org")
 	require.NoError(t, merging.Rollback(ctx))
 	_, err = f.Pool.Exec(ctx, `
 INSERT INTO project_daily_model_costs(
