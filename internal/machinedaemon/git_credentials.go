@@ -35,11 +35,12 @@ func (c *Client) prepareGitCredentials(assignment *ProcessAssignment, supervisor
 		assignment.PreparationError = "Git credential service is unavailable on this machine; restart the daemon"
 		return
 	}
-	helper, err := c.processServiceHelper(gitCredentialService, supervisorToken, assignment.ID)
+	helper, err := c.processServiceHelper(gitCredentialService)
 	if err != nil {
 		assignment.PreparationError = "Git credential helper is unavailable"
 		return
 	}
+	helper.Capability = gitCredentialService.capability(supervisorToken, assignment.ID)
 	assignment.GitCredentialHelper = helper
 }
 
