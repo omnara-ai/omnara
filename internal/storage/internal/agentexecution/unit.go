@@ -32,7 +32,7 @@ type Unit struct {
 	notifications     *notifications.TxNotifications
 	handles           map[uuid.UUID]*Handle
 	exclusiveProjects map[uuid.UUID]struct{}
-	pricedCall        *dbsqlc.MergeProjectDailyModelCostsParams
+	finishedCall      *dbsqlc.MergeProjectDailyModelCostsParams
 	runtimeLocked     bool
 	closed            bool
 	aborted           bool
@@ -100,14 +100,14 @@ func (u *Unit) Commit(ctx context.Context, operation string) (err error) {
 	}
 	u.closed = true
 	u.notifications.Flush(context.WithoutCancel(ctx), u.cell.publisher)
-	if u.pricedCall != nil {
+	if u.finishedCall != nil {
 		mergeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-		err := dbsqlc.New(u.cell.pool).MergeProjectDailyModelCosts(mergeCtx, *u.pricedCall)
+		err := dbsqlc.New(u.cell.pool).MergeProjectDailyModelCosts(mergeCtx, *u.finishedCall)
 		cancel()
 		if err != nil {
 			event := log.NewEvent(ctx, "model_costs.merge", log.Fields{
-				"agent.id":              u.pricedCall.AgentID,
-				"model_call_context.id": u.pricedCall.ID,
+				"agent.id":              u.finishedCall.AgentID,
+				"model_call_context.id": u.finishedCall.ID,
 			})
 			event.Level(log.WarnLevel)
 			event.Error(err)

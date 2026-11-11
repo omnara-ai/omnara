@@ -47,11 +47,17 @@ UPDATE budgets SET deleted_at = statement_timestamp(), updated_at = statement_ti
 WHERE org_id = sqlc.arg(org_id) AND deleted_at IS NULL;
 
 -- name: MergeProjectDailyModelCosts :exec
-WITH calls AS (
-    DELETE FROM project_daily_model_costs cost USING model_call_contexts c
+WITH pending AS (
+    SELECT cost.org_id, cost.day, cost.project_id, cost.model_call_context_id
+    FROM model_call_contexts c JOIN project_daily_model_costs cost
+        ON cost.org_id = c.org_id AND cost.model_call_context_id IS NOT NULL
     WHERE c.agent_id = sqlc.arg(agent_id) AND c.id = sqlc.arg(id)
-      AND pg_try_advisory_xact_lock(hashtextextended('project_daily_model_costs:' || c.project_id::text, 0))
-      AND cost.org_id = c.org_id AND cost.project_id = c.project_id AND cost.model_call_context_id IS NOT NULL
+      AND pg_try_advisory_xact_lock(hashtextextended('project_daily_model_costs:' || c.org_id::text, 0))
+    LIMIT 1000
+), calls AS (
+    DELETE FROM project_daily_model_costs cost USING pending
+    WHERE cost.org_id = pending.org_id AND cost.day = pending.day AND cost.project_id = pending.project_id
+      AND cost.model_call_context_id = pending.model_call_context_id
     RETURNING cost.org_id, cost.day, cost.project_id, cost.provider_reported_cost_usd, cost.estimated_cost_usd
 )
 INSERT INTO project_daily_model_costs(org_id, day, project_id, provider_reported_cost_usd, estimated_cost_usd)
