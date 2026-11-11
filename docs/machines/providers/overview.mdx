@@ -5,7 +5,7 @@ icon: "cubes"
 description: Compare the sandbox providers you can use with Omnara
 ---
 
-Omnara supports twelve sandbox providers for [machine pools](/machines/pools), and agents get the same tools on all of them.
+Omnara supports thirteen sandbox providers for [machine pools](/machines/pools), and agents get the same tools on all of them.
 
 On Omnara's hosted service, every organization starts with a default pool on Blaxel. Omnara manages it for you, so there's nothing to set up: agents can use it right away. To use another provider, or your own Blaxel account, create a [custom pool](/machines/pools#create-a-pool).
 
@@ -21,6 +21,7 @@ On Omnara's hosted service, every organization starts with a default pool on Bla
 | [Daytona](/machines/providers/daytona) | Container | Snapshot from a registry image or Dockerfile | US, EU | Set by the snapshot | No |
 | [E2B](/machines/providers/e2b) | microVM | Template built from a Dockerfile, or one of E2B's public templates | US, EU, Asia-Pacific | Set by the template | No |
 | [Freestyle](/machines/providers/freestyle) | Full VM | Snapshot of a Freestyle VM | Chosen by Freestyle | CPU and memory | Yes |
+| [Maritime](/machines/providers/maritime) | microVM | Snapshot of a Maritime sandbox | Chosen by Maritime | CPU and memory | No |
 | [Modal](/machines/providers/modal) | Container (gVisor) | Public registry image | US, EU, Asia-Pacific, and more | CPU and memory | No |
 | [Superserve](/machines/providers/superserve) | microVM | Template built from an OCI image | US | Set by the template | No |
 | [Tenki](/machines/providers/tenki) | Full VM | Tenki template | Chosen by Tenki | CPU and memory | No |
@@ -36,6 +37,7 @@ On Omnara's hosted service, every organization starts with a default pool on Bla
 - **Daytona** creates sandboxes in under 90 ms and runs AI-generated code in isolation from your infrastructure. It fits teams with existing Docker images, and you can open a terminal on any machine to work alongside your agents.
 - **E2B** gives every agent a hardware-isolated Firecracker microVM that starts from a snapshot in milliseconds, with public templates for Claude Code, Codex, OpenCode, and more. It runs in the US, EU, and Asia-Pacific, or in your own cloud.
 - **Freestyle** gives agents full Linux VMs, ready in about 65 ms, for tasks that run for hours, days, or weeks. Nested virtualization runs Docker and VMs inside each machine, and idle VMs pause with their state intact.
+- **Maritime** gives each agent its own Linux micro-VM with its own kernel, systemd, and Docker, sized from 1 to 16 vCPU and 1 to 64 GB of memory. Set one sandbox up, save it as a snapshot, and start every machine from it.
 - **Modal** is trusted infrastructure for untrusted agents. It scales to a million sandboxes in under a minute and runs public registry images in the region you choose.
 - **Superserve** boots each agent into its own Firecracker microVM in under 50 ms from a template you build once, with per-sandbox egress rules and a secrets proxy that keeps real credentials out of the machine.
 - **Tenki** gives coding agents full Linux computers that start in under a second, with Claude Code, Codex, and common languages already installed, on hardware Tenki owns end to end.

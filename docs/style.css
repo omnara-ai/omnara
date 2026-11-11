@@ -20,6 +20,7 @@ img[src*="/logo/providers/createos."] { --provider-logo: url("/logo/providers/cr
 img[src*="/logo/providers/daytona."] { --provider-logo: url("/logo/providers/daytona.svg"); }
 img[src*="/logo/providers/e2b."] { --provider-logo: url("/logo/providers/e2b.svg"); }
 img[src*="/logo/providers/freestyle."] { --provider-logo: url("/logo/providers/freestyle.svg"); }
+img[src*="/logo/providers/maritime."] { --provider-logo: url("/logo/providers/maritime.svg"); }
 img[src*="/logo/providers/modal."] { --provider-logo: url("/logo/providers/modal.svg"); }
 img[src*="/logo/providers/superserve."] { --provider-logo: url("/logo/providers/superserve.svg"); }
 img[src*="/logo/providers/tenki."] { --provider-logo: url("/logo/providers/tenki.png"); }

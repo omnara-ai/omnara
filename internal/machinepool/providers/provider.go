@@ -23,6 +23,7 @@ const (
 	Daytona    = "daytona"
 	E2B        = "e2b"
 	Freestyle  = "freestyle"
+	Maritime   = "maritime"
 	Modal      = "modal"
 	Superserve = "superserve"
 	Tenki      = "tenki"
