@@ -444,10 +444,10 @@ export const zModelCacheRetention = z.enum([
  * Prices in USD per million tokens, as exact decimal strings. Cache prices are omitted when not set.
  */
 export const zDiscoveredModelPricing = z.object({
-    input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
-    cache_read_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
-    cache_write_input_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
-    output_usd_per_million: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
+    input_usd_per_million: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/),
+    cache_read_input_usd_per_million: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    cache_write_input_usd_per_million: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/).optional(),
+    output_usd_per_million: z.string().max(31).regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
 });
 
 export const zDiscoveredProviderModel = z.object({
