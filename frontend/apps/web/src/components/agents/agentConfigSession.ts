@@ -16,6 +16,7 @@ import {
 } from '@/components/agents/agentConfigSourceFormat'
 import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 import type { BasicConfig } from '@/components/agents/useAgentBuilderForm'
+import { memoryGbToMb } from '@/lib/machine-memory'
 
 interface ConfigEvaluation {
   yaml: string
@@ -100,7 +101,10 @@ export function createBasicConfigSession(
     if (source !== '' && initialDraft == null)
       return { yaml: source, issues, unappliedChanges: false }
     if (conflictingNames) return { yaml: source, issues, unappliedChanges: true }
+    const numbers = patchableNumbers(config, initialDraft)
+    issues.push(...numbers.issues)
     const unappliedChanges =
+      numbers.issues.length > 0 ||
       (config.advancedEntries ?? []).some(
         (entry) =>
           validateEntry(entry).length > 0 &&
@@ -121,12 +125,12 @@ export function createBasicConfigSession(
           source,
           initialDraft,
           {
-            ...config,
+            ...numbers.config,
             tools: config.tools.filter((entry) => !reserved.has(configPath(['tools', entry.name]))),
             mcpServers: config.mcpServers.filter(
               (entry) => !reserved.has(configPath(['mcp', entry.name])),
             ),
-            subagents: config.subagents.filter(
+            subagents: numbers.config.subagents.filter(
               (entry) => !reserved.has(configPath(['subagents', entry.key])),
             ),
             advancedEntries: config.advancedEntries?.filter(
@@ -149,7 +153,9 @@ export function createBasicConfigSession(
             kind: 'fatal',
             error: true,
             message:
-              error instanceof Error ? error.message : 'The Builder cannot safely patch this edit.',
+              error instanceof ConfigEditError
+                ? error.message
+                : 'The Builder cannot safely patch this edit. Your source has been preserved.',
           } satisfies ConfigDiagnostic,
         ],
       }
@@ -161,6 +167,64 @@ export function createBasicConfigSession(
     diagnostics,
     evaluate,
     apply: (config) => evaluate(config).yaml,
+  }
+}
+
+function patchableNumbers(config: BasicConfig, baseline: BasicConfig | null) {
+  const issues: ConfigDiagnostic[] = []
+  const number = (
+    value: string,
+    previous: string | undefined,
+    path: string[],
+    convert: (value: string) => number = Number,
+  ) => {
+    if (Number.isFinite(convert(value))) return value
+    issues.push({ path, kind: 'advanced', error: true, message: 'Enter a valid number.' })
+    return previous ?? ''
+  }
+  return {
+    issues,
+    config: {
+      ...config,
+      maxSubagents: number(config.maxSubagents, baseline?.maxSubagents, ['max_subagents']),
+      maxDepth: number(config.maxDepth, baseline?.maxDepth, ['max_depth']),
+      machineSources: config.machineSources.map((row, index) => {
+        if (row.kind !== 'pool') return row
+        const previous = baseline?.machineSources.find((saved) => saved.id === row.id)
+        const updated = { ...row }
+        for (const [field, key] of [
+          ['initialNumMachines', 'initial_num_machines'],
+          ['maxMachines', 'max_machines'],
+          ['deleteAfterIdleMinutes', 'delete_after_idle_minutes'],
+          ['machineCpu', 'machine_cpu'],
+          ['machineMemoryGb', 'machine_memory_mb'],
+        ] as const) {
+          updated[field] = number(
+            row[field],
+            previous?.[field],
+            ['machine_sources', String(row.sourceIndex ?? index), key],
+            field === 'machineMemoryGb' ? memoryGbToMb : Number,
+          )
+        }
+        return updated
+      }),
+      subagents: config.subagents.map((row) => {
+        const previous = baseline?.subagents.find((saved) => saved.key === row.key)
+        return {
+          ...row,
+          maxInstances: number(row.maxInstances, previous?.maxInstances, [
+            'subagents',
+            row.key,
+            'max_instances',
+          ]),
+          archiveAfterIdleMinutes: number(
+            row.archiveAfterIdleMinutes,
+            previous?.archiveAfterIdleMinutes,
+            ['subagents', row.key, 'archive_after_idle_minutes'],
+          ),
+        }
+      }),
+    },
   }
 }
 

@@ -257,14 +257,18 @@ export function editConfigDocument(
       if (error instanceof ConfigEditError) throw error
       throw new ConfigEditError(
         [],
-        error instanceof Error ? error.message : 'Cannot patch this field.',
+        'The Builder cannot safely patch this edit. Your source has been preserved.',
       )
     }
     const parsed = parseDocument(result)
+    const actual = z.json().safeParse(parsed.toJS())
+    const expected = z.json().safeParse(document.toJS())
     if (
       (format === 'json' && !isJsonSource(result)) ||
       parsed.errors.length > 0 ||
-      !deepEqual(z.json().parse(parsed.toJS()), z.json().parse(document.toJS()))
+      !actual.success ||
+      !expected.success ||
+      !deepEqual(actual.data, expected.data)
     )
       throw new ConfigEditError(
         [],

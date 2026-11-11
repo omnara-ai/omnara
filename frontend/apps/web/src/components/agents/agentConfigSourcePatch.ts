@@ -386,6 +386,9 @@ function removeItem(parent: Collection, index: number) {
   const next = parent.items[index]
   if (parent.type === 'flow-collection') {
     const gap = removed.start.filter((token) => token.type !== 'comma')
+    const closing =
+      !next || (!next.key && !next.value && !next.start.some((token) => token.type === 'comma'))
+    if (closing && gap.at(-1)?.type === 'space') gap.pop()
     if (next && index === 0) {
       const comment = next.start.findIndex((token) => token.type === 'comment')
       const retained = comment < 0 ? [] : next.start.slice(gap.length === 0 ? 0 : comment)

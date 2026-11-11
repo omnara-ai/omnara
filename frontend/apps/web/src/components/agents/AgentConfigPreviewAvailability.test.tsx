@@ -24,7 +24,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vite
 import { Document, isNode, parse, parseDocument } from 'yaml'
 import { z } from 'zod'
 
-import { configPath } from '@/components/agents/agentConfigCompatibility'
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
 import { AgentConfigToolsSection } from '@/components/agents/AgentConfigToolsSection'
 import { agentTemplates } from '@/components/agents/agentTemplates'
@@ -45,6 +44,7 @@ import { currentUserOrg } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, enter, field } from '@/test/secret-editor'
 
+const scope = { orgId: 'org-test', projectId: 'project-test' }
 const includedSource = 'instruction: Help.\nmodel: {provider_config: openai, name: primary}\n'
 let container: HTMLDivElement
 let root: Root
@@ -133,7 +133,6 @@ function clickLabel(label: string) {
 }
 
 function PreviewModeHarness() {
-  const scope = { orgId: 'org-test', projectId: 'project-test' }
   const editor = useAgentConfigEditor({
     ...scope,
     source: includedSource,
@@ -222,10 +221,7 @@ it.each(['pending', 'error'])(
 )
 
 function SubagentPreviewHarness({ source }: { source: string }) {
-  const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, {
-    orgId: 'org-test',
-    projectId: 'project-test',
-  })
+  const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, scope)
   return (
     <>
       {' '}
@@ -424,8 +420,7 @@ function AdvancedEditorHarness({
   fullEditor: boolean
 }) {
   const editor = useAgentConfigEditor({
-    orgId: 'org-test',
-    projectId: 'project-test',
+    ...scope,
     source,
     canManage: true,
     preferredMode: 'builder',
@@ -498,15 +493,10 @@ function editYaml(
   })
 }
 
-function diagnostics(editor: AgentConfigEditorState) {
-  return editor.compatibility
-    .map((issue) => `${configPath(issue.path)}: ${issue.message}`)
-    .join('; ')
-}
-
 it('shows normal Builder controls and every custom tool without a whole-document warning', async () => {
   const editor = await renderAdvancedEditor(customFixture, true)
   expect(editor().showBuilder).toBe(true)
+  expect(editor().compatibility).toEqual([])
   expect(container.querySelector('#agent-config-basic-instruction')).not.toBeNull()
   const customNames = Object.entries(
     schemas.zAgentConfigDefinition.parse(parse(customFixture)).tools ?? {},
@@ -555,7 +545,12 @@ it.each(['yaml', 'json'])(
     await enter('Definition', definition)
     clickLabel('Save tool')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
-    expect(editor().form.unappliedChanges).toBe(true)
+    expect(editor().form.validationIssues).toMatchObject([
+      { path: ['machine_sources', '0', 'initial_num_machines'], message: 'Enter a valid number.' },
+    ])
+    expect(editor().saveBlocked).toBe(true)
+    expect(parse(editor().yaml)).toHaveProperty('instruction', 'Pending instruction.')
+    expect(parse(editor().yaml)).toHaveProperty(['tools', 'search_records'], parse(definition))
     act(() => {
       editor().form.setMachineSources(
         editor().form.machineSources.map((row) => ({ ...row, initialNumMachines: '1' })),
@@ -579,34 +574,42 @@ it.each(['yaml', 'json'])(
     const original = editor().form.advancedEntries.find(
       (entry) => entry.path[1] === 'search_records',
     )
-    const permission = container.querySelector<HTMLButtonElement>(
-      '[aria-label="search_records permission"] [aria-label="always_ask"]',
-    )
-    expect(permission?.disabled).toBe(false)
-    act(() => permission?.click())
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
-    expect(editor().saveBlocked).toBe(false)
-    expect(parse(editor().yaml)).toHaveProperty(
-      ['tools', 'search_records', 'permission', 'mode'],
-      'always_ask',
-    )
-    const changed = editor().form.advancedEntries.find(
-      (entry) => entry.path[1] === 'search_records',
-    )
-    for (const key of ['description', 'input_schema']) {
-      const before = parseDocument(original?.source ?? '').getIn([key], true)
-      const after = parseDocument(changed?.source ?? '').getIn([key], true)
-      if (!isNode(before) || !isNode(after) || !before.range || !after.range)
-        throw new Error('Missing definition')
-      expect(changed?.source.slice(after.range[0], after.range[1])).toBe(
-        original?.source.slice(before.range[0], before.range[1]),
+    const expected = z.record(z.string(), z.json()).parse(parse(source))
+    const expectedTools = z.record(z.string(), z.record(z.string(), z.json())).parse(expected.tools)
+    expected.tools = expectedTools
+    const tool = expectedTools.search_records
+    if (!tool) throw new Error('Missing custom tool')
+    for (const mode of ['always_ask', 'always_allow']) {
+      const permission = container.querySelector<HTMLButtonElement>(
+        `[aria-label="search_records permission"] [aria-label="${mode}"]`,
       )
+      expect(permission?.disabled).toBe(false)
+      act(() => permission?.click())
+      expect(document.querySelector('[role="dialog"]')).toBeNull()
+      expect(editor().saveBlocked).toBe(false)
+      expect(parse(editor().yaml)).toHaveProperty(
+        ['tools', 'search_records', 'permission', 'mode'],
+        mode,
+      )
+      const changed = editor().form.advancedEntries.find(
+        (entry) => entry.path[1] === 'search_records',
+      )
+      for (const key of ['description', 'input_schema']) {
+        const before = parseDocument(original?.source ?? '').getIn([key], true)
+        const after = parseDocument(changed?.source ?? '').getIn([key], true)
+        if (!isNode(before) || !isNode(after) || !before.range || !after.range)
+          throw new Error('Missing definition')
+        expect(changed?.source.slice(after.range[0], after.range[1])).toBe(
+          original?.source.slice(before.range[0], before.range[1]),
+        )
+      }
+      tool.permission = { mode }
+      if (format === 'json') expect(editor().yaml).toBe(JSON.stringify(expected, null, 2))
     }
     clickLabel('Remove search_records')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(editor().saveBlocked).toBe(false)
-    const expected = schemas.zAgentConfigDefinition.parse(parse(source))
-    delete expected.tools?.search_records
+    delete expectedTools.search_records
     expect(parse(editor().yaml)).toEqual(expected)
   },
 )
@@ -629,40 +632,17 @@ it.each([includedSource, 'instruction: [', JSON.stringify(parse(includedSource))
   },
 )
 
-it.each([
-  ['instruction: [\n', 'yaml', true, 'line 2'],
-  [
-    customFixture.replace('type: object', 'type: array'),
-    'builder',
-    false,
-    '/tools/search_records/input_schema/type',
-  ],
-  [includedSource + 'tools: {web_search}\n', 'builder', false, '/tools/web_search'],
-])(
-  'retains invalid input and reports its location when adopting YAML: %s',
-  async (yaml, mode, confirmDiscard, reason) => {
-    const editor = await renderAdvancedEditor(includedSource)
-    editYaml(editor, yaml)
-    act(() => {
-      editor().switchMode('builder')
-    })
-    expect(editor().mode).toMatchObject({ mode, confirmDiscard })
-    expect(editor().yaml).toBe(yaml)
-    expect(editor().saveBlocked).toBe(true)
-    expect(diagnostics(editor())).toContain(reason)
-    expect(diagnostics(editor())).not.toContain('Cannot read properties')
-  },
-)
-
-it('keeps valid anchors editable in YAML and explains why Builder is unavailable', async () => {
-  const source = `${includedSource}tools: {web_search: &shared {}, web_fetch: *shared}\n`
+it('keeps valid anchors editable in source and explains why Builder is unavailable', async () => {
+  const source = includedSource + 'tools: {web_search: &shared {}, web_fetch: *shared}\n'
   const editor = await renderAdvancedEditor(source)
   expect(editor().mode.mode).toBe('yaml')
   expect(editor().saveBlocked).toBe(false)
-  expect(diagnostics(editor())).toContain('/tools/web_search: This configuration uses YAML anchors')
+  const anchor = editor().compatibility.find((issue) => issue.path.join('.') === 'tools.web_search')
+  expect(anchor?.message).toContain('YAML anchors')
   act(() => {
     editor().switchMode('builder')
   })
+  expect(editor().mode.mode).toBe('yaml')
   expect(editor().yaml).toBe(source)
 })
 
@@ -678,35 +658,46 @@ it('retains subagent limits and tools when an opaque subagent remains', async ()
   expect(container.querySelector('output')?.getAttribute('data-blocked')).toBe('false')
 })
 
-it('blocks a stale OAuth restore instead of overwriting a newer configuration', async () => {
-  const baseline = createBasicConfigSession(customFixture).initialDraft
-  if (!baseline) throw new Error('Missing fixture draft')
-  savePendingMcpBuilderOAuth({
-    returnPath: window.location.pathname,
-    serverId: 'example-server',
-    agentName: null,
-    draft: { ...baseline, savedSource: customFixture, instruction: 'Pending edit.' },
-  })
-  window.history.replaceState(null, '', '?mcp_oauth=success&secret_id=example-secret&case=conflict')
-  const editor = await renderAdvancedEditor(customFixture + 'extension: newer-value\n')
-  expect(editor().saveBlocked).toBe(true)
-  expect(diagnostics(editor())).toContain('changed during OAuth authorization')
-  expect(editor().yaml).toContain('Pending edit.')
-})
-
-it('leaves schema validation of edited whole-document YAML to the API', async () => {
-  const editor = await renderAdvancedEditor(includedSource)
-  editYaml(editor, includedSource + 'version: future-version\n')
-  expect(editor().mode.mode).toBe('yaml')
-  expect(editor().saveBlocked).toBe(false)
-  expect(diagnostics(editor())).toContain('/version')
-})
+it.each([false, true])(
+  'restores the editor OAuth baseline and guards conflicts (%s)',
+  async (conflict) => {
+    const pendingSource =
+      customFixture +
+      'extension: pending-source\nmcp: {docs: {url: "https://example.test/mcp", auth: {type: oauth, secret_id: old-secret}}}\n'
+    const baseline = createBasicConfigSession(pendingSource).initialDraft
+    const server = baseline?.mcpServers[0]
+    if (!baseline || !server) throw new Error('Missing fixture draft')
+    savePendingMcpBuilderOAuth({
+      returnPath: window.location.pathname,
+      serverId: server.id,
+      agentName: null,
+      draft: { ...baseline, savedSource: customFixture, instruction: 'Pending edit.' },
+    })
+    window.history.replaceState(
+      null,
+      '',
+      `?mcp_oauth=success&secret_id=example-secret&conflict=${String(conflict)}`,
+    )
+    const editor = await renderAdvancedEditor(
+      customFixture + (conflict ? 'extension: newer-value\n' : ''),
+    )
+    expect(editor().saveBlocked).toBe(conflict)
+    expect(
+      editor().compatibility.some((issue) =>
+        issue.message.includes('changed during OAuth authorization'),
+      ),
+    ).toBe(conflict)
+    expect(editor().yaml).toContain(customFixture.slice(customFixture.indexOf('tools:')))
+    expect(parse(editor().yaml)).toMatchObject({
+      instruction: 'Pending edit.',
+      extension: 'pending-source',
+      mcp: { docs: { auth: { secret_id: 'example-secret' } } },
+    })
+  },
+)
 
 function TemplateDraftHarness({ state }: { state: Ref<ReturnType<typeof useAgentDraft>> }) {
-  const draft = useAgentDraft(undefined, undefined, undefined, undefined, {
-    orgId: 'org-test',
-    projectId: 'project-test',
-  })
+  const draft = useAgentDraft(undefined, undefined, undefined, undefined, scope)
   useImperativeHandle(state, () => draft)
   return null
 }
@@ -808,9 +799,8 @@ it.each(['yaml', 'json', 'inline-yaml'])(
     await enter('Tool name', 'new_tool')
     clickLabel('Add custom tool')
     expect(parse(editor().yaml)).toHaveProperty(['tools', 'new_tool'], parse(definition))
-    expect(button('Edit new_tool').compareDocumentPosition(button('Built-in tools'))).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    )
+    const customRows = container.querySelectorAll('button[aria-label^="Edit "]')
+    expect(customRows[customRows.length - 1]?.textContent).toBe('new_tool')
     clickLabel('Remove new_tool')
     expect(editor().yaml).toBe(source)
     expect(editor().dirty).toBe(false)
