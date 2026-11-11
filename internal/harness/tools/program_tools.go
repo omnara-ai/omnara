@@ -67,6 +67,9 @@ func ProgramToolSearch(
 	if err != nil {
 		return modelcontext.ProgramToolSearchResult{}, err
 	}
+	if request.MaxResults <= 0 {
+		request.MaxResults = toolcatalog.ToolSearchMaxResults
+	}
 	return modelcontext.SearchTools(specs, request.Pattern, request.MaxResults)
 }
 
@@ -80,8 +83,11 @@ func (e Executor) RunProgramToolCall(
 	if err == nil {
 		err = e.runProgramPhase(ctx, turn, claim)
 	}
-	if err == nil || errors.Is(err, storeerr.ErrRuntimeLockInactive) || ctx.Err() != nil {
+	if err == nil || errors.Is(err, storeerr.ErrRuntimeLockInactive) {
 		return err
+	}
+	if ctx.Err() != nil {
+		return errors.Join(err, e.releaseInterruptedProgramToolCall(ctx, turn, claim))
 	}
 	parts, contentErr := structuredParts(map[string]any{
 		"error_code": "tool_call_failed", "error": programToolCallInternalError,
@@ -92,6 +98,22 @@ func (e Executor) RunProgramToolCall(
 	if _, completeErr := turn.toolAuthority().complete(ctx, e, turn, claim.ID, executionstore.ToolResultOutcomeFailed,
 		parts); completeErr != nil && !errors.Is(completeErr, storeerr.ErrRuntimeLockInactive) {
 		return errors.Join(err, completeErr)
+	}
+	return err
+}
+
+func (e Executor) releaseInterruptedProgramToolCall(
+	ctx context.Context, turn Turn, claim executionstore.ProgramToolCallClaim,
+) error {
+	authority, ok := turn.authority.(programClaimAuthority)
+	if !ok || !authority.interrupted() {
+		return nil
+	}
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncToolCompletionTimeout)
+	defer cancel()
+	err := authority.requeue(releaseCtx, e, turn, claim.ID)
+	if errors.Is(err, storeerr.ErrRuntimeLockInactive) || errors.Is(err, storeerr.ErrNotFound) {
+		return nil
 	}
 	return err
 }

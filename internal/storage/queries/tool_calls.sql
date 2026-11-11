@@ -83,6 +83,12 @@ WITH selected_call AS MATERIALIZED (
     AND tc.model_call_context_id = sqlc.arg(model_call_context_id)
     AND tc.provider_call_id = sqlc.arg(provider_call_id)
     AND tc.caller = 'model'
+    AND tc.model_output_id IN (
+      SELECT output.id
+      FROM model_outputs output
+      WHERE output.agent_id = sqlc.arg(agent_id)
+        AND output.model_call_context_id = sqlc.arg(model_call_context_id)
+    )
 )
 SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id,
   tc.source_event_id, tc.model_call_context_id, tc.provider_call_id,

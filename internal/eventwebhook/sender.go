@@ -43,6 +43,7 @@ type Store interface {
 	GetCustomToolCallInput(
 		context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
 	) (executionstore.CustomToolCallInput, bool, error)
+	GetToolCallSummary(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (executionstore.ToolCallSummary, error)
 	ClaimEventWebhookDelivery(context.Context, int) (executionstore.EventWebhookDelivery, error)
 	CompleteEventWebhookDelivery(context.Context, uuid.UUID, uuid.UUID) error
 	RetryEventWebhookDelivery(
@@ -212,6 +213,11 @@ func (s *Sender) send(ctx context.Context, delivery executionstore.EventWebhookD
 			AgentID: delivery.AgentID, ToolCallID: *delivery.ToolCallID, State: *delivery.ToolState,
 			InteractionUpdate: delivery.InteractionUpdate,
 		}
+		summary, readErr := s.store.GetToolCallSummary(ctx, endpoint.ProjectID, delivery.AgentID, *delivery.ToolCallID)
+		if readErr != nil && !errors.Is(readErr, storeerr.ErrNotFound) {
+			return false, readErr
+		}
+		update.ParentToolCallID = summary.ParentToolCallID
 		if *delivery.ToolState == string(executionstore.ToolCallStateReady) {
 			call, found, readErr := s.store.GetCustomToolCallInput(
 				ctx, endpoint.ProjectID, delivery.AgentID, *delivery.ToolCallID,
