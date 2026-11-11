@@ -659,11 +659,14 @@ export type DiscoveredProviderModel = {
      * Reasoning effort values the model accepts, when reported.
      */
     supported_reasoning_efforts?: Array<string>;
+    /**
+     * Provider-advertised list prices, present only when the provider publishes pricing in its model catalog (OpenRouter).
+     */
     pricing?: DiscoveredModelPricing;
 };
 
 /**
- * Provider-advertised list prices in USD per million tokens, as exact decimal strings. Present only when the provider publishes pricing in its model catalog (OpenRouter). Cache prices are omitted when the provider does not publish them.
+ * Prices in USD per million tokens, as exact decimal strings. Cache prices are omitted when not set.
  */
 export type DiscoveredModelPricing = {
     input_usd_per_million: string;
@@ -724,6 +727,10 @@ export type CreateConfiguredModelRequest = {
      */
     output_modalities?: Array<string>;
     api_variant_options?: ModelApiVariantOptions;
+    /**
+     * Your own prices for this model. Calls on it are priced from these instead of the provider-reported cost or list prices. Missing cache prices use the input price.
+     */
+    pricing?: DiscoveredModelPricing;
 };
 
 /**
@@ -776,6 +783,10 @@ export type UpdateConfiguredModelRequest = {
      */
     output_modalities?: Array<string>;
     api_variant_options?: ModelApiVariantOptions;
+    /**
+     * Your own prices for this model. Omit to keep them, or set to null to remove them.
+     */
+    pricing?: DiscoveredModelPricing | null;
 };
 
 export type ConfiguredModel = {
@@ -830,6 +841,10 @@ export type ConfiguredModel = {
      */
     output_modalities: Array<string>;
     api_variant_options: ModelApiVariantOptions;
+    /**
+     * Your own prices for this model, when set.
+     */
+    pricing?: DiscoveredModelPricing;
     created_at: Timestamp;
     updated_at: Timestamp;
     revision_created_at: Timestamp;
@@ -4401,13 +4416,9 @@ export type BudgetAmount = string;
 
 export type BudgetUsage = {
     /**
-     * Model spend in USD in the current interval: provider-reported costs plus list-price estimates. Calls that could not be priced contribute nothing.
+     * Model spend in USD in the current interval. Each call counts the model's own pricing when set, otherwise the provider-reported cost, otherwise a list-price estimate. Calls that could not be priced contribute nothing.
      */
     amount_usd: string;
-    /**
-     * The part of amount_usd that comes from list-price estimates.
-     */
-    estimated_usd: string;
 };
 
 export type Budget = {
@@ -4442,7 +4453,7 @@ export type ListBudgetsResponse = {
 export type UsageTimeseriesInterval = 'hour' | 'day' | 'week' | 'month';
 
 /**
- * `sum_tokens` is input plus output tokens. `sum_cost` is cost in USD: the provider-reported cost when there is one, otherwise a list-price estimate; calls that could not be priced contribute nothing. `count_model_calls` counts model calls that recorded usage.
+ * `sum_tokens` is input plus output tokens. `sum_cost` is cost in USD: the model's own pricing when set, otherwise the provider-reported cost, otherwise a list-price estimate; calls that could not be priced contribute nothing. `count_model_calls` counts model calls that recorded usage.
  */
 export type UsageTimeseriesMetric = 'sum_tokens' | 'sum_input_tokens' | 'sum_output_tokens' | 'sum_cost' | 'count_model_calls';
 
@@ -4528,10 +4539,10 @@ export type UsageCostTotals = {
     provider_reported_usd: string;
     model_calls_with_reported_cost: number;
     /**
-     * Decimal sum in USD of list-price estimates for the tallied model calls whose provider reported no cost; it can be higher or lower than the provider's bill. Calls that could not be priced contribute nothing.
+     * Decimal sum in USD of the cost Omnara counts for each tallied model call: the model's own pricing when set, otherwise the provider-reported cost, otherwise a list-price estimate. Calls that could not be priced contribute nothing; compare model_calls_with_effective_cost against model_calls to see how complete the figure is.
      */
-    estimated_usd: string;
-    model_calls_with_estimated_cost: number;
+    effective_usd: string;
+    model_calls_with_effective_cost: number;
 };
 
 export type UsageTotals = {

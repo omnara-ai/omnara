@@ -115,6 +115,7 @@ type CreateConfiguredModelInput struct {
 	InputModalities           []string
 	OutputModalities          []string
 	APIVariantOptions         json.RawMessage
+	Pricing                   *json.RawMessage
 }
 
 type configuredModelUpdate struct {
@@ -134,6 +135,7 @@ type configuredModelUpdate struct {
 	InputModalities           []string
 	OutputModalities          []string
 	APIVariantOptions         json.RawMessage
+	Pricing                   *json.RawMessage
 }
 
 type PatchConfiguredModelInput struct {
@@ -153,51 +155,54 @@ type PatchConfiguredModelInput struct {
 	InputModalities           *[]string
 	OutputModalities          *[]string
 	APIVariantOptions         *json.RawMessage
+	Pricing                   patch.NullableJSON
 }
 
 type ConfiguredModelRecord struct {
-	ID                        uuid.UUID       `json:"id"`
-	OrgID                     uuid.UUID       `json:"org_id"`
-	ModelProviderConfigID     uuid.UUID       `json:"model_provider_config_id"`
-	ManagementKind            management.Kind `json:"management_kind"`
-	Name                      string          `json:"name"`
-	CurrentRevisionID         uuid.UUID       `json:"current_revision_id"`
-	ProviderModelSlug         string          `json:"provider_model_slug"`
-	ContextWindowTokens       int             `json:"context_window_tokens"`
-	MaxOutputTokens           *int            `json:"max_output_tokens"`
-	DefaultMaxOutputTokens    *int            `json:"default_max_output_tokens,omitempty"`
-	DefaultCacheRetention     string          `json:"default_cache_retention,omitempty"`
-	SupportsTools             bool            `json:"supports_tools"`
-	SupportsReasoning         bool            `json:"supports_reasoning"`
-	DefaultReasoningEffort    string          `json:"default_reasoning_effort"`
-	SupportedReasoningEfforts []string        `json:"supported_reasoning_efforts"`
-	InputModalities           []string        `json:"input_modalities"`
-	OutputModalities          []string        `json:"output_modalities"`
-	APIVariantOptions         json.RawMessage `json:"api_variant_options"`
-	DeletedAt                 *time.Time      `json:"deleted_at,omitempty"`
-	CreatedAt                 time.Time       `json:"created_at"`
-	UpdatedAt                 time.Time       `json:"updated_at"`
-	RevisionCreatedAt         time.Time       `json:"revision_created_at"`
+	ID                        uuid.UUID        `json:"id"`
+	OrgID                     uuid.UUID        `json:"org_id"`
+	ModelProviderConfigID     uuid.UUID        `json:"model_provider_config_id"`
+	ManagementKind            management.Kind  `json:"management_kind"`
+	Name                      string           `json:"name"`
+	CurrentRevisionID         uuid.UUID        `json:"current_revision_id"`
+	ProviderModelSlug         string           `json:"provider_model_slug"`
+	ContextWindowTokens       int              `json:"context_window_tokens"`
+	MaxOutputTokens           *int             `json:"max_output_tokens"`
+	DefaultMaxOutputTokens    *int             `json:"default_max_output_tokens,omitempty"`
+	DefaultCacheRetention     string           `json:"default_cache_retention,omitempty"`
+	SupportsTools             bool             `json:"supports_tools"`
+	SupportsReasoning         bool             `json:"supports_reasoning"`
+	DefaultReasoningEffort    string           `json:"default_reasoning_effort"`
+	SupportedReasoningEfforts []string         `json:"supported_reasoning_efforts"`
+	InputModalities           []string         `json:"input_modalities"`
+	OutputModalities          []string         `json:"output_modalities"`
+	APIVariantOptions         json.RawMessage  `json:"api_variant_options"`
+	Pricing                   *json.RawMessage `json:"pricing,omitempty"`
+	DeletedAt                 *time.Time       `json:"deleted_at,omitempty"`
+	CreatedAt                 time.Time        `json:"created_at"`
+	UpdatedAt                 time.Time        `json:"updated_at"`
+	RevisionCreatedAt         time.Time        `json:"revision_created_at"`
 }
 
 type ConfiguredModelRevisionRecord struct {
-	ID                        uuid.UUID       `json:"id"`
-	OrgID                     uuid.UUID       `json:"org_id"`
-	ConfiguredModelID         uuid.UUID       `json:"configured_model_id"`
-	ModelProviderConfigID     uuid.UUID       `json:"model_provider_config_id"`
-	ProviderModelSlug         string          `json:"provider_model_slug"`
-	ContextWindowTokens       int             `json:"context_window_tokens"`
-	MaxOutputTokens           *int            `json:"max_output_tokens"`
-	DefaultMaxOutputTokens    *int            `json:"default_max_output_tokens,omitempty"`
-	DefaultCacheRetention     string          `json:"default_cache_retention,omitempty"`
-	SupportsTools             bool            `json:"supports_tools"`
-	SupportsReasoning         bool            `json:"supports_reasoning"`
-	DefaultReasoningEffort    string          `json:"default_reasoning_effort"`
-	SupportedReasoningEfforts []string        `json:"supported_reasoning_efforts"`
-	InputModalities           []string        `json:"input_modalities"`
-	OutputModalities          []string        `json:"output_modalities"`
-	APIVariantOptions         json.RawMessage `json:"api_variant_options"`
-	CreatedAt                 time.Time       `json:"created_at"`
+	ID                        uuid.UUID        `json:"id"`
+	OrgID                     uuid.UUID        `json:"org_id"`
+	ConfiguredModelID         uuid.UUID        `json:"configured_model_id"`
+	ModelProviderConfigID     uuid.UUID        `json:"model_provider_config_id"`
+	ProviderModelSlug         string           `json:"provider_model_slug"`
+	ContextWindowTokens       int              `json:"context_window_tokens"`
+	MaxOutputTokens           *int             `json:"max_output_tokens"`
+	DefaultMaxOutputTokens    *int             `json:"default_max_output_tokens,omitempty"`
+	DefaultCacheRetention     string           `json:"default_cache_retention,omitempty"`
+	SupportsTools             bool             `json:"supports_tools"`
+	SupportsReasoning         bool             `json:"supports_reasoning"`
+	DefaultReasoningEffort    string           `json:"default_reasoning_effort"`
+	SupportedReasoningEfforts []string         `json:"supported_reasoning_efforts"`
+	InputModalities           []string         `json:"input_modalities"`
+	OutputModalities          []string         `json:"output_modalities"`
+	APIVariantOptions         json.RawMessage  `json:"api_variant_options"`
+	Pricing                   *json.RawMessage `json:"pricing,omitempty"`
+	CreatedAt                 time.Time        `json:"created_at"`
 }
 
 type ConfiguredModelRevisionDisplayRecord struct {

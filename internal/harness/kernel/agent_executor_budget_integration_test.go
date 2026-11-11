@@ -4,6 +4,7 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -47,6 +48,8 @@ func budgetResponse(id string, cost modelenvelope.ProviderReportedCostUSD) model
 		Usage:                   model.Usage{InputTokens: 10, UncachedInputTokens: 10, OutputTokens: 5},
 	}
 }
+
+const budgetTestPricing = `{"input_usd_per_million":"100000","output_usd_per_million":"200000"}`
 
 type budgetTurn struct {
 	turnID    uuid.UUID
@@ -158,6 +161,7 @@ func TestAgentExecutorBudgetScopes(t *testing.T) {
 		name        string
 		spend       modelenvelope.ProviderReportedCostUSD
 		estimate    modelenvelope.ProviderReportedCostUSD
+		pricing     bool
 		createdAt   string
 		newYork     bool
 		budgets     []kernelTestBudget
@@ -190,6 +194,9 @@ func TestAgentExecutorBudgetScopes(t *testing.T) {
 			{project: true, interval: "week", amount: "2"},
 		}, wantMessage: storeerr.BudgetReachedMessage(true, "week")},
 		{name: "estimated cost counts", estimate: "2", budgets: []kernelTestBudget{
+			{project: true, interval: "month", amount: "2"},
+		}, wantMessage: projectMonthly},
+		{name: "custom price counts instead of the reported cost", spend: "0", pricing: true, budgets: []kernelTestBudget{
 			{project: true, interval: "month", amount: "2"},
 		}, wantMessage: projectMonthly},
 		{
@@ -252,7 +259,12 @@ func TestAgentExecutorBudgetScopes(t *testing.T) {
 				require.NoError(t, f.Pool.QueryRow(ctx, `SHOW timezone`).Scan(&zone))
 				require.Equal(t, "America/New_York", zone)
 			}
-			agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
+			var options kernelConfiguredModelOptions
+			if test.pricing {
+				pricing := json.RawMessage(budgetTestPricing)
+				options.Pricing = &pricing
+			}
+			agentID, userID := f.createAgentWithModelOptions(t, ctx, "openai/budget-model", f.Now, options)
 			var move func(model.Response)
 			if test.createdAt != "" {
 				move = func(model.Response) { moveStartedModelCallForKernelTest(t, ctx, f, test.createdAt) }
@@ -282,7 +294,7 @@ func TestAgentExecutorBudgetScopes(t *testing.T) {
 	}
 }
 
-func TestAgentExecutorRecordsEstimatesOnlyWithoutReportedCost(t *testing.T) {
+func TestAgentExecutorRecordsEffectiveCosts(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	estimator := &fixedCostEstimator{cost: "0.25"}
@@ -292,23 +304,30 @@ func TestAgentExecutorRecordsEstimatesOnlyWithoutReportedCost(t *testing.T) {
 		budgetResponse("resp_estimated", ""), nil)
 	runBudgetTurn(t, ctx, f, agentID, userID, "reported", f.Now.Add(time.Minute),
 		budgetResponse("resp_reported", "1"), nil)
+	pricing := json.RawMessage(budgetTestPricing)
+	pricedAgentID, _ := f.createNamedAgentWithModelOptions(t, ctx, "Priced", "priced/budget-model",
+		f.Now, kernelConfiguredModelOptions{Pricing: &pricing})
+	runBudgetTurn(t, ctx, f, pricedAgentID, userID, "custom", f.Now.Add(3*time.Minute),
+		budgetResponse("resp_custom", "1"), nil)
 
 	rows, err := f.Pool.Query(ctx, `
-SELECT provider_response_id, coalesce(provider_reported_cost_usd::text, ''), coalesce(estimated_cost_usd::text, '')
+SELECT provider_response_id, coalesce(provider_reported_cost_usd::text, ''),
+       coalesce(effective_cost_usd::text, ''), coalesce(effective_cost_kind, '')
 FROM model_call_contexts WHERE project_id = $1 ORDER BY created_at`, kernelTestProjectID)
 	require.NoError(t, err)
 	defer rows.Close()
-	type costs struct{ response, reported, estimated string }
+	type costs struct{ response, reported, effective, kind string }
 	var got []costs
 	for rows.Next() {
 		var row costs
-		require.NoError(t, rows.Scan(&row.response, &row.reported, &row.estimated))
+		require.NoError(t, rows.Scan(&row.response, &row.reported, &row.effective, &row.kind))
 		got = append(got, row)
 	}
 	require.NoError(t, rows.Err())
 	require.Equal(t, []costs{
-		{response: "resp_estimated", estimated: "0.250000000000000"},
-		{response: "resp_reported", reported: "1.000000000000000"},
+		{response: "resp_estimated", effective: "0.250000000000000", kind: "estimated"},
+		{response: "resp_reported", reported: "1.000000000000000", effective: "1.000000000000000", kind: "provider_reported"},
+		{response: "resp_custom", reported: "1.000000000000000", effective: "2.000000000000000", kind: "custom"},
 	}, got)
 
 	require.Len(t, estimator.inputs, 1)
@@ -477,14 +496,13 @@ FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2`,
 	require.Equal(t, 1, deniedCompactions)
 }
 
-func projectDailyModelCostForKernelTest(t *testing.T, ctx context.Context, f kernelFixture) (string, string) {
+func projectDailyModelCostForKernelTest(t *testing.T, ctx context.Context, f kernelFixture) string {
 	t.Helper()
-	var reported, estimated string
+	var cost string
 	require.NoError(t, f.Pool.QueryRow(ctx, `
-SELECT coalesce(sum(provider_reported_cost_usd), 0)::text, coalesce(sum(estimated_cost_usd), 0)::text
-FROM project_daily_model_costs WHERE org_id = $1`, kernelTestOrgID).
-		Scan(&reported, &estimated))
-	return reported, estimated
+SELECT coalesce(sum(effective_cost_usd), 0)::text FROM project_daily_model_costs WHERE org_id = $1`,
+		kernelTestOrgID).Scan(&cost))
+	return cost
 }
 
 func TestProjectDailyModelCostsAddEachFinishedCallOnce(t *testing.T) {
@@ -503,15 +521,13 @@ func TestProjectDailyModelCostsAddEachFinishedCallOnce(t *testing.T) {
 	runBudgetTurn(t, ctx, f, agentID, userID, "unpriced", f.Now.Add(3*time.Second),
 		budgetResponse("resp_unpriced", ""), nil)
 
-	reported, estimated := projectDailyModelCostForKernelTest(t, ctx, f)
-	require.Equal(t, "2.000000000000000", reported)
-	require.Equal(t, "0.500000000000000", estimated)
-	var rawReported, rawEstimated string
+	cost := projectDailyModelCostForKernelTest(t, ctx, f)
+	require.Equal(t, "2.500000000000000", cost)
+	var raw string
 	require.NoError(t, f.Pool.QueryRow(ctx, `
-SELECT coalesce(sum(provider_reported_cost_usd), 0)::text, coalesce(sum(estimated_cost_usd), 0)::text
-FROM model_call_contexts WHERE project_id = $1`, kernelTestProjectID).Scan(&rawReported, &rawEstimated))
-	require.Equal(t, rawReported, reported)
-	require.Equal(t, rawEstimated, estimated)
+SELECT coalesce(sum(effective_cost_usd), 0)::text FROM model_call_contexts WHERE project_id = $1`,
+		kernelTestProjectID).Scan(&raw))
+	require.Equal(t, raw, cost)
 	require.Equal(t, [2]int{1, 0}, projectDailyModelCostRowsForKernelTest(t, ctx, f))
 }
 
@@ -520,10 +536,8 @@ func TestProjectDailyModelCostsMergeInBatches(t *testing.T) {
 	ctx := t.Context()
 	f := newKernelFixture(t, ctx)
 	_, err := f.Pool.Exec(ctx, `
-INSERT INTO project_daily_model_costs(
-	org_id, day, project_id, model_call_context_id, provider_reported_cost_usd, estimated_cost_usd
-)
-SELECT $1, (statement_timestamp() AT TIME ZONE 'UTC')::date, $2, gen_random_uuid(), 1, 0
+INSERT INTO project_daily_model_costs(org_id, day, project_id, model_call_context_id, effective_cost_usd)
+SELECT $1, (statement_timestamp() AT TIME ZONE 'UTC')::date, $2, gen_random_uuid(), 1
 FROM generate_series(1, 1500)`, kernelTestOrgID, uuid.New())
 	require.NoError(t, err)
 	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
@@ -534,8 +548,7 @@ FROM generate_series(1, 1500)`, kernelTestOrgID, uuid.New())
 		budgetResponse("resp_denied", "1"), nil)
 	require.Zero(t, denied.responded)
 	require.Zero(t, projectDailyModelCostRowsForKernelTest(t, ctx, f)[1], "a denied call must still drain pending costs")
-	reported, _ := projectDailyModelCostForKernelTest(t, ctx, f)
-	require.Equal(t, "1501.000000000000000", reported)
+	require.Equal(t, "1501.000000000000000", projectDailyModelCostForKernelTest(t, ctx, f))
 }
 
 func projectDailyModelCostRowsForKernelTest(t *testing.T, ctx context.Context, f kernelFixture) [2]int {
@@ -551,15 +564,11 @@ func TestProjectDailyModelCostsRejectInvalidRows(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newKernelFixture(t, ctx)
-	for name, row := range map[string][]any{
-		"NaN reported cost":  {kernelTestProjectID, "NaN", "0"},
-		"NaN estimated cost": {kernelTestProjectID, "0", "NaN"},
-		"negative cost":      {kernelTestProjectID, "-1", "0"},
-	} {
+	for _, cost := range []string{"NaN", "-1"} {
 		_, err := f.Pool.Exec(ctx, `
-INSERT INTO project_daily_model_costs(org_id, day, project_id, provider_reported_cost_usd, estimated_cost_usd)
-VALUES ($1, current_date, $2, $3::numeric, $4::numeric)`, append([]any{kernelTestOrgID}, row...)...)
-		require.Error(t, err, name)
+INSERT INTO project_daily_model_costs(org_id, day, project_id, effective_cost_usd)
+VALUES ($1, current_date, $2, $3::numeric)`, kernelTestOrgID, kernelTestProjectID, cost)
+		require.Error(t, err, cost)
 	}
 }
 
@@ -568,8 +577,8 @@ func TestProjectDailyModelCostsSumConcurrentFinishes(t *testing.T) {
 	ctx := t.Context()
 	f := newKernelFixture(t, ctx)
 	_, err := f.Pool.Exec(ctx, `
-INSERT INTO project_daily_model_costs(org_id, day, project_id, provider_reported_cost_usd, estimated_cost_usd)
-VALUES ($1, (statement_timestamp() AT TIME ZONE 'UTC')::date, $2, 0, 0)`, kernelTestOrgID, kernelTestProjectID)
+INSERT INTO project_daily_model_costs(org_id, day, project_id, effective_cost_usd)
+VALUES ($1, (statement_timestamp() AT TIME ZONE 'UTC')::date, $2, 0)`, kernelTestOrgID, kernelTestProjectID)
 	require.NoError(t, err)
 	day, err := f.Pool.Begin(ctx)
 	require.NoError(t, err)
@@ -629,14 +638,12 @@ VALUES ($1, (statement_timestamp() AT TIME ZONE 'UTC')::date, $2, 0, 0)`, kernel
 		"a merge must skip while another merge holds the org")
 	require.NoError(t, merging.Rollback(ctx))
 	_, err = f.Pool.Exec(ctx, `
-INSERT INTO project_daily_model_costs(
-	org_id, day, project_id, model_call_context_id, provider_reported_cost_usd, estimated_cost_usd
-) VALUES ($1, (statement_timestamp() AT TIME ZONE 'UTC')::date - 1, $2, $3, 1, 0)`,
+INSERT INTO project_daily_model_costs(org_id, day, project_id, model_call_context_id, effective_cost_usd)
+VALUES ($1, (statement_timestamp() AT TIME ZONE 'UTC')::date - 1, $2, $3, 1)`,
 		kernelTestOrgID, kernelTestProjectID, uuid.New())
 	require.NoError(t, err)
 	runBudgetTurn(t, ctx, f, agentID, userID, "merge", at.Add(time.Second), budgetResponse("resp_merge", "1"), nil)
 	require.Equal(t, [2]int{2, 0}, projectDailyModelCostRowsForKernelTest(t, ctx, f),
 		"a merge must fold the project's leftovers from earlier days into their own day")
-	reported, _ := projectDailyModelCostForKernelTest(t, ctx, f)
-	require.Equal(t, "9.000000000000000", reported)
+	require.Equal(t, "9.000000000000000", projectDailyModelCostForKernelTest(t, ctx, f))
 }

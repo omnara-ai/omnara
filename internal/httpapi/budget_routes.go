@@ -247,7 +247,7 @@ func budgetResponse(record identitystore.BudgetRecord) (openapi.Budget, error) {
 		AmountUsd: record.AmountUSD, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
 	if record.Usage != nil {
-		response.Usage = &openapi.BudgetUsage{AmountUsd: record.Usage.AmountUSD, EstimatedUsd: record.Usage.EstimatedUSD}
+		response.Usage = &openapi.BudgetUsage{AmountUsd: record.Usage.AmountUSD}
 	}
 	return response, nil
 }

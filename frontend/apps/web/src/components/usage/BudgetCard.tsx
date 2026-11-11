@@ -1,5 +1,5 @@
 import { useBudgets, useCreateBudget, useDeleteBudget, useUpdateBudget } from '@omnara/react'
-import type { Budget, BudgetInterval, BudgetUsage } from '@omnara/sdk'
+import type { Budget, BudgetInterval } from '@omnara/sdk'
 import { zBudgetAmount } from '@omnara/sdk/zod'
 import { type SyntheticEvent, useState } from 'react'
 
@@ -22,8 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { spendReachesBudget } from '@/components/usage/cost-totals'
+import { spendReachesBudget } from '@/components/usage/budget-spend'
 import { formatUsd } from '@/lib/format'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
@@ -119,20 +118,16 @@ function BudgetRow({
   label: string
   onEdit: () => void
 }) {
-  const usage = budget.usage ?? { amount_usd: '0', estimated_usd: '0' }
-  const reached = spendReachesBudget(usage.amount_usd, budget.amount_usd)
-  const percent = Math.floor(
-    Math.min(100, (Number(usage.amount_usd) / Number(budget.amount_usd)) * 100),
-  )
+  const spent = budget.usage?.amount_usd ?? '0'
+  const reached = spendReachesBudget(spent, budget.amount_usd)
+  const percent = Math.floor(Math.min(100, (Number(spent) / Number(budget.amount_usd)) * 100))
   const resets = resetDate(budget.interval)
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-4">
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
           <span className="text-sm font-medium">{label}</span>
-          <span className="font-semibold tabular-nums">
-            <BudgetSpend usage={usage} />
-          </span>
+          <span className="font-semibold tabular-nums">{formatUsd(spent)}</span>
           <span className="text-muted-foreground text-sm">of {formatUsd(budget.amount_usd)}</span>
         </p>
         <Button size="sm" variant="ghost" aria-label={`Edit ${label} budget`} onClick={onEdit}>
@@ -165,26 +160,6 @@ function BudgetRow({
         </p>
       </div>
     </div>
-  )
-}
-
-function BudgetSpend({ usage }: { usage: BudgetUsage }) {
-  if (!(Number(usage.estimated_usd) > 0)) {
-    return formatUsd(usage.amount_usd)
-  }
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="cursor-help">
-          {formatUsd(usage.amount_usd)}
-          <span className="text-muted-foreground"> *</span>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" className="max-w-xs text-left">
-        {formatUsd(usage.estimated_usd)} is estimated from list prices, so the bill may be higher or
-        lower.
-      </TooltipContent>
-    </Tooltip>
   )
 }
 
@@ -320,7 +295,8 @@ function BudgetDialog({
                 }}
               />
               <FieldDescription>
-                Spend counts provider-reported costs plus estimates from list prices.
+                Spend uses your model prices when set, otherwise the provider-reported cost or a
+                list-price estimate.
               </FieldDescription>
             </Field>
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}

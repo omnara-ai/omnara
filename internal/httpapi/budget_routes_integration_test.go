@@ -68,7 +68,7 @@ func TestBudgetRoutes(t *testing.T) {
 		path := endpoint + "/" + id
 
 		got := requestJSONWithHeaders(t, handler, http.MethodGet, path, "", "", http.StatusOK, admin)
-		require.Equal(t, map[string]any{"amount_usd": "0", "estimated_usd": "0"}, got["usage"])
+		require.Equal(t, map[string]any{"amount_usd": "0"}, got["usage"])
 		delete(got, "usage")
 		require.Equal(t, created, got)
 
@@ -216,17 +216,17 @@ func TestBudgetConcurrentCreatesConflict(t *testing.T) {
 	require.ElementsMatch(t, []int{http.StatusCreated, http.StatusConflict}, got)
 }
 
-func TestUsageIncludesEstimatedCost(t *testing.T) {
+func TestUsageReportsEffectiveCost(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool)
 	store := integrationStoreForHandler(t, handler)
-	project := bootstrapPublicHTTPProject(t, handler, "usage-estimates")
+	project := bootstrapPublicHTTPProject(t, handler, "usage-effective-costs")
 	usage := modelenvelope.Usage{InputTokens: 10, UncachedInputTokens: 10, OutputTokens: 5}
-	for index, cost := range []modelenvelope.ProviderReportedCostUSD{"0.25", "", ""} {
+	for index, cost := range []modelenvelope.ProviderReportedCostUSD{"0.25", "0.1", ""} {
 		agent := createHTTPRuntimeAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID,
-			"usage-estimates-"+strconv.Itoa(index))
+			"usage-effective-costs-"+strconv.Itoa(index))
 		recordHTTPModelUsageForAgent(
 			t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, agent.Agent, usage, cost,
 		)
@@ -234,10 +234,11 @@ func TestUsageIncludesEstimatedCost(t *testing.T) {
 	_, err := pool.Exec(ctx, `ALTER TABLE model_call_contexts DISABLE TRIGGER model_call_contexts_transition_guard`)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `
-UPDATE model_call_contexts SET estimated_cost_usd = 0.5
-WHERE id = (SELECT id FROM model_call_contexts
-            WHERE project_id = $1 AND provider_reported_cost_usd IS NULL AND input_tokens_total IS NOT NULL
-            ORDER BY created_at LIMIT 1)`, project.ProjectUUID)
+UPDATE model_call_contexts
+SET effective_cost_usd = CASE provider_reported_cost_usd WHEN 0.25 THEN 2 WHEN 0.1 THEN NULL ELSE 0.5 END,
+    effective_cost_kind = CASE provider_reported_cost_usd
+        WHEN 0.25 THEN 'custom' WHEN 0.1 THEN NULL ELSE 'estimated' END
+WHERE project_id = $1 AND input_tokens_total IS NOT NULL`, project.ProjectUUID)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `ALTER TABLE model_call_contexts ENABLE TRIGGER model_call_contexts_transition_guard`)
 	require.NoError(t, err)
@@ -248,10 +249,10 @@ WHERE id = (SELECT id FROM model_call_contexts
 	totals := testutil.RequireType[map[string]any](t, report["totals"])
 	require.Equal(t, float64(3), totals["model_calls"])
 	require.Equal(t, map[string]any{
-		"provider_reported_usd":           "0.25",
-		"model_calls_with_reported_cost":  float64(1),
-		"estimated_usd":                   "0.5",
-		"model_calls_with_estimated_cost": float64(1),
+		"provider_reported_usd":           "0.35",
+		"model_calls_with_reported_cost":  float64(2),
+		"effective_usd":                   "2.6",
+		"model_calls_with_effective_cost": float64(3),
 	}, totals["cost"])
 
 	series := requestJSONWithHeaders(t, handler, http.MethodGet,
@@ -260,7 +261,7 @@ WHERE id = (SELECT id FROM model_call_contexts
 	for _, raw := range testutil.RequireType[[]any](t, series["series"]) {
 		total += testutil.RequireType[float64](t, testutil.RequireType[map[string]any](t, raw)["total"])
 	}
-	require.InDelta(t, 0.75, total, 1e-12)
+	require.InDelta(t, 2.6, total, 1e-12)
 	require.Equal(t, totals["cost"], testutil.RequireType[map[string]any](t, series["totals"])["cost"])
 }
 
@@ -310,13 +311,13 @@ func TestBudgetsApplyAcrossProjects(t *testing.T) {
 	spend(first.ProjectUUID, "3")
 	spend(secondUUID, "2")
 	firstBudget := setBudget(map[string]any{"type": "project", "project_id": first.ProjectID}, "3")
-	require.Equal(t, map[string]any{"amount_usd": "3", "estimated_usd": "0"}, firstBudget["usage"])
+	require.Equal(t, map[string]any{"amount_usd": "3"}, firstBudget["usage"])
 	require.Equal(t, projectReached, denial(first.ProjectUUID))
 	setBudget(map[string]any{"type": "project", "project_id": secondID}, "3")
 	require.Empty(t, denial(secondUUID), "another project's spend must not use up this project's budget")
 
 	orgBudget := setBudget(map[string]any{"type": "org"}, "5")
-	require.Equal(t, map[string]any{"amount_usd": "5", "estimated_usd": "0"}, orgBudget["usage"])
+	require.Equal(t, map[string]any{"amount_usd": "5"}, orgBudget["usage"])
 	require.Equal(t, orgReached, denial(secondUUID))
 
 	requestJSONWithHeaders(t, handler, http.MethodDelete, first.ProjectPath, "", "", http.StatusNoContent, admin)

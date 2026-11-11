@@ -271,7 +271,7 @@ Requests to OpenAI, OpenRouter, and Anthropic carry a hashed identifier for the 
 
 ## Model prices
 
-When a provider doesn't report what a model call cost, the worker estimates it from public list prices published by [genai-prices](https://github.com/pydantic/genai-prices). Workers start with the prices bundled in the release and download fresh prices every hour; if a download fails, they keep the prices they have.
+When a configured model has no [prices of its own](/organization/model-providers#set-model-prices) and the provider doesn't report what a call cost, the worker estimates it from public list prices published by [genai-prices](https://github.com/pydantic/genai-prices). Workers start with the prices bundled in the release and download fresh prices every hour; if a download fails, they keep the prices they have.
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |

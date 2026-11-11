@@ -125,7 +125,7 @@ func (h *Handle) finishAttempt(
 	if err != nil {
 		return false, err
 	}
-	args.EstimatedCost = h.estimatedCost(ctx, row, evidence)
+	args.EffectiveCost, args.EffectiveCostKind = h.effectiveCost(ctx, row, evidence)
 	details, err := objectJSON(failure.ErrorDetails)
 	if err != nil {
 		return false, err
@@ -164,15 +164,24 @@ func (h *Handle) finishAttempt(
 	return true, nil
 }
 
-func (h *Handle) estimatedCost(
+func (h *Handle) effectiveCost(
 	ctx context.Context,
 	row executiondb.ReadExecutionAttemptRow,
 	evidence ModelEvidence,
-) *string {
-	estimator := h.unit.cell.costEstimator
+) (*string, *string) {
 	usage := normalizedUsage(evidence.Usage)
-	if estimator == nil || evidence.Cost != "" || usage.InputTokens <= 0 && usage.OutputTokens <= 0 {
-		return nil
+	hasTokens := usage.InputTokens > 0 || usage.OutputTokens > 0
+	if row.Pricing != nil && hasTokens {
+		if cost := modelprice.CustomCost(*row.Pricing, usage); cost != "" {
+			return costOfKind(cost, "custom")
+		}
+	}
+	if evidence.Cost != "" {
+		return costOfKind(evidence.Cost, "provider_reported")
+	}
+	estimator := h.unit.cell.costEstimator
+	if estimator == nil || !hasTokens {
+		return nil, nil
 	}
 	cost := estimator.Estimate(ctx, modelprice.Input{
 		BaseURL:         evidence.BaseURL,
@@ -184,7 +193,15 @@ func (h *Handle) estimatedCost(
 		Metadata:        evidence.Metadata,
 		CreatedAt:       row.CreatedAt,
 	})
-	return storeutil.TextFromEmpty(string(cost))
+	if cost == "" {
+		return nil, nil
+	}
+	return costOfKind(cost, "estimated")
+}
+
+func costOfKind(cost modelenvelope.ProviderReportedCostUSD, kind string) (*string, *string) {
+	value := string(cost)
+	return &value, &kind
 }
 
 func (h *Handle) FailModel(ctx context.Context, input ModelFailure) (bool, error) {

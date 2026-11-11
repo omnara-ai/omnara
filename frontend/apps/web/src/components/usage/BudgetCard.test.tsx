@@ -36,19 +36,14 @@ const projectId = fakeId('proj')
 const budgetsPath = `/api/v1/orgs/${orgId}/budgets`
 const budgetIds = ['b', 'c', 'd', 'e'].map((letter) => `bdg_${letter.repeat(26)}`)
 
-function budget(
-  interval: Budget['interval'],
-  amount: string,
-  spent = '0',
-  estimated = '0',
-): Budget {
+function budget(interval: Budget['interval'], amount: string, spent = '0'): Budget {
   return {
     id: budgetIds[['day', 'week', 'month', 'lifetime'].indexOf(interval)] ?? '',
     org_id: orgId,
     scope: { type: 'org' },
     interval,
     amount_usd: amount,
-    usage: { amount_usd: spent, estimated_usd: estimated },
+    usage: { amount_usd: spent },
     created_at: '2026-11-01T00:00:00Z',
     updated_at: '2026-11-01T00:00:00Z',
   }
@@ -140,12 +135,12 @@ async function renderCard(api: FakeApi, project?: string) {
 it('lists each interval with its spend, reset, and reached state', async () => {
   const api = budgetApi([
     budget('lifetime', '100', '3'),
-    budget('month', '10', '3', '1'),
+    budget('month', '10', '3'),
     budget('day', '2', '2'),
   ])
   await renderCard(api)
   await waitForUI(() => {
-    expect(container.textContent).toContain('Monthly$3.00 *of $10.00')
+    expect(container.textContent).toContain('Monthly$3.00of $10.00')
   })
   const text = container.textContent
   expect(text.indexOf('Daily')).toBeLessThan(text.indexOf('Monthly'))
@@ -260,8 +255,8 @@ const usage: UsageReport = {
     cost: {
       provider_reported_usd: '1',
       model_calls_with_reported_cost: 1,
-      estimated_usd: '0',
-      model_calls_with_estimated_cost: 0,
+      effective_usd: '1',
+      model_calls_with_effective_cost: 1,
     },
   },
   by_model: [],

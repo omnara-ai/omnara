@@ -11067,14 +11067,15 @@ components:
             type: string
         pricing:
           $ref: '#/components/schemas/DiscoveredModelPricing'
+          description: >-
+            Provider-advertised list prices, present only when the provider publishes
+            pricing in its model catalog (OpenRouter).
     DiscoveredModelPricing:
       type: object
       additionalProperties: false
       description: >-
-        Provider-advertised list prices in USD per million tokens, as exact decimal
-        strings. Present only when the provider publishes pricing in its model
-        catalog (OpenRouter). Cache prices are omitted when the provider does not
-        publish them.
+        Prices in USD per million tokens, as exact decimal strings. Cache prices are
+        omitted when not set.
       required: [input_usd_per_million, output_usd_per_million]
       properties:
         input_usd_per_million:
@@ -11160,6 +11161,12 @@ components:
             type: string
         api_variant_options:
           $ref: '#/components/schemas/ModelAPIVariantOptions'
+        pricing:
+          $ref: '#/components/schemas/DiscoveredModelPricing'
+          description: >-
+            Your own prices for this model. Calls on it are priced from these
+            instead of the provider-reported cost or list prices. Missing cache
+            prices use the input price.
     UpdateConfiguredModelRequest:
       type: object
       description: Update a configured model. Omitted fields keep their current values. Runtime changes create a new immutable model revision; changing only name just renames the model.
@@ -11218,6 +11225,11 @@ components:
             type: string
         api_variant_options:
           $ref: '#/components/schemas/ModelAPIVariantOptions'
+        pricing:
+          anyOf:
+            - $ref: '#/components/schemas/DiscoveredModelPricing'
+            - type: 'null'
+          description: Your own prices for this model. Omit to keep them, or set to null to remove them.
     ConfiguredModel:
       type: object
       additionalProperties: false
@@ -11276,6 +11288,9 @@ components:
             type: string
         api_variant_options:
           $ref: '#/components/schemas/ModelAPIVariantOptions'
+        pricing:
+          $ref: '#/components/schemas/DiscoveredModelPricing'
+          description: Your own prices for this model, when set.
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -17386,17 +17401,14 @@ components:
     BudgetUsage:
       type: object
       additionalProperties: false
-      required: [amount_usd, estimated_usd]
+      required: [amount_usd]
       properties:
         amount_usd:
           type: string
           description: >-
-            Model spend in USD in the current interval: provider-reported costs plus list-price
-            estimates. Calls that could not be priced contribute nothing.
-          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
-        estimated_usd:
-          type: string
-          description: The part of amount_usd that comes from list-price estimates.
+            Model spend in USD in the current interval. Each call counts the model's own
+            pricing when set, otherwise the provider-reported cost, otherwise a list-price
+            estimate. Calls that could not be priced contribute nothing.
           pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
     Budget:
       type: object
@@ -17463,8 +17475,8 @@ components:
       type: string
       description: >-
         `sum_tokens` is input plus output tokens. `sum_cost` is cost in USD: the
-        provider-reported cost when there is one, otherwise a list-price estimate;
-        calls that could not be priced contribute nothing.
+        model's own pricing when set, otherwise the provider-reported cost, otherwise
+        a list-price estimate; calls that could not be priced contribute nothing.
         `count_model_calls` counts model calls that recorded usage.
       enum: [sum_tokens, sum_input_tokens, sum_output_tokens, sum_cost, count_model_calls]
       x-enum-varnames:
@@ -17600,7 +17612,7 @@ components:
     UsageCostTotals:
       type: object
       additionalProperties: false
-      required: [provider_reported_usd, model_calls_with_reported_cost, estimated_usd, model_calls_with_estimated_cost]
+      required: [provider_reported_usd, model_calls_with_reported_cost, effective_usd, model_calls_with_effective_cost]
       properties:
         provider_reported_usd:
           type: string
@@ -17614,14 +17626,16 @@ components:
           type: integer
           format: int64
           minimum: 0
-        estimated_usd:
+        effective_usd:
           type: string
           description: >-
-            Decimal sum in USD of list-price estimates for the tallied model calls
-            whose provider reported no cost; it can be higher or lower than the
-            provider's bill. Calls that could not be priced contribute nothing.
+            Decimal sum in USD of the cost Omnara counts for each tallied model
+            call: the model's own pricing when set, otherwise the provider-reported
+            cost, otherwise a list-price estimate. Calls that could not be priced
+            contribute nothing; compare model_calls_with_effective_cost against
+            model_calls to see how complete the figure is.
           pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
-        model_calls_with_estimated_cost:
+        model_calls_with_effective_cost:
           type: integer
           format: int64
           minimum: 0

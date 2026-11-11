@@ -99,6 +99,7 @@ type kernelFixture struct {
 type kernelConfiguredModelOptions struct {
 	ContextWindowTokens *int
 	MaxOutputTokens     *int
+	Pricing             *json.RawMessage
 }
 
 func newKernelFixture(t *testing.T, ctx context.Context, opts ...storage.Option) kernelFixture {
@@ -385,6 +386,7 @@ func (f kernelFixture) ensureModelSelection(
 	if options.MaxOutputTokens != nil {
 		input.MaxOutputTokens = options.MaxOutputTokens
 	}
+	input.Pricing = options.Pricing
 	configuredModel := storagefixture.EnsureModelAccess(t, ctx, f.Store.Models(), kernelTestProjectID, input)
 	if options.ContextWindowTokens != nil {
 		require.Equal(t, *options.ContextWindowTokens, configuredModel.ContextWindowTokens)

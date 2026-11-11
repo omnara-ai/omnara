@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 
-import { spendReachesBudget } from '@/components/usage/cost-totals'
+import { spendReachesBudget } from '@/components/usage/budget-spend'
 
 it('compares spend with the budget exactly', () => {
   expect(spendReachesBudget('0.8', '0.8')).toBe(true)
