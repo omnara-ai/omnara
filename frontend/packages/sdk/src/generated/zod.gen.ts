@@ -190,13 +190,13 @@ export const zAgentConfigDefinitionMemoryStores = z.array(zAgentConfigDefinition
  * An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.
  */
 export const zAgentConfigDefinition = z.object({
-    deferred_tools: zAgentConfigDefinitionDeferredTools.optional(),
     git_credentials: zAgentConfigDefinitionGitCredentials.optional(),
     instruction: z.string().min(1).regex(/\S/),
     interaction_handlers: zAgentConfigDefinitionInteractionHandlers.optional(),
     machine_sources: zAgentConfigDefinitionMachineSources.optional(),
     max_depth: z.int().gte(1).lte(8).optional(),
     max_subagents: z.int().gte(1).lte(2147483647).optional(),
+    deferred_tools: zAgentConfigDefinitionDeferredTools.optional(),
     mcp: zAgentConfigDefinitionMcpServers.optional(),
     memory_stores: zAgentConfigDefinitionMemoryStores.optional(),
     model: zAgentConfigDefinitionModel,
