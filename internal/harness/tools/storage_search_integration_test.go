@@ -182,7 +182,7 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 		return parts[0].Value, nil
 	}
 	for _, path := range []string{"/memory/engineering/missing.md", "/memory/engineering/missing/notes.md"} {
-		if _, err := search(path, []string{"-e", "TARGET"}, 20, 0); !errors.Is(err, storeerr.ErrNotFound) {
+		if _, err := search(path, []string{"-e", "TARGET"}, 20, 0); !errors.Is(err, storeerr.ErrPathNotFound) {
 			t.Fatalf("missing memory %s: %v", path, err)
 		}
 	}
