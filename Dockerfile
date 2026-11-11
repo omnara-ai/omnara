@@ -11,16 +11,11 @@ COPY internal/agentconfig/generated/agent_config.schema.json /src/internal/agent
 RUN pnpm run generate:api && pnpm run typecheck && pnpm run build \
     && rm apps/web/dist/.gitkeep
 
-FROM nginx/nginx-unprivileged:1.31.8-alpine-slim@sha256:2f293597c9eea53645c61d70942d32b544a8007aeb586e0237e6ad637323b81b AS nginx-runtime
+FROM nginx/nginx-unprivileged:1.31.8-alpine-slim@sha256:2f293597c9eea53645c61d70942d32b544a8007aeb586e0237e6ad637323b81b AS web
 USER root
 RUN apk add --no-cache 'zlib>=1.4-r0'
 USER 101
 
-FROM nginx-runtime AS gateway
-COPY --chown=101:101 gateway.nginx.conf /etc/nginx/conf.d/default.conf
-RUN nginx -t
-
-FROM nginx-runtime AS web
 COPY --chown=101:101 frontend/apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --chown=101:101 --from=web-build /src/frontend/apps/web/dist /usr/share/nginx/omnara
 RUN nginx -t

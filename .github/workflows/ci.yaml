@@ -97,11 +97,15 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        target: [web, gateway, api, maintenance, migrations]
+        target: [web, api, maintenance, migrations]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - run: docker build --target ${{ matrix.target }} .
+      - run: docker build --target ${{ matrix.target }} --tag omnara-${{ matrix.target }}:ci .
+
+      - name: Validate gateway configuration
+        if: matrix.target == 'web'
+        run: docker run --rm --volume "$PWD/gateway.nginx.conf:/etc/nginx/conf.d/default.conf:ro" omnara-web:ci nginx -t
 
   worker-image:
     name: Worker Image Tests

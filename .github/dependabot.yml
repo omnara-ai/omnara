@@ -32,7 +32,6 @@ updates:
       - dependency-name: valkey/valkey
         update-types:
           - version-update:semver-major
-      - dependency-name: ghcr.io/omnara-ai/*
     cooldown:
       default-days: 7
 

@@ -172,7 +172,7 @@ services:
 
   gateway:
     profiles: ["app"]
-    image: ghcr.io/omnara-ai/omnara-gateway:${OMNARA_RELEASE:-latest}
+    image: ghcr.io/omnara-ai/omnara-web:${OMNARA_RELEASE:-latest}
     ports:
       - "${GATEWAY_HOST_PORT:-8000}:8080"
     volumes:

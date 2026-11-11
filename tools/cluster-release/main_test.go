@@ -233,7 +233,7 @@ func TestGenerateRejectsInvalidDigestRecords(t *testing.T) {
 					t.Fatalf("remove record: %v", err)
 				}
 			},
-			want: "exactly 6 records",
+			want: "exactly 5 records",
 		},
 		{
 			name: "unexpected",
@@ -243,7 +243,7 @@ func TestGenerateRejectsInvalidDigestRecords(t *testing.T) {
 					t.Fatalf("write record: %v", err)
 				}
 			},
-			want: "exactly 6 records",
+			want: "exactly 5 records",
 		},
 		{
 			name: "symlinked",
