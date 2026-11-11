@@ -240,6 +240,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 	}
 	resolved := model.ResolvedClient{
 		ConfiguredModelRevisionID: revision.ID.String(),
+		BaseURL:                   providerConfig.BaseURL,
 	}
 	switch providerConfig.APIFormat {
 	case modelprotocol.APIFormatOpenAIResponses:

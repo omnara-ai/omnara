@@ -30,6 +30,7 @@ type contextMaintenanceTrigger struct {
 type normalCallFailureEvidence struct {
 	APIFormat               modelprotocol.APIFormat
 	APIVariant              modelprotocol.APIVariant
+	BaseURL                 string
 	ServedModelSlug         string
 	ProviderRequestID       string
 	ProviderResponseID      string
@@ -45,7 +46,7 @@ func collectNormalCallFailureEvidence(
 	response model.Response,
 ) normalCallFailureEvidence {
 	apiFormat, apiVariant, _ := model.APIIdentityForClient(resolved.Client)
-	out := normalCallFailureEvidence{APIFormat: apiFormat, APIVariant: apiVariant}
+	out := normalCallFailureEvidence{APIFormat: apiFormat, APIVariant: apiVariant, BaseURL: resolved.BaseURL}
 	if !providerRequestStarted {
 		return out
 	}
@@ -156,6 +157,7 @@ func (e AgentExecutor) enterContextMaintenance(
 		RecoveryKind:            executionstore.ModelCallRecoveryCompact,
 		APIFormat:               evidence.APIFormat,
 		APIVariant:              evidence.APIVariant,
+		ProviderBaseURL:         evidence.BaseURL,
 		ProviderRequestID:       evidence.ProviderRequestID,
 		ProviderResponseID:      evidence.ProviderResponseID,
 		ServedProviderModelSlug: evidence.ServedModelSlug,
@@ -215,6 +217,7 @@ func (e AgentExecutor) recordTerminalContextMaintenanceFailure(
 			ModelCallContextID:      claim.Context.ID,
 			APIFormat:               evidence.APIFormat,
 			APIVariant:              evidence.APIVariant,
+			ProviderBaseURL:         evidence.BaseURL,
 			ServedProviderModelSlug: evidence.ServedModelSlug,
 			ProviderRequestID:       evidence.ProviderRequestID,
 			ProviderResponseID:      evidence.ProviderResponseID,

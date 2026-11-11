@@ -330,9 +330,8 @@ SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event
  AND prior.operation_kind='compaction' AND prior.input_event_sequence=c.input_event_sequence
  AND prior.source_event_sequence_end=c.source_event_sequence_end AND prior.attempt_number<c.attempt_number
  AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count,
- p.base_url AS provider_base_url,c.created_at
+ c.created_at
 FROM model_call_contexts c JOIN configured_model_revisions r ON r.org_id=c.org_id AND r.id=c.configured_model_revision_id
-JOIN model_provider_configs p ON p.org_id=r.org_id AND p.id=r.model_provider_config_id
 WHERE c.agent_id=$1 AND c.id=$2
 `
 
@@ -376,11 +375,9 @@ type ReadExecutionAttemptRow struct {
 	ProviderModelSlug           string
 	InputFingerprint            string
 	SourceExcerptReductionCount int64
-	ProviderBaseUrl             string
 	CreatedAt                   time.Time
 }
 
-// @sqlc-vet-disable model-provider-configs-deleted-at
 func (q *Queries) ReadExecutionAttempt(ctx context.Context, db DBTX, arg ReadExecutionAttemptParams) (ReadExecutionAttemptRow, error) {
 	row := db.QueryRow(ctx, readExecutionAttempt, arg.AgentID, arg.ID)
 	var i ReadExecutionAttemptRow
@@ -419,7 +416,6 @@ func (q *Queries) ReadExecutionAttempt(ctx context.Context, db DBTX, arg ReadExe
 		&i.ProviderModelSlug,
 		&i.InputFingerprint,
 		&i.SourceExcerptReductionCount,
-		&i.ProviderBaseUrl,
 		&i.CreatedAt,
 	)
 	return i, err

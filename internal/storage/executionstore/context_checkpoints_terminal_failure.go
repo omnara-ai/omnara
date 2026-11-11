@@ -17,6 +17,7 @@ type RecordTerminalCompactionFailureInput struct {
 	ModelCallContextID      uuid.UUID
 	APIFormat               modelprotocol.APIFormat
 	APIVariant              modelprotocol.APIVariant
+	ProviderBaseURL         string
 	ServedProviderModelSlug string
 	ProviderRequestID       string
 	ProviderResponseID      string

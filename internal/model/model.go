@@ -160,6 +160,7 @@ type Resolver interface {
 type ResolvedClient struct {
 	Client                    Client
 	ConfiguredModelRevisionID string
+	BaseURL                   string
 }
 
 type PrepareInput struct {
