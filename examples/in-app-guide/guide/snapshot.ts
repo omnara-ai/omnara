@@ -69,12 +69,17 @@ export function isPrivate(el: Element): boolean {
   return (el.getAttribute('autocomplete') ?? '').toLowerCase().split(/\s+/).some((token) => PRIVATE_AUTOCOMPLETE.has(token))
 }
 
-/** An element's text with anything private inside it left out. `rendered`: as displayed (innerText). */
-function textOf(el: Element | null | undefined, rendered = false): string {
+/**
+ * An element's text with anything private left out: all of it when the element is in a
+ * private region, otherwise the private parts inside it. Every read of page text that
+ * can reach the agent goes through here. `rendered`: as displayed (innerText).
+ */
+function textOf(el: Element | null | undefined, rendered = false, mark = '(private)'): string {
   if (!el) return ''
+  if (el.closest(PRIVATE)) return mark
   if (!el.querySelector(PRIVATE)) return (rendered ? (el as HTMLElement).innerText : null) ?? el.textContent ?? ''
   const copy = el.cloneNode(true) as Element
-  for (const part of copy.querySelectorAll(PRIVATE)) part.replaceWith('(private)')
+  for (const part of copy.querySelectorAll(PRIVATE)) part.replaceWith(mark)
   return copy.textContent ?? ''
 }
 
@@ -82,7 +87,7 @@ export function takeSnapshot(ignore?: Element | null): Snapshot {
   const root = topDialog() ?? document.body
   const lines: string[] = [`URL: ${location.pathname}${location.search}`, `Title: ${document.title}`]
   if (root !== document.body) {
-    lines.push(`Open dialog: "${accessibleName(root) || 'untitled'}" (the page behind it is blocked until it closes)`)
+    lines.push(`Open dialog: "${shownName(root) || 'untitled'}" (the page behind it is blocked until it closes)`)
   }
   const refs = new Map<string, Element>()
   let elements = 0
@@ -178,7 +183,7 @@ export function takeSnapshot(ignore?: Element | null): Snapshot {
   }
 
   const table = (t: HTMLTableElement) => {
-    const heads = [...t.querySelectorAll('thead th')].map((th) => clean(th.textContent, 30))
+    const heads = [...t.querySelectorAll('thead th')].map((th) => clean(textOf(th), 30))
     const rows = [...t.querySelectorAll('tbody tr')].filter((r) => isRendered(r))
     push(`table${heads.some(Boolean) ? `: ${heads.join(' | ')}` : ''} (${rows.length} rows)`)
     rows.forEach((row, i) => {
@@ -261,7 +266,7 @@ function describe(el: Element): string {
   const hidden = isPrivate(el)
   // A button-style dropdown shows its value as its text; name it by its label instead.
   const dropdown = role === 'combobox' && !(el instanceof HTMLInputElement)
-  const name = dropdown ? labelFor(el) : shownName(el)
+  const name = nameHidden(el) ? '' : dropdown ? labelFor(el) : accessibleName(el)
   const parts = [`${role}${name ? ` "${name}"` : ''}`]
   if (hidden && !name) parts.push('(private)')
   if (dropdown) parts.push(hidden ? 'value=(hidden)' : `value="${clean((el as HTMLElement).innerText, 60)}"`)
@@ -318,15 +323,19 @@ function roleOf(el: Element): string {
 }
 
 /**
- * The name to send to the agent. A button's or a field's label is part of the app, so it
- * is kept; where the name would be the content itself (a link's text, a clickable row or
- * card, an option, or any control the host marked private directly) it is left out.
+ * Nothing inside a private region is named: the agent learns that a control is there and
+ * no more. The one name kept is the label of a field that was marked directly, because
+ * that label sits outside the marked element.
  */
-export function shownName(el: Element): string {
-  if (!isPrivate(el)) return accessibleName(el)
+function nameHidden(el: Element): boolean {
+  if (el.parentElement?.closest(PRIVATE)) return true
   const field = el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement
-  if (el.matches(PRIVATE) ? !field : ['link', 'clickable', 'option', 'menuitem', 'menuitemcheckbox', 'menuitemradio'].includes(roleOf(el))) return ''
-  return accessibleName(el)
+  return el.matches(PRIVATE) && !field
+}
+
+/** The name to send to the agent: the accessible name, or nothing for a private control. */
+export function shownName(el: Element): string {
+  return nameHidden(el) ? '' : accessibleName(el)
 }
 
 export function accessibleName(el: Element): string {
@@ -334,7 +343,7 @@ export function accessibleName(el: Element): string {
   if (labelledBy) {
     const text = labelledBy
       .split(/\s+/)
-      .map((id) => document.getElementById(id)?.textContent ?? '')
+      .map((id) => textOf(document.getElementById(id), false, ''))
       .join(' ')
     if (clean(text)) return clean(text, MAX_NAME)
   }
@@ -342,11 +351,11 @@ export function accessibleName(el: Element): string {
   if (aria && clean(aria)) return clean(aria, MAX_NAME)
   if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement)) {
     const label = el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null
-    if (label && clean(label.textContent)) return clean(label.textContent, MAX_NAME)
+    if (label && clean(labelText(label))) return clean(labelText(label), MAX_NAME)
   }
   if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) {
     const label = (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)) || el.closest('label')
-    if (label) return clean(label.textContent, MAX_NAME)
+    if (label) return clean(labelText(label), MAX_NAME)
     return clean(el.getAttribute('placeholder') ?? el.getAttribute('title') ?? el.getAttribute('name') ?? '', MAX_NAME)
   }
   const text = clean(textOf(el, true))
@@ -358,7 +367,16 @@ function labelFor(el: Element): string {
   const aria = el.getAttribute('aria-label')
   if (aria && clean(aria)) return clean(aria, MAX_NAME)
   const label = el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null
-  return clean(label?.textContent, MAX_NAME)
+  return clean(labelText(label), MAX_NAME)
+}
+
+/** A label's own words. The field it wraps may be private; its words are part of the app. */
+function labelText(label: Element | null): string {
+  if (!label) return ''
+  if (!label.querySelector(PRIVATE)) return label.textContent ?? ''
+  const copy = label.cloneNode(true) as Element
+  for (const part of copy.querySelectorAll(PRIVATE)) part.remove()
+  return copy.textContent ?? ''
 }
 
 function clean(s: string | null | undefined, max = 200): string {

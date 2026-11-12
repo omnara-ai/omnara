@@ -255,8 +255,9 @@ live in a `<style>` element inside its own shadow root, which needs `style-src` 
 allow inline styles.
 
 Then mark what shouldn't leave the page (step 2, item 6): add `data-guide-private` to
-each of those fields, or to an element around a whole region. The guide still lists the
-controls inside, so it can point at them, but sends neither their values nor the text.
+each of those fields, or to the smallest element that holds the secret. The guide still
+knows a control is there and can point at it, but sends none of the text, names or
+values inside.
 Password, card-number, security-code and one-time-code fields need no marking. Show the
 user the list of what you marked and ask if anything is missing.
 
