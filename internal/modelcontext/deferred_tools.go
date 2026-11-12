@@ -34,6 +34,18 @@ func toolSearchDefinition(spec ToolSpec) ToolSearchDefinition {
 	return ToolSearchDefinition{Name: spec.Name, Description: spec.Description, InputSchema: schema}
 }
 
+func CodeModeToolsNote(search ToolSearchResult) string {
+	if len(search.CodeModeTools) == 0 {
+		return ""
+	}
+	encoded, err := json.Marshal(search.CodeModeTools)
+	if err != nil {
+		return ""
+	}
+	return "Commands call these with `omnarad call <tool> '<json input>'`; they are not tools of yours: " +
+		string(encoded)
+}
+
 func DeferredToolsEnabled(specs []ToolSpec) bool {
 	for _, spec := range specs {
 		if spec.Deferred {

@@ -200,10 +200,7 @@ With `tool_add`, deferred loading keeps the provider's prompt cache intact on An
 
 In `code_mode`, commands started with `run_command` can call the agent's deferred tools, and only those: to keep a tool away from commands, don't defer it. Results go to the command, not into the model's context, so the agent can loop over a tool, filter what comes back, and print only what it needs.
 
-Two cases fall back to `tool_add` for a tool, so it is added to the model's tool list instead:
-
-- **The tool is a kind commands can't call.** Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools.
-- **The agent has no online machine.** A machine must be online when `tool_search` runs.
+Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools. Those tools are never sent to the model, so the agent needs a machine to use them. Any other deferred tool is added to the model's tool list as in `tool_add`.
 
 <Warning>
 Agents bound to the same machine run commands as the same OS user, so in `code_mode` each can call the others' deferred tools. Use it on machines dedicated to one agent or to agents you trust equally.

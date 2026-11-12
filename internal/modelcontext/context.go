@@ -132,8 +132,8 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 		SystemPrompt:       defaultSystemPromptForContract(contract, toolSpecs, catalogSkills),
 	}
 	bundle.ContextCheckpoint = checkpointRef
-	if len(toolSpecs) > 0 {
-		bundle.ToolSpecs = toolSpecs
+	if modelSpecs := ModelToolSpecs(toolSpecs); len(modelSpecs) > 0 {
+		bundle.ToolSpecs = modelSpecs
 	}
 	bundle.Messages = messages
 	toolCalls, err := b.Store.ListCompletedToolCallsAtWatermark(

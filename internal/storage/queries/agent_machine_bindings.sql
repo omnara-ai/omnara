@@ -271,24 +271,6 @@ WHERE binding.project_id = sqlc.arg(project_id)
   AND connection.connection_state IN ('online', 'asleep')
 ORDER BY binding.created_at, binding.id;
 
--- name: AgentHasCodeModeMachine :one
-SELECT EXISTS (
-  SELECT 1
-  FROM agent_machine_bindings binding
-  JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
-    AND pmgrant.machine_id = binding.machine_id
-  JOIN machines machine ON machine.org_id = binding.org_id
-    AND machine.id = binding.machine_id
-    AND machine.deleted_at IS NULL
-    AND machine.lifecycle_state = 'active'
-  JOIN machine_connection_states connection ON connection.org_id = machine.org_id
-    AND connection.machine_id = machine.id
-  WHERE binding.project_id = sqlc.arg(project_id)
-    AND binding.agent_id = sqlc.arg(agent_id)
-    AND binding.state = 'attached'
-    AND connection.connection_state IN ('online', 'asleep')
-)::boolean AS available;
-
 -- name: SelectAgentMachineObservations :many
 SELECT binding.machine_id,
        binding.binding_kind,
