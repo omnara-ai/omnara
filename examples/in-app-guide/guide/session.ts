@@ -3,8 +3,8 @@
 // this page, and surfaces approvals for submit steps.
 //
 // The conversation is identified by a signed session token the server hands back on the
-// first message. It travels in a header rather than a cookie, so the same widget works
-// same-origin (inside the host app) and cross-origin (an embed pointing at another host).
+// first message. It travels in a header, and the page keeps it in localStorage so a
+// reload returns to the same conversation.
 
 import { runTool, type ToolCall, type ToolResult } from './actions'
 import { sleep, type Overlay } from './overlay'
@@ -93,7 +93,7 @@ export class GuideSession {
     const headers: Record<string, string> = { ...(init.headers as Record<string, string>) }
     if (this.token) headers['X-Guide-Session'] = this.token
     if (init.body) headers['Content-Type'] = 'application/json'
-    // Default credentials: the host's own cookies go along same-origin, none cross-origin.
+    // Same-origin, so the host's own cookies go along and tell the server who the user is.
     return fetch(`${this.endpoint}${path}`, { ...init, headers })
   }
 

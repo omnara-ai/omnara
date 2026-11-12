@@ -2,7 +2,7 @@
 // Omnara API key on the server and relays the widget's calls to Omnara. Mount it as a
 // catch-all route, e.g. app/api/guide/[...path]/route.ts:
 //
-//   export const { GET, POST, OPTIONS } = createGuideHandler({ ... })
+//   export const { GET, POST } = createGuideHandler({ ... })
 //
 // On Omnara, every user of the host app gets their own agent profile, created the first
 // time they use the guide and named after them ("Acme guide · Dana Whitfield"). The
@@ -13,7 +13,7 @@
 //
 // The host app decides who the user is (getUser). The conversation is identified by a
 // session token (HMAC-signed user ID + agent ID) that the widget sends in a header, so a
-// browser can only reach its own conversation, same-origin or from an allowed embed origin.
+// browser can only reach its own conversation. Serve this route from the app's own origin.
 
 export type GuideUser = {
   /** Stable user ID in the host app. */
@@ -39,8 +39,6 @@ export type GuideHandlerOptions = {
   basePath?: string
   /** Signs session tokens. Defaults to the API key. */
   sessionSecret?: string
-  /** Origins allowed to call this route cross-origin (for the embed script). */
-  allowedOrigins?: string[]
 }
 
 type Json = Record<string, unknown>
@@ -174,20 +172,6 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
     return profile.id
   }
 
-  function corsHeaders(req: Request): Record<string, string> {
-    const origin = req.headers.get('origin')
-    if (!origin || !opts.allowedOrigins?.includes(origin)) return {}
-    return {
-      'Access-Control-Allow-Origin': origin,
-      'Access-Control-Allow-Headers': 'Content-Type, X-Guide-Session, Last-Event-ID',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      // Chrome asks before a public page talks to a local or private server.
-      'Access-Control-Allow-Private-Network': 'true',
-      'Access-Control-Max-Age': '600',
-      Vary: 'Origin',
-    }
-  }
-
   const json = (body: unknown, init: ResponseInit = {}) =>
     new Response(JSON.stringify(body), { ...init, headers: { 'Content-Type': 'application/json', ...init.headers } })
 
@@ -196,13 +180,6 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
   }
 
   async function handle(req: Request): Promise<Response> {
-    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(req) })
-    const res = await respond(req)
-    for (const [k, v] of Object.entries(corsHeaders(req))) res.headers.set(k, v)
-    return res
-  }
-
-  async function respond(req: Request): Promise<Response> {
     const route = new URL(req.url).pathname.slice(basePath.length).split('/').filter(Boolean)
     const user = await opts.getUser(req)
     if (!user) return json({ error: 'not signed in' }, { status: 401 })
@@ -364,5 +341,5 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
     }
   }
 
-  return { GET: handle, POST: handle, OPTIONS: handle }
+  return { GET: handle, POST: handle }
 }

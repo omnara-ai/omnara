@@ -193,14 +193,14 @@ The app's server needs an organization API key, which the user creates:
 
 ## 8. Add the route
 
-Create a catch-all route at `/api/guide/*` (GET, POST and OPTIONS) that calls
+Create a catch-all route at `/api/guide/*` (GET and POST) that calls
 `createGuideHandler` from `guide/server`:
 
 ```ts
 import { readFileSync } from 'node:fs'
 import { createGuideHandler } from '@/guide/server'
 
-export const { GET, POST, OPTIONS } = createGuideHandler({
+export const { GET, POST } = createGuideHandler({
   token: process.env.OMNARA_API_KEY!,
   orgId: process.env.OMNARA_ORG_ID!,
   projectId: process.env.OMNARA_PROJECT_ID!,
