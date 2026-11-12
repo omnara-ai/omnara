@@ -16,6 +16,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localipc"
+	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
@@ -193,6 +194,29 @@ func gitCredentialEnvironment(env []string, processID string, helper *gitCredent
 	parameters += gitShellQuote("credential.https://github.com.helper=") +
 		" " + gitShellQuote("credential.https://github.com.helper="+command)
 	return append(result, "GIT_CONFIG_PARAMETERS="+parameters, gitCredentialCapabilityEnv+"="+helper.Capability)
+}
+
+func gitHubCLIEnvironment(env []string, dir, processID string, helper *gitCredentialHelper) ([]string, error) {
+	if err := localstore.EnsurePrivateDir(dir); err != nil {
+		return nil, err
+	}
+	script := "#!/bin/sh\nexec " + gitShellQuote(helper.Executable) + " __omnara_gh " + gitShellQuote(helper.Endpoint) +
+		" " + gitShellQuote(processID) + " " + gitShellQuote(dir) + " -- \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o700); err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(env)+1)
+	path := dir
+	for _, entry := range env {
+		if value, ok := strings.CutPrefix(entry, "PATH="); ok {
+			if value != "" {
+				path += string(os.PathListSeparator) + value
+			}
+			continue
+		}
+		result = append(result, entry)
+	}
+	return append(result, "PATH="+path), nil
 }
 
 func gitShellQuote(value string) string {

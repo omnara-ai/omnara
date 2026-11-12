@@ -72,7 +72,7 @@ export function IntegrationForm({
                 className="items-start"
                 inputClassName="mt-0.5"
                 label="Let agents push code"
-                description="Without this, agents can clone but not push."
+                description="Without this, agents can clone but not push, open or approve pull requests."
                 checked={values.codeWrite}
                 disabled={!canEdit || busy || stale}
                 onChange={(event) => {

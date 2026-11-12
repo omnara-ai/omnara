@@ -9756,7 +9756,7 @@ components:
             type: integer
             minimum: 1
         read_only:
-          description: Prevents pushing, even if the integration allows it.
+          description: Prevents pushing and opening or approving pull requests, even if the integration allows it.
           type: boolean
       x-go-type: json.RawMessage
     AgentConfigDefinitionInteractionHandler:
@@ -17503,7 +17503,7 @@ components:
         code_write:
           type: boolean
           title: Let agents push code
-          description: 'Git credentials can push. Off by default: read-only.'
+          description: 'Git credentials can push and open or approve pull requests. Off by default: read-only.'
       x-go-type: json.RawMessage
     GitHubIntegrationLauncher:
       type: object

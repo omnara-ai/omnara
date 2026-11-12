@@ -24,9 +24,9 @@ func capabilityGuidance(specs []ToolSpec, gitCredentials bool) string {
 				"its exit message wakes you.")
 		if gitCredentials {
 			guidance = append(guidance,
-				"Git commands you run with `run_command` on any attached machine are already authenticated to "+
-					"github.com over HTTPS. Use https://github.com/OWNER/REPO.git URLs; these credentials don't "+
-					"cover SSH remotes or the `gh` CLI. Never retrieve, print, or copy these credentials, or put "+
+				"Git and `gh` commands you run with `run_command` on any attached machine are already authenticated "+
+					"to github.com over HTTPS. Use https://github.com/OWNER/REPO.git URLs; these credentials don't "+
+					"cover SSH remotes. Never retrieve, print, or copy these credentials, or put "+
 					"tokens in URLs. When the work needs code from a GitHub repository you can access, clone it onto "+
 					"an attached machine unless it's already checked out there.")
 		}

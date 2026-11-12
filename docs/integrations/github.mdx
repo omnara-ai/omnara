@@ -57,10 +57,11 @@ not narrow the installation access granted through [Git credentials](#git-creden
 
 1. [Register a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
    you control. Give it repository **Pull requests: Read-only**, or **Read & write**
-   if agents will comment or resolve threads, and **Issues: Read-only** for incoming PR conversation
+   if agents will comment, resolve threads or open PRs, and **Issues: Read-only** for incoming PR conversation
    comments. For Git credentials or resolving review threads, also request
    **Contents: Read & write**. To show a check on the PR while the agent works, also request
-   **Checks: Read & write**.
+   **Checks: Read & write**. For `gh` to read CI results, also request at least **Read-only** for
+   **Actions**, **Checks** and **Commit statuses**.
 2. Enable webhooks with URL `https://YOUR_OMNARA_HOST/api/integrations/github/events`
    and a webhook secret. Subscribe to the [events](https://docs.github.com/en/webhooks/webhook-events-and-payloads)
    `pull_request`, `issue_comment`,
@@ -200,7 +201,7 @@ enabled in their configuration; their saved tool selection does not change autom
 
 ## Git credentials
 
-Agents can use a connected integration for HTTPS Git access on `github.com`:
+Agents can use a connected integration for HTTPS Git and GitHub CLI (`gh`) access on `github.com`:
 
 ```yaml
 git_credentials:
@@ -218,12 +219,14 @@ Git commands with HTTPS repository URLs.
 Credentials inherit **all repositories granted to the connected installation**
 unless `repository_ids` lists a subset; find an ID with `gh api repos/OWNER/REPO --jq .id`.
 They are read-only unless **Let agents push code** (`code_write`) is enabled on
-the integration and `read_only` isn't set. The assigned PR and `launcher.repository_id` do not narrow
+the integration and `read_only` isn't set. Write credentials can also open, comment on and approve
+pull requests. The assigned PR and `launcher.repository_id` do not narrow
 these credentials. Existing PR tools retain their assigned-PR restrictions.
 See GitHub's [installation token scope](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app).
 
-Apps registered through Omnara get **Contents: Read & write**. If an App only
-has **Read-only**, its write credentials fail while **Let agents push code** is
+Apps registered through Omnara get **Contents**, **Pull requests** and **Checks: Read & write**, plus
+**Actions**, **Commit statuses** and **Issues: Read-only**. If an App only
+has **Contents: Read-only**, its write credentials fail while **Let agents push code** is
 enabled; grant **Read & write** in the App's settings and have the installation
 owner approve it. Pushes remain subject to GitHub's repository rules and can't
 change files under `.github/workflows`. See GitHub's [permission guidance](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app).
@@ -238,7 +241,11 @@ authentication are unaffected; global Git config is unchanged. To opt out on a
 machine, run `OMNARA_GIT_CREDENTIALS=0 omnarad install`; the installer persists
 `git_credentials_disabled`. Commands requesting Git credentials fail during
 preparation on an opted-out machine. This also applies to GitHub-launched agents,
-since their launcher adds the capability automatically.
+since their launcher adds the capability automatically. `gh` uses the same credentials, even on
+machines with a `gh auth login`, unless you set `GH_TOKEN` or `GITHUB_TOKEN` yourself. `gh`
+commands that read CI results, such as `gh pr checks` and plain `gh pr view`, need the App's
+**Actions**, **Checks** and **Commit statuses** access; if the App lacks them, add them in its
+settings and have the installation owner approve them.
 
 The helper supplies tokens to local workload code; it does not isolate credentials
 from other code running as the same OS user. Tokens refresh on use; disconnecting

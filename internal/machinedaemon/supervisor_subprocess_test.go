@@ -26,6 +26,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if filepath.Base(os.Args[0]) == "gh" {
+		fmt.Printf("args=%s|token=%s\n", strings.Join(os.Args[1:], "|"), os.Getenv("GH_TOKEN"))
+		os.Exit(3)
+	}
 	if len(os.Args) == 5 && os.Args[1] == "__omnara_git_credential" {
 		if err := RunGitCredentialHelper(
 			context.Background(), os.Args[2], os.Args[3], os.Args[4], os.Stdin, os.Stdout,
@@ -34,6 +38,14 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		os.Exit(0)
+	}
+	if len(os.Args) > 5 && os.Args[1] == "__omnara_gh" && os.Args[5] == "--" {
+		err := RunGitHubCLI(context.Background(), os.Args[2], os.Args[3], os.Args[4], os.Args[6:])
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		if errors.Is(err, ErrGitHubCLINotFound) {
+			os.Exit(127)
+		}
+		os.Exit(1)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "__omnara_file_transfer" {
 		os.Exit(runFileTransferProbe())
