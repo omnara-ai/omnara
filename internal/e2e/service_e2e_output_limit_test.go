@@ -133,9 +133,12 @@ func TestServiceE2EOpenRouterOutputLimitContinuesThroughToolsAndText(t *testing.
 			writeOutputLimitChatChunk(w, map[string]any{"role": "assistant"}, "length", "")
 			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 		case 5:
-			if strings.Count(mustJSONString(messages), "Automatic Omnara harness notice") != 1 ||
-				mustJSONString(messages) != retryMessages.Load() {
-				fail(w, "empty output retry must preserve the previous request history exactly")
+			// The retry keeps the previous request as its exact prefix and adds
+			// only the runaway steering notice after it.
+			last, _ := messages[len(messages)-1].(map[string]any)
+			if mustJSONString(messages[:len(messages)-1]) != retryMessages.Load() ||
+				last["role"] != "user" || !strings.Contains(fmt.Sprint(last["content"]), "produced no reply or tool call") {
+				fail(w, "empty output retry must preserve the previous request history and append runaway steering")
 				return
 			}
 			writeServiceE2EOpenRouterChatMessage(w, "completed", modelName, finalText, 100, 12)

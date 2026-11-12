@@ -60,7 +60,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if err != nil {
 		return nil, err
 	}
-	steering, err := c.effortSteering(input.Policy, options["thinking"], supportsReasoning)
+	steering, err := c.effortSteering(input.Policy, options, supportsReasoning)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		input.Policy,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
 		control,
-		steering,
+		&steering,
 	)
 	if err != nil {
 		return nil, err
@@ -140,45 +140,67 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
 }
 
-// effortSteering returns the running effort for per-message effort changes,
-// or nil when the model or request shape does not allow them. The top-level
-// effort never changes, so the cached prefix still matches.
+// effortSteering returns the running effort for per-message effort changes.
+// It is the zero value, which renders no change, when the model or request
+// shape does not allow them. The top-level effort never changes, so the cached
+// prefix still matches.
 func (c Client) effortSteering(
 	policy model.RequestPolicy,
-	rawThinking json.RawMessage,
+	options map[string]json.RawMessage,
 	supportsReasoning bool,
-) (*model.EffortSteering, error) {
+) (model.EffortSteering, error) {
 	if !supportsReasoning || !c.supportsPerMessageEffort() {
-		return nil, nil
+		return model.EffortSteering{}, nil
 	}
 	thinkingType := ""
 	if policy.ReasoningEffort != "" {
 		// BuildRequest turns disabled thinking adaptive when it sets effort.
-		off, err := thinkingDisabled(rawThinking)
+		off, err := thinkingDisabled(options["thinking"])
 		if err != nil {
-			return nil, err
+			return model.EffortSteering{}, err
 		}
 		if off {
 			thinkingType = "adaptive"
 		}
 	}
 	if thinkingType == "" {
-		thinking, err := decodeThinkingConfig(rawThinking)
+		thinking, err := decodeThinkingConfig(options["thinking"])
 		if err != nil {
-			return nil, err
+			return model.EffortSteering{}, err
 		}
 		_ = json.Unmarshal(thinking["type"], &thinkingType)
 	}
 	// Without up-front thinking there is no reasoning to cut back, and some
 	// models reject an effort change in these modes.
 	if thinkingType == "disabled" || thinkingType == "between_tools" {
-		return nil, nil
+		return model.EffortSteering{}, nil
 	}
-	base := policy.ReasoningEffort
-	if base == "" {
-		base = model.ClaudeDefaultReasoningEffort(c.ProviderModelSlug)
+	base, err := c.topLevelEffort(policy, options["output_config"])
+	if err != nil {
+		return model.EffortSteering{}, err
 	}
 	return model.NewEffortSteering(base, c.ModelCapabilities.SupportedReasoningEfforts), nil
+}
+
+// topLevelEffort is the effort the request runs at: the policy's when it sets
+// one, else api_variant_options.output_config.effort, else the model default.
+// Lowering from anything else could raise the effort a runaway retry gets.
+func (c Client) topLevelEffort(policy model.RequestPolicy, rawOutputConfig json.RawMessage) (string, error) {
+	if policy.ReasoningEffort != "" {
+		return policy.ReasoningEffort, nil
+	}
+	if raw := bytes.TrimSpace(rawOutputConfig); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		var config struct {
+			Effort string `json:"effort"`
+		}
+		if err := json.Unmarshal(raw, &config); err != nil {
+			return "", fmt.Errorf("api_variant_options.output_config must be a JSON object: %w", err)
+		}
+		if config.Effort != "" {
+			return config.Effort, nil
+		}
+	}
+	return model.ClaudeDefaultReasoningEffort(c.ProviderModelSlug), nil
 }
 
 func decodeAPIVariantOptions(raw json.RawMessage) (map[string]json.RawMessage, error) {

@@ -1,6 +1,7 @@
 package openaichatcompletions
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -90,6 +91,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 // updates, or nil when the route or model does not take them. The request's
 // own reasoning effort never changes, so the cached prefix still matches.
 func (c Client) effortSteering(compat compat, policy model.RequestPolicy) *model.EffortSteering {
+	steering := model.EffortSteering{}
 	supportsReasoning := c.ModelCapabilities.SupportsReasoning
 	if policy.SupportsReasoning != nil {
 		supportsReasoning = *policy.SupportsReasoning
@@ -97,13 +99,45 @@ func (c Client) effortSteering(compat compat, policy model.RequestPolicy) *model
 	slug := c.RequestedProviderModelSlug()
 	if !supportsReasoning || compat.reasoningFormat != reasoningFormatOpenRouter ||
 		!model.OpenRouterSupportsConfigurationUpdate(slug) {
-		return nil
+		return &steering
 	}
-	base := policy.ReasoningEffort
-	if base == "" {
-		base = model.ClaudeDefaultReasoningEffort(slug)
+	base, ok := c.topLevelEffort(policy)
+	if ok {
+		steering = model.NewEffortSteering(base, c.ModelCapabilities.SupportedReasoningEfforts)
 	}
-	return model.NewEffortSteering(base, c.ModelCapabilities.SupportedReasoningEfforts)
+	return &steering
+}
+
+// topLevelEffort is the effort the request runs at: the policy's when it sets
+// one, else the effort api_variant_options configure, else a Claude model's
+// default. It reports false when options configure reasoning some other way,
+// such as a token budget, since lowering from a guess could raise the effort
+// a runaway retry gets.
+func (c Client) topLevelEffort(policy model.RequestPolicy) (string, bool) {
+	if policy.ReasoningEffort != "" {
+		return policy.ReasoningEffort, true
+	}
+	var options struct {
+		Reasoning       json.RawMessage `json:"reasoning"`
+		ReasoningEffort json.RawMessage `json:"reasoning_effort"`
+	}
+	if raw := bytes.TrimSpace(c.APIVariantOptions); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		if json.Unmarshal(raw, &options) != nil {
+			return "", false
+		}
+	}
+	if len(options.ReasoningEffort) > 0 {
+		var effort string
+		return effort, json.Unmarshal(options.ReasoningEffort, &effort) == nil && effort != ""
+	}
+	if len(options.Reasoning) > 0 {
+		var reasoning struct {
+			Effort string `json:"effort"`
+		}
+		return reasoning.Effort, json.Unmarshal(options.Reasoning, &reasoning) == nil && reasoning.Effort != ""
+	}
+	effort := model.ClaudeDefaultReasoningEffort(c.RequestedProviderModelSlug())
+	return effort, effort != ""
 }
 
 func chatCompletionsOwnedFields(reasoningOwned bool) []string {

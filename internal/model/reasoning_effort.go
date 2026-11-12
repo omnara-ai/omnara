@@ -50,24 +50,26 @@ func LowerReasoningEffort(effort string, supported []string, steps int) string {
 
 // EffortSteering tracks the effort in force while a provider renders history
 // with per-message effort changes, which stay in effect until the next one.
+// The zero value is disabled and renders no change.
 type EffortSteering struct {
 	current   string
 	supported []string
 }
 
 // NewEffortSteering starts from the request's effective effort. It returns
-// nil when that effort is unknown, since there is nothing to lower from.
-func NewEffortSteering(effort string, supported []string) *EffortSteering {
+// the disabled zero value when that effort is unknown, since there is nothing
+// to lower from.
+func NewEffortSteering(effort string, supported []string) EffortSteering {
 	if _, known := reasoningEffortRank[strings.ToLower(strings.TrimSpace(effort))]; !known {
-		return nil
+		return EffortSteering{}
 	}
-	return &EffortSteering{current: effort, supported: supported}
+	return EffortSteering{current: effort, supported: supported}
 }
 
 // Lower drops the effort in force by steps levels and returns the new level,
 // or false when it cannot go lower and no change should be rendered.
 func (s *EffortSteering) Lower(steps int) (string, bool) {
-	if s == nil || steps <= 0 {
+	if s == nil || s.current == "" || steps <= 0 {
 		return "", false
 	}
 	lowered := LowerReasoningEffort(s.current, s.supported, steps)

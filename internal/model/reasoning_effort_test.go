@@ -36,10 +36,12 @@ func TestLowerReasoningEffort(t *testing.T) {
 func TestEffortSteeringAccumulates(t *testing.T) {
 	t.Parallel()
 
-	require.Nil(t, NewEffortSteering("", nil), "an unknown starting effort cannot be lowered")
-	var disabled *EffortSteering
-	_, ok := disabled.Lower(1)
-	require.False(t, ok)
+	unknown := NewEffortSteering("", nil)
+	_, ok := unknown.Lower(1)
+	require.False(t, ok, "an unknown starting effort cannot be lowered")
+	var disabled EffortSteering
+	_, ok = disabled.Lower(1)
+	require.False(t, ok, "the zero value renders no change")
 
 	steering := NewEffortSteering("max", nil)
 	_, ok = steering.Lower(0)

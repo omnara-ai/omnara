@@ -64,6 +64,15 @@ func TestOpenRouterRetryEndsWithConfigurationUpdate(t *testing.T) {
 			effort: "high", retries: 1, wantEffort: "medium"},
 		{name: "claude model default", client: Client{ProviderModelSlug: "anthropic/claude-fable-5.2"},
 			retries: 2, wantEffort: "low"},
+		{name: "options-supplied low is never raised", retries: 1, client: Client{
+			ProviderModelSlug: "anthropic/claude-fable-5.2", APIVariantOptions: json.RawMessage(`{"reasoning":{"effort":"low"}}`),
+		}},
+		{name: "options-supplied effort", retries: 1, wantEffort: "medium", client: Client{
+			ProviderModelSlug: "openai/gpt-6-sol", APIVariantOptions: json.RawMessage(`{"reasoning":{"effort":"high"}}`),
+		}},
+		{name: "options reasoning budget", retries: 1, client: Client{
+			ProviderModelSlug: "anthropic/claude-fable-5.2", APIVariantOptions: json.RawMessage(`{"reasoning":{"max_tokens":2048}}`),
+		}},
 		{name: "first attempt", client: Client{ProviderModelSlug: "openai/gpt-6-sol"}, effort: "high"},
 		{name: "unsupported model", client: Client{ProviderModelSlug: "anthropic/claude-opus-5.5"},
 			effort: "high", retries: 1},

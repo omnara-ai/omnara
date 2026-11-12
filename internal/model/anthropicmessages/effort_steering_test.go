@@ -74,6 +74,15 @@ func TestRetryEndsWithLoweredEffortAfterTheNotice(t *testing.T) {
 			wantEffort: "medium"},
 		{name: "supported efforts only", effort: "max", retries: 1, wantEffort: "high",
 			client: Client{ModelCapabilities: model.Capabilities{SupportedReasoningEfforts: []string{"low", "high", "max"}}}},
+		{name: "options-supplied low is never raised", retries: 1, client: Client{
+			ProviderModelSlug: "claude-fable-5-2", APIVariantOptions: json.RawMessage(`{"output_config":{"effort":"low"}}`),
+		}},
+		{name: "options-supplied effort", retries: 1, wantEffort: "low", client: Client{
+			ProviderModelSlug: "claude-fable-5-2", APIVariantOptions: json.RawMessage(`{"output_config":{"effort":"medium"}}`),
+		}},
+		{name: "policy effort wins over options", effort: "max", retries: 1, wantEffort: "xhigh", client: Client{
+			APIVariantOptions: json.RawMessage(`{"output_config":{"effort":"low"}}`),
+		}},
 		{name: "first attempt", effort: "high"},
 		{name: "already lowest", effort: "low", retries: 1},
 		{name: "model without per-message effort", client: Client{ProviderModelSlug: "claude-fable-5"},
