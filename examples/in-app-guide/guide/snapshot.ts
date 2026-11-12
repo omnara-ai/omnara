@@ -1,8 +1,8 @@
 // Reads the page the way the agent needs it, in reading order: the URL, any open dialog,
 // headings, visible text (table rows, summaries, status badges, notices) and every
-// visible interactive element with a short ref (e1, e2, …). The host app adds no markup
-// for this; it works off standard HTML and ARIA, so the same code runs on a mock or on
-// the customer's real app.
+// visible interactive element with a short ref (e1, e2, …) that stays with that element.
+// The host app adds no markup for this; it works off standard HTML and ARIA, so the same
+// code runs on a mock or on the customer's real app.
 
 const INTERACTIVE = [
   'a[href]',
@@ -35,7 +35,27 @@ export type Snapshot = { text: string; refs: Map<string, Element> }
 
 let current: Snapshot = { text: '', refs: new Map() }
 
-/** The element a ref pointed to in the most recent snapshot, if it is still on the page. */
+// A ref belongs to one element for as long as that element exists, and a number is never
+// given out twice, not even after a reload in the same tab. So a step asked for against
+// an older snapshot either reaches the same element or finds nothing; it can never land
+// on a different control.
+const refOf = new WeakMap<Element, string>()
+const REF_COUNTER = 'omnara-guide-ref'
+let lastRef = 0
+try {
+  lastRef = Number(sessionStorage.getItem(REF_COUNTER)) || 0
+} catch {}
+
+function refFor(el: Element): string {
+  let ref = refOf.get(el)
+  if (!ref) {
+    ref = `e${++lastRef}`
+    refOf.set(el, ref)
+  }
+  return ref
+}
+
+/** The element a ref points to, if the most recent snapshot listed it and it is still on the page. */
 export function resolveRef(ref: string): Element | null {
   const el = current.refs.get(ref.trim().replace(/^\[|\]$/g, ''))
   return el && el.isConnected && isVisible(el) ? el : null
@@ -92,7 +112,8 @@ export function takeSnapshot(ignore?: Element | null): Snapshot {
       truncated = true
       return
     }
-    const ref = `e${++elements}`
+    elements++
+    const ref = refFor(el)
     refs.set(ref, el)
     push(`[${ref}] ${describe(el)}`)
   }
@@ -176,6 +197,9 @@ export function takeSnapshot(ignore?: Element | null): Snapshot {
   walk(root, true)
   flush()
   if (truncated) lines.push(`(more elements not listed; the page has more controls than fit)`)
+  try {
+    sessionStorage.setItem(REF_COUNTER, String(lastRef))
+  } catch {}
   current = { text: lines.join('\n'), refs }
   return current
 }

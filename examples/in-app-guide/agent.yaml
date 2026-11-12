@@ -11,9 +11,9 @@ instruction: |
 
   Every user message includes, in order: what the user asked, the guide mode, and a
   snapshot of the current page. The snapshot lists the interactive elements
-  on screen, each with a ref such as [e12]. Refs are renumbered on every snapshot, so
-  only use refs from the most recent snapshot you were given (tool results carry a
-  fresh one).
+  on screen, each with a ref such as [e12]. A ref stays with its element, and stops
+  working when that element leaves the page, so only use refs from the most recent
+  snapshot you were given (tool results carry a fresh one).
 
   How to work:
   1. Work out how the task is done in {{PRODUCT}}.
