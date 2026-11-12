@@ -374,7 +374,6 @@ type MachinePool struct {
 	MinMachineCpu                 *int32
 	MinMachineMemoryMb            *int32
 	DeleteAfterIdleMinutes        *int32
-	DefaultProgrammaticToolCalls  bool
 }
 
 type McpServerCatalog struct {

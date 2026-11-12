@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
@@ -243,7 +242,7 @@ func (s *daemonSocket) serveToolCall(
 	}
 }
 
-var errProgramToolCallsDisabledOnMachine = errors.New("programmatic tool calls are disabled on this machine")
+var errProgramToolCallsUnavailable = errors.New("programmatic tool calls are unavailable")
 
 func (s *Server) offerProgramToolCall(
 	ctx context.Context, orgID, machineID uuid.UUID, offer daemonprotocol.ToolCallOffer,
@@ -253,7 +252,7 @@ func (s *Server) offerProgramToolCall(
 		return rejectToolCall(daemonprotocol.ErrorCodeValidationFailed, format, args...)
 	}
 	if s.programToolExecutor == nil {
-		return ref, nil, errProgramToolCallsDisabledOnMachine
+		return ref, nil, errProgramToolCallsUnavailable
 	}
 	processID, err := publicid.Decode(publicid.KindProcess, offer.ProcessID)
 	if err != nil {
@@ -276,14 +275,6 @@ func (s *Server) offerProgramToolCall(
 		return ref, nil, err
 	}
 	if !found {
-		machine, err := s.store.Execution().GetMachine(ctx, orgID, machineID)
-		switch {
-		case errors.Is(err, pgx.ErrNoRows):
-		case err != nil:
-			return ref, nil, err
-		case !machine.ProgrammaticToolCalls:
-			return ref, nil, errProgramToolCallsDisabledOnMachine
-		}
 		return ref, nil, storeerr.ErrNotFound
 	}
 	uncallable := rejectToolCall(daemonprotocol.ErrorCodeToolCallUnavailable,
@@ -483,7 +474,7 @@ func programToolCallRejection(s *Server, err error) toolCallRejectedError {
 	switch {
 	case errors.As(err, &rejection):
 		return rejection
-	case errors.Is(err, errProgramToolCallsDisabledOnMachine):
+	case errors.Is(err, errProgramToolCallsUnavailable):
 		return permanent(daemonprotocol.ErrorCodeToolCallUnavailable, err.Error())
 	case errors.Is(err, storeerr.ErrNotFound), errors.Is(err, storeerr.ErrProcessTerminal):
 		return permanent(daemonprotocol.ErrorCodeToolCallUnavailable,

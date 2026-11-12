@@ -42,10 +42,6 @@ func newProgramToolFixture(t *testing.T, ctx context.Context, label string, with
 		extraYAML: "deferred_tools:\n  mode: code_mode\n",
 	})
 	execution := fixture.Store.Execution()
-	enabled := true
-	_, err := execution.UpdateMachine(ctx, executionstore.UpdateMachineInput{
-		OrgID: toolsTestOrgID, MachineID: fixture.Machine.MachineID, ProgrammaticToolCalls: &enabled})
-	require.NoError(t, err)
 	if withMCP {
 		markIntegrationMCPConnectionReady(t, ctx, fixture)
 	}
@@ -363,7 +359,7 @@ func TestProgramToolCallInterruptedRunIsReleased(t *testing.T) {
 	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
 }
 
-func TestToolSearchReturnsCodeModeToolsOnlyWithAMachineThatAllowsThem(t *testing.T) {
+func TestToolSearchReturnsCodeModeToolsOnlyWithAnOnlineMachine(t *testing.T) {
 	ctx := t.Context()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "code-mode-search", toolFixtureOptions{
 		withMemory: true, withMachine: true,
@@ -371,13 +367,6 @@ func TestToolSearchReturnsCodeModeToolsOnlyWithAMachineThatAllowsThem(t *testing
 			"  storage_search: {deferred: true}\n  storage_write: {deferred: true}\n",
 		extraYAML: "deferred_tools:\n  mode: code_mode\n",
 	})
-	setMachineFlag := func(enabled bool) {
-		t.Helper()
-		_, err := fixture.Store.Execution().UpdateMachine(ctx, executionstore.UpdateMachineInput{
-			OrgID: toolsTestOrgID, MachineID: fixture.Machine.MachineID, ProgrammaticToolCalls: &enabled})
-		require.NoError(t, err)
-	}
-	setMachineFlag(true)
 	specs, _, err := AgentConfigToolSpecs(
 		ctx, fixture.Store, toolsTestProjectID, fixture.Agent.ID, fixture.AgentConfig.ID)
 	require.NoError(t, err)
@@ -430,7 +419,10 @@ func TestToolSearchReturnsCodeModeToolsOnlyWithAMachineThatAllowsThem(t *testing
 	require.Equal(t, []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead,
 		toolcatalog.ToolNameStorageSearch}, names)
 
-	setMachineFlag(false)
+	_, err = fixture.Pool.Exec(ctx,
+		`UPDATE agent_machine_bindings SET state = 'released' WHERE agent_id = $1`,
+		fixture.Agent.ID)
+	require.NoError(t, err)
 	withoutMachine := search("call_search_tool_add")
 	require.Empty(t, withoutMachine.CodeModeTools)
 	require.Equal(t, []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead,

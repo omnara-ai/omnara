@@ -194,15 +194,6 @@ func (f *daemonProgramToolCallFixture) rejected(t *testing.T, key, name, input, 
 	require.Empty(t, report.State)
 }
 
-func (f *daemonProgramToolCallFixture) setMachineFlag(t *testing.T, enabled bool) {
-	t.Helper()
-	machine := requestJSONWithHeaders(t, f.handler, http.MethodPatch,
-		"/api/v1/orgs/"+f.project.OrgID+"/machines/"+testPublicID(t, publicid.KindMachine, f.process.MachineUUID),
-		`{"programmatic_tool_calls":`+map[bool]string{true: "true", false: "false"}[enabled]+`}`, "",
-		http.StatusOK, authHeaders(f.project.AdminToken))
-	require.Equal(t, enabled, machine["programmatic_tool_calls"])
-}
-
 func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	t.Parallel()
 	f := newDaemonProgramToolCallFixture(t)
@@ -224,8 +215,6 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 		t.Fatal("process was not offered")
 		return false
 	}
-	require.False(t, offered(), "a machine without the flag must not offer tool calls")
-	f.setMachineFlag(t, true)
 	require.True(t, offered())
 	for _, process := range []daemonProcessFixture{f.process, f.base} {
 		_, found, err := acceptDaemonProcessOfferForTest(ctx, store, process.authority(), process.ProcessUUID)
@@ -234,9 +223,6 @@ func TestDaemonSocketProgramToolCalls(t *testing.T) {
 	}
 	const unavailable, invalid = daemonprotocol.ErrorCodeToolCallUnavailable, daemonprotocol.ErrorCodeValidationFailed
 
-	f.setMachineFlag(t, false)
-	f.rejected(t, "k", toolcatalog.ToolNameStorageList, `{}`, unavailable)
-	f.setMachineFlag(t, true)
 	optedOut := f.socket()
 	other := programToolOffer(f.base.ProcessID, "k", toolcatalog.ToolNameStorageList, `{}`)
 	optedOut.serveToolCall(ctx, other, nil)

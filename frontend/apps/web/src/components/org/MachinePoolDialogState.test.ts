@@ -683,7 +683,6 @@ describe('machine pool edit state', () => {
       min_machine_memory_mb: 512,
       max_machine_cpu: 2,
       max_machine_memory_mb: 2048,
-      default_programmatic_tool_calls: true,
     })
     const values = machinePoolFormFromPool(pool)
     if (values === null) throw new Error('expected supported provider form values')
@@ -715,7 +714,6 @@ describe('machine pool edit state', () => {
       default_machine_memory_mb: 2048,
       default_machine_env: {},
       default_machine_secret_env: {},
-      default_programmatic_tool_calls: true,
       min_machine_cpu: 1,
       min_machine_memory_mb: 1024,
       max_machine_cpu: 4,
@@ -793,7 +791,6 @@ function machinePool(overrides: Partial<MachinePool> = {}): MachinePool {
     provider_auth_secret_id: 'sec_provider',
     provider_config: {},
     runtime_protection_enabled: false,
-    default_programmatic_tool_calls: false,
     max_total_machines: 3,
     max_total_cpu: 3,
     max_total_memory_mb: 3072,

@@ -2277,20 +2277,18 @@ UPDATE machines
 SET cwd = $1,
     env = $2,
     secret_env = $3,
-    programmatic_tool_calls = coalesce($4::boolean, programmatic_tool_calls),
     updated_at = statement_timestamp()
-WHERE org_id = $5
-  AND id = $6
+WHERE org_id = $4
+  AND id = $5
   AND deleted_at IS NULL
 `
 
 type UpdateMachineExecutionDefaultsParams struct {
-	Cwd                   string
-	Env                   json.RawMessage
-	SecretEnv             json.RawMessage
-	ProgrammaticToolCalls *bool
-	OrgID                 uuid.UUID
-	ID                    uuid.UUID
+	Cwd       string
+	Env       json.RawMessage
+	SecretEnv json.RawMessage
+	OrgID     uuid.UUID
+	ID        uuid.UUID
 }
 
 func (q *Queries) UpdateMachineExecutionDefaults(ctx context.Context, arg UpdateMachineExecutionDefaultsParams) (int64, error) {
@@ -2298,7 +2296,6 @@ func (q *Queries) UpdateMachineExecutionDefaults(ctx context.Context, arg Update
 		arg.Cwd,
 		arg.Env,
 		arg.SecretEnv,
-		arg.ProgrammaticToolCalls,
 		arg.OrgID,
 		arg.ID,
 	)

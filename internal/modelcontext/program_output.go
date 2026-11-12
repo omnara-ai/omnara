@@ -19,9 +19,8 @@ const programmaticToolCallsRunCommandDescription = "\n\nCommands can call this a
 	"none. `--output=text` prints a text result as plain text instead, and `--output=envelope` prints the full result " +
 	"envelope. It exits 1 if the tool fails or is denied, 2 if the tool cannot be called from commands, and 3 " +
 	"if the call could not be made, with the error on stderr. Results go only to the command, not to you, so " +
-	"chain calls with pipes, jq, loops or scripts and print only what you need. This works only on machines " +
-	"where programmatic tool calls are enabled. In PowerShell and cmd.exe, pass the input on stdin with " +
-	"`-` instead of quoting it."
+	"chain calls with pipes, jq, loops or scripts and print only what you need. In PowerShell and cmd.exe, " +
+	"pass the input on stdin with `-` instead of quoting it."
 
 const programmaticToolCallsTypesHeading = "\n\nWhat these tools print, as TypeScript types (their inputs are " +
 	"the same as when you call them):\n```ts\n"

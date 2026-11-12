@@ -1,7 +1,6 @@
 import { useState } from 'react'
 
 import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'
-import { programmaticToolCallsWarning } from '@/components/machines/programmaticToolCalls'
 import { CheckboxField, FieldGroup } from '@/components/ui/field'
 
 import {
@@ -62,20 +61,6 @@ export function MachinePoolAdvancedSection({
             }}
           />
         )}
-        <CheckboxField
-          label="Programmatic tool calls"
-          description={
-            <>
-              Let commands on new machines call their agent’s tools with <code>omnarad call</code>,
-              for agents whose config enables it. {programmaticToolCallsWarning}
-            </>
-          }
-          inputClassName="self-start"
-          checked={values.defaultProgrammaticToolCalls}
-          onChange={(event) => {
-            setValue('defaultProgrammaticToolCalls', event.target.checked)
-          }}
-        />
         <MachinePoolInputField
           id="mpool-delete-after-idle"
           label="Delete after idle minutes"

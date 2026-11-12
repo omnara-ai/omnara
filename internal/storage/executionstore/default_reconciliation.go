@@ -158,5 +158,4 @@ func preserveClusterMachinePoolEditableFields(
 	desired.MaxMachineCPU = current.MaxMachineCPU
 	desired.MaxMachineMemoryMB = current.MaxMachineMemoryMB
 	desired.DeleteAfterIdleMinutes = current.DeleteAfterIdleMinutes
-	desired.DefaultProgrammaticToolCalls = current.DefaultProgrammaticToolCalls
 }

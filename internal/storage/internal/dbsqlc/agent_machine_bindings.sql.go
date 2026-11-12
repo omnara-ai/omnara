@@ -23,7 +23,6 @@ SELECT EXISTS (
     AND machine.id = binding.machine_id
     AND machine.deleted_at IS NULL
     AND machine.lifecycle_state = 'active'
-    AND machine.programmatic_tool_calls
   JOIN machine_connection_states connection ON connection.org_id = machine.org_id
     AND connection.machine_id = machine.id
   WHERE binding.project_id = $1

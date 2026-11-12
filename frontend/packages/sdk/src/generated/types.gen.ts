@@ -97,7 +97,7 @@ export type AgentConfigDefinitionGitCredentials = {
 };
 
 /**
- * How the agent reaches tools marked `deferred`. With `tool_add`, the default, `tool_search` adds matching tools to the model's tool list. With `code_mode`, commands started by run_command call them with `omnarad call <tool> '<json input>'` and `tool_search` returns their input and output schemas instead; a tool commands cannot call, or any tool while the agent has no machine that allows programmatic tool calls, is added as with `tool_add`. Subagents do not inherit this setting.
+ * How the agent reaches tools marked `deferred`. With `tool_add`, the default, `tool_search` adds matching tools to the model's tool list. With `code_mode`, commands started by run_command call them with `omnarad call <tool> '<json input>'` and `tool_search` returns their input and output schemas instead; a tool commands cannot call, or any tool while the agent has no online machine, is added as with `tool_add`. Subagents do not inherit this setting.
  */
 export type AgentConfigDefinitionDeferredTools = {
     mode: 'tool_add' | 'code_mode';
@@ -4310,10 +4310,6 @@ export type CreateMachinePoolRequestBase = {
      */
     runtime_protection_enabled?: boolean;
     /**
-     * Whether machines created from the pool let commands call their agent's tools with `omnarad call`. Enabling it lets every agent bound to such a machine whose config enables programmatic tool calls call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access. Defaults to false when omitted.
-     */
-    default_programmatic_tool_calls?: boolean;
-    /**
      * Most live machines across all projects. 0 blocks new machines.
      */
     max_total_machines: number;
@@ -4399,10 +4395,6 @@ export type UpdateMachinePoolRequest = {
      */
     runtime_protection_enabled?: boolean;
     /**
-     * Whether machines created from the pool after this change let commands call their agent's tools with `omnarad call`. Enabling it lets every agent bound to such a machine whose config enables programmatic tool calls call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
-     */
-    default_programmatic_tool_calls?: boolean;
-    /**
      * Maximum number of live machines in the pool.
      */
     max_total_machines?: number;
@@ -4470,10 +4462,6 @@ export type MachinePool = {
      * Whether Omnara deletes this pool's machines when the provider remains running after the daemon becomes inactive.
      */
     runtime_protection_enabled: boolean;
-    /**
-     * Whether machines created from the pool let commands call their agent's tools with `omnarad call`. When true, every agent bound to such a machine whose config enables programmatic tool calls can call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
-     */
-    default_programmatic_tool_calls: boolean;
     max_total_machines: number;
     max_total_cpu: number | null;
     max_total_memory_mb: number | null;
@@ -4576,10 +4564,6 @@ export type Machine = {
     secret_env: {
         [key: string]: SecretId;
     };
-    /**
-     * Whether commands on this machine can call their agent's tools with `omnarad call`. When true, every agent bound to the machine whose config enables programmatic tool calls can call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
-     */
-    programmatic_tool_calls: boolean;
     /**
      * Machine-readable reason for the latest lifecycle change, such as idle_timeout; empty when none.
      */
@@ -4704,10 +4688,6 @@ export type UpdateMachineRequest = {
     secret_env?: {
         [key: string]: SecretId;
     };
-    /**
-     * Lets commands on this machine call their agent's tools with `omnarad call`. Enabling it lets every agent bound to the machine whose config enables programmatic tool calls call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access. Only enable it on machines whose agents trust each other.
-     */
-    programmatic_tool_calls?: boolean;
 };
 
 /**
