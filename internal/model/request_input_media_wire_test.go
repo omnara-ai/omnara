@@ -61,7 +61,7 @@ func TestPreparedAdaptersChargeReadFileImageAlongsideMeasuredInput(t *testing.T)
 			first, err := model.PrepareForSend(t.Context(), tc.client, input)
 			require.NoError(t, err)
 			originalRequest := bytes.Clone(input.Context.Messages[0].Content)
-			input.Context.InputEventSequence = 3
+			input.Context.InputEventSequence = 4
 			input.Context.Messages = append(input.Context.Messages, modelcontext.Message{
 				InputFingerprint: first.InputFingerprint,
 				ID:               "read-image-output", ModelCallContextID: contextID,
@@ -72,6 +72,9 @@ func TestPreparedAdaptersChargeReadFileImageAlongsideMeasuredInput(t *testing.T)
 				Content:                   json.RawMessage(`[{"type":"tool_call","tool_call_id":"` + callID + `"}]`),
 				Usage:                     modelenvelope.Usage{InputTokens: measured, OutputTokens: 30},
 				StopReason:                modelenvelope.StopReasonToolUse,
+			}, modelcontext.Message{
+				Role: modelprotocol.RoleAssistant, Sequence: 4, StopReason: modelenvelope.StopReasonError,
+				Content: json.RawMessage(`[{"type":"error","text":"request failed"}]`),
 			})
 			input.Context.ToolResults = []modelcontext.ToolResultRef{{
 				ToolCallID: callID, ModelCallContextID: contextID, ProviderCallID: callID, Name: "storage_read",

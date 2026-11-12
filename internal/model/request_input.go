@@ -23,8 +23,11 @@ func applyRequestInputMeasurement(
 ) {
 	bundle := input.Context
 	var source *modelcontext.Message
+	// Failed attempts do not replace a measurement. An ineligible non-error
+	// output still blocks reuse of older usage.
 	for i := len(bundle.Messages) - 1; i >= 0; i-- {
-		if bundle.Messages[i].Role == modelprotocol.RoleAssistant {
+		if bundle.Messages[i].Role == modelprotocol.RoleAssistant &&
+			bundle.Messages[i].StopReason != modelenvelope.StopReasonError {
 			source = &bundle.Messages[i]
 			break
 		}
@@ -65,8 +68,11 @@ func applyRequestInputMeasurement(
 	suffix.ContextCheckpoint = nil
 	suffix.Messages = nil
 	suffix.ToolResults = nil
+	tail := suffix
 	for _, message := range bundle.Messages {
-		if message.Sequence > source.InputEventSequence {
+		if message.Sequence > source.Sequence {
+			tail.Messages = append(tail.Messages, message)
+		} else if message.Sequence > source.InputEventSequence {
 			suffix.Messages = append(suffix.Messages, message)
 		} else {
 			prefix.Messages = append(prefix.Messages, message)
@@ -80,7 +86,11 @@ func applyRequestInputMeasurement(
 		if result.SourceEventSequence <= source.InputEventSequence {
 			return
 		}
-		suffix.ToolResults = append(suffix.ToolResults, result)
+		if result.SourceEventSequence > source.Sequence {
+			tail.ToolResults = append(tail.ToolResults, result)
+		} else {
+			suffix.ToolResults = append(suffix.ToolResults, result)
+		}
 	}
 	previous, err := client.Prepare(ctx, PrepareInput{Context: prefix, Policy: input.Policy})
 	if err != nil {
@@ -92,9 +102,36 @@ func applyRequestInputMeasurement(
 	if previous.InputFingerprint != source.InputFingerprint {
 		return
 	}
-	rendered, err := client.Prepare(ctx, PrepareInput{Context: suffix, Policy: input.Policy})
-	if err != nil {
+	// Only the source output is covered by its output usage. Render later messages
+	// separately so adapters cannot merge failed assistant outputs into that charge.
+	suffixTokens, ok := estimateRequestInputDelta(ctx, client, input.Policy, suffix, &usage)
+	if !ok {
 		return
+	}
+	tailTokens := 0
+	if len(tail.Messages) > 0 || len(tail.ToolResults) > 0 {
+		tailTokens, ok = estimateRequestInputDelta(ctx, client, input.Policy, tail, nil)
+		if !ok {
+			return
+		}
+	}
+	if suffixTokens > math.MaxInt-tailTokens || usage.InputTokens > math.MaxInt-suffixTokens-tailTokens {
+		return
+	}
+	prepared.InputTokenEstimate = usage.InputTokens + suffixTokens + tailTokens
+	prepared.UsesProviderInputUsage = true
+}
+
+func estimateRequestInputDelta(
+	ctx context.Context,
+	client Client,
+	policy RequestPolicy,
+	bundle modelcontext.Bundle,
+	usage *modelenvelope.Usage,
+) (int, bool) {
+	rendered, err := client.Prepare(ctx, PrepareInput{Context: bundle, Policy: policy})
+	if err != nil {
+		return 0, false
 	}
 	var body struct {
 		Messages []json.RawMessage `json:"messages"`
@@ -102,19 +139,19 @@ func applyRequestInputMeasurement(
 		Tools    []json.RawMessage `json:"tools"`
 	}
 	if json.Unmarshal(rendered.Body, &body) != nil {
-		return
+		return 0, false
 	}
 	items := body.Messages
 	if client.APIFormat() == modelprotocol.APIFormatOpenAIResponses {
 		items = body.Input
 	}
 	if len(items) == 0 {
-		return
+		return 0, false
 	}
 	outputTokens := 0
-	if inputHasReasoning(items) {
+	if usage != nil && inputHasReasoning(items) {
 		if usage.OutputTokens <= 0 {
-			return
+			return 0, false
 		}
 		outputTokens = usage.OutputTokens
 	}
@@ -125,7 +162,7 @@ func applyRequestInputMeasurement(
 			Type string `json:"type"`
 		}
 		if json.Unmarshal(raw, &item) != nil {
-			return
+			return 0, false
 		}
 		if item.Role == "system" || item.Role == "developer" {
 			continue
@@ -151,15 +188,14 @@ func applyRequestInputMeasurement(
 		}
 		raw, err := json.Marshal(added)
 		if err != nil {
-			return
+			return 0, false
 		}
 		newTokens = modelcontext.EstimatePreparedRequest(raw, rendered.RenderedMedia)
 	}
-	if outputTokens > math.MaxInt-newTokens || usage.InputTokens > math.MaxInt-outputTokens-newTokens {
-		return
+	if outputTokens > math.MaxInt-newTokens {
+		return 0, false
 	}
-	prepared.InputTokenEstimate = usage.InputTokens + outputTokens + newTokens
-	prepared.UsesProviderInputUsage = true
+	return outputTokens + newTokens, true
 }
 
 func inputHasReasoning(items []json.RawMessage) bool {
