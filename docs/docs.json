@@ -82,6 +82,7 @@
             "group": "Examples",
             "pages": [
               "examples/overview",
+              "examples/in-app-guide",
               {
                 "group": "GTM agents",
                 "pages": [

@@ -1,0 +1,6 @@
+node_modules/
+.env
+embed.js
+guide.config.json
+guide.agent.yaml
+pnpm-lock.yaml
