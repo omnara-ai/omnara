@@ -8,7 +8,7 @@ import {
   defaultAgentMachineSources,
   defaultAgentTools,
 } from '@/components/agents/agentTemplates'
-import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
+import { useMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import {
   createBasicConfigSession,
   emptyBasicConfig,
@@ -24,7 +24,7 @@ export function useAgentDraft(
   initialTemplate: AgentTemplate | undefined,
   scope: { orgId: string; projectId: string },
 ) {
-  const [restored] = useState(takeMcpBuilderOAuthRestore)
+  const restored = useMcpBuilderOAuthRestore()
   const [session, setSession] = useState(() =>
     createBasicConfigSession(restored?.draft.originalSource ?? ''),
   )
