@@ -5,7 +5,7 @@ import (
 )
 
 func machineRecordFromInsertSQLC(row dbsqlc.InsertMachineRow) MachineRecord {
-	record := machineRecordFromSQLC(
+	return machineRecordFromSQLC(
 		row.ID,
 		row.OrgID,
 		row.MachinePoolID,
@@ -37,8 +37,6 @@ func machineRecordFromInsertSQLC(row dbsqlc.InsertMachineRow) MachineRecord {
 		row.LifecycleChangedAt,
 		row.LifecycleVersion,
 	)
-	record.ProgrammaticToolCalls = row.ProgrammaticToolCalls
-	return record
 }
 
 func machineRecordFromIdempotencySQLC(row dbsqlc.GetMachineByIdempotencyRow) MachineRecord {
@@ -75,7 +73,6 @@ func machineRecordFromIdempotencySQLC(row dbsqlc.GetMachineByIdempotencyRow) Mac
 		row.LifecycleVersion,
 	)
 	record.ConnectionStateReason = row.ConnectionStateReason
-	record.ProgrammaticToolCalls = row.ProgrammaticToolCalls
 	return record
 }
 
@@ -114,7 +111,6 @@ func machineRecordFromGetSQLC(row dbsqlc.GetMachineRow) MachineRecord {
 	)
 	record.ConnectionStateReason = row.ConnectionStateReason
 	record.FailureReport = rawMessageFromSQLCPtr(row.FailureReport)
-	record.ProgrammaticToolCalls = row.ProgrammaticToolCalls
 	return record
 }
 

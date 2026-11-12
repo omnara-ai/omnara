@@ -9775,8 +9775,8 @@ components:
         With `code_mode`, commands started by run_command call them with
         `omnarad call <tool> '<json input>'` and `tool_search` returns their
         input and output schemas instead; a tool commands cannot call, or any
-        tool while the agent has no machine that allows programmatic tool
-        calls, is added as with `tool_add`. Subagents do not inherit this
+        tool while the agent has no online machine, is added as with
+        `tool_add`. Subagents do not inherit this
         setting.
       type: object
       additionalProperties: false
@@ -15890,14 +15890,6 @@ components:
           description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to false when omitted.
           type: boolean
           default: false
-        default_programmatic_tool_calls:
-          description: >-
-            Whether machines created from the pool let commands call their agent's tools with
-            `omnarad call`. Enabling it lets every agent bound to such a machine whose config enables
-            programmatic tool calls call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access. Defaults to false
-            when omitted.
-          type: boolean
-          default: false
         max_total_machines:
           type: integer
           format: int32
@@ -15988,12 +15980,6 @@ components:
         runtime_protection_enabled:
           description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
           type: boolean
-        default_programmatic_tool_calls:
-          description: >-
-            Whether machines created from the pool after this change let commands call their agent's
-            tools with `omnarad call`. Enabling it lets every agent bound to such a machine whose config
-            enables programmatic tool calls call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
-          type: boolean
         max_total_machines:
           description: Maximum number of live machines in the pool.
           type: integer
@@ -16047,7 +16033,7 @@ components:
     MachinePool:
       type: object
       additionalProperties: false
-      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, default_programmatic_tool_calls, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at]
+      required: [id, org_id, name, management_kind, description, provider, default_machine_cpu, default_machine_memory_mb, default_machine_env, default_machine_secret_env, default_machine_provider_options, default_cwd, provider_config, runtime_protection_enabled, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/MachinePoolID'
@@ -16093,12 +16079,6 @@ components:
           additionalProperties: true
         runtime_protection_enabled:
           description: Whether Omnara deletes this pool's machines when the provider remains running after the daemon becomes inactive.
-          type: boolean
-        default_programmatic_tool_calls:
-          description: >-
-            Whether machines created from the pool let commands call their agent's tools with
-            `omnarad call`. When true, every agent bound to such a machine whose config enables
-            programmatic tool calls can call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
           type: boolean
         max_total_machines:
           type: integer
@@ -16216,7 +16196,7 @@ components:
     Machine:
       type: object
       additionalProperties: false
-      required: [id, org_id, source_kind, display_name, description, provider, lifecycle_state, connection_state, last_observed_at, cwd, env, secret_env, programmatic_tool_calls, lifecycle_reason_code, lifecycle_reason_message, next_reconcile_after, provision_attempts, delete_attempts, metadata, deleted_at, created_at, updated_at]
+      required: [id, org_id, source_kind, display_name, description, provider, lifecycle_state, connection_state, last_observed_at, cwd, env, secret_env, lifecycle_reason_code, lifecycle_reason_message, next_reconcile_after, provision_attempts, delete_attempts, metadata, deleted_at, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/MachineID'
@@ -16254,12 +16234,6 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
-        programmatic_tool_calls:
-          description: >-
-            Whether commands on this machine can call their agent's tools with `omnarad call`.
-            When true, every agent bound to the machine whose config enables programmatic tool
-            calls can call its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access.
-          type: boolean
         lifecycle_reason_code:
           type: string
         lifecycle_reason_message:
@@ -16377,13 +16351,6 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
-        programmatic_tool_calls:
-          description: >-
-            Lets commands on this machine call their agent's tools with `omnarad call`. Enabling it
-            lets every agent bound to the machine whose config enables programmatic tool calls call
-            its own opted-in tools from commands. Agents bound to a machine run commands as the same OS user, so each can reach the others' processes and their tool access. Only enable it on machines whose agents
-            trust each other.
-          type: boolean
     MachineSummaryFields:
       type: object
       description: Shared machine fields composed into machine response schemas. Composing schemas close their final shape with unevaluatedProperties.

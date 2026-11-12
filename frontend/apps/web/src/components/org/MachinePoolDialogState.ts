@@ -74,7 +74,6 @@ export interface MachinePoolFormValues {
   secretId: string
   projectGrantIds: string[]
   runtimeProtectionEnabled: boolean
-  defaultProgrammaticToolCalls: boolean
 }
 
 export type MachinePoolFormMode = 'create' | 'tenant-edit' | 'cluster-edit'
@@ -108,7 +107,6 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   secretId: '',
   projectGrantIds: [],
   runtimeProtectionEnabled: false,
-  defaultProgrammaticToolCalls: false,
 }
 
 /** Placeholder for an aggregate cap input: machine size × max machines. */
@@ -173,7 +171,6 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     default_machine_secret_env: recordFromSecretRows(values.secretEnvRows),
     default_cwd: stringOrUndefined(values.cwd),
     runtime_protection_enabled: values.runtimeProtectionEnabled,
-    default_programmatic_tool_calls: values.defaultProgrammaticToolCalls,
     delete_after_idle_minutes: optionalInt(values.deleteAfterIdleMinutes),
   }
   const startupScript =
@@ -300,7 +297,6 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
     secretId: pool.provider_auth_secret_id ?? '',
     projectGrantIds: [],
     runtimeProtectionEnabled: pool.runtime_protection_enabled,
-    defaultProgrammaticToolCalls: pool.default_programmatic_tool_calls,
   }
 }
 
@@ -343,7 +339,6 @@ export function machinePoolUpdateRequest(
     default_cwd: values.cwd.trim(),
     provider_auth_secret_id: values.secretId,
     runtime_protection_enabled: values.runtimeProtectionEnabled,
-    default_programmatic_tool_calls: values.defaultProgrammaticToolCalls,
     max_total_machines: maxMachines,
     delete_after_idle_minutes: optionalIntOrNull(values.deleteAfterIdleMinutes),
   }
@@ -436,7 +431,6 @@ function clusterMachinePoolUpdateRequest(
   const common = {
     default_machine_env: recordFromTextRows(values.envRows) ?? {},
     default_machine_secret_env: recordFromSecretRows(values.secretEnvRows) ?? {},
-    default_programmatic_tool_calls: values.defaultProgrammaticToolCalls,
     delete_after_idle_minutes: optionalIntOrNull(values.deleteAfterIdleMinutes),
     min_machine_memory_mb: optionalMemoryMbOrNull(
       values.minMachineMemoryGb,

@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -32,28 +31,6 @@ func TestServiceE2EDaemonProgramToolCalls(t *testing.T) {
 		[]string{"deferred_tools:", "  mode: code_mode", "tools:", "  run_command: {}",
 			"  storage_list: {deferred: true}"}, nil,
 	)
-	machinePath := "/api/v1/orgs/" + project.orgID + "/machines/" + machine.machineID
-	setMachineFlag := func(ctx context.Context, enabled bool) error {
-		request, err := env.newAPIRequest(ctx, http.MethodPatch, machinePath,
-			bytes.NewReader(mustJSON(map[string]bool{"programmatic_tool_calls": enabled})))
-		if err != nil {
-			return err
-		}
-		request.Header.Set("Content-Type", "application/json")
-		request.Header.Set("Authorization", "Bearer "+project.adminToken)
-		response, err := http.DefaultClient.Do(request)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = response.Body.Close() }()
-		if response.StatusCode != http.StatusOK {
-			return fmt.Errorf("update machine: %s", response.Status)
-		}
-		return nil
-	}
-	if err := setMachineFlag(ctx, true); err != nil {
-		t.Fatal(err)
-	}
 	agentID := project.createAgent(t, ctx)
 	daemon := env.startDaemonContainer(t, ctx, machine.daemonToken, machine.workdir)
 	waitForDaemonRuntime(t, ctx, env, project.orgID, machine.machineID)
@@ -97,24 +74,6 @@ func TestServiceE2EDaemonProgramToolCalls(t *testing.T) {
 				!strings.Contains(result.Output, `"entries"`) || !strings.Contains(result.Output, "search_exit=0") ||
 				!strings.Contains(result.Output, `"name":"storage_list"`) {
 				failModelRequest(w, http.StatusBadRequest, "script result = %+v", result)
-				return
-			}
-			if err := setMachineFlag(r.Context(), false); err != nil {
-				failModelRequest(w, http.StatusInternalServerError, "disable machine flag: %v", err)
-				return
-			}
-			writeOpenAIFunctionCall(w, failModelRequest, "resp_disabled", "call_disabled", "run_command", map[string]any{
-				"command": `echo "bin=${OMNARA_BIN:-unset}"; /root/.omnarad/bin/omnarad call storage_list '{}'; ` +
-					`echo "disabled_exit=$?"`,
-				"shell": "sh", "cwd": "/work", "wait_ms": 30000,
-			})
-		case 3:
-			result, ok := fakeModelProcessResult(w, body, failModelRequest, "call_disabled")
-			if !ok {
-				return
-			}
-			if !strings.Contains(result.Output, "bin=unset") || !strings.Contains(result.Output, "disabled_exit=2") {
-				failModelRequest(w, http.StatusBadRequest, "disabled result = %+v", result)
 				return
 			}
 			writeOpenAIMessage(w, failModelRequest, "resp_done", "DONE_"+nonce)
@@ -179,7 +138,7 @@ WHERE event.agent_id = $1 AND call.caller = 'program'`, agentUUID).Scan(&childEv
 	if childEvents != 0 {
 		t.Fatalf("program tool calls wrote %d agent events, want none", childEvents)
 	}
-	if got := requestCount.Load(); got != 3 {
-		t.Fatalf("fake model saw %d requests, want 3", got)
+	if got := requestCount.Load(); got != 2 {
+		t.Fatalf("fake model saw %d requests, want 2", got)
 	}
 }

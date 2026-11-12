@@ -215,12 +215,6 @@ ALTER TABLE agent_interactions
         resolved_by_actor_id IS NULL OR (state = 'resolved' AND resolved_by_input_id IS NULL)
     ) NOT VALID;
 
-ALTER TABLE machine_pools
-    ADD COLUMN default_programmatic_tool_calls boolean NOT NULL DEFAULT false;
-
-ALTER TABLE machines
-    ADD COLUMN programmatic_tool_calls boolean NOT NULL DEFAULT false;
-
 CREATE UNIQUE INDEX CONCURRENTLY tool_calls_program_key_idx
     ON tool_calls(agent_id, parent_tool_call_id, provider_call_id) WHERE caller = 'program';
 

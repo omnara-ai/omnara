@@ -12,7 +12,7 @@ export const zAgentConfigDefinitionGitCredentials = z.object({
 });
 
 /**
- * How the agent reaches tools marked `deferred`. With `tool_add`, the default, `tool_search` adds matching tools to the model's tool list. With `code_mode`, commands started by run_command call them with `omnarad call <tool> '<json input>'` and `tool_search` returns their input and output schemas instead; a tool commands cannot call, or any tool while the agent has no machine that allows programmatic tool calls, is added as with `tool_add`. Subagents do not inherit this setting.
+ * How the agent reaches tools marked `deferred`. With `tool_add`, the default, `tool_search` adds matching tools to the model's tool list. With `code_mode`, commands started by run_command call them with `omnarad call <tool> '<json input>'` and `tool_search` returns their input and output schemas instead; a tool commands cannot call, or any tool while the agent has no online machine, is added as with `tool_add`. Subagents do not inherit this setting.
  */
 export const zAgentConfigDefinitionDeferredTools = z.object({
     mode: z.enum(['tool_add', 'code_mode'])
@@ -2570,7 +2570,6 @@ export const zCreateMachinePoolRequestBase = z.object({
     provider_config: z.record(z.string(), z.unknown()).optional(),
     provider_auth_secret_id: zSecretId,
     runtime_protection_enabled: z.boolean().optional().default(false),
-    default_programmatic_tool_calls: z.boolean().optional().default(false),
     max_total_machines: z.int().gte(0).lte(2147483647),
     max_total_cpu: z.int().gte(0).lte(2147483647).optional(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).optional(),
@@ -2635,7 +2634,6 @@ export const zUpdateMachinePoolRequest = z.object({
     provider_config: z.record(z.string(), z.unknown()).optional(),
     provider_auth_secret_id: zSecretId.optional(),
     runtime_protection_enabled: z.boolean().optional(),
-    default_programmatic_tool_calls: z.boolean().optional(),
     max_total_machines: z.int().gte(0).lte(2147483647).optional(),
     max_total_cpu: z.int().gte(0).lte(2147483647).nullish(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).nullish(),
@@ -2669,7 +2667,6 @@ export const zMachinePool = z.object({
     provider_auth_secret_id: zSecretId.optional(),
     provider_config: z.record(z.string(), z.unknown()),
     runtime_protection_enabled: z.boolean(),
-    default_programmatic_tool_calls: z.boolean(),
     max_total_machines: z.int().gte(0).lte(2147483647),
     max_total_cpu: z.int().gte(0).lte(2147483647).nullable(),
     max_total_memory_mb: z.int().gte(0).lte(2147483647).nullable(),
@@ -2725,7 +2722,6 @@ export const zMachine = z.object({
     cwd: z.string(),
     env: z.record(z.string(), z.string()),
     secret_env: z.record(z.string(), zSecretId),
-    programmatic_tool_calls: z.boolean(),
     lifecycle_reason_code: z.string(),
     lifecycle_reason_message: z.string(),
     failure_report: zMachineFailureReport.optional(),
@@ -2761,8 +2757,7 @@ export const zConnectByoMachineRequest = z.object({
 export const zUpdateMachineRequest = z.object({
     cwd: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
-    secret_env: z.record(z.string(), zSecretId).optional(),
-    programmatic_tool_calls: z.boolean().optional()
+    secret_env: z.record(z.string(), zSecretId).optional()
 });
 
 /**

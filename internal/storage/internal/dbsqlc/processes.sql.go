@@ -767,7 +767,6 @@ WHERE process.org_id = $1
   AND process.execution_spec->>'kind' = 'shell'
   AND process.execution_granted_at IS NOT NULL
   AND process.state IN ('starting', 'running')
-  AND machine.programmatic_tool_calls
   AND original_definition.compiled_definition->'deferred_tools'->>'mode' = 'code_mode'
   AND current_definition.compiled_definition->'deferred_tools'->>'mode' = 'code_mode'
 `
@@ -1295,8 +1294,7 @@ SELECT process.id, process.org_id, process.project_id, process.agent_id, process
          WHERE tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
        ) END)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id,
        coalesce(process.execution_spec->>'kind' = 'shell' AND (
-         SELECT machine.programmatic_tool_calls
-           AND definition.compiled_definition->'deferred_tools'->>'mode' = 'code_mode'
+         SELECT definition.compiled_definition->'deferred_tools'->>'mode' = 'code_mode'
          FROM tool_calls tool_call
          JOIN model_outputs output ON output.agent_id = tool_call.agent_id
            AND output.id = tool_call.model_output_id
@@ -1306,8 +1304,6 @@ SELECT process.id, process.org_id, process.project_id, process.agent_id, process
            AND config.id = context.agent_config_id
          JOIN agent_config_definitions definition ON definition.project_id = config.project_id
            AND definition.id = config.definition_id
-         JOIN machines machine ON machine.org_id = process.org_id AND machine.id = process.machine_id
-           AND machine.deleted_at IS NULL
          WHERE tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
        ), false)::boolean AS programmatic_tool_calls
 FROM processes process

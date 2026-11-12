@@ -115,7 +115,7 @@ If Omnara cannot choose a machine, the tool returns an error to the agent so it 
 
 ### Calling tools from commands
 
-When the agent's config sets [`deferred_tools.mode: code_mode`](/agents/configuration#code-mode) and the machine [allows programmatic tool calls](/machines/connect#programmatic-tool-calls), commands started with `run_command` can call the agent's deferred tools with `omnarad call <tool> '<json input>'`. The `run_command` description then tells the model how. For example, to list the paths of Markdown files in a memory store:
+When the agent's config sets [`deferred_tools.mode: code_mode`](/agents/configuration#code-mode), commands started with `run_command` can call the agent's deferred tools with `omnarad call <tool> '<json input>'`. The `run_command` description then tells the model how. For example, to list the paths of Markdown files in a memory store:
 
 ```bash
 omnarad call storage_list '{"pattern":"/memory/notes/**/*.md"}' | jq -r '.entries[]?.path'
@@ -137,7 +137,7 @@ Results go only to the command, never into the model's context, so an agent can 
 | --- | --- |
 | `0` | The tool succeeded |
 | `1` | The tool failed, was denied, or was canceled. The outcome and content are printed to stderr as JSON |
-| `2` | The tool can't be called from commands, code mode or the machine's programmatic tool calls are off, or the input isn't a JSON object |
+| `2` | The tool can't be called from commands, code mode is off, or the input isn't a JSON object |
 | `3` | The daemon couldn't be reached or the call timed out. A timed-out call may still complete |
 
 To find tools and their schemas, call `tool_search` with a case-insensitive regular expression. It returns every matching tool the command can call, unless `max_results` limits it:

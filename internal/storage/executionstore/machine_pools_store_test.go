@@ -47,7 +47,6 @@ func TestValidateClusterMachinePoolUpdate(t *testing.T) {
 		{field: "ProviderConfig", input: UpdateMachinePoolInput{ProviderConfig: json.RawMessage(`{}`)}, protected: true},
 		{field: "ProviderAuthSecretID", input: UpdateMachinePoolInput{ProviderAuthSecretID: &secretID}, protected: true},
 		{field: "RuntimeProtectionEnabled", input: UpdateMachinePoolInput{RuntimeProtectionEnabled: &flag}, protected: true},
-		{field: "DefaultProgrammaticToolCalls", input: UpdateMachinePoolInput{DefaultProgrammaticToolCalls: &flag}},
 		{field: "MaxTotalMachines", input: UpdateMachinePoolInput{MaxTotalMachines: &maxMachines}, protected: true},
 		{field: "MaxTotalCPU", input: UpdateMachinePoolInput{MaxTotalCPU: patch.NullableInt{Set: true}}, protected: true},
 		{

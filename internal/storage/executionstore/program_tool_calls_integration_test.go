@@ -32,13 +32,6 @@ func TestProgramToolCallsStore(t *testing.T) {
 	}, executionstore.CreateProcessInput{ExecutionSpec: processcmd.ForShell("sleep 60", "sh", ""),
 		AgentMachineBindingID: fixture.BindingID, Cwd: "/work"})
 	require.NoError(t, err)
-	setMachineFlag := func(enabled bool) {
-		t.Helper()
-		machine, err := execution.UpdateMachine(ctx, executionstore.UpdateMachineInput{
-			OrgID: testOrgID, MachineID: fixture.MachineID, ProgrammaticToolCalls: &enabled})
-		require.NoError(t, err)
-		require.Equal(t, enabled, machine.ProgrammaticToolCalls)
-	}
 	offerFlag := func() bool {
 		t.Helper()
 		offers, err := execution.ListDaemonProcessOffers(ctx, executionstore.DaemonWorkInput{
@@ -47,8 +40,6 @@ func TestProgramToolCallsStore(t *testing.T) {
 		require.Len(t, offers, 1)
 		return offers[0].ProgrammaticToolCalls
 	}
-	require.False(t, offerFlag())
-	setMachineFlag(true)
 	require.True(t, offerFlag())
 	_, found, err := acceptDaemonProcessForTest(ctx, store, testOrgID, fixture.MachineID, fixture.RuntimeID, process.ID)
 	require.NoError(t, err)
@@ -66,11 +57,6 @@ func TestProgramToolCallsStore(t *testing.T) {
 	require.Equal(t, "model", parentRecord.Caller)
 	require.Equal(t, executionstore.ProgramToolScope{ProjectID: testProjectID, AgentID: fixture.AgentID,
 		ProcessID: process.ID, AgentConfigID: config.ID}, scope)
-	setMachineFlag(false)
-	_, found, err = execution.GetDaemonProgramToolScope(ctx, testOrgID, fixture.MachineID, process.ID)
-	require.NoError(t, err)
-	require.False(t, found)
-	setMachineFlag(true)
 
 	create := func(key string) executionstore.ProgramToolCallRecord {
 		t.Helper()
