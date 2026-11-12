@@ -101,6 +101,15 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
     }
   }
 
+  /**
+   * The key Omnara uses to recognise a retry. The browser's key is combined with the
+   * signed-in user, so one user's key can never return another user's conversation.
+   */
+  async function requestKey(user: GuideUser, key: string) {
+    const digest = await crypto.subtle.digest('SHA-256', enc.encode(JSON.stringify([user.id, key])))
+    return `guide-${[...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')}`
+  }
+
   const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u202f\ufeff]/g, ' ').replace(/\s+/g, ' ').trim()
   function titleFrom(text: string, room: number) {
     const clean = oneLine(text) || 'Conversation'
@@ -205,6 +214,7 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
       if (req.method === 'POST' && route[0] === 'message') {
         const body = (await req.json()) as { text: string; context: string; key: string; steering?: boolean }
         if (!body.text || !body.key) return json({ error: 'text and key are required' }, { status: 400 })
+        const idempotencyKey = await requestKey(user, String(body.key))
         const content_blocks = [
           { type: 'text', text: body.text, metadata: { guide: 'question' } },
           { type: 'text', text: body.context, metadata: { guide: 'context' } },
@@ -213,7 +223,7 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
           try {
             await omnara(`${agentPath}/inputs`, {
               method: 'POST',
-              idempotencyKey: body.key,
+              idempotencyKey,
               body: JSON.stringify({
                 content_blocks,
                 actor: actorFor(user),
@@ -229,7 +239,7 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
         }
         const launched = (await omnara('/agents', {
           method: 'POST',
-          idempotencyKey: body.key,
+          idempotencyKey,
           body: JSON.stringify({
             profile: await ensureProfile(user),
             name: titleFrom(body.text, 64),
