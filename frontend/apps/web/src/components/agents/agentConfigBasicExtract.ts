@@ -27,6 +27,7 @@ import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFo
 import { configNodeSource } from '@/components/agents/agentConfigSourcePatch'
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
+import { configJson, configRecord } from '@/components/agents/agentConfigValidation'
 import type {
   BasicConfig,
   BasicMachineSource,
@@ -42,7 +43,8 @@ import {
 import { machinePoolProviderDefinitions } from '@/components/org/machinePoolProviders'
 import { memoryGbDraft } from '@/lib/machine-memory'
 
-const permissionParameters = z.record(z.string(), z.json())
+const interactionHandler = configRecord(z.never())
+const permissionParameters = configRecord(configJson)
 
 const permission = z.strictObject({
   ...zAgentConfigDefinitionToolPermission.shape,
@@ -63,8 +65,8 @@ export function permissionSelection(selection: ToolPermissionSelection): Permiss
 const positiveCount = z.number().int().positive().optional()
 const nonNegativeCount = z.number().int().nonnegative().optional()
 const idleDeletionMinutes = z.number().refine(idleDeletionMinutesValid).optional()
-const overlay = z.record(z.string(), z.string().nullable()).nullish()
-const providerOptionsOverlay = z.record(z.string(), z.string()).optional()
+const overlay = configRecord(z.string().nullable()).nullish()
+const providerOptionsOverlay = configRecord(z.string()).optional()
 
 const machineEntry = z.strictObject({
   machine_name: z.string(),
@@ -113,7 +115,7 @@ const mcpEntry = z.strictObject({
   default_enabled: z.boolean().nullish(),
   deferred: z.boolean().optional(),
   auth: mcpAuth.optional(),
-  tools: z.record(z.string(), mcpToolEntry).optional(),
+  tools: configRecord(mcpToolEntry).optional(),
 })
 
 export type McpEntry = z.infer<typeof mcpEntry>
@@ -168,13 +170,13 @@ const basicDocument = z.looseObject({
     })
     .nullish(),
   machine_sources: z.array(z.union([poolEntry, machineEntry])).nullish(),
-  tools: z.record(z.string(), toolEntry).nullish(),
-  interaction_handlers: z.record(z.string(), zAgentConfigDefinitionInteractionHandler).nullish(),
+  tools: configRecord(toolEntry).nullish(),
+  interaction_handlers: configRecord(interactionHandler).nullish(),
   git_credentials: z.strictObject(zAgentConfigDefinitionGitCredentials.shape).nullish(),
   skills: definitionFields.skills,
   memory_stores: z.array(memoryStoreEntry).nullish(),
-  mcp: z.record(z.string(), mcpEntry).nullish(),
-  subagents: z.record(z.string(), subagentEntry).nullish(),
+  mcp: configRecord(mcpEntry).nullish(),
+  subagents: configRecord(subagentEntry).nullish(),
   max_subagents: definitionFields.max_subagents,
   max_depth: positiveCount,
 })
@@ -195,7 +197,7 @@ export function parseBasicConfigSource(source: string, format: ConfigSourceForma
   const hasOpaqueScalar = (path: string[]) =>
     scalarDiagnostics.some((issue) => path.every((part, index) => part === issue.path[index]))
   const advancedEntries: AdvancedConfigEntry[] = []
-  const rawResult = z.record(z.string(), z.json()).safeParse(doc.toJS())
+  const rawResult = configRecord(configJson).safeParse(doc.toJS())
   if (!rawResult.success) {
     diagnostics.push(
       ...rawResult.error.issues.map((issue): ConfigDiagnostic => ({
@@ -244,7 +246,7 @@ export function parseBasicConfigSource(source: string, format: ConfigSourceForma
     ['tools', toolEntry],
     ['mcp', mcpEntry],
     ['subagents', subagentEntry],
-    ['interaction_handlers', zAgentConfigDefinitionInteractionHandler],
+    ['interaction_handlers', interactionHandler],
   ])
   for (const [key, value] of Object.entries(raw)) {
     if (key === 'machine_sources' && Array.isArray(value)) {
@@ -263,14 +265,14 @@ export function parseBasicConfigSource(source: string, format: ConfigSourceForma
       continue
     }
     const namedSchema = namedSchemas.get(key)
-    const entries = z.record(z.string(), z.json()).safeParse(value)
+    const entries = configRecord(configJson).safeParse(value)
     if (namedSchema && entries.success) {
-      const managed: typeof raw = {}
+      const managed = new Map<string, z.output<typeof configJson>>()
       for (const [name, entry] of Object.entries(entries.data)) {
         if (key === 'tools' && z.object({ type: z.literal('custom') }).safeParse(entry).success) {
           preserve([key, name], 'custom')
         } else if (hasOpaqueScalar([key, name])) preserve([key, name])
-        else if (namedSchema.safeParse(entry).success) managed[name] = entry
+        else if (namedSchema.safeParse(entry).success) managed.set(name, entry)
         else {
           preserve([key, name])
           const authoritative = authoritativeEntries.get(key)
@@ -289,7 +291,7 @@ export function parseBasicConfigSource(source: string, format: ConfigSourceForma
             )
         }
       }
-      projection[key] = managed
+      projection[key] = Object.fromEntries(managed)
       continue
     }
     if (
@@ -309,7 +311,7 @@ export function parseBasicConfigSource(source: string, format: ConfigSourceForma
     }
   }
   const parsed = basicDocument.parse(projection)
-  const model = z.record(z.string(), z.unknown()).safeParse(projection.model)
+  const model = configRecord(z.unknown()).safeParse(projection.model)
   if (model.success) {
     for (const key of Object.keys(model.data)) {
       if (!['provider_config', 'name', 'reasoning'].includes(key)) {

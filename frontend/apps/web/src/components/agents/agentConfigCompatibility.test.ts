@@ -92,6 +92,48 @@ describe('mixed managed and advanced configurations', () => {
     },
   )
 
+  it.each(['yaml', 'json'])(
+    'retains special keys in %s without hiding rename collisions',
+    (format) => {
+      const yaml = `instruction: Help.
+model: {provider_config: openai, name: primary}
+tools:
+  __proto__: {type: custom, description: Example., input_schema: {type: object, properties: {__proto__: {type: string}}, required: [__proto__]}}
+  web_search: {permission: {mode: always_allow, parameters: {__proto__: retained, other: true}}}
+subagents:
+  __proto__: {type: self, max_instances: 2}
+  helper: {type: self, max_instances: 3}
+`
+      const source = format === 'json' ? JSON.stringify(parse(yaml), null, 2) : yaml
+      const { session, draft } = sessionFor(source)
+      expect(session.diagnostics).toEqual([])
+      expect(draft.advancedEntries).toMatchObject([
+        { path: ['tools', '__proto__'], kind: 'custom' },
+      ])
+      expect(draft.tools[0]?.permission?.parameters).toHaveProperty(['__proto__'], 'retained')
+      expect(draft.subagents.map((entry) => entry.key)).toEqual(['__proto__', 'helper'])
+      expect(session.apply(draft)).toBe(source)
+      expect(session.apply({ ...draft, instruction: 'Updated.' })).toBe(
+        source.replace('Help.', 'Updated.'),
+      )
+      const changed = session.apply({
+        ...draft,
+        tools: [
+          { name: 'web_search', permission: { mode: 'always_allow', parameters: { other: true } } },
+        ],
+      })
+      expect(parse(changed)).toHaveProperty(['tools', 'web_search', 'permission', 'parameters'], {
+        other: true,
+      })
+      const collision = session.evaluate({
+        ...draft,
+        subagents: draft.subagents.map((entry) => ({ ...entry, key: '__proto__' })),
+      })
+      expect(collision.issues).toMatchObject([{ path: ['subagents', '__proto__'], error: true }])
+      expect(collision.yaml).toBe(source)
+    },
+  )
+
   it('rejects managed names owned by custom tools without corrupting source', () => {
     const { session, draft } = sessionFor()
     const collision = {

@@ -394,6 +394,13 @@ function removeItem(parent: Collection, index: number) {
       const comment = next.start.findIndex((token) => token.type === 'comment')
       const retained = comment < 0 ? [] : next.start.slice(gap.length === 0 ? 0 : comment)
       next.start = [...gap, ...retained.filter((token) => token.type !== 'comma')]
+    } else if (next?.start.some((token) => token.type === 'comma')) {
+      const comment = removed.start.map((token) => token.type).lastIndexOf('comment')
+      if (comment >= 0) {
+        const newline = next.start.findIndex((token) => token.type === 'newline')
+        const tail = newline < 0 ? removed.start.slice(comment + 1) : next.start.slice(newline)
+        next.start = [...removed.start.slice(0, comment + 1), ...tail]
+      }
     } else if (next) next.start = [...gap, ...next.start]
     else parent.end.unshift(...gap)
     if (parent.items[0])

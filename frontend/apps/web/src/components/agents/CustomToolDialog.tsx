@@ -86,6 +86,9 @@ export function CustomToolDialog({
     >
       <DialogContent
         className="sm:max-w-2xl"
+        onEscapeKeyDown={(event) => {
+          if (dirty) event.preventDefault()
+        }}
         onInteractOutside={(event) => {
           if (dirty) event.preventDefault()
         }}
