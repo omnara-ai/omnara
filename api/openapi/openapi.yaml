@@ -5797,8 +5797,7 @@ paths:
         - name: state
           in: query
           description: >-
-            Return only interactions in this state: open (waiting for an answer), resolved (answered), or
-            canceled (the work it guarded was canceled, superseded, or archived). Omit it to return all states.
+            Filter by state: open, resolved, or canceled. Omit for all.
           required: false
           schema:
             $ref: '#/components/schemas/AgentInteractionState'
@@ -9684,74 +9683,52 @@ components:
       properties:
         git_credentials:
           description: >-
-            GitHub integration whose credentials authenticate HTTPS Git and gh in the agent's machine
-            processes. Adds list_github_repositories. Subagents never receive these credentials.
+            GitHub integration whose credentials the agent's machine processes use for Git and gh. Not passed to
+            subagents.
           $ref: '#/components/schemas/AgentConfigDefinitionGitCredentials'
         instruction:
-          description: >-
-            System-level brief for the agent: its job, its boundaries, and when to ask a human. Subagents
-            can add to it with instruction.append.
+          description: System instruction for the agent.
           type: string
           minLength: 1
           pattern: '\S'
         interaction_handlers:
           description: >-
-            Integration interaction handlers the agent can use to present questions and approvals outside
-            the dashboard, keyed by integration name with empty objects. Not inherited by subagents.
+            Integrations that show the agent's questions and approvals outside the dashboard, keyed by
+            integration name. Not passed to subagents.
           $ref: '#/components/schemas/AgentConfigDefinitionInteractionHandlers'
         machine_sources:
-          description: >-
-            BYO machines and machine pools the agent runs commands on. A nonempty list adds the command,
-            process and machine tools. A pool source also adds create_machine and delete_machine.
+          description: BYO machines and machine pools the agent can run commands on.
           $ref: '#/components/schemas/AgentConfigDefinitionMachineSources'
         max_depth:
-          description: >-
-            How many levels of subagents can nest below this agent. Defaults to 1, so subagents cannot spawn
-            their own. Carried into every subagent config and cannot be raised by a subagent.
+          description: Maximum subagent nesting depth. Defaults to 1, so subagents cannot spawn their own.
           type: integer
           minimum: 1
           maximum: 8
         max_subagents:
-          description: >-
-            Cap on active subagents across all subagents keys. When unset, the config sets no overall cap
-            and only each key's max_instances applies.
+          description: Maximum active subagents across all keys. Unset means no overall limit.
           type: integer
           minimum: 1
           maximum: 2147483647
         mcp:
-          description: >-
-            MCP servers the agent connects to, keyed by a server name. The name appears in tool names as
-            mcp__{server}__{tool}.
+          description: MCP servers the agent can use, keyed by server name. Their tools are named mcp__{server}__{tool}.
           $ref: '#/components/schemas/AgentConfigDefinitionMCPServers'
         memory_stores:
-          description: >-
-            Project memory stores the agent can use at /memory/<store-name>/ through the file tools.
-            Attaching a store adds the retrieval tools, and read_write access adds storage_write.
+          description: Project memory stores the agent can access at /memory/{name}/.
           $ref: '#/components/schemas/AgentConfigDefinitionMemoryStores'
         model:
-          description: >-
-            Model the agent runs on, selected by provider and configured model name, plus optional overrides
-            of that model's defaults.
+          description: Model the agent runs on, with optional overrides of its defaults.
           $ref: '#/components/schemas/AgentConfigDefinitionModel'
         skills:
-          description: >-
-            IDs (skl_...) of skills the agent can load with the skill tool, which is added automatically.
-            The project must own or be granted each skill, and skill names must be unique within the list.
+          description: IDs (skl_...) of skills the agent can load. The project must own or be granted each one.
           $ref: '#/components/schemas/AgentConfigDefinitionSkills'
         subagents:
-          description: >-
-            Subagents this agent may spawn, keyed by the name it passes to spawn_agent. Declaring any key
-            adds the five subagent tools.
+          description: Subagents the agent can spawn, keyed by name.
           $ref: '#/components/schemas/AgentConfigDefinitionSubagents'
         tools:
-          description: >-
-            Built-in and custom tools keyed by tool name. {} enables a tool with its defaults. MCP tools are
-            configured under mcp.
+          description: Built-in and custom tools, keyed by tool name. {} enables a tool with its defaults.
           $ref: '#/components/schemas/AgentConfigDefinitionTools'
         version:
-          description: >-
-            Config format version. Only v1 exists today. It is optional, but include it for forward
-            compatibility.
+          description: Config format version. Only v1 exists.
           enum: [v1]
       x-go-type: json.RawMessage
     AgentConfigToolsDefinition:
@@ -9785,9 +9762,7 @@ components:
       required: [integration]
       properties:
         integration:
-          description: >-
-            Name of a project GitHub integration whose installation supplies the credentials. Resolved to
-            the integration's immutable ID when the config is compiled.
+          description: Name of a GitHub integration in the project.
           type: string
           pattern: '^[a-zA-Z][a-zA-Z0-9-]{0,31}$'
         repository_ids:
@@ -9827,29 +9802,24 @@ components:
       required: [type, secret_id]
       properties:
         region:
-          description: >-
-            AWS signing region of the MCP endpoint. Required for sigv4 and rejected for other types. It does
-            not limit which AWS regions tool calls can target.
+          description: AWS region to sign for. Required for sigv4 only.
           type: string
           minLength: 1
         secret_id:
           description: >-
-            Secret holding the credential. Its kind must match type: a generic secret for bearer,
-            oauth_token_set for oauth, or aws_credentials for sigv4. The config never contains the
-            credential itself.
+            Secret holding the credential: generic for bearer, oauth_token_set for oauth, aws_credentials for
+            sigv4.
           type: string
           minLength: 1
           pattern: '^sec_[a-z2-7]{26}$'
         service:
-          description: >-
-            AWS SigV4 signing service name, such as aws-mcp. Required for sigv4 and rejected for other
-            types.
+          description: AWS service to sign for, such as aws-mcp. Required for sigv4 only.
           type: string
           minLength: 1
         type:
           description: >-
-            How requests are authenticated: bearer sends a static token, oauth uses tokens from Omnara's MCP
-            OAuth flow, and sigv4 signs each request with AWS Signature Version 4.
+            bearer sends a static token, oauth uses tokens from Omnara's MCP OAuth flow, and sigv4 signs
+            requests with AWS SigV4.
           enum: [bearer, oauth, sigv4]
       x-go-type: json.RawMessage
     AgentConfigDefinitionMCPServer:
@@ -9858,30 +9828,21 @@ components:
       required: [url]
       properties:
         auth:
-          description: >-
-            How Omnara authenticates to this server. Omit it for servers that need no authentication.
+          description: How to authenticate to the server. Omit if it needs none.
           $ref: '#/components/schemas/AgentConfigDefinitionMCPAuth'
         default_enabled:
-          description: >-
-            Whether the server's tools are exposed unless overridden per tool. Defaults to true. Set it to
-            false to expose only the tools marked enabled: true under tools.
+          description: Whether tools are enabled unless overridden in tools. Defaults to true.
           anyOf:
             - type: boolean
             - type: 'null'
         deferred:
-          description: >-
-            When true, the server's tools stay out of the model's context until tool_search loads them. A
-            tool's own deferred setting overrides this. Defaults to false.
+          description: Keep the server's tools out of context until tool_search loads them. Defaults to false.
           type: boolean
         permission:
-          description: >-
-            Default permission for this server's tools. A tool's own permission overrides it. Defaults to
-            always_ask.
+          description: Default permission for the server's tools. Defaults to always_ask.
           $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
         tools:
-          description: >-
-            Per-tool overrides, keyed by the tool's name on the MCP server (without the mcp__{server}__
-            prefix).
+          description: Per-tool overrides, keyed by the tool's name on the server.
           type: object
           additionalProperties:
             $ref: '#/components/schemas/AgentConfigDefinitionMCPTool'
@@ -9889,9 +9850,7 @@ components:
             type: string
             pattern: '^[a-zA-Z][a-zA-Z0-9_-]{0,63}$'
         url:
-          description: >-
-            The server's MCP endpoint. Must use https. Plain http is accepted only for loopback hosts on
-            deployments that enable insecure local development.
+          description: HTTPS URL of the server's MCP endpoint.
           type: string
           minLength: 1
       x-go-type: json.RawMessage
@@ -9910,21 +9869,17 @@ components:
       additionalProperties: false
       properties:
         deferred:
-          description: >-
-            Overrides the server's deferred setting for this tool. Null or omitted inherits the server's
-            value.
+          description: Overrides the server's deferred setting. Null inherits it.
           anyOf:
             - type: boolean
             - type: 'null'
         enabled:
-          description: >-
-            true exposes this tool and false hides it. Null or omitted follows the server's default_enabled.
+          description: Enables or hides the tool. Null follows the server's default_enabled.
           anyOf:
             - type: boolean
             - type: 'null'
         permission:
-          description: >-
-            Permission for calls to this tool. Overrides the server's permission.
+          description: Overrides the server's permission for this tool.
           $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
       x-go-type: json.RawMessage
     AgentConfigDefinitionMachineSource:
@@ -9932,30 +9887,24 @@ components:
       additionalProperties: false
       properties:
         cwd:
-          description: >-
-            Working directory for the agent's processes on this source's machines. Replaces the machine's or
-            pool's default.
+          description: Working directory for the agent's processes. Overrides the machine or pool default.
           type: string
           maxLength: 4096
         delete_after_idle_minutes:
           description: >-
-            Pool sources only. Deletes a pool machine after it has had no process work for this many
-            minutes. Unset inherits the grant or pool setting, and 0 disables idle deletion.
+            Pools only. Delete a machine after this many idle minutes; 0 disables. Unset inherits the grant or
+            pool setting.
           anyOf:
             - const: 0
             - type: integer
               minimum: 5
               maximum: 2147483647
         description:
-          description: >-
-            Note describing this source to the agent, such as what the pool or machine is for. list_machines
-            shows it with each pool.
+          description: Describes this source to the agent.
           type: string
           maxLength: 4096
         env_overlay:
-          description: >-
-            Environment variables for every process the agent runs on these machines. For pools, they also
-            apply at provisioning. Set a value to null to remove an inherited variable.
+          description: Environment variables for the agent's processes. A null value removes an inherited variable.
           anyOf:
             - type: object
               additionalProperties:
@@ -9966,52 +9915,36 @@ components:
                 $ref: '#/components/schemas/EnvironmentVariableName'
             - type: 'null'
         initial_num_machines:
-          description: >-
-            Pool sources only. Number of pool machines created when the agent launches. Defaults to 1 (0
-            when max_machines is 0) and cannot exceed max_machines.
+          description: Pools only. Machines to create at launch. Defaults to 1 and cannot exceed max_machines.
           type: integer
           minimum: 0
         machine_cpu:
-          description: >-
-            Pool sources only. Default CPU count for this agent's new pool machines, within pool and project
-            limits. Support varies by provider.
+          description: Pools only. vCPUs for new machines, within pool and project limits.
           type: integer
           minimum: 1
           maximum: 2147483647
         machine_memory_mb:
-          description: >-
-            Pool sources only. Default memory in MB for this agent's new pool machines, within pool and
-            project limits. Support varies by provider.
+          description: Pools only. Memory in MB for new machines, within pool and project limits.
           type: integer
           minimum: 1
           maximum: 2147483647
         machine_name:
-          description: >-
-            Name of a BYO machine granted to the project. Set this or machine_pool_name, not both. Resolved
-            to the machine's immutable ID at compile time.
+          description: Name of a BYO machine granted to the project. Set this or machine_pool_name.
           $ref: '#/components/schemas/ResourceNameReference'
         machine_pool_name:
-          description: >-
-            Name of a machine pool granted to the project, from which Omnara creates machines on demand. Set
-            this or machine_name, not both.
+          description: Name of a machine pool granted to the project. Set this or machine_name.
           $ref: '#/components/schemas/ResourceNameReference'
         machine_provider_options_overlay:
-          description: >-
-            Pool sources only. Provider-specific machine options layered over the pool's and project grant's
-            options for this agent's new machines.
+          description: Pools only. Provider options applied over the pool and grant options.
           anyOf:
             - type: object
             - type: 'null'
         max_machines:
-          description: >-
-            Pool sources only. Total pool machines this agent may hold from this source, including ones it
-            creates with create_machine. Defaults to 1. Pool and project limits still apply.
+          description: Pools only. Most machines the agent can hold from this pool. Defaults to 1.
           type: integer
           minimum: 0
         secret_env_overlay:
-          description: >-
-            Environment variables whose values come from secrets (sec_... IDs), resolved when injected.
-            Applies like env_overlay. Set a value to null to remove an inherited variable.
+          description: Environment variables set from secrets (sec_...). A null value removes an inherited variable.
           anyOf:
             - type: object
               additionalProperties:
@@ -10041,13 +9974,10 @@ components:
       required: [name, access]
       properties:
         name:
-          description: >-
-            Name of a memory store in the project. Its files appear to the agent at /memory/<name>/.
+          description: Name of a memory store in the project.
           $ref: '#/components/schemas/MemoryStoreName'
         access:
-          description: >-
-            read lets the agent read the store's files. read_write also lets it write them, but only when
-            the store's agent_access is also read_write.
+          description: read, or read_write if the store also allows agent writes.
           type: string
           enum: [read, read_write]
       x-go-type: json.RawMessage
@@ -10065,8 +9995,7 @@ components:
       properties:
         cache_retention:
           description: >-
-            Prompt-cache preference: none sends no Omnara cache controls, short uses the route's default
-            caching, and long prefers an extended cache lifetime where one exists. Unset uses the configured
+            Prompt caching: none, short (provider default), or long (extended where available). Unset uses the
             model's default.
           enum: [none, short, long]
         context_window_tokens:
@@ -10075,24 +10004,17 @@ components:
           maximum: 2147483647
           description: Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         default_max_output_tokens:
-          description: >-
-            Per-request output-token cap sent to the provider. Overrides the configured model's default.
+          description: Maximum output tokens per request. Overrides the model's default.
           type: integer
           minimum: 1
         name:
-          description: >-
-            Configured model name. Must exactly match a model configured under provider_config that is
-            available to the project.
+          description: Configured model name under provider_config.
           $ref: '#/components/schemas/ResourceNameReference'
         provider_config:
-          description: >-
-            Name of the organization's model provider. Resolved to the provider's immutable ID when the
-            config is created.
+          description: Name of the organization's model provider.
           $ref: '#/components/schemas/ResourceNameReference'
         reasoning:
-          description: >-
-            Reasoning settings for models that support them. effort, such as low, medium or high, overrides
-            the configured model's default reasoning effort.
+          description: Reasoning effort, such as low, medium, or high, for models that support it.
           type: object
           additionalProperties: false
           required: [effort]
@@ -10117,41 +10039,29 @@ components:
       required: [type]
       properties:
         archive_after_idle_minutes:
-          description: >-
-            Archives subagents spawned from this key after they have been idle this many minutes. When
-            unset, they are not archived for being idle.
+          description: Archive these subagents after this many idle minutes. Unset never archives them for being idle.
           type: integer
           minimum: 1
           maximum: 2147483647
         description:
-          description: >-
-            Shown to the model when it chooses which subagent key to spawn.
+          description: Tells the model when to spawn this subagent.
           type: string
         instruction:
-          description: >-
-            Changes to the launched config's instruction.
+          description: Changes to the subagent's instruction.
           $ref: '#/components/schemas/AgentConfigDefinitionSubagentInstruction'
         max_instances:
-          description: >-
-            Cap on active subagents spawned from this key. When unset, there is no per-key cap, but
-            max_subagents still applies.
+          description: Maximum active subagents from this key. Unset means no per-key limit.
           type: integer
           minimum: 1
           maximum: 2147483647
         model:
-          description: >-
-            Model overrides for this subagent. Omit provider_config and name to inherit the parent's model
-            (self) or the profile's model (profile). Other fields override that model individually.
+          description: Model overrides. Omit provider_config and name to keep the base model.
           $ref: '#/components/schemas/AgentConfigDefinitionSubagentModel'
         profile:
-          description: >-
-            Name of the agent profile to launch from, using the profile's current config. Required when type
-            is profile and rejected for self.
+          description: Agent profile to launch from. Required when type is profile.
           $ref: '#/components/schemas/ResourceNameReference'
         type:
-          description: >-
-            profile launches from the named profile's current config. self launches from a copy of this
-            agent's own config.
+          description: profile launches from a profile's current config; self copies this agent's config.
           enum: [profile, self]
       if:
         type: object
@@ -10171,9 +10081,7 @@ components:
       additionalProperties: false
       properties:
         append:
-          description: >-
-            Text appended after a blank line to the base config's instruction for subagents spawned from
-            this key.
+          description: Text appended to the base instruction.
           type: string
       x-go-type: json.RawMessage
     AgentConfigDefinitionSubagentModel:
@@ -10184,9 +10092,7 @@ components:
         provider_config: [name]
       properties:
         cache_retention:
-          description: >-
-            Overrides the base model's prompt-cache preference for this subagent: none, short or long. Unset
-            keeps the base value.
+          description: Overrides the base model's prompt caching.
           enum: [none, short, long]
         context_window_tokens:
           type: integer
@@ -10194,24 +10100,17 @@ components:
           maximum: 2147483647
           description: Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         default_max_output_tokens:
-          description: >-
-            Overrides the base model's per-request output-token cap for this subagent. Unset keeps the base
-            value.
+          description: Overrides the base model's output token limit.
           type: integer
           minimum: 1
         name:
-          description: >-
-            Configured model name under provider_config. Set it together with provider_config to switch
-            models, or omit both to keep the base model.
+          description: Configured model name. Set with provider_config to switch models.
           $ref: '#/components/schemas/ResourceNameReference'
         provider_config:
-          description: >-
-            Model provider name. Set it together with name to select a different model for this subagent, or
-            omit both to inherit.
+          description: Model provider name. Set with name to switch models.
           $ref: '#/components/schemas/ResourceNameReference'
         reasoning:
-          description: >-
-            Overrides the base model's reasoning effort for this subagent. Unset keeps the base setting.
+          description: Overrides the base model's reasoning effort.
           type: object
           additionalProperties: false
           required: [effort]
@@ -10236,37 +10135,25 @@ components:
       additionalProperties: false
       properties:
         deferred:
-          description: >-
-            When true, the tool's definition stays out of the model's context until tool_search loads it.
-            Adds tool_search automatically, and tool_search itself cannot be deferred. Defaults to false.
+          description: Keep the tool out of context until tool_search loads it. Defaults to false.
           type: boolean
         description:
-          description: >-
-            Custom tools only. Tells the model what the tool does and when to use it. Required when type is
-            custom and rejected for built-in tools.
+          description: Custom tools only. Tells the model what the tool does.
           type: string
           minLength: 1
         enabled:
-          description: >-
-            Set to false to turn the tool off, including tools Omnara would otherwise add by default.
-            Omitted or null enables it.
+          description: Set to false to disable the tool, including default tools.
           anyOf:
             - type: boolean
             - type: 'null'
         input_schema:
-          description: >-
-            Custom tools only. JSON Schema for the tool's arguments. Required when type is custom and
-            rejected for built-in tools.
+          description: Custom tools only. JSON Schema for the tool's arguments.
           $ref: '#/components/schemas/AgentConfigDefinitionToolInputSchema'
         permission:
-          description: >-
-            Overrides the tool's default permission. Custom tools default to always_allow; built-in defaults
-            and supported modes are listed in GET /tool-catalog.
+          description: Overrides the tool's default permission. GET /tool-catalog lists defaults and modes.
           $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
         type:
-          description: >-
-            built_in (the default) selects a tool Omnara runs, by its catalog name. custom declares a tool
-            your system runs and answers through the tool-calls API.
+          description: built_in for an Omnara tool, custom for a tool your system runs.
           enum: [built_in, custom]
       if:
         type: object
@@ -10295,21 +10182,18 @@ components:
       required: [type]
       properties:
         properties:
-          description: >-
-            The tool's arguments, keyed by argument name, each defined as a JSON Schema.
+          description: Arguments, keyed by name, as JSON Schemas.
           type: object
           additionalProperties:
             type: object
         required:
-          description: >-
-            Names of arguments the model must supply. Each one must also be declared in properties.
+          description: Names of required arguments.
           type: array
           items:
             type: string
             minLength: 1
         type:
-          description: >-
-            Always object, because tool arguments are passed as a single JSON object.
+          description: Must be object.
           const: object
       x-go-type: json.RawMessage
     AgentConfigDefinitionToolPermission:
@@ -10318,16 +10202,12 @@ components:
       required: [mode]
       properties:
         mode:
-          description: >-
-            always_allow runs each call immediately, always_ask pauses it until a human approves or denies
-            it, and always_deny refuses it. Supported modes per tool are in GET /tool-catalog.
+          description: always_allow, always_ask (wait for human approval), or always_deny.
           type: string
           minLength: 1
           pattern: '\S'
         parameters:
-          description: >-
-            Mode-specific settings, validated against the mode's parameters_schema in GET /tool-catalog. The
-            current modes take none, so omit it or send {}.
+          description: Mode-specific settings. Current modes take none.
           type: object
       x-go-type: json.RawMessage
     AgentConfigDefinitionTools:
@@ -11305,9 +11185,7 @@ components:
       required: [configured_model_id]
       properties:
         configured_model_id:
-          description: >-
-            Configured model (mdl_...) the project can use. Override fields left out of this grant inherit
-            from this model.
+          description: Configured model (mdl_...) to grant.
           $ref: '#/components/schemas/ConfiguredModelID'
         context_window_tokens:
           type: integer
@@ -11373,10 +11251,7 @@ components:
           minimum: 1
           description: Project default per-request output-token cap.
         default_cache_retention:
-          description: >-
-            Project override for the prompt-cache preference: none, short, or long. Null clears it, so the
-            project inherits the configured model's value. An agent config's model.cache_retention still
-            takes precedence.
+          description: Overrides the model's prompt caching for this project. Null inherits it.
           anyOf:
             - $ref: '#/components/schemas/ModelCacheRetention'
             - type: "null"
@@ -13280,19 +13155,15 @@ components:
       properties:
         type:
           description: >-
-            Always agent: each firing sends the rendered message to the existing agent given in agent_id.
+            agent: send each message to an existing agent.
           type: string
           enum: [agent]
         agent_id:
-          description: >-
-            Existing agent (agt_...) that receives each firing's rendered message_template as an input. It
-            cannot be changed after the trigger is created.
+          description: Agent (agt_...) that receives each message.
           $ref: '#/components/schemas/AgentID'
         delivery_mode:
           description: >-
-            How each firing's message reaches the agent. queued waits until the agent is ready for new work;
-            steering arrives at its next model call. Defaults to queued; leaving it out of an update keeps
-            the current mode.
+            How each message is delivered: queued (default) or steering.
           $ref: '#/components/schemas/CronTriggerDeliveryMode'
     AgentProfileCronTriggerTarget:
       type: object
@@ -13301,14 +13172,11 @@ components:
       properties:
         type:
           description: >-
-            Always profile: each firing launches a new agent from the profile given in agent_profile_id.
+            profile: launch a new agent on each run.
           type: string
           enum: [profile]
         agent_profile_id:
-          description: >-
-            Profile (aprf_...) used to launch a new agent on each firing. The agent runs the profile's
-            current config, and the rendered message_template is its first message. It cannot be changed
-            after creation.
+          description: Profile (aprf_...) to launch a new agent from on each run.
           $ref: '#/components/schemas/AgentProfileID'
     IntegrationCronTriggerTarget:
       type: object
@@ -13317,16 +13185,12 @@ components:
       properties:
         type:
           description: >-
-            Always integration: each firing goes to the integration in integration_id, which acts on
-            settings. message_template is not used for this target.
+            integration: hand each run to an integration.
           type: string
           enum: [integration]
           x-enum-varnames: [IntegrationCronTriggerTargetTypeIntegration]
         integration_id:
-          description: >-
-            Integration (itg_...) that handles each firing, for example by starting a new Slack or Discord
-            thread with a fresh agent. It cannot be changed after creation. Deleting the integration deletes
-            the trigger.
+          description: Integration (itg_...) that handles each run.
           $ref: '#/components/schemas/IntegrationID'
         settings:
           type: object
@@ -13547,9 +13411,7 @@ components:
       properties:
         profile:
           description: >-
-            Agent profile (aprf_...) to launch from. With only profile, the agent runs the profile's current
-            config. With config or config_source too, the agent is attributed to the profile but runs that
-            config.
+            Agent profile (aprf_...) to launch. Runs its current config unless config or config_source is set.
           $ref: '#/components/schemas/AgentProfileID'
         config:
           $ref: '#/components/schemas/AgentConfigID'
@@ -13865,18 +13727,14 @@ components:
       properties:
         type:
           description: >-
-            Always text: a plain-text content block.
+            text: a plain-text block.
           type: string
           enum: [text]
         text:
-          description: >-
-            The block's plain text: a message in agent inputs, model-written text in model output, or text a
-            tool returned in tool results.
+          description: The text.
           type: string
         metadata:
-          description: >-
-            Optional key-value metadata for this block. Keys starting with omnara_ are reserved for Omnara-
-            defined behavior.
+          description: Key-value metadata. omnara_ keys are reserved.
           $ref: '#/components/schemas/ContentBlockMetadata'
     InlineMediaContentBlock:
       type: object
@@ -13894,15 +13752,11 @@ components:
       properties:
         type:
           description: >-
-            Always media: a file sent inline as base64 in data. Omnara stores it as an artifact, and stored
-            events show it as a media_ref block.
+            media: a base64-encoded file in data.
           type: string
           enum: [media]
         media_type:
-          description: >-
-            MIME type of the bytes in data. Text types must be valid UTF-8. Images and PDFs are rejected
-            unless the model accepts them. Other documents are sent as files only to OpenAI Responses models
-            with file input.
+          description: MIME type of data.
           type: string
           enum:
             - image/png
@@ -13927,9 +13781,7 @@ components:
             - application/vnd.openxmlformats-officedocument.presentationml.presentation
             - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
         filename:
-          description: >-
-            Optional original filename, up to 255 characters, saved on the stored artifact. Models that
-            cannot receive the file directly get this name along with the artifact ID.
+          description: Original filename.
           type: string
           maxLength: 255
         data:
@@ -13938,9 +13790,7 @@ components:
           minLength: 1
           description: Base64-encoded file bytes. For text media types, the decoded bytes must be valid UTF-8.
         metadata:
-          description: >-
-            Optional key-value metadata for this block. Keys starting with omnara_ are reserved for Omnara-
-            defined behavior.
+          description: Key-value metadata. omnara_ keys are reserved.
           $ref: '#/components/schemas/ContentBlockMetadata'
     MediaRefContentBlock:
       type: object
@@ -14254,10 +14104,7 @@ components:
           items:
             $ref: '#/components/schemas/CreateAgentInputContentBlock'
         delivery_mode:
-          description: >-
-            When a busy agent gets this message. queued (default) waits until the agent is ready for new
-            work. steering arrives at its next model call, ahead of queued messages, and starts a new turn.
-            An idle agent gets either one right away.
+          description: queued (default) waits until the agent is free; steering reaches it at its next model call.
           $ref: '#/components/schemas/CreateAgentInputDeliveryMode'
         cancel_open_interactions:
           type: boolean
@@ -15160,9 +15007,7 @@ components:
       required: [option_indices]
       properties:
         option_indices:
-          description: >-
-            Zero-based positions in this question's options. Send exactly one unless the question has
-            multiple: true. Permission prompts use 0 for Allow and 1 for Deny.
+          description: Zero-based indices of the chosen options. Pick one unless the question allows multiple.
           type: array
           minItems: 1
           uniqueItems: true
@@ -15203,10 +15048,7 @@ components:
       required: [answers]
       properties:
         answers:
-          description: >-
-            One answer for each question in the interaction's request.questions, in the same order. The
-            first answer recorded wins. Resending the same answers returns the resolved interaction again;
-            different answers return 409.
+          description: One answer per question, in order.
           type: array
           minItems: 1
           items:
@@ -15322,30 +15164,21 @@ components:
       required: [provider_user_id]
       properties:
         provider_tenant_id:
-          description: >-
-            Your namespace for the user, such as a customer tenant or source system. Together with
-            provider_user_id it picks the project actor to reuse or create. If omitted, the actor has no
-            namespace.
+          description: Your tenant or namespace for the user. With provider_user_id, identifies the actor.
           type: string
           minLength: 1
           maxLength: 128
         provider_user_id:
-          description: >-
-            Stable ID for the user in your system. Together with provider_tenant_id it picks the project
-            actor to reuse or create.
+          description: The user's ID in your system. With provider_tenant_id, identifies the actor.
           type: string
           minLength: 1
           maxLength: 128
         display_name:
-          description: >-
-            Human-readable name shown when inputs are attributed to this actor. If omitted, the stored name
-            is kept; a value you send, including an empty string, replaces it.
+          description: Display name for the actor.
           type: string
           maxLength: 256
         metadata:
-          description: >-
-            Key-value attributes saved on the actor. If omitted, the stored metadata is kept; metadata you
-            send replaces it.
+          description: Key-value attributes for the actor. Replaces stored metadata when sent.
           $ref: '#/components/schemas/Metadata'
     ListActorsResponse:
       type: object
@@ -15376,8 +15209,7 @@ components:
       properties:
         kind:
           description: >-
-            Makes the organization the owner. Projects can use the secret only through a grant. Machine pool
-            provider credentials must be org-owned.
+            org: owned by the organization. Projects need a grant to use it.
           type: string
           enum: [org]
     ProjectSecretOwnerInput:
@@ -15387,13 +15219,11 @@ components:
       properties:
         kind:
           description: >-
-            Makes a project the owner. That project can use the secret directly; other projects need a
-            grant.
+            project: owned by one project.
           type: string
           enum: [project]
         project_id:
-          description: >-
-            ID of the project that owns the secret. The owner cannot change after creation.
+          description: Owning project.
           $ref: '#/components/schemas/ProjectID'
     UserSecretOwnerInput:
       type: object
@@ -15402,8 +15232,7 @@ components:
       properties:
         kind:
           description: >-
-            Makes the calling user the owner, for personal credentials. Requires a request authenticated as
-            a user. Projects need a grant to use the secret.
+            user: owned by the calling user. Projects need a grant to use it.
           type: string
           enum: [user]
     SecretOwnerInput:
@@ -15466,12 +15295,11 @@ components:
       properties:
         kind:
           description: >-
-            Selects the generic secret type: a single value such as an API key, token, or password.
+            generic: a single value, such as an API key.
           type: string
           enum: [generic]
         value:
-          description: >-
-            The secret value, up to 64 KiB. Stored encrypted and never returned by read endpoints.
+          description: The secret value, up to 64 KiB.
           type: string
           minLength: 1
     OAuthRefreshSecretMaterial:
@@ -15480,9 +15308,7 @@ components:
       required: [refresh_token, token_endpoint, client_id, resource]
       properties:
         refresh_token:
-          description: >-
-            Refresh token that Omnara exchanges at token_endpoint for a new access token. It is replaced
-            when the server issues a new one. Stored encrypted and never returned.
+          description: Refresh token exchanged at token_endpoint for new access tokens.
           type: string
           minLength: 1
         token_endpoint:
@@ -15491,20 +15317,15 @@ components:
           minLength: 1
           description: Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
         client_id:
-          description: >-
-            OAuth client ID sent to token_endpoint with refresh requests.
+          description: OAuth client ID.
           type: string
           minLength: 1
         client_secret:
-          description: >-
-            Optional OAuth client secret sent with refresh requests. Omit it if the client has none. Stored
-            encrypted and never returned.
+          description: OAuth client secret, if the client has one.
           type: string
           minLength: 1
         resource:
-          description: >-
-            Resource indicator (the MCP server's protected-resource URI) sent as the resource parameter on
-            refresh requests.
+          description: Resource indicator sent with refresh requests.
           type: string
           minLength: 1
     OAuthTokenSetSecretMaterial:
@@ -15514,49 +15335,36 @@ components:
       properties:
         kind:
           description: >-
-            Selects the oauth_token_set secret type: an OAuth access token with optional refresh material,
-            used by MCP servers with oauth auth.
+            oauth_token_set: OAuth tokens for MCP servers that use oauth auth.
           type: string
           enum: [oauth_token_set]
         access_token:
-          description: >-
-            OAuth access token sent to the MCP server. Replaced on each refresh. Stored encrypted and never
-            returned.
+          description: OAuth access token.
           type: string
           minLength: 1
         access_token_expires_in_seconds:
-          description: >-
-            Access token lifetime in seconds, counted from when the request is received. Omit it if the
-            token has no known expiry; Omnara then treats the token as never expiring.
+          description: Seconds until the access token expires. Omit if it doesn't expire.
           type: integer
           format: int32
           minimum: 1
           maximum: 2147483647
         refresh:
-          description: >-
-            Optional refresh material. When present, Omnara gets a new access token as the current one nears
-            expiry. Without it, an expired token fails until you rotate the secret.
+          description: Refresh material. Without it, the token can't be renewed once it expires.
           $ref: '#/components/schemas/OAuthRefreshSecretMaterial'
         id_token:
-          description: >-
-            Optional OpenID Connect ID token issued with the access token. Updated when a refresh returns a
-            new one.
+          description: OpenID Connect ID token, if one was issued.
           type: string
           minLength: 1
         mcp_url:
-          description: >-
-            URL of the MCP server the tokens were issued for. The built-in MCP OAuth flow sets it to the
-            server's endpoint.
+          description: URL of the MCP server the tokens were issued for.
           type: string
           minLength: 1
         scopes:
-          description: >-
-            Space-separated OAuth scopes granted to the token. Updated when a refresh returns scopes.
+          description: Granted scopes, space-separated.
           type: string
           minLength: 1
         token_type:
-          description: >-
-            Token type reported by the authorization server, such as Bearer. Overwritten on each refresh.
+          description: Token type, such as Bearer.
           type: string
           minLength: 1
     AWSCredentialsSecretMaterial:
@@ -15566,31 +15374,23 @@ components:
       properties:
         kind:
           description: >-
-            Selects the aws_credentials secret type: AWS access keys used to sign requests with SigV4, for
-            example for MCP servers with sigv4 auth.
+            aws_credentials: AWS keys for SigV4 signing.
           type: string
           enum: [aws_credentials]
         access_key_id:
-          description: >-
-            AWS access key ID, paired with secret_access_key. Omnara uses it to sign requests directly, or
-            to call STS when role_arn is set.
+          description: AWS access key ID.
           type: string
           minLength: 1
         secret_access_key:
-          description: >-
-            AWS secret access key paired with access_key_id. Stored encrypted and never returned.
+          description: AWS secret access key.
           type: string
           minLength: 1
         session_token:
-          description: >-
-            Optional session token for temporary AWS credentials. Omnara does not refresh it, so rotate the
-            secret before the token expires.
+          description: Session token for temporary credentials. Not refreshed automatically.
           type: string
           minLength: 1
         role_arn:
-          description: >-
-            Optional IAM role ARN. When set, Omnara assumes this role through STS with the access keys and
-            signs requests with the role's temporary credentials.
+          description: IAM role to assume through STS before signing.
           type: string
           minLength: 1
         external_id:
@@ -15604,14 +15404,11 @@ components:
       properties:
         kind:
           description: >-
-            Selects the github_app_credentials secret type: a GitHub App's ID, RSA private key, and webhook
-            secret.
+            github_app_credentials: a GitHub App's ID, private key, and webhook secret.
           type: string
           enum: [github_app_credentials]
         app_id:
-          description: >-
-            Numeric GitHub App ID, not the installation ID. It must match the GitHub integration's
-            provider_tenant_id.
+          description: GitHub App ID, not the installation ID.
           type: string
           pattern: '^[1-9][0-9]*$'
         private_key:
@@ -15619,9 +15416,7 @@ components:
           minLength: 1
           description: Unencrypted RSA private key in PEM format. Stored encrypted.
         webhook_secret:
-          description: >-
-            Webhook secret set on the GitHub App, used to verify the signatures of incoming webhook events.
-            Stored encrypted and never returned.
+          description: The App's webhook secret, used to verify webhook signatures.
           type: string
           minLength: 1
     SecretMaterial:
@@ -16143,34 +15938,23 @@ components:
       required: [name, provider, default_machine_provider_options, provider_auth_secret_id, max_total_machines]
       properties:
         name:
-          description: >-
-            Pool name, unique among the organization's active pools. Agent configs refer to the pool by this
-            name in machine_pool_name.
+          description: Pool name, unique in the organization. Agent configs reference it as machine_pool_name.
           $ref: '#/components/schemas/ResourceName'
         description:
-          description: >-
-            Optional free-form description of the pool. Defaults to an empty string.
+          description: Free-form description.
           type: string
         provider:
-          description: >-
-            Sandbox provider for the pool's machines: agent37, arker, blaxel, boxd, createos, daytona, e2b,
-            freestyle, modal, superserve, tenki, or unikraft. It decides which size and limit fields are
-            required.
+          description: Sandbox provider. Determines which size and limit fields are required.
           type: string
           minLength: 1
         default_machine_cpu:
-          description: >-
-            Default vCPU count for new machines when the grant or agent config sets none. Must be between
-            min_machine_cpu and max_machine_cpu. Required by some providers; Blaxel rejects it.
+          description: Default vCPUs per machine, between min_machine_cpu and max_machine_cpu.
           type: integer
           format: int32
           minimum: 1
           maximum: 2147483647
         default_machine_memory_mb:
-          description: >-
-            Default memory in MB for new machines when the grant or agent config sets none. Must be between
-            min_machine_memory_mb and max_machine_memory_mb. Optional where the template or snapshot sets
-            the size.
+          description: Default memory per machine in MB, between min_machine_memory_mb and max_machine_memory_mb.
           type: integer
           format: int32
           minimum: 1
@@ -16187,83 +15971,62 @@ components:
             $ref: '#/components/schemas/SecretID'
         default_machine_provider_options:
           description: >-
-            Provider options for each new machine, such as image or template, region, startup_script, and
-            sleep_after_ms. Keys depend on the provider. Grants and agent configs can override them within
-            provider_config allowlists.
+            Provider options for new machines, such as image, region, or startup_script. Keys depend on the
+            provider.
           type: object
           additionalProperties: true
         default_cwd:
-          description: >-
-            Default working directory for processes on the pool's machines, up to 4096 characters. Project
-            grants and agent configs can override it.
+          description: Default working directory for processes.
           type: string
         provider_config:
-          description: >-
-            Pool-wide provider settings, such as a Blaxel workspace or an E2B domain, and allowlists like
-            allowed_images that let grants and agent configs pick other values. Keys depend on the provider.
+          description: Provider-wide settings and allowlists. Keys depend on the provider.
           type: object
           additionalProperties: true
         provider_auth_secret_id:
-          description: >-
-            ID of an org-owned generic secret that holds the provider's API key. Omnara uses it to call the
-            provider for this pool.
+          description: Org-owned generic secret holding the provider API key.
           $ref: '#/components/schemas/SecretID'
         runtime_protection_enabled:
           description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to false when omitted.
           type: boolean
           default: false
         max_total_machines:
-          description: >-
-            Maximum number of live machines in the pool across all projects. 0 blocks new machines. Project
-            grants can set a lower per-project limit.
+          description: Most live machines across all projects. 0 blocks new machines.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_cpu:
-          description: >-
-            Maximum total vCPUs across the pool's live machines. Launches that would exceed it are rejected.
-            Required for every provider except Blaxel, which rejects it.
+          description: Most vCPUs across live machines.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_memory_mb:
-          description: >-
-            Maximum total memory in MB across the pool's live machines. Launches that would exceed it are
-            rejected. Required for every provider.
+          description: Most memory in MB across live machines.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_cpu:
-          description: >-
-            Smallest vCPU count a single machine can use. 0 or omitted means no minimum. Cannot exceed
-            max_machine_cpu, and default_machine_cpu must be at least this. Blaxel rejects it.
+          description: Fewest vCPUs per machine. 0 means no minimum.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_memory_mb:
-          description: >-
-            Smallest memory in MB a single machine can use. 0 or omitted means no minimum. Cannot exceed
-            max_machine_memory_mb, and default_machine_memory_mb must be at least this.
+          description: Least memory per machine in MB. 0 means no minimum.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_machine_cpu:
-          description: >-
-            Largest vCPU count a single machine can use, including per-machine overrides. Must be at least
-            default_machine_cpu. Required for every provider except Blaxel, which rejects it.
+          description: Most vCPUs per machine.
           type: integer
           format: int32
           minimum: 1
           maximum: 2147483647
         max_machine_memory_mb:
-          description: >-
-            Largest memory in MB a single machine can use, including per-machine overrides. Must be at least
-            default_machine_memory_mb. Required for every provider.
+          description: Most memory per machine in MB.
           type: integer
           format: int32
           minimum: 1
@@ -16275,9 +16038,7 @@ components:
           minimum: 5
           maximum: 2147483647
         metadata:
-          description: >-
-            Key-value metadata for the pool, copied to the machines it provisions. Up to 15 pairs; the
-            observed_platform key is reserved.
+          description: Key-value metadata copied to the pool's machines.
           $ref: '#/components/schemas/MachineMetadata'
     UpdateMachinePoolRequest:
       type: object
@@ -18109,15 +17870,10 @@ components:
       required: [integration_id, conversation]
       properties:
         integration_id:
-          description: >-
-            Integration (itg_...) that owns the subscription and forwards activity from the conversation to
-            the new agent. The integration must support subscriptions.
+          description: Integration (itg_...) that forwards the conversation's activity.
           $ref: '#/components/schemas/IntegrationID'
         conversation:
-          description: >-
-            Provider conversation to subscribe the new agent to, checked against the integration's
-            capabilities.subscription.conversation_schema. Example: Slack channel_id with an optional
-            thread_ts.
+          description: Provider conversation to subscribe the agent to, such as a Slack channel.
           $ref: '#/components/schemas/IntegrationConversation'
     CreateIntegrationSubscriptionRequest:
       type: object

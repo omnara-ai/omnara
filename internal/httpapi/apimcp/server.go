@@ -100,7 +100,7 @@ func NewServer(spec *openapi3.T, tools []Tool, options Options) (*mcp.Server, er
 	}
 	operations := indexOperations(spec)
 	server := mcp.NewServer(serverImplementation(specVersion(spec)), &mcp.ServerOptions{
-		Instructions: ServerInstructions,
+		Instructions: serverInstructions,
 	})
 	operationByTool := make(map[string]string, len(tools))
 	for _, tool := range tools {
@@ -731,9 +731,6 @@ func scalarString(raw json.RawMessage) (string, error) {
 	}
 }
 
-// resultFromResponse turns an API response into a tool result. Successful
-// results carry structured content matching the tool's output schema: the JSON
-// body, or {} for operations without a response body.
 func resultFromResponse(recorder *httptest.ResponseRecorder, emptyOutput bool) *mcp.CallToolResult {
 	body := recorder.Body.Bytes()
 	empty := len(bytes.TrimSpace(body)) == 0

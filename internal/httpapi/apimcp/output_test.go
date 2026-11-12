@@ -58,8 +58,6 @@ func TestEveryToolDeclaresAnObjectOutputSchema(t *testing.T) {
 	}
 }
 
-// Every argument, and every property of the schemas arguments reference, needs a
-// description: it is the only guidance a model gets when filling them in.
 func TestEveryInputPropertyIsDescribed(t *testing.T) {
 	t.Parallel()
 	session := connect(t, Tools, echoOptions(t))

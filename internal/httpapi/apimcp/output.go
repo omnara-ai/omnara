@@ -9,13 +9,10 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
-// emptyOutputSchema describes tools whose operation succeeds without a body
-// (204 No Content). Such tools return {} as structured content.
+// Tools whose operation returns no body (204) return {}.
 var emptyOutputSchema = map[string]any{"type": openapi3.TypeObject, "additionalProperties": false}
 
-// outputSchemaFor derives a tool's MCP output schema from the operation's 2xx
-// application/json responses. Distinct response schemas become anyOf branches.
-// It reports empty when no 2xx response has a JSON body.
+// outputSchemaFor builds an output schema from the operation's 2xx JSON responses.
 func outputSchemaFor(spec *openapi3.T, op *openapi3.Operation) (schema map[string]any, empty bool, _ error) {
 	codes := make([]string, 0)
 	for code := range op.Responses.Map() {
@@ -65,8 +62,6 @@ func outputSchemaFor(spec *openapi3.T, op *openapi3.Operation) (schema map[strin
 	}
 }
 
-// withDefinitions rewrites component references in a schema to #/$defs and
-// embeds the referenced components so the schema is self-contained.
 func withDefinitions(spec *openapi3.T, encoded json.RawMessage) (map[string]any, error) {
 	definitions, err := collectDefinitions(spec, encoded)
 	if err != nil {
@@ -91,12 +86,10 @@ func withDefinitions(spec *openapi3.T, encoded json.RawMessage) (map[string]any,
 	return decoded, nil
 }
 
-// schemaMapKeywords hold maps from names to schemas; their keys are names, not
-// keywords, so a property called "x-foo" survives stripExtensions.
+// Keys in these maps are names, not keywords, so they are never stripped.
 var schemaMapKeywords = []string{"properties", "patternProperties", "dependentSchemas", definitionsKey}
 
-// stripExtensions removes OpenAPI x-* extensions (Go codegen hints) that mean
-// nothing to MCP clients.
+// stripExtensions removes OpenAPI x-* codegen hints.
 func stripExtensions(schema map[string]any) {
 	for key, child := range schema {
 		if strings.HasPrefix(key, "x-") {

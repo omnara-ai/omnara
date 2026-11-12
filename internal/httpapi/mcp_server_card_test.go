@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
 )
 
 const serverCardTestPublicURL = "https://omnara.test"
@@ -57,11 +59,11 @@ func TestMCPServerCardRoute(t *testing.T) {
 	}
 	assertServerCardCORS(t, rec)
 
-	var card mcpServerCard
+	var card apimcp.ServerCard
 	if err := json.Unmarshal(rec.Body.Bytes(), &card); err != nil {
 		t.Fatalf("decode card: %v", err)
 	}
-	if card.Schema != mcpServerCardSchema {
+	if card.Schema != "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json" {
 		t.Fatalf("$schema = %q", card.Schema)
 	}
 	if !regexp.MustCompile(`^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$`).MatchString(card.Name) {
@@ -95,20 +97,19 @@ func TestMCPServerCardRoute(t *testing.T) {
 	}
 }
 
-// The card's identity must stay in step with the MCP Registry entry.
 func TestMCPServerCardMatchesRegistryServerJSON(t *testing.T) {
 	raw, err := os.ReadFile("../../server.json")
 	if err != nil {
 		t.Fatalf("read server.json: %v", err)
 	}
 	var registry struct {
-		Name        string              `json:"name"`
-		Title       string              `json:"title"`
-		Description string              `json:"description"`
-		Version     string              `json:"version"`
-		WebsiteURL  string              `json:"websiteUrl"`
-		Repository  mcpServerCardRepo   `json:"repository"`
-		Icons       []mcpServerCardIcon `json:"icons"`
+		Name        string                      `json:"name"`
+		Title       string                      `json:"title"`
+		Description string                      `json:"description"`
+		Version     string                      `json:"version"`
+		WebsiteURL  string                      `json:"websiteUrl"`
+		Repository  apimcp.ServerCardRepository `json:"repository"`
+		Icons       []mcp.Icon                  `json:"icons"`
 	}
 	if err := json.Unmarshal(raw, &registry); err != nil {
 		t.Fatalf("decode server.json: %v", err)
@@ -121,7 +122,7 @@ func TestMCPServerCardMatchesRegistryServerJSON(t *testing.T) {
 	if card.Name != registry.Name || card.Title != registry.Title || card.Description != registry.Description ||
 		card.Version != registry.Version || card.WebsiteURL != registry.WebsiteURL ||
 		*card.Repository != registry.Repository || len(card.Icons) != len(registry.Icons) ||
-		card.Icons[0].Src != registry.Icons[0].Src {
+		card.Icons[0].Source != registry.Icons[0].Source {
 		t.Fatalf("card identity %+v differs from server.json %+v", card, registry)
 	}
 }

@@ -5,7 +5,7 @@
       "description": "Integration whose git credentials the agent's machines use.",
       "properties": {
         "integration": {
-          "description": "Name of a project GitHub integration whose installation supplies the credentials. Resolved to the integration's immutable ID when the config is compiled.",
+          "description": "Name of a GitHub integration in the project.",
           "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
           "type": "string"
         },
@@ -57,23 +57,23 @@
       "additionalProperties": false,
       "properties": {
         "region": {
-          "description": "AWS signing region of the MCP endpoint. Required for sigv4 and rejected for other types. It does not limit which AWS regions tool calls can target.",
+          "description": "AWS region to sign for. Required for sigv4 only.",
           "minLength": 1,
           "type": "string"
         },
         "secret_id": {
-          "description": "Secret holding the credential. Its kind must match type: a generic secret for bearer, oauth_token_set for oauth, or aws_credentials for sigv4. The config never contains the credential itself.",
+          "description": "Secret holding the credential: generic for bearer, oauth_token_set for oauth, aws_credentials for sigv4.",
           "minLength": 1,
           "pattern": "^sec_[a-z2-7]{26}$",
           "type": "string"
         },
         "service": {
-          "description": "AWS SigV4 signing service name, such as aws-mcp. Required for sigv4 and rejected for other types.",
+          "description": "AWS service to sign for, such as aws-mcp. Required for sigv4 only.",
           "minLength": 1,
           "type": "string"
         },
         "type": {
-          "description": "How requests are authenticated: bearer sends a static token, oauth uses tokens from Omnara's MCP OAuth flow, and sigv4 signs each request with AWS Signature Version 4.",
+          "description": "bearer sends a static token, oauth uses tokens from Omnara's MCP OAuth flow, and sigv4 signs requests with AWS SigV4.",
           "enum": [
             "bearer",
             "oauth",
@@ -92,7 +92,7 @@
       "properties": {
         "auth": {
           "$ref": "#/$defs/AgentConfigDefinitionMCPAuth",
-          "description": "How Omnara authenticates to this server. Omit it for servers that need no authentication."
+          "description": "How to authenticate to the server. Omit if it needs none."
         },
         "default_enabled": {
           "anyOf": [
@@ -103,21 +103,21 @@
               "type": "null"
             }
           ],
-          "description": "Whether the server's tools are exposed unless overridden per tool. Defaults to true. Set it to false to expose only the tools marked enabled: true under tools."
+          "description": "Whether tools are enabled unless overridden in tools. Defaults to true."
         },
         "deferred": {
-          "description": "When true, the server's tools stay out of the model's context until tool_search loads them. A tool's own deferred setting overrides this. Defaults to false.",
+          "description": "Keep the server's tools out of context until tool_search loads them. Defaults to false.",
           "type": "boolean"
         },
         "permission": {
           "$ref": "#/$defs/AgentConfigDefinitionToolPermission",
-          "description": "Default permission for this server's tools. A tool's own permission overrides it. Defaults to always_ask."
+          "description": "Default permission for the server's tools. Defaults to always_ask."
         },
         "tools": {
           "additionalProperties": {
             "$ref": "#/$defs/AgentConfigDefinitionMCPTool"
           },
-          "description": "Per-tool overrides, keyed by the tool's name on the MCP server (without the mcp__{server}__ prefix).",
+          "description": "Per-tool overrides, keyed by the tool's name on the server.",
           "propertyNames": {
             "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
             "type": "string"
@@ -125,7 +125,7 @@
           "type": "object"
         },
         "url": {
-          "description": "The server's MCP endpoint. Must use https. Plain http is accepted only for loopback hosts on deployments that enable insecure local development.",
+          "description": "HTTPS URL of the server's MCP endpoint.",
           "minLength": 1,
           "type": "string"
         }
@@ -164,7 +164,7 @@
               "type": "null"
             }
           ],
-          "description": "Overrides the server's deferred setting for this tool. Null or omitted inherits the server's value."
+          "description": "Overrides the server's deferred setting. Null inherits it."
         },
         "enabled": {
           "anyOf": [
@@ -175,11 +175,11 @@
               "type": "null"
             }
           ],
-          "description": "true exposes this tool and false hides it. Null or omitted follows the server's default_enabled."
+          "description": "Enables or hides the tool. Null follows the server's default_enabled."
         },
         "permission": {
           "$ref": "#/$defs/AgentConfigDefinitionToolPermission",
-          "description": "Permission for calls to this tool. Overrides the server's permission."
+          "description": "Overrides the server's permission for this tool."
         }
       },
       "type": "object"
@@ -202,7 +202,7 @@
       ],
       "properties": {
         "cwd": {
-          "description": "Working directory for the agent's processes on this source's machines. Replaces the machine's or pool's default.",
+          "description": "Working directory for the agent's processes. Overrides the machine or pool default.",
           "maxLength": 4096,
           "type": "string"
         },
@@ -217,10 +217,10 @@
               "type": "integer"
             }
           ],
-          "description": "Pool sources only. Deletes a pool machine after it has had no process work for this many minutes. Unset inherits the grant or pool setting, and 0 disables idle deletion."
+          "description": "Pools only. Delete a machine after this many idle minutes; 0 disables. Unset inherits the grant or pool setting."
         },
         "description": {
-          "description": "Note describing this source to the agent, such as what the pool or machine is for. list_machines shows it with each pool.",
+          "description": "Describes this source to the agent.",
           "maxLength": 4096,
           "type": "string"
         },
@@ -246,32 +246,32 @@
               "type": "null"
             }
           ],
-          "description": "Environment variables for every process the agent runs on these machines. For pools, they also apply at provisioning. Set a value to null to remove an inherited variable."
+          "description": "Environment variables for the agent's processes. A null value removes an inherited variable."
         },
         "initial_num_machines": {
-          "description": "Pool sources only. Number of pool machines created when the agent launches. Defaults to 1 (0 when max_machines is 0) and cannot exceed max_machines.",
+          "description": "Pools only. Machines to create at launch. Defaults to 1 and cannot exceed max_machines.",
           "minimum": 0,
           "type": "integer"
         },
         "machine_cpu": {
-          "description": "Pool sources only. Default CPU count for this agent's new pool machines, within pool and project limits. Support varies by provider.",
+          "description": "Pools only. vCPUs for new machines, within pool and project limits.",
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
         },
         "machine_memory_mb": {
-          "description": "Pool sources only. Default memory in MB for this agent's new pool machines, within pool and project limits. Support varies by provider.",
+          "description": "Pools only. Memory in MB for new machines, within pool and project limits.",
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
         },
         "machine_name": {
           "$ref": "#/$defs/ResourceNameReference",
-          "description": "Name of a BYO machine granted to the project. Set this or machine_pool_name, not both. Resolved to the machine's immutable ID at compile time."
+          "description": "Name of a BYO machine granted to the project. Set this or machine_pool_name."
         },
         "machine_pool_name": {
           "$ref": "#/$defs/ResourceNameReference",
-          "description": "Name of a machine pool granted to the project, from which Omnara creates machines on demand. Set this or machine_name, not both."
+          "description": "Name of a machine pool granted to the project. Set this or machine_name."
         },
         "machine_provider_options_overlay": {
           "anyOf": [
@@ -282,10 +282,10 @@
               "type": "null"
             }
           ],
-          "description": "Pool sources only. Provider-specific machine options layered over the pool's and project grant's options for this agent's new machines."
+          "description": "Pools only. Provider options applied over the pool and grant options."
         },
         "max_machines": {
-          "description": "Pool sources only. Total pool machines this agent may hold from this source, including ones it creates with create_machine. Defaults to 1. Pool and project limits still apply.",
+          "description": "Pools only. Most machines the agent can hold from this pool. Defaults to 1.",
           "minimum": 0,
           "type": "integer"
         },
@@ -312,7 +312,7 @@
               "type": "null"
             }
           ],
-          "description": "Environment variables whose values come from secrets (sec_... IDs), resolved when injected. Applies like env_overlay. Set a value to null to remove an inherited variable."
+          "description": "Environment variables set from secrets (sec_...). A null value removes an inherited variable."
         }
       },
       "type": "object"
@@ -334,7 +334,7 @@
       "additionalProperties": false,
       "properties": {
         "access": {
-          "description": "read lets the agent read the store's files. read_write also lets it write them, but only when the store's agent_access is also read_write.",
+          "description": "read, or read_write if the store also allows agent writes.",
           "enum": [
             "read",
             "read_write"
@@ -343,7 +343,7 @@
         },
         "name": {
           "$ref": "#/$defs/MemoryStoreName",
-          "description": "Name of a memory store in the project. Its files appear to the agent at /memory/\u003cname\u003e/."
+          "description": "Name of a memory store in the project."
         }
       },
       "required": [
@@ -369,7 +369,7 @@
       "additionalProperties": false,
       "properties": {
         "cache_retention": {
-          "description": "Prompt-cache preference: none sends no Omnara cache controls, short uses the route's default caching, and long prefers an extended cache lifetime where one exists. Unset uses the configured model's default.",
+          "description": "Prompt caching: none, short (provider default), or long (extended where available). Unset uses the model's default.",
           "enum": [
             "none",
             "short",
@@ -383,21 +383,21 @@
           "type": "integer"
         },
         "default_max_output_tokens": {
-          "description": "Per-request output-token cap sent to the provider. Overrides the configured model's default.",
+          "description": "Maximum output tokens per request. Overrides the model's default.",
           "minimum": 1,
           "type": "integer"
         },
         "name": {
           "$ref": "#/$defs/ResourceNameReference",
-          "description": "Configured model name. Must exactly match a model configured under provider_config that is available to the project."
+          "description": "Configured model name under provider_config."
         },
         "provider_config": {
           "$ref": "#/$defs/ResourceNameReference",
-          "description": "Name of the organization's model provider. Resolved to the provider's immutable ID when the config is created."
+          "description": "Name of the organization's model provider."
         },
         "reasoning": {
           "additionalProperties": false,
-          "description": "Reasoning settings for models that support them. effort, such as low, medium or high, overrides the configured model's default reasoning effort.",
+          "description": "Reasoning effort, such as low, medium, or high, for models that support it.",
           "properties": {
             "effort": {
               "minLength": 1,
@@ -455,35 +455,35 @@
       },
       "properties": {
         "archive_after_idle_minutes": {
-          "description": "Archives subagents spawned from this key after they have been idle this many minutes. When unset, they are not archived for being idle.",
+          "description": "Archive these subagents after this many idle minutes. Unset never archives them for being idle.",
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
         },
         "description": {
-          "description": "Shown to the model when it chooses which subagent key to spawn.",
+          "description": "Tells the model when to spawn this subagent.",
           "type": "string"
         },
         "instruction": {
           "$ref": "#/$defs/AgentConfigDefinitionSubagentInstruction",
-          "description": "Changes to the launched config's instruction."
+          "description": "Changes to the subagent's instruction."
         },
         "max_instances": {
-          "description": "Cap on active subagents spawned from this key. When unset, there is no per-key cap, but max_subagents still applies.",
+          "description": "Maximum active subagents from this key. Unset means no per-key limit.",
           "maximum": 2147483647,
           "minimum": 1,
           "type": "integer"
         },
         "model": {
           "$ref": "#/$defs/AgentConfigDefinitionSubagentModel",
-          "description": "Model overrides for this subagent. Omit provider_config and name to inherit the parent's model (self) or the profile's model (profile). Other fields override that model individually."
+          "description": "Model overrides. Omit provider_config and name to keep the base model."
         },
         "profile": {
           "$ref": "#/$defs/ResourceNameReference",
-          "description": "Name of the agent profile to launch from, using the profile's current config. Required when type is profile and rejected for self."
+          "description": "Agent profile to launch from. Required when type is profile."
         },
         "type": {
-          "description": "profile launches from the named profile's current config. self launches from a copy of this agent's own config.",
+          "description": "profile launches from a profile's current config; self copies this agent's config.",
           "enum": [
             "profile",
             "self"
@@ -504,7 +504,7 @@
       "additionalProperties": false,
       "properties": {
         "append": {
-          "description": "Text appended after a blank line to the base config's instruction for subagents spawned from this key.",
+          "description": "Text appended to the base instruction.",
           "type": "string"
         }
       },
@@ -522,7 +522,7 @@
       },
       "properties": {
         "cache_retention": {
-          "description": "Overrides the base model's prompt-cache preference for this subagent: none, short or long. Unset keeps the base value.",
+          "description": "Overrides the base model's prompt caching.",
           "enum": [
             "none",
             "short",
@@ -536,21 +536,21 @@
           "type": "integer"
         },
         "default_max_output_tokens": {
-          "description": "Overrides the base model's per-request output-token cap for this subagent. Unset keeps the base value.",
+          "description": "Overrides the base model's output token limit.",
           "minimum": 1,
           "type": "integer"
         },
         "name": {
           "$ref": "#/$defs/ResourceNameReference",
-          "description": "Configured model name under provider_config. Set it together with provider_config to switch models, or omit both to keep the base model."
+          "description": "Configured model name. Set with provider_config to switch models."
         },
         "provider_config": {
           "$ref": "#/$defs/ResourceNameReference",
-          "description": "Model provider name. Set it together with name to select a different model for this subagent, or omit both to inherit."
+          "description": "Model provider name. Set with name to switch models."
         },
         "reasoning": {
           "additionalProperties": false,
-          "description": "Overrides the base model's reasoning effort for this subagent. Unset keeps the base setting.",
+          "description": "Overrides the base model's reasoning effort.",
           "properties": {
             "effort": {
               "minLength": 1,
@@ -616,11 +616,11 @@
       },
       "properties": {
         "deferred": {
-          "description": "When true, the tool's definition stays out of the model's context until tool_search loads it. Adds tool_search automatically, and tool_search itself cannot be deferred. Defaults to false.",
+          "description": "Keep the tool out of context until tool_search loads it. Defaults to false.",
           "type": "boolean"
         },
         "description": {
-          "description": "Custom tools only. Tells the model what the tool does and when to use it. Required when type is custom and rejected for built-in tools.",
+          "description": "Custom tools only. Tells the model what the tool does.",
           "minLength": 1,
           "type": "string"
         },
@@ -633,18 +633,18 @@
               "type": "null"
             }
           ],
-          "description": "Set to false to turn the tool off, including tools Omnara would otherwise add by default. Omitted or null enables it."
+          "description": "Set to false to disable the tool, including default tools."
         },
         "input_schema": {
           "$ref": "#/$defs/AgentConfigDefinitionToolInputSchema",
-          "description": "Custom tools only. JSON Schema for the tool's arguments. Required when type is custom and rejected for built-in tools."
+          "description": "Custom tools only. JSON Schema for the tool's arguments."
         },
         "permission": {
           "$ref": "#/$defs/AgentConfigDefinitionToolPermission",
-          "description": "Overrides the tool's default permission. Custom tools default to always_allow; built-in defaults and supported modes are listed in GET /tool-catalog."
+          "description": "Overrides the tool's default permission. GET /tool-catalog lists defaults and modes."
         },
         "type": {
-          "description": "built_in (the default) selects a tool Omnara runs, by its catalog name. custom declares a tool your system runs and answers through the tool-calls API.",
+          "description": "built_in for an Omnara tool, custom for a tool your system runs.",
           "enum": [
             "built_in",
             "custom"
@@ -667,11 +667,11 @@
           "additionalProperties": {
             "type": "object"
           },
-          "description": "The tool's arguments, keyed by argument name, each defined as a JSON Schema.",
+          "description": "Arguments, keyed by name, as JSON Schemas.",
           "type": "object"
         },
         "required": {
-          "description": "Names of arguments the model must supply. Each one must also be declared in properties.",
+          "description": "Names of required arguments.",
           "items": {
             "minLength": 1,
             "type": "string"
@@ -680,7 +680,7 @@
         },
         "type": {
           "const": "object",
-          "description": "Always object, because tool arguments are passed as a single JSON object."
+          "description": "Must be object."
         }
       },
       "required": [
@@ -692,13 +692,13 @@
       "additionalProperties": false,
       "properties": {
         "mode": {
-          "description": "always_allow runs each call immediately, always_ask pauses it until a human approves or denies it, and always_deny refuses it. Supported modes per tool are in GET /tool-catalog.",
+          "description": "always_allow, always_ask (wait for human approval), or always_deny.",
           "minLength": 1,
           "pattern": "\\S",
           "type": "string"
         },
         "parameters": {
-          "description": "Mode-specific settings, validated against the mode's parameters_schema in GET /tool-catalog. The current modes take none, so omit it or send {}.",
+          "description": "Mode-specific settings. Current modes take none.",
           "type": "object"
         }
       },
@@ -768,60 +768,60 @@
   "properties": {
     "git_credentials": {
       "$ref": "#/$defs/AgentConfigDefinitionGitCredentials",
-      "description": "GitHub integration whose credentials authenticate HTTPS Git and gh in the agent's machine processes. Adds list_github_repositories. Subagents never receive these credentials."
+      "description": "GitHub integration whose credentials the agent's machine processes use for Git and gh. Not passed to subagents."
     },
     "instruction": {
-      "description": "System-level brief for the agent: its job, its boundaries, and when to ask a human. Subagents can add to it with instruction.append.",
+      "description": "System instruction for the agent.",
       "minLength": 1,
       "pattern": "\\S",
       "type": "string"
     },
     "interaction_handlers": {
       "$ref": "#/$defs/AgentConfigDefinitionInteractionHandlers",
-      "description": "Integration interaction handlers the agent can use to present questions and approvals outside the dashboard, keyed by integration name with empty objects. Not inherited by subagents."
+      "description": "Integrations that show the agent's questions and approvals outside the dashboard, keyed by integration name. Not passed to subagents."
     },
     "machine_sources": {
       "$ref": "#/$defs/AgentConfigDefinitionMachineSources",
-      "description": "BYO machines and machine pools the agent runs commands on. A nonempty list adds the command, process and machine tools. A pool source also adds create_machine and delete_machine."
+      "description": "BYO machines and machine pools the agent can run commands on."
     },
     "max_depth": {
-      "description": "How many levels of subagents can nest below this agent. Defaults to 1, so subagents cannot spawn their own. Carried into every subagent config and cannot be raised by a subagent.",
+      "description": "Maximum subagent nesting depth. Defaults to 1, so subagents cannot spawn their own.",
       "maximum": 8,
       "minimum": 1,
       "type": "integer"
     },
     "max_subagents": {
-      "description": "Cap on active subagents across all subagents keys. When unset, the config sets no overall cap and only each key's max_instances applies.",
+      "description": "Maximum active subagents across all keys. Unset means no overall limit.",
       "maximum": 2147483647,
       "minimum": 1,
       "type": "integer"
     },
     "mcp": {
       "$ref": "#/$defs/AgentConfigDefinitionMCPServers",
-      "description": "MCP servers the agent connects to, keyed by a server name. The name appears in tool names as mcp__{server}__{tool}."
+      "description": "MCP servers the agent can use, keyed by server name. Their tools are named mcp__{server}__{tool}."
     },
     "memory_stores": {
       "$ref": "#/$defs/AgentConfigDefinitionMemoryStores",
-      "description": "Project memory stores the agent can use at /memory/\u003cstore-name\u003e/ through the file tools. Attaching a store adds the retrieval tools, and read_write access adds storage_write."
+      "description": "Project memory stores the agent can access at /memory/{name}/."
     },
     "model": {
       "$ref": "#/$defs/AgentConfigDefinitionModel",
-      "description": "Model the agent runs on, selected by provider and configured model name, plus optional overrides of that model's defaults."
+      "description": "Model the agent runs on, with optional overrides of its defaults."
     },
     "skills": {
       "$ref": "#/$defs/AgentConfigDefinitionSkills",
-      "description": "IDs (skl_...) of skills the agent can load with the skill tool, which is added automatically. The project must own or be granted each skill, and skill names must be unique within the list."
+      "description": "IDs (skl_...) of skills the agent can load. The project must own or be granted each one."
     },
     "subagents": {
       "$ref": "#/$defs/AgentConfigDefinitionSubagents",
-      "description": "Subagents this agent may spawn, keyed by the name it passes to spawn_agent. Declaring any key adds the five subagent tools."
+      "description": "Subagents the agent can spawn, keyed by name."
     },
     "tools": {
       "$ref": "#/$defs/AgentConfigDefinitionTools",
-      "description": "Built-in and custom tools keyed by tool name. {} enables a tool with its defaults. MCP tools are configured under mcp."
+      "description": "Built-in and custom tools, keyed by tool name. {} enables a tool with its defaults."
     },
     "version": {
-      "description": "Config format version. Only v1 exists today. It is optional, but include it for forward compatibility.",
+      "description": "Config format version. Only v1 exists.",
       "enum": [
         "v1"
       ]

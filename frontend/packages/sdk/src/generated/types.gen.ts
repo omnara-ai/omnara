@@ -9,55 +9,55 @@ export type ClientOptions = {
  */
 export type AgentConfigDefinition = {
     /**
-     * GitHub integration whose credentials authenticate HTTPS Git and gh in the agent's machine processes. Adds list_github_repositories. Subagents never receive these credentials.
+     * GitHub integration whose credentials the agent's machine processes use for Git and gh. Not passed to subagents.
      */
     git_credentials?: AgentConfigDefinitionGitCredentials;
     /**
-     * System-level brief for the agent: its job, its boundaries, and when to ask a human. Subagents can add to it with instruction.append.
+     * System instruction for the agent.
      */
     instruction: string;
     /**
-     * Integration interaction handlers the agent can use to present questions and approvals outside the dashboard, keyed by integration name with empty objects. Not inherited by subagents.
+     * Integrations that show the agent's questions and approvals outside the dashboard, keyed by integration name. Not passed to subagents.
      */
     interaction_handlers?: AgentConfigDefinitionInteractionHandlers;
     /**
-     * BYO machines and machine pools the agent runs commands on. A nonempty list adds the command, process and machine tools. A pool source also adds create_machine and delete_machine.
+     * BYO machines and machine pools the agent can run commands on.
      */
     machine_sources?: AgentConfigDefinitionMachineSources;
     /**
-     * How many levels of subagents can nest below this agent. Defaults to 1, so subagents cannot spawn their own. Carried into every subagent config and cannot be raised by a subagent.
+     * Maximum subagent nesting depth. Defaults to 1, so subagents cannot spawn their own.
      */
     max_depth?: number;
     /**
-     * Cap on active subagents across all subagents keys. When unset, the config sets no overall cap and only each key's max_instances applies.
+     * Maximum active subagents across all keys. Unset means no overall limit.
      */
     max_subagents?: number;
     /**
-     * MCP servers the agent connects to, keyed by a server name. The name appears in tool names as mcp__{server}__{tool}.
+     * MCP servers the agent can use, keyed by server name. Their tools are named mcp__{server}__{tool}.
      */
     mcp?: AgentConfigDefinitionMcpServers;
     /**
-     * Project memory stores the agent can use at /memory/<store-name>/ through the file tools. Attaching a store adds the retrieval tools, and read_write access adds storage_write.
+     * Project memory stores the agent can access at /memory/{name}/.
      */
     memory_stores?: AgentConfigDefinitionMemoryStores;
     /**
-     * Model the agent runs on, selected by provider and configured model name, plus optional overrides of that model's defaults.
+     * Model the agent runs on, with optional overrides of its defaults.
      */
     model: AgentConfigDefinitionModel;
     /**
-     * IDs (skl_...) of skills the agent can load with the skill tool, which is added automatically. The project must own or be granted each skill, and skill names must be unique within the list.
+     * IDs (skl_...) of skills the agent can load. The project must own or be granted each one.
      */
     skills?: AgentConfigDefinitionSkills;
     /**
-     * Subagents this agent may spawn, keyed by the name it passes to spawn_agent. Declaring any key adds the five subagent tools.
+     * Subagents the agent can spawn, keyed by name.
      */
     subagents?: AgentConfigDefinitionSubagents;
     /**
-     * Built-in and custom tools keyed by tool name. {} enables a tool with its defaults. MCP tools are configured under mcp.
+     * Built-in and custom tools, keyed by tool name. {} enables a tool with its defaults.
      */
     tools?: AgentConfigDefinitionTools;
     /**
-     * Config format version. Only v1 exists today. It is optional, but include it for forward compatibility.
+     * Config format version. Only v1 exists.
      */
     version?: 'v1';
 };
@@ -82,7 +82,7 @@ export type AgentConfigToolsDefinition = {
  */
 export type AgentConfigDefinitionGitCredentials = {
     /**
-     * Name of a project GitHub integration whose installation supplies the credentials. Resolved to the integration's immutable ID when the config is compiled.
+     * Name of a GitHub integration in the project.
      */
     integration: string;
     /**
@@ -111,48 +111,48 @@ export type AgentConfigDefinitionInteractionHandlers = {
 
 export type AgentConfigDefinitionMcpAuth = {
     /**
-     * AWS signing region of the MCP endpoint. Required for sigv4 and rejected for other types. It does not limit which AWS regions tool calls can target.
+     * AWS region to sign for. Required for sigv4 only.
      */
     region?: string;
     /**
-     * Secret holding the credential. Its kind must match type: a generic secret for bearer, oauth_token_set for oauth, or aws_credentials for sigv4. The config never contains the credential itself.
+     * Secret holding the credential: generic for bearer, oauth_token_set for oauth, aws_credentials for sigv4.
      */
     secret_id: string;
     /**
-     * AWS SigV4 signing service name, such as aws-mcp. Required for sigv4 and rejected for other types.
+     * AWS service to sign for, such as aws-mcp. Required for sigv4 only.
      */
     service?: string;
     /**
-     * How requests are authenticated: bearer sends a static token, oauth uses tokens from Omnara's MCP OAuth flow, and sigv4 signs each request with AWS Signature Version 4.
+     * bearer sends a static token, oauth uses tokens from Omnara's MCP OAuth flow, and sigv4 signs requests with AWS SigV4.
      */
     type: 'bearer' | 'oauth' | 'sigv4';
 };
 
 export type AgentConfigDefinitionMcpServer = {
     /**
-     * How Omnara authenticates to this server. Omit it for servers that need no authentication.
+     * How to authenticate to the server. Omit if it needs none.
      */
     auth?: AgentConfigDefinitionMcpAuth;
     /**
-     * Whether the server's tools are exposed unless overridden per tool. Defaults to true. Set it to false to expose only the tools marked enabled: true under tools.
+     * Whether tools are enabled unless overridden in tools. Defaults to true.
      */
     default_enabled?: boolean | null;
     /**
-     * When true, the server's tools stay out of the model's context until tool_search loads them. A tool's own deferred setting overrides this. Defaults to false.
+     * Keep the server's tools out of context until tool_search loads them. Defaults to false.
      */
     deferred?: boolean;
     /**
-     * Default permission for this server's tools. A tool's own permission overrides it. Defaults to always_ask.
+     * Default permission for the server's tools. Defaults to always_ask.
      */
     permission?: AgentConfigDefinitionToolPermission;
     /**
-     * Per-tool overrides, keyed by the tool's name on the MCP server (without the mcp__{server}__ prefix).
+     * Per-tool overrides, keyed by the tool's name on the server.
      */
     tools?: {
         [key: string]: AgentConfigDefinitionMcpTool;
     };
     /**
-     * The server's MCP endpoint. Must use https. Plain http is accepted only for loopback hosts on deployments that enable insecure local development.
+     * HTTPS URL of the server's MCP endpoint.
      */
     url: string;
 };
@@ -163,15 +163,15 @@ export type AgentConfigDefinitionMcpServers = {
 
 export type AgentConfigDefinitionMcpTool = {
     /**
-     * Overrides the server's deferred setting for this tool. Null or omitted inherits the server's value.
+     * Overrides the server's deferred setting. Null inherits it.
      */
     deferred?: boolean | null;
     /**
-     * true exposes this tool and false hides it. Null or omitted follows the server's default_enabled.
+     * Enables or hides the tool. Null follows the server's default_enabled.
      */
     enabled?: boolean | null;
     /**
-     * Permission for calls to this tool. Overrides the server's permission.
+     * Overrides the server's permission for this tool.
      */
     permission?: AgentConfigDefinitionToolPermission;
 };
@@ -182,55 +182,55 @@ export type AgentConfigDefinitionMachineSource = ({
     [key: string]: unknown;
 }) & {
     /**
-     * Working directory for the agent's processes on this source's machines. Replaces the machine's or pool's default.
+     * Working directory for the agent's processes. Overrides the machine or pool default.
      */
     cwd?: string;
     /**
-     * Pool sources only. Deletes a pool machine after it has had no process work for this many minutes. Unset inherits the grant or pool setting, and 0 disables idle deletion.
+     * Pools only. Delete a machine after this many idle minutes; 0 disables. Unset inherits the grant or pool setting.
      */
     delete_after_idle_minutes?: 0 | number;
     /**
-     * Note describing this source to the agent, such as what the pool or machine is for. list_machines shows it with each pool.
+     * Describes this source to the agent.
      */
     description?: string;
     /**
-     * Environment variables for every process the agent runs on these machines. For pools, they also apply at provisioning. Set a value to null to remove an inherited variable.
+     * Environment variables for the agent's processes. A null value removes an inherited variable.
      */
     env_overlay?: {
         [key in EnvironmentVariableName]?: string | null;
     } | null;
     /**
-     * Pool sources only. Number of pool machines created when the agent launches. Defaults to 1 (0 when max_machines is 0) and cannot exceed max_machines.
+     * Pools only. Machines to create at launch. Defaults to 1 and cannot exceed max_machines.
      */
     initial_num_machines?: number;
     /**
-     * Pool sources only. Default CPU count for this agent's new pool machines, within pool and project limits. Support varies by provider.
+     * Pools only. vCPUs for new machines, within pool and project limits.
      */
     machine_cpu?: number;
     /**
-     * Pool sources only. Default memory in MB for this agent's new pool machines, within pool and project limits. Support varies by provider.
+     * Pools only. Memory in MB for new machines, within pool and project limits.
      */
     machine_memory_mb?: number;
     /**
-     * Name of a BYO machine granted to the project. Set this or machine_pool_name, not both. Resolved to the machine's immutable ID at compile time.
+     * Name of a BYO machine granted to the project. Set this or machine_pool_name.
      */
     machine_name?: ResourceNameReference;
     /**
-     * Name of a machine pool granted to the project, from which Omnara creates machines on demand. Set this or machine_name, not both.
+     * Name of a machine pool granted to the project. Set this or machine_name.
      */
     machine_pool_name?: ResourceNameReference;
     /**
-     * Pool sources only. Provider-specific machine options layered over the pool's and project grant's options for this agent's new machines.
+     * Pools only. Provider options applied over the pool and grant options.
      */
     machine_provider_options_overlay?: {
         [key: string]: unknown;
     } | null;
     /**
-     * Pool sources only. Total pool machines this agent may hold from this source, including ones it creates with create_machine. Defaults to 1. Pool and project limits still apply.
+     * Pools only. Most machines the agent can hold from this pool. Defaults to 1.
      */
     max_machines?: number;
     /**
-     * Environment variables whose values come from secrets (sec_... IDs), resolved when injected. Applies like env_overlay. Set a value to null to remove an inherited variable.
+     * Environment variables set from secrets (sec_...). A null value removes an inherited variable.
      */
     secret_env_overlay?: {
         [key in EnvironmentVariableName]?: string | null;
@@ -241,11 +241,11 @@ export type AgentConfigDefinitionMachineSources = Array<AgentConfigDefinitionMac
 
 export type AgentConfigDefinitionMemoryStore = {
     /**
-     * Name of a memory store in the project. Its files appear to the agent at /memory/<name>/.
+     * Name of a memory store in the project.
      */
     name: MemoryStoreName;
     /**
-     * read lets the agent read the store's files. read_write also lets it write them, but only when the store's agent_access is also read_write.
+     * read, or read_write if the store also allows agent writes.
      */
     access: 'read' | 'read_write';
 };
@@ -254,7 +254,7 @@ export type AgentConfigDefinitionMemoryStores = Array<AgentConfigDefinitionMemor
 
 export type AgentConfigDefinitionModel = {
     /**
-     * Prompt-cache preference: none sends no Omnara cache controls, short uses the route's default caching, and long prefers an extended cache lifetime where one exists. Unset uses the configured model's default.
+     * Prompt caching: none, short (provider default), or long (extended where available). Unset uses the model's default.
      */
     cache_retention?: 'none' | 'short' | 'long';
     /**
@@ -262,19 +262,19 @@ export type AgentConfigDefinitionModel = {
      */
     context_window_tokens?: number;
     /**
-     * Per-request output-token cap sent to the provider. Overrides the configured model's default.
+     * Maximum output tokens per request. Overrides the model's default.
      */
     default_max_output_tokens?: number;
     /**
-     * Configured model name. Must exactly match a model configured under provider_config that is available to the project.
+     * Configured model name under provider_config.
      */
     name: ResourceNameReference;
     /**
-     * Name of the organization's model provider. Resolved to the provider's immutable ID when the config is created.
+     * Name of the organization's model provider.
      */
     provider_config: ResourceNameReference;
     /**
-     * Reasoning settings for models that support them. effort, such as low, medium or high, overrides the configured model's default reasoning effort.
+     * Reasoning effort, such as low, medium, or high, for models that support it.
      */
     reasoning?: {
         effort: string;
@@ -285,45 +285,45 @@ export type AgentConfigDefinitionSkills = Array<string> | null;
 
 export type AgentConfigDefinitionSubagent = {
     /**
-     * Archives subagents spawned from this key after they have been idle this many minutes. When unset, they are not archived for being idle.
+     * Archive these subagents after this many idle minutes. Unset never archives them for being idle.
      */
     archive_after_idle_minutes?: number;
     /**
-     * Shown to the model when it chooses which subagent key to spawn.
+     * Tells the model when to spawn this subagent.
      */
     description?: string;
     /**
-     * Changes to the launched config's instruction.
+     * Changes to the subagent's instruction.
      */
     instruction?: AgentConfigDefinitionSubagentInstruction;
     /**
-     * Cap on active subagents spawned from this key. When unset, there is no per-key cap, but max_subagents still applies.
+     * Maximum active subagents from this key. Unset means no per-key limit.
      */
     max_instances?: number;
     /**
-     * Model overrides for this subagent. Omit provider_config and name to inherit the parent's model (self) or the profile's model (profile). Other fields override that model individually.
+     * Model overrides. Omit provider_config and name to keep the base model.
      */
     model?: AgentConfigDefinitionSubagentModel;
     /**
-     * Name of the agent profile to launch from, using the profile's current config. Required when type is profile and rejected for self.
+     * Agent profile to launch from. Required when type is profile.
      */
     profile?: ResourceNameReference;
     /**
-     * profile launches from the named profile's current config. self launches from a copy of this agent's own config.
+     * profile launches from a profile's current config; self copies this agent's config.
      */
     type: 'profile' | 'self';
 };
 
 export type AgentConfigDefinitionSubagentInstruction = {
     /**
-     * Text appended after a blank line to the base config's instruction for subagents spawned from this key.
+     * Text appended to the base instruction.
      */
     append?: string;
 };
 
 export type AgentConfigDefinitionSubagentModel = {
     /**
-     * Overrides the base model's prompt-cache preference for this subagent: none, short or long. Unset keeps the base value.
+     * Overrides the base model's prompt caching.
      */
     cache_retention?: 'none' | 'short' | 'long';
     /**
@@ -331,19 +331,19 @@ export type AgentConfigDefinitionSubagentModel = {
      */
     context_window_tokens?: number;
     /**
-     * Overrides the base model's per-request output-token cap for this subagent. Unset keeps the base value.
+     * Overrides the base model's output token limit.
      */
     default_max_output_tokens?: number;
     /**
-     * Configured model name under provider_config. Set it together with provider_config to switch models, or omit both to keep the base model.
+     * Configured model name. Set with provider_config to switch models.
      */
     name?: ResourceNameReference;
     /**
-     * Model provider name. Set it together with name to select a different model for this subagent, or omit both to inherit.
+     * Model provider name. Set with name to switch models.
      */
     provider_config?: ResourceNameReference;
     /**
-     * Overrides the base model's reasoning effort for this subagent. Unset keeps the base setting.
+     * Overrides the base model's reasoning effort.
      */
     reasoning?: {
         effort: string;
@@ -356,27 +356,27 @@ export type AgentConfigDefinitionSubagents = {
 
 export type AgentConfigDefinitionTool = {
     /**
-     * When true, the tool's definition stays out of the model's context until tool_search loads it. Adds tool_search automatically, and tool_search itself cannot be deferred. Defaults to false.
+     * Keep the tool out of context until tool_search loads it. Defaults to false.
      */
     deferred?: boolean;
     /**
-     * Custom tools only. Tells the model what the tool does and when to use it. Required when type is custom and rejected for built-in tools.
+     * Custom tools only. Tells the model what the tool does.
      */
     description?: string;
     /**
-     * Set to false to turn the tool off, including tools Omnara would otherwise add by default. Omitted or null enables it.
+     * Set to false to disable the tool, including default tools.
      */
     enabled?: boolean | null;
     /**
-     * Custom tools only. JSON Schema for the tool's arguments. Required when type is custom and rejected for built-in tools.
+     * Custom tools only. JSON Schema for the tool's arguments.
      */
     input_schema?: AgentConfigDefinitionToolInputSchema;
     /**
-     * Overrides the tool's default permission. Custom tools default to always_allow; built-in defaults and supported modes are listed in GET /tool-catalog.
+     * Overrides the tool's default permission. GET /tool-catalog lists defaults and modes.
      */
     permission?: AgentConfigDefinitionToolPermission;
     /**
-     * built_in (the default) selects a tool Omnara runs, by its catalog name. custom declares a tool your system runs and answers through the tool-calls API.
+     * built_in for an Omnara tool, custom for a tool your system runs.
      */
     type?: 'built_in' | 'custom';
 };
@@ -386,7 +386,7 @@ export type AgentConfigDefinitionTool = {
  */
 export type AgentConfigDefinitionToolInputSchema = {
     /**
-     * The tool's arguments, keyed by argument name, each defined as a JSON Schema.
+     * Arguments, keyed by name, as JSON Schemas.
      */
     properties?: {
         [key: string]: {
@@ -394,11 +394,11 @@ export type AgentConfigDefinitionToolInputSchema = {
         };
     };
     /**
-     * Names of arguments the model must supply. Each one must also be declared in properties.
+     * Names of required arguments.
      */
     required?: Array<string>;
     /**
-     * Always object, because tool arguments are passed as a single JSON object.
+     * Must be object.
      */
     type: 'object';
     [key: string]: unknown;
@@ -406,11 +406,11 @@ export type AgentConfigDefinitionToolInputSchema = {
 
 export type AgentConfigDefinitionToolPermission = {
     /**
-     * always_allow runs each call immediately, always_ask pauses it until a human approves or denies it, and always_deny refuses it. Supported modes per tool are in GET /tool-catalog.
+     * always_allow, always_ask (wait for human approval), or always_deny.
      */
     mode: string;
     /**
-     * Mode-specific settings, validated against the mode's parameters_schema in GET /tool-catalog. The current modes take none, so omit it or send {}.
+     * Mode-specific settings. Current modes take none.
      */
     parameters?: {
         [key: string]: unknown;
@@ -1055,7 +1055,7 @@ export type ConfiguredModelList = {
  */
 export type CreateProjectModelGrantRequest = {
     /**
-     * Configured model (mdl_...) the project can use. Override fields left out of this grant inherit from this model.
+     * Configured model (mdl_...) to grant.
      */
     configured_model_id: ConfiguredModelId;
     /**
@@ -1114,7 +1114,7 @@ export type UpdateProjectModelGrantRequest = {
      */
     default_max_output_tokens?: number | null;
     /**
-     * Project override for the prompt-cache preference: none, short, or long. Null clears it, so the project inherits the configured model's value. An agent config's model.cache_retention still takes precedence.
+     * Overrides the model's prompt caching for this project. Null inherits it.
      */
     default_cache_retention?: ModelCacheRetention | null;
     /**
@@ -2203,37 +2203,37 @@ export type ListAgentProfilesResponse = {
 
 export type AgentCronTriggerTarget = {
     /**
-     * Always agent: each firing sends the rendered message to the existing agent given in agent_id.
+     * agent: send each message to an existing agent.
      */
     type: 'agent';
     /**
-     * Existing agent (agt_...) that receives each firing's rendered message_template as an input. It cannot be changed after the trigger is created.
+     * Agent (agt_...) that receives each message.
      */
     agent_id: AgentId;
     /**
-     * How each firing's message reaches the agent. queued waits until the agent is ready for new work; steering arrives at its next model call. Defaults to queued; leaving it out of an update keeps the current mode.
+     * How each message is delivered: queued (default) or steering.
      */
     delivery_mode?: CronTriggerDeliveryMode;
 };
 
 export type AgentProfileCronTriggerTarget = {
     /**
-     * Always profile: each firing launches a new agent from the profile given in agent_profile_id.
+     * profile: launch a new agent on each run.
      */
     type: 'profile';
     /**
-     * Profile (aprf_...) used to launch a new agent on each firing. The agent runs the profile's current config, and the rendered message_template is its first message. It cannot be changed after creation.
+     * Profile (aprf_...) to launch a new agent from on each run.
      */
     agent_profile_id: AgentProfileId;
 };
 
 export type IntegrationCronTriggerTarget = {
     /**
-     * Always integration: each firing goes to the integration in integration_id, which acts on settings. message_template is not used for this target.
+     * integration: hand each run to an integration.
      */
     type: 'integration';
     /**
-     * Integration (itg_...) that handles each firing, for example by starting a new Slack or Discord thread with a fresh agent. It cannot be changed after creation. Deleting the integration deletes the trigger.
+     * Integration (itg_...) that handles each run.
      */
     integration_id: IntegrationId;
     /**
@@ -2375,7 +2375,7 @@ export type CreateAgentRequest = ({
     config_source: CreateAgentConfigRequest;
 }) & {
     /**
-     * Agent profile (aprf_...) to launch from. With only profile, the agent runs the profile's current config. With config or config_source too, the agent is attributed to the profile but runs that config.
+     * Agent profile (aprf_...) to launch. Runs its current config unless config or config_source is set.
      */
     profile?: AgentProfileId;
     config?: AgentConfigId;
@@ -2571,15 +2571,15 @@ export type ContentBlockMetadata = Metadata;
 
 export type TextContentBlock = {
     /**
-     * Always text: a plain-text content block.
+     * text: a plain-text block.
      */
     type: 'text';
     /**
-     * The block's plain text: a message in agent inputs, model-written text in model output, or text a tool returned in tool results.
+     * The text.
      */
     text: string;
     /**
-     * Optional key-value metadata for this block. Keys starting with omnara_ are reserved for Omnara- defined behavior.
+     * Key-value metadata. omnara_ keys are reserved.
      */
     metadata?: ContentBlockMetadata;
 };
@@ -2589,15 +2589,15 @@ export type TextContentBlock = {
  */
 export type InlineMediaContentBlock = {
     /**
-     * Always media: a file sent inline as base64 in data. Omnara stores it as an artifact, and stored events show it as a media_ref block.
+     * media: a base64-encoded file in data.
      */
     type: 'media';
     /**
-     * MIME type of the bytes in data. Text types must be valid UTF-8. Images and PDFs are rejected unless the model accepts them. Other documents are sent as files only to OpenAI Responses models with file input.
+     * MIME type of data.
      */
     media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'application/pdf' | 'text/plain' | 'text/markdown' | 'text/csv' | 'text/tab-separated-values' | 'text/x-iif' | 'application/msword' | 'application/rtf' | 'application/vnd.oasis.opendocument.text' | 'application/vnd.apple.pages' | 'application/vnd.apple.keynote' | 'application/vnd.apple.iwork' | 'application/vnd.ms-powerpoint' | 'application/vnd.ms-excel' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' | 'application/vnd.openxmlformats-officedocument.presentationml.presentation' | 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     /**
-     * Optional original filename, up to 255 characters, saved on the stored artifact. Models that cannot receive the file directly get this name along with the artifact ID.
+     * Original filename.
      */
     filename?: string;
     /**
@@ -2605,7 +2605,7 @@ export type InlineMediaContentBlock = {
      */
     data: string;
     /**
-     * Optional key-value metadata for this block. Keys starting with omnara_ are reserved for Omnara- defined behavior.
+     * Key-value metadata. omnara_ keys are reserved.
      */
     metadata?: ContentBlockMetadata;
 };
@@ -2799,7 +2799,7 @@ export type CreateAgentInputRequest = {
      */
     content_blocks: Array<CreateAgentInputContentBlock>;
     /**
-     * When a busy agent gets this message. queued (default) waits until the agent is ready for new work. steering arrives at its next model call, ahead of queued messages, and starts a new turn. An idle agent gets either one right away.
+     * queued (default) waits until the agent is free; steering reaches it at its next model call.
      */
     delivery_mode?: CreateAgentInputDeliveryMode;
     /**
@@ -3353,7 +3353,7 @@ export type InteractionForm = {
 
 export type InteractionAnswer = {
     /**
-     * Zero-based positions in this question's options. Send exactly one unless the question has multiple: true. Permission prompts use 0 for Allow and 1 for Deny.
+     * Zero-based indices of the chosen options. Pick one unless the question allows multiple.
      */
     option_indices: Array<number>;
     /**
@@ -3375,7 +3375,7 @@ export type AgentInteractionState = 'open' | 'resolved' | 'canceled';
 
 export type ResolveAgentInteractionRequest = {
     /**
-     * One answer for each question in the interaction's request.questions, in the same order. The first answer recorded wins. Resending the same answers returns the resolved interaction again; different answers return 409.
+     * One answer per question, in order.
      */
     answers: Array<InteractionAnswer>;
     /**
@@ -3472,19 +3472,19 @@ export type Actor = {
  */
 export type ExternalActorParams = {
     /**
-     * Your namespace for the user, such as a customer tenant or source system. Together with provider_user_id it picks the project actor to reuse or create. If omitted, the actor has no namespace.
+     * Your tenant or namespace for the user. With provider_user_id, identifies the actor.
      */
     provider_tenant_id?: string;
     /**
-     * Stable ID for the user in your system. Together with provider_tenant_id it picks the project actor to reuse or create.
+     * The user's ID in your system. With provider_tenant_id, identifies the actor.
      */
     provider_user_id: string;
     /**
-     * Human-readable name shown when inputs are attributed to this actor. If omitted, the stored name is kept; a value you send, including an empty string, replaces it.
+     * Display name for the actor.
      */
     display_name?: string;
     /**
-     * Key-value attributes saved on the actor. If omitted, the stored metadata is kept; metadata you send replaces it.
+     * Key-value attributes for the actor. Replaces stored metadata when sent.
      */
     metadata?: Metadata;
 };
@@ -3501,25 +3501,25 @@ export type ListAgentInteractionsResponse = {
 
 export type OrgSecretOwnerInput = {
     /**
-     * Makes the organization the owner. Projects can use the secret only through a grant. Machine pool provider credentials must be org-owned.
+     * org: owned by the organization. Projects need a grant to use it.
      */
     kind: 'org';
 };
 
 export type ProjectSecretOwnerInput = {
     /**
-     * Makes a project the owner. That project can use the secret directly; other projects need a grant.
+     * project: owned by one project.
      */
     kind: 'project';
     /**
-     * ID of the project that owns the secret. The owner cannot change after creation.
+     * Owning project.
      */
     project_id: ProjectId;
 };
 
 export type UserSecretOwnerInput = {
     /**
-     * Makes the calling user the owner, for personal credentials. Requires a request authenticated as a user. Projects need a grant to use the secret.
+     * user: owned by the calling user. Projects need a grant to use it.
      */
     kind: 'user';
 };
@@ -3559,18 +3559,18 @@ export type SecretOwner = ({
 
 export type GenericSecretMaterial = {
     /**
-     * Selects the generic secret type: a single value such as an API key, token, or password.
+     * generic: a single value, such as an API key.
      */
     kind: 'generic';
     /**
-     * The secret value, up to 64 KiB. Stored encrypted and never returned by read endpoints.
+     * The secret value, up to 64 KiB.
      */
     value: string;
 };
 
 export type OAuthRefreshSecretMaterial = {
     /**
-     * Refresh token that Omnara exchanges at token_endpoint for a new access token. It is replaced when the server issues a new one. Stored encrypted and never returned.
+     * Refresh token exchanged at token_endpoint for new access tokens.
      */
     refresh_token: string;
     /**
@@ -3578,73 +3578,73 @@ export type OAuthRefreshSecretMaterial = {
      */
     token_endpoint: string;
     /**
-     * OAuth client ID sent to token_endpoint with refresh requests.
+     * OAuth client ID.
      */
     client_id: string;
     /**
-     * Optional OAuth client secret sent with refresh requests. Omit it if the client has none. Stored encrypted and never returned.
+     * OAuth client secret, if the client has one.
      */
     client_secret?: string;
     /**
-     * Resource indicator (the MCP server's protected-resource URI) sent as the resource parameter on refresh requests.
+     * Resource indicator sent with refresh requests.
      */
     resource: string;
 };
 
 export type OAuthTokenSetSecretMaterial = {
     /**
-     * Selects the oauth_token_set secret type: an OAuth access token with optional refresh material, used by MCP servers with oauth auth.
+     * oauth_token_set: OAuth tokens for MCP servers that use oauth auth.
      */
     kind: 'oauth_token_set';
     /**
-     * OAuth access token sent to the MCP server. Replaced on each refresh. Stored encrypted and never returned.
+     * OAuth access token.
      */
     access_token: string;
     /**
-     * Access token lifetime in seconds, counted from when the request is received. Omit it if the token has no known expiry; Omnara then treats the token as never expiring.
+     * Seconds until the access token expires. Omit if it doesn't expire.
      */
     access_token_expires_in_seconds?: number;
     /**
-     * Optional refresh material. When present, Omnara gets a new access token as the current one nears expiry. Without it, an expired token fails until you rotate the secret.
+     * Refresh material. Without it, the token can't be renewed once it expires.
      */
     refresh?: OAuthRefreshSecretMaterial;
     /**
-     * Optional OpenID Connect ID token issued with the access token. Updated when a refresh returns a new one.
+     * OpenID Connect ID token, if one was issued.
      */
     id_token?: string;
     /**
-     * URL of the MCP server the tokens were issued for. The built-in MCP OAuth flow sets it to the server's endpoint.
+     * URL of the MCP server the tokens were issued for.
      */
     mcp_url?: string;
     /**
-     * Space-separated OAuth scopes granted to the token. Updated when a refresh returns scopes.
+     * Granted scopes, space-separated.
      */
     scopes?: string;
     /**
-     * Token type reported by the authorization server, such as Bearer. Overwritten on each refresh.
+     * Token type, such as Bearer.
      */
     token_type?: string;
 };
 
 export type AwsCredentialsSecretMaterial = {
     /**
-     * Selects the aws_credentials secret type: AWS access keys used to sign requests with SigV4, for example for MCP servers with sigv4 auth.
+     * aws_credentials: AWS keys for SigV4 signing.
      */
     kind: 'aws_credentials';
     /**
-     * AWS access key ID, paired with secret_access_key. Omnara uses it to sign requests directly, or to call STS when role_arn is set.
+     * AWS access key ID.
      */
     access_key_id: string;
     /**
-     * AWS secret access key paired with access_key_id. Stored encrypted and never returned.
+     * AWS secret access key.
      */
     secret_access_key: string;
     /**
-     * Optional session token for temporary AWS credentials. Omnara does not refresh it, so rotate the secret before the token expires.
+     * Session token for temporary credentials. Not refreshed automatically.
      */
     session_token?: string;
     /**
-     * Optional IAM role ARN. When set, Omnara assumes this role through STS with the access keys and signs requests with the role's temporary credentials.
+     * IAM role to assume through STS before signing.
      */
     role_arn?: string;
     /**
@@ -3655,11 +3655,11 @@ export type AwsCredentialsSecretMaterial = {
 
 export type GitHubAppCredentialsSecretMaterial = {
     /**
-     * Selects the github_app_credentials secret type: a GitHub App's ID, RSA private key, and webhook secret.
+     * github_app_credentials: a GitHub App's ID, private key, and webhook secret.
      */
     kind: 'github_app_credentials';
     /**
-     * Numeric GitHub App ID, not the installation ID. It must match the GitHub integration's provider_tenant_id.
+     * GitHub App ID, not the installation ID.
      */
     app_id: string;
     /**
@@ -3667,7 +3667,7 @@ export type GitHubAppCredentialsSecretMaterial = {
      */
     private_key: string;
     /**
-     * Webhook secret set on the GitHub App, used to verify the signatures of incoming webhook events. Stored encrypted and never returned.
+     * The App's webhook secret, used to verify webhook signatures.
      */
     webhook_secret: string;
 };
@@ -3953,23 +3953,23 @@ export type MachinePoolConnectionCheckError = {
 
 export type CreateMachinePoolRequestBase = {
     /**
-     * Pool name, unique among the organization's active pools. Agent configs refer to the pool by this name in machine_pool_name.
+     * Pool name, unique in the organization. Agent configs reference it as machine_pool_name.
      */
     name: ResourceName;
     /**
-     * Optional free-form description of the pool. Defaults to an empty string.
+     * Free-form description.
      */
     description?: string;
     /**
-     * Sandbox provider for the pool's machines: agent37, arker, blaxel, boxd, createos, daytona, e2b, freestyle, modal, superserve, tenki, or unikraft. It decides which size and limit fields are required.
+     * Sandbox provider. Determines which size and limit fields are required.
      */
     provider: string;
     /**
-     * Default vCPU count for new machines when the grant or agent config sets none. Must be between min_machine_cpu and max_machine_cpu. Required by some providers; Blaxel rejects it.
+     * Default vCPUs per machine, between min_machine_cpu and max_machine_cpu.
      */
     default_machine_cpu?: number;
     /**
-     * Default memory in MB for new machines when the grant or agent config sets none. Must be between min_machine_memory_mb and max_machine_memory_mb. Optional where the template or snapshot sets the size.
+     * Default memory per machine in MB, between min_machine_memory_mb and max_machine_memory_mb.
      */
     default_machine_memory_mb?: number;
     /**
@@ -3985,23 +3985,23 @@ export type CreateMachinePoolRequestBase = {
         [key: string]: SecretId;
     };
     /**
-     * Provider options for each new machine, such as image or template, region, startup_script, and sleep_after_ms. Keys depend on the provider. Grants and agent configs can override them within provider_config allowlists.
+     * Provider options for new machines, such as image, region, or startup_script. Keys depend on the provider.
      */
     default_machine_provider_options: {
         [key: string]: unknown;
     };
     /**
-     * Default working directory for processes on the pool's machines, up to 4096 characters. Project grants and agent configs can override it.
+     * Default working directory for processes.
      */
     default_cwd?: string;
     /**
-     * Pool-wide provider settings, such as a Blaxel workspace or an E2B domain, and allowlists like allowed_images that let grants and agent configs pick other values. Keys depend on the provider.
+     * Provider-wide settings and allowlists. Keys depend on the provider.
      */
     provider_config?: {
         [key: string]: unknown;
     };
     /**
-     * ID of an org-owned generic secret that holds the provider's API key. Omnara uses it to call the provider for this pool.
+     * Org-owned generic secret holding the provider API key.
      */
     provider_auth_secret_id: SecretId;
     /**
@@ -4009,31 +4009,31 @@ export type CreateMachinePoolRequestBase = {
      */
     runtime_protection_enabled?: boolean;
     /**
-     * Maximum number of live machines in the pool across all projects. 0 blocks new machines. Project grants can set a lower per-project limit.
+     * Most live machines across all projects. 0 blocks new machines.
      */
     max_total_machines: number;
     /**
-     * Maximum total vCPUs across the pool's live machines. Launches that would exceed it are rejected. Required for every provider except Blaxel, which rejects it.
+     * Most vCPUs across live machines.
      */
     max_total_cpu?: number;
     /**
-     * Maximum total memory in MB across the pool's live machines. Launches that would exceed it are rejected. Required for every provider.
+     * Most memory in MB across live machines.
      */
     max_total_memory_mb?: number;
     /**
-     * Smallest vCPU count a single machine can use. 0 or omitted means no minimum. Cannot exceed max_machine_cpu, and default_machine_cpu must be at least this. Blaxel rejects it.
+     * Fewest vCPUs per machine. 0 means no minimum.
      */
     min_machine_cpu?: number;
     /**
-     * Smallest memory in MB a single machine can use. 0 or omitted means no minimum. Cannot exceed max_machine_memory_mb, and default_machine_memory_mb must be at least this.
+     * Least memory per machine in MB. 0 means no minimum.
      */
     min_machine_memory_mb?: number;
     /**
-     * Largest vCPU count a single machine can use, including per-machine overrides. Must be at least default_machine_cpu. Required for every provider except Blaxel, which rejects it.
+     * Most vCPUs per machine.
      */
     max_machine_cpu?: number;
     /**
-     * Largest memory in MB a single machine can use, including per-machine overrides. Must be at least default_machine_memory_mb. Required for every provider.
+     * Most memory per machine in MB.
      */
     max_machine_memory_mb?: number;
     /**
@@ -4041,7 +4041,7 @@ export type CreateMachinePoolRequestBase = {
      */
     delete_after_idle_minutes?: number;
     /**
-     * Key-value metadata for the pool, copied to the machines it provisions. Up to 15 pairs; the observed_platform key is reserved.
+     * Key-value metadata copied to the pool's machines.
      */
     metadata?: MachineMetadata;
 };
@@ -5158,11 +5158,11 @@ export type IntegrationConversation = {
 
 export type IntegrationSubscriptionAttachment = {
     /**
-     * Integration (itg_...) that owns the subscription and forwards activity from the conversation to the new agent. The integration must support subscriptions.
+     * Integration (itg_...) that forwards the conversation's activity.
      */
     integration_id: IntegrationId;
     /**
-     * Provider conversation to subscribe the new agent to, checked against the integration's capabilities.subscription.conversation_schema. Example: Slack channel_id with an optional thread_ts.
+     * Provider conversation to subscribe the agent to, such as a Slack channel.
      */
     conversation: IntegrationConversation;
 };
@@ -14547,7 +14547,7 @@ export type ListAgentInteractionsData = {
     };
     query?: {
         /**
-         * Return only interactions in this state: open (waiting for an answer), resolved (answered), or canceled (the work it guarded was canceled, superseded, or archived). Omit it to return all states.
+         * Filter by state: open, resolved, or canceled. Omit for all.
          */
         state?: AgentInteractionState;
         /**
