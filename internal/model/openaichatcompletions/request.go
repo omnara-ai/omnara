@@ -33,15 +33,16 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if err := validateToolResultProviderCallIDs(input.Context.ToolResults); err != nil {
 		return nil, err
 	}
+	compat := c.compat()
 	messages, err := buildMessages(
 		input.Context,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
 		input.Policy,
+		c.effortSteering(compat, input.Policy),
 	)
 	if err != nil {
 		return nil, err
 	}
-	compat := c.compat()
 	payload := chatCompletionsRequest{
 		Model:    providerModelSlug,
 		Messages: messages,
@@ -83,6 +84,26 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		ownedFields = append(ownedFields, "safety_identifier")
 	}
 	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+}
+
+// effortSteering returns the running effort for OpenRouter configuration
+// updates, or nil when the route or model does not take them. The request's
+// own reasoning effort never changes, so the cached prefix still matches.
+func (c Client) effortSteering(compat compat, policy model.RequestPolicy) *model.EffortSteering {
+	supportsReasoning := c.ModelCapabilities.SupportsReasoning
+	if policy.SupportsReasoning != nil {
+		supportsReasoning = *policy.SupportsReasoning
+	}
+	slug := c.RequestedProviderModelSlug()
+	if !supportsReasoning || compat.reasoningFormat != reasoningFormatOpenRouter ||
+		!model.OpenRouterSupportsConfigurationUpdate(slug) {
+		return nil
+	}
+	base := policy.ReasoningEffort
+	if base == "" {
+		base = model.ClaudeDefaultReasoningEffort(slug)
+	}
+	return model.NewEffortSteering(base, c.ModelCapabilities.SupportedReasoningEfforts)
 }
 
 func chatCompletionsOwnedFields(reasoningOwned bool) []string {
@@ -150,11 +171,18 @@ const (
 )
 
 type chatMessage struct {
-	Role           chatRole        `json:"role"`
-	Content        any             `json:"content"`
-	ToolCalls      []chatToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID     string          `json:"tool_call_id,omitempty"`
-	ProviderReplay json.RawMessage `json:"-"`
+	Role                chatRole                 `json:"role"`
+	Content             any                      `json:"content"`
+	ToolCalls           []chatToolCall           `json:"tool_calls,omitempty"`
+	ToolCallID          string                   `json:"tool_call_id,omitempty"`
+	ConfigurationUpdate *chatConfigurationUpdate `json:"configuration_update,omitempty"`
+	ProviderReplay      json.RawMessage          `json:"-"`
+}
+
+// chatConfigurationUpdate is OpenRouter's mid-conversation settings change,
+// sent on a system message with empty content.
+type chatConfigurationUpdate struct {
+	Reasoning chatReasoning `json:"reasoning"`
 }
 
 func (m chatMessage) MarshalJSON() ([]byte, error) {
@@ -192,6 +220,7 @@ func buildMessages(
 	bundle modelcontext.Bundle,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	policy model.RequestPolicy,
+	steering *model.EffortSteering,
 ) ([]chatMessage, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
@@ -231,6 +260,14 @@ func buildMessages(
 		message, ok := messageFromContext(entry.Message, bundle.ResolvedMedia)
 		if ok {
 			messages = append(messages, message)
+		}
+		// An update after a user turn applies to the reply to that turn and
+		// every later one.
+		if effort, ok := steering.Lower(entry.ReasoningEffortReduction); ok {
+			messages = append(messages, chatMessage{
+				Role: chatRoleSystem, Content: "",
+				ConfigurationUpdate: &chatConfigurationUpdate{Reasoning: chatReasoning{Effort: effort}},
+			})
 		}
 	}
 	if len(messages) == 0 {

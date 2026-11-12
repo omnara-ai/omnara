@@ -250,7 +250,9 @@ func (e AgentExecutor) executeModelStep(
 				},
 			)
 		}
-		policy, bundle.HarnessNotice = modelretry.RecoverFromOutputNoProgress(policy, noProgressFailures)
+		// The retry ends with steering that its output, once stored, replays at
+		// the same position, so later requests keep this request's prefix.
+		bundle.OutputNoProgressRetries = noProgressFailures
 	}
 	bundle.ConfiguredModelRevisionID = claim.Context.ConfiguredModelRevisionID
 	bundle.SafetyIdentifier = e.safetyIdentifier(input.OrgID)

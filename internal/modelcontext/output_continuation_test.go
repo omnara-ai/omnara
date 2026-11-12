@@ -59,26 +59,35 @@ func TestOutputLimitNoticePreservesHistoricalPrefix(t *testing.T) {
 	}
 }
 
-func TestHarnessNoticeIsAppendedAfterHistory(t *testing.T) {
-	const notice = "Think less this time."
-	bundle := Bundle{Messages: []Message{
-		{ID: "input", Sequence: 41, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"go"}]`)},
-		{ID: "output", ModelCallContextID: testIDN(9201).String(), Sequence: 42, Role: modelprotocol.RoleAssistant,
-			Content: json.RawMessage(`[{"type":"text","text":"working"}]`)},
-	}}
-	without, err := CanonicalHistory(bundle)
+func TestOutputNoProgressNoticePersistsAtTheRetryPosition(t *testing.T) {
+	input := Message{ID: "input", Sequence: 41, Role: modelprotocol.RoleUser,
+		Content: json.RawMessage(`[{"type":"text","text":"go"}]`)}
+	retrying := Bundle{Messages: []Message{input}, OutputNoProgressRetries: 2}
+	sent, err := CanonicalHistory(retrying)
 	require.NoError(t, err)
+	require.Len(t, sent, 2)
+	notice := sent[1]
+	require.Equal(t, modelprotocol.RoleUser, notice.Message.Role)
+	require.Equal(t, int64(41), notice.Sequence)
+	require.Equal(t, 2, notice.ReasoningEffortReduction)
+	require.JSONEq(t, `[{"type":"text","text":"`+OutputNoProgressNotice+`"}]`, string(notice.Message.Content))
 
-	bundle.HarnessNotice = notice
-	with, err := CanonicalHistory(bundle)
+	output := Message{ID: "output", ModelCallContextID: testIDN(9201).String(), Sequence: 42,
+		Role: modelprotocol.RoleAssistant, Content: json.RawMessage(`[{"type":"text","text":"done"}]`),
+		OutputNoProgressRetries: 2}
+	later := Bundle{Messages: []Message{input, output, {
+		ID: "next", Sequence: 43, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"more"}]`),
+	}}}
+	replayed, err := CanonicalHistory(later)
 	require.NoError(t, err)
-	require.Len(t, with, len(without)+1)
-	require.Equal(t, without, with[:len(without)], "the notice must not disturb earlier history")
-	last := with[len(with)-1]
-	require.Equal(t, modelprotocol.RoleUser, last.Message.Role)
-	require.Equal(t, int64(42), last.Sequence)
-	require.Empty(t, last.ToolResults)
-	require.JSONEq(t, `[{"type":"text","text":"`+notice+`"}]`, string(last.Message.Content))
+	require.Len(t, replayed, 4)
+	require.Equal(t, sent, replayed[:len(sent)], "later requests must keep the retry's prefix, steering included")
+	require.Equal(t, output, replayed[2].Message)
+	require.Zero(t, replayed[3].ReasoningEffortReduction)
+
+	plain, err := CanonicalHistory(Bundle{Messages: []Message{input}})
+	require.NoError(t, err)
+	require.Len(t, plain, 1, "first attempts carry no steering")
 }
 
 func TestCheckpointOutputLimitNoticeUsesFixedBoundary(t *testing.T) {

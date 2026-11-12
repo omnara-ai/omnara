@@ -4,12 +4,12 @@ package kernel
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/modelretry"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
@@ -67,12 +67,12 @@ func TestAgentExecutorEmptyOutputRetriesAreBoundedAcrossRestarts(t *testing.T) {
 			for index, sent := range client.responded {
 				require.Equal(t, tc.allowance, sent.Policy.MaxOutputTokens)
 				require.Contains(t, string(sent.ProviderRequest), "Complete the current task.")
-				require.Equal(t, max(index-productiveCutoffs, 0), sent.Policy.FinalTurnEffortReduction,
-					"each runaway lowers the next attempt's effort one more level")
 				if index <= productiveCutoffs {
-					require.NotContains(t, string(sent.ProviderRequest), modelretry.OutputNoProgressNotice)
+					require.NotContains(t, string(sent.ProviderRequest), "output_no_progress_retries")
 				} else {
-					require.Contains(t, string(sent.ProviderRequest), modelretry.OutputNoProgressNotice)
+					require.Contains(t, string(sent.ProviderRequest),
+						fmt.Sprintf(`"output_no_progress_retries":%d`, index-productiveCutoffs),
+						"each runaway lowers the next attempt's effort one more level")
 				}
 			}
 			var retries, successfulCutoffs, terminalOutputs int
@@ -94,9 +94,50 @@ func TestAgentExecutorEmptyOutputRetriesAreBoundedAcrossRestarts(t *testing.T) {
 			require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
 			last := client.responded[len(client.responded)-1]
 			require.Equal(t, 8192, last.Policy.MaxOutputTokens)
-			require.Zero(t, last.Policy.FinalTurnEffortReduction, "a new operation runs at the configured effort")
-			require.NotContains(t, string(last.ProviderRequest), modelretry.OutputNoProgressNotice)
+			require.Contains(t, string(last.ProviderRequest),
+				fmt.Sprintf(`"stored_output_no_progress_retries":%d`, executionpolicy.MaxModelCallRetriesPerOperation),
+				"the terminal error output replays the steering its attempt was sent with")
+			require.NotContains(t, string(last.ProviderRequest), `"output_no_progress_retries"`,
+				"a new operation starts without retry steering of its own")
 			require.Contains(t, string(last.ProviderRequest), "A later request.")
 		})
 	}
+}
+
+func TestAgentExecutorStoredRetryReplaysItsRunawaySteering(t *testing.T) {
+	ctx := context.Background()
+	fixture := newKernelFixture(t, ctx)
+	agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/output-progress", fixture.Now,
+		kernelConfiguredModelOptions{ContextWindowTokens: new(10000), MaxOutputTokens: new(8192)})
+	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "Complete the current task.", fixture.Now)
+	client := &sequenceKernelModel{
+		providerModelSlug: "output-progress", preparedInputTokenEstimate: 500,
+		capabilities: model.Capabilities{ContextWindowTokens: 10000, MaxOutputTokens: new(8192)},
+		responses: []model.Response{
+			{StopReason: model.StopReasonMaxTokens, Content: []model.ResponsePart{
+				{Type: model.ResponsePartTypeReasoning, Text: "Unfinished internal reasoning."},
+			}},
+			completeProgressiveSummaryResponse("The task completed."),
+		},
+	}
+	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
+		ModelRetryDelay: immediateKernelModelRetryDelay}
+	require.NoError(t, executor.ExecuteModelWork(ctx, work))
+	work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(time.Second))
+	require.Equal(t, executionstore.ModelWorkResume, work.Kind)
+	require.NoError(t, executor.ExecuteModelWork(ctx, work))
+	require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
+	require.Equal(t, 2, client.respondedCount())
+	require.NotContains(t, string(client.responded[0].ProviderRequest), "no_progress_retries")
+	require.Contains(t, string(client.responded[1].ProviderRequest), `"output_no_progress_retries":1`)
+
+	fixture.releaseModelRuntimeLock(t, ctx, work)
+	work = fixture.admitContentInputTurn(t, ctx, agentID, userID, "A later request.", fixture.Now.Add(time.Hour))
+	client.responses = append(client.responses, completeProgressiveSummaryResponse("Done again."))
+	require.NoError(t, executor.ExecuteModelWork(ctx, work))
+	last := client.responded[len(client.responded)-1]
+	require.Contains(t, string(last.ProviderRequest), "A later request.")
+	require.Contains(t, string(last.ProviderRequest), `"stored_output_no_progress_retries":1`,
+		"the stored retry replays its steering so later requests keep its prefix")
+	require.NotContains(t, string(last.ProviderRequest), `"output_no_progress_retries"`)
 }

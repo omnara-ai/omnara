@@ -161,8 +161,9 @@ func contextEventsToMessages(records []executionstore.ContextEventRecord) ([]Mes
 			ID:                        event.ID.String(), AgentInputID: event.AgentInputID.String(),
 			ModelCallContextID: modelCallContextID,
 			Role:               role, Sequence: event.Sequence, Content: event.ContentParts,
-			ProviderReplay: event.ProviderReplay,
-			StopReason:     event.StopReason,
+			ProviderReplay:          event.ProviderReplay,
+			StopReason:              event.StopReason,
+			OutputNoProgressRetries: event.OutputNoProgressRetries,
 			ProviderReplaySource: modelenvelope.ProviderReplayIdentity{
 				ModelProviderConfigID: modelProviderConfigID, RequestedProviderModelSlug: event.RequestedModelSlug,
 				APIFormat: event.APIFormat, APIVariant: event.APIVariant,

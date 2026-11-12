@@ -52,11 +52,24 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		input.Context,
 		input.Policy.CacheRetention,
 	))
+	supportsReasoning := c.ModelCapabilities.SupportsReasoning
+	if input.Policy.SupportsReasoning != nil {
+		supportsReasoning = *input.Policy.SupportsReasoning
+	}
+	options, err := decodeAPIVariantOptions(c.APIVariantOptions)
+	if err != nil {
+		return nil, err
+	}
+	steering, err := c.effortSteering(input.Policy, options["thinking"], supportsReasoning)
+	if err != nil {
+		return nil, err
+	}
 	messages, err := buildMessages(
 		input.Context,
 		input.Policy,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
 		control,
+		steering,
 	)
 	if err != nil {
 		return nil, err
@@ -70,10 +83,6 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	}
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = map[string]string{"type": "auto"}
-	}
-	supportsReasoning := c.ModelCapabilities.SupportsReasoning
-	if input.Policy.SupportsReasoning != nil {
-		supportsReasoning = *input.Policy.SupportsReasoning
 	}
 	ownedFields := []string{
 		"model",
@@ -93,10 +102,6 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	case model.IsOpenRouterHost(baseURL):
 		payload.User = id
 		ownedFields = append(ownedFields, "user")
-	}
-	options, err := decodeAPIVariantOptions(c.APIVariantOptions)
-	if err != nil {
-		return nil, err
 	}
 	if supportsReasoning && input.Policy.ReasoningEffort != "" {
 		payload.OutputConfig, err = outputConfigWithEffort(options["output_config"], input.Policy.ReasoningEffort)
@@ -132,59 +137,48 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 			payload.Thinking = thinking
 		}
 	}
-	if supportsReasoning && input.Policy.FinalTurnEffortReduction > 0 {
-		effort, err := c.finalTurnEffort(input.Policy, payload, options["thinking"])
-		if err != nil {
-			return nil, err
-		}
-		if effort != "" {
-			payload.Messages = append(payload.Messages, message{
-				Role: anthropicRoleSystem, Content: []any{}, OutputConfig: map[string]string{"effort": effort},
-			})
-		}
-	}
 	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
 }
 
-// finalTurnEffort returns the lowered effort for a per-message effort change
-// on the reply to the final user turn, or "" when the model or request shape
-// does not allow one. The change must sit directly after a user turn to apply
-// to that turn's reply, and the top-level effort stays unchanged so the cached
-// prefix still matches.
-func (c Client) finalTurnEffort(
+// effortSteering returns the running effort for per-message effort changes,
+// or nil when the model or request shape does not allow them. The top-level
+// effort never changes, so the cached prefix still matches.
+func (c Client) effortSteering(
 	policy model.RequestPolicy,
-	payload messagesRequest,
 	rawThinking json.RawMessage,
-) (string, error) {
-	if !c.supportsPerMessageEffort() ||
-		len(payload.Messages) == 0 || payload.Messages[len(payload.Messages)-1].Role != anthropicRoleUser {
-		return "", nil
+	supportsReasoning bool,
+) (*model.EffortSteering, error) {
+	if !supportsReasoning || !c.supportsPerMessageEffort() {
+		return nil, nil
 	}
-	thinking := payload.Thinking
-	if thinking == nil {
-		var err error
-		if thinking, err = decodeThinkingConfig(rawThinking); err != nil {
-			return "", err
+	thinkingType := ""
+	if policy.ReasoningEffort != "" {
+		// BuildRequest turns disabled thinking adaptive when it sets effort.
+		off, err := thinkingDisabled(rawThinking)
+		if err != nil {
+			return nil, err
+		}
+		if off {
+			thinkingType = "adaptive"
 		}
 	}
-	var thinkingType string
-	_ = json.Unmarshal(thinking["type"], &thinkingType)
+	if thinkingType == "" {
+		thinking, err := decodeThinkingConfig(rawThinking)
+		if err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(thinking["type"], &thinkingType)
+	}
 	// Without up-front thinking there is no reasoning to cut back, and some
 	// models reject an effort change in these modes.
 	if thinkingType == "disabled" || thinkingType == "between_tools" {
-		return "", nil
+		return nil, nil
 	}
 	base := policy.ReasoningEffort
 	if base == "" {
 		base = model.ClaudeDefaultReasoningEffort(c.ProviderModelSlug)
 	}
-	lowered := model.LowerReasoningEffort(
-		base, c.ModelCapabilities.SupportedReasoningEfforts, policy.FinalTurnEffortReduction,
-	)
-	if base == "" || strings.EqualFold(lowered, base) {
-		return "", nil
-	}
-	return lowered, nil
+	return model.NewEffortSteering(base, c.ModelCapabilities.SupportedReasoningEfforts), nil
 }
 
 func decodeAPIVariantOptions(raw json.RawMessage) (map[string]json.RawMessage, error) {
@@ -346,6 +340,7 @@ func buildMessages(
 	policy model.RequestPolicy,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	control *CacheControl,
+	steering *model.EffortSteering,
 ) ([]message, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
@@ -414,6 +409,13 @@ func buildMessages(
 		if len(blocks) > 0 {
 			messages = appendMessageBlocks(messages, anthropicRoleUser, blocks)
 			historyAdded = true
+		}
+		// An effort change directly after a user turn applies to the reply to
+		// that turn and every later one.
+		if effort, ok := steering.Lower(entry.ReasoningEffortReduction); ok {
+			messages = append(messages, message{
+				Role: anthropicRoleSystem, Content: []any{}, OutputConfig: map[string]string{"effort": effort},
+			})
 		}
 	}
 	if historyAdded {

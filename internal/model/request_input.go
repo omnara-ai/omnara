@@ -58,7 +58,9 @@ func applyRequestInputMeasurement(
 	}
 
 	prefix, suffix := bundle, bundle
-	prefix.HarnessNotice = ""
+	// The earlier request ended with the runaway steering the source output
+	// replays before itself, so that steering is already measured input.
+	prefix.OutputNoProgressRetries = source.OutputNoProgressRetries
 	prefix.InputEventSequence = source.InputEventSequence
 	prefix.Messages = nil
 	prefix.ToolResults = nil
@@ -68,6 +70,9 @@ func applyRequestInputMeasurement(
 	suffix.ToolResults = nil
 	for _, message := range bundle.Messages {
 		if message.Sequence > source.InputEventSequence {
+			if message.Sequence == source.Sequence {
+				message.OutputNoProgressRetries = 0
+			}
 			suffix.Messages = append(suffix.Messages, message)
 		} else {
 			prefix.Messages = append(prefix.Messages, message)
@@ -83,11 +88,7 @@ func applyRequestInputMeasurement(
 		}
 		suffix.ToolResults = append(suffix.ToolResults, result)
 	}
-	// The earlier request ended at the prefix, so it carried no final-turn
-	// effort change for this request's retry.
-	prefixPolicy := input.Policy
-	prefixPolicy.FinalTurnEffortReduction = 0
-	previous, err := client.Prepare(ctx, PrepareInput{Context: prefix, Policy: prefixPolicy})
+	previous, err := client.Prepare(ctx, PrepareInput{Context: prefix, Policy: input.Policy})
 	if err != nil {
 		return
 	}

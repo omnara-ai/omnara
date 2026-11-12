@@ -38,7 +38,10 @@ type ContextEventRecord struct {
 	APIVariant                modelprotocol.APIVariant
 	ProviderReplay            json.RawMessage
 	StopReason                modelenvelope.StopReason
-	CreatedAt                 time.Time
+	// OutputNoProgressRetries counts the attempts before this model output
+	// that exhausted their output allowance without progress.
+	OutputNoProgressRetries int
+	CreatedAt               time.Time
 }
 
 func (s *Store) ListContextEvents(
@@ -93,6 +96,7 @@ func contextEventsFromSQLC(rows []dbsqlc.ListContextEventsRow, projectID, agentI
 			APIVariant:                modelprotocol.APIVariant(row.ApiVariant),
 			ProviderReplay:            rawMessageFromSQLCPtr(row.ProviderReplay),
 			StopReason:                modelenvelope.StopReason(row.StopReason),
+			OutputNoProgressRetries:   int(row.OutputNoProgressRetries),
 		}
 		if row.IsSuccessfulNormalCall {
 			record.InputFingerprint = row.InputFingerprint
