@@ -615,6 +615,7 @@ it.each(['yaml', 'json'])(
     clickLabel('Remove search_records')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(editor().saveBlocked).toBe(false)
+    expect(editor().form.reservedToolNames).not.toContain('search_records')
     delete expectedTools.search_records
     expect(parse(editor().yaml)).toEqual(expected)
     if (format === 'json') expect(editor().yaml).toBe(JSON.stringify(expected, null, 2))

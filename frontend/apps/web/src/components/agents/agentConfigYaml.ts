@@ -1,13 +1,30 @@
-import { isScalar, parseDocument, type Scalar, Schema } from 'yaml'
+import { isScalar, parseDocument, type Scalar, type ScalarTag, Schema } from 'yaml'
 
 const backendTags = new Set([
   'tag:yaml.org,2002:int',
   'tag:yaml.org,2002:float',
   'tag:yaml.org,2002:timestamp',
+  'tag:yaml.org,2002:merge',
 ])
-const compat = new Schema({ schema: 'yaml-1.1' }).tags.filter(
-  (tag) => backendTags.has(tag.tag) && tag.format !== 'TIME',
-)
+const digits = (set: string) => `[${set}][${set}_]*`
+const backendNumberForms = [
+  `0_*[xX]_*${digits('0-9a-fA-F')}`,
+  `0_*[bB]_*[-+]?_*${digits('01')}`,
+  `0_*[oO]_*[-+]?_*${digits('0-7')}`,
+  `(?:\\._*${digits('0-9')}|${digits('0-9')}(?:\\.[0-9_]*)?)(?:[eE]_*[-+]?_*${digits('0-9')})?`,
+]
+const backendNumber: ScalarTag = {
+  tag: 'tag:yaml.org,2002:float',
+  default: true,
+  test: new RegExp(`^(?:[-+]_*)?(?:${backendNumberForms.join('|')})$`),
+  resolve: (source) => Number(source.replaceAll('_', '')),
+}
+const compat = [
+  ...new Schema({ schema: 'yaml-1.1' }).tags.filter(
+    (tag) => backendTags.has(tag.tag) && tag.format !== 'TIME',
+  ),
+  backendNumber,
+]
 const backendSchema = new Schema({ schema: 'core', customTags: (tags) => [...compat, ...tags] })
 
 export const configYamlOptions = { compat }

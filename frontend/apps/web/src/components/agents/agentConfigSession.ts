@@ -41,7 +41,7 @@ export function createBasicConfigSession(
     source,
     sourceFormat,
   )
-  const reserved = new Set(advancedEntries.map((entry) => configPath(entry.path)))
+  const originalPaths = new Set(advancedEntries.map((entry) => configPath(entry.path)))
   const validationCache = new Map<string, { source: string; issues: ConfigDiagnostic[] }>()
   const validateEntry = (entry: AdvancedConfigEntry) => {
     if (entry.removed) return []
@@ -53,6 +53,14 @@ export function createBasicConfigSession(
     return issues
   }
   const validateConfig = (config: BasicConfig) => {
+    const reserved = new Set(originalPaths)
+    for (const entry of config.advancedEntries ?? []) {
+      if (entry.kind === 'custom' && entry.originalPath && validateEntry(entry).length === 0)
+        reserved.delete(configPath(entry.originalPath))
+    }
+    for (const entry of config.advancedEntries ?? []) {
+      if (!entry.removed) reserved.add(configPath(entry.path))
+    }
     let conflictingNames = false
     const issues = [
       ...diagnostics.filter((issue) => issue.error && issue.kind === 'opaque'),
@@ -62,7 +70,7 @@ export function createBasicConfigSession(
     for (const entry of config.advancedEntries ?? []) {
       if (entry.removed) continue
       const path = configPath(entry.path)
-      const isNew = !reserved.has(path)
+      const isNew = !originalPaths.has(path)
       const message = seen.has(path)
         ? 'This tool name is already in use.'
         : isNew && entry.kind === 'custom'
@@ -94,10 +102,10 @@ export function createBasicConfigSession(
         }
       }
     }
-    return { issues, conflictingNames }
+    return { issues, conflictingNames, reserved }
   }
   const evaluate = (config: BasicConfig): ConfigEvaluation => {
-    const { issues, conflictingNames } = validateConfig(config)
+    const { issues, conflictingNames, reserved } = validateConfig(config)
     if (source !== '' && initialDraft == null)
       return { yaml: source, issues, unappliedChanges: false }
     if (conflictingNames) return { yaml: source, issues, unappliedChanges: true }
