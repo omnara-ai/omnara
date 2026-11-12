@@ -13,7 +13,8 @@ RUN pnpm run generate:api && pnpm run typecheck && pnpm run build \
 
 FROM nginx/nginx-unprivileged:1.31.8-alpine-slim@sha256:2f293597c9eea53645c61d70942d32b544a8007aeb586e0237e6ad637323b81b AS web
 USER root
-RUN apk add --no-cache 'zlib>=1.4-r0'
+RUN apk add --no-cache 'zlib>=1.4-r0' \
+    && rm /usr/share/nginx/html/index.html /usr/share/nginx/html/50x.html
 USER 101
 COPY --chown=101:101 frontend/apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --chown=101:101 --from=web-build /src/frontend/apps/web/dist /usr/share/nginx/omnara
