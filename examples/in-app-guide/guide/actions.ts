@@ -42,7 +42,8 @@ export async function runTool(call: ToolCall, ctx: Ctx): Promise<ToolResult> {
         await ctx.overlay.moveTo(target)
         if (ctx.signal.aborted) return interrupted(ctx)
         ctx.overlay.highlight(target, text)
-        await fillValue(target, String(call.input.value ?? ''))
+        await fillValue(target, String(call.input.value ?? ''), ctx.signal)
+        if (ctx.signal.aborted) return interrupted(ctx)
         await settle()
         ctx.overlay.clearHighlight()
         return result('done', `Filled ${describeShort(target)}.`, ctx)
@@ -179,7 +180,7 @@ function chosen(el: Element, value: string) {
 }
 
 /** Open a button-style dropdown and pick the option whose text matches. */
-async function chooseOption(el: HTMLElement, value: string) {
+async function chooseOption(el: HTMLElement, value: string, signal: AbortSignal) {
   const norm = (x: string) => x.replace(/\s+/g, ' ').trim().toLowerCase()
   if (el.getAttribute('aria-expanded') !== 'true') realClick(el)
   let options: HTMLElement[] = []
@@ -190,9 +191,10 @@ async function chooseOption(el: HTMLElement, value: string) {
     options = [...list.querySelectorAll<HTMLElement>('[role="option"]')].filter(hasBox)
   }
   const option = options.find((o) => norm(o.innerText) === norm(value)) ?? options.find((o) => norm(o.innerText).includes(norm(value)))
-  if (!option) {
+  if (!option || signal.aborted) {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    throw new Error(options.length ? `No option "${value}". The options are: ${options.map((o) => o.innerText.trim()).join(', ')}.` : `${describeShort(el)} did not open a list of options; use click on it instead.`)
+    if (signal.aborted) return
+    throw new Error(options.length ? noOption(el, value, options.map((o) => o.innerText.trim())) : `${describeShort(el)} did not open a list of options; use click on it instead.`)
   }
   realClick(option)
 }
@@ -231,15 +233,20 @@ function realClick(el: HTMLElement) {
   el.click()
 }
 
-async function fillValue(el: Element, value: string) {
-  if (isComboButton(el)) return chooseOption(el as HTMLElement, value)
+/** The error for a value that isn't in a dropdown. A private dropdown's options are not listed. */
+function noOption(el: Element, value: string, options: string[]) {
+  return isPrivate(el) ? `No option "${value}" in ${describeShort(el)}.` : `No option "${value}". The options are: ${options.join(', ')}.`
+}
+
+async function fillValue(el: Element, value: string, signal: AbortSignal) {
+  if (isComboButton(el)) return chooseOption(el as HTMLElement, value, signal)
   if (el instanceof HTMLSelectElement) {
     const norm = (s: string) => s.trim().toLowerCase()
     const options = [...el.options]
     const option =
       options.find((o) => norm(o.label) === norm(value) || norm(o.value) === norm(value)) ??
       options.find((o) => norm(o.label).includes(norm(value)))
-    if (!option) throw new Error(`No option "${value}". The options are: ${options.map((o) => o.label).join(', ')}.`)
+    if (!option) throw new Error(noOption(el, value, options.map((o) => o.label)))
     setNativeValue(el, option.value)
     el.dispatchEvent(new Event('input', { bubbles: true }))
     el.dispatchEvent(new Event('change', { bubbles: true }))
@@ -255,6 +262,8 @@ async function fillValue(el: Element, value: string) {
       setNativeValue(el, '')
       el.dispatchEvent(new Event('input', { bubbles: true }))
       for (const ch of value) {
+        // Cancelled while typing: stop where it is.
+        if (signal.aborted) return
         setNativeValue(el, el.value + ch)
         el.dispatchEvent(new Event('input', { bubbles: true }))
         await sleep(value.length > 40 ? 6 : 28)

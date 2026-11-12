@@ -76,8 +76,9 @@ conversation on Omnara: the page's visible text and the value of each field. Pas
 card-number, security-code and one-time-code fields are sent without their value. For
 anything else that shouldn't leave the page (a token shown once, a bank account, a
 salary column), add `data-guide-private` to the field or to an element around it. The
-guide still lists the controls there, so it can point at them, but leaves out their
-values and the text.
+guide still knows a control is there and can point at it, but sends none of the text,
+names or values inside. Mark the smallest element that holds the secret, so the
+buttons next to it keep their names.
 
 **Product knowledge** comes from one of: a docs site's MCP server, a public docs site
 read with `web_fetch`, or markdown files in a
@@ -119,7 +120,6 @@ What it doesn't handle:
 - A renamed user: a profile is found by the user's display name, so after a name
   change they get a new profile and an empty history. The old conversations stay in
   Omnara.
-- Dropped requests: a step result or an approval that fails to reach your server is
-  not sent again, and any 409 from Omnara (a full backlog, no credits) is treated like
-  an ended conversation and starts a new one. The user sends another message to move
-  on. Add retries and error handling to suit your app before relying on it.
+- Errors from Omnara: any 409 on a message (a full backlog, no credits) is treated
+  like an ended conversation and starts a new one, and the user only sees "The guide
+  is unavailable right now". Tell those cases apart to suit your app.

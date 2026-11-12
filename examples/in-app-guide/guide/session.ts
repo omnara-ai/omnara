@@ -6,7 +6,7 @@
 // first message. It travels in a header rather than a cookie, so the same widget works
 // same-origin (inside the host app) and cross-origin (an embed pointing at another host).
 
-import { runTool, type ToolCall } from './actions'
+import { runTool, type ToolCall, type ToolResult } from './actions'
 import { sleep, type Overlay } from './overlay'
 import { resolveRef, takeSnapshot } from './snapshot'
 
@@ -35,6 +35,12 @@ export class GuideSession {
   private lastSequence = 0
   private previews = new Map<string, string>()
   private handled = new Set<string>()
+  // Results of steps that ran but have not reached the server yet. They are sent again
+  // until they arrive; the step itself is never run a second time.
+  private unsent = new Map<string, ToolResult>()
+  // Goes up whenever the panel leaves a conversation, so work started for the old one
+  // can tell and stop.
+  private epoch = 0
   private running: { id: string; abort: AbortController } | null = null
   private draining = false
   private poll = 0
@@ -196,6 +202,8 @@ export class GuideSession {
   }
 
   private detach() {
+    this.epoch++
+    this.unsent.clear()
     this.running?.abort.abort()
     this.streamAbort?.abort()
     this.streamAbort = null
@@ -214,7 +222,8 @@ export class GuideSession {
     // Sending a message makes this the tab that acts, whichever tab did before.
     const fromOtherTab = !this.executor
     await this.claim(true)
-    const busy = this.state.status !== 'idle' || reopened
+    // Taking over from another tab is a change of page: what that tab was asked is dropped.
+    const busy = this.state.status !== 'idle' || reopened || fromOtherTab
     const context = `Mode: ${this.state.mode}\nCurrent page:\n${takeSnapshot(this.host).text}`
     this.set({
       messages: [...this.state.messages, { id: crypto.randomUUID(), role: 'user', text }],
@@ -228,7 +237,11 @@ export class GuideSession {
       })
       const body = (await res.json().catch(() => ({}))) as { error?: string; session?: string }
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
-      if (body.session) this.setToken(body.session)
+      if (body.session) {
+        // The server started a new conversation: stop following the old one.
+        if (this.streamAbort) this.detach()
+        this.setToken(body.session)
+      }
       // The message goes in first, so the agent reads it together with the news that its
       // old step was dropped, and answers once.
       if (reopened || fromOtherTab) {
@@ -250,10 +263,16 @@ export class GuideSession {
     this.answered.add(approval.id)
     this.set({ approvals: this.state.approvals.filter((a) => a.id !== approval.id), status: 'acting' })
     this.overlay.clearHighlight()
-    await this.api(`/interactions/${approval.id}/resolve`, {
+    const res = await this.api(`/interactions/${approval.id}/resolve`, {
       method: 'POST',
       body: JSON.stringify({ answers: [{ option_indices: [allow ? 0 : 1] }] }),
-    })
+    }).catch(() => null)
+    if (!res?.ok) {
+      // The answer did not arrive: show the card again if the approval is still open.
+      this.answered.delete(approval.id)
+      this.notice('That did not go through. Try again.')
+      return void this.refreshApprovals()
+    }
     if (!allow) this.set({ status: 'thinking' })
   }
 
@@ -381,10 +400,15 @@ export class GuideSession {
   private async drainToolCalls() {
     if (this.draining || !this.executor) return
     this.draining = true
+    const epoch = this.epoch
+    // True once this tab stopped being the one that acts, or the panel moved to another conversation.
+    const over = () => !this.executor || epoch !== this.epoch
     try {
       for (;;) {
+        await this.flushResults()
+        if (over()) return
         const res = await this.api('/tool-calls?state=ready')
-        if (!res.ok) return
+        if (!res.ok || over()) return
         const { data } = (await res.json()) as { data: ToolCall[] }
         const next = data.find((c) => !this.handled.has(c.id) && ACTIVE_TOOLS.has(c.name))
         if (!next) return
@@ -394,11 +418,21 @@ export class GuideSession {
         this.set({ status: next.name === 'show_step' ? 'waiting_user' : 'acting' })
         const result = await runTool(next, { overlay: this.overlay, host: this.host, signal: abort.signal })
         this.running = null
+        if (epoch !== this.epoch) return
         this.set({ status: 'thinking' })
-        await this.api(`/tool-calls/${next.id}/result`, { method: 'POST', body: JSON.stringify(result) })
+        this.unsent.set(next.id, result)
       }
     } finally {
       this.draining = false
+    }
+  }
+
+  /** Send the results that are waiting. One that fails stays for the next round. */
+  private async flushResults() {
+    for (const [id, result] of this.unsent) {
+      const res = await this.api(`/tool-calls/${id}/result`, { method: 'POST', body: JSON.stringify(result) }).catch(() => null)
+      // Delivered, or refused for good: either way, stop sending it.
+      if (res && (res.ok || (res.status >= 400 && res.status < 500))) this.unsent.delete(id)
     }
   }
 
