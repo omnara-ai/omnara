@@ -3,7 +3,7 @@
 // agent can plan the next step from what is actually on screen.
 
 import { Overlay, sleep } from './overlay'
-import { accessibleName, resolveRef, takeSnapshot } from './snapshot'
+import { isPrivate, resolveRef, shownName, takeSnapshot } from './snapshot'
 
 export type ToolCall = { id: string; name: string; input: Record<string, unknown> }
 export type ToolResult = { outcome: 'succeeded' | 'failed'; text: string }
@@ -105,7 +105,7 @@ async function showStep(target: Element, text: string, ctx: Ctx): Promise<ToolRe
       setTimeout(() => finish('done', `The user clicked ${describeShort(target)}.`), 80)
     }
     const onChange = () => {
-      if (target instanceof HTMLSelectElement) finish('done', `The user chose "${target.selectedOptions[0]?.label ?? ''}".`)
+      if (target instanceof HTMLSelectElement) finish('done', `The user chose ${chosen(target, target.selectedOptions[0]?.label ?? '')}.`)
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Enter' && target instanceof HTMLInputElement) finish('done', `The user entered ${fieldValue(target)} in ${describeShort(target)} and pressed Enter.`)
@@ -118,8 +118,8 @@ async function showStep(target: Element, text: string, ctx: Ctx): Promise<ToolRe
         // Picking the option that was already selected is still an answer.
         const open = target.getAttribute('aria-expanded') === 'true'
         if (open) comboOpened = true
-        else if (comboValue(target) !== comboBefore) finish('done', `The user chose "${comboValue(target)}".`)
-        else if (comboOpened) finish('done', `The user opened ${describeShort(target)} and left it on "${comboValue(target)}".`)
+        else if (comboValue(target) !== comboBefore) finish('done', `The user chose ${chosen(target, comboValue(target))}.`)
+        else if (comboOpened) finish('done', `The user opened ${describeShort(target)} and left it on ${chosen(target, comboValue(target))}.`)
       }
     }, 300)
 
@@ -161,6 +161,11 @@ function comboValue(el: Element) {
   return ((el as HTMLElement).innerText ?? '').replace(/\s+/g, ' ').trim()
 }
 
+/** How to name what the user picked, without repeating a private value. */
+function chosen(el: Element, value: string) {
+  return isPrivate(el) ? 'an option (not shown)' : `"${value}"`
+}
+
 /** Open a button-style dropdown and pick the option whose text matches. */
 async function chooseOption(el: HTMLElement, value: string) {
   const norm = (x: string) => x.replace(/\s+/g, ' ').trim().toLowerCase()
@@ -192,12 +197,13 @@ function isField(el: Element) {
 
 function fieldValue(el: Element) {
   if (el instanceof HTMLInputElement && el.type === 'password') return 'a password'
+  if (isPrivate(el)) return 'a value (not shown)'
   const v = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.value : (el.textContent ?? '')
   return v.trim() ? `"${v.trim().slice(0, 200)}"` : 'nothing'
 }
 
 function describeShort(el: Element) {
-  const name = accessibleName(el)
+  const name = shownName(el)
   return name ? `"${name}"` : `a ${el.tagName.toLowerCase()}`
 }
 

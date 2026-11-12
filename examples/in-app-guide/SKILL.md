@@ -66,6 +66,10 @@ can't find:
    nothing.
 5. **Which actions can't be undone or cost money**: payments, deletions, sending
    messages, changing access.
+6. **What shouldn't leave the page.** The guide sends each page's visible text and
+   field values to the model, and they stay in the conversation. List the places that
+   show secrets or regulated data: tokens shown once, bank and card details,
+   government IDs, salaries, health information.
 
 ## 3. Interview the user
 
@@ -250,6 +254,12 @@ so `script-src 'self'` and `connect-src 'self'` already allow them. The widget's
 live in a `<style>` element inside its own shadow root, which needs `style-src` to
 allow inline styles.
 
+Then mark what shouldn't leave the page (step 2, item 6): add `data-guide-private` to
+each of those fields, or to an element around a whole region. The guide still lists the
+controls inside, so it can point at them, but sends neither their values nor the text.
+Password, card-number, security-code and one-time-code fields need no marking. Show the
+user the list of what you marked and ask if anything is missing.
+
 ## 10. Check it
 
 Run the app, sign in, and with the user watching:
@@ -262,6 +272,9 @@ Run the app, sign in, and with the user watching:
    approval card before the final save.
 4. Sign in as a user who shouldn't be able to do something, and ask for it. The guide
    should say they can't, not walk them into a wall.
+5. Ask a question on a page with a field you marked private, then open that
+   conversation in the Omnara dashboard. The page text in it should show
+   `value=(hidden)` for the field and none of the private text.
 
 In the Omnara dashboard, the project now has a profile named
 "<profilePrefix> · <user's name>" and one agent per conversation; open one to read the

@@ -71,6 +71,14 @@ user's agents and nothing else is stored.
 **The key stays on your server.** The browser only talks to your route, with a session
 token your server signed, so it can reach its own conversation and no one else's.
 
+**What leaves the page.** Each snapshot goes to the model and is kept in the
+conversation on Omnara: the page's visible text and the value of each field. Password,
+card-number, security-code and one-time-code fields are sent without their value. For
+anything else that shouldn't leave the page (a token shown once, a bank account, a
+salary column), add `data-guide-private` to the field or to an element around it. The
+guide still lists the controls there, so it can point at them, but leaves out their
+values and the text.
+
 **Product knowledge** comes from one of: a docs site's MCP server, a public docs site
 read with `web_fetch`, or markdown files in a
 [memory store](https://docs.omnara.com/agents/configuration#memory-stores). With

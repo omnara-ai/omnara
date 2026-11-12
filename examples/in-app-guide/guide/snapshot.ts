@@ -21,6 +21,11 @@ const NOTICE = '[role="alert"],[role="status"]'
 const LANDMARK = 'nav,header,aside,main,footer,[role="navigation"],[role="banner"],[role="complementary"],[role="main"],[role="menu"],[role="listbox"],[role="tablist"]'
 const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'svg', 'SVG', 'IMG', 'VIDEO', 'CANVAS', 'IFRAME'])
 
+// What must not leave the page. The host app marks a field or a region with
+// data-guide-private; password, card and one-time-code fields are private by themselves.
+const PRIVATE = '[data-guide-private]'
+const PRIVATE_AUTOCOMPLETE = new Set(['cc-number', 'cc-csc', 'one-time-code', 'current-password', 'new-password'])
+
 const MAX_ELEMENTS = 180
 const MAX_TEXT_LINES = 140
 const MAX_TABLE_ROWS = 20
@@ -34,6 +39,23 @@ let current: Snapshot = { text: '', refs: new Map() }
 export function resolveRef(ref: string): Element | null {
   const el = current.refs.get(ref.trim().replace(/^\[|\]$/g, ''))
   return el && el.isConnected && isVisible(el) ? el : null
+}
+
+/** True when this element's value and text must stay out of snapshots and step results. */
+export function isPrivate(el: Element): boolean {
+  if (el.closest(PRIVATE)) return true
+  if (!(el instanceof HTMLInputElement)) return false
+  if (el.type === 'password') return true
+  return (el.getAttribute('autocomplete') ?? '').toLowerCase().split(/\s+/).some((token) => PRIVATE_AUTOCOMPLETE.has(token))
+}
+
+/** An element's text with anything private inside it left out. `rendered`: as displayed (innerText). */
+function textOf(el: Element | null | undefined, rendered = false): string {
+  if (!el) return ''
+  if (!el.querySelector(PRIVATE)) return (rendered ? (el as HTMLElement).innerText : null) ?? el.textContent ?? ''
+  const copy = el.cloneNode(true) as Element
+  for (const part of copy.querySelectorAll(PRIVATE)) part.replaceWith('(private)')
+  return copy.textContent ?? ''
 }
 
 export function takeSnapshot(ignore?: Element | null): Snapshot {
@@ -75,11 +97,13 @@ export function takeSnapshot(ignore?: Element | null): Snapshot {
     push(`[${ref}] ${describe(el)}`)
   }
 
-  // textMode=false: the text of this subtree was already emitted; only list controls.
-  const walk = (node: Element, textMode: boolean) => {
+  // inTextMode=false: the text of this subtree was already emitted, or is private; only list controls.
+  const walk = (node: Element, inTextMode: boolean) => {
     for (const child of node.children) {
       if (SKIP.has(child.tagName) || child === ignore || ignore?.contains(child)) continue
       if (!isRendered(child) || isHiddenFromUser(child)) continue
+      // A private field or region: list its controls, leave out its text.
+      const textMode = inTextMode && !child.matches(PRIVATE)
 
       if (child.matches(INTERACTIVE)) {
         if (isVisible(child)) addElement(child)
@@ -101,13 +125,13 @@ export function takeSnapshot(ignore?: Element | null): Snapshot {
       }
       if (textMode && child.matches(HEADING)) {
         const level = child.tagName.match(/^H(\d)$/)?.[1] ?? child.getAttribute('aria-level') ?? '2'
-        const text = clean(child.textContent, 140)
+        const text = clean(textOf(child), 140)
         if (text) push(`${'#'.repeat(Number(level))} ${text}`)
         walk(child, false)
         continue
       }
       if (textMode && child.matches(NOTICE)) {
-        const text = clean((child as HTMLElement).innerText, 200)
+        const text = clean(textOf(child, true), 200)
         if (text) push(`notice: ${text}`)
         walk(child, false)
         continue
@@ -117,14 +141,14 @@ export function takeSnapshot(ignore?: Element | null): Snapshot {
         continue
       }
       if (textMode && child.tagName === 'DL') {
-        const pairs = [...child.querySelectorAll('dt')].map((dt) => `${clean(dt.textContent, 40)}: ${clean(dt.nextElementSibling?.textContent, 80)}`)
+        const pairs = [...child.querySelectorAll('dt')].map((dt) => `${clean(textOf(dt), 40)}: ${clean(textOf(dt.nextElementSibling), 80)}`)
         if (pairs.length) push(`details: ${pairs.join('; ')}`)
         walk(child, false)
         continue
       }
       if (textMode && hasOwnText(child)) {
         // Mixed inline content ("Current rate: <b>$6,500</b>"): one line for the block.
-        addText(child.parentElement, clean((child as HTMLElement).innerText, 200))
+        addText(child.parentElement, clean(textOf(child, true), 200))
         walk(child, false)
         continue
       }
@@ -196,7 +220,8 @@ function isLooseClickable(el: Element): boolean {
 }
 
 function rowCells(row: Element): string {
-  const cells = [...row.querySelectorAll('td,th')].map((c) => clean((c as HTMLElement).innerText, 60))
+  if (isPrivate(row)) return '(private)'
+  const cells = [...row.querySelectorAll('td,th')].map((c) => (c.matches(PRIVATE) ? '(private)' : clean(textOf(c, true), 60)))
   return cells.some(Boolean) ? cells.join(' | ') : ''
 }
 
@@ -209,13 +234,17 @@ function hasOwnText(el: Element): boolean {
 function describe(el: Element): string {
   if (el.tagName === 'TR') return `row "${clean(rowCells(el), 160)}" (clickable)`
   const role = roleOf(el)
+  const hidden = isPrivate(el)
   // A button-style dropdown shows its value as its text; name it by its label instead.
   const dropdown = role === 'combobox' && !(el instanceof HTMLInputElement)
-  const name = dropdown ? labelFor(el) : accessibleName(el)
+  const name = dropdown ? labelFor(el) : shownName(el)
   const parts = [`${role}${name ? ` "${name}"` : ''}`]
-  if (dropdown) parts.push(`value="${clean((el as HTMLElement).innerText, 60)}"`)
+  if (hidden && !name) parts.push('(private)')
+  if (dropdown) parts.push(hidden ? 'value=(hidden)' : `value="${clean((el as HTMLElement).innerText, 60)}"`)
 
-  if (el instanceof HTMLSelectElement) {
+  if (hidden && (el instanceof HTMLSelectElement || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+    if (!(el instanceof HTMLInputElement && el.type === 'file')) parts.push('value=(hidden)')
+  } else if (el instanceof HTMLSelectElement) {
     const options = [...el.options].map((o) => clean(o.label || o.text, 40))
     parts.push(`selected="${clean(el.selectedOptions[0]?.label ?? '', 40)}"`)
     parts.push(`options=[${options.slice(0, 15).join(', ')}${options.length > 15 ? ', …' : ''}]`)
@@ -224,7 +253,7 @@ function describe(el: Element): string {
   } else if (el instanceof HTMLInputElement && el.type === 'file') {
     parts.push(el.files?.length ? `files=${el.files.length}` : 'no file chosen')
   } else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    parts.push(el.type === 'password' ? 'value=(hidden)' : `value="${clean(el.value, 60)}"`)
+    parts.push(`value="${clean(el.value, 60)}"`)
     if (el instanceof HTMLInputElement && el.type === 'date') parts.push('(format YYYY-MM-DD)')
     if (el.required) parts.push('required')
   }
@@ -240,7 +269,7 @@ function describe(el: Element): string {
   }
   if (el.getAttribute('aria-current') && el.getAttribute('aria-current') !== 'false') parts.push('current')
   if ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true') parts.push('disabled')
-  if (el instanceof HTMLAnchorElement && el.getAttribute('href')?.startsWith('/')) parts.push(`href=${el.getAttribute('href')}`)
+  if (!hidden && el instanceof HTMLAnchorElement && el.getAttribute('href')?.startsWith('/')) parts.push(`href=${el.getAttribute('href')}`)
 
   const rect = el.getBoundingClientRect()
   if (rect.bottom < 0 || rect.top > innerHeight) parts.push('(off-screen)')
@@ -264,6 +293,18 @@ function roleOf(el: Element): string {
   return 'clickable'
 }
 
+/**
+ * The name to send to the agent. A button's or a field's label is part of the app, so it
+ * is kept; where the name would be the content itself (a link's text, a clickable row or
+ * card, an option, or any control the host marked private directly) it is left out.
+ */
+export function shownName(el: Element): string {
+  if (!isPrivate(el)) return accessibleName(el)
+  const field = el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement
+  if (el.matches(PRIVATE) ? !field : ['link', 'clickable', 'option', 'menuitem', 'menuitemcheckbox', 'menuitemradio'].includes(roleOf(el))) return ''
+  return accessibleName(el)
+}
+
 export function accessibleName(el: Element): string {
   const labelledBy = el.getAttribute('aria-labelledby')
   if (labelledBy) {
@@ -284,7 +325,7 @@ export function accessibleName(el: Element): string {
     if (label) return clean(label.textContent, MAX_NAME)
     return clean(el.getAttribute('placeholder') ?? el.getAttribute('title') ?? el.getAttribute('name') ?? '', MAX_NAME)
   }
-  const text = clean((el as HTMLElement).innerText ?? el.textContent)
+  const text = clean(textOf(el, true))
   if (text) return clean(text, MAX_NAME)
   return clean(el.getAttribute('title') ?? el.querySelector('img[alt]')?.getAttribute('alt') ?? el.querySelector('svg title')?.textContent ?? '', MAX_NAME)
 }
