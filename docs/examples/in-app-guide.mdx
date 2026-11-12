@@ -18,13 +18,4 @@ Give this prompt to Claude Code, Codex, Cursor, or any other coding agent, in yo
 Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/in-app-guide/SKILL.md and follow it to add an in-app guide to this app.
 ```
 
-## Where it learns your product
-
-| Your product has | How the agent reads it |
-| --- | --- |
-| A docs site with an MCP server | The [MCP server](/tools/mcp)'s search and read tools |
-| A public docs site | The built-in [`web_fetch`](/tools/built-in#web_fetch) tool |
-| Markdown files, such as a `docs/` folder | A [memory store](/agents/configuration#memory-stores), searched and read with the built-in file tools |
-| Nothing written down | Notes your coding agent writes from your app's code and screens, plus the page itself |
-
 See [`examples/in-app-guide`](https://github.com/omnara-ai/omnara/tree/main/examples/in-app-guide) on GitHub for how it works and what it has and hasn't been tested on.
