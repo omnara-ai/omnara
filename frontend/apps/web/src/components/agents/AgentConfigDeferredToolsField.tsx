@@ -19,9 +19,8 @@ export function AgentConfigDeferredToolsField({
           <>
             Let commands this agent runs call its deferred tools with <code>omnarad call</code>,
             instead of adding them to the model’s tools. Calls follow each tool’s permissions and
-            stay out of the model’s context. Tools commands can’t call are still added, as are all
-            deferred tools while the agent has no online machine.
-            Subagents don’t inherit this.
+            stay out of the model’s context. Tools commands can’t call are still added. Subagents
+            don’t inherit this.
           </>
         }
         checked={value?.mode === 'code_mode'}
