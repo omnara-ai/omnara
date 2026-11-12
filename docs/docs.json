@@ -89,10 +89,10 @@
                   "examples/x-signal-agent",
                   "examples/reddit-signal-agent",
                   "examples/linkedin-signal-agent",
-                  "examples/seo-audit-agent"
+                  "examples/seo-audit-agent",
+                  "examples/posthog-analytics-agent"
                 ]
               },
-              "examples/posthog-analytics-agent",
               {
                 "group": "Engineering",
                 "pages": [
