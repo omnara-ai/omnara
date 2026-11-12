@@ -187,7 +187,12 @@ function applyNamedEntries(
   del: ConfigTransaction['remove'],
 ) {
   const baselineByName = new Map(baseline ?? [])
-  const desiredNames = new Set(desired.map(([name]) => name))
+  const desiredNames = new Set<string>()
+  for (const [name] of desired) {
+    if (desiredNames.has(name))
+      throw new ConfigEditError([key, name], 'This name is already in use.')
+    desiredNames.add(name)
+  }
   for (const name of baselineByName.keys()) {
     if (!desiredNames.has(name)) del([key, name])
   }
@@ -213,10 +218,16 @@ function applyWireChanges(
   if (isConfigObject(baseline) && isConfigObject(desired)) {
     for (const key of Object.keys(desired)) {
       if (desired[key] !== undefined)
-        applyWireChanges([...path, key], baseline[key], desired[key], set, del)
+        applyWireChanges(
+          [...path, key],
+          Object.hasOwn(baseline, key) ? baseline[key] : undefined,
+          desired[key],
+          set,
+          del,
+        )
     }
     for (const key of Object.keys(baseline)) {
-      if (desired[key] === undefined) del([...path, key])
+      if (!Object.hasOwn(desired, key) || desired[key] === undefined) del([...path, key])
     }
   } else set(path, desired)
 }

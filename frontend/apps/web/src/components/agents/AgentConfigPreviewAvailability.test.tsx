@@ -539,6 +539,12 @@ it.each(['yaml', 'json'])(
       'Input schema → type:',
     )
     expect(document.activeElement).toBe(field('Definition'))
+    act(() => {
+      field('Definition').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      )
+    })
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
     clickLabel('Cancel')
     expect(editor().yaml).toBe(before)
     clickLabel('Edit search_records')
@@ -611,6 +617,7 @@ it.each(['yaml', 'json'])(
     expect(editor().saveBlocked).toBe(false)
     delete expectedTools.search_records
     expect(parse(editor().yaml)).toEqual(expected)
+    if (format === 'json') expect(editor().yaml).toBe(JSON.stringify(expected, null, 2))
   },
 )
 

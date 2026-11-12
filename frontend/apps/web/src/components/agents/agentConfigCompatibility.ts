@@ -3,6 +3,7 @@ import { type Document, isAlias, isMap, isNode, isScalar, isSeq, parseDocument }
 import { z } from 'zod'
 
 import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
+import { configJson, configRecord } from '@/components/agents/agentConfigValidation'
 import { scalarPreservationReason } from '@/components/agents/agentConfigYaml'
 
 export interface ConfigDiagnostic {
@@ -10,7 +11,6 @@ export interface ConfigDiagnostic {
   kind: 'fatal' | 'advanced' | 'opaque'
   message: string
   error?: boolean
-  syntaxError?: boolean
 }
 
 export interface AdvancedConfigEntry {
@@ -42,7 +42,9 @@ const customTool = z
     ...zAgentConfigDefinitionTool.shape,
     type: z.literal('custom'),
     description: z.string().refine((value) => value.trim() !== '', 'Description is required.'),
-    input_schema: zAgentConfigDefinitionTool.shape.input_schema.unwrap(),
+    input_schema: zAgentConfigDefinitionTool.shape.input_schema.unwrap().extend({
+      properties: configRecord(configRecord(z.unknown())).optional(),
+    }),
   })
   .superRefine((tool, ctx) => {
     for (const name of tool.input_schema.required ?? []) {
@@ -62,7 +64,6 @@ export function parseConfigDocument(source: string, format: ConfigSourceFormat =
     path: [],
     kind: 'fatal',
     error: true,
-    syntaxError: error.code !== 'TAG_RESOLVE_FAILED',
     message: error.message,
   }))
   if (format === 'json' && source.trim() !== '') {
@@ -73,7 +74,6 @@ export function parseConfigDocument(source: string, format: ConfigSourceFormat =
         path: [],
         kind: 'fatal',
         error: true,
-        syntaxError: true,
         message: `This configuration uses JSON. Enter valid JSON: ${error instanceof Error ? error.message : 'Invalid syntax.'}`,
       })
     }
@@ -152,7 +152,7 @@ export function validateAdvancedEntry(
       path: [...entry.path, ...issue.path],
     }))
   if (entry.kind !== 'custom') return []
-  const json = z.json().safeParse(doc.toJS())
+  const json = configJson.safeParse(doc.toJS())
   const parsed = json.success ? customTool.safeParse(json.data) : json
   if (parsed.success) return []
   return parsed.error.issues.map((issue) => ({

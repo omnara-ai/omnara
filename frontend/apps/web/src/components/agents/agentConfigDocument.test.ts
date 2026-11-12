@@ -82,7 +82,8 @@ describe('document ownership', () => {
     'tools: {web_search: {}, # Keep this tool comment.\n  web_fetch: {}}\n',
     'tools: {web_search: {},\n# Keep this tool comment.\n  web_fetch: {}}\n',
     'tools: {web_search: {},\n  # Keep this tool comment.\n  web_fetch: {}}\n',
-  ])('preserves the next inline entry and its comment when deleting the first: %s', (tools) => {
+    'tools: {\n  ask_question: {}, # prior comment\n  web_search: {},\n  # Keep this tool comment.\n  web_fetch: {}\n}\n',
+  ])('preserves neighboring inline entries and comments when deleting a tool: %s', (tools) => {
     const source = header + tools
     const { session, draft } = draftFor(source)
     const result = session.evaluate({

@@ -143,13 +143,16 @@ it('blocks saving or switching to source while an MCP name collision is unapplie
   )
 })
 
-it('leaves schema validation of edited whole-document source to the API', async () => {
-  await withMode(source, (current) => {
-    editSource(current, source + 'version: future-version\n')
-    expect(current().saveBlocked).toBe(false)
-    expect(current().compatibility.some((issue) => issue.path[0] === 'version')).toBe(true)
-  })
-})
+it.each(['version: future-version\n', 'tools: {\n"web_search": {}\n}\n'])(
+  'leaves validation of edited whole-document source to the API: %s',
+  async (extra) => {
+    await withMode(source, (current) => {
+      editSource(current, source + extra)
+      expect(current().saveBlocked).toBe(false)
+      expect(current().compatibility.length).toBeGreaterThan(0)
+    })
+  },
+)
 
 it.each([
   ['instruction: [\n', 'yaml', true, 'line 2'],
@@ -170,7 +173,7 @@ it.each([
       })
       expect(editor().mode).toMatchObject({ mode, confirmDiscard })
       expect(editor().yaml).toBe(yaml)
-      expect(editor().saveBlocked).toBe(true)
+      expect(editor().saveBlocked).toBe(mode === 'builder')
       expect(
         editor()
           .compatibility.map((issue) => `${configPath(issue.path)}: ${issue.message}`)

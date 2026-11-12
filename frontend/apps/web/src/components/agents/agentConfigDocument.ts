@@ -12,6 +12,7 @@ import {
   type ConfigPath,
   patchConfigSource,
 } from '@/components/agents/agentConfigSourcePatch'
+import { configJson } from '@/components/agents/agentConfigValidation'
 
 export type ConfigValue =
   string | number | boolean | null | undefined | ConfigValue[] | ConfigObject
@@ -261,8 +262,8 @@ export function editConfigDocument(
       )
     }
     const parsed = parseDocument(result)
-    const actual = z.json().safeParse(parsed.toJS())
-    const expected = z.json().safeParse(document.toJS())
+    const actual = configJson.safeParse(parsed.toJS())
+    const expected = configJson.safeParse(document.toJS())
     if (
       (format === 'json' && !isJsonSource(result)) ||
       parsed.errors.length > 0 ||

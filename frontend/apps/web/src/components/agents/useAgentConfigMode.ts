@@ -58,7 +58,6 @@ export function useAgentConfigMode({
   const saveBlocked =
     editorYaml.trim() === '' ||
     form.unappliedChanges ||
-    compatibility.some((issue) => issue.syntaxError) ||
     ((showBuilder || (builderAvailable && !yamlDiverged(mode))) && form.blocked)
 
   function switchMode(nextMode: AgentConfigMode) {
