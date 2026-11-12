@@ -37,7 +37,8 @@ the guide on your app with you.
 
 Most examples are only an `agent.yaml`. This one also has [`guide/`](guide), because
 part of it has to run inside your app: a widget in the browser and one route on your
-server.
+server. Treat `guide/` as a reference implementation: you copy it into your app and own
+that copy, and fixes made here don't reach it.
 
 ```
 your app
@@ -97,8 +98,9 @@ What it doesn't handle:
 - The browser's own `confirm()` boxes: the user answers those; the guide can't see
   them.
 - Very large pages: a snapshot lists the first 180 controls and 140 lines of text.
-- Controls with no role or label, such as a clickable `<div>`. Give them a role and a
-  name; that fixes the guide and your app's accessibility together.
+- Controls it can't name or see: an icon-only button with no label, or a clickable
+  element with neither a role nor a pointer cursor. Give them a role and a name; that
+  fixes the guide and your app's accessibility together.
 - Component libraries other than Radix-style ones haven't been tried.
 - "Do it for me" relies on the agent using `submit`, not `click`, for final actions.
   The instruction says so and Omnara then requires approval, but nothing on the page

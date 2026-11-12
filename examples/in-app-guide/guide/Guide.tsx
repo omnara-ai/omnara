@@ -218,7 +218,7 @@ function Panel({ session, title, suggestions, placement, offset, showOnly }: { s
           <div className="g-head">
             <div className="g-grow">
               <div className="g-title">{title}</div>
-              <div className="g-sub">Answers from the docs, shown right on this page</div>
+              <div className="g-sub">Shows you how, right on this page</div>
             </div>
             <button className="g-icon" type="button" title="Earlier conversations" aria-label="Earlier conversations" aria-pressed={!!history} onClick={() => (history ? setHistory(null) : showHistory())}>
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">

@@ -16,8 +16,8 @@ There are two halves, and both come from this folder:
 - **The agent**: `agent.yaml`, a template you fill in with the product's name, a model,
   and where the product knowledge comes from.
 - **The code in the app**: `guide/`, which has the widget (`Guide.tsx`) and one server
-  route that holds the Omnara API key (`server.ts`). The agent's four tools have no code on Omnara's side;
-  the widget runs them in the user's browser.
+  route that holds the Omnara API key (`server.ts`). The agent's four tools have no
+  code on Omnara's side; the widget runs them in the user's browser.
 
 Read the app before you ask anything, then interview, then build. Don't create anything
 in Omnara and don't change the app until the user has confirmed your summary in step 3.
@@ -128,8 +128,9 @@ block at the end of the file, deleting the other knowledge blocks.
   npx omnara memory-stores files upload <memory-store-id> --path getting-started.md --file docs/getting-started.md
   ```
 
-  Upload again when a file changes; replacing a file needs `--expected-digest`, which
-  the upload and download commands print.
+  Upload again when a file changes. Replacing a file needs
+  `--expected-digest <digest>`: each upload prints the file's digest, and an upload
+  without it fails with the current digest in the error.
 - **An MCP server** may have tools the guide shouldn't call, such as feedback forms.
   Turn each off under `mcp.docs` with `tools: { <tool-name>: { enabled: false } }`.
 
@@ -265,9 +266,10 @@ Run the app, sign in, and with the user watching:
 In the Omnara dashboard, the project now has a profile named
 "<profilePrefix> · <user's name>" and one agent per conversation; open one to read the
 conversation step by step. If a step points at the wrong control or can't see one, look
-at how that control is built: the guide reads standard HTML and ARIA, so a clickable
-`<div>` with no role or label is invisible to it. Fix the markup; the app's
-accessibility improves too.
+at how that control is built: the guide reads standard HTML and ARIA, so it can't
+name an icon-only button with no label, and it misses a clickable element that has
+neither a role nor a pointer cursor. Fix the markup; the app's accessibility improves
+too.
 
 ## 11. Wrap up
 
