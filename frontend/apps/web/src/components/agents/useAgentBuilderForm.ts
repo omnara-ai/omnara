@@ -173,7 +173,7 @@ export function useAgentBuilderForm(
     unappliedChanges: evaluated.unappliedChanges,
     advancedEntries: draft.advancedEntries ?? [],
     reservedToolNames: (draft.advancedEntries ?? [])
-      .filter((entry) => entry.path[0] === 'tools')
+      .filter((entry) => !entry.removed && entry.path[0] === 'tools')
       .map((entry) => entry.path[1] ?? ''),
     isManaged: (key: string) =>
       !(draft.advancedEntries ?? []).some(

@@ -1,4 +1,4 @@
-import { CST, Document, isMap, isNode, isScalar, type Node, parseDocument } from 'yaml'
+import { CST, Document, isMap, isNode, isScalar, type Node, parseDocument, visit } from 'yaml'
 
 import { type ConfigSourceFormat, isJsonSource } from '@/components/agents/agentConfigSourceFormat'
 import { configYamlOptions } from '@/components/agents/agentConfigYaml'
@@ -72,11 +72,18 @@ function applyEdit(
       throw new Error('Cannot reorder a missing sequence.')
     const collection = previous.value
     const originalItems = collection.items
+    const trailing =
+      collection.type === 'flow-collection'
+        ? originalItems.map((item) => takeTrailing(item.value))
+        : []
     const reordered = edit.order.map((index, position) => {
       const item = originalItems[index]
       if (!item) throw new Error('Missing sequence item.')
-      if (collection.type === 'flow-collection')
-        return { ...item, start: originalItems[position]?.start ?? [] }
+      if (collection.type === 'flow-collection') {
+        const moved = { ...item, start: originalItems[position]?.start ?? [] }
+        keepTrailing(moved, trailing[position] ?? [], false)
+        return moved
+      }
       const start = [...item.start]
       if (position === 0 && start[0]?.type === 'space') start.shift()
       else if (position > 0 && start[0]?.type === 'seq-item-ind')
@@ -219,7 +226,17 @@ function renderItem(
   } else {
     const doc = new Document(sequence ? [] : {}, configYamlOptions)
     doc.set(sequence ? 0 : key, value.clone())
-    rendered = doc.toString({ lineWidth: 0, collectionStyle: flow ? 'flow' : 'any' })
+    if (flow)
+      visit(doc, {
+        Scalar(_, scalar) {
+          if (String(scalar.value).includes('\n')) scalar.type = 'QUOTE_DOUBLE'
+        },
+      })
+    rendered = doc.toString({
+      lineWidth: 0,
+      collectionStyle: flow ? 'flow' : 'any',
+      ...(flow && { doubleQuotedMinMultiLineLength: Infinity }),
+    })
     rendered = rendered.replace(/^/gm, ' '.repeat(parent.indent))
   }
   rendered = rendered.replace(/\r?\n/g, newline)

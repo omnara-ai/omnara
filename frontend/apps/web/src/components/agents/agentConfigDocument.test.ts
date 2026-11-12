@@ -119,6 +119,29 @@ describe('document ownership', () => {
     expect(parse(removed.yaml)).toEqual(parse(source))
   })
 
+  it.each([false, true])(
+    'releases a custom name for a managed tool after explicit removal or rename (%s)',
+    (removed) => {
+      const source =
+        header +
+        'tools: {web_search: {type: custom, description: Example., input_schema: {type: object}}}\n'
+      const { session, draft } = draftFor(source)
+      const result = session.evaluate({
+        ...draft,
+        tools: [{ name: 'web_search', permission: null }],
+        advancedEntries: draft.advancedEntries?.map((entry) => ({
+          ...entry,
+          path: ['tools', 'lookup_item'],
+          removed,
+        })),
+      })
+      expect(result.issues).toEqual([])
+      expect(result.unappliedChanges).toBe(false)
+      expect(parse(result.yaml)).toHaveProperty(['tools', 'web_search'], { type: 'built_in' })
+      expect(parseDocument(result.yaml).hasIn(['tools', 'lookup_item'])).toBe(!removed)
+    },
+  )
+
   it('rejects edits to a preserved path or its parent', () => {
     const source = `${header}tools: {managed: {}, opaque: {future: true}}\n`
     for (const path of [['tools'], ['tools', 'opaque'], ['tools', 'opaque', 'future']]) {
@@ -355,7 +378,7 @@ it.each(['tools: {web_search}', 'mcp: {docs}', 'subagents: {helper}', 'max_depth
   },
 )
 
-it.each(['2026-01-02', '2026-1-2', '1_000', '0b1', '-0x1F', '0x1_F'])(
+it.each(['2026-01-02', '2026-1-2', '1_000', '0b1', '-0x1F', '0x1_F', '0X1F', '-0o17', '1e_3'])(
   'quotes strings consistently with backend scalar parsing: %s',
   (value) => {
     const { session, draft } = draftFor(header + 'machine_sources: [{machine_name: example}]\n')
@@ -385,7 +408,7 @@ it.each(['2026-01-02', '2026-1-2', '1_000', '0b1', '-0x1F', '0x1_F'])(
   },
 )
 
-it.each(['2026-1-2', '-0x1F', '0x1_F'])(
+it.each(['2026-1-2', '-0x1F', '0x1_F', '0X1F', '-0o17', '1e_3'])(
   'preserves backend-specific scalar forms on read: %s',
   (value) => {
     const source =
@@ -612,3 +635,58 @@ it('retains closing-delimiter indentation when clearing the last nested inline f
   expect(result.issues).toEqual([])
   expect(result.yaml).toBe(source.replace('self,', 'self').replace('max_instances: 2', ''))
 })
+
+it('escapes multiline instructions inside flow maps without changing other fields', () => {
+  const source = header + 'subagents: {helper: {type: self, max_instances: 2}}\n'
+  const { session, draft } = draftFor(source)
+  const instructionAppend = 'A first line that is long enough to be folded.\nA second line.'
+  const result = session.evaluate({
+    ...draft,
+    subagents: draft.subagents.map((row) => ({ ...row, instructionAppend })),
+  })
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toBe(
+    source.replace(
+      'max_instances: 2',
+      'max_instances: 2, instruction: { append: ' + JSON.stringify(instructionAppend) + ' }',
+    ),
+  )
+})
+
+it.each(['yaml', 'json'])(
+  'reorders a multiline flow sequence while retaining %s layout',
+  (format) => {
+    const skills = ['skl_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb'] as const
+    const source =
+      format === 'json'
+        ? JSON.stringify({ skills }, null, 2)
+        : `skills: [\n  ${skills[0]},\n  ${skills[1]}\n  ]\n`
+    const { session, draft } = draftFor(source)
+    const result = session.evaluate({ ...draft, skillIds: [...draft.skillIds].reverse() })
+    expect(result.issues).toEqual([])
+    expect(result.yaml).toBe(
+      source
+        .replace(skills[0], 'placeholder')
+        .replace(skills[1], skills[0])
+        .replace('placeholder', skills[1]),
+    )
+  },
+)
+
+it.each(['<<', '10.0.0.1'])(
+  'quotes mapping keys only when their meaning requires it: %s',
+  (text) => {
+    const { session, draft } = draftFor(header + 'machine_sources: [{machine_name: example}]\n')
+    const result = session.evaluate({
+      ...draft,
+      machineSources: draft.machineSources.map((row) => ({
+        ...row,
+        envRows: [{ id: 'example', key: text, value: text }],
+      })),
+    })
+    const written = text === '<<' ? '"<<"' : text
+    expect(result.issues).toEqual([])
+    expect(result.yaml).toContain(`${written}: ${written}`)
+    expect(createBasicConfigSession(result.yaml).diagnostics).toEqual([])
+  },
+)
