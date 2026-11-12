@@ -2,8 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { runTool } from './actions'
-import { trackRequests } from './net'
+import { runTool, trackRequests } from './actions'
 import { Overlay } from './overlay'
 import { GuideSession, type Conversation, type GuideState, type Mode } from './session'
 import { takeSnapshot } from './snapshot'

@@ -13,10 +13,10 @@ agent profile and their own conversation history.
 
 There are two halves, and both come from this folder:
 
-- **The agent**: `agent.yaml`, a template you render with the product's name, a model,
+- **The agent**: `agent.yaml`, a template you fill in with the product's name, a model,
   and where the product knowledge comes from.
-- **The code in the app**: `guide/client` (the widget) and `guide/server` (one route
-  that holds the Omnara API key). The agent's four tools have no code on Omnara's side;
+- **The code in the app**: `guide/`, which has the widget (`Guide.tsx`) and one server
+  route that holds the Omnara API key (`server.ts`). The agent's four tools have no code on Omnara's side;
   the widget runs them in the user's browser.
 
 Read the app before you ask anything, then interview, then build. Don't create anything
@@ -56,8 +56,9 @@ can't find:
    every signed-in page shares.
 2. **How the server answers requests.** The guide's route takes a web-standard
    `Request` and returns a `Response`, which Next.js route handlers, React Router and
-   Remix loaders, Hono, SvelteKit, Bun and Deno accept as is. Express and Fastify need
-   the small adapter shown in `try/proxy.ts` (`serveGuide`).
+   Remix loaders, Hono, SvelteKit, Bun and Deno accept as is. For Express or Fastify,
+   build a `Request` from the incoming request and pipe the `Response` back, without
+   buffering the body.
 3. **How the server knows who is signed in**, and what it knows about them: a stable
    user ID, a display name, a role, the workspace or account they are in.
 4. **Where the product knowledge is.** Look for a docs site (and whether it serves
@@ -72,7 +73,7 @@ Tell the user what you found, then ask for what is still missing, in one message
 
 - **Product name**, as users know it. The button reads "Ask <name>".
 - **Product knowledge.** Say what you found in step 2 and which source you plan to use
-  (step 5 lists the four). If you found nothing, say that you will write short notes
+  (step 5 lists them). If you found nothing, say that you will write short notes
   from the code and screens, and that they should read them before going live.
 - **Show only, or also do.** In "Show me" the guide points and the user clicks. With
   "Do it for me" also on, the guide can click and fill in forms itself, and asks the
@@ -83,59 +84,66 @@ Tell the user what you found, then ask for what is still missing, in one message
 Then summarize the plan in a few lines (product name, knowledge source, show only or
 not, which Omnara project, which files you will add to the app) and wait for a yes.
 
-## 4. Get the example code
+## 4. Get the example files
 
-Fetch this folder if it isn't on disk:
+If this folder isn't on disk, fetch it:
 
 ```sh
 git clone --depth 1 --filter=blob:none --sparse https://github.com/omnara-ai/omnara.git /tmp/omnara-example
 git -C /tmp/omnara-example sparse-checkout set examples/in-app-guide
 ```
 
-Copy it into the user's repository in two places:
-
-- `guide/` goes where the app's own source lives, so the app's bundler compiles it, for
-  example `src/guide/`. It has no dependencies beyond React.
-- `agent.yaml`, `scripts/`, `try/`, `package.json`, `tsconfig.json`, `.env.example` and
-  `guide.config.example.json` go in a folder of their own at the repository root, for
-  example `in-app-guide/`. If you moved `guide/` elsewhere, fix the two import paths
-  that point at it: `scripts/build-embed.mjs` and `try/proxy.ts`.
-
-Run `pnpm install` (or `npm install`) in that folder. The scripts need Node 24 or newer.
+Copy `guide/` to where the app's own source lives, so the app's bundler compiles it,
+for example `src/guide/`. It depends on nothing but React. Copy `agent.yaml` to
+`guide.agent.yaml` at the root of the user's repository; that copy is the one you edit
+and the server reads.
 
 ## 5. Product knowledge
 
-Copy `guide.config.example.json` to `guide.config.json` and set `product`. Then set
-`knowledge` to one of these. The page the user is on is always a source as well.
+The agent learns the product from one source, plus the page the user is on. Pick the
+source, then fill in three placeholders in `guide.agent.yaml` and keep the matching
+block at the end of the file, deleting the other knowledge blocks.
 
-| The product has | `knowledge` |
-| --- | --- |
-| A docs site with an MCP server (Mintlify and similar serve one at `/mcp`) | `{ "source": "mcp", "mcp_url": "…/mcp", "index_url": "…/llms.txt", "base_url": "https://docs.…" }` |
-| A public docs site without MCP | `{ "source": "web", "index_url": "…/llms.txt", "base_url": "https://docs.…" }` |
-| Markdown files: a `docs/` folder, an exported wiki or help center | `{ "source": "files", "dir": "../docs", "store": "<product>-guide-docs" }` |
-| Nothing written down | write notes (below), then use them as `files` |
+| The product has | Keep | `{{KNOWLEDGE}}` |
+| --- | --- | --- |
+| A docs site with an MCP server (Mintlify and similar serve one at `/mcp`) | `mcp:` with `{{DOCS_MCP_URL}}` | `Search the <product> docs with the docs tools unless the page itself makes the path obvious. The docs index below tells you which page to read.` |
+| A public docs site without MCP | `web_fetch` under `tools:` | `Read the <product> docs with web_fetch unless the page itself makes the path obvious. The docs index below lists every page: pick the one that fits and fetch its URL. Only fetch URLs from that index.` |
+| Markdown files: a `docs/` folder, an exported wiki or help center | `memory_stores:` with `{{MEMORY_STORE}}` | `What is written down about <product> is in files under /memory/<store>/. Unless the page itself makes the path obvious, pick the file from the index below and read it with storage_read, or search all of them with storage_search (path "/memory/<store>/**", args like ["-i", "-e", "invite"]). Read only the files you need.` |
+| Nothing written down | write notes (below), then treat them as markdown files | as for markdown files |
 
-Details:
+- **`{{KNOWLEDGE_INDEX}}`** is the list of what there is to read, one line each, under a
+  heading `Docs index:` or `Files:`. For a docs site, take the page lines from its
+  `/llms.txt` (`- [Title](URL): description`) and leave out API reference pages. For
+  files, write `- /memory/<store>/<path>: <title>. <one-line description>` per file.
+- **`{{LINKS}}`**: if there is a public docs site, `When a doc page backs up what you
+  say, link it as a markdown link with the full URL (it must start with <docs URL>);
+  never link to a path inside the app.` If there isn't, `There is no public
+  documentation to link to, so don't add links; name the place in the app instead.`
+- **Markdown files** go into a memory store that agents can only read. Leave out
+  folders that aren't for end users (API reference, changelogs, internal runbooks):
 
-- **mcp**: check the endpoint answers before relying on it. `index_url` is optional; it
-  inlines the list of pages into the instruction so the agent knows what exists. If the
-  server has tools the guide shouldn't call, list them in `"disable_tools"`.
-- **web**: `index_url` must be a list of pages in the `llms.txt` format (lines like
-  `- [Title](https://…): description`). If the site has none, write one by hand next to
-  the config and serve it, or use `files` instead.
-- **files**: `dir` is relative to `guide.config.json`. Use `"exclude"` for folders that
-  aren't for end users (API reference, changelogs, internal runbooks). Add `base_url`
-  only if the same files are published at `base_url` + path without the extension;
-  otherwise leave it out and the agent names places in the app instead of linking.
-  Markdown and MDX both work. Files are uploaded in step 6.
-- **`"source": "none"`** exists: the agent then works from the page alone. It still
-  finds its way around by reading the screen, and it says so when it doesn't know. Use
-  it only as a stopgap.
+  ```sh
+  npx omnara memory-stores create --name <product>-guide-docs --agent-access read --json
+  # for each file, with --path relative to the docs folder:
+  npx omnara memory-stores files upload <memory-store-id> --path getting-started.md --file docs/getting-started.md
+  ```
+
+  Upload again when a file changes; replacing a file needs `--expected-digest`, which
+  the upload and download commands print.
+- **An MCP server** may have tools the guide shouldn't call, such as feedback forms.
+  Turn each off under `mcp.docs` with `tools: { <tool-name>: { enabled: false } }`.
+
+If you can't set any of this up yet, delete all three knowledge blocks and use
+`Nothing is written down about <product> for you to read. Work from what the page
+shows: its navigation, headings, labels and controls. Explore one step at a time, and
+when you can't tell how something is done, say so instead of guessing.` The guide still
+finds its way around by reading the screen, and says when it doesn't know. Treat that
+as a stopgap.
 
 ### Writing notes when there are no docs
 
-Write three short markdown files into `in-app-guide/notes/`, from the app's code and,
-if you can run the app, its screens. Use the exact words that are on the screen.
+Write three short markdown files from the app's code and, if you can run the app, its
+screens. Use the exact words that are on the screen.
 
 - `overview.md`: what the product is in a paragraph, its main objects and how they
   relate, the roles and what each can do, and what can't be undone.
@@ -144,29 +152,25 @@ if you can run the app, its screens. Use the exact words that are on the screen.
 - `tasks.md`: a numbered step list for each common task, with exact button names. Mark
   the step that saves, sends, pays or deletes as final.
 
-Give each file front matter with a `title` and a one-line `description`; the agent sees
-those in its index. State at the top that these are notes written from the code, not
-official documentation. Leave out secrets, customer data, and anything about internals
-that an end user shouldn't be told. Keep each file under about 10 KB. Then set
-`"knowledge": { "source": "files", "dir": "notes", "store": "<product>-guide-notes" }`
-and ask the user to read the notes before going live: the guide will repeat what they
-say.
+State at the top of each that these are notes written from the code, not official
+documentation. Leave out secrets, customer data, and internals an end user shouldn't be
+told. Keep each file under about 10 KB. Commit them to the user's repository, upload
+them as markdown files, and ask the user to read them before going live: the guide
+repeats what they say.
 
-## 6. Pick the model, render the config, upload the files
+## 6. Finish the agent config
 
 1. `npx omnara grant models list --json`: each item has `model.provider_config` and
    `model.name`. Use `anthropic/claude-sonnet-5.5` on `omnara-openrouter` if it's
    granted (the guide was tested with it), otherwise the strongest model on the list
-   that is good at tool use. Set `model_provider` and `model_name` in
-   `guide.config.json`.
-2. Show only: set `"do_mode": false`. That removes the agent's tools for clicking,
-   typing and submitting, so it can't act even if asked to.
-3. `pnpm run render` writes `guide.agent.yaml`. Read it once: the instruction should
-   name the product and the knowledge source you chose, and
-   `grep -n '{{' guide.agent.yaml` should print only the `{{user}}` line, which the
-   server fills in per user.
-4. For `files`: after step 7, `pnpm run sync` uploads the folder to an Omnara memory
-   store. Run it again whenever the files change; put it in CI if the docs change often.
+   that is good at tool use. These are `{{MODEL_PROVIDER_CONFIG}}` and `{{MODEL_NAME}}`.
+2. Replace `{{PRODUCT}}` everywhere.
+3. Show only: delete the tools between the two `do mode` comments, and replace rule 4
+   of the instruction with `You only show; you never act on the page yourself. If the
+   user asks you to do something for them, say that you can walk them through it, and
+   do that.` The agent then has no way to click, type or submit.
+4. Check it: `grep -n '{{' guide.agent.yaml` must print only the `{{user}}` line, which
+   the server fills in for each user.
 
 ## 7. The API key
 
@@ -178,22 +182,11 @@ The app's server needs an organization API key, which the user creates:
 2. Then, from the key's detail panel, grant it the **developer** role on the project
    from step 1 only. The guide creates an agent profile per user and launches agents,
    which needs that role; it needs nothing outside that project.
-3. Ask them to put the key in the app's server environment (and in `in-app-guide/.env`
-   for the scripts) as `OMNARA_API_KEY`, with `OMNARA_ORG_ID` and `OMNARA_PROJECT_ID`.
-   Give them the two IDs. Check that both files are ignored by git.
+3. Ask them to put the key in the app's server environment as `OMNARA_API_KEY`, with
+   `OMNARA_ORG_ID` and `OMNARA_PROJECT_ID`. Give them the two IDs, and check that the
+   environment file is ignored by git.
 
-## 8. Try it before changing the app (optional)
-
-`try/proxy.ts` puts the guide on the running app without touching its code: it passes
-every request through to the app and adds the guide's script to each page.
-
-In `in-app-guide/.env` set `APP_URL` to where the app runs locally, `GUIDE_TITLE`, and
-`GUIDE_ME_PATH` if the app has an endpoint that returns the signed-in user as JSON.
-Start the app, run `pnpm run try`, and have the user open http://localhost:3200, sign
-in, and ask the guide a real question. This is the quickest way to find out whether the
-guide reads this app's pages well, and it is worth doing before step 9.
-
-## 9. Add the route
+## 8. Add the route
 
 Create a catch-all route at `/api/guide/*` (GET, POST and OPTIONS) that calls
 `createGuideHandler` from `guide/server`:
@@ -206,7 +199,7 @@ export const { GET, POST, OPTIONS } = createGuideHandler({
   token: process.env.OMNARA_API_KEY!,
   orgId: process.env.OMNARA_ORG_ID!,
   projectId: process.env.OMNARA_PROJECT_ID!,
-  config: readFileSync('in-app-guide/guide.agent.yaml', 'utf8'),
+  config: readFileSync('guide.agent.yaml', 'utf8'),
   profilePrefix: 'Acme guide',
   sessionSecret: process.env.GUIDE_SESSION_SECRET,
   async getUser(req) {
@@ -226,26 +219,29 @@ export const { GET, POST, OPTIONS } = createGuideHandler({
 - The route streams (server-sent events). Turn off response buffering for it if the
   host buffers by default, and don't cache it.
 
-## 10. Add the widget
+## 9. Add the widget
 
 React, in the layout that signed-in pages share:
 
 ```tsx
-import { Guide } from '@/guide/client'
+import { Guide } from '@/guide/Guide'
 
 <Guide endpoint="/api/guide" title="Ask Acme" suggestions={['How do I invite a teammate?']} />
 ```
 
-Add `showOnly` if you set `"do_mode": false`. Use the app's accent color for `accent`.
+Add `showOnly` if you made the guide show only in step 6. Use the app's accent color
+for `accent`.
 If a support chat bubble already sits in the bottom-right corner, move the guide with
 `placement="bottom-left"` or `offset={{ side: 80 }}`. To open it from the app's own
-Help menu, call `openGuide()` from `guide/client`.
+Help menu, call `openGuide()` from `guide/Guide`.
 
-Not React: run `pnpm run build:embed`, serve `embed.js` from the app's own origin, and
-add to the signed-in layout:
+Not React: bundle `guide/embed.tsx` into one script, which brings its own React
+(`npm install --save-dev react react-dom esbuild`, then
+`npx esbuild src/guide/embed.tsx --bundle --minify --outfile=public/guide.js`), serve
+it from the app's own origin, and add to the signed-in layout:
 
 ```html
-<script src="/embed.js" data-endpoint="/api/guide" data-title="Ask Acme"></script>
+<script src="/guide.js" data-endpoint="/api/guide" data-title="Ask Acme"></script>
 ```
 
 If the app sends a Content-Security-Policy, the script and the route are same-origin,
@@ -253,7 +249,7 @@ so `script-src 'self'` and `connect-src 'self'` already allow them. The widget's
 live in a `<style>` element inside its own shadow root, which needs `style-src` to
 allow inline styles.
 
-## 11. Check it
+## 10. Check it
 
 Run the app, sign in, and with the user watching:
 
@@ -273,14 +269,14 @@ at how that control is built: the guide reads standard HTML and ARIA, so a click
 `<div>` with no role or label is invisible to it. Fix the markup; the app's
 accessibility improves too.
 
-## 12. Wrap up
+## 11. Wrap up
 
 Summarize what you added: the files in the app, the route, the widget, the Omnara
 project, the memory store if any, and that the user holds the API key. Then tell them:
 
-- **Change what the guide knows or how it behaves:** edit the docs or notes and run
-  `pnpm run sync`, or edit `guide.config.json` / `agent.yaml` and run `pnpm run render`,
-  then redeploy. Each user's profile picks up the new config on their next conversation.
+- **Change what the guide knows or how it behaves:** upload the changed docs or notes
+  again, or edit `guide.agent.yaml` and redeploy. Each user's profile picks up the new
+  config on their next conversation.
 - **Read conversations:** each one is an agent in the Omnara project, with every step
   and tool call.
 - **Remove it:** take out the widget and the route, revoke the API key in the

@@ -6,7 +6,7 @@ icon: "arrow-pointer"
 
 Your users ask how to do something, and a cursor moves to the right control on the page they are on, highlights it, and tells them what to do, one step at a time. The guide answers from your product's own documentation. It can also do the steps for them, asking approval before anything that saves, sends, pays, or deletes. Every user of your app gets their own agent profile and conversation history, and you can read each conversation in the dashboard.
 
-<video autoPlay muted loop playsInline className="w-full rounded-xl" src="/images/examples/in-app-guide.mp4"></video>
+<img src="/images/examples/in-app-guide.gif" alt="The guide walking a user through inviting a teammate" />
 
 The agent's tools are [custom tools](/tools/custom) that run in the user's browser: Omnara holds each call until the guide's widget moves the cursor, waits for the click, and posts the result back. Your app adds one component (or one script tag) and one server route that holds the Omnara API key.
 
@@ -27,4 +27,4 @@ Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/in-app-gui
 | Markdown files, such as a `docs/` folder | A [memory store](/agents/configuration#memory-stores), searched and read with the built-in file tools |
 | Nothing written down | Notes your coding agent writes from your app's code and screens, plus the page itself |
 
-See [`examples/in-app-guide`](https://github.com/omnara-ai/omnara/tree/main/examples/in-app-guide) on GitHub for how it works, how to try it on your app before changing any code, and what it has and hasn't been tested on.
+See [`examples/in-app-guide`](https://github.com/omnara-ai/omnara/tree/main/examples/in-app-guide) on GitHub for how it works and what it has and hasn't been tested on.

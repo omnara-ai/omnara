@@ -1,13 +1,15 @@
-// Standalone build of the guide for pages we can't change: one script tag (or a
-// bookmarklet that adds it) mounts the widget. Configure it with data attributes:
+// The guide as one script, for apps that aren't built with React. Bundle this file (it
+// brings its own React) and load it from your app's own origin:
 //
-//   <script src="/guide/embed.js" data-endpoint="/api/guide"
-//           data-title="Ask Acme" data-accent="#4f46e5" data-show-only="true"></script>
+//   npx esbuild guide/embed.tsx --bundle --minify --outfile=public/guide.js
+//
+//   <script src="/guide.js" data-endpoint="/api/guide" data-title="Ask Acme"
+//           data-accent="#4f46e5" data-show-only="true"></script>
 //
 // or call window.OmnaraGuide.mount({ endpoint, … }) yourself.
 
 import { createRoot, type Root } from 'react-dom/client'
-import { Guide, type GuideProps } from './client/Guide'
+import { Guide, type GuideProps } from './Guide'
 
 declare global {
   interface Window {
