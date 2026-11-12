@@ -58,6 +58,7 @@ func applyRequestInputMeasurement(
 	}
 
 	prefix, suffix := bundle, bundle
+	prefix.HarnessNotice = ""
 	prefix.InputEventSequence = source.InputEventSequence
 	prefix.Messages = nil
 	prefix.ToolResults = nil
@@ -82,7 +83,11 @@ func applyRequestInputMeasurement(
 		}
 		suffix.ToolResults = append(suffix.ToolResults, result)
 	}
-	previous, err := client.Prepare(ctx, PrepareInput{Context: prefix, Policy: input.Policy})
+	// The earlier request ended at the prefix, so it carried no final-turn
+	// effort change for this request's retry.
+	prefixPolicy := input.Policy
+	prefixPolicy.FinalTurnEffortReduction = 0
+	previous, err := client.Prepare(ctx, PrepareInput{Context: prefix, Policy: prefixPolicy})
 	if err != nil {
 		return
 	}

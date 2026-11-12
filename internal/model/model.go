@@ -396,6 +396,11 @@ type RequestPolicy struct {
 	SupportsReasoning                 *bool          `json:"supports_reasoning,omitempty"`
 	ReasoningEffort                   string         `json:"reasoning_effort,omitempty"`
 	ProviderReplayCutoffEventSequence int64          `json:"provider_replay_cutoff_event_sequence,omitempty"`
+	// FinalTurnEffortReduction lowers the reasoning effort by this many levels
+	// for the reply to the final turn only, through a per-message effort change
+	// on providers that support one. The top-level effort is left unchanged so
+	// the cached prefix still matches.
+	FinalTurnEffortReduction int `json:"final_turn_effort_reduction,omitempty"`
 }
 
 // AllowsProviderReplay reports whether replay is newer than the inclusive cutoff.

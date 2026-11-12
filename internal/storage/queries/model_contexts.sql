@@ -102,3 +102,28 @@ WHERE context.agent_id = sqlc.arg(agent_id)
     WHERE scoped_agent.project_id = sqlc.arg(project_id)
       AND scoped_agent.id = sqlc.arg(agent_id)
   );
+
+-- name: CountModelCallRetriesWithErrorCode :one
+SELECT (
+  SELECT count(*) FROM model_call_contexts failure
+  WHERE failure.project_id = context.project_id
+    AND failure.agent_id = context.agent_id
+    AND failure.input_event_sequence = context.input_event_sequence
+    AND failure.operation_kind = context.operation_kind
+    AND failure.state = 'failed' AND failure.recovery_kind = 'retry'
+    AND failure.error_code = sqlc.arg(error_code)::text
+    AND (
+      failure.source_event_sequence_end > context.source_event_sequence_end
+      OR (failure.source_event_sequence_end IS NOT DISTINCT FROM context.source_event_sequence_end
+          AND failure.attempt_number <= context.attempt_number)
+    )
+)::bigint AS retry_count
+FROM model_call_contexts context
+WHERE context.agent_id = sqlc.arg(agent_id)
+  AND context.id = sqlc.arg(model_call_context_id)
+  AND EXISTS (
+    SELECT 1
+    FROM agents scoped_agent
+    WHERE scoped_agent.project_id = sqlc.arg(project_id)
+      AND scoped_agent.id = sqlc.arg(agent_id)
+  );

@@ -9,6 +9,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelretry"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
@@ -63,9 +64,16 @@ func TestAgentExecutorEmptyOutputRetriesAreBoundedAcrossRestarts(t *testing.T) {
 			}
 			require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
 			require.Equal(t, attempts+productiveCutoffs, client.respondedCount())
-			for _, sent := range client.responded {
+			for index, sent := range client.responded {
 				require.Equal(t, tc.allowance, sent.Policy.MaxOutputTokens)
 				require.Contains(t, string(sent.ProviderRequest), "Complete the current task.")
+				require.Equal(t, max(index-productiveCutoffs, 0), sent.Policy.FinalTurnEffortReduction,
+					"each runaway lowers the next attempt's effort one more level")
+				if index <= productiveCutoffs {
+					require.NotContains(t, string(sent.ProviderRequest), modelretry.OutputNoProgressNotice)
+				} else {
+					require.Contains(t, string(sent.ProviderRequest), modelretry.OutputNoProgressNotice)
+				}
 			}
 			var retries, successfulCutoffs, terminalOutputs int
 			require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM model_call_contexts
@@ -86,6 +94,8 @@ func TestAgentExecutorEmptyOutputRetriesAreBoundedAcrossRestarts(t *testing.T) {
 			require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
 			last := client.responded[len(client.responded)-1]
 			require.Equal(t, 8192, last.Policy.MaxOutputTokens)
+			require.Zero(t, last.Policy.FinalTurnEffortReduction, "a new operation runs at the configured effort")
+			require.NotContains(t, string(last.ProviderRequest), modelretry.OutputNoProgressNotice)
 			require.Contains(t, string(last.ProviderRequest), "A later request.")
 		})
 	}

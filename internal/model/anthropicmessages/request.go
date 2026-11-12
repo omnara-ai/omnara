@@ -132,7 +132,59 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 			payload.Thinking = thinking
 		}
 	}
+	if supportsReasoning && input.Policy.FinalTurnEffortReduction > 0 {
+		effort, err := c.finalTurnEffort(input.Policy, payload, options["thinking"])
+		if err != nil {
+			return nil, err
+		}
+		if effort != "" {
+			payload.Messages = append(payload.Messages, message{
+				Role: anthropicRoleSystem, Content: []any{}, OutputConfig: map[string]string{"effort": effort},
+			})
+		}
+	}
 	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+}
+
+// finalTurnEffort returns the lowered effort for a per-message effort change
+// on the reply to the final user turn, or "" when the model or request shape
+// does not allow one. The change must sit directly after a user turn to apply
+// to that turn's reply, and the top-level effort stays unchanged so the cached
+// prefix still matches.
+func (c Client) finalTurnEffort(
+	policy model.RequestPolicy,
+	payload messagesRequest,
+	rawThinking json.RawMessage,
+) (string, error) {
+	if !c.supportsPerMessageEffort() ||
+		len(payload.Messages) == 0 || payload.Messages[len(payload.Messages)-1].Role != anthropicRoleUser {
+		return "", nil
+	}
+	thinking := payload.Thinking
+	if thinking == nil {
+		var err error
+		if thinking, err = decodeThinkingConfig(rawThinking); err != nil {
+			return "", err
+		}
+	}
+	var thinkingType string
+	_ = json.Unmarshal(thinking["type"], &thinkingType)
+	// Without up-front thinking there is no reasoning to cut back, and some
+	// models reject an effort change in these modes.
+	if thinkingType == "disabled" || thinkingType == "between_tools" {
+		return "", nil
+	}
+	base := policy.ReasoningEffort
+	if base == "" {
+		base = model.ClaudeDefaultReasoningEffort(c.ProviderModelSlug)
+	}
+	lowered := model.LowerReasoningEffort(
+		base, c.ModelCapabilities.SupportedReasoningEfforts, policy.FinalTurnEffortReduction,
+	)
+	if base == "" || strings.EqualFold(lowered, base) {
+		return "", nil
+	}
+	return lowered, nil
 }
 
 func decodeAPIVariantOptions(raw json.RawMessage) (map[string]json.RawMessage, error) {
@@ -221,11 +273,13 @@ type anthropicRole string
 const (
 	anthropicRoleUser      anthropicRole = "user"
 	anthropicRoleAssistant anthropicRole = "assistant"
+	anthropicRoleSystem    anthropicRole = "system"
 )
 
 type message struct {
-	Role    anthropicRole `json:"role"`
-	Content any           `json:"content"`
+	Role         anthropicRole     `json:"role"`
+	Content      any               `json:"content"`
+	OutputConfig map[string]string `json:"output_config,omitempty"`
 }
 
 type textBlock struct {

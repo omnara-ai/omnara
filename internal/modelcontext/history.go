@@ -95,6 +95,22 @@ func CanonicalHistory(bundle Bundle) ([]HistoryEntry, error) {
 	if len(resultsByContext) != 0 {
 		return nil, errors.New("tool results are missing their source model output")
 	}
+	if bundle.HarnessNotice != "" {
+		var sequence int64
+		if len(entries) > 0 {
+			sequence = entries[len(entries)-1].Sequence
+		}
+		content, err := json.Marshal([]modelenvelope.ResponsePart{{
+			Type: modelenvelope.ResponsePartTypeText, Text: bundle.HarnessNotice,
+		}})
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, HistoryEntry{
+			Sequence: sequence,
+			Message:  Message{Role: modelprotocol.RoleUser, Sequence: sequence, Content: content},
+		})
+	}
 	return entries, nil
 }
 

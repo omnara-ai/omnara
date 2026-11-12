@@ -39,6 +39,9 @@ type Bundle struct {
 	ContextCheckpoint         *CheckpointRef           `json:"context_checkpoint,omitempty"`
 	ResolvedMedia             map[string]ResolvedMedia `json:"resolved_media,omitempty"`
 	RenderedMedia             []RenderedMedia          `json:"-"`
+	// HarnessNotice is a transient harness instruction appended as the final
+	// user message of this request only. It is never stored in history.
+	HarnessNotice string `json:"harness_notice,omitempty"`
 }
 
 type MediaProjector interface {

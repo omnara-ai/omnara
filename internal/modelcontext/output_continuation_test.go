@@ -59,6 +59,28 @@ func TestOutputLimitNoticePreservesHistoricalPrefix(t *testing.T) {
 	}
 }
 
+func TestHarnessNoticeIsAppendedAfterHistory(t *testing.T) {
+	const notice = "Think less this time."
+	bundle := Bundle{Messages: []Message{
+		{ID: "input", Sequence: 41, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"go"}]`)},
+		{ID: "output", ModelCallContextID: testIDN(9201).String(), Sequence: 42, Role: modelprotocol.RoleAssistant,
+			Content: json.RawMessage(`[{"type":"text","text":"working"}]`)},
+	}}
+	without, err := CanonicalHistory(bundle)
+	require.NoError(t, err)
+
+	bundle.HarnessNotice = notice
+	with, err := CanonicalHistory(bundle)
+	require.NoError(t, err)
+	require.Len(t, with, len(without)+1)
+	require.Equal(t, without, with[:len(without)], "the notice must not disturb earlier history")
+	last := with[len(with)-1]
+	require.Equal(t, modelprotocol.RoleUser, last.Message.Role)
+	require.Equal(t, int64(42), last.Sequence)
+	require.Empty(t, last.ToolResults)
+	require.JSONEq(t, `[{"type":"text","text":"`+notice+`"}]`, string(last.Message.Content))
+}
+
 func TestCheckpointOutputLimitNoticeUsesFixedBoundary(t *testing.T) {
 	for _, override := range []bool{false, true} {
 		for _, cutoff := range []bool{false, true} {

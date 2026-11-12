@@ -35,10 +35,17 @@ func (c Client) routeClient() route.Client {
 }
 
 func (c Client) betaHeader() route.Auth {
-	if !c.supportsThinkingBindingControls() {
+	var betas route.Chain
+	if c.supportsThinkingBindingControls() {
+		betas = append(betas, anthropicBeta(thinkingBindingControlsBeta))
+	}
+	if c.supportsPerMessageEffort() {
+		betas = append(betas, anthropicBeta(midConversationOutputConfigBeta))
+	}
+	if len(betas) == 0 {
 		return nil
 	}
-	return anthropicBeta(thinkingBindingControlsBeta)
+	return betas
 }
 
 type anthropicBeta string

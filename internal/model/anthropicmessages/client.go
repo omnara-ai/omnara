@@ -16,6 +16,8 @@ const APIVersion = "2023-06-01"
 
 const thinkingBindingControlsBeta = "thinking-binding-controls-2026-08-01"
 
+const midConversationOutputConfigBeta = "mid-conversation-output-config-2026-07-01"
+
 type Client struct {
 	ModelProviderConfigID string
 	Auth                  route.Auth
@@ -45,6 +47,14 @@ func (c Client) ModelAPIVariant() modelprotocol.APIVariant {
 
 func (c Client) supportsThinkingBindingControls() bool {
 	return model.IsClaudeFamilyModelSlug(c.ProviderModelSlug)
+}
+
+// Per-message effort is limited to the default variant: Bedrock InvokeModel
+// takes betas in the request body rather than a header, and OpenRouter does
+// not document mid-conversation system messages.
+func (c Client) supportsPerMessageEffort() bool {
+	return c.ModelAPIVariant() == modelprotocol.APIVariantDefault &&
+		model.ClaudeSupportsPerMessageEffort(c.ProviderModelSlug)
 }
 
 func (c Client) Capabilities() model.Capabilities {

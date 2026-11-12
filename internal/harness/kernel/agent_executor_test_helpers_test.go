@@ -971,6 +971,9 @@ func (m *sequenceKernelModel) Prepare(_ context.Context, input model.PrepareInpu
 	if m.bodyIncludesMaxOutputTokens {
 		fields["max_output_tokens"] = input.Policy.MaxOutputTokens
 	}
+	if input.Context.HarnessNotice != "" {
+		fields["harness_notice"] = input.Context.HarnessNotice
+	}
 	body := mustKernelJSON(fields)
 	providerReplays := make([]json.RawMessage, 0, len(input.Context.Messages))
 	providerReplaySequences := make([]int64, 0, len(input.Context.Messages))
