@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -228,6 +229,22 @@ func TestDialTriesResolvedAddressesWithinOneTimeout(t *testing.T) {
 	if !slices.Equal(budgets, want) {
 		t.Fatalf("attempt budgets = %v, want %v shared from one %v timeout", budgets, want, dialer.Timeout)
 	}
+
+	synctest.Test(t, func(t *testing.T) {
+		budgets = nil
+		dialer.Resolver = fakeResolver(net.ParseIP("192.0.2.1"))
+		answer := dialer.Resolver.Dial
+		dialer.Resolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+			time.Sleep(time.Second) //nolint:omnaralint // Advance synctest's virtual clock.
+			return answer(ctx, network, address)
+		}
+		if _, err := dial(context.Background(), dialer, "tcp", "slow-dns.test:80", false, listed); err == nil {
+			t.Fatal("dial succeeded through a failing hook")
+		}
+		if len(budgets) != 1 || budgets[0] >= dialer.Timeout {
+			t.Fatalf("attempt budget after a slow lookup = %v, want DNS time taken from the %v timeout", budgets, dialer.Timeout)
+		}
+	})
 }
 
 func fakeResolver(ips ...net.IP) *net.Resolver {

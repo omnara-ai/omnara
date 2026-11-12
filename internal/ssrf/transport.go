@@ -108,6 +108,11 @@ func dial(
 		}
 		return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 	}
+	if dialer.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, dialer.Timeout)
+		defer cancel()
+	}
 	addrs, err := cmp.Or(dialer.Resolver, net.DefaultResolver).LookupIPAddr(ctx, host)
 	if err != nil {
 		return nil, err
@@ -115,11 +120,6 @@ func dial(
 	addrs = slices.DeleteFunc(addrs, func(a net.IPAddr) bool { return !permitted(a.IP) })
 	if len(addrs) == 0 {
 		return nil, allowlist.blocked(host, port, false, plainHTTP)
-	}
-	if dialer.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, dialer.Timeout)
-		defer cancel()
 	}
 	deadline, hasDeadline := ctx.Deadline()
 	var dialErr error
