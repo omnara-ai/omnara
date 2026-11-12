@@ -686,9 +686,8 @@ it.each([false, true])(
       '',
       `?mcp_oauth=success&secret_id=example-secret&conflict=${String(conflict)}`,
     )
-    const editor = await renderAdvancedEditor(
-      customFixture + (conflict ? 'extension: newer-value\n' : ''),
-    )
+    const source = customFixture + (conflict ? 'extension: newer-value\n' : '')
+    const editor = await renderAdvancedEditor(source)
     expect(editor().saveBlocked).toBe(conflict)
     expect(
       editor().compatibility.some((issue) =>
@@ -701,6 +700,8 @@ it.each([false, true])(
       extension: 'pending-source',
       mcp: { docs: { auth: { secret_id: 'example-secret' } } },
     })
+    const discarded = await renderAdvancedEditor(source)
+    expect(discarded()).toMatchObject({ yaml: source, dirty: false, saveBlocked: false })
   },
 )
 

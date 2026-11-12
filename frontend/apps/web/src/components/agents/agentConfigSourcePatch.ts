@@ -72,24 +72,18 @@ function applyEdit(
       throw new Error('Cannot reorder a missing sequence.')
     const collection = previous.value
     const originalItems = collection.items
-    const trailing =
-      collection.type === 'flow-collection'
-        ? originalItems.map((item) => takeTrailing(item.value))
-        : []
-    const reordered = edit.order.map((index, position) => {
-      const item = originalItems[index]
-      if (!item) throw new Error('Missing sequence item.')
-      if (collection.type === 'flow-collection') {
-        const moved = { ...item, start: originalItems[position]?.start ?? [] }
-        keepTrailing(moved, trailing[position] ?? [], false)
-        return moved
-      }
-      const start = [...item.start]
-      if (position === 0 && start[0]?.type === 'space') start.shift()
-      else if (position > 0 && start[0]?.type === 'seq-item-ind')
-        start.unshift(sourceToken('space', ' '.repeat(collection.indent)))
-      return { ...item, start }
-    })
+    const flow = collection.type === 'flow-collection'
+    const reordered = flow
+      ? reorderFlowItems(collection, edit.order, newline)
+      : edit.order.map((index, position) => {
+          const item = originalItems[index]
+          if (!item) throw new Error('Missing sequence item.')
+          const start = [...item.start]
+          if (position === 0 && start[0]?.type === 'space') start.shift()
+          else if (position > 0 && start[0]?.type === 'seq-item-ind')
+            start.unshift(sourceToken('space', ' '.repeat(collection.indent)))
+          return { ...item, start }
+        })
     if (collection.type === 'block-seq') {
       reordered.forEach((item, index) => {
         const previous = reordered[index - 1]
@@ -98,7 +92,7 @@ function applyEdit(
       })
     }
     const items: CST.CollectionItem[] = collection.items
-    items.splice(0, edit.order.length, ...reordered)
+    items.splice(0, flow ? items.length : edit.order.length, ...reordered)
   } else if (edit.type === 'delete') {
     if (index >= 0 && previous) removeItem(parent, index)
   } else {
@@ -170,6 +164,48 @@ function isSequence(token: Collection) {
     token.type === 'block-seq' ||
     (token.type === 'flow-collection' && token.start.type === 'flow-seq-start')
   )
+}
+
+function reorderFlowItems(collection: CST.FlowCollection, order: number[], newline: string) {
+  const starts = collection.items.map((item) => item.start.filter((part) => part.type !== 'comma'))
+  const tails = collection.items.map((item) => takeTrailing(item.value))
+  const commentEnd = (parts: CST.SourceToken[]) =>
+    parts.map((part) => part.type).lastIndexOf('comment') + 1
+  starts.forEach((start, index) => {
+    const end = start.findIndex((part) => part.type === 'newline')
+    if (index > 0 && commentEnd(start.slice(0, end < 0 ? start.length : end)))
+      tails[index - 1]?.push(...start.splice(0, end < 0 ? start.length : end))
+  })
+  const indices = [
+    ...order,
+    ...collection.items.slice(order.length).map((_, index) => order.length + index),
+  ]
+  return indices.map((index, position) => {
+    const item = collection.items[index]
+    if (!item) throw new Error('Missing sequence item.')
+    const ownStart = starts[index] ?? []
+    const layout = starts[position] ?? []
+    const start = commentEnd(ownStart) ? ownStart : layout.slice(commentEnd(layout))
+    const previous = tails[indices[position - 1] ?? -1] ?? []
+    const comments = previous.slice(0, commentEnd(previous))
+    const separated =
+      comments.length > 0 &&
+      start.find((part) => part.type === 'newline' || part.type === 'comment')?.type !== 'newline'
+        ? [sourceToken('newline', newline), ...start]
+        : start
+    const moved = {
+      ...item,
+      start: position === 0 ? start : [sourceToken('comma', ','), ...comments, ...separated],
+    }
+    const ownTail = tails[index] ?? []
+    const positionTail = tails[position] ?? []
+    const tail = position === indices.length - 1 ? ownTail.slice(0, commentEnd(ownTail)) : []
+    const closing = positionTail.slice(commentEnd(positionTail))
+    if (tail.length > 0 && !closing.some((part) => part.type === 'newline'))
+      tail.push(sourceToken('newline', newline))
+    keepTrailing(moved, [...tail, ...closing], false)
+    return moved
+  })
 }
 
 function renderItem(

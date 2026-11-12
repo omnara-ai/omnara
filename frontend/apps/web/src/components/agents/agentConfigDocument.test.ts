@@ -673,6 +673,26 @@ it.each(['yaml', 'json'])(
   },
 )
 
+it.each([
+  ['[A, B # second\n]', '[B, # second\n A\n]'],
+  ['[A, # first\n B]', '[B,\n A # first\n]'],
+  ['[A, # first\n B # second\n]', '[B, # second\n A # first\n]'],
+  ['[A, # first\n B, # second\n]', '[B, # second\n A, # first\n]'],
+  ['[ # before A\n A, # first\n B # second\n]', '[\n B, # second\n # before A\n A # first\n]'],
+  ['[\n # first\n A,\n # second\n B\n]', '[\n # second\n B,\n # first\n A\n]'],
+])('keeps flow sequence comments with their items: %s', (before, after) => {
+  const expand = (text: string) =>
+    'skills: ' +
+    text
+      .replaceAll('A', 'skl_aaaaaaaaaaaaaaaaaaaaaaaaaa')
+      .replaceAll('B', 'skl_bbbbbbbbbbbbbbbbbbbbbbbbbb') +
+    '\n'
+  const { session, draft } = draftFor(expand(before))
+  const result = session.evaluate({ ...draft, skillIds: [...draft.skillIds].reverse() })
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toBe(expand(after))
+})
+
 it.each(['<<', '10.0.0.1'])(
   'quotes mapping keys only when their meaning requires it: %s',
   (text) => {

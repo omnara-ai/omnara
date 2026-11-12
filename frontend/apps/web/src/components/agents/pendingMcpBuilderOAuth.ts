@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { z } from 'zod'
 
 import type { BasicConfig } from '@/components/agents/useAgentBuilderForm'
@@ -43,6 +44,14 @@ export function hasPendingMcpBuilderOAuthOutcome() {
 }
 
 let consumed: { search: string; restore: McpBuilderOAuthRestore | null } | null = null
+
+export function useMcpBuilderOAuthRestore() {
+  const [restore] = useState(takeMcpBuilderOAuthRestore)
+  useEffect(() => {
+    if (consumed?.restore === restore) consumed = null
+  }, [restore])
+  return restore
+}
 
 export function takeMcpBuilderOAuthRestore(): McpBuilderOAuthRestore | null {
   const search = window.location.search

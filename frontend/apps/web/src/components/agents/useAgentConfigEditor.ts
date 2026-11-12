@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
 import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
-import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
+import { useMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import {
   createBasicConfigSession,
   emptyBasicConfig,
@@ -32,7 +32,7 @@ export function useAgentConfigEditor({
   onModeChange: (mode: AgentConfigMode) => void
   onDirtyChange: (dirty: boolean) => void
 }) {
-  const [restored] = useState(takeMcpBuilderOAuthRestore)
+  const restored = useMcpBuilderOAuthRestore()
   const [session, setSession] = useState(() =>
     createBasicConfigSession(restored?.draft.originalSource ?? source, sourceFormat),
   )
