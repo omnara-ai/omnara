@@ -238,8 +238,8 @@ export class GuideSession {
       const body = (await res.json().catch(() => ({}))) as { error?: string; session?: string }
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
       if (body.session) {
-        // The server started a new conversation: stop following the old one.
-        if (this.streamAbort) this.detach()
+        // The server replaced the conversation: drop everything kept for the old one.
+        if (this.token && body.session !== this.token) this.detach()
         this.setToken(body.session)
       }
       // The message goes in first, so the agent reads it together with the news that its
@@ -285,6 +285,9 @@ export class GuideSession {
   }
 
   destroy() {
+    // The widget is gone: nothing still in flight may act on the page.
+    this.epoch++
+    this.executor = false
     this.releaseLock?.()
     this.streamAbort?.abort()
     clearInterval(this.poll)

@@ -176,7 +176,7 @@ function comboValue(el: Element) {
 
 /** How to name what the user picked, without repeating a private value. */
 function chosen(el: Element, value: string) {
-  return isPrivate(el) ? 'an option (not shown)' : `"${value}"`
+  return isPrivate(el) || el.querySelector('[data-guide-private]') ? 'an option (not shown)' : `"${value}"`
 }
 
 /** Open a button-style dropdown and pick the option whose text matches. */

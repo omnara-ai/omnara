@@ -269,7 +269,7 @@ function describe(el: Element): string {
   const name = nameHidden(el) ? '' : dropdown ? labelFor(el) : accessibleName(el)
   const parts = [`${role}${name ? ` "${name}"` : ''}`]
   if (hidden && !name) parts.push('(private)')
-  if (dropdown) parts.push(hidden ? 'value=(hidden)' : `value="${clean((el as HTMLElement).innerText, 60)}"`)
+  if (dropdown) parts.push(hidden ? 'value=(hidden)' : `value="${clean(textOf(el, true), 60)}"`)
 
   if (hidden && (el instanceof HTMLSelectElement || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
     if (!(el instanceof HTMLInputElement && el.type === 'file')) parts.push('value=(hidden)')
@@ -372,7 +372,7 @@ function labelFor(el: Element): string {
 
 /** A label's own words. The field it wraps may be private; its words are part of the app. */
 function labelText(label: Element | null): string {
-  if (!label) return ''
+  if (!label || label.closest(PRIVATE)) return ''
   if (!label.querySelector(PRIVATE)) return label.textContent ?? ''
   const copy = label.cloneNode(true) as Element
   for (const part of copy.querySelectorAll(PRIVATE)) part.remove()

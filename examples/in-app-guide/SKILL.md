@@ -300,3 +300,9 @@ project, the memory store if any, and that the user holds the API key. Then tell
 - **What it doesn't handle:** content inside iframes or drawn on a canvas, the
   browser's own confirm boxes, and very large pages, where it reads the first 180
   controls. README.md lists what it was tested on.
+
+The copied `guide/` is a starting point, not a finished library. Before real users
+get it, go through the limits at the end of README.md with the user and close the ones
+that matter for this app: what happens when Omnara refuses a message, how a user is
+tied to their profile if display names can change, and whether "Do it for me" should be
+on for pages served over plain http.
