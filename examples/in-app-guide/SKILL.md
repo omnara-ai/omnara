@@ -238,7 +238,7 @@ Help menu, call `openGuide()` from `guide/Guide`.
 
 Not React: bundle `guide/embed.tsx` into one script, which brings its own React
 (`npm install --save-dev react react-dom esbuild`, then
-`npx esbuild src/guide/embed.tsx --bundle --minify --outfile=public/guide.js`), serve
+`npx esbuild src/guide/embed.tsx --bundle --minify --jsx=automatic --outfile=public/guide.js`), serve
 it from the app's own origin, and add to the signed-in layout:
 
 ```html

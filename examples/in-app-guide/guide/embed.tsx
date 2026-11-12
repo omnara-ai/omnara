@@ -1,7 +1,7 @@
 // The guide as one script, for apps that aren't built with React. Bundle this file (it
 // brings its own React) and load it from your app's own origin:
 //
-//   npx esbuild guide/embed.tsx --bundle --minify --outfile=public/guide.js
+//   npx esbuild guide/embed.tsx --bundle --minify --jsx=automatic --outfile=public/guide.js
 //
 //   <script src="/guide.js" data-endpoint="/api/guide" data-title="Ask Acme"
 //           data-accent="#4f46e5" data-show-only="true"></script>
