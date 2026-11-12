@@ -21,8 +21,6 @@ That builds from source (a checkout auto-loads `compose.override.yaml`). To run 
 docker compose -f compose.yaml --profile app up -d
 ```
 
-The gateway uses the same Nginx image as the web service, with `gateway.nginx.conf` mounted as its proxy configuration. Updating the web image updates the runtime packages for both services.
-
 Open `http://localhost:8000` and sign up — the local email driver is `console`, so the verification link will appear in `docker compose logs api`.
 
 ## Production database upgrades
