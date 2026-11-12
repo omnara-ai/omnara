@@ -45,6 +45,11 @@ export class GuideSession {
   private reopened = false
   private token: string | null = null
   private readonly tokenKey: string
+  // Only one tab acts on the page: the one the user last sent a message from. The tab
+  // holds a Web Lock while it is that tab. Without Web Locks (an http page that isn't
+  // localhost) every tab acts, as before.
+  private executor = typeof navigator === 'undefined' || !navigator.locks
+  private releaseLock: (() => void) | null = null
 
   constructor(
     private endpoint: string,
@@ -86,6 +91,30 @@ export class GuideSession {
     return fetch(`${this.endpoint}${path}`, { ...init, headers })
   }
 
+  /** Become the tab that runs the agent's steps, or find out that another tab is. */
+  private claim(steal: boolean): Promise<void> {
+    if (this.executor || typeof navigator === 'undefined' || !navigator.locks) return Promise.resolve()
+    return new Promise((settled) => {
+      navigator.locks
+        .request(`omnara-guide:${this.endpoint}`, steal ? { steal: true } : { ifAvailable: true }, (lock) => {
+          this.executor = !!lock
+          settled()
+          // Keep the lock until this tab closes or another tab takes over.
+          return lock ? new Promise<void>((release) => (this.releaseLock = release)) : undefined
+        })
+        .catch(() => {
+          // Another tab took over: stop whatever was running here.
+          this.executor = false
+          this.releaseLock = null
+          this.running?.abort.abort()
+          this.overlay.clearHighlight()
+          this.overlay.hideCursor()
+          if (this.state.approvals.length) this.set({ approvals: [] })
+        })
+        .finally(settled)
+    })
+  }
+
   setMode(mode: Mode) {
     try {
       localStorage.setItem('omnara-guide-mode', mode)
@@ -96,6 +125,7 @@ export class GuideSession {
   /** Load an existing conversation (after a reload) and reconnect to it. */
   async init() {
     try {
+      await this.claim(false)
       if (!this.token) return
       const res = await this.api('/history')
       if (res.status === 404 || res.status === 401) return this.setToken(null)
@@ -104,6 +134,8 @@ export class GuideSession {
         this.lastSequence = h.lastSequence
         this.set({ messages: h.messages.map((m, i) => ({ id: `h${i}`, ...m })) })
         this.connect()
+        // A step that was waiting when this page loaded was asked for on the page before.
+        if (this.executor) await this.releaseStale('reloaded')
         await this.reconcile()
       }
     } catch {
@@ -140,16 +172,25 @@ export class GuideSession {
     }
   }
 
-  /** Whatever a reopened conversation was waiting on happened on an older page: end it. */
-  private async releaseStale() {
+  /**
+   * End the steps the agent is waiting on without running them: they were asked for on
+   * another page (before a reload, in another tab, or in an earlier visit).
+   */
+  private async releaseStale(why: 'reopened' | 'other_tab' | 'reloaded') {
     const res = await this.api('/tool-calls?state=ready')
     if (!res.ok) return
     const { data } = (await res.json()) as { data: ToolCall[] }
+    const text = {
+      reopened: 'outcome: interrupted\nThe user left this conversation and has come back to it later. This step was not done and the page may be different now. Their new message is what to answer.',
+      other_tab: 'outcome: interrupted\nThe user went on with this conversation in another browser tab. This step was not done there. Their new message, with that tab\'s page, is what to answer.',
+      reloaded: () =>
+        `outcome: page_reloaded\nThe page loaded again while this step was waiting, possibly because of the step itself (a link or a form that loads a new page). It was not run again. Check the page below to see whether it already took effect before repeating anything.\n\nCurrent page:\n${takeSnapshot(this.host).text}`,
+    }[why]
     for (const call of data) {
       this.handled.add(call.id)
       await this.api(`/tool-calls/${call.id}/result`, {
         method: 'POST',
-        body: JSON.stringify({ outcome: 'succeeded', text: 'outcome: interrupted\nThe user left this conversation and has come back to it later. This step was not done and the page may be different now. Their new message is what to answer.' }),
+        body: JSON.stringify({ outcome: 'succeeded', text: typeof text === 'function' ? text() : text }),
       })
     }
   }
@@ -170,6 +211,9 @@ export class GuideSession {
     text = text.trim()
     if (!text) return
     const reopened = this.reopened
+    // Sending a message makes this the tab that acts, whichever tab did before.
+    const fromOtherTab = !this.executor
+    await this.claim(true)
     const busy = this.state.status !== 'idle' || reopened
     const context = `Mode: ${this.state.mode}\nCurrent page:\n${takeSnapshot(this.host).text}`
     this.set({
@@ -187,9 +231,9 @@ export class GuideSession {
       if (body.session) this.setToken(body.session)
       // The message goes in first, so the agent reads it together with the news that its
       // old step was dropped, and answers once.
-      if (reopened) {
+      if (reopened || fromOtherTab) {
         this.reopened = false
-        await this.releaseStale()
+        await this.releaseStale(reopened ? 'reopened' : 'other_tab')
       }
       // A step waiting on the user is now superseded by this message.
       this.running?.abort.abort()
@@ -222,6 +266,7 @@ export class GuideSession {
   }
 
   destroy() {
+    this.releaseLock?.()
     this.streamAbort?.abort()
     clearInterval(this.poll)
     this.running?.abort.abort()
@@ -334,7 +379,7 @@ export class GuideSession {
 
   /** Run ready custom tool calls one at a time, in order. */
   private async drainToolCalls() {
-    if (this.draining) return
+    if (this.draining || !this.executor) return
     this.draining = true
     try {
       for (;;) {
@@ -358,6 +403,8 @@ export class GuideSession {
   }
 
   private async refreshApprovals() {
+    // Approvals are answered in the tab that will act on them.
+    if (!this.executor) return
     const res = await this.api('/interactions')
     if (!res.ok) return
     const { data } = (await res.json()) as {
