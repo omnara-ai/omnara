@@ -1,4 +1,4 @@
-# Synthetic configuration for lossless Builder regression tests.
+# Synthetic configuration for Builder preservation tests.
 version: v1
 instruction: |
   Help maintain the public example project.
@@ -13,7 +13,7 @@ tools:
     permission: { mode: always_ask }
   web_search: { type: built_in, permission: { mode: always_allow } }
   web_fetch: { type: built_in, deferred: true }
-  # This schema and its formatting must survive unrelated edits.
+  # Schema notes are preserved during unrelated edits.
   search_records:
     type: custom
     description: 'Find example records by their public identifiers.'

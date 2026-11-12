@@ -163,7 +163,7 @@ export function createBasicConfigSession(
             message:
               error instanceof ConfigEditError
                 ? error.message
-                : 'The Builder cannot safely patch this edit. Your source has been preserved.',
+                : 'The Builder cannot safely apply this edit. Your source has been preserved.',
           } satisfies ConfigDiagnostic,
         ],
       }

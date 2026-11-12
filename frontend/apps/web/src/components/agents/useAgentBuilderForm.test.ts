@@ -669,7 +669,6 @@ model:
   it('updates the instruction without disturbing the rest of the document', () => {
     const config = mustDeserialize(commentedYaml)
     const updated = applyToSource(commentedYaml, { ...config, instruction: 'New plan.' })
-    expect(updated).toContain('instruction: |-\n  New plan.')
     expect(updated).toContain('# top comment')
     expect(updated).toContain('# our search proxy')
     expect(mustDeserialize(updated).instruction).toBe('New plan.')

@@ -1,18 +1,14 @@
-import { type Document, isMap, isNode, isScalar, isSeq, type Node, parseDocument } from 'yaml'
-import { z } from 'zod'
+import { type Document, isMap, isNode, isScalar, isSeq, type Node } from 'yaml'
 
 import { configPath, parseConfigDocument } from '@/components/agents/agentConfigCompatibility'
+import { serializeConfigDocument } from '@/components/agents/agentConfigSerialization'
 import {
   type ConfigSourceFormat,
   configSourceFormat,
-  isJsonSource,
 } from '@/components/agents/agentConfigSourceFormat'
-import {
-  type ConfigEdit,
-  type ConfigPath,
-  patchConfigSource,
-} from '@/components/agents/agentConfigSourcePatch'
 import { configJson } from '@/components/agents/agentConfigValidation'
+
+type ConfigPath = (string | number)[]
 
 export type ConfigValue =
   string | number | boolean | null | undefined | ConfigValue[] | ConfigObject
@@ -41,7 +37,6 @@ export function editConfigDocument(
     if (document === original) document = original.clone()
     return document
   }
-  const edits: ConfigEdit[] = []
   const emptiedParents: ConfigPath[] = []
   const protectedPaths: ConfigPath[] = preservedPaths.map((path) => [...path])
 
@@ -89,7 +84,6 @@ export function editConfigDocument(
     const target = mutableDocument().getIn(path, true)
     if (!isSeq(target)) throw new ConfigEditError(path, 'Missing sequence.')
     target.items = order.map((index) => target.items[index])
-    edits.push({ type: 'reorder', path, order })
   }
 
   function write(path: ConfigPath, value: ConfigNodeInput, preserveComments: boolean) {
@@ -98,21 +92,8 @@ export function editConfigDocument(
     if (preserveComments && isNode(previous)) {
       node.commentBefore = previous.commentBefore
       node.comment = previous.comment
-      if (isScalar(node) && isScalar(previous)) {
-        const text = z.string().safeParse(node.value)
-        if (
-          previous.type === 'BLOCK_LITERAL' ||
-          previous.type === 'BLOCK_FOLDED' ||
-          !text.success ||
-          !text.data.includes('\n')
-        )
-          node.type = previous.type
-      }
     }
-    const snapshot = node.clone()
-    if (!isNode(snapshot)) throw new ConfigEditError(path, 'Cannot copy the edited field.')
     document.setIn(path, node)
-    edits.push({ type: 'set', path, value: snapshot })
   }
 
   function set(path: ConfigPath, value: ConfigNodeInput) {
@@ -134,7 +115,6 @@ export function editConfigDocument(
   function deleteAt(path: ConfigPath) {
     if (!document.hasIn(path)) return
     mutableDocument().deleteIn(path)
-    edits.push({ type: 'delete', path })
     const parentPath = path.slice(0, -1)
     const parent = document.getIn(parentPath, true)
     if (isSeq(parent)) {
@@ -190,7 +170,6 @@ export function editConfigDocument(
       const renamed = names.get(String(protectedPath.at(-1)))
       if (renamed !== undefined) protectedPath[protectedPath.length - 1] = renamed
     }
-    edits.push({ type: 'rename', path, names })
   }
 
   function setRawDefinition(path: string[], raw: string) {
@@ -205,75 +184,47 @@ export function editConfigDocument(
     const parent = document.getIn(parentPath, true)
     const blocker = diagnostics.find((issue) => issue.kind === 'fatal')
     if (blocker) throw new ConfigEditError(path, blocker.message)
-    const rawFlow = isMap(parsed.contents) && parsed.contents.flow
-    const emptyInlineParent =
-      isMap(parent) &&
-      parent.flow &&
-      parent.items.length === 0 &&
-      !rawFlow &&
-      !(isMap(document.contents) && document.contents.flow)
-    const needsConversion =
-      [document.contents, emptyInlineParent ? null : parent].some(
-        (node) => isMap(node) && node.flow,
-      ) && !rawFlow
-    if (needsConversion)
-      throw new ConfigEditError(
-        path,
-        'This inline collection requires a flow definition using { ... }. To use block YAML, cancel this edit and change the collection in the source editor.',
-      )
     if (parsed.errors.length > 0 || !parsed.contents)
       throw new ConfigEditError(path, 'Invalid advanced definition.')
+    parsed.contents.commentBefore =
+      [parsed.commentBefore, parsed.contents.commentBefore].filter(Boolean).join('\n') || undefined
+    parsed.contents.comment =
+      [parsed.contents.comment, parsed.comment].filter(Boolean).join('\n') || undefined
     const name = path.at(-1)
     if (
       name !== undefined &&
       path.length > 1 &&
-      (parent == null || (isScalar(parent) && parent.value === null) || emptyInlineParent)
+      (parent == null || (isScalar(parent) && parent.value === null))
     )
       set(parentPath, { [name]: null })
     write(path, parsed.contents, false)
-    const edit = edits.at(-1)
-    if (edit?.type === 'set') edit.raw = raw
   }
 
   function serialize() {
-    if (edits.length === 0) return source
+    if (document === original) return source
     for (const path of emptiedParents) {
       const parent = document.getIn(path, true)
       if (isMap(parent) && parent.items.length === 0) deleteAt(path)
     }
     let result: string
     try {
-      const initial =
-        source ||
-        (format === 'json' ? JSON.stringify(document.toJS(), null, 2) : document.toString())
-      result = patchConfigSource(
-        initial,
-        source === '' ? parseDocument(initial, { keepSourceTokens: true }) : original,
-        source === ''
-          ? edits.filter((edit) => edit.type === 'set' && edit.raw !== undefined)
-          : edits,
-        format,
-      )
+      result = serializeConfigDocument(document, format)
     } catch (error) {
       if (error instanceof ConfigEditError) throw error
       throw new ConfigEditError(
         [],
-        'The Builder cannot safely patch this edit. Your source has been preserved.',
+        'The Builder cannot safely apply this edit. Your source has been preserved.',
       )
     }
-    const parsed = parseDocument(result)
-    const actual = configJson.safeParse(parsed.toJS())
+    const written = parseConfigDocument(result, format)
+    const blocker = written.diagnostics.find((issue) => issue.kind === 'fatal')
+    if (blocker) throw new ConfigEditError(blocker.path, blocker.message)
+    const actual = configJson.safeParse(written.doc.toJS())
     const expected = configJson.safeParse(document.toJS())
-    if (
-      (format === 'json' && !isJsonSource(result)) ||
-      parsed.errors.length > 0 ||
-      !actual.success ||
-      !expected.success ||
-      !deepEqual(actual.data, expected.data)
-    )
+    if (!actual.success || !expected.success || !deepEqual(actual.data, expected.data))
       throw new ConfigEditError(
         [],
-        'The Builder cannot safely patch this edit. Use the source editor to edit this definition.',
+        'The Builder cannot safely apply this edit. Use the source editor to edit this definition.',
       )
     return result
   }
