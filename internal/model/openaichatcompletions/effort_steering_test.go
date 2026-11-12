@@ -70,6 +70,22 @@ func TestOpenRouterRetryEndsWithConfigurationUpdate(t *testing.T) {
 		{name: "options-supplied effort", retries: 1, wantEffort: "medium", client: Client{
 			ProviderModelSlug: "openai/gpt-6-sol", APIVariantOptions: json.RawMessage(`{"reasoning":{"effort":"high"}}`),
 		}},
+		{name: "options pro mode", retries: 1, client: Client{
+			ProviderModelSlug: "openai/gpt-6-astra",
+			APIVariantOptions: json.RawMessage(`{"reasoning":{"effort":"high","mode":"pro"}}`),
+		}},
+		{name: "options pro mode with reasoning_effort", retries: 1, client: Client{
+			ProviderModelSlug: "openai/gpt-6-astra",
+			APIVariantOptions: json.RawMessage(`{"reasoning_effort":"high","reasoning":{"mode":"pro"}}`),
+		}},
+		{name: "policy effort replaces options pro mode", effort: "high", retries: 1, wantEffort: "medium",
+			client: Client{
+				ProviderModelSlug: "openai/gpt-6-astra",
+				APIVariantOptions: json.RawMessage(`{"reasoning":{"effort":"high","mode":"pro"}}`),
+			}},
+		{name: "options reasoning_effort", retries: 1, wantEffort: "medium", client: Client{
+			ProviderModelSlug: "openai/gpt-6-sol", APIVariantOptions: json.RawMessage(`{"reasoning_effort":"high"}`),
+		}},
 		{name: "options reasoning budget", retries: 1, client: Client{
 			ProviderModelSlug: "anthropic/claude-fable-5.2", APIVariantOptions: json.RawMessage(`{"reasoning":{"max_tokens":2048}}`),
 		}},

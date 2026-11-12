@@ -112,8 +112,10 @@ func (c Client) effortSteering(compat compat, policy model.RequestPolicy) *model
 // one, else the effort api_variant_options configure, else a Claude model's
 // default. It reports false when options configure reasoning some other way,
 // such as a token budget, since lowering from a guess could raise the effort
-// a runaway retry gets.
+// a runaway retry gets. It also reports false for pro mode, which OpenRouter
+// rejects together with configuration updates.
 func (c Client) topLevelEffort(policy model.RequestPolicy) (string, bool) {
+	// A policy effort owns the reasoning fields, replacing any options there.
 	if policy.ReasoningEffort != "" {
 		return policy.ReasoningEffort, true
 	}
@@ -122,19 +124,31 @@ func (c Client) topLevelEffort(policy model.RequestPolicy) (string, bool) {
 		ReasoningEffort json.RawMessage `json:"reasoning_effort"`
 	}
 	if raw := bytes.TrimSpace(c.APIVariantOptions); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
-		if json.Unmarshal(raw, &options) != nil {
+		if err := json.Unmarshal(raw, &options); err != nil {
+			return "", false
+		}
+	}
+	var reasoning struct {
+		Effort string `json:"effort"`
+		Mode   string `json:"mode"`
+	}
+	if len(options.Reasoning) > 0 {
+		if err := json.Unmarshal(options.Reasoning, &reasoning); err != nil {
+			return "", false
+		}
+		if reasoning.Mode == "pro" {
 			return "", false
 		}
 	}
 	if len(options.ReasoningEffort) > 0 {
 		var effort string
-		return effort, json.Unmarshal(options.ReasoningEffort, &effort) == nil && effort != ""
+		if err := json.Unmarshal(options.ReasoningEffort, &effort); err != nil || effort == "" {
+			return "", false
+		}
+		return effort, true
 	}
 	if len(options.Reasoning) > 0 {
-		var reasoning struct {
-			Effort string `json:"effort"`
-		}
-		return reasoning.Effort, json.Unmarshal(options.Reasoning, &reasoning) == nil && reasoning.Effort != ""
+		return reasoning.Effort, reasoning.Effort != ""
 	}
 	effort := model.ClaudeDefaultReasoningEffort(c.RequestedProviderModelSlug())
 	return effort, effort != ""
