@@ -718,12 +718,13 @@ skills: [skl_aaaaaaaaaaaaaaaaaaaaaaaaaa]
   })
 })
 
-it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (mode) => {
+it.each(['Always ask', 'Disabled', null])('removes subagent tool defaults: %s', async (mode) => {
   let preview = ['spawn_agent', 'list_agents']
-  Providers = testProviders([previewToolsRoute(() => preview)])
+  const resolve = vi.fn(() => preview)
+  Providers = testProviders([previewToolsRoute(resolve)])
   await renderAndFlush(
     <BasicFormHarness
-      source={`${includedSource}  read_agent: {enabled: false}\nsubagents: {worker: {type: self}}\nmax_depth: 2\n`}
+      source={`${includedSource}  read_agent: {enabled: false}\nsubagents: {__proto__: {type: self}}\nmax_depth: 2\n`}
     />,
   )
   await vi.waitFor(() => {
@@ -741,21 +742,25 @@ it.each(['Always ask', 'Disabled'])('removes spawn_agent override: %s', async (m
   expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
     'tools.spawn_agent',
   )
-  await selectIncludedPermission('spawn_agent', mode)
-  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
-    'tools.spawn_agent',
-  )
+  if (mode !== null) {
+    await selectIncludedPermission('spawn_agent', mode)
+    expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
+      'tools.spawn_agent',
+    )
+  }
   expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty(
     'tools.read_agent.enabled',
     false,
   )
   preview = []
+  const beforeRemoval = resolve.mock.calls.length
   clickLabel('Remove subagent')
   expect(parse(container.querySelector('output')?.textContent ?? '')).not.toHaveProperty(
     'tools.spawn_agent',
   )
   expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('max_depth', 2)
   await vi.waitFor(() => {
+    expect(resolve).toHaveBeenCalledTimes(beforeRemoval + 1)
     expect(container.querySelector('[aria-label="spawn_agent permission"]')).toBeNull()
     expect(container.querySelector('[aria-label="list_agents permission"]')).toBeNull()
   })

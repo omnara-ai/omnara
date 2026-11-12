@@ -18,7 +18,7 @@ export function useAgentConfigTools(
   const editorID = useId()
   const scopeKey = ['agent-config-tools', orgID, projectID, editorID] as const
   return useQuery({
-    queryKey: [...scopeKey, request],
+    queryKey: [...scopeKey, JSON.stringify(request)],
     queryFn: async ({ signal }) => {
       const { data } = await sdk.resolveAgentConfigTools({
         path: { orgID, projectID },
