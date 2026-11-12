@@ -304,53 +304,38 @@ const sumModelCallUsageByBucket = `-- name: SumModelCallUsageByBucket :many
 WITH RECURSIVE profile_agents AS (
   SELECT agent.id, 1 AS depth
   FROM agents agent
-  WHERE $6::uuid[] IS NOT NULL
-    AND ($3::uuid[] IS NULL OR agent.project_id = ANY($3::uuid[]))
-    AND agent.agent_profile_id = ANY($6::uuid[])
+  WHERE $1::uuid[] IS NOT NULL
+    AND ($2::uuid[] IS NULL OR agent.project_id = ANY($2::uuid[]))
+    AND agent.agent_profile_id = ANY($1::uuid[])
     AND agent.parent_agent_id IS NULL
   UNION ALL
   SELECT child.id, profile_agents.depth + 1
   FROM agents child
   JOIN profile_agents ON child.parent_agent_id = profile_agents.id
-  WHERE $7::boolean
-    AND ($3::uuid[] IS NULL OR child.project_id = ANY($3::uuid[]))
+  WHERE $3::boolean
+    AND ($2::uuid[] IS NULL OR child.project_id = ANY($2::uuid[]))
     AND profile_agents.depth < 64
-)
-SELECT width_bucket(context.created_at, $1::timestamptz[])::integer AS bucket_number,
-       revision.configured_model_id,
-       configured_model.name AS configured_model_name,
-       provider_config.name AS model_provider_config_name,
-       agent.agent_profile_id,
-       coalesce(profile.name, '')::text AS agent_profile_name,
-       project.name AS project_name,
+), usage_rollup AS MATERIALIZED (
+SELECT width_bucket(context.created_at, $4::timestamptz[])::integer AS bucket_number,
+       context.project_id,
+       context.agent_id,
+       context.configured_model_revision_id,
        count(*)::bigint AS model_calls,
        count(context.provider_reported_cost_usd)::bigint AS model_calls_with_reported_cost,
-       coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
-       coalesce(sum(context.uncached_input_tokens), 0)::bigint AS uncached_input_tokens,
-       coalesce(sum(context.cache_read_input_tokens), 0)::bigint AS cache_read_input_tokens,
-       coalesce(sum(context.cache_write_input_tokens), 0)::bigint AS cache_write_input_tokens,
-       coalesce(sum(context.output_tokens_total), 0)::bigint AS output_tokens_total,
-       coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
-       coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd
+       sum(context.input_tokens_total) AS input_tokens_total,
+       sum(context.uncached_input_tokens) AS uncached_input_tokens,
+       sum(context.cache_read_input_tokens) AS cache_read_input_tokens,
+       sum(context.cache_write_input_tokens) AS cache_write_input_tokens,
+       sum(context.output_tokens_total) AS output_tokens_total,
+       sum(context.reasoning_output_tokens) AS reasoning_output_tokens,
+       sum(context.provider_reported_cost_usd) AS provider_reported_cost_usd
 FROM model_call_contexts context
-JOIN configured_model_revisions revision ON revision.org_id = context.org_id
-  AND revision.id = context.configured_model_revision_id
-JOIN configured_models configured_model ON configured_model.org_id = revision.org_id
-  AND configured_model.id = revision.configured_model_id
-JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
-  AND provider_config.id = configured_model.model_provider_config_id
-JOIN projects project ON project.org_id = context.org_id
-  AND project.id = context.project_id
-JOIN agents agent ON agent.project_id = context.project_id
-  AND agent.id = context.agent_id
-LEFT JOIN agent_profiles profile ON profile.project_id = agent.project_id
-  AND profile.id = agent.agent_profile_id
-WHERE context.org_id = ANY($2::uuid[])
-  AND ($3::uuid[] IS NULL OR context.project_id = ANY($3::uuid[]))
-  AND ($4::timestamptz IS NULL OR context.created_at >= $4::timestamptz)
-  AND context.created_at < $5::timestamptz
+WHERE context.org_id = ANY($5::uuid[])
+  AND ($2::uuid[] IS NULL OR context.project_id = ANY($2::uuid[]))
+  AND ($6::timestamptz IS NULL OR context.created_at >= $6::timestamptz)
+  AND context.created_at < $7::timestamptz
   AND (
-    $6::uuid[] IS NULL
+    $1::uuid[] IS NULL
     OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
   )
   AND (
@@ -358,19 +343,47 @@ WHERE context.org_id = ANY($2::uuid[])
     OR context.output_tokens_total IS NOT NULL
     OR context.provider_reported_cost_usd IS NOT NULL
   )
+GROUP BY bucket_number, context.project_id, context.agent_id, context.configured_model_revision_id
+)
+SELECT context.bucket_number,
+       revision.configured_model_id,
+       configured_model.name AS configured_model_name,
+       provider_config.name AS model_provider_config_name,
+       agent.agent_profile_id,
+       coalesce(profile.name, '')::text AS agent_profile_name,
+       project.name AS project_name,
+       sum(context.model_calls)::bigint AS model_calls,
+       sum(context.model_calls_with_reported_cost)::bigint AS model_calls_with_reported_cost,
+       coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
+       coalesce(sum(context.uncached_input_tokens), 0)::bigint AS uncached_input_tokens,
+       coalesce(sum(context.cache_read_input_tokens), 0)::bigint AS cache_read_input_tokens,
+       coalesce(sum(context.cache_write_input_tokens), 0)::bigint AS cache_write_input_tokens,
+       coalesce(sum(context.output_tokens_total), 0)::bigint AS output_tokens_total,
+       coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
+       coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd
+FROM usage_rollup context
+JOIN configured_model_revisions revision ON revision.id = context.configured_model_revision_id
+JOIN configured_models configured_model ON configured_model.org_id = revision.org_id
+  AND configured_model.id = revision.configured_model_id
+JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
+  AND provider_config.id = configured_model.model_provider_config_id
+JOIN projects project ON project.id = context.project_id
+JOIN agents agent ON agent.id = context.agent_id
+LEFT JOIN agent_profiles profile ON profile.project_id = agent.project_id
+  AND profile.id = agent.agent_profile_id
 GROUP BY bucket_number, revision.configured_model_id, configured_model.name, provider_config.name,
          agent.agent_profile_id, profile.name, project.id, project.name
 ORDER BY bucket_number, revision.configured_model_id, agent.agent_profile_id
 `
 
 type SumModelCallUsageByBucketParams struct {
+	AgentProfileIds         []uuid.UUID
+	ProjectIds              []uuid.UUID
+	IncludeProfileSubagents bool
 	BucketStarts            []time.Time
 	OrgIds                  []uuid.UUID
-	ProjectIds              []uuid.UUID
 	Since                   *time.Time
 	Until                   time.Time
-	AgentProfileIds         []uuid.UUID
-	IncludeProfileSubagents bool
 }
 
 type SumModelCallUsageByBucketRow struct {
@@ -397,13 +410,13 @@ type SumModelCallUsageByBucketRow struct {
 // Provider and project names tell apart same-named models and profiles.
 func (q *Queries) SumModelCallUsageByBucket(ctx context.Context, arg SumModelCallUsageByBucketParams) ([]SumModelCallUsageByBucketRow, error) {
 	rows, err := q.db.Query(ctx, sumModelCallUsageByBucket,
+		arg.AgentProfileIds,
+		arg.ProjectIds,
+		arg.IncludeProfileSubagents,
 		arg.BucketStarts,
 		arg.OrgIds,
-		arg.ProjectIds,
 		arg.Since,
 		arg.Until,
-		arg.AgentProfileIds,
-		arg.IncludeProfileSubagents,
 	)
 	if err != nil {
 		return nil, err
