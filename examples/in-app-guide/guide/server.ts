@@ -91,8 +91,11 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
     if (!payload || !sig) return null
     try {
       if (!(await crypto.subtle.verify('HMAC', await hmacKey(), fromB64url(sig), enc.encode(payload)))) return null
-      const [uid, agentId] = new TextDecoder().decode(fromB64url(payload)).split('|')
-      return uid === user.id && agentId && ID.test(agentId) ? agentId : null
+      // The agent ID is everything after the last "|": user IDs may contain one ("auth0|…").
+      const decoded = new TextDecoder().decode(fromB64url(payload))
+      const cut = decoded.lastIndexOf('|')
+      const agentId = decoded.slice(cut + 1)
+      return cut >= 0 && decoded.slice(0, cut) === user.id && ID.test(agentId) ? agentId : null
     } catch {
       return null
     }
