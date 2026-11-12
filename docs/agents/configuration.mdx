@@ -168,20 +168,45 @@ setup and daemon requirements.
 GitHub launchers add this capability automatically. An explicit profile choice
 wins as a whole, even when it references a different GitHub integration. Spawned
 subagents do not receive Git credentials, including those configured in their
-selected profile.
+selected profile. Agents bound to the same machine run commands as the same OS user,
+so any of them can reach credentials issued to another.
 
 ### Deferred tools
 
-Set `deferred: true` on any tool (built-in, custom, or MCP) to keep its definition out of the model's context until the model asks for it. Deferring a tool implicitly enables the built-in `tool_search` tool, which the model calls with a regular expression to load matching deferred tools by name, description, and argument names. Keep the tools the agent needs on almost every turn loaded; defer large or rarely used tool sets.
+Set `deferred: true` on any tool (built-in, custom, or MCP) to keep its definition out of the model's context until the model asks for it. Deferring a tool implicitly enables the built-in `tool_search` tool, which the model calls with a regular expression to find matching deferred tools by name, description, and argument names. Keep the tools the agent needs on almost every turn loaded; defer large or rarely used tool sets.
 
 ```yaml
 tools:
   web_search: {}                # always loaded
   web_fetch:
-    deferred: true              # loaded only after a tool_search match
+    deferred: true              # reached only after a tool_search match
 ```
 
-Deferred loading keeps the provider's prompt cache intact on Anthropic Messages and OpenAI Responses. On Chat Completions the model calls loaded tools through `call_deferred_tool` with the tool's name and arguments, so `call_deferred_tool` is a reserved tool name.
+`deferred_tools.mode` sets how the agent reaches a deferred tool once it has found it:
+
+```yaml
+deferred_tools:
+  mode: code_mode               # default: tool_add
+```
+
+| Mode | What `tool_search` does | How the tool is called |
+| --- | --- | --- |
+| `tool_add` | Adds matching tools to the model's tool list | By the model, like any loaded tool |
+| `code_mode` | Returns each match's input and output schemas | From a command the agent runs, with [`omnarad call`](/tools/built-in#calling-tools-from-commands) |
+
+With `tool_add`, deferred loading keeps the provider's prompt cache intact on Anthropic Messages and OpenAI Responses. On Chat Completions the model calls loaded tools through `call_deferred_tool` with the tool's name and arguments, so `call_deferred_tool` is a reserved tool name.
+
+#### Code mode
+
+In `code_mode`, commands started with `run_command` can call the agent's deferred tools, and only those: to keep a tool away from commands, don't defer it. Results go to the command, not into the model's context, so the agent can loop over a tool, filter what comes back, and print only what it needs.
+
+Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools. Those tools are never sent to the model, so the agent needs a machine to use them. Any other deferred tool is added to the model's tool list as in `tool_add`.
+
+<Warning>
+Agents bound to the same machine run commands as the same OS user, so in `code_mode` each can call the others' deferred tools. Use it on machines dedicated to one agent or to agents you trust equally.
+</Warning>
+
+Each call is checked against the agent's current config, so a config change applies to commands that are already running. Spawned subagents do not inherit the mode. In the Builder, it is **Deferred tools** under **Advanced**.
 
 ### Custom tools
 

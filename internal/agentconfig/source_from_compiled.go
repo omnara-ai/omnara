@@ -106,6 +106,9 @@ func SourceFromCompiled(compiled Compiled, names SourceNames) (AgentConfigSource
 			RepositoryIDs: compiled.GitCredentials.RepositoryIDs, ReadOnly: compiled.GitCredentials.ReadOnly,
 		}
 	}
+	if deferred := compiled.DeferredTools; deferred != nil {
+		source.DeferredTools = &DeferredToolsSource{Mode: deferred.Mode}
+	}
 	for _, skill := range compiled.Skills {
 		source.Skills = append(source.Skills, try(publicid.Encode(publicid.KindSkill, skill.ID)))
 	}

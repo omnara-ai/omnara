@@ -37,6 +37,8 @@ type daemonSocket struct {
 	drain             func()
 	acceptedProcesses map[uuid.UUID]struct{}
 	acceptedActions   map[uuid.UUID]struct{}
+	toolCalls         map[string]chan struct{}
+	toolCallsDone     sync.WaitGroup
 	leaseRenewAfter   time.Time
 	observedPlatform  string
 	drainAfterRenewal bool
@@ -80,6 +82,7 @@ func newDaemonSocket(
 		done:              make(chan struct{}),
 		acceptedProcesses: map[uuid.UUID]struct{}{},
 		acceptedActions:   map[uuid.UUID]struct{}{},
+		toolCalls:         map[string]chan struct{}{},
 		drainAfterRenewal: drainAfterRenewal,
 	}
 }
@@ -217,6 +220,8 @@ func (s *daemonSocket) run(ctx context.Context) {
 	if drainDone != nil {
 		<-drainDone
 	}
+	cancel(nil)
+	s.toolCallsDone.Wait()
 }
 
 func stableJitterDuration(value string, maxDuration time.Duration) time.Duration {
@@ -311,6 +316,10 @@ func (s *daemonSocket) handleMessage(ctx context.Context, msg daemonprotocol.Mes
 		return s.handleReport(ctx, msg)
 	case daemonprotocol.MessageSkillReport:
 		return s.handleSkillReport(ctx, msg)
+	case daemonprotocol.MessageToolCallOffer:
+		return s.handleToolCallOffer(ctx, msg)
+	case daemonprotocol.MessageToolCallCancel:
+		return s.handleToolCallCancel(msg)
 	default:
 		return errUnsupportedDaemonMessage
 	}

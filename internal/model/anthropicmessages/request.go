@@ -338,11 +338,15 @@ func buildMessages(
 				continue
 			}
 			resultContent := make([]any, 0, len(entry.ToolResults))
+			var notes []any
 			for _, result := range entry.ToolResults {
 				content := toolResultContent(result, bundle.ResolvedMedia)
 				if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
 					if references := toolReferenceBlocks(bundle.ToolSpecs, search); len(references) > 0 {
 						content = references
+						if note := modelcontext.CodeModeToolsNote(search); note != "" {
+							notes = append(notes, textBlock{Type: "text", Text: note})
+						}
 					}
 				}
 				resultContent = append(resultContent, toolResultBlock{
@@ -352,7 +356,7 @@ func buildMessages(
 					IsError:   result.Outcome == executionstore.ToolResultOutcomeFailed,
 				})
 			}
-			messages = appendMessageBlocks(messages, anthropicRoleUser, resultContent)
+			messages = appendMessageBlocks(messages, anthropicRoleUser, append(resultContent, notes...))
 			historyAdded = true
 			continue
 		}

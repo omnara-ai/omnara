@@ -14,6 +14,7 @@ export type AgentConfigDefinition = {
     machine_sources?: AgentConfigDefinitionMachineSources;
     max_depth?: number;
     max_subagents?: number;
+    deferred_tools?: AgentConfigDefinitionDeferredTools;
     mcp?: AgentConfigDefinitionMcpServers;
     memory_stores?: AgentConfigDefinitionMemoryStores;
     model: AgentConfigDefinitionModel;
@@ -51,6 +52,13 @@ export type AgentConfigDefinitionGitCredentials = {
      * Prevents pushing and opening or approving pull requests, even if the integration allows it.
      */
     read_only?: boolean;
+};
+
+/**
+ * How the agent reaches tools marked `deferred`. With `tool_add`, the default, `tool_search` adds matching tools to the model's tool list. With `code_mode`, commands started by run_command call them with `omnarad call <tool> '<json input>'` and `tool_search` returns their input and output schemas instead, and those tools are not sent to the model; a tool commands cannot call is added as with `tool_add`. Subagents do not inherit this setting.
+ */
+export type AgentConfigDefinitionDeferredTools = {
+    mode: 'tool_add' | 'code_mode';
 };
 
 /**
@@ -1740,6 +1748,7 @@ export type CompiledAgentConfig = {
         [key: string]: CompiledIntegrationCapability;
     };
     git_credentials?: CompiledGitCredentials;
+    deferred_tools?: CompiledDeferredTools;
     skills?: Array<CompiledSkill>;
     memory_stores?: Array<CompiledMemoryStore>;
     subagents?: {
@@ -1806,6 +1815,13 @@ export type CompiledGitCredentials = {
     integration_id: IntegrationId;
     repository_ids?: Array<number>;
     read_only?: boolean;
+};
+
+/**
+ * Present when commands started by run_command call the agent's deferred tools.
+ */
+export type CompiledDeferredTools = {
+    mode: 'code_mode';
 };
 
 export type CompiledMcpServer = {
@@ -2568,13 +2584,18 @@ export type ToolCallState = 'awaiting_authorization' | 'awaiting_permission' | '
 export type ToolCallOutcome = 'succeeded' | 'failed' | 'denied' | 'canceled';
 
 /**
- * A model-emitted tool call together with its current lifecycle state.
+ * A tool call together with its current lifecycle state. Calls the model emits have caller model; calls a run_command process makes with `omnarad call` have caller program, a parent_tool_call_id naming that run_command call, and never enter the model's context.
  */
 export type ToolCall = {
     id: ToolCallId;
     agent_id: AgentId;
     turn_id: AgentTurnId;
     provider_call_id: string;
+    caller?: ToolCallCaller;
+    /**
+     * The run_command call whose process made this call. Present only when caller is program.
+     */
+    parent_tool_call_id?: ToolCallId;
     name: string;
     input: ToolInput;
     type: ToolCallType;
@@ -2607,6 +2628,10 @@ export type ToolCallUpdate = {
      * The top-level agent in the emitting agent's tree. Equals agent_id for a top-level agent.
      */
     root_agent_id: AgentId;
+    /**
+     * The run_command call whose process made this call with `omnarad call`. Present on event stream frames for program calls.
+     */
+    parent_tool_call_id?: ToolCallId;
     state: ToolCallState;
     /**
      * The tool name. Present when a custom tool call becomes ready.
@@ -2621,6 +2646,11 @@ export type ToolCallUpdate = {
      */
     interaction_update?: AgentInteractionUpdate;
 };
+
+/**
+ * Who made the call. model is the agent's model; program is a run_command process using `omnarad call`.
+ */
+export type ToolCallCaller = 'model' | 'program';
 
 export type AgentInteractionUpdate = {
     id: AgentInteractionId;
@@ -13380,6 +13410,10 @@ export type ListToolCallsData = {
     query?: {
         state?: ToolCallState;
         type?: ToolCallType;
+        /**
+         * Return only the calls a run_command call's process made with `omnarad call`, by that run_command call's ID.
+         */
+        parent_tool_call_id?: ToolCallId;
         /**
          * Also return tool calls from this agent's subagents at every depth. Each row's agent_id says which agent made the call.
          */

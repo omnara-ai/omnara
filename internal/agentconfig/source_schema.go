@@ -40,6 +40,7 @@ type AgentConfigSource struct {
 	MaxSubagents        *int                                              `json:"max_subagents,omitempty"`
 	MaxDepth            *int                                              `json:"max_depth,omitempty"`
 	MemoryStores        []MemoryStoreSource                               `json:"memory_stores,omitempty"`
+	DeferredTools       *DeferredToolsSource                              `json:"deferred_tools,omitempty"`
 }
 
 type MemoryStoreAccess string

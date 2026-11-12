@@ -65,12 +65,13 @@ type RequeueRuntimeToolCallInput struct {
 }
 
 type ListToolCallsInput struct {
-	ProjectID uuid.UUID
-	AgentIDs  []uuid.UUID
-	State     ToolCallState
-	Type      toolcatalog.Type
-	Limit     int
-	After     listing.KeysetCursor
+	ProjectID        uuid.UUID
+	AgentIDs         []uuid.UUID
+	State            ToolCallState
+	Type             toolcatalog.Type
+	ParentToolCallID uuid.UUID
+	Limit            int
+	After            listing.KeysetCursor
 }
 
 type ListUnfinishedProjectToolCallsInput struct {
@@ -94,17 +95,19 @@ type ListToolCallsResult struct {
 }
 
 type ToolCallSummary struct {
-	ID             uuid.UUID
-	AgentID        uuid.UUID
-	TurnID         uuid.UUID
-	ProviderCallID string
-	Name           string
-	Input          json.RawMessage
-	Type           toolcatalog.Type
-	State          ToolCallState
-	Outcome        ToolResultOutcome
-	CreatedAt      time.Time
-	CompletedAt    *time.Time
+	ID               uuid.UUID
+	AgentID          uuid.UUID
+	TurnID           uuid.UUID
+	ProviderCallID   string
+	Name             string
+	Input            json.RawMessage
+	Type             toolcatalog.Type
+	State            ToolCallState
+	Outcome          ToolResultOutcome
+	CreatedAt        time.Time
+	CompletedAt      *time.Time
+	Caller           string
+	ParentToolCallID uuid.UUID
 }
 
 type ToolCallStatus struct {
@@ -177,6 +180,9 @@ type ToolCallRecord struct {
 	SourceEventSequence     int64           `json:"source_event_sequence,omitempty"`
 	ToolResultEventSequence int64           `json:"tool_result_event_sequence,omitempty"`
 	ResultContentParts      json.RawMessage `json:"result_content_parts"`
+
+	Caller           string    `json:"caller"`
+	ParentToolCallID uuid.UUID `json:"parent_tool_call_id,omitempty"`
 }
 
 func (r ToolCallRecord) Summary() ToolCallSummary {
@@ -184,6 +190,7 @@ func (r ToolCallRecord) Summary() ToolCallSummary {
 		ID: r.ID, AgentID: r.AgentID, TurnID: r.TurnID, ProviderCallID: r.ProviderCallID,
 		Name: r.Name, Input: r.Input, Type: toolcatalog.Type(r.Type), State: r.State, Outcome: r.Outcome,
 		CreatedAt: r.CreatedAt, CompletedAt: r.CompletedAt,
+		Caller: r.Caller, ParentToolCallID: r.ParentToolCallID,
 	}
 }
 

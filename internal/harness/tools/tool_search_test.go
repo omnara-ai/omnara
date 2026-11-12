@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -15,7 +16,7 @@ import (
 func TestResolveToolSearchRequest(t *testing.T) {
 	resolved, err := resolveToolSearchRequest(json.RawMessage(`{"pattern":" weather "}`))
 	require.NoError(t, err)
-	require.Equal(t, resolvedToolSearchRequest{Pattern: "weather", MaxResults: 5}, resolved)
+	require.Equal(t, resolvedToolSearchRequest{Pattern: "weather"}, resolved)
 
 	resolved, err = resolveToolSearchRequest(json.RawMessage(`{"pattern":"weather","max_results":7}`))
 	require.NoError(t, err)
@@ -126,4 +127,37 @@ func mustContentParts(t *testing.T, content toolResultContent) json.RawMessage {
 	parts, err := content.contentParts()
 	require.NoError(t, err)
 	return parts
+}
+
+func TestRunToolSearchReturnsCodeModeToolsWithoutAddingThem(t *testing.T) {
+	turn := toolSearchTurn()
+	spec := turn.Tools["get_weather"]
+	spec.CodeMode, spec.OutputSchema = true, json.RawMessage(`{"type":"object"}`)
+	turn.Tools["get_weather"] = spec
+	dispatch, err := runToolSearch(context.Background(), transactionalToolContext{
+		Turn: turn,
+		Call: model.ToolCall{Name: toolcatalog.ToolNameToolSearch, Input: json.RawMessage(`{"pattern":"weather"}`)},
+	})
+	require.NoError(t, err)
+	completed, ok := dispatch.(completeTransaction)
+	require.True(t, ok)
+	search, ok := modelcontext.ToolSearchResultFromToolResult(modelcontext.ToolResultRef{
+		Name:         toolcatalog.ToolNameToolSearch,
+		ContentParts: mustContentParts(t, completed.content),
+	})
+	require.True(t, ok)
+	require.Empty(t, search.ToolNames)
+	require.Len(t, search.CodeModeTools, 1)
+	require.Equal(t, "get_weather", search.CodeModeTools[0].Name)
+}
+
+func TestProgramToolSearchLimitsResultsByDefault(t *testing.T) {
+	specs := make([]modelcontext.ToolSpec, toolcatalog.ToolSearchMaxResults+5)
+	for i := range specs {
+		specs[i] = modelcontext.ToolSpec{Name: fmt.Sprintf("tool_%03d", i)}
+	}
+	search, err := ProgramToolSearch(specs, json.RawMessage(`{"pattern":"."}`))
+	require.NoError(t, err)
+	require.Equal(t, len(specs), search.Total)
+	require.Len(t, search.Tools, toolcatalog.ToolSearchMaxResults)
 }

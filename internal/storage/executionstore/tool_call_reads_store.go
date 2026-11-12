@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -71,6 +72,7 @@ func (s *Store) GetToolCallSummary(
 		ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
 		Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 		Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+		Caller: row.Caller, ParentToolCallID: storeutil.IDFromPtr(row.ParentToolCallID),
 	}, nil
 }
 
@@ -136,7 +138,13 @@ func (s *Store) ListToolCalls(
 		params.CursorCreatedAt = &createdAt
 		params.CursorID = &id
 	}
-	rows, err := s.q.ListToolCallsForAgent(ctx, params)
+	var rows []dbsqlc.ListToolCallsForAgentRow
+	var err error
+	if input.ParentToolCallID == uuid.Nil {
+		rows, err = s.q.ListToolCallsForAgent(ctx, params)
+	} else {
+		rows, err = s.listToolCallsForParent(ctx, params, input.ParentToolCallID)
+	}
 	if err != nil {
 		return ListToolCallsResult{}, fmt.Errorf("list tool calls: %w", err)
 	}
@@ -146,6 +154,7 @@ func (s *Store) ListToolCalls(
 			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
 			Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+			Caller: row.Caller, ParentToolCallID: storeutil.IDFromPtr(row.ParentToolCallID),
 		})
 	}
 	return toolCallsPage(calls, input.Limit), nil
@@ -191,6 +200,7 @@ func (s *Store) ListUnfinishedProjectToolCalls(
 			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID, ProviderCallID: row.ProviderCallID,
 			Name: row.Name, Input: row.Input, Type: toolcatalog.Type(row.Type), State: ToolCallState(row.State),
 			Outcome: ToolResultOutcome(row.Outcome), CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt,
+			Caller: row.Caller, ParentToolCallID: storeutil.IDFromPtr(row.ParentToolCallID),
 		})
 	}
 	return toolCallsPage(calls, input.Limit), nil
@@ -305,4 +315,19 @@ func (s *Store) ListCompletedToolCallsAtWatermark(
 		out = append(out, toolCallRecordFromWatermarkSQLC(row))
 	}
 	return out, nil
+}
+
+func (s *Store) listToolCallsForParent(
+	ctx context.Context, params dbsqlc.ListToolCallsForAgentParams, parentID uuid.UUID,
+) ([]dbsqlc.ListToolCallsForAgentRow, error) {
+	rows, err := s.q.ListToolCallsForParent(ctx, dbsqlc.ListToolCallsForParentParams{
+		ProjectID: params.ProjectID, AgentIds: params.AgentIds, State: params.State, Type: params.Type,
+		ParentToolCallID: parentID, CursorCreatedAt: params.CursorCreatedAt, CursorID: params.CursorID,
+		RowLimit: params.RowLimit,
+	})
+	converted := make([]dbsqlc.ListToolCallsForAgentRow, len(rows))
+	for i, row := range rows {
+		converted[i] = dbsqlc.ListToolCallsForAgentRow(row)
+	}
+	return converted, err
 }

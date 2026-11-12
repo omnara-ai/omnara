@@ -16,7 +16,7 @@ SELECT sqlc.arg(id),sqlc.arg(project_id),sqlc.arg(agent_id),o.id,sqlc.arg(provid
 
 -- name: ReadExecutionProposals :many
 SELECT id,provider_call_id,name,input,type FROM tool_calls
-WHERE agent_id=sqlc.arg(agent_id) AND model_output_id=sqlc.arg(output_id) ORDER BY provider_call_id;
+WHERE agent_id=sqlc.arg(agent_id) AND model_output_id=sqlc.arg(output_id)::uuid ORDER BY provider_call_id;
 
 -- name: ValidateExecutionCheckpoint :one
 SELECT (SELECT count(*) FROM agent_events e WHERE e.agent_id=sqlc.arg(agent_id)

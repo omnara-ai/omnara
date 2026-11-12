@@ -59,6 +59,7 @@ type toolCallTransaction struct {
 	requiresWaitingDisposition bool
 	owner                      agentexecution.ToolOwner
 	completed                  *ToolCallRecord
+	program                    *ProgramToolCallRef
 }
 
 func (s *Store) ExecuteToolCall(
@@ -78,13 +79,14 @@ func (s *Store) ExecuteToolCall(
 	return agentexecution.Retry(ctx,
 		"execute_tool_call",
 		func(ctx context.Context) (ExecuteToolCallResult, error) {
-			return s.executeToolCallOnce(ctx, input, plan)
+			return s.executeToolCallOnce(ctx, input, nil, plan)
 		})
 }
 
 func (s *Store) executeToolCallOnce(
 	ctx context.Context,
 	input ExecuteToolCallInput,
+	program *ProgramToolCallRef,
 	plan ToolCallPlan,
 ) (ExecuteToolCallResult, error) {
 	unit, err := s.cell.Begin(ctx)
@@ -100,6 +102,7 @@ func (s *Store) executeToolCallOnce(
 		q:             dbsqlc.New(tx),
 		notifications: unit.Notifications(),
 		input:         input,
+		program:       program,
 	}
 	command, err := plan(&ToolCallReader{transaction: toolTx})
 	if err != nil {
@@ -164,9 +167,17 @@ func (t *toolCallTransaction) lockToolCall(ctx context.Context, acceptExisting b
 	if err != nil {
 		return err
 	}
-	dispatch, err := h.DispatchTool(ctx,
-		agentexecution.ToolRef{ID: t.input.ToolCallID, RuntimeLockID: t.input.RuntimeLockID}, acceptExisting,
-	)
+	var dispatch agentexecution.ToolDispatch
+	if t.program != nil {
+		dispatch, err = h.DispatchProgramTool(ctx, t.program.ref())
+		if err == nil && dispatch == agentexecution.ToolDispatchCompleted && !acceptExisting {
+			err = storeerr.ErrIdempotencyConflict
+		}
+	} else {
+		dispatch, err = h.DispatchTool(ctx,
+			agentexecution.ToolRef{ID: t.input.ToolCallID, RuntimeLockID: t.input.RuntimeLockID}, acceptExisting,
+		)
+	}
 	if err != nil {
 		return err
 	}
@@ -187,6 +198,13 @@ func (t *toolCallTransaction) startToolCall(ctx context.Context, retainRuntimeOw
 	}
 	if err := t.lockForMutation(ctx); err != nil {
 		return err
+	}
+	if t.program != nil {
+		if !retainRuntimeOwnership {
+			return storeerr.ErrInvalidToolCallDisposition
+		}
+		t.applied, t.disposition = true, ToolCallDispositionRunning
+		return nil
 	}
 	h, err := t.unit.Handle(t.input.ProjectID, t.input.AgentID)
 	if err != nil {
@@ -212,6 +230,20 @@ func (t *toolCallTransaction) completeToolCall(
 	}
 	if t.disposition != 0 {
 		return ToolCallRecord{}, storeerr.ErrStateTransitionConflict
+	}
+	if t.program != nil {
+		if err := t.lockOrAcceptExisting(ctx); err != nil {
+			return ToolCallRecord{}, err
+		}
+		if t.disposition == ToolCallDispositionCompleted {
+			return getToolCallTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID, t.input.ToolCallID)
+		}
+		record, err := completeProgramTool(ctx, t.unit, *t.program, input)
+		if err != nil {
+			return ToolCallRecord{}, err
+		}
+		t.locked, t.disposition, t.applied, t.completed = true, ToolCallDispositionCompleted, true, &record.ToolCallRecord
+		return record.ToolCallRecord, nil
 	}
 	record, err := completeExecutionTool(ctx, t.unit, CompleteToolCallInput{
 		ProjectID:          t.input.ProjectID,
@@ -252,4 +284,11 @@ func (r *ToolCallReader) GetModelCallContext(
 		return ModelCallContextRecord{}, false, err
 	}
 	return record, true, nil
+}
+
+func (t *toolCallTransaction) requireRuntime() error {
+	if t.program != nil {
+		return fmt.Errorf("%w: program tool calls cannot run this command", storeerr.ErrInvalidToolCallDisposition)
+	}
+	return nil
 }

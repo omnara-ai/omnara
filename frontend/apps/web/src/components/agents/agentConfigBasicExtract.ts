@@ -1,6 +1,7 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
 import {
   zAgentConfigDefinition,
+  zAgentConfigDefinitionDeferredTools,
   zAgentConfigDefinitionGitCredentials,
   zAgentConfigDefinitionInteractionHandler,
   zAgentConfigDefinitionMcpTool,
@@ -163,6 +164,7 @@ const basicDocument = z.looseObject({
   tools: z.record(z.string(), toolEntry).nullish(),
   interaction_handlers: z.record(z.string(), zAgentConfigDefinitionInteractionHandler).nullish(),
   git_credentials: z.strictObject(zAgentConfigDefinitionGitCredentials.shape).nullish(),
+  deferred_tools: z.strictObject(zAgentConfigDefinitionDeferredTools.shape).nullish(),
   skills: definitionFields.skills,
   memory_stores: z.array(memoryStoreEntry).nullish(),
   mcp: z.record(z.string(), mcpEntry).nullish(),
@@ -226,6 +228,7 @@ function extractBasicConfig(document: Document): BasicConfig | null {
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
     interactionHandlers: doc.interaction_handlers ?? {},
     gitCredentials: doc.git_credentials ?? undefined,
+    deferredTools: doc.deferred_tools ?? undefined,
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     skillIds: doc.skills ?? [],
     memoryStores: doc.memory_stores ?? [],

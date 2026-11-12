@@ -46,6 +46,7 @@ import {
   useAgentInputBacklog,
 } from './agent-input-backlog'
 import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
+import { ToolCallQueryRefresher } from './program-tool-calls'
 import { agentUsageQueryPredicate } from './usage'
 
 export type { OmnaraUIMessage } from './agent-chat-messages'
@@ -90,6 +91,7 @@ export class AgentChatSession {
   private readonly scope: AgentChatScope
   private readonly queryClient: QueryClient
   private readonly inputReconciliationDelayMs: number
+  private readonly toolCallQueries: ToolCallQueryRefresher
 
   private listeners: (() => void)[] = []
   private runController: AbortController | null = null
@@ -127,6 +129,7 @@ export class AgentChatSession {
     this.scope = { orgID, projectID, agentID }
     this.queryClient = queryClient
     this.inputReconciliationDelayMs = inputReconciliationDelayMs
+    this.toolCallQueries = new ToolCallQueryRefresher(queryClient, client, this.scope)
   }
 
   getData = (): AgentChatData => this.data
@@ -381,7 +384,7 @@ export class AgentChatSession {
       this.notify()
       return
     }
-    if (state.reconnected) this.invalidateInteractions()
+    if (state.reconnected) this.toolCallQueries.refresh()
   }
 
   disconnect = (): void => {
@@ -424,7 +427,7 @@ export class AgentChatSession {
         const parsed = parseStreamData(data)
         if (parsed.kind === 'delta') this.handleDelta(parsed.delta)
         else if (parsed.kind === 'event') this.handleEvent(parsed.event)
-        else this.invalidateInteractions()
+        else this.toolCallQueries.refresh(parsed.update)
       }
     } catch (error) {
       if (signal.aborted) return

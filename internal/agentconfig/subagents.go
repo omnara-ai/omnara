@@ -75,6 +75,7 @@ func SubagentCompiledFrom(
 	child.Tools = copyTools(base.Tools)
 	child.InteractionHandlers = nil
 	child.GitCredentials = nil
+	child.DeferredTools = nil
 	child.MCP = maps.Clone(base.MCP)
 	for name, tool := range child.Tools {
 		if tool.IntegrationID != uuid.Nil || toolcatalog.UsesIntegrationToolNamespace(name) ||

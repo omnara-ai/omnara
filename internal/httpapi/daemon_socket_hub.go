@@ -40,6 +40,7 @@ type daemonSocketHub struct {
 	recorder              *metrics.DaemonRecorder
 	fallbackDrainInterval time.Duration
 	fallbackDrainJitter   time.Duration
+	ctx                   context.Context //nolint:containedctx // the hub owns this server-lifetime context
 	done                  <-chan struct{}
 	cancel                context.CancelFunc
 	mu                    sync.RWMutex
@@ -96,6 +97,7 @@ func newDaemonSocketHub(
 		recorder:              recorder,
 		fallbackDrainInterval: fallbackDrainInterval,
 		fallbackDrainJitter:   fallbackDrainJitter,
+		ctx:                   ctx,
 		done:                  ctx.Done(),
 		cancel:                cancel,
 		byMachine:             map[uuid.UUID]*daemonSocket{},

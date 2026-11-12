@@ -66,6 +66,7 @@ JOIN live_runtime runtime_lock ON runtime_lock.project_id = agent.project_id
   AND runtime_lock.agent_id = agent.id
 JOIN tool_calls tool_call ON tool_call.agent_id = agent.id
   AND tool_call.id = sqlc.arg(tool_call_id)
+  AND tool_call.caller = 'model'
 JOIN agent_machine_bindings binding ON binding.project_id = agent.project_id
   AND binding.agent_id = agent.id
   AND binding.id = sqlc.arg(agent_machine_binding_id)
@@ -307,7 +308,20 @@ SELECT process.id, process.org_id, process.project_id, process.agent_id, process
          JOIN agent_config_definitions definition ON definition.project_id = config.project_id
            AND definition.id = config.definition_id
          WHERE tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
-       ) END)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id
+       ) END)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id,
+       coalesce(process.execution_spec->>'kind' = 'shell' AND (
+         SELECT definition.compiled_definition->'deferred_tools'->>'mode' = 'code_mode'
+         FROM tool_calls tool_call
+         JOIN model_outputs output ON output.agent_id = tool_call.agent_id
+           AND output.id = tool_call.model_output_id
+         JOIN model_call_contexts context ON context.agent_id = output.agent_id
+           AND context.id = output.model_call_context_id
+         JOIN agent_configs config ON config.project_id = context.project_id
+           AND config.id = context.agent_config_id
+         JOIN agent_config_definitions definition ON definition.project_id = config.project_id
+           AND definition.id = config.definition_id
+         WHERE tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
+       ), false)::boolean AS programmatic_tool_calls
 FROM processes process
 WHERE process.org_id = sqlc.arg(org_id)
   AND process.machine_id = sqlc.arg(machine_id)
@@ -439,6 +453,43 @@ WHERE process.org_id = sqlc.arg(org_id)
       AND source_event.model_output_id = output.id
       AND source_event.event_kind = 'model_output'
   );
+
+-- name: GetDaemonProgramToolScope :one
+SELECT process.project_id, process.agent_id, process.id AS process_id, current_config.id AS agent_config_id
+FROM processes process
+JOIN orgs org ON org.id = process.org_id AND org.deleted_at IS NULL
+JOIN projects project ON project.org_id = process.org_id AND project.id = process.project_id
+  AND project.deleted_at IS NULL
+JOIN machines machine ON machine.org_id = process.org_id AND machine.id = process.machine_id
+  AND machine.deleted_at IS NULL AND machine.lifecycle_state = 'active'
+JOIN agents agent ON agent.org_id = process.org_id AND agent.project_id = process.project_id
+  AND agent.id = process.agent_id AND agent.state = 'active'
+JOIN agent_machine_bindings binding ON binding.org_id = process.org_id
+  AND binding.project_id = process.project_id AND binding.agent_id = process.agent_id
+  AND binding.id = process.agent_machine_binding_id AND binding.machine_id = process.machine_id
+  AND binding.state = 'attached'
+JOIN project_machine_grants pmgrant ON pmgrant.org_id = process.org_id
+  AND pmgrant.project_id = process.project_id AND pmgrant.machine_id = process.machine_id
+JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
+JOIN model_outputs output ON output.agent_id = tool_call.agent_id AND output.id = tool_call.model_output_id
+JOIN model_call_contexts context ON context.agent_id = output.agent_id
+  AND context.id = output.model_call_context_id
+JOIN agent_configs original_config ON original_config.project_id = process.project_id
+  AND original_config.id = context.agent_config_id
+JOIN agent_configs current_config ON current_config.project_id = process.project_id
+  AND current_config.id = agent.current_config_id
+JOIN agent_config_definitions original_definition ON original_definition.project_id = original_config.project_id
+  AND original_definition.id = original_config.definition_id
+JOIN agent_config_definitions current_definition ON current_definition.project_id = current_config.project_id
+  AND current_definition.id = current_config.definition_id
+WHERE process.org_id = sqlc.arg(org_id)
+  AND process.machine_id = sqlc.arg(machine_id)
+  AND process.id = sqlc.arg(process_id)
+  AND process.execution_spec->>'kind' = 'shell'
+  AND process.execution_granted_at IS NOT NULL
+  AND process.state IN ('starting', 'running')
+  AND original_definition.compiled_definition->'deferred_tools'->>'mode' = 'code_mode'
+  AND current_definition.compiled_definition->'deferred_tools'->>'mode' = 'code_mode';
 
 -- name: GetDaemonFileProcessScope :one
 SELECT process.project_id, process.agent_id, process.tool_call_id, process.execution_spec

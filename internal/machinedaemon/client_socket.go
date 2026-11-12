@@ -174,6 +174,7 @@ func (t *daemonSocketTransport) Run(ctx context.Context) (bool, error) {
 	})
 	t.resumeStartupActions(runCtx)
 	t.reportReadyStorageFailures(runCtx)
+	t.launchWorker(func() { t.client.programToolCalls.resume(runCtx, t) })
 
 	heartbeatDelay, err := nextHeartbeatDelay(t.runtime)
 	if err != nil {
@@ -529,12 +530,18 @@ func (t *daemonSocketTransport) handleMessage(
 		if message.SkillOffer != nil {
 			t.handleSkillOffer(ctx, *message.SkillOffer)
 		}
+	case daemonprotocol.MessageToolCallReport:
+		if message.ToolCallReport != nil {
+			t.client.programToolCalls.report(*message.ToolCallReport)
+		}
 	case daemonprotocol.MessageHeartbeatAck:
 	case daemonprotocol.MessageHeartbeat,
 		daemonprotocol.MessageProcessAccept,
 		daemonprotocol.MessageActionAccept,
 		daemonprotocol.MessageReport,
-		daemonprotocol.MessageSkillReport:
+		daemonprotocol.MessageSkillReport,
+		daemonprotocol.MessageToolCallOffer,
+		daemonprotocol.MessageToolCallCancel:
 		return fmt.Errorf(
 			"unexpected server-to-daemon message type %q",
 			message.Type,
@@ -663,8 +670,9 @@ func (t *daemonSocketTransport) offerProcess(
 	offer daemonprotocol.ProcessOffer,
 ) {
 	assignment := ProcessAssignment{
-		ID:             offer.ProcessID,
-		GitCredentials: offer.GitCredentials,
+		ID:                    offer.ProcessID,
+		GitCredentials:        offer.GitCredentials,
+		ProgrammaticToolCalls: offer.ProgrammaticToolCalls,
 		Process: Process{
 			ExecutionSpec: offer.ExecutionSpec,
 			Cwd:           offer.Cwd,

@@ -107,7 +107,7 @@ func (q *Queries) InsertExecutionToolResult(ctx context.Context, db DBTX, arg In
 }
 
 const readExecutionTool = `-- name: ReadExecutionTool :one
-SELECT c.id,c.agent_id,c.model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
+SELECT c.id,c.agent_id,o.id AS model_output_id,c.provider_call_id,c.name,c.input,c.type,c.state,c.runtime_lock_id,
  m.turn_id,m.id AS context_id,e.id AS source_event_id,e.sequence AS source_sequence,
  r.id AS result_id,r.outcome,r.completed_at,re.id AS result_event_id,re.sequence AS result_sequence
 FROM tool_calls c JOIN model_outputs o ON o.agent_id=c.agent_id AND o.id=c.model_output_id
@@ -171,7 +171,7 @@ func (q *Queries) ReadExecutionTool(ctx context.Context, db DBTX, arg ReadExecut
 }
 
 const readExecutionToolDispatch = `-- name: ReadExecutionToolDispatch :one
-SELECT state FROM tool_calls WHERE agent_id=$1 AND id=$2
+SELECT state FROM tool_calls WHERE agent_id=$1 AND id=$2 AND caller='model'
 `
 
 type ReadExecutionToolDispatchParams struct {
@@ -188,7 +188,7 @@ func (q *Queries) ReadExecutionToolDispatch(ctx context.Context, db DBTX, arg Re
 
 const transitionExecutionTool = `-- name: TransitionExecutionTool :execrows
 UPDATE tool_calls c SET state=$1,runtime_lock_id=$2
-WHERE c.agent_id=$3 AND c.id=$4 AND c.state=$5
+WHERE c.agent_id=$3 AND c.id=$4 AND c.caller='model' AND c.state=$5
  AND c.runtime_lock_id IS NOT DISTINCT FROM $6::uuid
  AND ($7::uuid IS NULL OR EXISTS(SELECT 1 FROM agent_runtime_locks r
  WHERE r.agent_id=c.agent_id AND r.id=$7 AND r.cancel_requested_at IS NULL

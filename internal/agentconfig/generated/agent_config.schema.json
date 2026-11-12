@@ -1,5 +1,22 @@
 {
   "$defs": {
+    "AgentConfigDefinitionDeferredTools": {
+      "additionalProperties": false,
+      "description": "How the agent reaches tools marked `deferred`. With `tool_add`, the default, `tool_search` adds matching tools to the model's tool list. With `code_mode`, commands started by run_command call them with `omnarad call \u003ctool\u003e '\u003cjson input\u003e'` and `tool_search` returns their input and output schemas instead, and those tools are not sent to the model; a tool commands cannot call is added as with `tool_add`. Subagents do not inherit this setting.",
+      "properties": {
+        "mode": {
+          "enum": [
+            "tool_add",
+            "code_mode"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    },
     "AgentConfigDefinitionGitCredentials": {
       "additionalProperties": false,
       "description": "Integration whose git credentials the agent's machines use.",
@@ -709,6 +726,9 @@
   "additionalProperties": false,
   "description": "An agent config as a JSON object. This schema is the source of truth for agent configs: the server compiles YAML and JSON configs against it.",
   "properties": {
+    "deferred_tools": {
+      "$ref": "#/$defs/AgentConfigDefinitionDeferredTools"
+    },
     "git_credentials": {
       "$ref": "#/$defs/AgentConfigDefinitionGitCredentials"
     },

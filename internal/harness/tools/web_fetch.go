@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/programoutput"
 	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
@@ -123,6 +124,13 @@ func runWebFetch(
 			false,
 			err,
 		)
+	}
+	if call.Turn.programCall() {
+		content, err := structuredToolResultContent(programoutput.WebFetch{FetchResult: result, Content: result.Content})
+		if err != nil {
+			return nil, err
+		}
+		return completeAsynchronously(content), nil
 	}
 	content, err := webFetchToolResultContent(result)
 	if err != nil {

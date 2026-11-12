@@ -189,7 +189,7 @@ func (q *Queries) FindExecutionOutput(ctx context.Context, db DBTX, arg FindExec
 
 const readExecutionProposals = `-- name: ReadExecutionProposals :many
 SELECT id,provider_call_id,name,input,type FROM tool_calls
-WHERE agent_id=$1 AND model_output_id=$2 ORDER BY provider_call_id
+WHERE agent_id=$1 AND model_output_id=$2::uuid ORDER BY provider_call_id
 `
 
 type ReadExecutionProposalsParams struct {

@@ -100,6 +100,9 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 			RepositoryIds: credentials.RepositoryIDs, ReadOnly: credentials.ReadOnly,
 		}
 	}
+	if deferred := compiled.DeferredTools; deferred != nil {
+		response.DeferredTools = &openapi.CompiledDeferredTools{Mode: openapi.CompiledDeferredToolsMode(deferred.Mode)}
+	}
 	response.Mcp = make(map[string]openapi.CompiledMCPServer, len(compiled.MCP))
 	for name, server := range compiled.MCP {
 		mcp := openapi.CompiledMCPServer{

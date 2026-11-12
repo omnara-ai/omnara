@@ -13,6 +13,7 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -30,6 +31,7 @@ type RuntimeContract struct {
 	Subagents           map[string]SubagentCompiled
 	MaxSubagents        *int
 	MaxDepth            *int
+	DeferredTools       *DeferredToolsCompiled
 }
 
 func (contract RuntimeContract) SubagentDepthLimit() int {
@@ -50,12 +52,13 @@ func (contract RuntimeContract) RequiresModelToolSupport() bool {
 }
 
 type RuntimeTool struct {
-	Name        string
-	Type        string
-	Permission  toolpermission.Selection
-	Deferred    bool
-	Description string
-	InputSchema json.RawMessage
+	Name            string
+	Type            string
+	Permission      toolpermission.Selection
+	Deferred        bool
+	Description     string
+	InputSchema     json.RawMessage
+	IntegrationKind integrationdefinition.Kind
 }
 
 type RuntimeMachine struct {
@@ -105,6 +108,9 @@ func RuntimeContractFromCompiled(
 	if err := validateCompiledIntegrations(compiled); err != nil {
 		return RuntimeContract{}, fmt.Errorf("compiled integration capabilities: %w", err)
 	}
+	if err := validateCompiledDeferredTools(compiled.DeferredTools); err != nil {
+		return RuntimeContract{}, err
+	}
 	tools, err := runtimeTools(compiled.Tools)
 	if err != nil {
 		return RuntimeContract{}, err
@@ -126,6 +132,7 @@ func RuntimeContractFromCompiled(
 		Subagents:           compiled.Subagents,
 		MaxSubagents:        compiled.MaxSubagents,
 		MaxDepth:            compiled.MaxDepth,
+		DeferredTools:       compiled.DeferredTools,
 	}
 	return contract, nil
 }

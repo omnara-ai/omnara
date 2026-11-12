@@ -191,6 +191,17 @@ func publicToolCallFromSummary(
 		response.Outcome = &outcome
 	}
 	response.CompletedAt = record.CompletedAt
+	if record.Caller != "" {
+		caller := openapi.ToolCallCaller(record.Caller)
+		response.Caller = &caller
+	}
+	if record.ParentToolCallID != uuid.Nil {
+		parentID, err := publicID(publicid.KindToolCall, record.ParentToolCallID)
+		if err != nil {
+			return openapi.ToolCall{}, err
+		}
+		response.ParentToolCallId = &parentID
+	}
 	return response, nil
 }
 

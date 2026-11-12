@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -120,12 +121,15 @@ type Message struct {
 }
 
 type ToolSpec struct {
-	Name        string                   `json:"name"`
-	Description string                   `json:"description"`
-	InputSchema json.RawMessage          `json:"input_schema"`
-	Deferred    bool                     `json:"deferred,omitempty"`
-	Type        string                   `json:"-"`
-	Permission  toolpermission.Selection `json:"-"`
+	Name            string                     `json:"name"`
+	Description     string                     `json:"description"`
+	InputSchema     json.RawMessage            `json:"input_schema"`
+	OutputSchema    json.RawMessage            `json:"-"`
+	Deferred        bool                       `json:"deferred,omitempty"`
+	Type            string                     `json:"-"`
+	Permission      toolpermission.Selection   `json:"-"`
+	IntegrationKind integrationdefinition.Kind `json:"-"`
+	CodeMode        bool                       `json:"-"`
 }
 
 type ToolResultRef struct {

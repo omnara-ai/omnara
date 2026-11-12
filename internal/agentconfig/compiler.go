@@ -40,6 +40,7 @@ type Compiled struct {
 	MaxSubagents        *int                                     `json:"max_subagents,omitempty"`
 	MaxDepth            *int                                     `json:"max_depth,omitempty"`
 	MemoryStores        []MemoryStoreCompiled                    `json:"memory_stores,omitempty"`
+	DeferredTools       *DeferredToolsCompiled                   `json:"deferred_tools,omitempty"`
 }
 
 type SkillCompiled struct {
@@ -287,6 +288,15 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		compiled.MaxSubagents = source.MaxSubagents
 	}
 	compiled.MaxDepth = source.MaxDepth
+	if source.DeferredTools != nil {
+		deferred, err := compileDeferredTools(*source.DeferredTools)
+		if err != nil {
+			return Compiled{}, err
+		}
+		if deferred.Mode == DeferredToolsModeCodeMode {
+			compiled.DeferredTools = &deferred
+		}
+	}
 	if compiledModel.supportsTools != nil && !*compiledModel.supportsTools && requiresModelToolSupport(compiled) {
 		return Compiled{}, issuef(
 			jsonPointer("model", "name"),

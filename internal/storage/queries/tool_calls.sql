@@ -2,7 +2,7 @@
 WITH selected_call AS MATERIALIZED (
   SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id, tc.source_event_id, tc.source_event_sequence,
          tc.model_call_context_id, tc.model_output_id, tc.provider_call_id, tc.name, tc.input,
-         tc.type, tc.state, tc.runtime_lock_id, tc.created_at
+         tc.type, tc.state, tc.runtime_lock_id, tc.created_at, tc.caller, tc.parent_tool_call_id
   FROM tool_call_read_projection tc
   WHERE tc.project_id = sqlc.arg(project_id)
     AND tc.agent_id = sqlc.arg(agent_id)
@@ -15,7 +15,9 @@ SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id,
   tc.runtime_lock_id,
   coalesce(result_blocks.content_parts, '[]'::jsonb)::jsonb AS result_content_parts,
   tc.created_at,
-  result.completed_at
+  result.completed_at,
+  tc.caller,
+  tc.parent_tool_call_id
 FROM selected_call tc
 LEFT JOIN tool_call_results result ON result.agent_id = tc.agent_id
   AND result.tool_call_id = tc.id
@@ -41,10 +43,13 @@ LEFT JOIN LATERAL (
 -- name: GetToolCallSummary :one
 SELECT call.id, call.agent_id, source_event.turn_id, call.provider_call_id,
   call.name, call.input, call.type, call.state,
-  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at
+  coalesce(result.outcome, '') AS outcome, call.created_at, result.completed_at,
+  call.caller, call.parent_tool_call_id
 FROM tool_calls call
+LEFT JOIN tool_calls parent ON parent.agent_id = call.agent_id
+  AND parent.id = call.parent_tool_call_id
 JOIN agent_events source_event ON source_event.agent_id = call.agent_id
-  AND source_event.model_output_id = call.model_output_id
+  AND source_event.model_output_id = coalesce(call.model_output_id, parent.model_output_id)
   AND source_event.event_kind = 'model_output'
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
   AND result.tool_call_id = call.id
@@ -77,6 +82,13 @@ WITH selected_call AS MATERIALIZED (
     AND tc.agent_id = sqlc.arg(agent_id)
     AND tc.model_call_context_id = sqlc.arg(model_call_context_id)
     AND tc.provider_call_id = sqlc.arg(provider_call_id)
+    AND tc.caller = 'model'
+    AND tc.model_output_id IN (
+      SELECT output.id
+      FROM model_outputs output
+      WHERE output.agent_id = sqlc.arg(agent_id)
+        AND output.model_call_context_id = sqlc.arg(model_call_context_id)
+    )
 )
 SELECT tc.id, tc.project_id, tc.agent_id, tc.turn_id,
   tc.source_event_id, tc.model_call_context_id, tc.provider_call_id,
@@ -113,7 +125,8 @@ SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
   coalesce(result.outcome, '') AS outcome,
-  call.created_at, result.completed_at
+  call.created_at, result.completed_at,
+  call.caller, call.parent_tool_call_id
 FROM tool_call_read_projection call
 LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
   AND result.tool_call_id = call.id
@@ -121,6 +134,32 @@ WHERE call.project_id = sqlc.arg(project_id)
   AND call.agent_id = ANY(sqlc.arg(agent_ids)::uuid[])
   AND (sqlc.arg(state)::text = '' OR call.state = sqlc.arg(state))
   AND (sqlc.arg(type)::text = '' OR call.type = sqlc.arg(type))
+  AND (
+    sqlc.narg(cursor_created_at)::timestamptz IS NULL
+    OR (call.created_at, call.id) > (
+      sqlc.narg(cursor_created_at)::timestamptz,
+      sqlc.narg(cursor_id)::uuid
+    )
+  )
+ORDER BY call.created_at ASC, call.id ASC
+LIMIT sqlc.arg(row_limit)::bigint;
+
+-- name: ListToolCallsForParent :many
+SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
+  call.name, call.input,
+  call.type, call.state,
+  coalesce(result.outcome, '') AS outcome,
+  call.created_at, result.completed_at,
+  call.caller, call.parent_tool_call_id
+FROM tool_call_read_projection call
+LEFT JOIN tool_call_results result ON result.agent_id = call.agent_id
+  AND result.tool_call_id = call.id
+WHERE call.project_id = sqlc.arg(project_id)
+  AND call.agent_id = ANY(sqlc.arg(agent_ids)::uuid[])
+  AND (sqlc.arg(state)::text = '' OR call.state = sqlc.arg(state))
+  AND (sqlc.arg(type)::text = '' OR call.type = sqlc.arg(type))
+  AND call.caller = 'program'
+  AND call.parent_tool_call_id = sqlc.arg(parent_tool_call_id)::uuid
   AND (
     sqlc.narg(cursor_created_at)::timestamptz IS NULL
     OR (call.created_at, call.id) > (
@@ -158,7 +197,8 @@ SELECT call.id, call.agent_id, call.turn_id, call.provider_call_id,
   call.name, call.input,
   call.type, call.state,
   ''::text AS outcome,
-  call.created_at, NULL::timestamptz AS completed_at
+  call.created_at, NULL::timestamptz AS completed_at,
+  call.caller, call.parent_tool_call_id
 FROM page
 JOIN tool_call_read_projection call ON call.agent_id = page.agent_id
   AND call.id = page.id
@@ -179,7 +219,7 @@ LEFT JOIN content_blocks call_block ON call_block.agent_id = call.agent_id
   AND call_block.block_kind = 'tool_call'
 WHERE call.project_id = sqlc.arg(project_id)
   AND call.agent_id = sqlc.arg(agent_id)
-  AND call.model_output_id = sqlc.arg(model_output_id)
+  AND call.model_output_id = sqlc.arg(model_output_id)::uuid
   AND (
     COALESCE(cardinality(sqlc.arg(excluded_tool_call_ids)::uuid[]), 0) = 0
     OR NOT (call.id = ANY(sqlc.arg(excluded_tool_call_ids)::uuid[]))
@@ -200,6 +240,7 @@ WITH selected_calls AS MATERIALIZED (
   WHERE tc.project_id = sqlc.arg(project_id)
     AND tc.agent_id = sqlc.arg(agent_id)
     AND tc.state = 'completed'
+    AND tc.caller = 'model'
     AND tc.source_event_sequence > sqlc.arg(after_event_sequence)
     AND tc.source_event_sequence <= sqlc.arg(max_event_sequence)
 )

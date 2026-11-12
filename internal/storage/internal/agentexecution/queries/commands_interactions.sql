@@ -1,7 +1,8 @@
 -- name: ReadExecutionInteraction :one
 SELECT i.id,i.tool_call_id,i.interaction_kind,i.state,i.request,i.resolution,i.resolved_by_input_id,
- i.destination,i.presentation_receipt
-FROM agent_interactions i WHERE i.agent_id=sqlc.arg(agent_id) AND
+ i.destination,i.presentation_receipt,c.caller,i.resolved_by_actor_id
+FROM agent_interactions i JOIN tool_calls c ON c.agent_id=i.agent_id AND c.id=i.tool_call_id
+WHERE i.agent_id=sqlc.arg(agent_id) AND
  (i.id=sqlc.arg(id) OR (i.tool_call_id=sqlc.narg(tool_id) AND i.interaction_kind=sqlc.narg(kind)));
 
 -- name: InsertExecutionInteraction :one
@@ -11,7 +12,7 @@ VALUES(sqlc.arg(project_id),sqlc.arg(agent_id),sqlc.arg(tool_id),sqlc.arg(kind),
 
 -- name: ResolveExecutionInteraction :execrows
 UPDATE agent_interactions SET state=sqlc.arg(state),resolution=sqlc.arg(resolution)::jsonb,
- resolved_by_input_id=sqlc.narg(input_id),resolved_at=statement_timestamp()
+ resolved_by_input_id=sqlc.narg(input_id),resolved_by_actor_id=sqlc.narg(actor_id),resolved_at=statement_timestamp()
 WHERE agent_id=sqlc.arg(agent_id) AND id=sqlc.arg(id) AND state='open';
 
 -- name: ListExecutionInteractions :many

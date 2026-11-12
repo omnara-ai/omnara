@@ -127,3 +127,37 @@ func TestPrepareWithoutDeferredToolsSendsNoDeferLoading(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(prepared.Body), "defer_loading")
 }
+
+func TestPrepareKeepsCodeModeToolsBesideToolReferences(t *testing.T) {
+	client := Client{
+		ModelProviderConfigID: testModelProviderConfigID,
+		EndpointPath:          testEndpointPath,
+		ProviderModelSlug:     "claude-test",
+	}
+	bundle := toolSearchBundle()
+	bundle.ToolResults[0].ContentParts = json.RawMessage(`[{"type":"text","text":"Loaded 1 tool(s)"},` +
+		`{"type":"structured_data","value":{"pattern":"get","tool_names":["get_weather"],"total_deferred_tools":2,` +
+		`"tools":[{"name":"get_weather","input_schema":{"type":"object"}}],` +
+		`"code_mode_tools":[{"name":"orders_list","input_schema":{"type":"object"},"output_schema":{"type":"array"}}]}}]`)
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: bundle,
+		Policy:  model.RequestPolicy{MaxOutputTokens: 1024},
+	})
+	require.NoError(t, err)
+	var payload struct {
+		Messages []struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(prepared.Body, &payload))
+	content := payload.Messages[2].Content
+	require.Len(t, content, 2)
+	require.Equal(t, "tool_result", content[0].Type)
+	require.Equal(t, "text", content[1].Type)
+	require.Contains(t, content[1].Text, `"name":"orders_list"`)
+	require.Contains(t, content[1].Text, `"output_schema":{"type":"array"}`)
+	require.Contains(t, string(prepared.Body), `"tool_reference"`)
+}

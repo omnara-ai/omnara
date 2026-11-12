@@ -2,12 +2,8 @@ package machinedaemon
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,33 +11,12 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
-	"github.com/omnara-ai/omnara/internal/machinedaemon/localipc"
 	"github.com/omnara-ai/omnara/internal/machinedaemon/localstore"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
 const gitCredentialCapabilityEnv = "OMNARA_GIT_CREDENTIAL_CAPABILITY"
-
-type gitCredentialHelper struct {
-	Executable string `json:"executable"`
-	Endpoint   string `json:"endpoint"`
-	Capability string `json:"capability"`
-}
-
-func gitCredentialCapability(supervisorToken, processID string) string {
-	mac := hmac.New(sha256.New, []byte(supervisorToken))
-	_, _ = mac.Write([]byte("omnara-git-credential\x00" + processID))
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
-func (c *Client) gitCredentialEndpoint() (string, error) {
-	machine, err := c.machineStore()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(machine.RunDir(), "git-credentials.sock"), nil
-}
 
 func (c *Client) prepareGitCredentials(assignment *ProcessAssignment, supervisorToken string) {
 	if assignment.Process.ExecutionSpec.Kind != processcmd.KindShell {
@@ -60,39 +35,18 @@ func (c *Client) prepareGitCredentials(assignment *ProcessAssignment, supervisor
 		assignment.PreparationError = "Git credential service is unavailable on this machine; restart the daemon"
 		return
 	}
-	endpoint, err := c.gitCredentialEndpoint()
+	helper, err := c.processServiceHelper(gitCredentialService)
 	if err != nil {
-		assignment.PreparationError = "Git credential endpoint is unavailable"
+		assignment.PreparationError = "Git credential helper is unavailable"
 		return
 	}
-	executable, err := os.Executable()
-	if err != nil {
-		assignment.PreparationError = "Git credential helper executable is unavailable"
-		return
-	}
-	assignment.GitCredentialHelper = &gitCredentialHelper{
-		Executable: executable,
-		Endpoint:   endpoint,
-		Capability: gitCredentialCapability(supervisorToken, assignment.ID),
-	}
+	helper.Capability = gitCredentialService.capability(supervisorToken, assignment.ID)
+	assignment.GitCredentialHelper = helper
 }
 
 func (c *Client) startGitCredentialServer(ctx context.Context) (func(), error) {
-	endpoint, err := c.gitCredentialEndpoint()
-	if err != nil {
-		return nil, err
-	}
-	if err := localipc.Cleanup(endpoint); err != nil {
-		return nil, err
-	}
-	listener, err := localipc.Listen(ctx, endpoint)
-	if err != nil {
-		return nil, err
-	}
 	requests := make(chan struct{}, 32)
-	serverCtx, cancel := context.WithCancel(ctx)
-	server := &http.Server{
-		BaseContext:       func(net.Listener) context.Context { return serverCtx },
+	return c.serveProcessService(ctx, gitCredentialService, &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       5 * time.Second,
 		WriteTimeout:      35 * time.Second,
@@ -109,24 +63,7 @@ func (c *Client) startGitCredentialServer(ctx context.Context) (func(), error) {
 			}
 			c.serveGitCredentials(w, r)
 		}),
-	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			c.log.Error("Git credential service stopped", "error", err)
-		}
-	}()
-	return func() {
-		cancel()
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer shutdownCancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			_ = server.Close()
-		}
-		<-done
-		_ = localipc.Cleanup(endpoint)
-	}, nil
+	})
 }
 
 func (c *Client) serveGitCredentials(w http.ResponseWriter, r *http.Request) {
@@ -137,20 +74,13 @@ func (c *Client) serveGitCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	state, err := c.stateStore(ctx)
-	if err != nil {
-		http.Error(w, "credential service unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	process, found, err := state.Process(ctx, processID)
-	if err != nil {
-		http.Error(w, "credential service unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	capability, bearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	want := gitCredentialCapability(process.SupervisorToken, processID)
-	if !found || process.LocalClosed || !bearer || !hmac.Equal([]byte(capability), []byte(want)) {
+	switch c.authorizeProcessService(ctx, gitCredentialService, r, processID) {
+	case 0:
+	case http.StatusForbidden:
 		http.Error(w, "credential request denied", http.StatusForbidden)
+		return
+	default:
+		http.Error(w, "credential service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	var credentials daemonprotocol.GitCredentials
@@ -172,7 +102,7 @@ func (c *Client) serveGitCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func gitCredentialEnvironment(env []string, processID string, helper *gitCredentialHelper) []string {
+func gitCredentialEnvironment(env []string, processID string, helper *processServiceHelper) []string {
 	parameters := ""
 	result := make([]string, 0, len(env)+2)
 	for _, entry := range env {
@@ -196,7 +126,7 @@ func gitCredentialEnvironment(env []string, processID string, helper *gitCredent
 	return append(result, "GIT_CONFIG_PARAMETERS="+parameters, gitCredentialCapabilityEnv+"="+helper.Capability)
 }
 
-func gitHubCLIEnvironment(env []string, dir, processID string, helper *gitCredentialHelper) ([]string, error) {
+func gitHubCLIEnvironment(env []string, dir, processID string, helper *processServiceHelper) ([]string, error) {
 	if err := localstore.EnsurePrivateDir(dir); err != nil {
 		return nil, err
 	}

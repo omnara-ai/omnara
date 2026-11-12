@@ -47,13 +47,15 @@ type DaemonRuntime struct {
 }
 
 type Client struct {
-	gitCredentialsUnavailable bool
-	cfg                       Config
-	instanceID                uuid.UUID
-	http                      *http.Client
-	log                       *slog.Logger
-	bootstrap                 daemonBootstrap
-	runnerLauncher            processRunnerLauncher
+	gitCredentialsUnavailable   bool
+	programToolCallsUnavailable bool
+	cfg                         Config
+	instanceID                  uuid.UUID
+	http                        *http.Client
+	programToolCalls            *programToolCallHandler
+	log                         *slog.Logger
+	bootstrap                   daemonBootstrap
+	runnerLauncher              processRunnerLauncher
 
 	stateMu sync.Mutex
 	state   *statedb.Store
@@ -122,15 +124,17 @@ type daemonBootstrap struct {
 type daemonReportedEvent = daemonprotocol.ReportedEvent
 
 type ProcessAssignment struct {
-	GitCredentials      bool                 `json:"git_credentials,omitempty"`
-	GitCredentialHelper *gitCredentialHelper `json:"git_credential_helper,omitempty"`
-	Process             Process              `json:"process"`
-	ID                  string               `json:"process_id"`
-	Env                 map[string]string    `json:"env,omitempty"`
-	PreparationError    string               `json:"preparation_error,omitempty"`
-	WaitMs              int                  `json:"wait_ms,omitempty"`
-	TimeoutSeconds      int                  `json:"timeout_seconds"`
-	OutputBytes         int                  `json:"output_bytes,omitempty"`
+	GitCredentials        bool                  `json:"git_credentials,omitempty"`
+	GitCredentialHelper   *processServiceHelper `json:"git_credential_helper,omitempty"`
+	ProgrammaticToolCalls bool                  `json:"programmatic_tool_calls,omitempty"`
+	ProgramToolHelper     *processServiceHelper `json:"program_tool_helper,omitempty"`
+	Process               Process               `json:"process"`
+	ID                    string                `json:"process_id"`
+	Env                   map[string]string     `json:"env,omitempty"`
+	PreparationError      string                `json:"preparation_error,omitempty"`
+	WaitMs                int                   `json:"wait_ms,omitempty"`
+	TimeoutSeconds        int                   `json:"timeout_seconds"`
+	OutputBytes           int                   `json:"output_bytes,omitempty"`
 	processaction.OutputWait
 }
 

@@ -1,4 +1,6 @@
-import type { OmnaraUIMessage } from '@omnara/react'
+import { type AgentChatScope, type OmnaraUIMessage, useProgramToolCalls } from '@omnara/react'
+import type { ToolCall } from '@omnara/sdk'
+import type { ReactNode } from 'react'
 import * as z from 'zod'
 
 import {
@@ -11,6 +13,7 @@ import {
 } from '@/components/agents/toolLabels'
 import { ChevronRight, CircleDashed } from '@/components/icons'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { cn } from '@/lib/utils'
 
 export type ToolPart = Extract<OmnaraUIMessage['parts'][number], { type: 'dynamic-tool' }>
@@ -21,18 +24,22 @@ const toolOutputSchema = z
   .object({ contentBlocks: z.array(z.object({ text: z.string().optional() })).optional() })
   .catch({})
 
-function toolStatus(part: ToolPart): ToolStatus {
-  if (part.state === 'output-error') return 'failed'
-  if (part.state !== 'output-available') return 'running'
-  switch (part.toolOutcome) {
+function outcomeStatus(outcome: ToolPart['toolOutcome']): ToolStatus {
+  switch (outcome) {
     case 'failed':
     case 'denied':
     case 'canceled':
-      return part.toolOutcome
+      return outcome
     case 'succeeded':
     case undefined:
       return 'done'
   }
+}
+
+function toolStatus(part: ToolPart): ToolStatus {
+  if (part.state === 'output-error') return 'failed'
+  if (part.state !== 'output-available') return 'running'
+  return outcomeStatus(part.toolOutcome)
 }
 
 function activityItem(part: ToolPart | ReasoningPart): ActivityItem {
@@ -52,7 +59,13 @@ function activityItem(part: ToolPart | ReasoningPart): ActivityItem {
  * e.g. "Reasoned, ran 3 commands". It expands into a row per step; each row expands again to
  * show the reasoning, or what a call was given and what it returned.
  */
-export function AgentToolGroup({ parts }: { parts: (ToolPart | ReasoningPart)[] }) {
+export function AgentToolGroup({
+  parts,
+  scope,
+}: {
+  parts: (ToolPart | ReasoningPart)[]
+  scope: AgentChatScope
+}) {
   const steps = parts.map((part) => ({ part, item: activityItem(part) }))
   const running = steps.some((step) => step.item.status === 'running')
   const [only] = steps
@@ -71,7 +84,7 @@ export function AgentToolGroup({ parts }: { parts: (ToolPart | ReasoningPart)[] 
       </CollapsibleTrigger>
       <CollapsibleContent>
         {steps.length === 1 && only?.part.type === 'dynamic-tool' ? (
-          <ToolDetails part={only.part} className="mt-2" />
+          <ToolDetails part={only.part} scope={scope} className="mt-2" />
         ) : steps.length === 1 && only?.part.type === 'reasoning' ? (
           <p className="text-muted-foreground mt-2 text-sm whitespace-pre-wrap">{only.part.text}</p>
         ) : (
@@ -80,7 +93,9 @@ export function AgentToolGroup({ parts }: { parts: (ToolPart | ReasoningPart)[] 
               part.type === 'reasoning' ? (
                 <ReasoningRow key={part.id} part={part} status={item.status} />
               ) : (
-                <ToolRow key={part.id} part={part} status={item.status} />
+                <ToolRow key={part.id} name={part.toolName} input={part.input} status={item.status}>
+                  <ToolDetails part={part} scope={scope} />
+                </ToolRow>
               ),
             )}
           </div>
@@ -90,8 +105,18 @@ export function AgentToolGroup({ parts }: { parts: (ToolPart | ReasoningPart)[] 
   )
 }
 
-function ToolRow({ part, status }: { part: ToolPart; status: ToolStatus }) {
-  const { verb, target } = describeTool(part.toolName, toolInputSchema.parse(part.input), status)
+function ToolRow({
+  name,
+  input,
+  status,
+  children,
+}: {
+  name: string
+  input: unknown
+  status: ToolStatus
+  children: ReactNode
+}) {
+  const { verb, target } = describeTool(name, toolInputSchema.parse(input), status)
   return (
     <Collapsible className="group/tool">
       <CollapsibleTrigger className="hover:bg-muted/50 flex w-full items-center gap-1.5 px-3 py-2 text-left text-sm transition-colors">
@@ -113,9 +138,7 @@ function ToolRow({ part, status }: { part: ToolPart; status: ToolStatus }) {
           className="text-muted-foreground size-3.5 shrink-0 transition-transform group-data-[state=open]/tool:rotate-90"
         />
       </CollapsibleTrigger>
-      <CollapsibleContent className="px-3 pb-3">
-        <ToolDetails part={part} />
-      </CollapsibleContent>
+      <CollapsibleContent className="px-3 pb-3">{children}</CollapsibleContent>
     </Collapsible>
   )
 }
@@ -141,13 +164,20 @@ function ReasoningRow({ part, status }: { part: ReasoningPart; status: ToolStatu
 }
 
 /** What the call was given and what it returned, with text results shown as text. */
-function ToolDetails({ part, className }: { part: ToolPart; className?: string }) {
+function ToolDetails({
+  part,
+  scope,
+  className,
+}: {
+  part: ToolPart
+  scope: AgentChatScope
+  className?: string
+}) {
   const result = part.state === 'output-available' ? resultText(part) : undefined
   return (
     <div className={cn('space-y-2', className)}>
-      <pre className="bg-muted/40 type-code max-h-72 overflow-auto rounded-md border p-3">
-        {JSON.stringify(part.input ?? {}, null, 2)}
-      </pre>
+      <ToolInput input={part.input ?? {}} />
+      {part.toolName === 'run_command' && <ProgramToolCalls part={part} scope={scope} />}
       {result !== undefined && (
         <pre className="text-muted-foreground type-code max-h-72 overflow-auto whitespace-pre-wrap">
           {result}
@@ -160,10 +190,55 @@ function ToolDetails({ part, className }: { part: ToolPart; className?: string }
   )
 }
 
+function ToolInput({ input }: { input: unknown }) {
+  return (
+    <pre className="bg-muted/40 type-code max-h-72 overflow-auto rounded-md border p-3">
+      {JSON.stringify(input, null, 2)}
+    </pre>
+  )
+}
+
 function resultText(part: ToolPart): string {
   const blocks = toolOutputSchema.parse(part.output).contentBlocks
   const texts = blocks?.map((block) => block.text) ?? []
   return blocks && texts.every((text) => text !== undefined)
     ? texts.join('\n')
     : JSON.stringify(part.output, null, 2)
+}
+
+function ProgramToolCalls({ part, scope }: { part: ToolPart; scope: AgentChatScope }) {
+  const programCalls = useProgramToolCalls(scope, part.toolCallId)
+  const calls = useInfiniteQueryItems(programCalls)
+  if (calls.length === 0) return null
+  return (
+    <div className="space-y-1">
+      <p className="text-muted-foreground text-xs font-medium">Tool calls from this command</p>
+      <ul
+        className="divide-y overflow-hidden rounded-lg border"
+        aria-label="Tool calls from this command"
+      >
+        {calls.map((call) => (
+          <li key={call.id}>
+            <ToolRow name={call.name} input={call.input} status={programToolCallStatus(call)}>
+              <ToolInput input={call.input} />
+            </ToolRow>
+          </li>
+        ))}
+      </ul>
+      {programCalls.hasNextPage && (
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-foreground text-xs underline"
+          disabled={programCalls.isFetchingNextPage}
+          onClick={() => void programCalls.fetchNextPage()}
+        >
+          Show more tool calls
+        </button>
+      )}
+    </div>
+  )
+}
+
+function programToolCallStatus(call: ToolCall): ToolStatus {
+  return call.state === 'completed' ? outcomeStatus(call.outcome) : 'running'
 }

@@ -185,3 +185,97 @@ it('collapses a turn of tool calls and reasoning into one line across steps', ()
     restoreActEnvironment()
   }
 })
+
+it('shows the tool calls a command made when its details open', async () => {
+  const restoreActEnvironment = enableReactActEnvironment()
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const path = {
+    orgID: `org_${'a'.repeat(26)}`,
+    projectID: `proj_${'b'.repeat(26)}`,
+    agentID: `agt_${'c'.repeat(26)}`,
+  }
+  const parentID = `tcl_${'d'.repeat(26)}`
+  const requestedURLs: string[] = []
+  const fetch = vi.fn((input: RequestInfo | URL) => {
+    requestedURLs.push(input instanceof Request ? input.url : String(input))
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: `tcl_${'e'.repeat(26)}`,
+              agent_id: path.agentID,
+              turn_id: `trn_${'f'.repeat(26)}`,
+              provider_call_id: 'program',
+              caller: 'program',
+              parent_tool_call_id: parentID,
+              name: 'web_search',
+              input: { query: 'omnara' },
+              type: 'built_in',
+              state: 'awaiting_permission',
+              created_at: '2026-11-04T00:00:00Z',
+            },
+          ],
+          next_cursor: null,
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+  })
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch })
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  })
+  const activeOrg = currentUserOrg({ id: path.orgID })
+  queryClient.setQueryData(['web-config'], {})
+  try {
+    act(() => {
+      root.render(
+        <OmnaraClientProvider client={client}>
+          <QueryClientProvider client={queryClient}>
+            <ActiveOrgContext value={{ activeOrg, orgs: [activeOrg], setActiveOrgId: vi.fn() }}>
+              <AgentChatMessage
+                {...path}
+                message={{
+                  id: 'turn:trn_test',
+                  role: 'assistant',
+                  parts: [
+                    {
+                      id: 'tool_test',
+                      type: 'dynamic-tool',
+                      toolCallId: parentID,
+                      toolName: 'run_command',
+                      state: 'input-available',
+                      input: { command: 'omnarad call web_search' },
+                    },
+                  ],
+                }}
+              />
+            </ActiveOrgContext>
+          </QueryClientProvider>
+        </OmnaraClientProvider>,
+      )
+    })
+    expect(requestedURLs).toHaveLength(0)
+
+    act(() => {
+      container.querySelector('button')?.click()
+    })
+    await vi.waitFor(() => {
+      const calls = container.querySelector('[aria-label="Tool calls from this command"]')
+      expect(calls?.textContent).toContain('Searching the web for')
+      expect(calls?.textContent).toContain('omnara')
+    })
+    expect(requestedURLs).toHaveLength(1)
+    expect(new URL(requestedURLs[0] ?? '').searchParams.get('parent_tool_call_id')).toBe(parentID)
+  } finally {
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    queryClient.clear()
+    restoreActEnvironment()
+  }
+})

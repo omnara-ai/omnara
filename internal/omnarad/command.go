@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/alexflint/go-arg"
 	"github.com/omnara-ai/omnara/internal/daemonversion"
@@ -18,6 +19,7 @@ import (
 var version = daemonversion.Development
 
 const (
+	callSubcommand              = "call"
 	versionFlag                 = "--version"
 	restartSubcommand           = "restart"
 	runServiceSubcommand        = "run-service"
@@ -42,6 +44,12 @@ type daemonCommand struct {
 	Uninstall *struct {
 		Yes bool `arg:"--yes"`
 	} `arg:"subcommand:uninstall"`
+	Call *struct {
+		Tool    string        `arg:"positional,required" help:"tool name, such as storage_list"`
+		Input   string        `arg:"positional" help:"JSON object input, or - to read it from stdin [default: {}]"`
+		Output  string        `arg:"--output" default:"result" help:"result (one JSON value), envelope or text"`
+		Timeout time.Duration `arg:"--timeout" default:"10m" help:"how long to wait for the tool call to complete"`
+	} `arg:"subcommand:call" help:"call one of the agent's tools from inside a run_command process"`
 	GitCredential *struct {
 		Endpoint  string `arg:"positional,required"`
 		ProcessID string `arg:"positional,required"`
@@ -221,6 +229,9 @@ func Run(
 		}
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		_ = parser.WriteUsageForSubcommand(stderr, parser.SubcommandNames()...)
+		if names := parser.SubcommandNames(); len(names) > 0 && names[0] == callSubcommand {
+			return machinedaemon.ProgramToolCallExitUnavailable
+		}
 		return 1
 	}
 
@@ -228,6 +239,13 @@ func Run(
 	case command.Version:
 		_, _ = fmt.Fprintln(stdout, version)
 		return 0
+	case command.Call != nil:
+		return machinedaemon.RunProgramToolCall(ctx, machinedaemon.ProgramToolCallOptions{
+			Tool:    command.Call.Tool,
+			Input:   command.Call.Input,
+			Output:  machinedaemon.ProgramToolCallOutput(command.Call.Output),
+			Timeout: command.Call.Timeout,
+		}, stdin, stdout, stderr)
 	case command.GitCredential != nil:
 		if err := machinedaemon.RunGitCredentialHelper(
 			ctx, command.GitCredential.Endpoint, command.GitCredential.ProcessID,
