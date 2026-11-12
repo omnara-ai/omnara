@@ -197,7 +197,7 @@ func TestIntegrationToolDescriptionIdentifiesAssignedConversation(t *testing.T) 
 			store.integrationDefinitions[id] = agentconfig.IntegrationResolution{IntegrationID: id, IntegrationKind: test.kind}
 			store.integrationConversations = map[uuid.UUID]integrationstore.ConversationAddress{id: test.address}
 			specs, err := RuntimeContractToolSpecs(t.Context(), store, testProjectID, testAgentID,
-				agentconfig.RuntimeContract{IntegrationTools: compiled.Tools}, time.Time{}, false)
+				agentconfig.RuntimeContract{IntegrationTools: compiled.Tools}, time.Time{})
 			require.NoError(t, err)
 			for _, operation := range []string{"read", test.operation} {
 				spec := requireToolSpec(t, specs, "int__engineering__"+operation)

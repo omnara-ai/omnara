@@ -144,7 +144,7 @@ func (s strictOpenAPIServer) startMCPOAuth(
 		return openapi.MCPOAuthStartResponse{}, &err, nil
 	}
 	mcpURL, err := agentconfig.ValidateMCPURL(
-		body.McpUrl, s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP, s.server.privateEndpoints,
+		body.McpUrl, s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP, s.server.endpointAllowlist,
 	)
 	if err != nil {
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "mcp_url is invalid: "+err.Error())
@@ -159,7 +159,7 @@ func (s strictOpenAPIServer) startMCPOAuth(
 	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, mcp.AuthOptions{
 		HTTPClient:             s.server.mcpOAuthHTTPClient,
 		EndpointHTTPClient:     s.server.mcpHTTPClient,
-		PrivateEndpoints:       s.server.privateEndpoints,
+		EndpointAllowlist:      s.server.endpointAllowlist,
 		AllowInsecureLocalHTTP: s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
 	})
 	if err != nil {

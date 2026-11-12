@@ -42,7 +42,6 @@ func TestRuntimeContractToolSpecsRenderWebToolDescriptions(t *testing.T) {
 		uuid.UUID{},
 		webToolsContract(t),
 		now,
-		false,
 	)
 	if err != nil {
 		t.Fatalf("specs: %v", err)
@@ -68,27 +67,5 @@ func TestRuntimeContractToolSpecsRenderWebToolDescriptions(t *testing.T) {
 	}
 	if !strings.Contains(fetchSchema, `"url"`) || !strings.Contains(fetchSchema, `"timeout_seconds"`) {
 		t.Fatalf("web_fetch schema missing expected fields: %s", fetchSchema)
-	}
-}
-
-func TestRuntimeContractToolSpecsDescribeAllowedPrivateAddressesOnlyWhenListed(t *testing.T) {
-	for _, listed := range []bool{false, true} {
-		specs, err := RuntimeContractToolSpecs(
-			context.Background(), &fakeContextStore{}, uuid.UUID{}, uuid.UUID{}, webToolsContract(t), time.Time{}, listed,
-		)
-		if err != nil {
-			t.Fatalf("specs: %v", err)
-		}
-		for _, spec := range specs {
-			if spec.Name != "web_fetch" {
-				continue
-			}
-			if got := strings.Contains(spec.Description, "an allowed private address"); got != listed {
-				t.Fatalf("listed=%v: description mentions allowed private addresses = %v: %s", listed, got, spec.Description)
-			}
-			if got := strings.Contains(string(spec.InputSchema), "an allowed private address"); got != listed {
-				t.Fatalf("listed=%v: url hint mentions allowed private addresses = %v: %s", listed, got, spec.InputSchema)
-			}
-		}
 	}
 }

@@ -20,7 +20,6 @@ func RuntimeContractToolSpecs(
 	projectID, agentID uuid.UUID,
 	contract agentconfig.RuntimeContract,
 	now time.Time,
-	webFetchPrivateAddresses bool,
 ) ([]ToolSpec, error) {
 	out := make([]ToolSpec, 0, len(contract.Tools))
 	catalog, err := toolcatalog.Default()
@@ -69,13 +68,6 @@ func RuntimeContractToolSpecs(
 			)
 		}
 		inputSchema := tool.InputSchema
-		if tool.Name == toolcatalog.ToolNameWebFetch && webFetchPrivateAddresses {
-			entry, err := toolcatalog.WebFetchTool(true)
-			if err != nil {
-				return nil, err
-			}
-			description, inputSchema = entry.Description, entry.InputSchema
-		}
 		if tool.Name == toolcatalog.ToolNameSpawnAgent && len(contract.Subagents) > 0 {
 			var err error
 			description, inputSchema, err = spawnAgentToolSpec(description, inputSchema, contract)

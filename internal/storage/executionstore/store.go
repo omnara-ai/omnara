@@ -23,7 +23,7 @@ type Config struct {
 	Identity              *identitystore.Store
 	Secrets               *secretstore.Store
 	Artifacts             *artifactstore.Store
-	PrivateEndpoints      *ssrf.Allowlist
+	EndpointAllowlist     *ssrf.Allowlist
 }
 
 type Store struct {
@@ -35,7 +35,7 @@ type Store struct {
 	identity             *identitystore.Store
 	secrets              *secretstore.Store
 	artifacts            *artifactstore.Store
-	privateEndpoints     *ssrf.Allowlist
+	endpointAllowlist    *ssrf.Allowlist
 }
 
 func New(pool *pgxpool.Pool, config Config) *Store {
@@ -53,6 +53,6 @@ func New(pool *pgxpool.Pool, config Config) *Store {
 		identity:             config.Identity,
 		secrets:              config.Secrets,
 		artifacts:            config.Artifacts,
-		privateEndpoints:     config.PrivateEndpoints,
+		endpointAllowlist:    config.EndpointAllowlist,
 	}
 }

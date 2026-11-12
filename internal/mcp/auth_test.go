@@ -351,7 +351,7 @@ func TestOAuthTokenExchangeNeedsDevModeForPlainHTTPToListedLoopback(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	privateEndpoints, err := ssrf.ParseEndpointAllowlist([]string{serverURL.Host})
+	endpointAllowlist, err := ssrf.ParseAllowlist([]string{serverURL.Host})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +365,7 @@ func TestOAuthTokenExchangeNeedsDevModeForPlainHTTPToListedLoopback(t *testing.T
 			Resource:      ts.URL + "/mcp",
 			HTTPClient: outboundhttp.NewPublicClient(
 				outboundhttp.PublicClientOptions{
-					AllowLoopback: devMode, Allowlist: privateEndpoints, AllowlistHTTPSOnly: true,
+					AllowLoopback: devMode, Allowlist: endpointAllowlist, PlainHTTP: ssrf.PlainHTTPLoopbackOnly,
 				},
 			),
 			AuthStyle: oauth2.AuthStyleInParams,

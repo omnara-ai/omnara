@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"net"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -109,6 +110,31 @@ func TestLoadPublicURL(t *testing.T) {
 	}
 	if cfg.PublicAPIURL != "http://localhost:5173/api/v1" {
 		t.Fatalf("expected derived public API URL, got %q", cfg.PublicAPIURL)
+	}
+}
+
+func TestLoadPrivateNetworkAllowlists(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_PRIVATE_ENDPOINT_CIDRS", "10.0.0.0/8, 127.0.0.1:8080")
+	t.Setenv("OMNARA_WEB_FETCH_PRIVATE_CIDRS", "10.0.3.0/24")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.EndpointAllowlist.Contains(net.ParseIP("10.1.2.3"), 443) ||
+		!cfg.EndpointAllowlist.PermitsLocalhost(8080) || cfg.WebFetchAllowlist.Contains(net.ParseIP("10.1.2.3"), 443) ||
+		!cfg.WebFetchAllowlist.Contains(net.ParseIP("10.0.3.5"), 80) {
+		t.Fatalf("allowlists not loaded as configured: %+v %+v", cfg.EndpointAllowlist, cfg.WebFetchAllowlist)
+	}
+
+	for _, key := range []string{"OMNARA_PRIVATE_ENDPOINT_CIDRS", "OMNARA_WEB_FETCH_PRIVATE_CIDRS"} {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv(key, "10.0.0.0/8,169.254.169.254")
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), key) {
+				t.Fatalf("load with an always-blocked entry error = %v, want a %s error", err, key)
+			}
+		})
 	}
 }
 

@@ -39,7 +39,7 @@ func (s strictOpenAPIServer) ListMCPServerTools(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
 	endpoint, err := agentconfig.ValidateMCPURL(
-		request.Body.Url, s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP, s.server.privateEndpoints,
+		request.Body.Url, s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP, s.server.endpointAllowlist,
 	)
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "url is invalid: "+err.Error())
@@ -236,7 +236,7 @@ func (s strictOpenAPIServer) mcpServerAuthRequired(
 	requirement, err := mcp.DetectAuth(ctx, endpoint, mcp.AuthOptions{
 		HTTPClient:             s.server.mcpOAuthHTTPClient,
 		EndpointHTTPClient:     s.server.mcpHTTPClient,
-		PrivateEndpoints:       s.server.privateEndpoints,
+		EndpointAllowlist:      s.server.endpointAllowlist,
 		AllowInsecureLocalHTTP: s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
 	})
 	switch {

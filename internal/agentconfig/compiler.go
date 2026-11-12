@@ -157,7 +157,7 @@ type CompileOptions struct {
 	ResolveIntegrationName    func(name string) (IntegrationResolution, error)
 	ResolveMemoryStoreName    func(string) (uuid.UUID, error)
 	AllowInsecureLocalMCPHTTP bool
-	PrivateEndpoints          *ssrf.Allowlist
+	EndpointAllowlist         *ssrf.Allowlist
 	ResolveModelSelection     func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error)
 	ValidateSecretID          func(secretID uuid.UUID, expectedKind secrets.Kind) error
 	ResolveMachineName        func(machineName string) (uuid.UUID, error)

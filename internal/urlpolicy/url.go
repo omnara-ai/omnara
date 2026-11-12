@@ -15,7 +15,7 @@ func RequireHTTPSOrLoopback(rawURL string) error {
 	return RequireHTTPSOrPrivateEndpoint(rawURL, nil)
 }
 
-func RequireHTTPSOrPrivateEndpoint(rawURL string, privateEndpoints *ssrf.Allowlist) error {
+func RequireHTTPSOrPrivateEndpoint(rawURL string, endpointAllowlist *ssrf.Allowlist) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("parse URL: %w", err)
@@ -41,10 +41,24 @@ func RequireHTTPSOrPrivateEndpoint(rawURL string, privateEndpoints *ssrf.Allowli
 		return nil
 	}
 	if strings.EqualFold(parsed.Scheme, "http") &&
-		(loopbackHost(parsed.Hostname()) || privateEndpoints.PermitsPlainHTTP(parsed)) {
+		(loopbackHost(parsed.Hostname()) || PermitsPlainHTTP(parsed, endpointAllowlist)) {
 		return nil
 	}
-	return errors.New("URL must use HTTPS unless it uses a loopback host")
+	return errors.New("URL must use HTTPS")
+}
+
+func PermitsPlainHTTP(u *url.URL, endpointAllowlist *ssrf.Allowlist) bool {
+	host := ssrf.ClassifyURLHost(u.Hostname())
+	switch {
+	case host.IP != nil:
+		return endpointAllowlist.Contains(host.IP, ssrf.URLPort(u))
+	case !endpointAllowlist.Configured():
+		return false
+	case host.LocalDev:
+		return endpointAllowlist.PermitsLocalhost(ssrf.URLPort(u))
+	default:
+		return u.Hostname() != ""
+	}
 }
 
 func loopbackHost(host string) bool {

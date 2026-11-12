@@ -55,7 +55,7 @@ type DefaultConfiguredModelTemplate struct {
 
 func PrepareDefaultModelProviderTemplate(
 	template DefaultModelProviderTemplate,
-	privateEndpoints *ssrf.Allowlist,
+	endpointAllowlist *ssrf.Allowlist,
 ) (DefaultModelProviderTemplate, error) {
 	template = cloneDefaultModelProviderTemplate(template)
 	var err error
@@ -76,7 +76,7 @@ func PrepareDefaultModelProviderTemplate(
 	if template.APIVariant == "" {
 		template.APIVariant = modelprotocol.APIVariantDefault
 	}
-	baseURL, err := normalizeModelProviderBaseURL(template.BaseURL, privateEndpoints)
+	baseURL, err := normalizeModelProviderBaseURL(template.BaseURL, endpointAllowlist)
 	if err != nil {
 		return DefaultModelProviderTemplate{}, err
 	}
@@ -239,7 +239,7 @@ func (s *Store) ProvisionDefaultTx(
 	if orgID == uuid.Nil || defaultProjectID == uuid.Nil || createdByUserID == uuid.Nil || credentialSecretID == uuid.Nil {
 		return errors.New("org, default project, creator, and credential are required")
 	}
-	prepared, err := PrepareDefaultModelProviderTemplate(template, s.privateEndpoints)
+	prepared, err := PrepareDefaultModelProviderTemplate(template, s.endpointAllowlist)
 	if err != nil {
 		return fmt.Errorf("default model provider %q: %w", template.Name, err)
 	}

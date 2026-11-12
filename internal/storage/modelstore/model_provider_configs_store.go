@@ -90,7 +90,7 @@ func (s *Store) createModelProviderConfigTx(
 	if err := validateModelProviderAPIFormat(input.APIFormat); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	input.BaseURL, err = normalizeModelProviderBaseURL(input.BaseURL, s.privateEndpoints)
+	input.BaseURL, err = normalizeModelProviderBaseURL(input.BaseURL, s.endpointAllowlist)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -381,7 +381,7 @@ func (s *Store) PatchModelProviderConfig(
 			return ModelProviderConfigRecord{}, err
 		}
 	}
-	record, err := updateModelProviderConfigTx(ctx, tx, qtx, update, management.Tenant, s.privateEndpoints)
+	record, err := updateModelProviderConfigTx(ctx, tx, qtx, update, management.Tenant, s.endpointAllowlist)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -397,12 +397,12 @@ func updateModelProviderConfigTx(
 	qtx *dbsqlc.Queries,
 	input modelProviderConfigUpdate,
 	managementKind management.Kind,
-	privateEndpoints *ssrf.Allowlist,
+	endpointAllowlist *ssrf.Allowlist,
 ) (ModelProviderConfigRecord, error) {
 	update, err := normalizeModelProviderConfigUpdate(
 		ctx,
 		input,
-		privateEndpoints,
+		endpointAllowlist,
 		func(ctx context.Context, orgID, credentialSecretID uuid.UUID, authKind string) error {
 			return validateModelProviderCredentialTx(
 				ctx,
@@ -449,7 +449,7 @@ func updateModelProviderConfigTx(
 func normalizeModelProviderConfigUpdate(
 	ctx context.Context,
 	input modelProviderConfigUpdate,
-	privateEndpoints *ssrf.Allowlist,
+	endpointAllowlist *ssrf.Allowlist,
 	validateCredential func(context.Context, uuid.UUID, uuid.UUID, string) error,
 ) (modelProviderConfigUpdate, error) {
 	if input.OrgID == uuid.Nil || input.ID == uuid.Nil || input.BaseURL == "" || input.EndpointPath == "" ||
@@ -460,7 +460,7 @@ func normalizeModelProviderConfigUpdate(
 		)
 	}
 	var err error
-	input.BaseURL, err = normalizeModelProviderBaseURL(input.BaseURL, privateEndpoints)
+	input.BaseURL, err = normalizeModelProviderBaseURL(input.BaseURL, endpointAllowlist)
 	if err != nil {
 		return modelProviderConfigUpdate{}, err
 	}

@@ -2,6 +2,7 @@ package webaccess
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,11 +29,11 @@ func TestFetchAllowsPlainHTTPIntoWebFetchPrivateRanges(t *testing.T) {
 	}))
 	defer server.Close()
 
-	privateAddresses, err := ssrf.ParseWebFetchAllowlist([]string{"127.0.0.0/8"})
+	allowlist, err := ssrf.ParseAllowlist([]string{"127.0.0.0/8"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := NewFetcher(FetcherOptions{PrivateAddresses: privateAddresses}).Fetch(
+	result, err := NewFetcher(FetcherOptions{Allowlist: allowlist}).Fetch(
 		context.Background(), FetchRequest{URL: server.URL},
 	)
 	if err != nil {
@@ -43,26 +44,30 @@ func TestFetchAllowsPlainHTTPIntoWebFetchPrivateRanges(t *testing.T) {
 	}
 }
 
-func TestBlockedFetchGuidanceFollowsWebFetchList(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	defer server.Close()
-	for _, test := range []struct {
-		list []string
-		want string
-	}{
-		{want: BlockedAddressGuidance},
-		{list: []string{"10.0.3.0/24"}, want: privateNetworkBlockedAddressGuidance},
+func TestFetchKeepsPlainHTTPOnlyForListedIPLiterals(t *testing.T) {
+	allowlist, err := ssrf.ParseAllowlist([]string{"10.0.3.0/24", "127.0.0.1:3000", "0.0.0.0/0:11434"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for raw, want := range map[string]string{
+		"http://10.0.3.7/":            "http://10.0.3.7/",
+		"http://10.0.4.7/":            "https://10.0.4.7/",
+		"http://93.184.216.34/":       "https://93.184.216.34/",
+		"http://93.184.216.34:11434/": "http://93.184.216.34:11434/",
+		"http://ollama/":              "https://ollama/",
+		"http://localhost:3000/":      "https://localhost:3000/",
 	} {
-		privateAddresses, err := ssrf.ParseWebFetchAllowlist(test.list)
-		if err != nil {
-			t.Fatal(err)
+		got, err := normalizeFetchURL(raw, false, allowlist)
+		if err != nil || got != want {
+			t.Errorf("normalizeFetchURL(%s) = %q, %v; want %q", raw, got, err, want)
 		}
-		_, err = NewFetcher(FetcherOptions{PrivateAddresses: privateAddresses}).Fetch(
-			context.Background(), FetchRequest{URL: server.URL},
-		)
-		if providerErr, ok := AsProviderError(err); !ok || providerErr.Message != test.want {
-			t.Fatalf("list %v: blocked fetch error = %v, want %q", test.list, err, test.want)
-		}
+	}
+	response, err := newSSRFHTTPClient(false, allowlist).Get("http://93.184.216.34/")
+	if err == nil {
+		_ = response.Body.Close()
+	}
+	if !errors.Is(err, ssrf.ErrBlockedAddress) {
+		t.Fatalf("plain HTTP to an unlisted port error = %v, want ErrBlockedAddress", err)
 	}
 }
 
@@ -519,7 +524,7 @@ func TestFetchSchemeValidationAndUpgrade(t *testing.T) {
 	if err != nil || kept != "http://example.com/page" {
 		t.Fatalf("dev mode should keep http: %q %v", kept, err)
 	}
-	listedPort, err := ssrf.ParseWebFetchAllowlist([]string{"0.0.0.0/0:11434"})
+	listedPort, err := ssrf.ParseAllowlist([]string{"0.0.0.0/0:11434"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -88,13 +88,10 @@ const (
 	webSearchToolDescription = "Search the public web for up-to-date information beyond your training data. " +
 		"Returns results with URLs, titles, and snippets; use web_fetch to read a result in full. " +
 		"Prefer a few focused queries with varied phrasing over one broad query, and keep it to at most ~5 searches per task."
-	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
-		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
-		"(e.g. curl) on the machine where the service runs instead."
-	webFetchPrivateToolDescription = "Fetch a public http(s) URL or an allowed private address " +
+	webFetchToolDescription = "Fetch a public http(s) URL or an explicitly allowed private address " +
 		"and return its readable content as markdown (read-only). " +
-		"Other localhost and private or internal addresses are not reachable from this tool - use run_command " +
-		"(e.g. curl) on the machine where the service runs instead."
+		"If an address isn't reachable from this tool (such as localhost on an attached machine), " +
+		"use run_command (e.g. curl) on that machine instead."
 	storageWriteToolDescription = "Create or edit a memory text file. " +
 		"Changing an existing file fails unless you read, wrote, uploaded, or downloaded its current content. " +
 		"Returns path."
@@ -417,7 +414,7 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameWebSearch], err = webSearchTool(); err != nil {
 		return Catalog{}, err
 	}
-	if entries[ToolNameWebFetch], err = WebFetchTool(false); err != nil {
+	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
 		return Catalog{}, err
 	}
 	if entries[ToolNameStorageRead], err = storageReadTool(); err != nil {
@@ -619,20 +616,15 @@ func skillTool() (Entry, error) {
 	)
 }
 
-func WebFetchTool(privateAddresses bool) (Entry, error) {
-	description, urlDescription := webFetchToolDescription, "Absolute http(s) URL of a public web page."
-	if privateAddresses {
-		description = webFetchPrivateToolDescription
-		urlDescription = "Absolute http(s) URL of a public web page or an allowed private address."
-	}
+func webFetchTool() (Entry, error) {
 	entry, err := toolEntry(
 		ToolNameWebFetch,
-		description,
+		webFetchToolDescription,
 		[]string{"url"},
 		map[string]any{
 			"url": map[string]any{
 				"type":        "string",
-				"description": urlDescription,
+				"description": "Absolute http(s) URL of a public web page or an explicitly allowed private address.",
 			},
 			"format": map[string]any{
 				"type":        "string",

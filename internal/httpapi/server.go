@@ -68,7 +68,7 @@ type Server struct {
 	agentStreamRecorder                 *metrics.AgentStreamRecorder
 	agentConfigOptions                  agentconfig.CompileOptions
 	allowInsecureModelProviderEndpoints bool
-	privateEndpoints                    *ssrf.Allowlist
+	endpointAllowlist                   *ssrf.Allowlist
 	modelDiscoverer                     modelprovider.DiscoverFunc
 	allowInsecureLocalHostBypass        bool
 	defaultPools                        []executionstore.DefaultMachinePoolTemplate
@@ -358,9 +358,9 @@ func WithAllowInsecureModelProviderEndpoints() Option {
 	}
 }
 
-func WithPrivateEndpoints(privateEndpoints *ssrf.Allowlist) Option {
+func WithEndpointAllowlist(endpointAllowlist *ssrf.Allowlist) Option {
 	return func(s *Server) {
-		s.privateEndpoints = privateEndpoints
+		s.endpointAllowlist = endpointAllowlist
 	}
 }
 
@@ -393,7 +393,6 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 		daemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
 		daemonSocketFallbackDrainJitter:   defaultDaemonSocketFallbackDrainJitter,
 		agentEventReconciliationInterval:  defaultAgentEventReconciliationInterval,
-		modelDiscoverer:                   modelprovider.DiscoverModels,
 		timer:                             clock.New(),
 	}
 	var authStore httpauth.Store
@@ -420,7 +419,12 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	for _, opt := range opts {
 		opt(server)
 	}
-	server.agentConfigOptions.PrivateEndpoints = server.privateEndpoints
+	server.agentConfigOptions.EndpointAllowlist = server.endpointAllowlist
+	if server.modelDiscoverer == nil {
+		server.modelDiscoverer = modelprovider.NewDiscoverer(nil, modelprovider.NewHTTPTransport(
+			server.allowInsecureModelProviderEndpoints, server.endpointAllowlist,
+		))
+	}
 	gitHTTPClient := server.githubClientConfig.HTTPClient
 	if gitHTTPClient == nil {
 		gitHTTPClient = server.integrationHTTPClient
@@ -507,12 +511,13 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	}
 	server.mcpHTTPClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
 		AllowLoopback: server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
-		Allowlist:     server.privateEndpoints,
+		Allowlist:     server.endpointAllowlist,
+		PlainHTTP:     ssrf.PlainHTTPAllowlistOnly,
 	})
 	server.mcpOAuthHTTPClient = outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
-		AllowLoopback:      server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
-		Allowlist:          server.privateEndpoints,
-		AllowlistHTTPSOnly: true,
+		AllowLoopback: server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
+		Allowlist:     server.endpointAllowlist,
+		PlainHTTP:     ssrf.PlainHTTPLoopbackOnly,
 	})
 	server.mcpClient = mcp.New(mcp.Options{HTTPClient: server.mcpHTTPClient})
 	server.sigV4CredentialCache, err = sigv4.NewCredentialCache()

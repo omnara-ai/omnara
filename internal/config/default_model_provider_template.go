@@ -46,7 +46,7 @@ type defaultConfiguredModelFile struct {
 
 func loadDefaultModelProviderTemplate(
 	path string,
-	privateEndpoints *ssrf.Allowlist,
+	endpointAllowlist *ssrf.Allowlist,
 ) (modelstore.DefaultModelProviderTemplate, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -68,13 +68,13 @@ func loadDefaultModelProviderTemplate(
 		}
 		return modelstore.DefaultModelProviderTemplate{}, fmt.Errorf("parse OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE: %w", err)
 	}
-	return defaultModelProviderTemplateFromFile(parsed, "provider", privateEndpoints)
+	return defaultModelProviderTemplateFromFile(parsed, "provider", endpointAllowlist)
 }
 
 func defaultModelProviderTemplateFromFile(
 	parsed defaultModelProviderTemplateFile,
 	label string,
-	privateEndpoints *ssrf.Allowlist,
+	endpointAllowlist *ssrf.Allowlist,
 ) (modelstore.DefaultModelProviderTemplate, error) {
 	models := make([]modelstore.DefaultConfiguredModelTemplate, 0, len(parsed.Models))
 	for index, parsedModel := range parsed.Models {
@@ -102,7 +102,7 @@ func defaultModelProviderTemplateFromFile(
 		AuthOptions:          authOptions,
 		Models:               models,
 	}
-	prepared, err := modelstore.PrepareDefaultModelProviderTemplate(template, privateEndpoints)
+	prepared, err := modelstore.PrepareDefaultModelProviderTemplate(template, endpointAllowlist)
 	if err != nil {
 		return modelstore.DefaultModelProviderTemplate{}, fmt.Errorf(
 			"OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE %s: %w",

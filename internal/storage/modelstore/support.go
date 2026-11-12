@@ -13,18 +13,18 @@ const (
 )
 
 type Config struct {
-	PrivateEndpoints *ssrf.Allowlist
+	EndpointAllowlist *ssrf.Allowlist
 }
 
 type Store struct {
-	pool             *storeutil.Pool
-	q                *dbsqlc.Queries
-	privateEndpoints *ssrf.Allowlist
+	pool              *storeutil.Pool
+	q                 *dbsqlc.Queries
+	endpointAllowlist *ssrf.Allowlist
 }
 
 func New(pool *pgxpool.Pool, config Config) *Store {
 	db := storeutil.WrapPool(pool)
-	return &Store{pool: db, q: dbsqlc.New(db), privateEndpoints: config.PrivateEndpoints}
+	return &Store{pool: db, q: dbsqlc.New(db), endpointAllowlist: config.EndpointAllowlist}
 }
 
 func stringFromSQLCText(value *string) string {

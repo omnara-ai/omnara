@@ -87,7 +87,6 @@ func (e AgentExecutor) toolRuntimeFromConfig(
 		agentID,
 		contract,
 		now,
-		e.ContextBuilder.WebFetchPrivateAddresses,
 	)
 	return specs, err
 }

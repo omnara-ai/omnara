@@ -18,8 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/outboundhttp"
-	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
@@ -45,8 +43,6 @@ type DiscoverFunc func(
 	providerConfig modelstore.ModelProviderConfigRecord,
 	apiKey string,
 	headers map[string]string,
-	allowLoopback bool,
-	privateEndpoints *ssrf.Allowlist,
 ) ([]DiscoveredModel, error)
 
 const (
@@ -55,13 +51,12 @@ const (
 	discoveryPageLimit       = "1000"
 )
 
-func DiscoverModels(
+func discoverModels(
 	ctx context.Context,
+	client *http.Client,
 	providerConfig modelstore.ModelProviderConfigRecord,
 	apiKey string,
 	headers map[string]string,
-	allowLoopback bool,
-	privateEndpoints *ssrf.Allowlist,
 ) ([]DiscoveredModel, error) {
 	auth, err := routeAuthForProviderConfig(providerConfig, apiKey)
 	if err != nil {
@@ -77,10 +72,6 @@ func DiscoverModels(
 	}
 	ctx, cancel := context.WithTimeout(ctx, discoveryRequestTimeout)
 	defer cancel()
-	client := &http.Client{Transport: NewHTTPTransport(allowLoopback, privateEndpoints)}
-	defer client.CloseIdleConnections()
-	client.Timeout = discoveryRequestTimeout
-	client = outboundhttp.CloneWithoutRedirects(client)
 	if providerConfig.APIVariant == modelprotocol.APIVariantOpenRouter {
 		body, err := getDiscoveryEndpoint(
 			ctx, client, providerConfig.BaseURL, "/key", "OpenRouter key endpoint",

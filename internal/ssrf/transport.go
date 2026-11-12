@@ -1,18 +1,27 @@
 package ssrf
 
 import (
+	"cmp"
 	"context"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
+)
+
+type PlainHTTPPolicy uint8
+
+const (
+	PlainHTTPUnrestricted PlainHTTPPolicy = iota
+	PlainHTTPAllowlistOnly
+	PlainHTTPLoopbackOnly
 )
 
 type TransportOptions struct {
 	AllowLoopback                bool
 	Allowlist                    *Allowlist
-	AllowAnyPlainHTTP            bool
-	AllowlistHTTPSOnly           bool
+	PlainHTTP                    PlainHTTPPolicy
 	DialTimeout                  time.Duration
 	TLSHandshakeTimeout          time.Duration
 	ResponseHeaderTimeout        time.Duration
@@ -36,11 +45,7 @@ func NewTransport(opts TransportOptions) http.RoundTripper {
 	dialer := &net.Dialer{Timeout: opts.DialTimeout, KeepAlive: 30 * time.Second}
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			allowlist := opts.Allowlist
-			if opts.AllowlistHTTPSOnly && ctx.Value(plainHTTPKey{}) != nil {
-				allowlist = nil
-			}
-			return dial(ctx, dialer, network, addr, opts.AllowLoopback, allowlist)
+			return dial(ctx, dialer, network, addr, opts.AllowLoopback, opts.Allowlist)
 		},
 		TLSHandshakeTimeout:   opts.TLSHandshakeTimeout,
 		ResponseHeaderTimeout: opts.ResponseHeaderTimeout,
@@ -51,19 +56,22 @@ func NewTransport(opts TransportOptions) http.RoundTripper {
 			PingTimeout:     5 * time.Second,
 		},
 	}
-	if opts.Allowlist == nil || opts.AllowAnyPlainHTTP {
+	if opts.PlainHTTP == PlainHTTPUnrestricted {
 		return transport
 	}
-	return plainHTTPMarker{transport}
+	return plainHTTPMarker{Transport: transport, policy: opts.PlainHTTP}
 }
 
 type plainHTTPKey struct{}
 
-type plainHTTPMarker struct{ *http.Transport }
+type plainHTTPMarker struct {
+	*http.Transport
+	policy PlainHTTPPolicy
+}
 
 func (t plainHTTPMarker) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL.Scheme == "http" {
-		req = req.WithContext(context.WithValue(req.Context(), plainHTTPKey{}, true))
+		req = req.WithContext(context.WithValue(req.Context(), plainHTTPKey{}, t.policy))
 	}
 	return t.Transport.RoundTrip(req)
 }
@@ -83,9 +91,16 @@ func dial(
 	if err != nil {
 		return nil, err
 	}
-	plainHTTP := ctx.Value(plainHTTPKey{}) != nil
+	policy, _ := ctx.Value(plainHTTPKey{}).(PlainHTTPPolicy)
+	if policy == PlainHTTPLoopbackOnly {
+		allowlist = nil
+	}
+	plainHTTP := policy != PlainHTTPUnrestricted
 	permitted := func(ip net.IP) bool {
-		return allowlist.permits(ip, uint16(portNumber), allowLoopback, plainHTTP)
+		if !plainHTTP {
+			return allowlist.PermitsIP(ip, uint16(portNumber), allowLoopback)
+		}
+		return allowlist.Contains(ip, uint16(portNumber)) || (allowLoopback && ip.IsLoopback())
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		if !permitted(ip) {
@@ -93,14 +108,31 @@ func dial(
 		}
 		return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 	}
-	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	addrs, err := cmp.Or(dialer.Resolver, net.DefaultResolver).LookupIPAddr(ctx, host)
 	if err != nil {
 		return nil, err
 	}
-	for _, a := range addrs {
-		if permitted(a.IP) {
-			return dialer.DialContext(ctx, network, net.JoinHostPort(a.IP.String(), port))
-		}
+	addrs = slices.DeleteFunc(addrs, func(a net.IPAddr) bool { return !permitted(a.IP) })
+	if len(addrs) == 0 {
+		return nil, allowlist.blocked(host, port, false, plainHTTP)
 	}
-	return nil, allowlist.blocked(host, port, false, plainHTTP)
+	if dialer.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, dialer.Timeout)
+		defer cancel()
+	}
+	deadline, hasDeadline := ctx.Deadline()
+	var dialErr error
+	for i, a := range addrs {
+		attempt := *dialer
+		if hasDeadline {
+			attempt.Timeout = max(time.Until(deadline)/time.Duration(len(addrs)-i), 2*time.Second)
+		}
+		conn, err := attempt.DialContext(ctx, network, net.JoinHostPort(a.IP.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		dialErr = err
+	}
+	return nil, dialErr
 }

@@ -141,7 +141,7 @@ func main() {
 		storage.WithPostCommitPublisher(publisher),
 		storage.WithSecretKeyWrapper(secretKeyWrapper),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
-		storage.WithPrivateEndpoints(cfg.PrivateEndpoints),
+		storage.WithEndpointAllowlist(cfg.EndpointAllowlist),
 	}
 	blobs, err := blobstore.NewS3Store(context.Background(), cfg.BlobStoreS3Config())
 	if err != nil {
@@ -164,7 +164,7 @@ func main() {
 	replicaID := uuid.New()
 
 	machinePoolManager := machinepool.NewManager(
-		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.PrivateEndpoints,
+		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.EndpointAllowlist,
 	)
 	for _, defaultPoolTemplate := range cfg.DefaultMachinePools {
 		if err := machinePoolManager.ValidateDefaultMachinePool(defaultPoolTemplate); err != nil {
@@ -305,7 +305,7 @@ func runDefaultReconciliation(
 	store := storage.NewStore(
 		db,
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
-		storage.WithPrivateEndpoints(cfg.PrivateEndpoints),
+		storage.WithEndpointAllowlist(cfg.EndpointAllowlist),
 	)
 	result, reconcileErr := store.Organizations().ReconcileDefaults(ctx, orglifecycle.ReconcileDefaultsInput{
 		Apply:                mode == defaultReconciliationApply,
@@ -433,8 +433,10 @@ func apiOptions(
 		httpapi.WithSecretKeyWrapper(secretKeyWrapper),
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),
 		httpapi.WithDefaultModelProvider(cfg.DefaultModelProvider),
-		httpapi.WithModelDiscoverer(modelprovider.NewDiscoverer(modelprovider.NewLimitsCatalog())),
-		httpapi.WithPrivateEndpoints(cfg.PrivateEndpoints),
+		httpapi.WithModelDiscoverer(modelprovider.NewDiscoverer(
+			modelprovider.NewLimitsCatalog(), modelprovider.NewHTTPTransport(cfg.AllowInsecureDev, cfg.EndpointAllowlist),
+		)),
+		httpapi.WithEndpointAllowlist(cfg.EndpointAllowlist),
 		httpapi.WithHostedCredentialProvisioner(modelprovider.HTTPHostedCredentialProvisioner{
 			BaseURL:    cfg.HostedAPIURL,
 			Token:      cfg.HostedAPIToken,

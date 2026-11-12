@@ -19,6 +19,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/urlpolicy"
 	"golang.org/x/net/http/httpguts"
 )
 
@@ -226,7 +227,7 @@ func normalizeModelProviderEndpointPath(apiFormat modelprotocol.APIFormat, endpo
 	return endpointPath
 }
 
-func normalizeModelProviderBaseURL(baseURL string, privateEndpoints *ssrf.Allowlist) (string, error) {
+func normalizeModelProviderBaseURL(baseURL string, endpointAllowlist *ssrf.Allowlist) (string, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
 		return "", fmt.Errorf("base_url is required: %w", storeerr.ErrInvalidModelProviderConfig)
@@ -245,11 +246,8 @@ func normalizeModelProviderBaseURL(baseURL string, privateEndpoints *ssrf.Allowl
 		return "", fmt.Errorf("base_url cannot include user information: %w", storeerr.ErrInvalidModelProviderConfig)
 	}
 	if parsed.Scheme == "http" && !isLocalModelProviderHTTPHost(parsed.Hostname()) &&
-		!privateEndpoints.PermitsPlainHTTP(parsed) {
-		return "", fmt.Errorf(
-			"base_url must use https unless it targets localhost or a loopback IP: %w",
-			storeerr.ErrInvalidModelProviderConfig,
-		)
+		!urlpolicy.PermitsPlainHTTP(parsed, endpointAllowlist) {
+		return "", fmt.Errorf("base_url must use https: %w", storeerr.ErrInvalidModelProviderConfig)
 	}
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", fmt.Errorf("base_url cannot include query or fragment: %w", storeerr.ErrInvalidModelProviderConfig)

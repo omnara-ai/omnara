@@ -10,8 +10,7 @@ import (
 )
 
 type Allowlist struct {
-	plainHTTPHostnames bool
-	entries            []allowEntry
+	entries []allowEntry
 }
 
 type allowEntry struct {
@@ -28,18 +27,11 @@ var alwaysBlocked = []netip.Prefix{
 	netip.MustParsePrefix("fd00:ec2::23/128"),
 	netip.MustParsePrefix("fd20:ce::254/128"),
 	netip.MustParsePrefix("fd00:c1::a9fe:a9fe/128"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
 }
 
-func ParseEndpointAllowlist(raw []string) (*Allowlist, error) {
-	return parseAllowlist(raw, true)
-}
-
-func ParseWebFetchAllowlist(raw []string) (*Allowlist, error) {
-	return parseAllowlist(raw, false)
-}
-
-func parseAllowlist(raw []string, plainHTTPHostnames bool) (*Allowlist, error) {
-	list := &Allowlist{plainHTTPHostnames: plainHTTPHostnames}
+func ParseAllowlist(raw []string) (*Allowlist, error) {
+	list := &Allowlist{}
 	for _, value := range raw {
 		entry, err := parseAllowEntry(value)
 		if err != nil {
@@ -70,33 +62,29 @@ func parseAllowEntry(raw string) (allowEntry, error) {
 	if prefix.Addr().Is4In6() {
 		return allowEntry{}, fmt.Errorf("%q must use the IPv4 form", raw)
 	}
-	return allowEntry{prefix: prefix.Masked(), port: uint16(port)}, nil
+	prefix = prefix.Masked()
+	if alwaysBlockedPrefix(prefix) {
+		return allowEntry{}, fmt.Errorf("%q is always blocked and cannot be allowed", raw)
+	}
+	return allowEntry{prefix: prefix, port: uint16(port)}, nil
+}
+
+func alwaysBlockedPrefix(prefix netip.Prefix) bool {
+	return slices.ContainsFunc(alwaysBlocked, func(blocked netip.Prefix) bool {
+		return blocked.Bits() <= prefix.Bits() && blocked.Contains(prefix.Addr())
+	}) || (prefix.IsSingleIP() && isAlwaysBlocked(prefix.Addr().AsSlice()))
 }
 
 func (a *Allowlist) PermitsIP(ip net.IP, port uint16, allowLoopback bool) bool {
-	return a.contains(ip, port) || IsAllowedIP(ip, allowLoopback)
+	return a.Contains(ip, port) || IsAllowedIP(ip, allowLoopback)
 }
 
 func (a *Allowlist) PermitsLocalhost(port uint16) bool {
-	return a.contains(net.IPv4(127, 0, 0, 1), port) || a.contains(net.IPv6loopback, port)
+	return a.Contains(net.IPv4(127, 0, 0, 1), port) || a.Contains(net.IPv6loopback, port)
 }
 
 func (a *Allowlist) Configured() bool {
 	return a != nil && len(a.entries) > 0
-}
-
-func (a *Allowlist) PermitsPlainHTTP(u *url.URL) bool {
-	host := ClassifyURLHost(u.Hostname())
-	switch {
-	case host.IP != nil:
-		return a.contains(host.IP, URLPort(u))
-	case !a.Configured() || !a.plainHTTPHostnames:
-		return false
-	case host.LocalDev:
-		return a.PermitsLocalhost(URLPort(u))
-	default:
-		return u.Hostname() != ""
-	}
 }
 
 func URLPort(u *url.URL) uint16 {
@@ -114,17 +102,7 @@ func URLPort(u *url.URL) uint16 {
 	return uint16(port)
 }
 
-func (a *Allowlist) permits(ip net.IP, port uint16, allowLoopback, plainHTTP bool) bool {
-	if a.contains(ip, port) {
-		return true
-	}
-	if plainHTTP {
-		return allowLoopback && ip.IsLoopback()
-	}
-	return IsAllowedIP(ip, allowLoopback)
-}
-
-func (a *Allowlist) contains(ip net.IP, port uint16) bool {
+func (a *Allowlist) Contains(ip net.IP, port uint16) bool {
 	if a == nil || port == 0 {
 		return false
 	}

@@ -142,7 +142,7 @@ func (s *Store) validateEventWebhookSettingsTx(
 	orgID, projectID uuid.UUID,
 	settings webhookconfig.Settings,
 ) (webhookconfig.Settings, error) {
-	settings, err := webhookconfig.Validate(settings, s.privateEndpoints)
+	settings, err := webhookconfig.Validate(settings, s.endpointAllowlist)
 	if err != nil {
 		return webhookconfig.Settings{}, storeerr.InvalidRequest(err)
 	}

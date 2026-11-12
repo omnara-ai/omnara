@@ -41,10 +41,11 @@ type OpenRouterAttribution struct {
 
 var defaultHTTPTransport = NewHTTPTransport(false, nil)
 
-func NewHTTPTransport(allowLoopback bool, privateEndpoints *ssrf.Allowlist) http.RoundTripper {
+func NewHTTPTransport(allowLoopback bool, endpointAllowlist *ssrf.Allowlist) http.RoundTripper {
 	return ssrf.NewTransport(ssrf.TransportOptions{
 		AllowLoopback:                allowLoopback,
-		Allowlist:                    privateEndpoints,
+		Allowlist:                    endpointAllowlist,
+		PlainHTTP:                    ssrf.PlainHTTPAllowlistOnly,
 		DisableResponseHeaderTimeout: true,
 	})
 }

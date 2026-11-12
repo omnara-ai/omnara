@@ -171,11 +171,11 @@ func TestHTTPClientForProviderConfigReusesGuardedTransport(t *testing.T) {
 			second.Transport,
 		)
 	}
-	transport, ok := first.Transport.(*http.Transport)
+	cloner, ok := first.Transport.(interface{ Clone() *http.Transport })
 	if !ok {
-		t.Fatalf("transport = %T, want *http.Transport", first.Transport)
+		t.Fatalf("transport = %T, want an http.Transport", first.Transport)
 	}
-	if transport.ResponseHeaderTimeout != 0 {
+	if transport := cloner.Clone(); transport.ResponseHeaderTimeout != 0 {
 		t.Fatalf(
 			"response header timeout = %s, want disabled for model generation budget",
 			transport.ResponseHeaderTimeout,

@@ -36,7 +36,7 @@ const (
 type AuthOptions struct {
 	HTTPClient             *http.Client
 	EndpointHTTPClient     *http.Client
-	PrivateEndpoints       *ssrf.Allowlist
+	EndpointAllowlist      *ssrf.Allowlist
 	AllowInsecureLocalHTTP bool
 }
 
@@ -113,7 +113,7 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 	if endpoint == "" {
 		return AuthRequirement{}, errors.New("mcp auth: endpoint URL is required")
 	}
-	if err := urlpolicy.RequireHTTPSOrPrivateEndpoint(endpoint, opts.PrivateEndpoints); err != nil {
+	if err := urlpolicy.RequireHTTPSOrPrivateEndpoint(endpoint, opts.EndpointAllowlist); err != nil {
 		return AuthRequirement{}, fmt.Errorf("mcp auth: endpoint URL: %w", err)
 	}
 	client := clientWithoutRedirects(opts.HTTPClient)

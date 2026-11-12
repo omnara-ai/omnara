@@ -71,8 +71,5 @@ const (
 
 // BlockedAddressGuidance is appended to SSRF rejections so the model is
 // redirected to the working path for machine-local services.
-const BlockedAddressGuidance = "localhost and private addresses are not reachable from this tool; " +
-	"use run_command (e.g. curl) on the machine where the service runs"
-
-const privateNetworkBlockedAddressGuidance = "this address is not reachable from this tool; " +
+const BlockedAddressGuidance = "this address is not reachable from this tool; " +
 	"use run_command (e.g. curl) on the machine where the service runs"

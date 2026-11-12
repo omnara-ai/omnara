@@ -296,8 +296,7 @@ func ClarifyTransportError(cause error, endpointURL string) error {
 	if errors.Is(cause, ssrf.ErrBlockedAddress) {
 		return fmt.Errorf(
 			"mcp endpoint %s resolves to a blocked address (loopback/private/reserved); "+
-				"recompile the agent with a public https URL, or run the worker with "+
-				"OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1 for local development: %w",
+				"recompile the agent with a public https URL: %w",
 			endpointURL,
 			cause,
 		)

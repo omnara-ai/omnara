@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/modelprovider"
-	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -30,8 +29,7 @@ func TestOutputCapacityCreationAndPatch(t *testing.T) {
 			ctx := t.Context()
 			pool := openIntegrationDB(t, ctx)
 			handler := newIntegrationServer(pool, WithModelDiscoverer(func(
-				_ context.Context, _ modelstore.ModelProviderConfigRecord, _ string, _ map[string]string, _ bool,
-				_ *ssrf.Allowlist,
+				_ context.Context, _ modelstore.ModelProviderConfigRecord, _ string, _ map[string]string,
 			) ([]modelprovider.DiscoveredModel, error) {
 				return []modelprovider.DiscoveredModel{{
 					Slug: "capacity-model", ContextWindowTokens: new(128000), MaxOutputTokens: new(64000),

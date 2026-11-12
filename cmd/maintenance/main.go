@@ -105,7 +105,7 @@ func main() {
 		storage.WithMemoryFilesystem(memoryFS),
 		storage.WithMemoryRecorder(metrics.NewMemoryRecorder(metricSet)),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
-		storage.WithPrivateEndpoints(cfg.PrivateEndpoints),
+		storage.WithEndpointAllowlist(cfg.EndpointAllowlist),
 	)
 	healthErr := metrics.Serve(
 		ctx,
@@ -137,7 +137,7 @@ func main() {
 	}
 
 	machinePools := machinepool.NewManager(
-		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.PrivateEndpoints,
+		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.EndpointAllowlist,
 	)
 	jobsDone := make(chan struct{})
 	go func() {

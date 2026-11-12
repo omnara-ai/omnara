@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/ssrf"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -996,8 +998,6 @@ func TestModelProviderConfigRoutesRejectLocalEndpointsOutsideInsecureDev(t *test
 			modelstore.ModelProviderConfigRecord,
 			string,
 			map[string]string,
-			bool,
-			*ssrf.Allowlist,
 		) ([]modelprovider.DiscoveredModel, error) {
 			return nil, errors.New("model discovery is disabled in integration tests")
 		}),
@@ -1381,4 +1381,43 @@ func agentConfigSourceBody(source string) string {
 		panic(err)
 	}
 	return string(raw)
+}
+
+func TestModelProviderBaseURLsFollowEndpointAllowlist(t *testing.T) {
+	t.Parallel()
+	pool := openIntegrationDB(t, context.Background())
+	modelsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-a"}]}`))
+	}))
+	defer modelsServer.Close()
+	_, port, err := net.SplitHostPort(modelsServer.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := ssrf.ParseAllowlist([]string{"127.0.0.1:" + port, "10.0.5.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := bootstrapPublicHTTPProject(t, newIntegrationServerWithStoreOptions(
+		pool, []storage.Option{storage.WithEndpointAllowlist(listed)},
+	), "model-provider-allowlist")
+	handler := mustNewServer(
+		t, project.Store, WithSecretKeyWrapper(integrationKeyWrapper()), WithEndpointAllowlist(listed),
+	).Handler()
+	secret := requestJSONWithHeaders(t, handler, http.MethodPost, "/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"org"},"name":"allowlist-key","material":{"kind":"generic","value":"sk"}}`,
+		"", http.StatusCreated, authHeaders(project.AdminToken))
+	create := func(name, baseURL string, status int) map[string]any {
+		return requestJSONWithHeaders(t, handler, http.MethodPost, "/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+			`{"name":"`+name+`","api_format":"openai-responses","base_url":"`+baseURL+
+				`","credential_secret_id":"`+testutil.RequireType[string](t, secret["id"])+`"}`,
+			"", status, authHeaders(project.AdminToken))
+	}
+
+	local := create("listed-loopback", modelsServer.URL+"/v1", http.StatusCreated)
+	if catalog := testutil.RequireType[map[string]any](t, local["model_catalog"]); catalog["status"] != "ok" {
+		t.Fatalf("discovery against a listed loopback endpoint: %+v", catalog)
+	}
+	create("listed-network-hostname", "http://models.invalid:8080/v1", http.StatusCreated)
+	create("unlisted-private-ip", "http://10.0.6.21:8080/v1", http.StatusBadRequest)
 }

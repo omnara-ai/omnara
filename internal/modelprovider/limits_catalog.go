@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
-	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
@@ -242,18 +241,20 @@ func equalPtr[T comparable](a, b *T) bool {
 	return *a == *b
 }
 
-func NewDiscoverer(catalog *LimitsCatalog) DiscoverFunc {
+func NewDiscoverer(catalog *LimitsCatalog, transport http.RoundTripper) DiscoverFunc {
+	client := outboundhttp.CloneWithoutRedirects(&http.Client{Transport: transport, Timeout: discoveryRequestTimeout})
 	return func(
 		ctx context.Context,
 		providerConfig modelstore.ModelProviderConfigRecord,
 		apiKey string,
 		headers map[string]string,
-		allowLoopback bool,
-		privateEndpoints *ssrf.Allowlist,
 	) ([]DiscoveredModel, error) {
-		models, err := DiscoverModels(ctx, providerConfig, apiKey, headers, allowLoopback, privateEndpoints)
+		models, err := discoverModels(ctx, client, providerConfig, apiKey, headers)
 		if err != nil {
 			return nil, err
+		}
+		if catalog == nil {
+			return models, nil
 		}
 		return catalog.FillMissingLimits(ctx, models), nil
 	}

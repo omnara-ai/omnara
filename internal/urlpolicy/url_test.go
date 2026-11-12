@@ -1,6 +1,7 @@
 package urlpolicy
 
 import (
+	"net/url"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/ssrf"
@@ -41,7 +42,7 @@ func TestRequireHTTPSOrLoopback(t *testing.T) {
 
 func TestRequireHTTPSOrPrivateEndpoint(t *testing.T) {
 	t.Parallel()
-	privateEndpoints, err := ssrf.ParseEndpointAllowlist([]string{"10.0.0.0/8", "fd00::/8"})
+	endpointAllowlist, err := ssrf.ParseAllowlist([]string{"10.0.0.0/8", "fd00::/8"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,7 @@ func TestRequireHTTPSOrPrivateEndpoint(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			err := RequireHTTPSOrPrivateEndpoint(test.rawURL, privateEndpoints)
+			err := RequireHTTPSOrPrivateEndpoint(test.rawURL, endpointAllowlist)
 			if (err != nil) != test.wantErr {
 				t.Fatalf("RequireHTTPSOrPrivateEndpoint(%q) error = %v, wantErr %v", test.rawURL, err, test.wantErr)
 			}
@@ -69,5 +70,35 @@ func TestRequireHTTPSOrPrivateEndpoint(t *testing.T) {
 	}
 	if err := RequireHTTPSOrLoopback("http://10.0.5.21:8000/v1"); err == nil {
 		t.Fatal("RequireHTTPSOrLoopback accepted plain HTTP to an allowed private address")
+	}
+}
+
+func TestPermitsPlainHTTP(t *testing.T) {
+	t.Parallel()
+	endpoints, err := ssrf.ParseAllowlist([]string{"10.0.5.0/24", "192.168.1.10:8000", "127.0.0.1:8080"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rawURL, want := range map[string]bool{
+		"http://10.0.5.21/":         true,
+		"http://10.0.6.1/":          false,
+		"http://192.168.1.10:8000/": true,
+		"http://192.168.1.10/":      false,
+		"http://10.0.5.21:0/":       false,
+		"http://10.0.5.21:65536/":   false,
+		"http://localhost/":         false,
+		"http://localhost:8080/":    true,
+		"http://ollama/":            true,
+	} {
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := PermitsPlainHTTP(parsed, endpoints); got != want {
+			t.Errorf("PermitsPlainHTTP(%s) = %v, want %v", rawURL, got, want)
+		}
+		if PermitsPlainHTTP(parsed, nil) || PermitsPlainHTTP(parsed, &ssrf.Allowlist{}) {
+			t.Errorf("PermitsPlainHTTP(%s) without a list = true", rawURL)
+		}
 	}
 }

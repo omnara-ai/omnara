@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/mcp"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -197,6 +199,41 @@ func TestListMCPServerToolsRejectsInvalidURL(t *testing.T) {
 				t.Fatalf("err = %v, want invalid_request", err)
 			}
 		})
+	}
+}
+
+func TestMCPClientsUseEndpointAllowlist(t *testing.T) {
+	upstream := httptest.NewServer(fakeMCPToolServer{
+		t: t, tools: []map[string]any{{"name": "bare", "inputSchema": map[string]any{"type": "object"}}},
+	}.handler())
+	defer upstream.Close()
+	_, port, err := net.SplitHostPort(upstream.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := ssrf.ParseAllowlist([]string{"127.0.0.1:" + port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, allowlist := range []*ssrf.Allowlist{listed, nil} {
+		server := mustNewUnitServer(t, WithEndpointAllowlist(allowlist))
+		response, _ := strictOpenAPIServer{server: server}.ListMCPServerTools(
+			mcpServerToolsTestContext(),
+			openapi.ListMCPServerToolsRequestObject{
+				Body: &openapi.MCPServerToolsRequest{Url: upstream.URL + "/mcp", Auth: mcpServerAuthNone(t)},
+			},
+		)
+		if _, ok := response.(openapi.ListMCPServerTools200JSONResponse); ok != (allowlist != nil) {
+			t.Fatalf("listed=%v: response = %T %+v", allowlist != nil, response, response)
+		}
+	}
+	server := mustNewUnitServer(t, WithEndpointAllowlist(listed))
+	response, err := server.mcpOAuthHTTPClient.Get(upstream.URL)
+	if err == nil {
+		_ = response.Body.Close()
+	}
+	if !errors.Is(err, ssrf.ErrBlockedAddress) {
+		t.Fatalf("OAuth plain HTTP to a listed address error = %v, want ErrBlockedAddress", err)
 	}
 }
 

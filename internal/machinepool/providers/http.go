@@ -31,9 +31,9 @@ var ErrResponseTooLarge = errors.New("provider response exceeds the byte limit")
 
 var providerHTTPClient = NewSharedHTTPClient(nil)
 
-func NewSharedHTTPClient(privateEndpoints *ssrf.Allowlist) *http.Client {
+func NewSharedHTTPClient(endpointAllowlist *ssrf.Allowlist) *http.Client {
 	return outboundhttp.NewPublicClient(
-		outboundhttp.PublicClientOptions{Timeout: HTTPClientTimeout, Allowlist: privateEndpoints},
+		outboundhttp.PublicClientOptions{Timeout: HTTPClientTimeout, Allowlist: endpointAllowlist},
 	)
 }
 

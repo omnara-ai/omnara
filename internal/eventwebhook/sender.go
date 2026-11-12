@@ -71,12 +71,14 @@ func (e configurationError) Unwrap() error { return e.error }
 
 func New(
 	store Store, log *slog.Logger, maxInFlight, perOrgLimit int,
-	recorder *metrics.EventWebhookRecorder, httpRecorder *metrics.HTTPClientRecorder, privateEndpoints *ssrf.Allowlist,
+	recorder *metrics.EventWebhookRecorder, httpRecorder *metrics.HTTPClientRecorder, endpointAllowlist *ssrf.Allowlist,
 ) *Sender {
 	return &Sender{store: store, log: log, recorder: recorder, maxInFlight: maxInFlight, perOrgLimit: perOrgLimit,
 		client: metrics.NewObservedHTTPClient(
 			outboundhttp.NewPublicClient(
-				outboundhttp.PublicClientOptions{Timeout: attemptTimeout, Allowlist: privateEndpoints},
+				outboundhttp.PublicClientOptions{
+					Timeout: attemptTimeout, Allowlist: endpointAllowlist, PlainHTTP: ssrf.PlainHTTPAllowlistOnly,
+				},
 			), httpRecorder,
 			metrics.WithHTTPClientHostLabel("event_webhook"), metrics.WithHTTPClientPathLabel("/*"))}
 }

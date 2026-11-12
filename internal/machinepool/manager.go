@@ -61,7 +61,7 @@ func NewManager(
 	identity *identitystore.Store,
 	publicAPIURL string,
 	httpRecorder *metrics.HTTPClientRecorder,
-	privateEndpoints *ssrf.Allowlist,
+	endpointAllowlist *ssrf.Allowlist,
 ) *Manager {
 	return &Manager{
 		Execution:                  execution,
@@ -69,7 +69,7 @@ func NewManager(
 		Catalog:                    DefaultCatalog(),
 		PublicAPIURL:               publicAPIURL,
 		HTTPRecorder:               httpRecorder,
-		ProviderHTTPClient:         providers.NewSharedHTTPClient(privateEndpoints),
+		ProviderHTTPClient:         providers.NewSharedHTTPClient(endpointAllowlist),
 		runtimeReconciliationState: newRuntimeReconciliationState(),
 	}
 }

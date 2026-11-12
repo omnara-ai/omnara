@@ -21,32 +21,32 @@ type Config struct {
 	Execution           *executionstore.Store
 	Models              *modelstore.Store
 	Secrets             *secretstore.Store
-	PrivateEndpoints    *ssrf.Allowlist
+	EndpointAllowlist   *ssrf.Allowlist
 }
 
 type Service struct {
-	cell             *agentexecution.AgentCell
-	pool             *storeutil.Pool
-	q                *dbsqlc.Queries
-	blobs            blobstore.Store
-	identity         *identitystore.Store
-	execution        *executionstore.Store
-	models           *modelstore.Store
-	secrets          *secretstore.Store
-	privateEndpoints *ssrf.Allowlist
+	cell              *agentexecution.AgentCell
+	pool              *storeutil.Pool
+	q                 *dbsqlc.Queries
+	blobs             blobstore.Store
+	identity          *identitystore.Store
+	execution         *executionstore.Store
+	models            *modelstore.Store
+	secrets           *secretstore.Store
+	endpointAllowlist *ssrf.Allowlist
 }
 
 func New(pool *pgxpool.Pool, config Config) *Service {
 	db := storeutil.WrapPool(pool)
 	return &Service{
-		cell:             agentexecution.NewCell(pool, config.PostCommitPublisher, nil),
-		pool:             db,
-		q:                dbsqlc.New(db),
-		blobs:            config.Blobs,
-		identity:         config.Identity,
-		execution:        config.Execution,
-		models:           config.Models,
-		secrets:          config.Secrets,
-		privateEndpoints: config.PrivateEndpoints,
+		cell:              agentexecution.NewCell(pool, config.PostCommitPublisher, nil),
+		pool:              db,
+		q:                 dbsqlc.New(db),
+		blobs:             config.Blobs,
+		identity:          config.Identity,
+		execution:         config.Execution,
+		models:            config.Models,
+		secrets:           config.Secrets,
+		endpointAllowlist: config.EndpointAllowlist,
 	}
 }

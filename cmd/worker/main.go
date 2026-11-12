@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
@@ -36,6 +35,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/webaccess"
@@ -134,7 +134,7 @@ func main() {
 		storage.WithSecretKeyWrapper(secretKeyWrapper),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
 		storage.WithMemoryRecorder(metrics.NewMemoryRecorder(metricSet)),
-		storage.WithPrivateEndpoints(cfg.PrivateEndpoints),
+		storage.WithEndpointAllowlist(cfg.EndpointAllowlist),
 	}
 	if cfg.BlobS3Bucket != "" {
 		blobs, err := blobstore.NewS3Store(context.Background(), cfg.BlobStoreS3Config())
@@ -169,13 +169,15 @@ func main() {
 		),
 		httpRecorder,
 	)
-	mcpHTTPClient := outboundhttp.NewPublicClient(
-		outboundhttp.PublicClientOptions{AllowLoopback: cfg.AllowInsecureDev, Allowlist: cfg.PrivateEndpoints},
-	)
+	mcpHTTPClient := outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
+		AllowLoopback: cfg.AllowInsecureDev,
+		Allowlist:     cfg.EndpointAllowlist,
+		PlainHTTP:     ssrf.PlainHTTPAllowlistOnly,
+	})
 	mcpAuthHTTPClient := outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
-		AllowLoopback:      cfg.AllowInsecureDev,
-		Allowlist:          cfg.PrivateEndpoints,
-		AllowlistHTTPSOnly: true,
+		AllowLoopback: cfg.AllowInsecureDev,
+		Allowlist:     cfg.EndpointAllowlist,
+		PlainHTTP:     ssrf.PlainHTTPLoopbackOnly,
 	})
 	searchHTTPClient := metrics.NewObservedHTTPClient(
 		outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{}),
@@ -184,11 +186,11 @@ func main() {
 	)
 	searchProvider := webaccess.ExaProvider{APIKey: cfg.ExaAPIKey, HTTPClient: searchHTTPClient}
 	webFetcher := webaccess.NewFetcher(webaccess.FetcherOptions{
-		AllowLoopback:    cfg.AllowInsecureDev,
-		PrivateAddresses: cfg.WebFetchPrivateAddresses,
+		AllowLoopback: cfg.AllowInsecureDev,
+		Allowlist:     cfg.WebFetchAllowlist,
 	})
 	machinePoolManager := machinepool.NewManager(
-		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.PrivateEndpoints,
+		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.EndpointAllowlist,
 	)
 	backgroundRunner, err := tools.NewBackgroundExecutionRunner(
 		executionCtx,
@@ -229,25 +231,20 @@ func main() {
 	if safetyIdentifierKey == nil {
 		log.Warn("OMNARA_SAFETY_IDENTIFIER_KEY is not set; model requests will not carry safety identifiers")
 	}
-	agentConfigOptions := agentconfig.CompileOptions{
-		AllowInsecureLocalMCPHTTP: cfg.AllowInsecureDev,
-		PrivateEndpoints:          cfg.PrivateEndpoints,
-	}
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
 		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
 			Store: store, HTTPClient: integrationHTTPClient,
 		}.Notify,
 		ContextBuilder: modelcontext.Builder{
-			Store:                    modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
-			Skills:                   store.Skills(),
-			WebFetchPrivateAddresses: cfg.WebFetchPrivateAddresses.Configured(),
+			Store:  modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Skills: store.Skills(),
 		},
 		ModelResolver: modelprovider.Resolver{
 			Models:               store.Models(),
 			Secrets:              store.Secrets(),
 			HTTPRecorder:         httpRecorder,
-			HTTPTransport:        modelprovider.NewHTTPTransport(cfg.AllowInsecureDev, cfg.PrivateEndpoints),
+			HTTPTransport:        modelprovider.NewHTTPTransport(cfg.AllowInsecureDev, cfg.EndpointAllowlist),
 			SigV4CredentialCache: sigV4CredentialCache,
 			OpenRouterAttribution: modelprovider.OpenRouterAttribution{
 				SiteURL:       cfg.OpenRouterSiteURL,
@@ -268,7 +265,6 @@ func main() {
 			MachinePoolManager:    machinePoolManager,
 			BackgroundRunner:      backgroundRunner,
 			SkillBroadcaster:      skillBroadcaster,
-			AgentConfigOptions:    agentConfigOptions,
 			Log:                   log,
 		},
 		StreamPublisher: redisBus,
@@ -392,7 +388,7 @@ func main() {
 	eventWebhooks := eventwebhook.New(
 		store.Execution(), log, cfg.WorkerEventWebhookConcurrency, cfg.EventWebhookPerOrgConcurrency,
 		metrics.NewEventWebhookRecorder(metricSet), httpRecorder,
-		cfg.PrivateEndpoints,
+		cfg.EndpointAllowlist,
 	)
 	eventWebhookDone := make(chan struct{})
 	go func() {

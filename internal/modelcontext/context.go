@@ -15,10 +15,9 @@ import (
 )
 
 type Builder struct {
-	Store                    Store
-	Skills                   SkillStore
-	Normalizer               Normalizer
-	WebFetchPrivateAddresses bool
+	Store      Store
+	Skills     SkillStore
+	Normalizer Normalizer
 }
 
 func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
@@ -109,7 +108,6 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 		input.AgentID,
 		contract,
 		input.Now,
-		b.WebFetchPrivateAddresses,
 	)
 	if err != nil {
 		return Bundle{}, err
