@@ -681,6 +681,8 @@ it.each([
   ['[ # before A\n A, # first\n B # second\n]', '[\n B, # second\n # before A\n A # first\n]'],
   ['[ # before A\n A,\n B\n]', '[\n B,\n # before A\n A\n]'],
   ['[A,B # second\n]', '[B, # second\n A\n]'],
+  ['[A, B # second\n # continued\n]', '[B # second\n # continued\n  , A\n]'],
+  ['[\n A,\n B\n # after second\n]', '[\n B\n # after second\n ,\n A\n]'],
   ['[\n # first\n A,\n # second\n B\n]', '[\n # second\n B,\n # first\n A\n]'],
 ])('keeps flow sequence comments with their items: %s', (before, after) => {
   const expand = (text: string) =>
@@ -693,6 +695,19 @@ it.each([
   const result = session.evaluate({ ...draft, skillIds: [...draft.skillIds].reverse() })
   expect(result.issues).toEqual([])
   expect(result.yaml).toBe(expand(after))
+  const reloaded = draftFor(result.yaml)
+  const restored = reloaded.session.evaluate({
+    ...reloaded.draft,
+    skillIds: [...reloaded.draft.skillIds].reverse(),
+  })
+  expect(restored.issues).toEqual([])
+  for (const index of [0, 1]) {
+    const initial = parseDocument(expand(before)).getIn(['skills', index], true)
+    const node = parseDocument(restored.yaml).getIn(['skills', index], true)
+    if (!isNode(initial) || !isNode(node)) throw new Error('Missing skill node')
+    expect(node.comment).toBe(initial.comment)
+    expect(node.commentBefore).toBe(initial.commentBefore)
+  }
 })
 
 it.each(['<<', '10.0.0.1'])(
