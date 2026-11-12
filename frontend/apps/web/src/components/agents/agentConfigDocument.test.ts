@@ -600,3 +600,14 @@ it('keeps invalid numeric drafts out of the source while applying other edits', 
       )
   }
 })
+
+it('retains closing-delimiter indentation when clearing the last nested inline field', () => {
+  const source = header + 'subagents:\n  helper: {type: self,\n    max_instances: 2}\n'
+  const { session, draft } = draftFor(source)
+  const result = session.evaluate({
+    ...draft,
+    subagents: draft.subagents.map((row) => ({ ...row, maxInstances: '' })),
+  })
+  expect(result.issues).toEqual([])
+  expect(result.yaml).toBe(source.replace('self,', 'self').replace('max_instances: 2', ''))
+})
