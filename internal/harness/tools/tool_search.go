@@ -68,9 +68,6 @@ func runToolSearch(ctx context.Context, call transactionalToolContext) (transact
 		return nil, err
 	}
 	specs := searchableToolSpecs(call.Turn.Tools)
-	if err := addWhereCommandsCannotCall(ctx, call, specs); err != nil {
-		return nil, err
-	}
 	search, err := modelcontext.SearchDeferredTools(specs, request.Pattern, request.MaxResults)
 	if err != nil {
 		content, contentErr := toolFailureContent("invalid_tool_input", err.Error(), true)
@@ -87,31 +84,6 @@ func runToolSearch(ctx context.Context, call transactionalToolContext) (transact
 		textToolResultPart(toolSearchSummary(specs, search)),
 		structured,
 	)), nil
-}
-
-func addWhereCommandsCannotCall(
-	ctx context.Context, call transactionalToolContext, specs []modelcontext.ToolSpec,
-) error {
-	codeMode := false
-	for _, spec := range specs {
-		codeMode = codeMode || spec.CodeMode
-	}
-	if !codeMode {
-		return nil
-	}
-	available := false
-	if call.Reader != nil {
-		var err error
-		if available, err = call.Reader.AgentHasCodeModeMachine(ctx); err != nil {
-			return err
-		}
-	}
-	if !available {
-		for i := range specs {
-			specs[i].CodeMode = false
-		}
-	}
-	return nil
 }
 
 func searchableToolSpecs(turnTools map[string]ToolSpec) []modelcontext.ToolSpec {

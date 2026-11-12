@@ -9774,9 +9774,8 @@ components:
         default, `tool_search` adds matching tools to the model's tool list.
         With `code_mode`, commands started by run_command call them with
         `omnarad call <tool> '<json input>'` and `tool_search` returns their
-        input and output schemas instead; a tool commands cannot call, or any
-        tool while the agent has no online machine, is added as with
-        `tool_add`. Subagents do not inherit this
+        input and output schemas instead, and those tools are not sent to the
+        model; a tool commands cannot call is added as with `tool_add`. Subagents do not inherit this
         setting.
       type: object
       additionalProperties: false

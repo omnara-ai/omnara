@@ -129,7 +129,7 @@ func mustContentParts(t *testing.T, content toolResultContent) json.RawMessage {
 	return parts
 }
 
-func TestRunToolSearchAddsCodeModeToolsWithoutAMachine(t *testing.T) {
+func TestRunToolSearchReturnsCodeModeToolsWithoutAddingThem(t *testing.T) {
 	turn := toolSearchTurn()
 	spec := turn.Tools["get_weather"]
 	spec.CodeMode, spec.OutputSchema = true, json.RawMessage(`{"type":"object"}`)
@@ -146,8 +146,9 @@ func TestRunToolSearchAddsCodeModeToolsWithoutAMachine(t *testing.T) {
 		ContentParts: mustContentParts(t, completed.content),
 	})
 	require.True(t, ok)
-	require.Equal(t, []string{"get_weather"}, search.ToolNames)
-	require.Empty(t, search.CodeModeTools)
+	require.Empty(t, search.ToolNames)
+	require.Len(t, search.CodeModeTools, 1)
+	require.Equal(t, "get_weather", search.CodeModeTools[0].Name)
 }
 
 func TestProgramToolSearchLimitsResultsByDefault(t *testing.T) {

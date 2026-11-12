@@ -70,11 +70,13 @@ func buildInput(
 		for _, result := range entry.ToolResults {
 			if clientToolSearch && result.Name == toolcatalog.ToolNameToolSearch {
 				var loaded []modelcontext.ToolSearchDefinition
+				codeMode := false
 				if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
 					loaded = modelcontext.DeferredToolSearchDefinitions(bundle.ToolSpecs, search)
+					codeMode = len(search.CodeModeTools) > 0
 				}
 				items = append(items, toolSearchOutputItem(result.ProviderCallID, loaded))
-				if len(loaded) == 0 {
+				if len(loaded) == 0 || codeMode {
 					items = append(items, map[string]any{
 						"role":    responsesRoleUser,
 						"content": toolResultOutput(result, bundle.ResolvedMedia),

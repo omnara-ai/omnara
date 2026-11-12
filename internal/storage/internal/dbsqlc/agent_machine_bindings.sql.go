@@ -13,37 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const agentHasCodeModeMachine = `-- name: AgentHasCodeModeMachine :one
-SELECT EXISTS (
-  SELECT 1
-  FROM agent_machine_bindings binding
-  JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
-    AND pmgrant.machine_id = binding.machine_id
-  JOIN machines machine ON machine.org_id = binding.org_id
-    AND machine.id = binding.machine_id
-    AND machine.deleted_at IS NULL
-    AND machine.lifecycle_state = 'active'
-  JOIN machine_connection_states connection ON connection.org_id = machine.org_id
-    AND connection.machine_id = machine.id
-  WHERE binding.project_id = $1
-    AND binding.agent_id = $2
-    AND binding.state = 'attached'
-    AND connection.connection_state IN ('online', 'asleep')
-)::boolean AS available
-`
-
-type AgentHasCodeModeMachineParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-func (q *Queries) AgentHasCodeModeMachine(ctx context.Context, arg AgentHasCodeModeMachineParams) (bool, error) {
-	row := q.db.QueryRow(ctx, agentHasCodeModeMachine, arg.ProjectID, arg.AgentID)
-	var available bool
-	err := row.Scan(&available)
-	return available, err
-}
-
 const countActiveAgentPoolMachines = `-- name: CountActiveAgentPoolMachines :one
 SELECT count(*)::integer
 FROM agent_machine_bindings binding

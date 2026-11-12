@@ -129,6 +129,10 @@ func ProgramCallableTools(specs []ToolSpec) []ToolSpec {
 	return callable
 }
 
+func ModelToolSpecs(specs []ToolSpec) []ToolSpec {
+	return slices.DeleteFunc(slices.Clone(specs), func(spec ToolSpec) bool { return spec.CodeMode })
+}
+
 func programmaticToolCallsDescription(specs []ToolSpec) (string, error) {
 	var types strings.Builder
 	for _, spec := range specs {

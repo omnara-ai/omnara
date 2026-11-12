@@ -181,3 +181,18 @@ func TestSearchDeferredToolsSeparatesCodeModeTools(t *testing.T) {
 		t.Fatalf("definitions to add = %+v, want only orders_write", loaded)
 	}
 }
+
+func TestModelToolSpecsLeaveOutCodeModeTools(t *testing.T) {
+	specs := []ToolSpec{
+		{Name: "orders_list", Deferred: true, CodeMode: true},
+		{Name: "orders_write", Deferred: true},
+		{Name: "orders_loaded"},
+	}
+	sent := ModelToolSpecs(specs)
+	if len(sent) != 2 || sent[0].Name != "orders_write" || sent[1].Name != "orders_loaded" {
+		t.Fatalf("model tool specs = %+v, want orders_write and orders_loaded", sent)
+	}
+	if len(specs) != 3 {
+		t.Fatalf("specs were modified: %+v", specs)
+	}
+}

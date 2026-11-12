@@ -359,7 +359,7 @@ func TestProgramToolCallInterruptedRunIsReleased(t *testing.T) {
 	require.Equal(t, executionstore.ToolResultOutcomeFailed, done.Outcome)
 }
 
-func TestToolSearchReturnsCodeModeToolsOnlyWithAnOnlineMachine(t *testing.T) {
+func TestToolSearchReturnsCodeModeToolsWithoutAddingThem(t *testing.T) {
 	ctx := t.Context()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "code-mode-search", toolFixtureOptions{
 		withMemory: true, withMachine: true,
@@ -377,7 +377,6 @@ func TestToolSearchReturnsCodeModeToolsOnlyWithAnOnlineMachine(t *testing.T) {
 	input := json.RawMessage(`{"pattern":"storage"}`)
 	fixture.recordToolCalls(t, ctx, []model.ToolCall{
 		{ID: "call_search_code_mode", Name: toolcatalog.ToolNameToolSearch, Input: input},
-		{ID: "call_search_tool_add", Name: toolcatalog.ToolNameToolSearch, Input: input},
 	}, fixture.Now.Add(time.Second))
 	search := func(providerCallID string) modelcontext.ToolSearchResult {
 		t.Helper()
@@ -408,25 +407,16 @@ func TestToolSearchReturnsCodeModeToolsOnlyWithAnOnlineMachine(t *testing.T) {
 		return found
 	}
 
-	withMachine := search("call_search_code_mode")
-	require.Equal(t, []string{toolcatalog.ToolNameStorageWrite}, withMachine.ToolNames,
+	found := search("call_search_code_mode")
+	require.Equal(t, []string{toolcatalog.ToolNameStorageWrite}, found.ToolNames,
 		"a deferred tool commands cannot call is added")
 	var names []string
-	for _, tool := range withMachine.CodeModeTools {
+	for _, tool := range found.CodeModeTools {
 		require.NotEmpty(t, tool.OutputSchema, tool.Name)
 		names = append(names, tool.Name)
 	}
 	require.Equal(t, []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead,
 		toolcatalog.ToolNameStorageSearch}, names)
-
-	_, err = fixture.Pool.Exec(ctx,
-		`UPDATE agent_machine_bindings SET state = 'released' WHERE agent_id = $1`,
-		fixture.Agent.ID)
-	require.NoError(t, err)
-	withoutMachine := search("call_search_tool_add")
-	require.Empty(t, withoutMachine.CodeModeTools)
-	require.Equal(t, []string{toolcatalog.ToolNameStorageList, toolcatalog.ToolNameStorageRead,
-		toolcatalog.ToolNameStorageSearch, toolcatalog.ToolNameStorageWrite}, withoutMachine.ToolNames)
 }
 
 func programKey(label string) uuid.UUID { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(label)) }
