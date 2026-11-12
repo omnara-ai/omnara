@@ -18,7 +18,7 @@ and you can read every conversation step by step in the dashboard.
   guide
 - A web app you can add one component (or one script tag) and one server route to
 
-## Build it
+## Add it to your app
 
 Open Claude Code, Codex, Cursor, or any other coding agent in your app's repository and
 say:
