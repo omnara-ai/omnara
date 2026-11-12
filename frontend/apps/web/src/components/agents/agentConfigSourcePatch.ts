@@ -171,6 +171,8 @@ function reorderFlowItems(collection: CST.FlowCollection, order: number[], newli
   const tails = collection.items.map((item) => takeTrailing(item.value))
   const commentEnd = (parts: CST.SourceToken[]) =>
     parts.map((part) => part.type).lastIndexOf('comment') + 1
+  const multiline = (parts: CST.SourceToken[]) =>
+    parts.slice(0, commentEnd(parts)).some((part) => part.type === 'newline')
   starts.forEach((start, index) => {
     const end = start.findIndex((part) => part.type === 'newline')
     if (index > 0 && commentEnd(start.slice(0, end < 0 ? start.length : end)))
@@ -187,7 +189,7 @@ function reorderFlowItems(collection: CST.FlowCollection, order: number[], newli
     const layout = starts[position] ?? []
     const start = commentEnd(ownStart) ? ownStart : layout.slice(commentEnd(layout))
     const previous = tails[indices[position - 1] ?? -1] ?? []
-    const comments = previous.slice(0, commentEnd(previous))
+    const comments = multiline(previous) ? [] : previous.slice(0, commentEnd(previous))
     const leading = start.find((part) => part.type === 'newline' || part.type === 'comment')?.type
     const separated =
       leading === 'comment' || (comments.length > 0 && leading !== 'newline')
@@ -203,8 +205,15 @@ function reorderFlowItems(collection: CST.FlowCollection, order: number[], newli
     }
     const ownTail = tails[index] ?? []
     const positionTail = tails[position] ?? []
-    const tail = position === indices.length - 1 ? ownTail.slice(0, commentEnd(ownTail)) : []
-    const closing = positionTail.slice(commentEnd(positionTail))
+    const last = position === indices.length - 1
+    const tail = last || multiline(ownTail) ? ownTail.slice(0, commentEnd(ownTail)) : []
+    let closing = positionTail.slice(commentEnd(positionTail))
+    if (!last && multiline(positionTail)) closing = []
+    if (!last && multiline(ownTail))
+      closing = [
+        sourceToken('newline', newline),
+        sourceToken('space', ' '.repeat(flowLineIndent(collection).indent)),
+      ]
     if (tail.length > 0 && !closing.some((part) => part.type === 'newline'))
       tail.push(sourceToken('newline', newline))
     keepTrailing(moved, [...tail, ...closing], false)
