@@ -241,10 +241,11 @@ authentication are unaffected; global Git config is unchanged. To opt out on a
 machine, run `OMNARA_GIT_CREDENTIALS=0 omnarad install`; the installer persists
 `git_credentials_disabled`. Commands requesting Git credentials fail during
 preparation on an opted-out machine. This also applies to GitHub-launched agents,
-since their launcher adds the capability automatically. `gh` uses the same credentials unless
-you set `GH_TOKEN` or `GITHUB_TOKEN` yourself. `gh` commands that read CI results, such as
-`gh pr checks` and plain `gh pr view`, need the App's **Actions**, **Checks** and **Commit statuses**
-access; if the App lacks them, add them in its settings and have the installation owner approve them.
+since their launcher adds the capability automatically. `gh` uses the same credentials, even on
+machines with a `gh auth login`, unless you set `GH_TOKEN` or `GITHUB_TOKEN` yourself. `gh`
+commands that read CI results, such as `gh pr checks` and plain `gh pr view`, need the App's
+**Actions**, **Checks** and **Commit statuses** access; if the App lacks them, add them in its
+settings and have the installation owner approve them.
 
 The helper supplies tokens to local workload code; it does not isolate credentials
 from other code running as the same OS user. Tokens refresh on use; disconnecting
