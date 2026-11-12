@@ -583,10 +583,10 @@ it.each(['# Updated\n  ', ''])(
   },
 )
 
-it('rejects a patch that does not reproduce the edited document', () => {
+it.each(['name', '__proto__'])('rejects a patch that does not reproduce the edited %s', (key) => {
   const transaction = editConfigDocument(header, parseConfigDocument(header).doc, [])
   transaction.set(['instruction'], 'Updated.')
-  transaction.document.setIn(['model', 'name'], 'Untracked change')
+  transaction.document.setIn(['model', key], 'Untracked change')
   expect(() => transaction.serialize()).toThrow('cannot safely patch this edit')
 })
 
