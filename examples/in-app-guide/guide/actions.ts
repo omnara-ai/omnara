@@ -10,6 +10,8 @@ export type ToolResult = { outcome: 'succeeded' | 'failed'; text: string }
 
 type Ctx = { overlay: Overlay; host: Element; signal: AbortSignal }
 
+const INTERRUPTED = 'The user sent a new message in the guide before this step was done. It was not done. Read their message before continuing.'
+
 export async function runTool(call: ToolCall, ctx: Ctx): Promise<ToolResult> {
   const ref = String(call.input.ref ?? '')
   const text = String(call.input.text ?? '')
@@ -27,6 +29,8 @@ export async function runTool(call: ToolCall, ctx: Ctx): Promise<ToolResult> {
         ctx.overlay.highlight(target, text)
         await sleep(350)
         await ctx.overlay.press()
+        // Cancelled while the cursor was on its way: stop before touching the page.
+        if (ctx.signal.aborted) return interrupted(ctx)
         const destination = linkDestination(target)
         // Name it before clicking: React may reuse the same button for the next step's label.
         const label = describeShort(target)
@@ -36,6 +40,7 @@ export async function runTool(call: ToolCall, ctx: Ctx): Promise<ToolResult> {
         return result('done', `Clicked ${label}.`, ctx)
       case 'fill': {
         await ctx.overlay.moveTo(target)
+        if (ctx.signal.aborted) return interrupted(ctx)
         ctx.overlay.highlight(target, text)
         await fillValue(target, String(call.input.value ?? ''))
         await settle()
@@ -58,6 +63,8 @@ async function showStep(target: Element, text: string, ctx: Ctx): Promise<ToolRe
   const field = !combo && isField(target)
   const destination = linkDestination(target)
   await ctx.overlay.moveTo(target)
+  // The abort listener below only hears a cancel that comes after this point.
+  if (ctx.signal.aborted) return interrupted(ctx)
 
   let elsewhere: string | null = null
   const outcome = await new Promise<{ outcome: string; note: string }>((resolve) => {
@@ -110,7 +117,7 @@ async function showStep(target: Element, text: string, ctx: Ctx): Promise<ToolRe
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Enter' && target instanceof HTMLInputElement) finish('done', `The user entered ${fieldValue(target)} in ${describeShort(target)} and pressed Enter.`)
     }
-    const onAbort = () => finish('interrupted', 'The user typed a new message in the guide instead. Read it before continuing.')
+    const onAbort = () => finish('interrupted', INTERRUPTED)
     const watch = setInterval(() => {
       if (!target.isConnected || !hasBox(target)) finish('page_changed', 'The highlighted element is gone; the page changed.')
       else if (combo) {
@@ -142,6 +149,11 @@ async function showStep(target: Element, text: string, ctx: Ctx): Promise<ToolRe
   if (outcome.outcome !== 'interrupted' && outcome.outcome !== 'stopped') await settle(outcome.outcome === 'done' ? destination : outcome.outcome === 'clicked_elsewhere' ? elsewhere : null)
   if (outcome.outcome === 'stopped') ctx.overlay.hideCursor()
   return result(outcome.outcome, outcome.note, ctx)
+}
+
+function interrupted(ctx: Ctx): ToolResult {
+  ctx.overlay.clearHighlight()
+  return result('interrupted', INTERRUPTED, ctx)
 }
 
 function result(outcome: string, note: string, ctx: Ctx): ToolResult {
