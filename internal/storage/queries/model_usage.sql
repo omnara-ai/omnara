@@ -83,7 +83,6 @@ WITH RECURSIVE profile_agents AS (
     AND profile_agents.depth < 64
 ), usage_rollup AS MATERIALIZED (
 SELECT width_bucket(context.created_at, sqlc.arg(bucket_starts)::timestamptz[])::integer AS bucket_number,
-       context.org_id,
        context.project_id,
        context.agent_id,
        context.configured_model_revision_id,
@@ -110,8 +109,7 @@ WHERE context.org_id = ANY(sqlc.arg(org_ids)::uuid[])
     OR context.output_tokens_total IS NOT NULL
     OR context.provider_reported_cost_usd IS NOT NULL
   )
-GROUP BY bucket_number, context.org_id, context.project_id, context.agent_id,
-         context.configured_model_revision_id
+GROUP BY bucket_number, context.project_id, context.agent_id, context.configured_model_revision_id
 )
 SELECT context.bucket_number,
        revision.configured_model_id,
@@ -130,16 +128,13 @@ SELECT context.bucket_number,
        coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
        coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd
 FROM usage_rollup context
-JOIN configured_model_revisions revision ON revision.org_id = context.org_id
-  AND revision.id = context.configured_model_revision_id
+JOIN configured_model_revisions revision ON revision.id = context.configured_model_revision_id
 JOIN configured_models configured_model ON configured_model.org_id = revision.org_id
   AND configured_model.id = revision.configured_model_id
 JOIN model_provider_configs provider_config ON provider_config.org_id = configured_model.org_id
   AND provider_config.id = configured_model.model_provider_config_id
-JOIN projects project ON project.org_id = context.org_id
-  AND project.id = context.project_id
-JOIN agents agent ON agent.project_id = context.project_id
-  AND agent.id = context.agent_id
+JOIN projects project ON project.id = context.project_id
+JOIN agents agent ON agent.id = context.agent_id
 LEFT JOIN agent_profiles profile ON profile.project_id = agent.project_id
   AND profile.id = agent.agent_profile_id
 GROUP BY bucket_number, revision.configured_model_id, configured_model.name, provider_config.name,
