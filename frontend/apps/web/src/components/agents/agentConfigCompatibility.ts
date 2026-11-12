@@ -59,7 +59,7 @@ const customTool = z
   })
 
 export function parseConfigDocument(source: string, format: ConfigSourceFormat = 'yaml') {
-  const doc = parseDocument(source, { keepSourceTokens: true })
+  const doc = parseDocument(source)
   const diagnostics: ConfigDiagnostic[] = doc.errors.map((error) => ({
     path: [],
     kind: 'fatal',
@@ -85,7 +85,7 @@ export function parseConfigDocument(source: string, format: ConfigSourceFormat =
       message:
         'This document declares YAML 1.1, which the Builder cannot safely edit. It remains available in YAML.',
     })
-  function inspect(node: Document['contents'], path: string[]) {
+  function inspect(node: Document['contents'], path: string[], documentComments = '') {
     if (node == null) return
     const scalarReason = isScalar(node) ? scalarPreservationReason(node) : null
     if (scalarReason) diagnostics.push({ path, kind: 'opaque', message: scalarReason })
@@ -94,6 +94,18 @@ export function parseConfigDocument(source: string, format: ConfigSourceFormat =
     else if (node.anchor) blocker = 'YAML anchors'
     else if (node.tag && !node.tag.startsWith('tag:yaml.org,2002:'))
       blocker = `YAML tag ${node.tag}`
+    else if (
+      format === 'yaml' &&
+      /[\u0085\u2028\u2029]/.test(
+        [
+          isScalar(node) ? String(node.value) : '',
+          node.comment,
+          node.commentBefore,
+          documentComments,
+        ].join(''),
+      )
+    )
+      blocker = 'a Unicode line separator (U+0085, U+2028, or U+2029)'
     if (blocker) {
       diagnostics.push({
         path,
@@ -135,7 +147,7 @@ export function parseConfigDocument(source: string, format: ConfigSourceFormat =
       })
     }
   }
-  if (doc.errors.length === 0) inspect(doc.contents, [])
+  if (doc.errors.length === 0) inspect(doc.contents, [], [doc.commentBefore, doc.comment].join(''))
   return { doc, diagnostics }
 }
 

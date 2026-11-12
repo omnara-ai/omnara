@@ -23,8 +23,8 @@ import {
   parseConfigDocument,
   validateAdvancedEntry,
 } from '@/components/agents/agentConfigCompatibility'
+import { configNodeSource } from '@/components/agents/agentConfigSerialization'
 import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
-import { configNodeSource } from '@/components/agents/agentConfigSourcePatch'
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { configJson, configRecord } from '@/components/agents/agentConfigValidation'
@@ -213,7 +213,7 @@ export function parseBasicConfigSource(source: string, format: ConfigSourceForma
   const projection: typeof raw = {}
   const machineSources: BasicMachineSource[] = []
   const preserve = (path: string[], kind: AdvancedConfigEntry['kind'] = 'opaque') => {
-    const entry = { path, originalPath: path, kind, source: configNodeSource(source, doc, path) }
+    const entry = { path, originalPath: path, kind, source: configNodeSource(doc, path, format) }
     advancedEntries.push(entry)
     if (kind === 'custom') diagnostics.push(...validateAdvancedEntry(entry, format))
     else

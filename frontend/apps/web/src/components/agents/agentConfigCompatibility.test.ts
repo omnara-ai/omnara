@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { isNode, parse, parseDocument } from 'yaml'
 
 import { configPath, customToolNameError } from './agentConfigCompatibility'
+import { configJson } from './agentConfigValidation'
 import fixture from './fixtures/inline-custom-tools.yaml?raw'
 import { type BasicConfig, createBasicConfigSession, emptyBasicConfig } from './useAgentBuilderForm'
 
@@ -13,10 +14,10 @@ function sessionFor(source = fixture) {
   return { session, draft }
 }
 
-function nodeSource(source: string, path: string[]) {
+function nodeValue(source: string, path: string[]) {
   const node = parseDocument(source).getIn(path, true)
-  if (!isNode(node) || !node.range) throw new Error(`Missing ${path.join('.')}`)
-  return source.slice(node.range[0], node.range[1])
+  if (!isNode(node)) throw new Error(`Missing ${path.join('.')}`)
+  return configJson.parse(node.toJSON())
 }
 
 const original = zAgentConfigDefinition.parse(parse(fixture))
@@ -31,9 +32,9 @@ it.each(['', 'bad-name', 'mcp__reserved', 'int__reserved', 'call_deferred_tool',
   },
 )
 
-function expectCustomUnchanged(source: string, baseline = fixture) {
+function expectCustomPreserved(source: string, baseline = fixture) {
   for (const name of Object.keys(customTools)) {
-    expect(nodeSource(source, ['tools', name])).toBe(nodeSource(baseline, ['tools', name]))
+    expect(nodeValue(source, ['tools', name])).toEqual(nodeValue(baseline, ['tools', name]))
   }
 }
 
@@ -81,16 +82,13 @@ describe('mixed managed and advanced configurations', () => {
       { ...original.tools, ask_question: { type: 'built_in' } },
     ],
     ['removing every managed tool', () => ({ tools: [] }), 'tools', customTools],
-  ])(
-    'saves %s edits while preserving custom definitions byte-for-byte',
-    (_label, edit, path, expected) => {
-      const { session, draft } = sessionFor()
-      const result = session.evaluate({ ...draft, ...edit(draft) })
-      expect(result.issues).toEqual([])
-      expect(parse(result.yaml)).toHaveProperty(path, expected)
-      expectCustomUnchanged(result.yaml)
-    },
-  )
+  ])('saves %s edits while preserving every custom definition', (_label, edit, path, expected) => {
+    const { session, draft } = sessionFor()
+    const result = session.evaluate({ ...draft, ...edit(draft) })
+    expect(result.issues).toEqual([])
+    expect(parse(result.yaml)).toHaveProperty(path, expected)
+    expectCustomPreserved(result.yaml)
+  })
 
   it.each(['yaml', 'json'])(
     'retains special keys in %s without hiding rename collisions',
@@ -113,8 +111,8 @@ subagents:
       expect(draft.tools[0]?.permission?.parameters).toHaveProperty(['__proto__'], 'retained')
       expect(draft.subagents.map((entry) => entry.key)).toEqual(['__proto__', 'helper'])
       expect(session.apply(draft)).toBe(source)
-      expect(session.apply({ ...draft, instruction: 'Updated.' })).toBe(
-        source.replace('Help.', 'Updated.'),
+      expect(parse(session.apply({ ...draft, instruction: 'Updated.' }))).toEqual(
+        parse(source.replace('Help.', 'Updated.')),
       )
       const changed = session.apply({
         ...draft,
@@ -147,11 +145,6 @@ subagents:
 
   it('saves intentional description and arbitrary nested schema edits', () => {
     const { session, draft } = sessionFor()
-    expect(
-      draft.advancedEntries?.find((entry) => entry.path[1] === 'publish_report')?.source,
-    ).toContain(
-      'description: >-\n  Publish a report for the example project.\n  Include the selected records.',
-    )
     const raw = `# Added explanation
 type: custom
 description: >-
@@ -175,8 +168,8 @@ input_schema:
     expect(parse(updated)).toHaveProperty(['tools', 'search_records'], parse(raw))
     expect(updated).toContain('# Added explanation')
     expect(updated).toContain('type: object # schema comment')
-    expect(nodeSource(updated, ['tools', 'publish_report'])).toBe(
-      nodeSource(fixture, ['tools', 'publish_report']),
+    expect(nodeValue(updated, ['tools', 'publish_report'])).toEqual(
+      nodeValue(fixture, ['tools', 'publish_report']),
     )
   })
 
@@ -220,18 +213,20 @@ input_schema:
       ) + '# keep extension\nextension: {quoted: "verbatim", list: [a,b,c]}\n'
     const { session, draft } = sessionFor(source)
     const updated = session.apply({ ...draft, tools: [], instruction: 'Changed.' })
-    expect(updated).toContain(
-      '  future_tool: {enabled: false, future: {arbitrary: [1, "two"]}} # keep',
+    expect(parse(updated)).toHaveProperty(
+      ['tools', 'future_tool'],
+      nodeValue(source, ['tools', 'future_tool']),
     )
-    expect(updated).toContain('# keep extension\nextension: {quoted: "verbatim", list: [a,b,c]}')
+    expect(parse(updated)).toHaveProperty('extension', nodeValue(source, ['extension']))
+    expect(updated).toContain('# keep')
+    expect(updated).toContain('# keep extension')
     expect(parse(updated)).not.toHaveProperty(['tools', 'run_command'])
     expect(parse(updated)).toHaveProperty(['tools', 'search_records'])
   })
 
-  it.each(['', '            # required: [q]\n', '            # required: [q]\n    # next tool\n'])(
-    'keeps raw definition indentation and comments stable across saves: %s',
-    (comments) => {
-      let source = `instruction: Help.
+  it('preserves custom schema values and comments across successive edits', () => {
+    const comments = '            # schema notes\n    # next tool\n'
+    let source = `instruction: Help.
 model: {provider_config: openai, name: primary}
 tools:
     example:
@@ -244,36 +239,36 @@ tools:
 
 ${comments}    web_search: {}
 `
-      for (const description of ['Updated', 'Changed again']) {
-        const { session, draft } = sessionFor(source)
-        const result = session.evaluate({
-          ...draft,
-          advancedEntries: draft.advancedEntries?.map((entry) => ({
-            ...entry,
-            source: entry.source.replace(
-              /description: (Example|Updated)/,
-              `description: ${description}`,
-            ),
-          })),
-        })
-        const expected = source.replace(
-          /description: (Example|Updated)/,
-          `description: ${description}`,
-        )
-        expect(result.issues).toEqual([])
-        expect(result.yaml).toBe(expected)
-        source = result.yaml
-      }
+    for (const description of ['Updated', 'Changed again']) {
       const { session, draft } = sessionFor(source)
-      const removed = session.evaluate({
+      const result = session.evaluate({
         ...draft,
-        advancedEntries: draft.advancedEntries?.map((entry) => ({ ...entry, removed: true })),
+        advancedEntries: draft.advancedEntries?.map((entry) => ({
+          ...entry,
+          source: entry.source.replace(
+            /description: (Example|Updated)/,
+            `description: ${description}`,
+          ),
+        })),
       })
-      expect(removed.issues).toEqual([])
-      expect(parse(removed.yaml)).toHaveProperty('tools', { web_search: {} })
-      if (comments.includes('# next tool')) expect(removed.yaml).toContain('    # next tool\n')
-    },
-  )
+      const expected = source.replace(
+        /description: (Example|Updated)/,
+        `description: ${description}`,
+      )
+      expect(result.issues).toEqual([])
+      expect(parse(result.yaml)).toEqual(parse(expected))
+      expect(result.yaml).toContain('# schema notes')
+      expect(result.yaml).toContain('# next tool')
+      source = result.yaml
+    }
+    const { session, draft } = sessionFor(source)
+    const removed = session.evaluate({
+      ...draft,
+      advancedEntries: draft.advancedEntries?.map((entry) => ({ ...entry, removed: true })),
+    })
+    expect(removed.issues).toEqual([])
+    expect(parse(removed.yaml)).toHaveProperty('tools', { web_search: {} })
+  })
 
   it('requires explicit removal intent and refuses to delete opaque definitions', () => {
     const source = fixture + 'extension: {future: true}\n'
@@ -307,7 +302,7 @@ it.each([
   'tools: {} # keep parent\n',
   'instruction: Help.\n',
   '',
-])('inserts a custom definition without rewriting existing content (%#)', (source) => {
+])('inserts a custom definition without losing existing content (%#)', (source) => {
   const session = createBasicConfigSession(source)
   const draft = session.initialDraft ?? emptyBasicConfig
   const entry = {
@@ -336,7 +331,7 @@ it.each([
   if (!isJson) {
     expect(result.yaml).toContain('# keep schema comment')
   }
-  if (source.includes('search_records')) expectCustomUnchanged(result.yaml, source)
+  if (source.includes('search_records')) expectCustomPreserved(result.yaml, source)
   if (source.includes('# keep parent')) expect(result.yaml).toContain('# keep parent')
   const reopened = sessionFor(result.yaml)
   expect(reopened.draft.advancedEntries?.map((item) => item.path[1])).toContain('new_tool')

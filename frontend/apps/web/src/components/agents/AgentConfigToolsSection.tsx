@@ -56,7 +56,6 @@ export function AgentConfigToolsSection({
         <CustomToolDialog
           entry={editing === 'new' ? undefined : editing}
           configurationDirty={form.dirty}
-          configurationSource={form.yaml}
           format={form.sourceFormat}
           reservedNames={[
             ...(catalog?.built_in_tools.map((tool) => tool.name) ?? []),
@@ -109,14 +108,14 @@ function CustomToolRow({
     entry.path.every((part, index) => issue.path[index] === part),
   )
   const { doc, definition } = useMemo(() => {
-    const { doc, diagnostics } = parseConfigDocument(entry.source)
+    const { doc, diagnostics } = parseConfigDocument(entry.source, form.sourceFormat)
     return {
       doc,
       definition: diagnostics.some((issue) => issue.kind === 'fatal')
         ? undefined
         : zAgentConfigDefinitionTool.safeParse(doc.toJS()).data,
     }
-  }, [entry.source])
+  }, [entry.source, form.sourceFormat])
   const tool = {
     name,
     enabled: definition?.enabled ?? undefined,

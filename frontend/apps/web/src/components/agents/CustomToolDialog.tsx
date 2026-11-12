@@ -1,11 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
-import { Document, isMap } from 'yaml'
+import { Document } from 'yaml'
 
 import {
   type AdvancedConfigEntry,
   type ConfigDiagnostic,
   customToolNameError,
-  parseConfigDocument,
   validateAdvancedEntry,
 } from '@/components/agents/agentConfigCompatibility'
 import { AgentConfigDiagnostics } from '@/components/agents/AgentConfigDiagnostics'
@@ -34,7 +33,6 @@ export function CustomToolDialog({
   entry,
   format,
   configurationDirty,
-  configurationSource,
   reservedNames,
   onSave,
   onClose,
@@ -42,7 +40,6 @@ export function CustomToolDialog({
   entry?: AdvancedConfigEntry
   format: ConfigSourceFormat
   configurationDirty: boolean
-  configurationSource: string
   reservedNames: string[]
   onSave: (entry: AdvancedConfigEntry) => ConfigDiagnostic[]
   onClose: () => void
@@ -51,12 +48,7 @@ export function CustomToolDialog({
   const [initialSource] = useState(() => {
     if (entry) return entry.source
     if (format === 'json') return JSON.stringify(emptyTool, null, 2)
-    const { doc } = parseConfigDocument(configurationSource)
-    const tools = doc.get('tools', true)
-    const flow =
-      (isMap(doc.contents) && doc.contents.flow === true) ||
-      (isMap(tools) && tools.flow === true && tools.items.length > 0)
-    return new Document(emptyTool).toString({ collectionStyle: flow ? 'flow' : 'block' })
+    return new Document(emptyTool).toString()
   })
   const [name, setName] = useState(initialName)
   const [source, setSource] = useState(initialSource)
