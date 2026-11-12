@@ -188,10 +188,14 @@ function reorderFlowItems(collection: CST.FlowCollection, order: number[], newli
     const start = commentEnd(ownStart) ? ownStart : layout.slice(commentEnd(layout))
     const previous = tails[indices[position - 1] ?? -1] ?? []
     const comments = previous.slice(0, commentEnd(previous))
+    const leading = start.find((part) => part.type === 'newline' || part.type === 'comment')?.type
     const separated =
-      comments.length > 0 &&
-      start.find((part) => part.type === 'newline' || part.type === 'comment')?.type !== 'newline'
-        ? [sourceToken('newline', newline), ...start]
+      leading === 'comment' || (comments.length > 0 && leading !== 'newline')
+        ? [
+            sourceToken('newline', newline),
+            ...(start[0]?.type === 'space' ? [] : [sourceToken('space', ' ')]),
+            ...start,
+          ]
         : start
     const moved = {
       ...item,

@@ -679,6 +679,8 @@ it.each([
   ['[A, # first\n B # second\n]', '[B, # second\n A # first\n]'],
   ['[A, # first\n B, # second\n]', '[B, # second\n A, # first\n]'],
   ['[ # before A\n A, # first\n B # second\n]', '[\n B, # second\n # before A\n A # first\n]'],
+  ['[ # before A\n A,\n B\n]', '[\n B,\n # before A\n A\n]'],
+  ['[A,B # second\n]', '[B, # second\n A\n]'],
   ['[\n # first\n A,\n # second\n B\n]', '[\n # second\n B,\n # first\n A\n]'],
 ])('keeps flow sequence comments with their items: %s', (before, after) => {
   const expand = (text: string) =>
