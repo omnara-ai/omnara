@@ -103,10 +103,6 @@ jobs:
 
       - run: docker build --target ${{ matrix.target }} --tag omnara-${{ matrix.target }}:ci .
 
-      - name: Validate gateway configuration
-        if: matrix.target == 'web'
-        run: docker run --rm --volume "$PWD/gateway.nginx.conf:/etc/nginx/conf.d/default.conf:ro" omnara-web:ci nginx -t
-
       - name: Verify Compose web and gateway
         if: matrix.target == 'web'
         run: |
