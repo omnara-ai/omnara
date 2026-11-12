@@ -49,9 +49,8 @@ func (c Client) supportsThinkingBindingControls() bool {
 	return model.IsClaudeFamilyModelSlug(c.ProviderModelSlug)
 }
 
-// Per-message effort is limited to the default variant: Bedrock InvokeModel
-// takes betas in the request body rather than a header, and OpenRouter does
-// not document mid-conversation system messages.
+// Bedrock takes betas in the body, and OpenRouter does not document
+// mid-conversation system messages.
 func (c Client) supportsPerMessageEffort() bool {
 	return c.ModelAPIVariant() == modelprotocol.APIVariantDefault &&
 		model.ClaudeSupportsPerMessageEffort(c.ProviderModelSlug)

@@ -87,9 +87,6 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
 }
 
-// effortSteering returns the running effort for OpenRouter configuration
-// updates, or nil when the route or model does not take them. The request's
-// own reasoning effort never changes, so the cached prefix still matches.
 func (c Client) effortSteering(compat compat, policy model.RequestPolicy) *model.EffortSteering {
 	steering := model.EffortSteering{}
 	supportsReasoning := c.ModelCapabilities.SupportsReasoning
@@ -108,14 +105,8 @@ func (c Client) effortSteering(compat compat, policy model.RequestPolicy) *model
 	return &steering
 }
 
-// topLevelEffort is the effort the request runs at: the policy's when it sets
-// one, else the effort api_variant_options configure, else a Claude model's
-// default. It reports false when options configure reasoning some other way,
-// such as a token budget, since lowering from a guess could raise the effort
-// a runaway retry gets. It also reports false for pro mode, which OpenRouter
-// rejects together with configuration updates.
+// OpenRouter rejects configuration updates in pro mode.
 func (c Client) topLevelEffort(policy model.RequestPolicy) (string, bool) {
-	// A policy effort owns the reasoning fields, replacing any options there.
 	if policy.ReasoningEffort != "" {
 		return policy.ReasoningEffort, true
 	}
@@ -227,8 +218,6 @@ type chatMessage struct {
 	ProviderReplay      json.RawMessage          `json:"-"`
 }
 
-// chatConfigurationUpdate is OpenRouter's mid-conversation settings change,
-// sent on a system message with empty content.
 type chatConfigurationUpdate struct {
 	Reasoning chatReasoning `json:"reasoning"`
 }
@@ -309,8 +298,6 @@ func buildMessages(
 		if ok {
 			messages = append(messages, message)
 		}
-		// An update after a user turn applies to the reply to that turn and
-		// every later one.
 		if effort, ok := steering.Lower(entry.ReasoningEffortReduction); ok {
 			messages = append(messages, chatMessage{
 				Role: chatRoleSystem, Content: "",

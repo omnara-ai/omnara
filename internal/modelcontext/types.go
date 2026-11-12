@@ -39,10 +39,7 @@ type Bundle struct {
 	ContextCheckpoint         *CheckpointRef           `json:"context_checkpoint,omitempty"`
 	ResolvedMedia             map[string]ResolvedMedia `json:"resolved_media,omitempty"`
 	RenderedMedia             []RenderedMedia          `json:"-"`
-	// OutputNoProgressRetries counts earlier attempts of this model call that
-	// exhausted their output allowance without progress. When positive, the
-	// request ends with the steering that a stored output replays before itself.
-	OutputNoProgressRetries int `json:"output_no_progress_retries,omitempty"`
+	OutputNoProgressRetries   int                      `json:"output_no_progress_retries,omitempty"`
 }
 
 type MediaProjector interface {
@@ -121,9 +118,7 @@ type Message struct {
 	ProviderReplay            json.RawMessage                      `json:"-"`
 	ProviderReplaySource      modelenvelope.ProviderReplayIdentity `json:"-"`
 	StopReason                modelenvelope.StopReason             `json:"-"`
-	// OutputNoProgressRetries counts the attempts before this assistant output
-	// that exhausted their output allowance without progress.
-	OutputNoProgressRetries int `json:"-"`
+	OutputNoProgressRetries   int                                  `json:"-"`
 }
 
 type ToolSpec struct {

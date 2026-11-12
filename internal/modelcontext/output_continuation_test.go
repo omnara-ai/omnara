@@ -62,7 +62,7 @@ func TestOutputLimitNoticePreservesHistoricalPrefix(t *testing.T) {
 func TestOutputNoProgressNoticePersistsAtTheRetryPosition(t *testing.T) {
 	input := Message{ID: "input", Sequence: 41, Role: modelprotocol.RoleUser,
 		Content: json.RawMessage(`[{"type":"text","text":"go"}]`)}
-	retrying := Bundle{Messages: []Message{input}, OutputNoProgressRetries: 2}
+	retrying := Bundle{Messages: []Message{input}, InputEventSequence: 41, OutputNoProgressRetries: 2}
 	sent, err := CanonicalHistory(retrying)
 	require.NoError(t, err)
 	require.Len(t, sent, 2)
@@ -74,7 +74,7 @@ func TestOutputNoProgressNoticePersistsAtTheRetryPosition(t *testing.T) {
 
 	output := Message{ID: "output", ModelCallContextID: testIDN(9201).String(), Sequence: 42,
 		Role: modelprotocol.RoleAssistant, Content: json.RawMessage(`[{"type":"text","text":"done"}]`),
-		OutputNoProgressRetries: 2}
+		InputEventSequence: 41, OutputNoProgressRetries: 2}
 	later := Bundle{Messages: []Message{input, output, {
 		ID: "next", Sequence: 43, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"more"}]`),
 	}}}

@@ -218,8 +218,6 @@ SELECT page.id,
        coalesce(context.operation_kind = 'normal' AND context.state = 'succeeded', false)::boolean AS is_successful_normal_call,
        output.provider_replay,
        coalesce(output.stop_reason, '') AS stop_reason,
-       -- Retries of this output's operation that exhausted their output without
-       -- progress; the model context replays the steering they triggered.
        coalesce(no_progress.retry_count, 0)::bigint AS output_no_progress_retries,
        CASE
          WHEN page.event_kind = 'agent_input' AND input.input_kind = 'config_change' AND page.sequence > 1 THEN

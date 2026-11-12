@@ -250,8 +250,6 @@ func (e AgentExecutor) executeModelStep(
 				},
 			)
 		}
-		// The retry ends with steering that its output, once stored, replays at
-		// the same position, so later requests keep this request's prefix.
 		bundle.OutputNoProgressRetries = noProgressFailures
 	}
 	bundle.ConfiguredModelRevisionID = claim.Context.ConfiguredModelRevisionID

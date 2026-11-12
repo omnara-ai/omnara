@@ -58,8 +58,6 @@ func applyRequestInputMeasurement(
 	}
 
 	prefix, suffix := bundle, bundle
-	// The earlier request ended with the runaway steering the source output
-	// replays before itself, so that steering is already measured input.
 	prefix.OutputNoProgressRetries = source.OutputNoProgressRetries
 	prefix.InputEventSequence = source.InputEventSequence
 	prefix.Messages = nil

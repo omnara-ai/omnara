@@ -25,8 +25,6 @@ func (s *Store) CountModelCallRetries(
 	return int(row), nil
 }
 
-// CountModelCallRetriesWithErrorCode counts the retried failures with errorCode
-// in the same operation's retry chain, up to and including contextID's attempt.
 func (s *Store) CountModelCallRetriesWithErrorCode(
 	ctx context.Context,
 	projectID, agentID, contextID uuid.UUID,

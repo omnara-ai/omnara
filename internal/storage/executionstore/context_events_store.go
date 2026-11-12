@@ -38,10 +38,8 @@ type ContextEventRecord struct {
 	APIVariant                modelprotocol.APIVariant
 	ProviderReplay            json.RawMessage
 	StopReason                modelenvelope.StopReason
-	// OutputNoProgressRetries counts the attempts before this model output
-	// that exhausted their output allowance without progress.
-	OutputNoProgressRetries int
-	CreatedAt               time.Time
+	OutputNoProgressRetries   int
+	CreatedAt                 time.Time
 }
 
 func (s *Store) ListContextEvents(

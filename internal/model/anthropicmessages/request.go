@@ -140,10 +140,6 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
 }
 
-// effortSteering returns the running effort for per-message effort changes.
-// It is the zero value, which renders no change, when the model or request
-// shape does not allow them. The top-level effort never changes, so the cached
-// prefix still matches.
 func (c Client) effortSteering(
 	policy model.RequestPolicy,
 	options map[string]json.RawMessage,
@@ -154,7 +150,6 @@ func (c Client) effortSteering(
 	}
 	thinkingType := ""
 	if policy.ReasoningEffort != "" {
-		// BuildRequest turns disabled thinking adaptive when it sets effort.
 		off, err := thinkingDisabled(options["thinking"])
 		if err != nil {
 			return model.EffortSteering{}, err
@@ -170,8 +165,7 @@ func (c Client) effortSteering(
 		}
 		_ = json.Unmarshal(thinking["type"], &thinkingType)
 	}
-	// Without up-front thinking there is no reasoning to cut back, and some
-	// models reject an effort change in these modes.
+	// Some models reject an effort change in these modes.
 	if thinkingType == "disabled" || thinkingType == "between_tools" {
 		return model.EffortSteering{}, nil
 	}
@@ -182,9 +176,6 @@ func (c Client) effortSteering(
 	return model.NewEffortSteering(base, c.ModelCapabilities.SupportedReasoningEfforts), nil
 }
 
-// topLevelEffort is the effort the request runs at: the policy's when it sets
-// one, else api_variant_options.output_config.effort, else the model default.
-// Lowering from anything else could raise the effort a runaway retry gets.
 func (c Client) topLevelEffort(policy model.RequestPolicy, rawOutputConfig json.RawMessage) (string, error) {
 	if policy.ReasoningEffort != "" {
 		return policy.ReasoningEffort, nil
@@ -432,8 +423,6 @@ func buildMessages(
 			messages = appendMessageBlocks(messages, anthropicRoleUser, blocks)
 			historyAdded = true
 		}
-		// An effort change directly after a user turn applies to the reply to
-		// that turn and every later one.
 		if effort, ok := steering.Lower(entry.ReasoningEffortReduction); ok {
 			messages = append(messages, message{
 				Role: anthropicRoleSystem, Content: []any{}, OutputConfig: map[string]string{"effort": effort},
