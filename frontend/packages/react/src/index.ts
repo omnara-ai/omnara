@@ -143,7 +143,6 @@ export {
   useMachine,
   useMachines,
   useProjectMachines,
-  useUpdateMachine,
 } from './domains/machines'
 export {
   findServerByRemoteUrl,

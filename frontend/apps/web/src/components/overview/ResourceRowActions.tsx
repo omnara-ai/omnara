@@ -11,14 +11,12 @@ export function ResourceRowActions({
   onEdit,
   onGrant,
   onDelete,
-  editLabel = 'Edit',
   grantLabel = 'Share with project',
   deleteLabel = 'Delete',
 }: {
   onEdit?: () => void
   onGrant?: () => void
   onDelete?: () => void
-  editLabel?: string
   grantLabel?: string
   deleteLabel?: string
 }) {
@@ -32,7 +30,7 @@ export function ResourceRowActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {onEdit && <DropdownMenuItem onSelect={onEdit}>{editLabel}</DropdownMenuItem>}
+        {onEdit && <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>}
         {onGrant && <DropdownMenuItem onSelect={onGrant}>{grantLabel}</DropdownMenuItem>}
         {onDelete && (
           <DropdownMenuItem variant="destructive" onSelect={onDelete}>

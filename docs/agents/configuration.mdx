@@ -203,7 +203,11 @@ In `code_mode`, commands started with `run_command` can call the agent's deferre
 Two cases fall back to `tool_add` for a tool, so it is added to the model's tool list instead:
 
 - **The tool is a kind commands can't call.** Commands can call MCP tools, `storage_read`, `storage_list`, `storage_search`, `web_search`, `web_fetch`, and integration `read` tools.
-- **The agent has no machine that allows it.** A machine must [allow programmatic tool calls](/machines/connect#programmatic-tool-calls), which is off by default, and be online when `tool_search` runs.
+- **The agent has no online machine.** A machine must be online when `tool_search` runs.
+
+<Warning>
+Agents bound to the same machine run commands as the same OS user, so in `code_mode` each can call the others' deferred tools. Use it on machines dedicated to one agent or to agents you trust equally.
+</Warning>
 
 Each call is checked against the agent's current config, so a config change applies to commands that are already running. Spawned subagents do not inherit the mode. In the Builder, it is **Deferred tools** under **Advanced**.
 

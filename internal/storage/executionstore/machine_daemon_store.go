@@ -24,24 +24,22 @@ import (
 )
 
 type CreateDaemonMachineInput struct {
-	OrgID                 uuid.UUID
-	DisplayName           string
-	Description           string
-	Cwd                   string
-	Env                   json.RawMessage
-	SecretEnv             json.RawMessage
-	IdempotencyKey        string
-	Metadata              resourcemeta.Metadata
-	ProgrammaticToolCalls bool
+	OrgID          uuid.UUID
+	DisplayName    string
+	Description    string
+	Cwd            string
+	Env            json.RawMessage
+	SecretEnv      json.RawMessage
+	IdempotencyKey string
+	Metadata       resourcemeta.Metadata
 }
 
 type UpdateMachineInput struct {
-	OrgID                 uuid.UUID
-	MachineID             uuid.UUID
-	Cwd                   *string
-	Env                   *json.RawMessage
-	SecretEnv             *json.RawMessage
-	ProgrammaticToolCalls *bool
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
+	Cwd       *string
+	Env       *json.RawMessage
+	SecretEnv *json.RawMessage
 }
 
 type DeleteMachineInput struct {
@@ -342,7 +340,6 @@ func createDaemonMachineTx(
 			IdempotencyKey:         storeutil.TextFromEmpty(input.IdempotencyKey),
 			LifecycleReasonMessage: "",
 			Metadata:               metadata,
-			ProgrammaticToolCalls:  input.ProgrammaticToolCalls,
 		},
 	)
 	if err != nil {
@@ -452,12 +449,11 @@ func (s *Store) updateMachineOnce(ctx context.Context, input UpdateMachineInput)
 	updated, err := qtx.UpdateMachineExecutionDefaults(
 		ctx,
 		dbsqlc.UpdateMachineExecutionDefaultsParams{
-			Cwd:                   cwd,
-			Env:                   env,
-			SecretEnv:             secretEnv,
-			ProgrammaticToolCalls: input.ProgrammaticToolCalls,
-			OrgID:                 input.OrgID,
-			ID:                    input.MachineID,
+			Cwd:       cwd,
+			Env:       env,
+			SecretEnv: secretEnv,
+			OrgID:     input.OrgID,
+			ID:        input.MachineID,
 		},
 	)
 	if err != nil {
