@@ -113,3 +113,13 @@ What it doesn't handle:
 - "Do it for me" relies on the agent using `submit`, not `click`, for final actions.
   The instruction says so and Omnara then requires approval, but nothing on the page
   forces it. Use show only where that isn't good enough.
+- More than one tab: only the tab the user last sent a message from runs steps. That
+  uses the browser's Web Locks, which need https or localhost; on a plain http page
+  every open tab runs them.
+- A renamed user: a profile is found by the user's display name, so after a name
+  change they get a new profile and an empty history. The old conversations stay in
+  Omnara.
+- Dropped requests: a step result or an approval that fails to reach your server is
+  not sent again, and any 409 from Omnara (a full backlog, no credits) is treated like
+  an ended conversation and starts a new one. The user sends another message to move
+  on. Add retries and error handling to suit your app before relying on it.
