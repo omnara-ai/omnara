@@ -4,7 +4,7 @@ description: Records a short video of a pull request's change working in your ap
 icon: "video"
 ---
 
-A GitHub App that shows reviewers a pull request working. When a pull request changes something visible in the browser, it checks out the branch, runs your app on its own machine, clicks through the change in Chrome, and posts a short recording as a comment. It stays silent on pull requests with nothing to see, such as documentation, tests, and refactors. After a new push it records again only when the push changes what a reviewer would see, and it never records the same commit twice.
+A GitHub App that shows reviewers a pull request working. When a pull request changes something visible in the browser, it checks out the branch, runs your app on its own machine, clicks through the change in Chrome, and posts a short recording as a comment. It stays silent on pull requests with nothing to see, such as documentation, tests, and refactors. After a new push it records again only when the push changes what a reviewer would see, and it never records the same commit twice. Omnara runs it on its own repository: see its recordings on [omnara-ai/omnara#845](https://github.com/omnara-ai/omnara/pull/845).
 
 The recording is posted as a GIF from the App, stored on a hidden ref in your repository, or as a playable video from a personal access token. GitHub accepts video uploads only from a person's token, so the example offers both.
 

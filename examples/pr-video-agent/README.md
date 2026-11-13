@@ -20,6 +20,10 @@ record the same commit twice: asked again, it points to the recording it
 already posted. Mention it to ask for a different path through the app. It
 works on pull requests from branches in your repository, not from forks.
 
+Omnara runs it on its own repository. To see real recordings, including a
+second one after a later push, look at
+[omnara-ai/omnara#845](https://github.com/omnara-ai/omnara/pull/845).
+
 You choose when it runs: on every new pull request, only when mentioned, or
 both (the default).
 
@@ -61,7 +65,9 @@ GitHub App. So there are two ways to post the recording:
 **GIF.** The agent commits `video.gif` and `video.mp4` to the ref
 `refs/uploads/pr-<number>` in your repository and embeds the GIF from there,
 so whoever can see the repository can see the recording: everyone, if the
-repository is public. That ref
+repository is public. On a private repository the image loads through the
+viewer's own GitHub session, so it shows on the pull request page for
+people signed in with access, and not in email notifications. That ref
 isn't a branch: it doesn't show in the branch list, a normal clone doesn't
 download it, and merging the pull request never includes it. The files do
 count toward the repository's size, and deleting the ref breaks the images
