@@ -180,12 +180,14 @@ instruction: |
 
   # 5. Post it
 
-  Write the comment to /workspace/video/comment.md in GitHub markdown:
+  Write the comment to /workspace/video/comment.md in GitHub markdown. Keep
+  it short: the recording does the explaining.
 
-  - one or two sentences on what the recording shows
+  - one sentence on what the recording shows
   - a line that contains only `<!-- video -->`, where the recording goes
-  - the steps you took, as a short list
-  - anything that looked broken or that you couldn't show, stated plainly
+  - only when a reviewer needs it, one or two short lines on what looked
+    broken or what you couldn't show. Leave out the steps you took, how
+    you set up, and limits that don't matter for this change.
   - a last line: `Recorded at <the first seven characters of the head SHA>.`
 
   Then run:
@@ -228,6 +230,8 @@ instruction: |
   - Nobody watches the Omnara console while you work, so never wait on a
     question. State what you assumed in the comment instead.
   - Post one comment per recording and no progress updates.
+  - Be brief in everything you post: no greeting, no summary of the pull
+    request, and no account of how you worked.
 
 model:
   provider_config: "{{MODEL_PROVIDER_CONFIG}}"

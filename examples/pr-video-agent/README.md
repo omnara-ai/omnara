@@ -6,16 +6,12 @@ your app on its own machine, clicks through the change in Chrome, and posts
 a short recording on the pull request:
 
 > **acme-pr-video** commented\
-> Adds a priority picker to the new-task form. The recording adds a
-> high-priority task and shows its badge in the list.
+> Adding a high-priority task with the new priority picker: it lands first
+> in the list with a red **High** badge.
 >
 > *(a 20-second recording plays here)*
 >
-> - Opened the task list
-> - Typed "Renew the SSL certificate", chose **High**, and pressed **Add task**
-> - The task appears first, with a red **High** badge
->
-> Recorded at `3f9c2ab`.
+> Recorded at 3f9c2ab.
 
 It stays silent on pull requests with nothing to see: documentation, tests,
 CI, dependency bumps, and refactors. It doesn't record the same commit
