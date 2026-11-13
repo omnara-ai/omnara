@@ -695,6 +695,7 @@ func (s strictOpenAPIServer) createAgent(
 		LaunchedBy:     principal,
 		Name:           request.Body.Name,
 		Message:        message,
+		InputSource:    requestInputSource(ctx),
 		IdempotencyKey: idempotencyKey,
 	}
 	// Replay before compiling config_source or resolving integration references, which may have

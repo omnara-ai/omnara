@@ -224,13 +224,15 @@ func TestScheduledLaunchHasConversationContextWithoutMentionLauncher(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, launched.IntegrationTarget.ID, selected.IntegrationTargetID, "the first admitted turn has its thread")
 	require.Equal(t, "chat", selected.HandlerKey)
-	var provider string
+	var provider, source string
 	require.NoError(t, f.pool.QueryRow(
 		t.Context(),
-		`SELECT actor.provider FROM agent_inputs input JOIN actors actor ON actor.id=input.actor_id WHERE input.id=$1`,
+		`SELECT actor.provider, input.source FROM agent_inputs input JOIN actors actor ON actor.id=input.actor_id
+		WHERE input.id=$1`,
 		launched.AgentInput.ID,
-	).Scan(&provider))
+	).Scan(&provider, &source))
 	require.Equal(t, string(executionstore.ActorProviderOmnara), provider)
+	require.Equal(t, string(executionstore.AgentInputSourceCron), source, "scheduled posts are fired by cron")
 	again, err := f.consumer.Consume(t.Context(), receipt.Lease())
 	require.NoError(t, err)
 	require.False(t, again[0].Launch.Created)

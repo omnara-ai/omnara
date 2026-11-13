@@ -59,6 +59,8 @@ func TestQueuedBacklogMutationsRemainAvailableAfterCancel(t *testing.T) {
 	}
 	_, err = pool.Exec(ctx, `UPDATE agent_inputs SET metadata = '{"mutated":true}'::jsonb WHERE id = $1`, queuedInput.ID)
 	assertPgErrorMessage(t, err, "25006", "agent_input intent and identity are immutable")
+	_, err = pool.Exec(ctx, `UPDATE agent_inputs SET source = 'web' WHERE id = $1`, queuedInput.ID)
+	assertPgErrorMessage(t, err, "25006", "agent_input intent and identity are immutable")
 	_, err = pool.Exec(ctx, `DELETE FROM agent_inputs WHERE id = $1`, queuedInput.ID)
 	assertPgErrorMessage(t, err, "25006", "agent_inputs are immutable")
 	_, err = pool.Exec(ctx, `

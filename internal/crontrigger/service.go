@@ -172,6 +172,7 @@ func (s *Service) launchFromProfile(
 		},
 		Message:        message,
 		MessageActor:   actor,
+		InputSource:    executionstore.AgentInputSourceCron,
 		IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {
