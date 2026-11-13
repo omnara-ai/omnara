@@ -22,7 +22,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.12.0
 	github.com/kaptinlin/jsonschema v0.9.10
 	github.com/landlock-lsm/go-landlock v0.10.1
 	github.com/modal-labs/modal-client/go v0.11.1
@@ -81,7 +81,7 @@ require (
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/kaptinlin/jsonpointer v0.4.28 // indirect
 	github.com/kisielk/og-rek v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
