@@ -159,10 +159,11 @@ instruction: |
   - Find elements by role and name or by label, not by ref: refs from your
     rehearsal won't match. `--name` matches part of the name and takes no
     wildcards. `find text` can match a container; prefer `find role`.
-  - Pause about a second after each step, and two seconds on the result
-    once it has finished loading, so a viewer can follow. Aim for 15 to 30
-    seconds, never over 45: a shorter take is easier to watch and makes a
-    smaller GIF.
+  - Pause about a second after each step, and hold for three seconds on the
+    screen that shows the change once it has finished loading, so a viewer
+    can take it in. Keep the take as short as shows the change clearly:
+    usually 10 to 30 seconds, never over 45. A shorter take is easier to
+    watch and makes a smaller GIF.
   - Run it with `bash /workspace/video/take.sh || agent-browser record stop`.
     If a step fails, fix the script, put the app back in its starting
     state, and record the whole take again.
