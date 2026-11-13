@@ -36,11 +36,11 @@ export function AgentOnboarding({
     <div className="my-auto flex w-full max-w-4xl flex-col gap-8 py-2 sm:gap-10 sm:py-4">
       <div className="flex flex-col items-center gap-2 text-center">
         <h2 className="type-title">Launch your first agent</h2>
-        {manual && (
-          <p className="text-muted-foreground text-sm">
-            Follow the steps to create an agent profile and start a chat.
-          </p>
-        )}
+        <p className="text-muted-foreground text-sm">
+          {manual
+            ? 'Follow the steps to create an agent profile and start a chat.'
+            : 'Paste one prompt into your coding agent and it sets up your first agent.'}
+        </p>
       </div>
       {manual ? (
         <div className="flex flex-col gap-8">
