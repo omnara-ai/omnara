@@ -364,7 +364,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 				commit, http.StatusNoContent)
 			results = f.consume(t, commit)
 			require.Len(t, results, 1)
-			require.Equal(t, executionstore.DeliveryModeQueued, results[0].Input.AgentInput.DeliveryMode)
+			require.Equal(t, executionstore.DeliveryModeSteering, results[0].Input.AgentInput.DeliveryMode)
 			require.Equal(t, reactions, f.reactions.Load(), "full reviews and commits have no comment to acknowledge")
 			delete(review, "review")
 			review["action"] = "created"
