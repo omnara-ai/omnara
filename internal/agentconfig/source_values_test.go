@@ -12,7 +12,9 @@ import (
 
 func TestSourceValuesSurviveCompilationRuntimeAndExport(t *testing.T) {
 	schema := `{"type":"object","properties":{"<<":{"type":"string"},"value":{
- "enum":["1e400","-1e999","1e309","\u007f","\u0085",9007199254740993,0.123456789012345678901,-9223372036854775808,-0.0,1e-7]}}}`
+ "enum":["1e400","-1e999","1e309","\u007f","\u0085","\nleading\nline","\tleading\nline","\u2028leading\nline",
+ 9007199254740993,0.123456789012345678901,-9223372036854775808,18446744073709551616,
+ -9223372036854775809,-0.0,1e-7]}}}`
 	tool := `{"type":"custom","description":"Example lookup","input_schema":` + schema + `}`
 	sources := map[SourceFormat]string{
 		SourceFormatYAML: "instruction: Help.\nmodel: {provider_config: example, name: primary}\n" +
