@@ -18,6 +18,9 @@ type apiClient interface {
 	ListSandboxes(context.Context, listSandboxesQuery) (sandboxPage, error)
 	GetSandbox(context.Context, string) (sandbox, bool, error)
 	DeleteSandbox(context.Context, string) error
+	CreateSecret(context.Context, createSecretRequest) error
+	FindSecret(context.Context, string) (string, bool, error)
+	DeleteSecret(context.Context, string) error
 	CreateSession(context.Context, sandbox, string) error
 	GetSession(context.Context, sandbox, string) (session, bool, error)
 	DeleteSession(context.Context, sandbox, string) error
@@ -39,13 +42,27 @@ type snapshot struct {
 }
 
 type createSandboxRequest struct {
-	Name               string            `json:"name"`
-	Snapshot           string            `json:"snapshot"`
-	Env                map[string]string `json:"env"`
-	Labels             map[string]string `json:"labels"`
-	Target             string            `json:"target"`
-	AutoStopInterval   int               `json:"autoStopInterval"`
-	AutoDeleteInterval int               `json:"autoDeleteInterval"`
+	Name               string              `json:"name"`
+	Snapshot           string              `json:"snapshot"`
+	Env                map[string]string   `json:"env"`
+	Labels             map[string]string   `json:"labels"`
+	Target             string              `json:"target"`
+	AutoStopInterval   int                 `json:"autoStopInterval"`
+	AutoDeleteInterval int                 `json:"autoDeleteInterval"`
+	Secrets            []map[string]string `json:"secrets,omitempty"`
+}
+
+type createSecretRequest struct {
+	Name  string   `json:"name"`
+	Value string   `json:"value"`
+	Hosts []string `json:"hosts"`
+}
+
+type secretPage struct {
+	Items []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"items"`
 }
 
 type sandbox struct {
@@ -174,6 +191,38 @@ func (c *restClient) DeleteSandbox(ctx context.Context, idOrName string) error {
 		nil,
 		nil,
 	)
+	if isNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+func (c *restClient) CreateSecret(ctx context.Context, request createSecretRequest) error {
+	return c.doRequest(ctx, http.MethodPost, c.apiBaseURL+"/secret", request, nil)
+}
+
+func (c *restClient) FindSecret(ctx context.Context, name string) (string, bool, error) {
+	var response secretPage
+	err := c.doRequest(
+		ctx,
+		http.MethodGet,
+		c.apiBaseURL+"/secret/paginated?"+url.Values{"name": {name}}.Encode(),
+		nil,
+		&response,
+	)
+	if err != nil {
+		return "", false, err
+	}
+	for _, item := range response.Items {
+		if item.Name == name {
+			return item.ID, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+func (c *restClient) DeleteSecret(ctx context.Context, id string) error {
+	err := c.doRequest(ctx, http.MethodDelete, c.apiBaseURL+"/secret/"+url.PathEscape(id), nil, nil)
 	if isNotFound(err) {
 		return nil
 	}
@@ -329,4 +378,15 @@ func isNotFound(err error) bool {
 
 func isConflict(err error) bool {
 	return isStatus(err, http.StatusConflict)
+}
+
+func isForbidden(err error) bool {
+	return isStatus(err, http.StatusForbidden)
+}
+
+func rejectedBeforeCreate(err error) bool {
+	var apiErr apiError
+	return errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 &&
+		apiErr.StatusCode != http.StatusRequestTimeout && apiErr.StatusCode != http.StatusConflict &&
+		apiErr.StatusCode != http.StatusTooManyRequests
 }

@@ -2,6 +2,7 @@ package daytona
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -42,10 +43,17 @@ func TestDaytonaProviderProvisionCreatesSandboxAndDaemonSession(t *testing.T) {
 	if api.createRequest.AutoStopInterval != 0 || api.createRequest.AutoDeleteInterval != -1 {
 		t.Fatalf("create persistence intervals = %+v", api.createRequest)
 	}
-	if api.createRequest.Env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
-		api.createRequest.Env[testStartupScriptEnvVar] == "" {
+	name, err := providers.MachineAllocationName(installationID, machineID)
+	require.NoError(t, err)
+	if _, ok := api.createRequest.Env["OMNARA_MACHINE_TOKEN"]; ok ||
+		api.createRequest.Env[testStartupScriptEnvVar] !=
+			base64.StdEncoding.EncodeToString([]byte(providers.StartupScriptWithoutProxyEnv("echo ready"))) {
 		t.Fatalf("managed env = %#v", api.createRequest.Env)
 	}
+	require.Equal(t, []createSecretRequest{{Name: name, Value: "machine-token", Hosts: []string{"api.omnara.test"}}},
+		api.secretRequests)
+	require.Equal(t, []map[string]string{{"OMNARA_MACHINE_TOKEN": name}}, api.createRequest.Secrets)
+	require.Equal(t, []string{"create-secret", "create-sandbox"}, api.calls)
 	if api.executedSession != daemonSessionName || !api.executeRequest.RunAsync ||
 		!strings.Contains(api.executeRequest.Command, `"${OMNARA_INSTALLER_URL:?}"`) ||
 		!strings.Contains(api.executeRequest.Command, "start --no-service") {
@@ -72,9 +80,71 @@ func TestDaytonaProviderProvisionIncludesMachineEnv(t *testing.T) {
 		api.createRequest.Env["GITHUB_TOKEN"] != "resolved-secret" {
 		t.Fatalf("create env missing machine env: %#v", api.createRequest.Env)
 	}
-	if api.createRequest.Env["OMNARA_API_URL"] == "" ||
-		api.createRequest.Env["OMNARA_MACHINE_TOKEN"] != "machine-token" {
+	if api.createRequest.Env["OMNARA_API_URL"] == "" {
 		t.Fatalf("create env missing bootstrap env: %#v", api.createRequest.Env)
+	}
+}
+
+func TestDaytonaProviderProvisionFallsBackToThePlainTokenWithoutSecretAccess(t *testing.T) {
+	for name, configure := range map[string]func(*fakeAPI, *provider){
+		"key without manage:secrets": func(api *fakeAPI, _ *provider) {
+			api.secretErr = apiError{StatusCode: http.StatusForbidden}
+		},
+		"no https API host": func(_ *fakeAPI, provider *provider) {
+			provider.omnaraAPIURL = "http://localhost:8080"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			api := newFakeAPI()
+			provider := newTestProvider(api)
+			configure(api, provider)
+			_, err := provider.ProvisionMachine(
+				context.Background(), uuid.New(), uuid.New(),
+				testMachineProvisioning(t, "team-snapshot", "us", "echo ready"), "machine-token", nil, true,
+			)
+			require.NoError(t, err)
+			require.Equal(t, "machine-token", api.createRequest.Env["OMNARA_MACHINE_TOKEN"])
+			require.Nil(t, api.createRequest.Secrets)
+			require.Equal(t, base64.StdEncoding.EncodeToString([]byte("echo ready")),
+				api.createRequest.Env[testStartupScriptEnvVar])
+		})
+	}
+}
+
+func TestDaytonaProviderProvisionHandlesMachineTokenSecretFailures(t *testing.T) {
+	api := newFakeAPI()
+	api.secretErr = apiError{StatusCode: http.StatusConflict}
+	_, err := newTestProvider(api).ProvisionMachine(
+		context.Background(), uuid.New(), uuid.New(),
+		testMachineProvisioning(t, "team-snapshot", "us", ""), "machine-token", nil, true,
+	)
+	require.NoError(t, err)
+	require.Len(t, api.createRequest.Secrets, 1)
+
+	api = newFakeAPI()
+	api.secretErr = apiError{StatusCode: http.StatusInternalServerError}
+	_, err = newTestProvider(api).ProvisionMachine(
+		context.Background(), uuid.New(), uuid.New(),
+		testMachineProvisioning(t, "team-snapshot", "us", ""), "machine-token", nil, true,
+	)
+	require.Error(t, err)
+	require.Equal(t, []string{"create-secret"}, api.calls)
+}
+
+func TestDaytonaProviderProvisionDeletesTheSecretOnlyWhenCreateWasRejected(t *testing.T) {
+	for status, wantCalls := range map[int][]string{
+		http.StatusBadRequest:          {"create-secret", "create-sandbox", "find-secret", "delete-secret"},
+		http.StatusInternalServerError: {"create-secret", "create-sandbox"},
+		http.StatusTooManyRequests:     {"create-secret", "create-sandbox"},
+	} {
+		api := newFakeAPI()
+		api.createErr = apiError{StatusCode: status}
+		_, err := newTestProvider(api).ProvisionMachine(
+			context.Background(), uuid.New(), uuid.New(),
+			testMachineProvisioning(t, "team-snapshot", "us", ""), "machine-token", nil, true,
+		)
+		require.True(t, isStatus(err, status), "status %d error %v", status, err)
+		require.Equal(t, wantCalls, api.calls, "status %d", status)
 	}
 }
 
@@ -321,6 +391,38 @@ func TestDaytonaProviderInspectAndDelete(t *testing.T) {
 	if api.deleteCalls != 2 {
 		t.Fatalf("already absent machine caused %d delete calls", api.deleteCalls-2)
 	}
+}
+
+func TestDaytonaProviderDeleteMachineDeletesTheTokenSecretAfterTheSandbox(t *testing.T) {
+	installationID := uuid.New()
+	machineID := uuid.New()
+	name, err := providers.MachineAllocationName(installationID, machineID)
+	require.NoError(t, err)
+	deleteMachine := func(api *fakeAPI) error {
+		api.sandbox.Name = name
+		api.sandbox.Labels = map[string]string{"omnara-machine": name}
+		return newTestProvider(api).DeleteMachine(
+			context.Background(), installationID, machineID,
+			testMachineProvisioning(t, "team-snapshot", "us", ""), api.sandbox.ID,
+		)
+	}
+
+	api := newFakeAPI()
+	api.secretIDs = map[string]string{name: "secret-id"}
+	require.NoError(t, deleteMachine(api))
+	require.Equal(t, []string{"delete-sandbox", "find-secret", "delete-secret"}, api.calls)
+	require.Equal(t, []string{"secret-id"}, api.deletedSecretIDs)
+
+	api = newFakeAPI()
+	api.findSecretErr = apiError{StatusCode: http.StatusInternalServerError}
+	require.NoError(t, deleteMachine(api))
+	require.Equal(t, []string{"delete-sandbox", "find-secret"}, api.calls)
+
+	api = newFakeAPI()
+	api.secretIDs = map[string]string{name: "secret-id"}
+	api.missingSandboxIDs = map[string]bool{api.sandbox.ID: true, name: true}
+	require.NoError(t, deleteMachine(api))
+	require.Equal(t, []string{"find-secret", "delete-secret"}, api.calls)
 }
 
 func TestProviderCheckConnectionListsOneSandbox(t *testing.T) {

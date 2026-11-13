@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -122,6 +123,13 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return result, err
 	}
+	var rules map[string][]networkRule
+	if host, ok := providers.MachineTokenProxyHost(p.omnaraAPIURL); ok {
+		rules = map[string][]networkRule{host: {{Transform: networkTransform{
+			Headers: map[string]string{daemonprotocol.MachineTokenHeader: machineToken},
+		}}}}
+		machineToken = daemonprotocol.ProviderInjectedMachineToken
+	}
 	env, err := providers.BuildManagedMachineEnv(p.omnaraAPIURL, machineToken, options.StartupScript, machineEnv)
 	if err != nil {
 		return result, err
@@ -133,7 +141,7 @@ func (p *provider) ProvisionMachine(
 			TemplateID: options.Template,
 			Timeout:    createTimeoutSeconds,
 			Metadata:   metadata,
-			Network:    networkConfig{AllowPublicTraffic: false},
+			Network:    networkConfig{AllowPublicTraffic: false, Rules: rules},
 		})
 		if err != nil {
 			status := apiStatusCode(err)

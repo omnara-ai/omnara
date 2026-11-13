@@ -15,7 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const fileTransferTestProcessID = "prc_aaaaaaaaaaaaaaaaaaaaaaaaae"
+const (
+	fileTransferTestProcessID = "prc_aaaaaaaaaaaaaaaaaaaaaaaaae"
+	fileTransferTestProxy     = "http://127.0.0.1:9"
+)
 
 func runFileTransferProbe() int {
 	if len(os.Args) != 6 || os.Args[2] != "--" || os.Args[3] != "upload" ||
@@ -24,6 +27,9 @@ func runFileTransferProbe() int {
 	}
 	if os.Getenv(gitCredentialCapabilityEnv) != "" {
 		return 3
+	}
+	if os.Getenv("HTTPS_PROXY") != fileTransferTestProxy {
+		return 4
 	}
 	result := os.NewFile(3, "file-transfer-result")
 	defer func() { _ = result.Close() }()
@@ -38,6 +44,7 @@ func runFileTransferProbe() int {
 }
 
 func TestDetachedSupervisorFileTransfer(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", fileTransferTestProxy)
 	metadata := `{"path":"/memory/team/note.md","digest":"sha256:` + strings.Repeat("a", 64) + `"}`
 	failure := `{"error":{"code":"file_content_conflict","error":"file changed","current_digest":"sha256:` +
 		strings.Repeat("b", 64) + `"}}`

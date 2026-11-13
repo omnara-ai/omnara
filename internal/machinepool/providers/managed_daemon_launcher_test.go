@@ -365,3 +365,31 @@ func mustReadFile(t *testing.T, path string) []byte {
 	}
 	return data
 }
+
+func TestMachineTokenProxyHost(t *testing.T) {
+	for apiURL, want := range map[string]string{
+		"https://api.omnara.com/v1":   "api.omnara.com",
+		"https://omnara.example:443":  "omnara.example",
+		"https://omnara.example:8443": "",
+		"http://api.omnara.com/v1":    "",
+		"https://10.0.0.5/v1":         "",
+		"https://[::1]:8080":          "",
+		"":                            "",
+		"://bad":                      "",
+	} {
+		host, ok := MachineTokenProxyHost(apiURL)
+		if host != want || ok != (want != "") {
+			t.Fatalf("MachineTokenProxyHost(%q) = %q, %v; want %q", apiURL, host, ok, want)
+		}
+	}
+}
+
+func TestStartupScriptWithoutProxyEnv(t *testing.T) {
+	if got := StartupScriptWithoutProxyEnv(""); got != "" {
+		t.Fatalf("empty startup script = %q", got)
+	}
+	want := "unset HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy\necho ready\n"
+	if got := StartupScriptWithoutProxyEnv("echo ready\n"); got != want {
+		t.Fatalf("startup script = %q, want %q", got, want)
+	}
+}

@@ -75,6 +75,18 @@ func (subprocessRunnerLauncher) Prepare(
 		return nil, err
 	}
 	c.prepareGitCredentials(&assignment, supervisorToken)
+	if assignment.Process.ExecutionSpec.Kind == processcmd.KindFileTransfer {
+		env := maps.Clone(assignment.Env)
+		if env == nil {
+			env = map[string]string{}
+		}
+		for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"} {
+			if value, ok := os.LookupEnv(name); ok {
+				env[name] = value
+			}
+		}
+		assignment.Env = env
+	}
 	stateStore, err := c.stateStore(ctx)
 	if err != nil {
 		return nil, err

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
@@ -66,7 +67,13 @@ func TestMachineFailureRoute(t *testing.T) {
 		t.Fatalf("begin provider provisioning: %v", err)
 	}
 	path := "/api/v1/daemon/failures"
-	requestFailure := func(stage string, exitStatus, captureStatus int, output, token string, wantStatus int) {
+	requestFailure := func(
+		stage string,
+		exitStatus, captureStatus int,
+		output string,
+		headers map[string]string,
+		wantStatus int,
+	) {
 		t.Helper()
 		req := httptest.NewRequest(
 			http.MethodPost,
@@ -80,7 +87,7 @@ func TestMachineFailureRoute(t *testing.T) {
 			strings.NewReader(output),
 		)
 		req.Header.Set("Content-Type", "text/plain")
-		for key, value := range authHeaders(token) {
+		for key, value := range headers {
 			req.Header.Set(key, value)
 		}
 		rec := httptest.NewRecorder()
@@ -93,7 +100,7 @@ func TestMachineFailureRoute(t *testing.T) {
 		"x",
 		executionstore.MaxMachineFailureReportOutputBytes-len("first\x00\xff"),
 	)
-	requestFailure("startup_script", 7, 0, firstOutput, provisioning.DaemonToken.Token, http.StatusNoContent)
+	requestFailure("startup_script", 7, 0, firstOutput, authHeaders(provisioning.DaemonToken.Token), http.StatusNoContent)
 	var firstFailure []byte
 	if err := pool.QueryRow(
 		ctx,
@@ -120,7 +127,7 @@ func TestMachineFailureRoute(t *testing.T) {
 		t.Fatalf("stored failure report = %+v", stored)
 	}
 
-	requestFailure("daemon_install", 9, 0, "", provisioning.DaemonToken.Token, http.StatusNoContent)
+	requestFailure("daemon_install", 9, 0, "", authHeaders(provisioning.DaemonToken.Token), http.StatusNoContent)
 	var replayedFailure []byte
 	if err := pool.QueryRow(
 		ctx,
@@ -143,11 +150,21 @@ func TestMachineFailureRoute(t *testing.T) {
 		7,
 		0,
 		strings.Repeat("x", executionstore.MaxMachineFailureReportOutputBytes+2),
-		provisioning.DaemonToken.Token,
+		authHeaders(provisioning.DaemonToken.Token),
 		http.StatusBadRequest,
 	)
-	requestFailure("bogus", 7, 0, "tail", provisioning.DaemonToken.Token, http.StatusBadRequest)
-	requestFailure("startup_script", 7, 0, "tail", "invalid-machine-token", http.StatusUnauthorized)
+	requestFailure("bogus", 7, 0, "tail", authHeaders(provisioning.DaemonToken.Token), http.StatusBadRequest)
+	requestFailure("startup_script", 7, 0, "tail", authHeaders("invalid-machine-token"), http.StatusUnauthorized)
+	injectedHeaders := func(machineToken string) map[string]string {
+		headers := authHeaders(daemonprotocol.ProviderInjectedMachineToken)
+		if machineToken != "" {
+			headers[daemonprotocol.MachineTokenHeader] = machineToken
+		}
+		return headers
+	}
+	requestFailure("bogus", 7, 0, "tail", injectedHeaders(provisioning.DaemonToken.Token), http.StatusBadRequest)
+	requestFailure("bogus", 7, 0, "tail", injectedHeaders(""), http.StatusServiceUnavailable)
+	requestFailure("bogus", 7, 0, "tail", injectedHeaders("invalid-machine-token"), http.StatusUnauthorized)
 
 	if _, err := store.Execution().RecordPoolMachineProvisioningResource(
 		ctx,
@@ -206,7 +223,7 @@ func TestMachineFailureRoute(t *testing.T) {
 		t.Fatalf("create BYO machine token: %v", err)
 	}
 	byoToken := byoTokenRecord.Token
-	requestFailure("daemon_install", 11, 0, "BYO install failed", byoToken, http.StatusNoContent)
+	requestFailure("daemon_install", 11, 0, "BYO install failed", authHeaders(byoToken), http.StatusNoContent)
 	var byoFailure []byte
 	if err := pool.QueryRow(
 		ctx,

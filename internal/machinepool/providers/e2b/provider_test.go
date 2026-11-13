@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -119,7 +120,11 @@ func TestProvisionCreatesSandboxAndStartsDaemon(t *testing.T) {
 		TemplateID: "claude",
 		Timeout:    createTimeoutSeconds,
 		Metadata:   metadata,
-		Network:    networkConfig{AllowPublicTraffic: false},
+		Network: networkConfig{AllowPublicTraffic: false, Rules: map[string][]networkRule{
+			"api.omnara.test": {{Transform: networkTransform{
+				Headers: map[string]string{daemonprotocol.MachineTokenHeader: "machine-token"},
+			}}},
+		}},
 	}}, a.creates)
 	require.Equal(t, []string{"sbx1"}, a.extended)
 	require.Len(t, a.starts, 1)
@@ -129,7 +134,7 @@ func TestProvisionCreatesSandboxAndStartsDaemon(t *testing.T) {
 	require.Equal(t, []string{launcher[1], launcherGuard(launcherLockPath) + launcher[2]}, start.Process.Args)
 	require.Equal(t, daemonProcessTag, start.Tag)
 	require.False(t, start.Stdin)
-	require.Equal(t, "machine-token", start.Process.Envs["OMNARA_MACHINE_TOKEN"])
+	require.Equal(t, daemonprotocol.ProviderInjectedMachineToken, start.Process.Envs["OMNARA_MACHINE_TOKEN"])
 	require.Equal(t, "value", start.Process.Envs["USER_KEY"])
 	require.Equal(t, providers.ManagedBootScriptPayload(), start.Process.Envs[providers.ManagedBootstrapScriptEnvVar])
 }

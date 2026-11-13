@@ -18,8 +18,11 @@ import (
 )
 
 const (
-	provisioningTimeout = time.Minute
-	wakeSessionIdx      = 1
+	provisioningTimeout      = time.Minute
+	wakeSessionIdx           = 1
+	machineTokenSecret       = "OMNARA_MACHINE_TOKEN"
+	machineTokenRuleID       = "omnara-machine-token"
+	machineTokenRulePriority = 1000000
 )
 
 var (
@@ -99,6 +102,21 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
+	var policies *forkPolicies
+	if host, ok := providers.MachineTokenProxyHost(p.omnaraAPIURL); ok {
+		policies = &forkPolicies{
+			Rules: map[string]policyRule{machineTokenRuleID: {
+				Type:     "outbound",
+				Priority: machineTokenRulePriority,
+				Match:    policyMatch{Hosts: []string{host}, Ports: []int{443}},
+				Action: policyAction{Rewrite: policyRewrite{Headers: map[string]string{
+					daemonprotocol.MachineTokenHeader: "${secret:" + machineTokenSecret + "}",
+				}}},
+			}},
+			Secrets: map[string]string{machineTokenSecret: machineToken},
+		}
+		machineToken = daemonprotocol.ProviderInjectedMachineToken
+	}
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
 		machineToken,
@@ -127,6 +145,7 @@ func (p *provider) ProvisionMachine(
 			VCPU:      *machineProvisioning.CPU,
 			MemoryMiB: *machineProvisioning.MemoryMB,
 		},
+		Policies: policies,
 	}, name)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err

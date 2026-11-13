@@ -180,3 +180,44 @@ func TestDaytonaRESTClientListsSandboxesWithCursorAndStateFilters(t *testing.T) 
 		t.Fatalf("list response = %+v", page)
 	}
 }
+
+func TestDaytonaRESTClientManagesMachineTokenSecrets(t *testing.T) {
+	var deleted []string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/secret":
+			var request createSecretRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Name != "omnara-mch-a" ||
+				request.Value != "token" || len(request.Hosts) != 1 || request.Hosts[0] != "api.omnara.test" {
+				t.Errorf("create secret request = %+v err %v", request, err)
+			}
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == "/secret/paginated":
+			if r.URL.Query().Get("name") != "omnara-mch-a" {
+				t.Errorf("find secret query = %q", r.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(`{"items":[{"id":"id-ab","name":"omnara-mch-ab"},{"id":"id-a","name":"omnara-mch-a"}]}`))
+		case r.Method == http.MethodDelete:
+			deleted = append(deleted, r.URL.Path)
+			http.NotFound(w, r)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL)
+			http.Error(w, "test handler failed", http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+	client := newRESTClient(server.URL, "test-token", server.Client())
+	ctx := context.Background()
+	if err := client.CreateSecret(ctx, createSecretRequest{
+		Name: "omnara-mch-a", Value: "token", Hosts: []string{"api.omnara.test"},
+	}); err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	id, found, err := client.FindSecret(ctx, "omnara-mch-a")
+	if err != nil || !found || id != "id-a" {
+		t.Fatalf("find secret = %q %v %v, want the exact name match", id, found, err)
+	}
+	if err := client.DeleteSecret(ctx, id); err != nil || len(deleted) != 1 || deleted[0] != "/secret/id-a" {
+		t.Fatalf("delete secret error = %v requests %v, want a quiet 404 by id", err, deleted)
+	}
+}
