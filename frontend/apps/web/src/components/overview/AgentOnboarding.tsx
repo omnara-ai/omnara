@@ -77,8 +77,8 @@ function WhatHappensNext() {
       </summary>
       <ol className="mt-3 list-decimal space-y-1 pl-5 text-left">
         <li>Your coding agent signs in to Omnara from your terminal.</li>
-        <li>It creates an agent profile in this project.</li>
-        <li>It launches your first agent, and this page opens its chat.</li>
+        <li>It creates an agent profile.</li>
+        <li>It launches your first agent.</li>
       </ol>
     </details>
   )
