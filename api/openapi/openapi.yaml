@@ -5796,6 +5796,7 @@ paths:
       parameters:
         - name: state
           in: query
+          description: Return only interactions in this state. Omit to return all.
           required: false
           schema:
             $ref: '#/components/schemas/AgentInteractionState'
@@ -9512,7 +9513,7 @@ components:
       required: false
       style: deepObject
       explode: true
-      description: Metadata key/value filters, encoded as metadata[key]=value.
+      description: Return only secrets whose metadata includes these key-value pairs.
       schema:
         type: object
         additionalProperties:
@@ -9523,7 +9524,7 @@ components:
       required: false
       schema:
         $ref: '#/components/schemas/SecretKind'
-      description: Filter secrets by material kind.
+      description: Return only secrets that hold this type of credential.
     SkillOwnerKindFilter:
       name: owner_kind
       in: query
@@ -9538,7 +9539,7 @@ components:
       required: false
       schema:
         $ref: '#/components/schemas/ProjectID'
-      description: Required with owner_kind=project and invalid with other owner kinds.
+      description: Owning project to filter by. Required when owner_kind is project.
     SkillAvailabilitySourceFilter:
       name: availability_source
       in: query
@@ -9561,7 +9562,7 @@ components:
       required: false
       schema:
         $ref: '#/components/schemas/ProjectID'
-      description: Required with owner_kind=project and invalid with other owner kinds.
+      description: Owning project to filter by. Required when owner_kind is project.
     SecretMCPOAuthFlowIDFilter:
       name: mcp_oauth_flow_id
       in: query
@@ -9680,36 +9681,54 @@ components:
       required: [instruction, model]
       properties:
         git_credentials:
+          description: >-
+            GitHub integration whose credentials the agent's machine processes use for Git and gh. Not passed to
+            subagents.
           $ref: '#/components/schemas/AgentConfigDefinitionGitCredentials'
         instruction:
+          description: >-
+            System prompt: the agent's job, boundaries, and when to ask a human.
           type: string
           minLength: 1
           pattern: '\S'
         interaction_handlers:
+          description: >-
+            Integrations that show the agent's questions and approvals outside the dashboard, keyed by
+            integration name. Not passed to subagents.
           $ref: '#/components/schemas/AgentConfigDefinitionInteractionHandlers'
         machine_sources:
+          description: BYO machines and machine pools the agent can run commands on.
           $ref: '#/components/schemas/AgentConfigDefinitionMachineSources'
         max_depth:
+          description: Maximum subagent nesting depth. Defaults to 1, so subagents cannot spawn their own.
           type: integer
           minimum: 1
           maximum: 8
         max_subagents:
+          description: Maximum active subagents across all keys. Unset means no overall limit.
           type: integer
           minimum: 1
           maximum: 2147483647
         mcp:
+          description: MCP servers the agent can use, keyed by server name. Their tools are named mcp__{server}__{tool}.
           $ref: '#/components/schemas/AgentConfigDefinitionMCPServers'
         memory_stores:
+          description: Project memory stores the agent can access at /memory/{name}/.
           $ref: '#/components/schemas/AgentConfigDefinitionMemoryStores'
         model:
+          description: Model the agent runs on, with optional overrides of its defaults.
           $ref: '#/components/schemas/AgentConfigDefinitionModel'
         skills:
+          description: Skills the agent can load. The project must own or be granted each one.
           $ref: '#/components/schemas/AgentConfigDefinitionSkills'
         subagents:
+          description: Subagents the agent can spawn, keyed by name.
           $ref: '#/components/schemas/AgentConfigDefinitionSubagents'
         tools:
+          description: Built-in and custom tools, keyed by tool name. {} enables a tool with its defaults.
           $ref: '#/components/schemas/AgentConfigDefinitionTools'
         version:
+          description: Config format version. Optional; set it to pin the format.
           enum: [v1]
       x-go-type: json.RawMessage
     AgentConfigToolsDefinition:
@@ -9743,6 +9762,7 @@ components:
       required: [integration]
       properties:
         integration:
+          description: Name of a GitHub integration in the project.
           type: string
           pattern: '^[a-zA-Z][a-zA-Z0-9-]{0,31}$'
         repository_ids:
@@ -9782,16 +9802,24 @@ components:
       required: [type, secret_id]
       properties:
         region:
+          description: AWS region to sign for. Required for sigv4 only.
           type: string
           minLength: 1
         secret_id:
+          description: >-
+            Secret holding the credential: generic for bearer, oauth_token_set for oauth, aws_credentials for
+            sigv4.
           type: string
           minLength: 1
           pattern: '^sec_[a-z2-7]{26}$'
         service:
+          description: AWS service to sign for, such as aws-mcp. Required for sigv4 only.
           type: string
           minLength: 1
         type:
+          description: >-
+            bearer sends a static token, oauth uses tokens from Omnara's MCP OAuth flow, and sigv4 signs
+            requests with AWS SigV4.
           enum: [bearer, oauth, sigv4]
       x-go-type: json.RawMessage
     AgentConfigDefinitionMCPServer:
@@ -9800,16 +9828,21 @@ components:
       required: [url]
       properties:
         auth:
+          description: How to authenticate to the server. Omit if it needs none.
           $ref: '#/components/schemas/AgentConfigDefinitionMCPAuth'
         default_enabled:
+          description: Whether tools are enabled unless overridden in tools. Defaults to true.
           anyOf:
             - type: boolean
             - type: 'null'
         deferred:
+          description: Keep the server's tools out of context until tool_search loads them. Defaults to false.
           type: boolean
         permission:
+          description: Default permission for the server's tools. Defaults to always_ask.
           $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
         tools:
+          description: Per-tool overrides, keyed by the tool's name on the server.
           type: object
           additionalProperties:
             $ref: '#/components/schemas/AgentConfigDefinitionMCPTool'
@@ -9817,6 +9850,7 @@ components:
             type: string
             pattern: '^[a-zA-Z][a-zA-Z0-9_-]{0,63}$'
         url:
+          description: HTTPS URL of the server's MCP endpoint.
           type: string
           minLength: 1
       x-go-type: json.RawMessage
@@ -9835,14 +9869,17 @@ components:
       additionalProperties: false
       properties:
         deferred:
+          description: Overrides the server's deferred setting. Null inherits it.
           anyOf:
             - type: boolean
             - type: 'null'
         enabled:
+          description: Enables or hides the tool. Null follows the server's default_enabled.
           anyOf:
             - type: boolean
             - type: 'null'
         permission:
+          description: Overrides the server's permission for this tool.
           $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
       x-go-type: json.RawMessage
     AgentConfigDefinitionMachineSource:
@@ -9850,18 +9887,24 @@ components:
       additionalProperties: false
       properties:
         cwd:
+          description: Working directory for the agent's processes. Overrides the machine or pool default.
           type: string
           maxLength: 4096
         delete_after_idle_minutes:
+          description: >-
+            Pools only. Delete a machine after this many idle minutes; 0 disables. Unset inherits the grant or
+            pool setting.
           anyOf:
             - const: 0
             - type: integer
               minimum: 5
               maximum: 2147483647
         description:
+          description: Describes this source to the agent.
           type: string
           maxLength: 4096
         env_overlay:
+          description: Environment variables for the agent's processes. A null value removes an inherited variable.
           anyOf:
             - type: object
               additionalProperties:
@@ -9872,28 +9915,38 @@ components:
                 $ref: '#/components/schemas/EnvironmentVariableName'
             - type: 'null'
         initial_num_machines:
+          description: Pools only. Machines to create at launch. Defaults to 1 and cannot exceed max_machines.
           type: integer
           minimum: 0
         machine_cpu:
+          description: Pools only. vCPUs for new machines, within pool and project limits.
           type: integer
           minimum: 1
           maximum: 2147483647
         machine_memory_mb:
+          description: Pools only. Memory in MB for new machines, within pool and project limits.
           type: integer
           minimum: 1
           maximum: 2147483647
         machine_name:
+          description: Name of a BYO machine granted to the project. Set this or machine_pool_name.
           $ref: '#/components/schemas/ResourceNameReference'
         machine_pool_name:
+          description: Name of a machine pool granted to the project. Set this or machine_name.
           $ref: '#/components/schemas/ResourceNameReference'
         machine_provider_options_overlay:
+          description: Pools only. Provider options applied over the pool and grant options.
           anyOf:
             - type: object
             - type: 'null'
         max_machines:
+          description: Pools only. Most machines the agent can hold from this pool. Defaults to 1.
           type: integer
           minimum: 0
         secret_env_overlay:
+          description: >-
+            Environment variables set from secrets, keyed by variable name. A null value removes an inherited
+            variable.
           anyOf:
             - type: object
               additionalProperties:
@@ -9923,8 +9976,10 @@ components:
       required: [name, access]
       properties:
         name:
+          description: Name of a memory store in the project.
           $ref: '#/components/schemas/MemoryStoreName'
         access:
+          description: read, or read_write if the store also allows agent writes.
           type: string
           enum: [read, read_write]
       x-go-type: json.RawMessage
@@ -9941,6 +9996,9 @@ components:
       required: [provider_config, name]
       properties:
         cache_retention:
+          description: >-
+            Prompt caching: none, short (provider default), or long (extended where available). Unset uses the
+            model's default.
           enum: [none, short, long]
         context_window_tokens:
           type: integer
@@ -9948,18 +10006,23 @@ components:
           maximum: 2147483647
           description: Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         default_max_output_tokens:
+          description: Maximum output tokens per request. Overrides the model's default.
           type: integer
           minimum: 1
         name:
+          description: Configured model name under provider_config.
           $ref: '#/components/schemas/ResourceNameReference'
         provider_config:
+          description: Name of the organization's model provider.
           $ref: '#/components/schemas/ResourceNameReference'
         reasoning:
+          description: Reasoning effort, such as low, medium, or high, for models that support it.
           type: object
           additionalProperties: false
           required: [effort]
           properties:
             effort:
+              description: Reasoning effort, such as low, medium, or high.
               type: string
               minLength: 1
               pattern: '\S'
@@ -9979,22 +10042,29 @@ components:
       required: [type]
       properties:
         archive_after_idle_minutes:
+          description: Archive these subagents after this many idle minutes. Unset never archives them for being idle.
           type: integer
           minimum: 1
           maximum: 2147483647
         description:
+          description: Tells the model when to spawn this subagent.
           type: string
         instruction:
+          description: Changes to the subagent's instruction.
           $ref: '#/components/schemas/AgentConfigDefinitionSubagentInstruction'
         max_instances:
+          description: Maximum active subagents from this key. Unset means no per-key limit.
           type: integer
           minimum: 1
           maximum: 2147483647
         model:
+          description: Model overrides. Omit provider_config and name to keep the base model.
           $ref: '#/components/schemas/AgentConfigDefinitionSubagentModel'
         profile:
+          description: Agent profile to launch from. Required when type is profile.
           $ref: '#/components/schemas/ResourceNameReference'
         type:
+          description: profile launches from a profile's current config; self copies this agent's config.
           enum: [profile, self]
       if:
         type: object
@@ -10002,6 +10072,7 @@ components:
         properties:
           type:
             const: profile
+            description: Applies when type is profile.
       then:
         required: [profile]
       else:
@@ -10014,6 +10085,7 @@ components:
       additionalProperties: false
       properties:
         append:
+          description: Text appended to the base instruction.
           type: string
       x-go-type: json.RawMessage
     AgentConfigDefinitionSubagentModel:
@@ -10024,6 +10096,7 @@ components:
         provider_config: [name]
       properties:
         cache_retention:
+          description: Overrides the base model's prompt caching.
           enum: [none, short, long]
         context_window_tokens:
           type: integer
@@ -10031,18 +10104,23 @@ components:
           maximum: 2147483647
           description: Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         default_max_output_tokens:
+          description: Overrides the base model's output token limit.
           type: integer
           minimum: 1
         name:
+          description: Configured model name. Set with provider_config to switch models.
           $ref: '#/components/schemas/ResourceNameReference'
         provider_config:
+          description: Model provider name. Set with name to switch models.
           $ref: '#/components/schemas/ResourceNameReference'
         reasoning:
+          description: Overrides the base model's reasoning effort.
           type: object
           additionalProperties: false
           required: [effort]
           properties:
             effort:
+              description: Reasoning effort, such as low, medium, or high.
               type: string
               minLength: 1
               pattern: '\S'
@@ -10062,19 +10140,25 @@ components:
       additionalProperties: false
       properties:
         deferred:
+          description: Keep the tool out of context until tool_search loads it. Defaults to false.
           type: boolean
         description:
+          description: Custom tools only. Tells the model what the tool does.
           type: string
           minLength: 1
         enabled:
+          description: Set to false to disable the tool, including default tools.
           anyOf:
             - type: boolean
             - type: 'null'
         input_schema:
+          description: Custom tools only. JSON Schema for the tool's arguments.
           $ref: '#/components/schemas/AgentConfigDefinitionToolInputSchema'
         permission:
+          description: Overrides the tool's default permission. GET /tool-catalog lists defaults and modes.
           $ref: '#/components/schemas/AgentConfigDefinitionToolPermission'
         type:
+          description: built_in for an Omnara tool, custom for a tool your system runs.
           enum: [built_in, custom]
       if:
         type: object
@@ -10082,6 +10166,7 @@ components:
         properties:
           type:
             const: custom
+            description: Applies when type is custom.
       then:
         required: [description, input_schema]
       else:
@@ -10103,15 +10188,18 @@ components:
       required: [type]
       properties:
         properties:
+          description: Arguments, keyed by name, as JSON Schemas.
           type: object
           additionalProperties:
             type: object
         required:
+          description: Names of required arguments.
           type: array
           items:
             type: string
             minLength: 1
         type:
+          description: Root type of the argument schema.
           const: object
       x-go-type: json.RawMessage
     AgentConfigDefinitionToolPermission:
@@ -10120,10 +10208,12 @@ components:
       required: [mode]
       properties:
         mode:
+          description: always_allow, always_ask (wait for human approval), or always_deny.
           type: string
           minLength: 1
           pattern: '\S'
         parameters:
+          description: Mode-specific settings. Current modes take none.
           type: object
       x-go-type: json.RawMessage
     AgentConfigDefinitionTools:
@@ -10179,12 +10269,12 @@ components:
       description: Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.
     ResourceListSort:
       type: string
-      description: Sort order for named resources that expose created and modified timestamps.
+      description: Field to sort by; prefix with - for descending order. Defaults to -created_at (newest first).
       default: -created_at
       enum: [name, -name, -updated_at, updated_at, -created_at, created_at]
     CreatedResourceListSort:
       type: string
-      description: Sort order for named resources that expose a created timestamp.
+      description: Field to sort by; prefix with - for descending order. Defaults to -created_at (newest first).
       default: -created_at
       enum: [name, -name, -created_at, created_at]
     AgentConfigErrorIssue:
@@ -10564,8 +10654,7 @@ components:
       pattern: '^pmog_[a-z2-7]{26}$'
     ModelAPIFormat:
       description: >-
-        Wire protocol the model endpoint speaks: openai-responses, openai-chat-completions, or
-        anthropic-messages.
+        Wire protocol the model endpoint speaks.
       type: string
       enum: [openai-responses, openai-chat-completions, anthropic-messages]
       x-enum-varnames:
@@ -10574,7 +10663,8 @@ components:
         - ModelAPIFormatAnthropicMessages
     ModelProviderAuthKind:
       description: >-
-        How the credential is sent: bearer_token, api_key_header, or sigv4 (AWS).
+        How the credential is sent: as a bearer token, in the header named by
+        auth_options.header_name, or signed with AWS SigV4.
       type: string
       enum: [bearer_token, api_key_header, sigv4]
       x-enum-varnames:
@@ -10586,7 +10676,8 @@ components:
       x-extensible-enum: [bearer_token, api_key_header, sigv4]
     ModelProviderAPIVariant:
       description: >-
-        Provider-specific flavor of the API format: default, openrouter, or bedrock.
+        Provider-specific variant of api_format. Use default unless the endpoint is OpenRouter or
+        Bedrock.
       type: string
       enum: [default, openrouter, bedrock]
     ModelProviderAPIVariantResponse:
@@ -10672,13 +10763,16 @@ components:
           additionalProperties: false
           properties:
             header_name:
+              description: Header that carries the API key when auth_kind is api_key_header.
               type: string
               minLength: 1
             service:
+              description: AWS service to sign for when auth_kind is sigv4.
               type: string
               minLength: 1
               maxLength: 64
             region:
+              description: AWS region to sign for when auth_kind is sigv4.
               type: string
               minLength: 1
               maxLength: 64
@@ -10728,13 +10822,16 @@ components:
           additionalProperties: false
           properties:
             header_name:
+              description: Header that carries the API key when auth_kind is api_key_header.
               type: string
               minLength: 1
             service:
+              description: AWS service to sign for when auth_kind is sigv4.
               type: string
               minLength: 1
               maxLength: 64
             region:
+              description: AWS region to sign for when auth_kind is sigv4.
               type: string
               minLength: 1
               maxLength: 64
@@ -10756,27 +10853,48 @@ components:
       required: [id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, request_timeout_ms, idle_timeout_ms, auth_kind, auth_options, credential_secret_id, headers, secret_headers, created_at, updated_at]
       properties:
         id:
+          description: >-
+            Identifies this provider config.
           $ref: '#/components/schemas/ModelProviderConfigID'
         org_id:
+          description: >-
+            Organization that owns this provider config.
           $ref: '#/components/schemas/OrganizationID'
         management_kind:
+          description: >-
+            Whether the organization manages this provider or the Omnara installation provisions and manages
+            it.
           $ref: '#/components/schemas/ManagementKind'
         name:
+          description: >-
+            Name agent configs use to reference this provider as model.provider_config.
           $ref: '#/components/schemas/ResourceName'
         api_format:
+          description: >-
+            Wire protocol Omnara speaks to this provider.
           $ref: '#/components/schemas/ModelAPIFormat'
         api_variant:
+          description: >-
+            Provider-specific flavor of the API format.
           $ref: '#/components/schemas/ModelProviderAPIVariantResponse'
         base_url:
           type: string
           description: Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs.
         endpoint_path:
+          description: >-
+            Path under base_url that model requests are sent to.
           type: string
         request_timeout_ms:
+          description: >-
+            Total deadline for one provider attempt, including reasoning and response streaming.
           type: integer
         idle_timeout_ms:
+          description: >-
+            Longest wait for response headers or more response data; heartbeats count as activity.
           type: integer
         auth_kind:
+          description: >-
+            How Omnara sends the credential to the provider.
           $ref: '#/components/schemas/ModelProviderAuthKindResponse'
         auth_options:
           type: object
@@ -10786,17 +10904,22 @@ components:
           additionalProperties: false
           properties:
             header_name:
+              description: Header that carries the API key when auth_kind is api_key_header.
               type: string
               minLength: 1
             service:
+              description: AWS service to sign for when auth_kind is sigv4.
               type: string
               minLength: 1
               maxLength: 64
             region:
+              description: AWS region to sign for when auth_kind is sigv4.
               type: string
               minLength: 1
               maxLength: 64
         credential_secret_id:
+          description: >-
+            Secret holding the credential Omnara sends to the provider.
           $ref: '#/components/schemas/SecretID'
         headers:
           type: object
@@ -10809,8 +10932,12 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
         created_at:
+          description: >-
+            When the provider config was created.
           $ref: '#/components/schemas/Timestamp'
         updated_at:
+          description: >-
+            When the provider config was last changed.
           $ref: '#/components/schemas/Timestamp'
     CreateModelProviderConfigResponse:
       type: object
@@ -10943,7 +11070,7 @@ components:
           default: false
         default_reasoning_effort:
           type: string
-          description: Default reasoning effort to send for models/API formats that support effort-style reasoning controls. Requires supports_reasoning=true. When supported_reasoning_efforts is present, this value must be listed there.
+          description: Reasoning effort sent by default, such as low, medium, or high. Requires supports_reasoning; must be listed in supported_reasoning_efforts when that is set.
         supported_reasoning_efforts:
           type: array
           description: Reasoning effort values this configured model accepts. Requires supports_reasoning=true when non-empty.
@@ -11001,7 +11128,7 @@ components:
           description: Whether Omnara should use this model's reasoning features. For OpenAI Responses, this also enables encrypted reasoning replay for stateless calls. Omitted keeps the current value.
         default_reasoning_effort:
           type: string
-          description: Default reasoning effort to send for models/API formats that support effort-style reasoning controls. Requires supports_reasoning=true. When supported_reasoning_efforts is present, this value must be listed there.
+          description: Reasoning effort sent by default, such as low, medium, or high. Requires supports_reasoning; must be listed in supported_reasoning_efforts when that is set.
         supported_reasoning_efforts:
           type: array
           description: Reasoning effort values this configured model accepts. Requires supports_reasoning=true when non-empty.
@@ -11101,6 +11228,7 @@ components:
       required: [configured_model_id]
       properties:
         configured_model_id:
+          description: Configured model the project can use.
           $ref: '#/components/schemas/ConfiguredModelID'
         context_window_tokens:
           type: integer
@@ -11116,7 +11244,7 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Optional project default per-request output-token cap.
+          description: Maximum output tokens per request for this project. Omit to inherit the configured model's.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
         supports_tools:
@@ -11127,10 +11255,10 @@ components:
           description: Optional project-level reasoning gate. Can disable reasoning, but cannot enable reasoning when the configured model does not support it.
         default_reasoning_effort:
           type: string
-          description: Optional project default reasoning effort.
+          description: Reasoning effort this project uses by default, such as low or high. Omit to inherit the configured model's.
         supported_reasoning_efforts:
           type: array
-          description: Optional project subset of configured-model reasoning efforts. If this excludes the inherited default_reasoning_effort, set default_reasoning_effort on the grant too.
+          description: Reasoning efforts this project may use, limited to the configured model's. If this excludes the inherited default_reasoning_effort, set default_reasoning_effort too.
           items:
             type: string
         input_modalities:
@@ -11164,8 +11292,9 @@ components:
         default_max_output_tokens:
           type: [integer, "null"]
           minimum: 1
-          description: Project default per-request output-token cap.
+          description: Maximum output tokens per request for this project. Null inherits the configured model's.
         default_cache_retention:
+          description: Overrides the model's prompt caching for this project. Null inherits it.
           anyOf:
             - $ref: '#/components/schemas/ModelCacheRetention'
             - type: "null"
@@ -11177,20 +11306,20 @@ components:
           description: Project-level reasoning gate. Can disable reasoning, but cannot enable reasoning when the configured model does not support it.
         default_reasoning_effort:
           type: [string, "null"]
-          description: Project default reasoning effort.
+          description: Reasoning effort this project uses by default. Null inherits the configured model's.
         supported_reasoning_efforts:
           type: array
-          description: Project subset of configured-model reasoning efforts. If this excludes the inherited default_reasoning_effort, set default_reasoning_effort on the grant too.
+          description: Reasoning efforts this project may use, limited to the configured model's. If this excludes the inherited default_reasoning_effort, set default_reasoning_effort too.
           items:
             type: string
         input_modalities:
           type: array
-          description: Project subset of configured-model input types.
+          description: Input types this project may send, such as text, image, or file; limited to the configured model's.
           items:
             type: string
         output_modalities:
           type: array
-          description: Project subset of configured-model output types.
+          description: Output types this project may receive, limited to the configured model's.
           items:
             type: string
     ProjectModelGrant:
@@ -11600,14 +11729,24 @@ components:
       required: [id, org_id, skill_id, target_project_id, created_at]
       properties:
         id:
+          description: >-
+            Identifies this grant; use it to revoke the project's access.
           $ref: '#/components/schemas/SkillGrantID'
         org_id:
+          description: >-
+            Organization the grant and its skill belong to.
           $ref: '#/components/schemas/OrganizationID'
         skill_id:
+          description: >-
+            Skill shared by this grant.
           $ref: '#/components/schemas/SkillID'
         target_project_id:
+          description: >-
+            Project that can attach the skill through this grant.
           $ref: '#/components/schemas/ProjectID'
         created_at:
+          description: >-
+            When the skill was granted to the project.
           $ref: '#/components/schemas/Timestamp'
     SkillGrantListItem:
       type: object
@@ -12097,10 +12236,11 @@ components:
       required: [source, source_format]
       properties:
         source:
+          description: >-
+            Config to compile: YAML or JSON text, or a JSON object when source_format is json.
           $ref: '#/components/schemas/AgentConfigSourceInput'
         source_format:
-          description: >-
-            Format of source: yaml or json.
+          description: Encoding of source.
           type: string
           enum: [yaml, json]
     AgentConfigSourceInput:
@@ -12123,10 +12263,11 @@ components:
       required: [source, source_format]
       properties:
         source:
+          description: >-
+            Config to compile: YAML or JSON text, or a JSON object when source_format is json.
           $ref: '#/components/schemas/AgentConfigSourceInput'
         source_format:
-          description: >-
-            Format of source: yaml or json.
+          description: Encoding of source.
           type: string
           enum: [yaml, json]
         expected_current_config_id:
@@ -12137,8 +12278,12 @@ components:
       required: [mode, parameters]
       properties:
         mode:
+          description: >-
+            Permission mode applied by default.
           type: string
         parameters:
+          description: >-
+            Parameters for the default mode.
           type: object
           additionalProperties: true
     ToolPermissionMode:
@@ -12147,12 +12292,20 @@ components:
       required: [name, label, description, parameters_schema]
       properties:
         name:
+          description: >-
+            Mode name to set as permission.mode in an agent config.
           type: string
         label:
+          description: >-
+            Display label for the mode.
           type: string
         description:
+          description: >-
+            What the mode does when a tool is called.
           type: string
         parameters_schema:
+          description: >-
+            JSON Schema for the mode's permission.parameters.
           type: object
           additionalProperties: true
     ToolPermissionProfile:
@@ -12161,8 +12314,12 @@ components:
       required: [default_permission, permission_modes]
       properties:
         default_permission:
+          description: >-
+            Permission these tools get when a config does not set one.
           $ref: '#/components/schemas/ToolPermissionSelection'
         permission_modes:
+          description: >-
+            Permission modes a config can set for these tools.
           type: array
           items:
             $ref: '#/components/schemas/ToolPermissionMode'
@@ -12172,15 +12329,23 @@ components:
       required: [name, description, default_permission, permission_modes]
       properties:
         name:
+          description: >-
+            Name to list under tools in an agent config to enable this tool.
           type: string
         description:
+          description: >-
+            What the tool does.
           type: string
         implicit:
           type: boolean
           description: Whether this tool supports implicit inclusion based on config resources or integration context, even when explicitly configured.
         default_permission:
+          description: >-
+            Permission the tool gets when a config does not set one.
           $ref: '#/components/schemas/ToolPermissionSelection'
         permission_modes:
+          description: >-
+            Permission modes a config can set for this tool.
           type: array
           items:
             $ref: '#/components/schemas/ToolPermissionMode'
@@ -12190,12 +12355,18 @@ components:
       required: [built_in_tools, custom_tool_permissions, mcp_tool_permissions]
       properties:
         built_in_tools:
+          description: >-
+            Built-in tools available in this deployment.
           type: array
           items:
             $ref: '#/components/schemas/ToolCatalogEntry'
         custom_tool_permissions:
+          description: >-
+            Default permission and allowed modes for custom tools.
           $ref: '#/components/schemas/ToolPermissionProfile'
         mcp_tool_permissions:
+          description: >-
+            Default permission and allowed modes for MCP tools.
           $ref: '#/components/schemas/ToolPermissionProfile'
     MCPRegistryHeader:
       type: object
@@ -13068,11 +13239,16 @@ components:
       required: [type, agent_id]
       properties:
         type:
+          description: >-
+            agent: send each message to an existing agent.
           type: string
           enum: [agent]
         agent_id:
+          description: Agent that receives each message.
           $ref: '#/components/schemas/AgentID'
         delivery_mode:
+          description: >-
+            How each message is delivered: queued (default) or steering.
           $ref: '#/components/schemas/CronTriggerDeliveryMode'
     AgentProfileCronTriggerTarget:
       type: object
@@ -13080,9 +13256,12 @@ components:
       required: [type, agent_profile_id]
       properties:
         type:
+          description: >-
+            profile: launch a new agent on each run.
           type: string
           enum: [profile]
         agent_profile_id:
+          description: Profile to launch a new agent from on each run.
           $ref: '#/components/schemas/AgentProfileID'
     IntegrationCronTriggerTarget:
       type: object
@@ -13090,10 +13269,13 @@ components:
       required: [type, integration_id, settings]
       properties:
         type:
+          description: >-
+            integration: hand each run to an integration.
           type: string
           enum: [integration]
           x-enum-varnames: [IntegrationCronTriggerTargetTypeIntegration]
         integration_id:
+          description: Integration that handles each run.
           $ref: '#/components/schemas/IntegrationID'
         settings:
           type: object
@@ -13313,6 +13495,7 @@ components:
         required: [config, config_source]
       properties:
         profile:
+          description: Agent profile to launch. Runs its current config unless config or config_source is set.
           $ref: '#/components/schemas/AgentProfileID'
         config:
           $ref: '#/components/schemas/AgentConfigID'
@@ -13352,6 +13535,8 @@ components:
         not supported; upload it through the agent input endpoint after launch.
       properties:
         content_blocks:
+          description: >-
+            Text blocks that make up the agent's first message.
           type: array
           minItems: 1
           items:
@@ -13617,21 +13802,24 @@ components:
     ContentBlockMetadata:
       $ref: '#/components/schemas/Metadata'
       description: >-
-        Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters,
-        values must be strings of up to 512 characters. Keys beginning with `omnara_` are
-        reserved for Omnara and may affect product behavior; use them only when
-        intentionally invoking Omnara-defined behavior.
+        Arbitrary key-value labels. Keys beginning with `omnara_` are reserved for Omnara and may
+        affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
     TextContentBlock:
       type: object
       additionalProperties: false
       required: [type, text]
       properties:
         type:
+          description: >-
+            text: a plain-text block.
           type: string
           enum: [text]
         text:
+          description: >-
+            Block text: the message in agent inputs, or text from the model or a tool in events.
           type: string
         metadata:
+          description: Key-value metadata. omnara_ keys are reserved.
           $ref: '#/components/schemas/ContentBlockMetadata'
     InlineMediaContentBlock:
       type: object
@@ -13648,9 +13836,12 @@ components:
       required: [type, media_type, data]
       properties:
         type:
+          description: >-
+            media: a base64-encoded file in data.
           type: string
           enum: [media]
         media_type:
+          description: MIME type of the file in data.
           type: string
           enum:
             - image/png
@@ -13675,6 +13866,7 @@ components:
             - application/vnd.openxmlformats-officedocument.presentationml.presentation
             - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
         filename:
+          description: Filename saved with the stored file and shown to models that can't read the file directly.
           type: string
           maxLength: 255
         data:
@@ -13683,6 +13875,7 @@ components:
           minLength: 1
           description: Base64-encoded file bytes. For text media types, the decoded bytes must be valid UTF-8.
         metadata:
+          description: Key-value metadata. omnara_ keys are reserved.
           $ref: '#/components/schemas/ContentBlockMetadata'
     MediaRefContentBlock:
       type: object
@@ -13903,19 +14096,33 @@ components:
       required: [stage, output_tail, output_truncated, reported_at]
       properties:
         stage:
+          description: >-
+            Setup or daemon step that failed.
           type: string
           enum: [startup_script, daemon_install, daemon_update, daemon_runtime, daemon_uninstall, daemon_uninstalled]
         exit_status:
+          description: >-
+            Exit status of the failed startup script or daemon install; omitted for other stages.
           type: integer
         output_tail:
+          description: >-
+            End of the failed step's output, for diagnosis.
           type: string
         output_truncated:
+          description: >-
+            True when earlier output was dropped or output capture failed.
           type: boolean
         daemon_version:
+          description: >-
+            Daemon version that was running when a daemon update failed.
           type: string
         target_version:
+          description: >-
+            Version the daemon was trying to update to when the update failed.
           type: string
         reported_at:
+          description: >-
+            When the failure was reported.
           $ref: '#/components/schemas/Timestamp'
     LaunchAgentResponse:
       type: object
@@ -13953,7 +14160,7 @@ components:
       x-go-type-skip-optional-pointer: true
     Metadata:
       type: object
-      description: Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
+      description: Arbitrary key-value labels stored with the resource.
       x-go-type: resourcemeta.Metadata
       x-go-type-import:
         path: github.com/omnara-ai/omnara/internal/resourcemeta
@@ -13996,6 +14203,7 @@ components:
           items:
             $ref: '#/components/schemas/CreateAgentInputContentBlock'
         delivery_mode:
+          description: queued (default) waits until the agent is free; steering reaches it at its next model call.
           $ref: '#/components/schemas/CreateAgentInputDeliveryMode'
         cancel_open_interactions:
           type: boolean
@@ -14898,6 +15106,7 @@ components:
       required: [option_indices]
       properties:
         option_indices:
+          description: Zero-based indices of the chosen options. Pick one unless the question allows multiple.
           type: array
           minItems: 1
           uniqueItems: true
@@ -14907,7 +15116,7 @@ components:
         text:
           type: string
           x-go-type-skip-optional-pointer: true
-          description: Optional companion text when the selected option allows it.
+          description: Free text sent with an option whose allows_text is true.
     InteractionResolution:
       type: object
       additionalProperties: false
@@ -14938,6 +15147,7 @@ components:
       required: [answers]
       properties:
         answers:
+          description: One answer per question, in order.
           type: array
           minItems: 1
           items:
@@ -15053,17 +15263,21 @@ components:
       required: [provider_user_id]
       properties:
         provider_tenant_id:
+          description: Your tenant or namespace for the user. With provider_user_id, identifies the actor.
           type: string
           minLength: 1
           maxLength: 128
         provider_user_id:
+          description: The user's ID in your system. With provider_tenant_id, identifies the actor.
           type: string
           minLength: 1
           maxLength: 128
         display_name:
+          description: Display name for the actor.
           type: string
           maxLength: 256
         metadata:
+          description: Key-value attributes for the actor. Replaces stored metadata when sent.
           $ref: '#/components/schemas/Metadata'
     ListActorsResponse:
       type: object
@@ -15093,6 +15307,8 @@ components:
       required: [kind]
       properties:
         kind:
+          description: >-
+            org: owned by the organization. Projects need a grant to use it.
           type: string
           enum: [org]
     ProjectSecretOwnerInput:
@@ -15101,9 +15317,12 @@ components:
       required: [kind, project_id]
       properties:
         kind:
+          description: >-
+            project: owned by one project.
           type: string
           enum: [project]
         project_id:
+          description: Owning project.
           $ref: '#/components/schemas/ProjectID'
     UserSecretOwnerInput:
       type: object
@@ -15111,6 +15330,8 @@ components:
       required: [kind]
       properties:
         kind:
+          description: >-
+            user: owned by the calling user, for personal credentials. Projects need a grant to use it.
           type: string
           enum: [user]
     SecretOwnerInput:
@@ -15133,6 +15354,8 @@ components:
       required: [kind]
       properties:
         kind:
+          description: >-
+            org: the organization owns the secret.
           type: string
           enum: [org]
     ProjectSecretOwner:
@@ -15141,9 +15364,13 @@ components:
       required: [kind, project_id]
       properties:
         kind:
+          description: >-
+            project: a single project owns the secret.
           type: string
           enum: [project]
         project_id:
+          description: >-
+            Project that owns the secret.
           $ref: '#/components/schemas/ProjectID'
     UserSecretOwner:
       type: object
@@ -15151,9 +15378,13 @@ components:
       required: [kind, user_id]
       properties:
         kind:
+          description: >-
+            user: a user owns the secret.
           type: string
           enum: [user]
         user_id:
+          description: >-
+            User who owns the secret.
           $ref: '#/components/schemas/UserID'
     SecretOwner:
       oneOf:
@@ -15172,9 +15403,12 @@ components:
       required: [kind, value]
       properties:
         kind:
+          description: >-
+            generic: a single value, such as an API key.
           type: string
           enum: [generic]
         value:
+          description: The secret value, up to 64 KiB.
           type: string
           minLength: 1
     OAuthRefreshSecretMaterial:
@@ -15183,20 +15417,26 @@ components:
       required: [refresh_token, token_endpoint, client_id, resource]
       properties:
         refresh_token:
+          description: Refresh token exchanged at token_endpoint for new access tokens.
           type: string
           minLength: 1
         token_endpoint:
           type: string
           format: uri
           minLength: 1
-          description: Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
+          description: >-
+            OAuth token endpoint used to refresh the access token. Must be HTTPS, except for loopback hosts in
+            local development.
         client_id:
+          description: OAuth client ID.
           type: string
           minLength: 1
         client_secret:
+          description: OAuth client secret sent with refresh requests. Omit if the client has none.
           type: string
           minLength: 1
         resource:
+          description: Resource indicator sent with refresh requests.
           type: string
           minLength: 1
     OAuthTokenSetSecretMaterial:
@@ -15205,28 +15445,37 @@ components:
       required: [kind, access_token]
       properties:
         kind:
+          description: >-
+            oauth_token_set: OAuth tokens for MCP servers that use oauth auth.
           type: string
           enum: [oauth_token_set]
         access_token:
+          description: Access token sent to the MCP server; replaced on each refresh.
           type: string
           minLength: 1
         access_token_expires_in_seconds:
+          description: Seconds until the access token expires. Omit if it doesn't expire.
           type: integer
           format: int32
           minimum: 1
           maximum: 2147483647
         refresh:
+          description: Refresh material. Without it, the token can't be renewed once it expires.
           $ref: '#/components/schemas/OAuthRefreshSecretMaterial'
         id_token:
+          description: OpenID Connect ID token, if one was issued.
           type: string
           minLength: 1
         mcp_url:
+          description: URL of the MCP server the tokens were issued for.
           type: string
           minLength: 1
         scopes:
+          description: Granted scopes, space-separated.
           type: string
           minLength: 1
         token_type:
+          description: Token type, such as Bearer.
           type: string
           minLength: 1
     AWSCredentialsSecretMaterial:
@@ -15235,33 +15484,42 @@ components:
       required: [kind, access_key_id, secret_access_key]
       properties:
         kind:
+          description: >-
+            aws_credentials: AWS access keys used to sign requests with SigV4.
           type: string
           enum: [aws_credentials]
         access_key_id:
+          description: AWS access key ID.
           type: string
           minLength: 1
         secret_access_key:
+          description: AWS secret access key.
           type: string
           minLength: 1
         session_token:
+          description: Session token for temporary credentials. Not refreshed automatically.
           type: string
           minLength: 1
         role_arn:
+          description: IAM role to assume through STS before signing.
           type: string
           minLength: 1
         external_id:
           type: string
           minLength: 1
-          description: Requires role_arn.
+          description: External ID sent to STS when assuming role_arn.
     GitHubAppCredentialsSecretMaterial:
       type: object
       additionalProperties: false
       required: [kind, app_id, private_key, webhook_secret]
       properties:
         kind:
+          description: >-
+            github_app_credentials: a GitHub App's ID, private key, and webhook secret.
           type: string
           enum: [github_app_credentials]
         app_id:
+          description: GitHub App ID, not the installation ID.
           type: string
           pattern: '^[1-9][0-9]*$'
         private_key:
@@ -15269,6 +15527,7 @@ components:
           minLength: 1
           description: Unencrypted RSA private key in PEM format. Stored encrypted.
         webhook_secret:
+          description: The App's webhook secret, used to verify webhook signatures.
           type: string
           minLength: 1
     SecretMaterial:
@@ -15338,29 +15597,53 @@ components:
       required: [id, org_id, management_kind, owner, name, kind, metadata, current_version_number, payload_keys, created_at, updated_at]
       properties:
         id:
+          description: >-
+            Identifies the secret; other resources reference it by this ID instead of storing the value.
           $ref: '#/components/schemas/SecretID'
         org_id:
+          description: >-
+            Organization the secret belongs to.
           $ref: '#/components/schemas/OrganizationID'
         management_kind:
+          description: >-
+            Whether the organization manages this secret or the Omnara installation provisions and manages
+            it.
           $ref: '#/components/schemas/ManagementKind'
         owner:
+          description: >-
+            Who owns the secret; a project can use it without a grant only if the project owns it.
           $ref: '#/components/schemas/SecretOwner'
         name:
+          description: >-
+            Display name of the secret.
           $ref: '#/components/schemas/ResourceName'
         kind:
+          description: >-
+            What type of credential the secret holds, which determines its payload fields.
           $ref: '#/components/schemas/SecretKind'
         metadata:
+          description: >-
+            Caller-supplied key-value labels on the secret.
           $ref: '#/components/schemas/Metadata'
         current_version_number:
+          description: >-
+            Version of the value currently in use; each rotation increments it.
           type: integer
           format: int32
         payload_keys:
+          description: >-
+            Names of the fields stored in the current value, such as value or access_token; values are never
+            returned.
           type: array
           items:
             type: string
         created_at:
+          description: >-
+            When the secret was created.
           $ref: '#/components/schemas/Timestamp'
         updated_at:
+          description: >-
+            When the secret's name, metadata, or current version last changed.
           $ref: '#/components/schemas/Timestamp'
     ListSecretsResponse:
       type: object
@@ -15430,14 +15713,24 @@ components:
       required: [id, org_id, secret_id, target_project_id, created_at]
       properties:
         id:
+          description: >-
+            Identifies this grant; use it to revoke the project's access.
           $ref: '#/components/schemas/SecretGrantID'
         org_id:
+          description: >-
+            Organization the grant and its secret belong to.
           $ref: '#/components/schemas/OrganizationID'
         secret_id:
+          description: >-
+            Secret shared by this grant.
           $ref: '#/components/schemas/SecretID'
         target_project_id:
+          description: >-
+            Project that can use the secret through this grant.
           $ref: '#/components/schemas/ProjectID'
         created_at:
+          description: >-
+            When the secret was granted to the project.
           $ref: '#/components/schemas/Timestamp'
     SecretGrantListItem:
       type: object
@@ -15472,10 +15765,16 @@ components:
       required: [org, project, membership]
       properties:
         org:
+          description: >-
+            The newly created organization.
           $ref: '#/components/schemas/Organization'
         project:
+          description: >-
+            Default project created along with the organization.
           $ref: '#/components/schemas/Project'
         membership:
+          description: >-
+            The caller's owner membership in the new organization.
           $ref: '#/components/schemas/OrganizationMembership'
     Organization:
       type: object
@@ -15483,12 +15782,20 @@ components:
       required: [id, name, created_at, updated_at]
       properties:
         id:
+          description: >-
+            Identifies the organization.
           $ref: '#/components/schemas/OrganizationID'
         name:
+          description: >-
+            Display name of the organization.
           $ref: '#/components/schemas/ResourceName'
         created_at:
+          description: >-
+            When the organization was created.
           $ref: '#/components/schemas/Timestamp'
         updated_at:
+          description: >-
+            When the organization record was last changed.
           $ref: '#/components/schemas/Timestamp'
     OrganizationMembership:
       type: object
@@ -15496,12 +15803,20 @@ components:
       required: [org_id, user_id, role, created_at]
       properties:
         org_id:
+          description: >-
+            Organization the user belongs to.
           $ref: '#/components/schemas/OrganizationID'
         user_id:
+          description: >-
+            User who holds this membership.
           $ref: '#/components/schemas/UserID'
         role:
+          description: >-
+            The user's organization role, which sets what they can do in the org.
           type: string
         created_at:
+          description: >-
+            When the user joined the organization; role changes do not update it.
           $ref: '#/components/schemas/Timestamp'
     OrgInvitation:
       type: object
@@ -15790,18 +16105,23 @@ components:
       required: [name, provider, default_machine_provider_options, provider_auth_secret_id, max_total_machines]
       properties:
         name:
+          description: Pool name, unique in the organization. Agent configs reference it as machine_pool_name.
           $ref: '#/components/schemas/ResourceName'
         description:
+          description: Free-form description of the pool.
           type: string
         provider:
+          description: Sandbox provider. Determines which size and limit fields are required.
           type: string
           minLength: 1
         default_machine_cpu:
+          description: Default vCPUs per machine, between min_machine_cpu and max_machine_cpu.
           type: integer
           format: int32
           minimum: 1
           maximum: 2147483647
         default_machine_memory_mb:
+          description: Default memory per machine in MB, between min_machine_memory_mb and max_machine_memory_mb.
           type: integer
           format: int32
           minimum: 1
@@ -15817,50 +16137,65 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
         default_machine_provider_options:
+          description: >-
+            Provider options for new machines, such as image, region, or startup_script. Keys depend on the
+            provider.
           type: object
           additionalProperties: true
         default_cwd:
+          description: Default working directory for processes.
           type: string
         provider_config:
+          description: >-
+            Pool-wide provider settings, such as a workspace or domain, and allowlists for overrides. Keys
+            depend on the provider.
           type: object
           additionalProperties: true
         provider_auth_secret_id:
+          description: Org-owned generic secret holding the provider API key.
           $ref: '#/components/schemas/SecretID'
         runtime_protection_enabled:
-          description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive. Defaults to false when omitted.
+          description: When true, Omnara deletes pool machines that keep running at the provider after their daemon goes inactive. Defaults to false.
           type: boolean
           default: false
         max_total_machines:
+          description: Most live machines across all projects. 0 blocks new machines.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_cpu:
+          description: Most vCPUs across live machines.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_memory_mb:
+          description: Most memory in MB across live machines.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_cpu:
+          description: Fewest vCPUs per machine. 0 means no minimum.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_memory_mb:
+          description: Least memory per machine in MB. 0 means no minimum.
           type: integer
           format: int32
           minimum: 0
           maximum: 2147483647
         max_machine_cpu:
+          description: Most vCPUs per machine.
           type: integer
           format: int32
           minimum: 1
           maximum: 2147483647
         max_machine_memory_mb:
+          description: Most memory per machine in MB.
           type: integer
           format: int32
           minimum: 1
@@ -15872,6 +16207,7 @@ components:
           minimum: 5
           maximum: 2147483647
         metadata:
+          description: Key-value metadata copied to the pool's machines.
           $ref: '#/components/schemas/MachineMetadata'
     UpdateMachinePoolRequest:
       type: object
@@ -15880,7 +16216,7 @@ components:
         name:
           $ref: '#/components/schemas/ResourceName'
         description:
-          description: Optional description of the pool.
+          description: Free-form description of the pool.
           type: string
         default_machine_cpu:
           description: Default CPU count for new machines in the pool.
@@ -15905,20 +16241,20 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
         default_machine_provider_options:
-          description: Provider-specific options applied to new machines in the pool.
+          description: Provider options for new machines, such as image, region, or startup_script. Keys depend on the provider.
           type: object
           additionalProperties: true
         default_cwd:
           description: Default working directory for processes on machines created from the pool after this change.
           type: string
         provider_config:
-          description: Provider-specific settings for the pool.
+          description: Pool-wide provider settings, such as a workspace or domain, and allowlists for overrides. Keys depend on the provider.
           type: object
           additionalProperties: true
         provider_auth_secret_id:
           $ref: '#/components/schemas/SecretID'
         runtime_protection_enabled:
-          description: Whether Omnara should delete a pool machine when its provider remains running after its daemon becomes inactive.
+          description: When true, Omnara deletes pool machines that keep running at the provider after their daemon goes inactive.
           type: boolean
         max_total_machines:
           description: Maximum number of live machines in the pool.
@@ -16139,66 +16475,115 @@ components:
       required: [id, org_id, source_kind, display_name, description, provider, lifecycle_state, connection_state, last_observed_at, cwd, env, secret_env, lifecycle_reason_code, lifecycle_reason_message, next_reconcile_after, provision_attempts, delete_attempts, metadata, deleted_at, created_at, updated_at]
       properties:
         id:
+          description: >-
+            Identifies the machine.
           $ref: '#/components/schemas/MachineID'
         org_id:
+          description: >-
+            Organization that owns the machine.
           $ref: '#/components/schemas/OrganizationID'
         source_kind:
+          description: >-
+            Whether the machine is a bring-your-own computer or was created from a machine pool.
           $ref: '#/components/schemas/MachineSourceKind'
         machine_pool_id:
+          description: >-
+            Pool the machine was created from; null for BYO machines.
           anyOf:
             - $ref: '#/components/schemas/MachinePoolID'
             - type: "null"
         display_name:
+          description: >-
+            Machine name; agent configs reference a BYO machine by this as machine_name.
           $ref: '#/components/schemas/ResourceName'
         description:
+          description: >-
+            Free-form note about the machine; empty if none was set.
           type: string
         provider:
+          description: >-
+            Sandbox provider that hosts a pool machine; byo for bring-your-own machines.
           type: string
         lifecycle_state:
+          description: >-
+            Where the machine is in provisioning or deletion, independent of whether its daemon is
+            connected.
           $ref: '#/components/schemas/MachineLifecycleState'
         connection_state:
+          description: >-
+            Whether the machine's daemon is connected now; asleep means suspended but able to be woken.
           $ref: '#/components/schemas/MachineConnectionState'
         connection_state_reason:
+          description: >-
+            Why the machine's latest daemon session ended, such as daemon_lease_expired.
           type: string
         last_observed_at:
+          description: >-
+            When the daemon last registered or sent a heartbeat; null if it has never connected.
           anyOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: "null"
         cwd:
+          description: >-
+            Default working directory for processes started on the machine.
           type: string
         env:
+          description: >-
+            Environment variables set for every process started on the machine.
           type: object
           additionalProperties:
             type: string
         secret_env:
+          description: >-
+            Environment variable names mapped to secrets whose values are injected when processes start.
           type: object
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
         lifecycle_reason_code:
+          description: >-
+            Machine-readable reason for the latest lifecycle change, such as idle_timeout; empty when none.
           type: string
         lifecycle_reason_message:
+          description: >-
+            Human-readable detail for lifecycle_reason_code; empty when none.
           type: string
         failure_report:
+          description: >-
+            Latest setup or daemon failure reported from the machine; omitted when none is recorded.
           $ref: '#/components/schemas/MachineFailureReport'
         next_reconcile_after:
+          description: >-
+            When Omnara next works on provisioning or deleting the machine; null when nothing is scheduled.
           anyOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: "null"
         provision_attempts:
+          description: >-
+            Number of times Omnara has tried to provision this machine.
           type: integer
           format: int32
         delete_attempts:
+          description: >-
+            Number of times Omnara has tried to delete this machine.
           type: integer
           format: int32
         metadata:
+          description: >-
+            Key-value metadata attached to the machine.
           $ref: '#/components/schemas/Metadata'
         deleted_at:
+          description: >-
+            When the machine finished deleting; null while it still exists.
           anyOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: "null"
         created_at:
+          description: >-
+            When the machine record was created.
           $ref: '#/components/schemas/Timestamp'
         updated_at:
+          description: >-
+            When the machine record last changed.
           $ref: '#/components/schemas/Timestamp'
     CreateMachineRequest:
       type: object
@@ -16229,25 +16614,25 @@ components:
         display_name:
           $ref: '#/components/schemas/ResourceName'
         description:
-          description: Optional description of the machine.
+          description: Free-form description stored with the machine.
           type: string
         cwd:
           description: Default working directory for processes started on the machine.
           type: string
         env:
-          description: Environment variables set for processes started on the machine.
+          description: Environment variables for processes started on the machine.
           type: object
           additionalProperties:
             type: string
         secret_env:
-          description: Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
+          description: Environment variables set from secrets, keyed by variable name, for processes started on the machine.
           type: object
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
         project_ids:
-          description: Projects to grant the machine to in the same call (up to 100).
+          description: Projects to grant the machine to in the same call.
           type: array
           maxItems: 100
           uniqueItems: true
@@ -16262,14 +16647,20 @@ components:
       required: [machine, token, token_record, project_grants]
       properties:
         machine:
+          description: >-
+            Newly created BYO machine.
           $ref: '#/components/schemas/Machine'
         token:
           type: string
           minLength: 1
           description: Opaque bearer credential.
         token_record:
+          description: >-
+            Stored details of the issued daemon token; the token itself is never returned again.
           $ref: '#/components/schemas/MachineDaemonToken'
         project_grants:
+          description: >-
+            Grants created for the requested projects; empty when none were requested.
           type: array
           items:
             $ref: '#/components/schemas/ProjectMachineGrant'
@@ -16282,12 +16673,14 @@ components:
           description: Default working directory for processes started on the machine.
           type: string
         env:
-          description: Environment variables set for processes started on the machine.
+          description: >-
+            Environment variables for processes started on the machine. Replaces the whole map; omit to keep the
+            current one.
           type: object
           additionalProperties:
             type: string
         secret_env:
-          description: Environment variable names mapped to secret IDs (sec_...) whose values are set for processes started on the machine.
+          description: Environment variables set from secrets, keyed by variable name, for processes started on the machine.
           type: object
           additionalProperties:
             $ref: '#/components/schemas/SecretID'
@@ -16297,32 +16690,57 @@ components:
       required: [id, org_id, source_kind, display_name, description, provider, lifecycle_state, connection_state, last_observed_at, deleted_at, created_at, updated_at]
       properties:
         id:
+          description: >-
+            Identifies the machine.
           $ref: '#/components/schemas/MachineID'
         org_id:
+          description: >-
+            Organization that owns the machine.
           $ref: '#/components/schemas/OrganizationID'
         source_kind:
+          description: >-
+            Whether the machine is a bring-your-own computer or was created from a machine pool.
           $ref: '#/components/schemas/MachineSourceKind'
         display_name:
+          description: >-
+            Machine name; agent configs reference a BYO machine by this as machine_name.
           $ref: '#/components/schemas/ResourceName'
         description:
+          description: >-
+            Free-form note about the machine; empty if none was set.
           type: string
         provider:
+          description: >-
+            Sandbox provider that hosts a pool machine; byo for bring-your-own machines.
           type: string
         lifecycle_state:
+          description: >-
+            Where the machine is in provisioning or deletion, independent of whether its daemon is
+            connected.
           $ref: '#/components/schemas/MachineLifecycleState'
         connection_state:
+          description: >-
+            Whether the machine's daemon is connected now.
           $ref: '#/components/schemas/MachineConnectionState'
         last_observed_at:
+          description: >-
+            When the daemon last registered or sent a heartbeat; null if it has never connected.
           anyOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: "null"
         deleted_at:
+          description: >-
+            When the machine finished deleting; null while it still exists.
           anyOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: "null"
         created_at:
+          description: >-
+            When the machine record was created.
           $ref: '#/components/schemas/Timestamp'
         updated_at:
+          description: >-
+            When the machine record last changed.
           $ref: '#/components/schemas/Timestamp'
     MachineSummary:
       allOf:
@@ -16378,26 +16796,46 @@ components:
       required: [id, org_id, project_id, machine_id, source_kind, description, metadata, created_at, updated_at]
       properties:
         id:
+          description: >-
+            Identifies the machine grant.
           $ref: '#/components/schemas/ProjectMachineGrantID'
         org_id:
+          description: >-
+            Organization that owns the grant.
           $ref: '#/components/schemas/OrganizationID'
         project_id:
+          description: >-
+            Project the grant gives access to.
           $ref: '#/components/schemas/ProjectID'
         machine_id:
+          description: >-
+            Machine the project's agents may use.
           $ref: '#/components/schemas/MachineID'
         source_kind:
+          description: >-
+            Whether the grant was made directly or created for a machine from a pool grant.
           $ref: '#/components/schemas/ProjectMachineGrantSourceKind'
         project_machine_pool_grant_id:
+          description: >-
+            Pool grant that created this grant; null for direct grants.
           anyOf:
             - $ref: '#/components/schemas/ProjectMachinePoolGrantID'
             - type: "null"
         description:
+          description: >-
+            Free-form note about the grant; empty if none was set.
           type: string
         metadata:
+          description: >-
+            Key-value metadata attached to the grant.
           $ref: '#/components/schemas/Metadata'
         created_at:
+          description: >-
+            When the grant was created.
           $ref: '#/components/schemas/Timestamp'
         updated_at:
+          description: >-
+            When the grant last changed.
           $ref: '#/components/schemas/Timestamp'
     CreateProjectMachineGrantRequest:
       type: object
@@ -16407,7 +16845,7 @@ components:
         machine_id:
           $ref: '#/components/schemas/MachineID'
         description:
-          description: Optional note about this grant.
+          description: Free-form note stored with the grant.
           type: string
         metadata:
           $ref: '#/components/schemas/Metadata'
@@ -16426,10 +16864,14 @@ components:
       required: [data, next_cursor]
       properties:
         data:
+          description: >-
+            Project's machine grants on this page, each with its machine.
           type: array
           items:
             $ref: '#/components/schemas/ProjectMachineGrantListItem'
         next_cursor:
+          description: >-
+            Cursor for the next page, or null when this is the last page.
           type: [string, "null"]
     ProjectMachineGrantListItem:
       type: object
@@ -16437,8 +16879,12 @@ components:
       required: [grant, machine]
       properties:
         grant:
+          description: >-
+            Grant that gives the project access to the machine.
           $ref: '#/components/schemas/ProjectMachineGrant'
         machine:
+          description: >-
+            Summary of the granted machine.
           $ref: '#/components/schemas/MachineSummary'
     ProjectMachinePoolGrant:
       type: object
@@ -16446,21 +16892,35 @@ components:
       required: [id, org_id, project_id, machine_pool_id, description, default_machine_cpu, default_machine_memory_mb, default_machine_env_overlay, default_machine_secret_env_overlay, default_machine_provider_options_overlay, default_cwd, max_total_machines, max_total_cpu, max_total_memory_mb, min_machine_cpu, min_machine_memory_mb, max_machine_cpu, max_machine_memory_mb, delete_after_idle_minutes, metadata, created_at, updated_at]
       properties:
         id:
+          description: >-
+            Identifies the pool grant.
           $ref: '#/components/schemas/ProjectMachinePoolGrantID'
         org_id:
+          description: >-
+            Organization that owns the grant.
           $ref: '#/components/schemas/OrganizationID'
         project_id:
+          description: >-
+            Project the grant lets create machines from the pool.
           $ref: '#/components/schemas/ProjectID'
         machine_pool_id:
+          description: >-
+            Pool the project may create machines from.
           $ref: '#/components/schemas/MachinePoolID'
         description:
+          description: >-
+            Free-form note about the grant; empty if none was set.
           type: string
         default_machine_cpu:
+          description: >-
+            Default vCPUs for this project's machines from the pool; null uses the pool default.
           type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
         default_machine_memory_mb:
+          description: >-
+            Default memory in MB for this project's machines from the pool; null uses the pool default.
           type: [integer, "null"]
           format: int32
           minimum: 1
@@ -16477,41 +16937,60 @@ components:
             type: [string, "null"]
             pattern: '^sec_[a-z2-7]{26}$'
         default_machine_provider_options_overlay:
+          description: >-
+            Provider options layered over the pool's for this project's machines.
           type: object
           additionalProperties: true
         default_cwd:
+          description: >-
+            Working directory for this project's machines from the pool; empty uses the pool default.
           type: string
         max_total_machines:
+          description: >-
+            Most live machines this project can have from the pool; null means only the pool limit applies.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_cpu:
+          description: >-
+            Most vCPUs across this project's live pool machines; null means only the pool limit applies.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         max_total_memory_mb:
+          description: >-
+            Most memory in MB across this project's live pool machines; null means only the pool limit
+            applies.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_cpu:
+          description: >-
+            Fewest vCPUs one of this project's machines can request; null uses the pool minimum.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         min_machine_memory_mb:
+          description: >-
+            Least memory in MB one of this project's machines can request; null uses the pool minimum.
           type: [integer, "null"]
           format: int32
           minimum: 0
           maximum: 2147483647
         max_machine_cpu:
+          description: >-
+            Most vCPUs one of this project's machines can request; null uses the pool maximum.
           type: [integer, "null"]
           format: int32
           minimum: 1
           maximum: 2147483647
         max_machine_memory_mb:
+          description: >-
+            Most memory in MB one of this project's machines can request; null uses the pool maximum.
           type: [integer, "null"]
           format: int32
           minimum: 1
@@ -16529,10 +17008,16 @@ components:
               maximum: 2147483647
             - type: "null"
         metadata:
+          description: >-
+            Key-value metadata attached to the grant.
           $ref: '#/components/schemas/Metadata'
         created_at:
+          description: >-
+            When the grant was created.
           $ref: '#/components/schemas/Timestamp'
         updated_at:
+          description: >-
+            When the grant last changed.
           $ref: '#/components/schemas/Timestamp'
     CreateProjectMachinePoolGrantRequest:
       type: object
@@ -16542,7 +17027,7 @@ components:
         machine_pool_id:
           $ref: '#/components/schemas/MachinePoolID'
         description:
-          description: Optional note about this grant.
+          description: Free-form note stored with the grant.
           type: string
         default_machine_cpu:
           description: Default CPU count for machines this project creates from the pool, overriding the pool's default.
@@ -16617,7 +17102,7 @@ components:
           minimum: 1
           maximum: 2147483647
         delete_after_idle_minutes:
-          description: Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default. Values from 1 through 4 are invalid.
+          description: Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; omit to inherit the pool default.
           type: integer
           format: int32
           minimum: 0
@@ -16639,7 +17124,7 @@ components:
       minProperties: 1
       properties:
         description:
-          description: Optional note about this grant.
+          description: Free-form note stored with the grant.
           type: string
         default_machine_cpu:
           description: Default CPU count for machines this project creates from the pool, overriding the pool's default.
@@ -16714,7 +17199,7 @@ components:
           minimum: 1
           maximum: 2147483647
         delete_after_idle_minutes:
-          description: Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged. Values from 1 through 4 are invalid.
+          description: Idle minutes before deleting a machine created through this grant. Use 0 to disable for this grant; null restores inheritance from the pool; omitted leaves it unchanged.
           type: [integer, "null"]
           format: int32
           minimum: 0
@@ -16783,26 +17268,44 @@ components:
       required: [id, org_id, machine_id, name, metadata, created_at, last_used_at, revoked_at, revoke_reason]
       properties:
         id:
+          description: >-
+            Identifies the daemon token.
           $ref: '#/components/schemas/MachineDaemonTokenID'
         org_id:
+          description: >-
+            Organization that owns the token.
           $ref: '#/components/schemas/OrganizationID'
         machine_id:
+          description: >-
+            Machine whose daemon authenticates with this token.
           $ref: '#/components/schemas/MachineID'
         name:
+          description: >-
+            Label for the token; defaults to daemon.
           $ref: '#/components/schemas/ResourceName'
         metadata:
+          description: >-
+            Key-value metadata attached to the token.
           $ref: '#/components/schemas/Metadata'
         created_at:
+          description: >-
+            When the token was issued.
           $ref: '#/components/schemas/Timestamp'
         last_used_at:
+          description: >-
+            Approximate time the daemon last authenticated with this token; null if never used.
           anyOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: "null"
         revoked_at:
+          description: >-
+            When the token was revoked; null while it is still valid.
           anyOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: "null"
         revoke_reason:
+          description: >-
+            Why the token was revoked, such as machine_deleted; empty while valid.
           type: string
     CreateMachineDaemonTokenResponse:
       type: object
@@ -17025,14 +17528,24 @@ components:
       required: [id, org_id, name, created_at, updated_at]
       properties:
         id:
+          description: >-
+            Identifies the project.
           $ref: '#/components/schemas/ProjectID'
         org_id:
+          description: >-
+            Organization that owns the project.
           $ref: '#/components/schemas/OrganizationID'
         name:
+          description: >-
+            Display name of the project.
           $ref: '#/components/schemas/ResourceName'
         created_at:
+          description: >-
+            When the project was created.
           $ref: '#/components/schemas/Timestamp'
         updated_at:
+          description: >-
+            When the project last changed.
           $ref: '#/components/schemas/Timestamp'
     Project:
       allOf:
@@ -17703,8 +18216,10 @@ components:
       required: [integration_id, conversation]
       properties:
         integration_id:
+          description: Integration that forwards the conversation's activity.
           $ref: '#/components/schemas/IntegrationID'
         conversation:
+          description: Provider conversation to subscribe the agent to, such as a Slack channel.
           $ref: '#/components/schemas/IntegrationConversation'
     CreateIntegrationSubscriptionRequest:
       type: object
