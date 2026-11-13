@@ -12,6 +12,21 @@ import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
+function expandAfterAnimations(
+  wrapper: HTMLDivElement,
+  setSearchExpanded: (expanded: boolean) => void,
+) {
+  let current = true
+  void Promise.allSettled(wrapper.getAnimations().map((animation) => animation.finished)).then(
+    () => {
+      if (current) setSearchExpanded(true)
+    },
+  )
+  return () => {
+    current = false
+  }
+}
+
 export function AgentConfigSkillsField({
   orgId,
   projectId,
@@ -35,15 +50,7 @@ export function AgentConfigSkillsField({
   useEffect(() => {
     const wrapper = searchWrapperRef.current
     if (!searchOpen || !wrapper) return
-    let current = true
-    void Promise.allSettled(wrapper.getAnimations().map((animation) => animation.finished)).then(
-      () => {
-        if (current) setSearchExpanded(true)
-      },
-    )
-    return () => {
-      current = false
-    }
+    return expandAfterAnimations(wrapper, setSearchExpanded)
   }, [searchOpen, searchKey])
 
   function openSearch() {

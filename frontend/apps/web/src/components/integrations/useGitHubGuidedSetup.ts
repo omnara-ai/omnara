@@ -52,15 +52,6 @@ export function useGitHubGuidedSetup({
     }
   }, [])
   const isMounted = () => mounted.current
-  const checkReturnedAccess = useEffectEvent(() => {
-    if (returned) inspectInstallations()
-  })
-  const returnChecked = useRef(false)
-  useEffect(() => {
-    if (returnChecked.current) return
-    returnChecked.current = true
-    checkReturnedAccess()
-  }, [])
   const inspected = inspection?.result
   const nextAction: GitHubSetupAction = inspected ? 'connect' : resuming ? 'inspect' : 'register'
   const selected = inspected?.installations.find(
@@ -132,6 +123,16 @@ export function useGitHubGuidedSetup({
       },
     )
   }
+
+  const checkReturnedAccess = useEffectEvent(() => {
+    if (returned) inspectInstallations()
+  })
+  const returnChecked = useRef(false)
+  useEffect(() => {
+    if (returnChecked.current) return
+    returnChecked.current = true
+    checkReturnedAccess()
+  }, [])
 
   function connect() {
     if (!selected || !inspected) return

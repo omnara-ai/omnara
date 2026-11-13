@@ -150,9 +150,6 @@ export function AgentComposer({
   const busy = addingFiles || submitting
   const acceptsFiles = !hidden && ready && model != null && !busy
   const canSend = ready && !busy && (text.trim() !== '' || attachments.length > 0)
-  const dragging = useWindowFileDrop(acceptsFiles, (files) => {
-    void addFiles(files)
-  })
 
   async function send() {
     if (!canSend || busyRef.current) return
@@ -206,6 +203,10 @@ export function AgentComposer({
     busyRef.current = false
     setAddingFiles(false)
   }
+
+  const dragging = useWindowFileDrop(acceptsFiles, (files) => {
+    void addFiles(files)
+  })
 
   function removeAttachment(id: string) {
     if (busyRef.current) return
