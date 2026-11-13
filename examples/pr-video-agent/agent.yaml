@@ -277,7 +277,8 @@ machine_sources:
         fi
         # Attaching a video needs GitHub CLI 2.99 or later.
         if [ -n "${VIDEO_ATTACH_TOKEN:-}" ]; then
-          have=$(gh --version 2>/dev/null | awk 'NR==1{print $3}')
+          # "|| true": without gh, the failed pipeline would end the script here.
+          have=$(gh --version 2>/dev/null | awk 'NR==1{print $3}' || true)
           if [ -z "$have" ] || [ "$(printf '%s\n' 2.99.0 "$have" | sort -V | head -n1)" != 2.99.0 ]; then
             arch=$(dpkg --print-architecture)
             curl -fsSL "https://github.com/cli/cli/releases/download/v2.103.0/gh_2.103.0_linux_${arch}.tar.gz" | tar -xz -C /tmp
