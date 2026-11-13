@@ -42,19 +42,14 @@ func newOpenAPIRequestValidator() (middleware, error) {
 		SkipSettingDefaults: true,
 	}
 	options.WithCustomSchemaErrorFunc(openAPISchemaErrorMessage)
-	validatorOptions := nethttpmiddleware.Options{
+	validator := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
 		Options:               options,
 		SilenceServersWarning: true,
 		ErrorHandlerWithOpts:  openAPIValidationErrorHandler,
-	}
-	validator := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &validatorOptions)
-	configSourceOptions := validatorOptions
-	configSourceOptions.DiscardValidatedValue = true
-	configSourceValidator := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &configSourceOptions)
+	})
 
 	return func(next http.Handler) http.Handler {
 		validated := validator(next)
-		configSourceValidated := configSourceValidator(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasPrefix(r.URL.Path, openAPIBasePath+"/") {
 				next.ServeHTTP(w, r)
@@ -81,12 +76,6 @@ func newOpenAPIRequestValidator() (middleware, error) {
 					}
 				} else if err := rejectTrailingJSONRequestBody(r); err != nil {
 					writeOpenAPIRequestError(w, r, err)
-					return
-				}
-				switch route.Operation.OperationID {
-				case string(operationCreateAgentConfig), string(operationCreateAgent),
-					string(operationUpdateAgentConfig), string(operationResolveAgentConfigTools):
-					configSourceValidated.ServeHTTP(w, r)
 					return
 				}
 			}
