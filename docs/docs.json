@@ -82,6 +82,7 @@
             "group": "Examples",
             "pages": [
               "examples/overview",
+              "examples/in-app-guide",
               {
                 "group": "GTM agents",
                 "pages": [
@@ -91,13 +92,13 @@
                   "examples/seo-audit-agent"
                 ]
               },
-              "examples/posthog-analytics-agent",
               {
                 "group": "Engineering",
                 "pages": [
                   "examples/sre-agent",
                   "examples/slack-coding-agent",
-                  "examples/pr-review-agent"
+                  "examples/pr-review-agent",
+                  "examples/posthog-analytics-agent"
                 ]
               },
               {
