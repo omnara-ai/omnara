@@ -156,7 +156,7 @@ test('opens and answers pending invitations outside onboarding', async ({ page }
 })
 
 for (const format of ['YAML', 'JSON']) {
-  test(`creates an agent from ${format}`, async ({ page }) => {
+  test(`creates an agent from ${format} text`, async ({ page }) => {
     const failures = installFailureTracking(page)
     await signIn(page, adminEmail, createAgentPath)
 
@@ -188,8 +188,8 @@ for (const format of ['YAML', 'JSON']) {
     )
     await page.getByRole('button', { name: 'Builder', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Edit lookup_item' })).toBeVisible()
-    await page.getByRole('button', { name: format, exact: true }).click()
-    await expect(page.getByRole('textbox', { name: `Config (${format})` })).toBeVisible()
+    await page.getByRole('button', { name: 'YAML', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'Config (YAML)' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Create & launch agent' })).toBeEnabled()
     await page.getByRole('button', { name: 'Create & launch agent' }).click()
 

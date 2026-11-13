@@ -32,11 +32,9 @@ func TestSourceValuesSurviveCompilationRuntimeAndExport(t *testing.T) {
 		require.True(t, jsoncanonical.Equal([]byte(schema), compiled.Compiled.Tools["lookup"].InputSchema))
 		contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 		require.NoError(t, err)
-		for _, tool := range contract.Tools {
-			if tool.Name == "lookup" {
-				require.True(t, jsoncanonical.Equal([]byte(schema), tool.InputSchema))
-			}
-		}
+		tool, found := runtimeToolByName(contract, "lookup")
+		require.True(t, found)
+		require.True(t, jsoncanonical.Equal([]byte(schema), tool.InputSchema))
 		exported, err := SourceFromCompiled(compiled.Compiled, SourceNames{
 			Model: func(uuid.UUID) (string, string, error) { return "example", "primary", nil },
 		})

@@ -143,7 +143,7 @@ func exactYAMLScalar(node *yaml.Node) (any, error) {
 	}
 	var untagged any
 	if err := (&yaml.Node{Kind: yaml.ScalarNode, Value: node.Value}).Decode(&untagged); err != nil {
-		return value, nil
+		return nil, err
 	}
 	switch untagged.(type) {
 	case int, int64, uint64:
