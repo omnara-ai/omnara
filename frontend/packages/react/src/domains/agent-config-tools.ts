@@ -11,7 +11,7 @@ import { useOmnaraClient } from '../omnara-client'
 export function useAgentConfigTools(
   orgID: string,
   projectID: string,
-  request: ResolveAgentConfigToolsRequest,
+  request: ResolveAgentConfigToolsRequest | null,
 ) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
@@ -20,6 +20,7 @@ export function useAgentConfigTools(
   return useQuery({
     queryKey: [...scopeKey, JSON.stringify(request)],
     queryFn: async ({ signal }) => {
+      if (!request) throw new Error('Tool preview request is unavailable')
       const { data } = await sdk.resolveAgentConfigTools({
         path: { orgID, projectID },
         body: request,
@@ -48,7 +49,7 @@ export function useAgentConfigTools(
         : undefined
     },
     initialDataUpdatedAt: 0,
-    enabled: orgID !== '' && projectID !== '',
+    enabled: request !== null && orgID !== '' && projectID !== '',
     staleTime: 60 * 1000,
     retry: false,
   })

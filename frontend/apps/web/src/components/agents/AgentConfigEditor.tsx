@@ -43,7 +43,7 @@ export function AgentConfigEditorFields({
               onValueChange={editor.switchMode}
               tabs={[
                 { value: 'builder', label: 'Builder' },
-                { value: 'yaml', label: editor.editorFormat.toUpperCase() },
+                { value: 'yaml', label: editor.sourceFormat.toUpperCase() },
               ]}
             />
           )}
@@ -73,7 +73,7 @@ export function AgentConfigEditorFields({
         <AgentConfigYamlField
           id={yamlFieldId}
           value={editor.editorYaml}
-          format={editor.editorFormat}
+          format={editor.sourceFormat}
           onChange={(value) => {
             dispatchMode({
               type: 'editor-yaml-changed',

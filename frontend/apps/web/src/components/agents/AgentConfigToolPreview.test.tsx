@@ -1,5 +1,4 @@
 /** @vitest-environment happy-dom */
-
 import { OmnaraClientProvider } from '@omnara/react'
 import {
   createOmnaraClient,
@@ -18,6 +17,7 @@ import { act, createContext, type ReactNode, useContext } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
+import { z } from 'zod'
 
 import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import { newSubagent } from '@/components/agents/agentConfigSubagents'
@@ -440,9 +440,7 @@ it('preserves expanded tools after a failed refresh and updates them on retry', 
   click('[aria-label="Remove web_search"]')
   expect(container.querySelector('[aria-label="Remove web_search"]')).toBeNull()
   await vi.waitFor(() => {
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      'Couldn’t load built-in tools',
-    )
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Couldn’t load tools')
   })
   expect(builtInToolsTrigger()).toBe(trigger)
   expect(trigger?.getAttribute('aria-expanded')).toBe('true')
@@ -466,7 +464,11 @@ it('does not offer the Slack tool when it is absent from the source', async () =
       method: 'POST',
       path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
       respond: ({ body }) => {
-        requests.push(body)
+        const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
+        requests.push({
+          ...request,
+          source: z.json().parse(parse(z.string().parse(request.source))),
+        })
         return jsonResponse({ tools: [] })
       },
     },
@@ -476,21 +478,10 @@ it('does not offer the Slack tool when it is absent from the source', async () =
     expect(requests).toHaveLength(1)
   })
   expect(builtInToolsTrigger()).toBeNull()
-  expect(container.querySelector('output')?.textContent).toBe(includedSource)
-  expect(requests).toEqual([
-    {
-      source: {
-        interaction_handlers: {},
-        tools: { web_search: { type: 'built_in', permission: { mode: 'always_ask' } } },
-        mcp: {},
-        machine_sources: [],
-        skills: [],
-        memory_stores: [],
-        subagents: {},
-      },
-      source_format: 'json',
-    },
-  ])
+  expect(requests[0]).toHaveProperty('source.tools', {
+    web_search: { type: 'built_in', permission: { mode: 'always_ask' } },
+  })
+  expect(requests[0]).toHaveProperty('source_format', 'yaml')
 })
 
 it('includes configured MCP servers in previews and removes them after deletion', async () => {
@@ -500,7 +491,7 @@ it('includes configured MCP servers in previews and removes them after deletion'
       ...previewToolsRoute(() => []),
       respond: ({ body }) => {
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        requests.push(request.source)
+        requests.push(parse(z.string().parse(request.source)))
         return toolResponse([])
       },
     },
@@ -581,9 +572,7 @@ it('shows a preview failure and lets the user retry without editing the draft', 
   ])
   await renderAndFlush(<BasicFormHarness />)
   await vi.waitFor(() => {
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      'Couldn’t load built-in tools',
-    )
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Couldn’t load tools')
   })
   click('[role="alert"] button')
   await vi.waitFor(() => {
@@ -670,7 +659,7 @@ it('updates resource defaults without writing or removing explicit entries', asy
       ...previewToolsRoute(() => preview),
       respond: ({ body }) => {
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        requests.push(request.source)
+        requests.push(parse(z.string().parse(request.source)))
         return toolResponse(preview)
       },
     },

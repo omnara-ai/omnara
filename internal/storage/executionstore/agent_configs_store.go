@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -28,7 +29,10 @@ func (s *Store) CreateAgentConfig(ctx context.Context, input CreateAgentConfigIn
 	if input.ProjectID == uuid.Nil {
 		return AgentConfigRecord{}, errors.New("project id is required")
 	}
-	input = withDefaultAgentConfigCompilation(input)
+	input, err := withDefaultAgentConfigCompilation(input)
+	if err != nil {
+		return AgentConfigRecord{}, storeerr.InvalidRequest(err)
+	}
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -215,7 +219,10 @@ func insertAgentConfigTx(
 	input CreateAgentConfigInput,
 	track func(resourceguard.Creation),
 ) (AgentConfigRecord, error) {
-	input = withDefaultAgentConfigCompilation(input)
+	input, err := withDefaultAgentConfigCompilation(input)
+	if err != nil {
+		return AgentConfigRecord{}, storeerr.InvalidRequest(err)
+	}
 	if input.Source != "" {
 		if _, err := agentconfig.ParseSource(agentconfig.SourceFormat(input.SourceFormat), []byte(input.Source)); err != nil {
 			return AgentConfigRecord{}, storeerr.InvalidRequest(err)
@@ -676,7 +683,7 @@ func (s *Store) ResolveAgentConfigMachinePoolName(
 	return machinePoolID, nil
 }
 
-func withDefaultAgentConfigCompilation(input CreateAgentConfigInput) CreateAgentConfigInput {
+func withDefaultAgentConfigCompilation(input CreateAgentConfigInput) (CreateAgentConfigInput, error) {
 	if input.Source != "" && input.SourceFormat == "" {
 		input.SourceFormat = string(agentconfig.SourceFormatYAML)
 	}
@@ -685,25 +692,17 @@ func withDefaultAgentConfigCompilation(input CreateAgentConfigInput) CreateAgent
 	}
 	input.CompiledDefinition = normalizedJSON(input.CompiledDefinition)
 	if input.EffectiveDefinitionHash == "" {
-		input.EffectiveDefinitionHash = configDefinitionHash(input.CompiledDefinition)
+		canonical, err := jsoncanonical.Canonical(input.CompiledDefinition)
+		if err != nil {
+			return input, err
+		}
+		input.EffectiveDefinitionHash = agentconfig.DefinitionHash(canonical)
 	}
-	return input
+	return input, nil
 }
 
 func agentConfigSourceHash(source string) string {
 	sum := sha256.Sum256([]byte(source))
-	return hex.EncodeToString(sum[:])
-}
-
-func configDefinitionHash(definition json.RawMessage) string {
-	normalized := normalizedJSON(definition)
-	var canonical any
-	if err := json.Unmarshal(normalized, &canonical); err == nil {
-		if encoded, err := json.Marshal(canonical); err == nil {
-			normalized = encoded
-		}
-	}
-	sum := sha256.Sum256(normalized)
 	return hex.EncodeToString(sum[:])
 }
 

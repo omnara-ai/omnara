@@ -1,5 +1,10 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
 import {
+  configNodeSource,
+  type ConfigSourceFormat,
+  parseConfigDocument,
+} from '@omnara/sdk/config-source'
+import {
   zAgentConfigDefinition,
   zAgentConfigDefinitionGitCredentials,
   zAgentConfigDefinitionInteractionHandler,
@@ -20,11 +25,8 @@ import { z } from 'zod'
 import {
   type AdvancedConfigEntry,
   type ConfigDiagnostic,
-  parseConfigDocument,
   validateAdvancedEntry,
 } from '@/components/agents/agentConfigCompatibility'
-import { configNodeSource } from '@/components/agents/agentConfigSerialization'
-import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { configJson, configRecord } from '@/components/agents/agentConfigValidation'
@@ -182,7 +184,8 @@ const basicDocument = z.looseObject({
 })
 
 export function parseBasicConfigSource(source: string, format: ConfigSourceFormat = 'yaml') {
-  const { doc, diagnostics } = parseConfigDocument(source, format)
+  const { doc, diagnostics: sourceDiagnostics } = parseConfigDocument(source, format)
+  const diagnostics: ConfigDiagnostic[] = sourceDiagnostics
   if (!isMap(doc.contents) && !diagnostics.some((issue) => issue.kind === 'fatal')) {
     diagnostics.push({
       path: [],

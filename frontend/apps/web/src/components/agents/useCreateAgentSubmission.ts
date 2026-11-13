@@ -5,10 +5,10 @@ import {
   useUpdateAgentProfile,
 } from '@omnara/react'
 import type { AgentConfigErrorIssue, ApiError } from '@omnara/sdk'
+import type { ConfigSourceFormat } from '@omnara/sdk/config-source'
 import { useNavigate } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 
-import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
 import { configSubmitError } from '@/lib/agent-config-issues'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import type { SubmitStatus } from '@/lib/submit-status'

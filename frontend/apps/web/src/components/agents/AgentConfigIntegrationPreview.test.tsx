@@ -1,11 +1,12 @@
 /** @vitest-environment happy-dom */
-
 import { OmnaraClientProvider } from '@omnara/react'
 import { createOmnaraClient, schemas } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it } from 'vitest'
+import { parse } from 'yaml'
+import { z } from 'zod'
 
 import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId } from '@/test/fixtures'
@@ -24,7 +25,10 @@ it('sends integration selection to preview and exposes the resolver issue to the
       path: `/api/v1/orgs/${scope.orgId}/projects/${scope.projectId}/agent-configs/tools`,
       respond: ({ body }) => {
         const request = schemas.zResolveAgentConfigToolsRequest.parse(body)
-        expect(request.source).toHaveProperty('tools.int__chat__post_message', tool)
+        expect(parse(z.string().parse(request.source))).toHaveProperty(
+          'tools.int__chat__post_message',
+          tool,
+        )
         return jsonResponse(
           {
             code: 'invalid_request',

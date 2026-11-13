@@ -1,7 +1,7 @@
+import type { ConfigSourceFormat } from '@omnara/sdk/config-source'
 import { useEffect, useState } from 'react'
 
 import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
-import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
 import { useMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import {
   createBasicConfigSession,

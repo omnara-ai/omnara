@@ -17,7 +17,10 @@ func launchIntegrationIDsTx(
 ) ([]uuid.UUID, error) {
 	var config AgentConfigRecord
 	if input.DerivedConfig != nil {
-		derived := withDefaultAgentConfigCompilation(*input.DerivedConfig)
+		derived, err := withDefaultAgentConfigCompilation(*input.DerivedConfig)
+		if err != nil {
+			return nil, storeerr.InvalidRequest(err)
+		}
 		config = AgentConfigRecord{
 			CompiledDefinition:      derived.CompiledDefinition,
 			EffectiveDefinitionHash: derived.EffectiveDefinitionHash,

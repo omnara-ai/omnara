@@ -79,8 +79,7 @@ export function useAgentConfigMode({
   }
 
   return {
-    editorFormat: session.sourceFormat,
-    sourceFormat: yamlSession?.sourceFormat ?? session.sourceFormat,
+    sourceFormat: session.sourceFormat,
     mode,
     dispatchMode,
     switchMode,

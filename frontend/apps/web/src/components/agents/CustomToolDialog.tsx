@@ -1,3 +1,4 @@
+import type { ConfigSourceFormat } from '@omnara/sdk/config-source'
 import { useMemo, useRef, useState } from 'react'
 import { Document } from 'yaml'
 
@@ -8,7 +9,6 @@ import {
   validateAdvancedEntry,
 } from '@/components/agents/agentConfigCompatibility'
 import { AgentConfigDiagnostics } from '@/components/agents/AgentConfigDiagnostics'
-import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
 import { useAgentUnsavedChangesWarning } from '@/components/agents/useAgentUnsavedChangesWarning'
 import { Button } from '@/components/ui/button'
 import {

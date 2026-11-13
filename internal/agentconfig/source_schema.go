@@ -10,6 +10,7 @@ import (
 
 	kjsonschema "github.com/kaptinlin/jsonschema"
 	openapispec "github.com/omnara-ai/omnara/api/openapi"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"gopkg.in/yaml.v3"
@@ -92,7 +93,7 @@ type AgentConfigToolSource struct {
 	Permission  *toolpermission.Selection `json:"permission,omitempty"`
 	Deferred    bool                      `json:"deferred,omitempty"`
 	Description string                    `json:"description,omitempty"`
-	InputSchema map[string]any            `json:"input_schema,omitempty"`
+	InputSchema json.RawMessage           `json:"input_schema,omitempty"`
 }
 
 type AgentConfigMCPSource struct {
@@ -241,7 +242,8 @@ func canonicalizeJSONResourceReferences(root map[string]any) (bool, error) {
 func sourceJSON(format SourceFormat, raw []byte) ([]byte, *yaml.Node, error) {
 	switch format {
 	case SourceFormatJSON:
-		return raw, nil, nil
+		canonical, err := jsoncanonical.Canonical(raw)
+		return canonical, nil, err
 	case SourceFormatYAML:
 		var root yaml.Node
 		decoder := yaml.NewDecoder(bytes.NewReader(raw))
@@ -256,13 +258,9 @@ func sourceJSON(format SourceFormat, raw []byte) ([]byte, *yaml.Node, error) {
 			}
 			return nil, &root, yamlSyntaxIssue(err)
 		}
-		var value any
-		if err := root.Decode(&value); err != nil {
-			return nil, &root, yamlSyntaxIssue(err)
-		}
-		normalized, err := normalizeYAMLValue(value)
+		normalized, err := yamlJSONValue(&root)
 		if err != nil {
-			return nil, &root, NewIssue("", err)
+			return nil, &root, err
 		}
 		out, err := json.Marshal(normalized)
 		if err != nil {
@@ -271,47 +269,6 @@ func sourceJSON(format SourceFormat, raw []byte) ([]byte, *yaml.Node, error) {
 		return out, &root, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported agent config source format %q", format)
-	}
-}
-
-func normalizeYAMLValue(value any) (any, error) {
-	switch typed := value.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(typed))
-		for key, item := range typed {
-			normalized, err := normalizeYAMLValue(item)
-			if err != nil {
-				return nil, err
-			}
-			out[key] = normalized
-		}
-		return out, nil
-	case map[any]any:
-		out := make(map[string]any, len(typed))
-		for key, item := range typed {
-			keyString, ok := key.(string)
-			if !ok {
-				return nil, fmt.Errorf("mapping key %v is not a string", key)
-			}
-			normalized, err := normalizeYAMLValue(item)
-			if err != nil {
-				return nil, err
-			}
-			out[keyString] = normalized
-		}
-		return out, nil
-	case []any:
-		out := make([]any, len(typed))
-		for i, item := range typed {
-			normalized, err := normalizeYAMLValue(item)
-			if err != nil {
-				return nil, err
-			}
-			out[i] = normalized
-		}
-		return out, nil
-	default:
-		return value, nil
 	}
 }
 

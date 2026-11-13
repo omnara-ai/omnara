@@ -1,8 +1,8 @@
 import { applyEdits, format as formatJson } from 'jsonc-parser'
 import { Document, isNode, type Scalar, type ScalarTag, visit } from 'yaml'
 
-import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
-import { configYamlOptions, scalarPreservationReason } from '@/components/agents/agentConfigYaml'
+import type { ConfigSourceFormat } from './config-source'
+import { configYamlOptions, scalarPreservationReason } from './config-yaml'
 
 const isString = (value: Scalar['value']): value is string => typeof value === 'string'
 const isNumber = (value: Scalar['value']): value is number => typeof value === 'number'

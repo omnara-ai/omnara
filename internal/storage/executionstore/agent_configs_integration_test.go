@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -354,4 +355,33 @@ model:
 	}); err != nil {
 		t.Fatalf("create agent config with project modality restrictions: %v", err)
 	}
+}
+
+func TestAgentConfigSchemaValuesSurviveJSONBAndRuntime(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	schema := `{"type":"object","properties":{"value":{"enum":[9007199254740993,0.123456789012345678901,-0.0,1e-7]}}}`
+	source := testAgentConfigYAML() +
+		"tools: {lookup: {type: custom, description: Example, input_schema: " + schema + "}}\n"
+	compiled := mustCompileAgentYAMLResolved(t, ctx, store, source)
+	saved, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+		ProjectID: testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
+		Source: source, CompiledDefinition: compiled.CanonicalJSON,
+	})
+	require.NoError(t, err)
+	require.Equal(t, compiled.Hash, saved.EffectiveDefinitionHash)
+	loaded, found, err := store.Execution().GetAgentConfig(ctx, testProjectID, saved.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	contract, err := agentconfig.RuntimeContractFromCompiled(loaded.CompiledDefinition, loaded.EffectiveDefinitionHash)
+	require.NoError(t, err)
+	for _, tool := range contract.Tools {
+		if tool.Name == "lookup" {
+			require.True(t, jsoncanonical.Equal([]byte(schema), tool.InputSchema))
+		}
+	}
+	require.True(t, jsoncanonical.Equal(compiled.CanonicalJSON, loaded.CompiledDefinition))
 }

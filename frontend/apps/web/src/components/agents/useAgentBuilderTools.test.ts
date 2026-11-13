@@ -120,7 +120,7 @@ mcp:
   docs: {url: 'https://example.com', extension: true, auth: {type: bearer, secret: example}}
 `)
   if (!session.initialDraft) throw new Error('Missing draft')
-  const request = agentBuilderToolsRequest(session.initialDraft)
+  const request = agentBuilderToolsRequest(session.initialDraft, session.sourceFormat)
   const preview = previewSource(request)
   expect(preview).toHaveProperty('tools.custom_example.deferred', true)
   expect(preview).toHaveProperty('tools.custom_example.input_schema.type', 'object')
@@ -129,12 +129,47 @@ mcp:
   expect(preview).toHaveProperty('machine_sources.0.extension.value', 'retained')
   expect(preview).toHaveProperty('mcp.docs.extension', true)
   expect(preview).not.toHaveProperty('mcp.docs.auth')
-  const removed = agentBuilderToolsRequest({
-    ...session.initialDraft,
-    advancedEntries: session.initialDraft.advancedEntries?.map((entry) =>
-      entry.kind === 'custom' ? { ...entry, removed: true } : entry,
-    ),
-  })
+  const removed = agentBuilderToolsRequest(
+    {
+      ...session.initialDraft,
+      advancedEntries: session.initialDraft.advancedEntries?.map((entry) =>
+        entry.kind === 'custom' ? { ...entry, removed: true } : entry,
+      ),
+    },
+    session.sourceFormat,
+  )
   expect(previewSource(removed)).not.toHaveProperty('tools.custom_example')
   expect(previewSource(removed)).toHaveProperty('tools.web_search.extension', true)
 })
+
+it.each(['yaml', 'json'] as const)(
+  'previews advanced %s definitions without changing values or format',
+  (format) => {
+    const source =
+      format === 'json'
+        ? '{"tools":{"example":{"type":"custom","description":"Before\u2028after","input_schema":{"type":"object","properties":{"value":{"const":9007199254740993,"minimum":0.123456789012345678901}}}}}}'
+        : 'tools: {example: {type: custom, description: Example, input_schema: {type: object, properties: {value: {const: 9007199254740993, minimum: 0.123456789012345678901, enum: [010]}}}}}'
+    const session = createBasicConfigSession(source, format)
+    const draft = session.initialDraft
+    if (!draft) throw new Error('Missing draft')
+    const request = agentBuilderToolsRequest(draft, format)
+    expect(request.source_format).toBe(format)
+    expect(request.source).toContain('9007199254740993')
+    expect(request.source).toContain('0.123456789012345678901')
+    if (format === 'json')
+      expect(JSON.parse(request.source)).toHaveProperty(
+        'tools.example.description',
+        'Before\u2028after',
+      )
+    else expect(request.source).toContain('010')
+    expect(() =>
+      agentBuilderToolsRequest(
+        {
+          ...draft,
+          advancedEntries: [{ path: ['tools', 'example'], kind: 'custom', source: '[' }],
+        },
+        format,
+      ),
+    ).toThrow('tools → example')
+  },
+)

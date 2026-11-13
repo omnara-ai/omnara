@@ -9,8 +9,10 @@ import {
   type Secret,
   zJsonText,
 } from '@omnara/sdk'
+import { parseConfigDocument, serializeConfigDocument } from '@omnara/sdk/config-source'
 import { zMcpoAuthStartRequest, zResourceName } from '@omnara/sdk/zod'
-import { isMap, isScalar, parseDocument } from 'yaml'
+import { applyEdits, modify } from 'jsonc-parser'
+import { isMap, isScalar } from 'yaml'
 import * as z from 'zod'
 
 import type { FlowContext } from './factory.ts'
@@ -67,6 +69,9 @@ function prepareJsonConfig(
   serverName: string,
   mcpUrl: string,
 ): PreparedConfig {
+  const syntax = parseConfigDocument(source, 'json')
+  const fatal = syntax.diagnostics.find((issue) => issue.kind === 'fatal')
+  if (fatal) throw new CliInputError(fatal.message)
   const parsed = zDefinitionText.safeParse(source)
   if (!parsed.success) throw new CliInputError('the current agent config is not a JSON object')
   const definition = parsed.data
@@ -80,10 +85,17 @@ function prepareJsonConfig(
     currentConfigId: configId,
     render(secretId) {
       return {
-        source: {
-          ...definition,
-          mcp: { ...definition.mcp, [serverName]: serverEntry(mcpUrl, secretId) },
-        },
+        source: applyEdits(
+          source,
+          modify(
+            source,
+            definition.mcp == null ? ['mcp'] : ['mcp', serverName],
+            definition.mcp == null
+              ? { [serverName]: serverEntry(mcpUrl, secretId) }
+              : serverEntry(mcpUrl, secretId),
+            { formattingOptions: { insertSpaces: true, tabSize: 2 } },
+          ),
+        ),
         source_format: 'json',
       }
     },
@@ -96,10 +108,10 @@ function prepareYamlConfig(
   serverName: string,
   mcpUrl: string,
 ): PreparedConfig {
-  const doc = parseDocument(source)
-  if (doc.errors.length > 0) {
-    throw new CliInputError('the current agent config contains invalid YAML')
-  }
+  const { doc, diagnostics } = parseConfigDocument(source, 'yaml')
+  const fatal = diagnostics.find((issue) => issue.kind === 'fatal')
+  if (fatal)
+    throw new CliInputError(`${fatal.path.join(' → ') || 'Configuration'}: ${fatal.message}`)
   if (doc.contents !== null && !isMap(doc.contents)) {
     throw new CliInputError('the current agent config must be an object')
   }
@@ -119,7 +131,7 @@ function prepareYamlConfig(
       } else {
         doc.set('mcp', { [serverName]: serverEntry(mcpUrl, secretId) })
       }
-      return { source: doc.toString(), source_format: 'yaml' }
+      return { source: serializeConfigDocument(doc, 'yaml'), source_format: 'yaml' }
     },
   }
 }
