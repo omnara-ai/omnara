@@ -18,7 +18,8 @@ a short recording on the pull request:
 > Recorded at `3f9c2ab`.
 
 It stays silent on pull requests with nothing to see: documentation, tests,
-CI, dependency bumps, and refactors. It works on pull requests from branches
+CI, dependency bumps, and refactors. It doesn't record the same commit
+twice: asked again, it points to the recording it already posted. It works on pull requests from branches
 in your repository, not from forks. Mention it to record again after you
 push, or to ask for a different path through the app.
 

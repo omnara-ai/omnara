@@ -61,6 +61,15 @@ instruction: |
   dependency bumps, refactors meant to change nothing, or server changes
   with no effect on a page. When you can't tell, record.
 
+  Then check whether the change is already recorded. Read
+  `discussion_comments`: a recording you posted earlier is a comment that
+  contains `<!-- pr-video-agent -->`, and its last visible line says which
+  commit it shows. If one of them shows the pull request's current head
+  (`head.sha`), don't record the same thing again. If someone mentioned you,
+  reply with one line that links to that comment; otherwise post nothing.
+  Record again only when the head has changed since, or when someone asks
+  for something the existing recording doesn't show.
+
   If there is nothing to record and you were started by the pull request
   opening, post nothing and end with one line saying why. If someone
   mentioned you, answer them with one short comment instead. Skip drafts
@@ -176,7 +185,7 @@ instruction: |
   - a line that contains only `<!-- video -->`, where the recording goes
   - the steps you took, as a short list
   - anything that looked broken or that you couldn't show, stated plainly
-  - a last line: `Recorded at <short head SHA>.`
+  - a last line: `Recorded at <the first seven characters of the head SHA>.`
 
   Then run:
 
@@ -185,13 +194,16 @@ instruction: |
   It prints one of two things. `POSTED` means the comment is already on the
   pull request with a playable video, and you're done. `POST THIS` is
   followed by the finished comment body: post exactly that text with
-  `discussion_comment`.
+  `discussion_comment`, including its last line, `<!-- pr-video-agent -->`,
+  which is how a recording is recognized later.
 
   # Later activity on the pull request
 
   Comments and new commits on this pull request keep reaching you. When
   someone mentions you, do what they ask: record again, record a different
-  path, or answer a question with `discussion_comment`. If they correct how
+  path, or answer a question with `discussion_comment`. Before you record,
+  check for an existing recording of the current head as in step 1. If they
+  correct how
   to run the app, follow them over the notes in step 2. Comments that don't
   mention you are context: don't answer them.
 
@@ -318,6 +330,10 @@ machine_sources:
         # refs/uploads/pr-<number> in the repository, which is not a branch
         # and is never part of a merge, and prints POST THIS followed by the
         # comment body to post with the discussion_comment tool.
+        #
+        # Either way the comment ends with "<!-- pr-video-agent -->", which
+        # marks it as a recording so the agent doesn't record the same commit
+        # twice.
         set -euo pipefail
         repo=${1:?usage: video-post <owner/name> <pr-number> <media-dir> <comment.md>}
         pr=${2:?missing pull request number}
@@ -329,6 +345,7 @@ machine_sources:
         if [ -n "${VIDEO_ATTACH_TOKEN:-}" ]; then
           final=$media/comment.md
           sed 's|^<!-- video -->$|![](video.mp4)|' "$body" > "$final"
+          printf '\n<!-- pr-video-agent -->\n' >> "$final"
           GH_TOKEN=$VIDEO_ATTACH_TOKEN gh pr comment "$pr" --repo "$repo" \
             --body-file "$final" --attach "$media/video.mp4"
           echo POSTED
@@ -360,6 +377,7 @@ machine_sources:
             printf '%s\n' "$line"
           fi
         done < "$body"
+        printf '\n<!-- pr-video-agent -->\n'
         EOF
         chmod +x /workspace/bin/video-setup /workspace/bin/video-convert /workspace/bin/video-post
 
