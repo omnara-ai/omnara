@@ -158,6 +158,7 @@
                   "machines/providers/e2b",
                   "machines/providers/freestyle",
                   "machines/providers/modal",
+                  "machines/providers/novita",
                   "machines/providers/superserve",
                   "machines/providers/tenki",
                   "machines/providers/unikraft"

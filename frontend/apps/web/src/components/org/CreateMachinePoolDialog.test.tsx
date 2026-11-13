@@ -368,6 +368,16 @@ it("names the second step after the provider's resource", async () => {
   expect(activeStep()).toBe('Template')
 })
 
+it('names the Novita second step after its template', async () => {
+  await render(poolApi(), vi.fn())
+  await choose('Provider', 'Novita')
+  await type('#mpool-name', 'default')
+  await chooseSecret('BLAXEL_TOKEN', 'Novita API token')
+  await click('Continue')
+
+  expect(activeStep()).toBe('Template')
+})
+
 it('asks for the optional Modal app with the image', async () => {
   await render(poolApi(), vi.fn())
   await choose('Provider', 'Modal')

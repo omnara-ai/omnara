@@ -540,10 +540,11 @@ test-live-sandbox-providers:
 		./internal/machinepool/providers/e2b \
 		./internal/machinepool/providers/freestyle \
 		./internal/machinepool/providers/modal \
+		./internal/machinepool/providers/novita \
 		./internal/machinepool/providers/superserve \
 		./internal/machinepool/providers/tenki \
 		./internal/machinepool/providers/unikraft \
-		-run '^Test(Agent37|Arker|Blaxel|Boxd|CreateOS|Daytona|E2B|Freestyle|Modal|Superserve|Tenki|Unikraft)ProviderLiveSmoke$$'
+		-run '^Test(Agent37|Arker|Blaxel|Boxd|CreateOS|Daytona|E2B|Freestyle|Modal|Novita|Superserve|Tenki|Unikraft)ProviderLiveSmoke$$'
 
 test-live: test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers
 

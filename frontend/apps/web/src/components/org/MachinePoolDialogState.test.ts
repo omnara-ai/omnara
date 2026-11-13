@@ -844,6 +844,7 @@ it('lists providers alphabetically', () => {
     'E2B',
     'Freestyle',
     'Modal',
+    'Novita',
     'Superserve',
     'Tenki',
     'Unikraft',

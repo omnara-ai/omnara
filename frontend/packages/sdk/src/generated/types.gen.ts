@@ -3474,7 +3474,7 @@ export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
     max_machine_cpu: number;
     max_machine_memory_mb: number;
 } | {
-    provider: 'boxd' | 'createos' | 'daytona' | 'e2b' | 'superserve';
+    provider: 'boxd' | 'createos' | 'daytona' | 'e2b' | 'novita' | 'superserve';
     max_total_cpu: number;
     max_total_memory_mb: number;
     max_machine_cpu: number;

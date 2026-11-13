@@ -1077,6 +1077,18 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			want: http.StatusBadRequest,
 		},
 		{
+			name: "novita",
+			body: `{"provider":"novita",` + common +
+				`,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "novita missing cpu limit",
+			body: `{"provider":"novita",` + common +
+				`,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusBadRequest,
+		},
+		{
 			name: "superserve",
 			body: `{"provider":"superserve",` + common +
 				`,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,

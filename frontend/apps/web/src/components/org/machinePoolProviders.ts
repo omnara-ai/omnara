@@ -278,6 +278,24 @@ const e2b: MachinePoolProviderDefinition = {
   },
 }
 
+const novita: MachinePoolProviderDefinition = {
+  label: 'Novita',
+  resource: {
+    key: 'template',
+    label: 'Template',
+    placeholder: 'base',
+    description:
+      "A Novita template name or ID such as base, or one your team built. Machines take the template's CPU and memory, so the max vCPU and memory must be at least that size.",
+    descriptionHref: 'https://docs.novita.ai/guides/sandbox-template-build-operations',
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    defaultCpu: '8',
+    defaultMemoryGb: '8',
+  },
+}
+
 const superserve: MachinePoolProviderDefinition = {
   label: 'Superserve',
   resource: {
@@ -327,6 +345,7 @@ export const machinePoolProviderDefinitions = {
   boxd,
   createos,
   e2b,
+  novita,
   superserve,
   agent37,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
