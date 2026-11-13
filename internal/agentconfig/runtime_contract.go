@@ -72,23 +72,34 @@ type RuntimeMachine struct {
 	Description                   string
 }
 
-func RuntimeContractFromCompiled(
+func VerifiedDefinition(
 	compiledJSON json.RawMessage,
 	definitionHash string,
-) (RuntimeContract, error) {
+) (json.RawMessage, error) {
 	if len(compiledJSON) == 0 {
-		return RuntimeContract{}, errors.New("agent config compiled definition is required")
+		return nil, errors.New("agent config compiled definition is required")
 	}
 	canonical, err := jsoncanonical.Canonical(compiledJSON)
 	if err != nil || DefinitionHash(canonical) != definitionHash {
 		canonical = legacyCanonicalJSON(compiledJSON)
 		if got := DefinitionHash(canonical); got != definitionHash {
-			return RuntimeContract{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"agent config definition hash mismatch: got %s want %s",
 				got,
 				definitionHash,
 			)
 		}
+	}
+	return canonical, nil
+}
+
+func RuntimeContractFromCompiled(
+	compiledJSON json.RawMessage,
+	definitionHash string,
+) (RuntimeContract, error) {
+	canonical, err := VerifiedDefinition(compiledJSON, definitionHash)
+	if err != nil {
+		return RuntimeContract{}, err
 	}
 	var compiled Compiled
 	decoder := json.NewDecoder(bytes.NewReader(canonical))
