@@ -21,22 +21,18 @@ func TestLegacyDefinitionVerificationKeepsLegacyRuntimeValues(t *testing.T) {
 	require.NotEqual(t, exact, legacy)
 	contract, err := RuntimeContractFromCompiled(exact, DefinitionHash(exact))
 	require.NoError(t, err)
-	for _, tool := range contract.Tools {
-		if tool.Name == "lookup" {
-			require.Contains(t, string(tool.InputSchema), "9007199254740993")
-		}
-	}
+	tool, found := runtimeToolByName(contract, "lookup")
+	require.True(t, found)
+	require.Contains(t, string(tool.InputSchema), "9007199254740993")
 	var spaced bytes.Buffer
 	require.NoError(t, json.Indent(&spaced, exact, "", "  "))
 	stored := bytes.Clone(spaced.Bytes())
 	contract, err = RuntimeContractFromCompiled(stored, DefinitionHash(legacy))
 	require.Equal(t, spaced.Bytes(), stored)
 	require.NoError(t, err)
-	for _, tool := range contract.Tools {
-		if tool.Name == "lookup" {
-			require.Contains(t, string(tool.InputSchema), "9007199254740992")
-		}
-	}
+	tool, found = runtimeToolByName(contract, "lookup")
+	require.True(t, found)
+	require.Contains(t, string(tool.InputSchema), "9007199254740992")
 	var changed map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(compiled.CanonicalJSON, &changed))
 	changed["instruction"] = json.RawMessage(`"tampered"`)
