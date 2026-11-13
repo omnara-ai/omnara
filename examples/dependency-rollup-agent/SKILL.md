@@ -98,7 +98,7 @@ Then check the repository:
    on code without one. On a custom pool, the image needs `git`, `gh`, an
    up-to-date `omnarad` (it supplies the Git credentials), and whatever the
    repository's tests need; in step 5, rewrite the instruction's bullet that
-   starts "Your machine keeps its files" to say what the image has.
+   starts "Your machine usually keeps its files" to say what the image has.
 
 ## 4. Connect GitHub
 
@@ -149,7 +149,7 @@ default branch and never merges.
 
    | Placeholder | Value |
    | --- | --- |
-   | `{{GITHUB_REPO}}` | from step 2 (it appears twice in the instruction) |
+   | `{{GITHUB_REPO}}` | from step 2 (it appears three times) |
    | `{{GITHUB_REPO_ID}}` | from step 2, as a bare number |
    | `{{GITHUB_INTEGRATION}}` | from step 4 |
    | `{{GITHUB_APP_SLUG}}` | from step 4 (it appears several times) |
@@ -180,7 +180,7 @@ default branch and never merges.
 ## 6. Start the agent and watch its first run
 
 This agent is launched once and kept: its conversation is its record of what
-it decided, and its machine keeps the clone. Check for one from an earlier
+it decided, and its machine usually keeps the clone. Check for one from an earlier
 setup with
 `npx omnara agents list --agent-profile-id <agent-profile-id> --json`. If
 there is one, replace its config instead of launching another, then ask it
@@ -235,9 +235,11 @@ would start a fresh agent every day that has forgotten yesterday's decisions.
 Summarize what you created: the GitHub App and its integration, the profile,
 the agent, and the cron trigger with its schedule. Then tell the user:
 
-- **Steer it from the pull request.** Review comments on its pull request
-  override its instruction, and it reads them on its next run. To have it act
-  right away, message the agent in the Omnara console.
+- **Steer it from the pull request.** It follows comments and reviews on
+  its pull request from people with write access to the repository, and
+  reads them on its next run. Comments from anyone else are information to
+  it, not instructions. To have it act right away, message the agent in the
+  Omnara console.
 - **It never merges.** A person reviews and merges the roll-up, and the
   agent starts the next one from the default branch. Dependabot's GitHub
   Actions updates change workflow files it can't push, so those stay open

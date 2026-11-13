@@ -4,7 +4,7 @@ description: Rolls your Dependabot pull requests into one pull request a day tha
 icon: "layer-group"
 ---
 
-Every day it rolls your repository's open Dependabot pull requests into one pull request that passes CI. It reads the release notes, fixes the code an upgrade breaks, and patches high and critical security advisories. The description opens with the upgrades it left out and why. It follows your review comments on its next run and never merges.
+Every day it rolls your repository's open Dependabot pull requests into one pull request that passes CI. It reads the release notes, fixes the code an upgrade breaks, and patches high and critical security advisories. The description opens with the upgrades it left out and why. On its next run it follows review comments from people with write access to the repository, and it never merges.
 
 It's the same agent every day, so it remembers what it decided before, and it works as a GitHub App through [Git credentials](/integrations/github#git-credentials), so there is no token to store. Omnara runs it on its own repository: see [omnara-ai/omnara#833](https://github.com/omnara-ai/omnara/pull/833).
 

@@ -23,9 +23,10 @@ why:
 > Verified with the workspace tests and a frozen install; CI passes.
 
 Review it like any pull request. Comment on it and the agent follows your
-comments on its next run; merge it and the agent starts the next one. It
-closes each Dependabot pull request it rolled in, or decided against, with a
-one-line comment linking the roll-up.
+comments on its next run, if you have write access to the repository; merge
+it and the agent starts the next one. It closes each Dependabot pull request
+it rolled in, or decided against, with a one-line comment linking the
+roll-up.
 
 Omnara runs this agent on its own repository:
 [omnara-ai/omnara#833](https://github.com/omnara-ai/omnara/pull/833) is a
@@ -59,8 +60,8 @@ any time to change the agent; it updates it in place.
 
 [agent.yaml](agent.yaml) is the whole agent. You launch it once, and a cron
 trigger messages that same agent every morning, so its conversation holds
-what it decided on earlier days and its machine keeps the clone. A hold it
-recommended last week still stands today. The profile's
+what it decided on earlier days. A hold it recommended last week still
+stands today. The profile's
 [`git_credentials`](https://docs.omnara.com/integrations/github#git-credentials)
 authenticate git and `gh` on its machine as a GitHub App limited to one
 repository, so no token appears in the config or the event log. Nobody
@@ -72,8 +73,11 @@ hand or closed without merging, and treats those as decisions. It follows
 your repository's `AGENTS.md`, `CONTRIBUTING.md`, and `dependabot.yml`,
 including `ignore` rules and any minimum release age.
 
-It pushes only to its own branch and never merges. Its GitHub App can't
-change files under `.github/workflows`, so Dependabot's GitHub Actions
+It pushes only to its own branch and never merges. It takes direction only
+from people with write access to the repository, and checks a commenter's
+permission before following them; other comments, release notes, and the
+packages themselves are information to it, not instructions. Its GitHub App
+can't change files under `.github/workflows`, so Dependabot's GitHub Actions
 updates stay open for a person. What it checks, how it writes the
 description, and the branch name are plain instruction text you can read and
 edit.
