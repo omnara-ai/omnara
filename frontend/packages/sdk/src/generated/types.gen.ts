@@ -4166,71 +4166,23 @@ export type Artifact = {
  * Pool definition. name, provider, provider_auth_secret_id, default_machine_provider_options, and max_total_machines are always required; which default machine size and CPU and memory limits are required depends on the provider; Blaxel pools reject CPU fields.
  */
 export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
-    /**
-     * Providers that need a default machine size and CPU and memory limits.
-     */
     provider: 'agent37' | 'arker' | 'freestyle' | 'modal' | 'tenki' | 'unikraft';
-    /**
-     * Required for these providers.
-     */
     default_machine_cpu: number;
-    /**
-     * Required for these providers.
-     */
     default_machine_memory_mb: number;
-    /**
-     * Required for these providers.
-     */
     max_total_cpu: number;
-    /**
-     * Required for these providers.
-     */
     max_total_memory_mb: number;
-    /**
-     * Required for these providers.
-     */
     max_machine_cpu: number;
-    /**
-     * Required for these providers.
-     */
     max_machine_memory_mb: number;
 } | {
-    /**
-     * Providers that need CPU and memory limits.
-     */
     provider: 'boxd' | 'createos' | 'daytona' | 'e2b' | 'superserve';
-    /**
-     * Required for these providers.
-     */
     max_total_cpu: number;
-    /**
-     * Required for these providers.
-     */
     max_total_memory_mb: number;
-    /**
-     * Required for these providers.
-     */
     max_machine_cpu: number;
-    /**
-     * Required for these providers.
-     */
     max_machine_memory_mb: number;
 } | {
-    /**
-     * Blaxel sizes machines by memory only and rejects CPU fields.
-     */
     provider: 'blaxel';
-    /**
-     * Required for these providers.
-     */
     default_machine_memory_mb: number;
-    /**
-     * Required for these providers.
-     */
     max_total_memory_mb: number;
-    /**
-     * Required for these providers.
-     */
     max_machine_memory_mb: number;
 });
 

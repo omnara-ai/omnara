@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/apimcp"
-	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 )
 
 const (
@@ -20,11 +19,7 @@ func (s *Server) mcpServerCard(r *http.Request) (apimcp.ServerCard, bool) {
 	if endpoint == "" {
 		return apimcp.ServerCard{}, false
 	}
-	version := "0.0.0"
-	if spec, err := openapi.GetSpec(); err == nil && spec.Info != nil && spec.Info.Version != "" {
-		version = spec.Info.Version
-	}
-	return apimcp.NewServerCard(version, endpoint), true
+	return apimcp.NewServerCard(s.apiMCPVersion, endpoint), true
 }
 
 func (s *Server) mcpServerCardRoute(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +50,6 @@ func (s *Server) mcpServerCardRoute(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-// Browsers preflight conditional GETs: If-None-Match is not CORS-safelisted.
 func mcpServerCardPreflightRoute(w http.ResponseWriter, _ *http.Request) {
 	setMCPServerCardCORSHeaders(w.Header())
 	w.Header().Set("Access-Control-Max-Age", "86400")

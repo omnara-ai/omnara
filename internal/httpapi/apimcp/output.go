@@ -9,14 +9,12 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
-// Tools whose operation returns no body (204) return {}.
 var emptyOutputSchema = map[string]any{
 	"type":                 openapi3.TypeObject,
 	"description":          "Empty on success: the operation returns no data.",
 	"additionalProperties": false,
 }
 
-// outputSchemaFor builds an output schema from the operation's 2xx JSON responses.
 func outputSchemaFor(spec *openapi3.T, op *openapi3.Operation) (schema map[string]any, empty bool, _ error) {
 	codes := make([]string, 0)
 	for code := range op.Responses.Map() {
@@ -90,10 +88,8 @@ func withDefinitions(spec *openapi3.T, encoded json.RawMessage) (map[string]any,
 	return decoded, nil
 }
 
-// Keys in these maps are names, not keywords, so they are never stripped.
 var schemaMapKeywords = []string{"properties", "patternProperties", "dependentSchemas", definitionsKey}
 
-// stripExtensions removes OpenAPI x-* codegen hints.
 func stripExtensions(schema map[string]any) {
 	for key, child := range schema {
 		if strings.HasPrefix(key, "x-") {

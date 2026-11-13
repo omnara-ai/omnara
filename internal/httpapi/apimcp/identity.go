@@ -7,7 +7,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Keep in sync with server.json.
 const (
 	registryName      = "com.omnara/omnara"
 	serverTitle       = "Omnara"
@@ -42,7 +41,6 @@ func serverImplementation(version string) *mcp.Implementation {
 	}
 }
 
-// ServerCard is an MCP Server Card (SEP-2127).
 type ServerCard struct {
 	Schema      string                `json:"$schema"`
 	Name        string                `json:"name"`
@@ -66,7 +64,6 @@ type ServerCardRemote struct {
 	SupportedProtocolVersions []string `json:"supportedProtocolVersions,omitempty"`
 }
 
-// NewServerCard describes the MCP server served at endpoint.
 func NewServerCard(version, endpoint string) ServerCard {
 	return ServerCard{
 		Schema:      serverCardSchema,
