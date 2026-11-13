@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/omnara-ai/omnara/internal/model"
@@ -91,6 +92,11 @@ func TestRetryEndsWithLoweredEffortAfterTheNotice(t *testing.T) {
 		{name: "openrouter", effort: "high", retries: 1, client: Client{
 			APIVariant: modelprotocol.APIVariantOpenRouter, ProviderModelSlug: "anthropic/claude-opus-5.5",
 		}},
+		{name: "openrouter base url without update support", effort: "high", retries: 1, client: Client{
+			BaseURL: "https://openrouter.ai/api/v1", ProviderModelSlug: "anthropic/claude-opus-5.5",
+		}},
+		{name: "openrouter base url with update support", effort: "high", retries: 1, wantEffort: "medium",
+			client: Client{BaseURL: "https://openrouter.ai/api/v1", ProviderModelSlug: "anthropic/claude-opus-5"}},
 		{name: "bedrock", effort: "high", retries: 1, client: Client{
 			APIVariant: modelprotocol.APIVariantBedrock, ProviderModelSlug: "anthropic.claude-opus-5-5",
 		}},
@@ -141,7 +147,7 @@ func TestStoredOutputsReplayTheirEffortChanges(t *testing.T) {
 		},
 		OutputNoProgressRetries: 2,
 	})
-	require.Len(t, later.Messages, 5)
+	require.Len(t, later.Messages, 6)
 	for index, sent := range retry.Messages {
 		require.Equal(t, sent.Role, later.Messages[index].Role)
 		require.Equal(t, sent.OutputConfig, later.Messages[index].OutputConfig,
@@ -150,9 +156,48 @@ func TestStoredOutputsReplayTheirEffortChanges(t *testing.T) {
 	require.Contains(t, string(later.Messages[0].Content), modelcontext.OutputNoProgressNotice)
 	require.Equal(t, map[string]string{"effort": "xhigh"}, later.Messages[1].OutputConfig)
 	require.Equal(t, "assistant", later.Messages[2].Role)
-	require.Equal(t, "user", later.Messages[3].Role)
-	require.Contains(t, string(later.Messages[3].Content), "again")
-	require.Contains(t, string(later.Messages[3].Content), modelcontext.OutputNoProgressNotice)
-	require.Equal(t, map[string]string{"effort": "medium"}, later.Messages[4].OutputConfig,
-		"later runaways lower from the effort already in force")
+	require.Equal(t, "system", later.Messages[3].Role)
+	require.Equal(t, map[string]string{"effort": "max"}, later.Messages[3].OutputConfig,
+		"the configured effort is restored after the steered reply")
+	require.Equal(t, "user", later.Messages[4].Role)
+	require.Contains(t, string(later.Messages[4].Content), "again")
+	require.Contains(t, string(later.Messages[4].Content), modelcontext.OutputNoProgressNotice)
+	require.Equal(t, map[string]string{"effort": "high"}, later.Messages[5].OutputConfig,
+		"later runaways lower from the configured effort")
+}
+
+func TestEffortRestoreFollowsToolResults(t *testing.T) {
+	output := messageAtSequence(assistantToolCallMessage("mcc_1", "tcl_1"), 2)
+	output.OutputNoProgressRetries = 1
+	payload := prepareEffortSteeringRequest(t, Client{}, "high", modelcontext.Bundle{
+		Messages: []modelcontext.Message{steeringInput(1, "hi"), output},
+		ToolResults: []modelcontext.ToolResultRef{{
+			SourceEventSequence: 2, ResultEventSequence: 3, ToolCallID: "tcl_1", ModelCallContextID: "mcc_1",
+			ProviderCallID: "call_1", Name: "lookup", Input: json.RawMessage(`{}`),
+			ContentParts: json.RawMessage(`[{"type":"text","text":"found"}]`),
+		}},
+	})
+	roles := make([]string, 0, len(payload.Messages))
+	for _, message := range payload.Messages {
+		roles = append(roles, message.Role)
+	}
+	require.Equal(t, []string{"user", "system", "assistant", "user", "system"}, roles)
+	require.Equal(t, map[string]string{"effort": "medium"}, payload.Messages[1].OutputConfig)
+	require.Contains(t, string(payload.Messages[3].Content), "tool_result")
+	require.Equal(t, map[string]string{"effort": "high"}, payload.Messages[4].OutputConfig)
+}
+
+func TestReplayedReductionNeedsTheSameConfigAndModel(t *testing.T) {
+	output := steeringOutput(2, 1)
+	output.ConfiguredModelRevisionID = uuid.New()
+	payload := prepareEffortSteeringRequest(t, Client{}, "high", modelcontext.Bundle{
+		Messages:                  []modelcontext.Message{steeringInput(1, "hi"), output, steeringInput(3, "again")},
+		ConfiguredModelRevisionID: uuid.New(),
+	})
+	require.Len(t, payload.Messages, 3)
+	for _, message := range payload.Messages {
+		require.NotEqual(t, "system", message.Role)
+	}
+	require.Contains(t, string(payload.Messages[0].Content), modelcontext.OutputNoProgressNotice,
+		"the notice was sent, so it still replays")
 }

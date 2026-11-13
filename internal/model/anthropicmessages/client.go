@@ -49,11 +49,15 @@ func (c Client) supportsThinkingBindingControls() bool {
 	return model.IsClaudeFamilyModelSlug(c.ProviderModelSlug)
 }
 
-// Bedrock takes betas in the body, and OpenRouter does not document
-// mid-conversation system messages.
+// Bedrock InvokeModel takes betas in the body rather than a header.
 func (c Client) supportsPerMessageEffort() bool {
-	return c.ModelAPIVariant() == modelprotocol.APIVariantDefault &&
-		model.ClaudeSupportsPerMessageEffort(c.ProviderModelSlug)
+	if c.ModelAPIVariant() != modelprotocol.APIVariantDefault {
+		return false
+	}
+	if model.IsOpenRouterHost(c.endpoint().ResolvedBaseURL()) {
+		return model.OpenRouterSupportsConfigurationUpdate(c.ProviderModelSlug)
+	}
+	return model.ClaudeSupportsPerMessageEffort(c.ProviderModelSlug)
 }
 
 func (c Client) Capabilities() model.Capabilities {

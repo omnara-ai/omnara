@@ -86,6 +86,12 @@ func CanonicalHistory(bundle Bundle) ([]HistoryEntry, error) {
 			if err != nil {
 				return nil, err
 			}
+			// Under another config or model, the reduction would apply to an
+			// effort this output never ran at.
+			if message.AgentConfigID != bundle.AgentConfigID ||
+				message.ConfiguredModelRevisionID != bundle.ConfiguredModelRevisionID {
+				notice.ReasoningEffortReduction = 0
+			}
 			entries = append(entries, notice)
 		}
 		entry.AssistantContent = content

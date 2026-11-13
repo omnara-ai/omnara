@@ -44,6 +44,7 @@ func LowerReasoningEffort(effort string, supported []string, steps int) string {
 }
 
 type EffortSteering struct {
+	base      string
 	current   string
 	supported []string
 }
@@ -52,7 +53,16 @@ func NewEffortSteering(effort string, supported []string) EffortSteering {
 	if _, known := reasoningEffortRank[strings.ToLower(strings.TrimSpace(effort))]; !known {
 		return EffortSteering{}
 	}
-	return EffortSteering{current: effort, supported: supported}
+	return EffortSteering{base: effort, current: effort, supported: supported}
+}
+
+// Restore returns the configured effort when a lowered one is in force.
+func (s *EffortSteering) Restore() (string, bool) {
+	if s == nil || s.current == s.base {
+		return "", false
+	}
+	s.current = s.base
+	return s.base, true
 }
 
 func (s *EffortSteering) Lower(steps int) (string, bool) {

@@ -253,6 +253,13 @@ type chatFunction struct {
 	Arguments model.ToolArgumentString `json:"arguments,omitempty"`
 }
 
+func configurationUpdate(effort string) chatMessage {
+	return chatMessage{
+		Role: chatRoleSystem, Content: "",
+		ConfigurationUpdate: &chatConfigurationUpdate{Reasoning: chatReasoning{Effort: effort}},
+	}
+}
+
 func buildMessages(
 	bundle modelcontext.Bundle,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
@@ -292,6 +299,11 @@ func buildMessages(
 				return nil, buildErr
 			}
 			messages = append(messages, assistantMessages...)
+			if len(assistantMessages) > 0 {
+				if effort, ok := steering.Restore(); ok {
+					messages = append(messages, configurationUpdate(effort))
+				}
+			}
 			continue
 		}
 		message, ok := messageFromContext(entry.Message, bundle.ResolvedMedia)
@@ -299,10 +311,7 @@ func buildMessages(
 			messages = append(messages, message)
 		}
 		if effort, ok := steering.Lower(entry.ReasoningEffortReduction); ok {
-			messages = append(messages, chatMessage{
-				Role: chatRoleSystem, Content: "",
-				ConfigurationUpdate: &chatConfigurationUpdate{Reasoning: chatReasoning{Effort: effort}},
-			})
+			messages = append(messages, configurationUpdate(effort))
 		}
 	}
 	if len(messages) == 0 {

@@ -396,26 +396,32 @@ func buildMessages(
 					assistantBlocks,
 				)
 			}
-			if len(entry.ToolResults) == 0 {
-				continue
-			}
-			resultContent := make([]any, 0, len(entry.ToolResults))
-			for _, result := range entry.ToolResults {
-				content := toolResultContent(result, bundle.ResolvedMedia)
-				if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
-					if references := toolReferenceBlocks(bundle.ToolSpecs, search); len(references) > 0 {
-						content = references
+			if len(entry.ToolResults) > 0 {
+				resultContent := make([]any, 0, len(entry.ToolResults))
+				for _, result := range entry.ToolResults {
+					content := toolResultContent(result, bundle.ResolvedMedia)
+					if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
+						if references := toolReferenceBlocks(bundle.ToolSpecs, search); len(references) > 0 {
+							content = references
+						}
 					}
+					resultContent = append(resultContent, toolResultBlock{
+						Type:      "tool_result",
+						ToolUseID: toolUseIDByCallID[result.ProviderCallID],
+						Content:   content,
+						IsError:   result.Outcome == executionstore.ToolResultOutcomeFailed,
+					})
 				}
-				resultContent = append(resultContent, toolResultBlock{
-					Type:      "tool_result",
-					ToolUseID: toolUseIDByCallID[result.ProviderCallID],
-					Content:   content,
-					IsError:   result.Outcome == executionstore.ToolResultOutcomeFailed,
-				})
+				messages = appendMessageBlocks(messages, anthropicRoleUser, resultContent)
+				historyAdded = true
 			}
-			messages = appendMessageBlocks(messages, anthropicRoleUser, resultContent)
-			historyAdded = true
+			// After the reply and its tool results, so a tool_result still
+			// directly follows its tool_use.
+			if len(assistantBlocks) > 0 || len(entry.ToolResults) > 0 {
+				if effort, ok := steering.Restore(); ok {
+					messages = append(messages, effortMessage(effort))
+				}
+			}
 			continue
 		}
 		blocks := messageBlocksFromParts(entry.Message.Content, bundle.ResolvedMedia)
@@ -424,9 +430,7 @@ func buildMessages(
 			historyAdded = true
 		}
 		if effort, ok := steering.Lower(entry.ReasoningEffortReduction); ok {
-			messages = append(messages, message{
-				Role: anthropicRoleSystem, Content: []any{}, OutputConfig: map[string]string{"effort": effort},
-			})
+			messages = append(messages, effortMessage(effort))
 		}
 	}
 	if historyAdded {
@@ -444,6 +448,10 @@ func buildMessages(
 		)
 	}
 	return messages, nil
+}
+
+func effortMessage(effort string) message {
+	return message{Role: anthropicRoleSystem, Content: []any{}, OutputConfig: map[string]string{"effort": effort}}
 }
 
 func markLastMessageCacheBreakpoint(messages []message, control *CacheControl) []message {

@@ -137,6 +137,12 @@ func TestOpenRouterStoredOutputsReplayConfigurationUpdates(t *testing.T) {
 	}})
 	require.Equal(t, retry, later[:len(retry)], "later requests must keep the retry's prefix")
 	require.Equal(t, "assistant", later[len(retry)].Role)
+	restore := later[len(retry)+1]
+	require.Equal(t, "system", restore.Role)
+	require.NotNil(t, restore.ConfigurationUpdate)
+	require.Equal(t, "high", restore.ConfigurationUpdate.Reasoning.Effort,
+		"the configured effort is restored after the steered reply")
+	require.Len(t, later, len(retry)+3)
 	require.Equal(t, "user", later[len(later)-1].Role)
 	require.Nil(t, later[len(later)-1].ConfigurationUpdate)
 }

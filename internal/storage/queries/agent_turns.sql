@@ -242,6 +242,7 @@ LEFT JOIN LATERAL (
   SELECT count(*) AS retry_count
   FROM model_call_contexts failure
   WHERE context.operation_kind = 'normal'
+    AND (context.state = 'succeeded' OR context.error_code = 'model_output_no_progress')
     AND failure.project_id = context.project_id
     AND failure.agent_id = context.agent_id
     AND failure.input_event_sequence = context.input_event_sequence
