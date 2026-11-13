@@ -200,8 +200,11 @@ already told you. Then wait for the reply.
    - None: `npx omnara profiles create --name pr-video-agent --file ./pr-video-agent.yaml --json`
    - Exists, for this repository: `npx omnara profiles update <agent-profile-id> --file ./pr-video-agent.yaml --json`
    - Exists, with run notes for a different repository: tell the user, and
-     unless they want it replaced, use the names `pr-video-agent-<repo>`
-     and `pr-video-agent-<repo>-github` for this one.
+     unless they want it replaced, give this one its own names: the profile
+     `pr-video-agent-<repo>` and the integration `pr-video-<repo>`. An
+     integration name takes letters, digits, and hyphens, at most 32
+     characters, so replace other characters in the repository's name with
+     hyphens and cut the name to fit.
 
    Note the profile `id`, and check that the config in the response still
    has your notes in its instruction.
@@ -228,8 +231,9 @@ if you don't have the repo). That section is written for the coding agent,
 so use the settings below in place of the ones in its step 1, and follow
 its step 2 for the browser part. For this agent:
 
-- Name the integration `pr-video-agent-github`. Its settings carry the
-  trigger from step 4, the profile, and the repository:
+- Name the integration `pr-video-agent-github`, or the name from step 5 if
+  this is a second repository. Its settings carry the trigger from step 4,
+  the profile, and the repository:
 
   ```json
   {"launcher":{"trigger":"both","profile":"<agent-profile-id>","repository_id":"<id>"},"code_write":true}
@@ -284,7 +288,8 @@ its config, and the file would replace them. Make a copy of
 `pr-video-agent.yaml`, add these to it, and run
 `npx omnara agents update <agent-id> --file <copy>`
 (`npx omnara agents list --agent-profile-id <agent-profile-id>` lists the
-agents, one per pull request):
+agents, one per pull request). If the integration has another name, use it
+in all three places:
 
 ```yaml
 tools:  # in place of "tools: {}"
