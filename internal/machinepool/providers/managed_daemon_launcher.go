@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 
@@ -19,6 +20,7 @@ var managedDaemonLauncherScriptBody string
 
 const (
 	ManagedBootstrapScriptEnvVar = "OMNARA_BOOTSTRAP_SCRIPT"
+	MachineTokenEnvVar           = "OMNARA_MACHINE_TOKEN"
 	startupScriptEnvVar          = "OMNARA_STARTUP_SCRIPT_PAYLOAD"
 	managedDaemonSeedPath        = "/usr/local/bin/omnarad"
 	maxManagedStartupScriptBytes = 64 * 1024
@@ -66,11 +68,27 @@ func BuildManagedMachineEnv(
 	}
 	env["OMNARA_API_URL"] = apiURL
 	env["OMNARA_INSTALLER_URL"] = installerURL
-	env["OMNARA_MACHINE_TOKEN"] = machineToken
+	env[MachineTokenEnvVar] = machineToken
 	if startupScript != "" {
 		env[startupScriptEnvVar] = base64.StdEncoding.EncodeToString([]byte(startupScript))
 	}
 	return env, nil
+}
+
+func MachineTokenProxyHost(apiURL string) (string, bool) {
+	parsed, err := url.Parse(apiURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || net.ParseIP(parsed.Hostname()) != nil ||
+		(parsed.Port() != "" && parsed.Port() != "443") {
+		return "", false
+	}
+	return parsed.Hostname(), true
+}
+
+func StartupScriptWithoutProxyEnv(startupScript string) string {
+	if startupScript == "" {
+		return ""
+	}
+	return "unset HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy\n" + startupScript
 }
 
 func ValidateManagedStartupScript(what, startupScript string) error {

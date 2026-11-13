@@ -13,9 +13,35 @@ import (
 )
 
 type forkRequest struct {
-	SourceVMName string    `json:"source_vm_name"`
-	Name         string    `json:"name"`
-	Resources    resources `json:"resources"`
+	SourceVMName string        `json:"source_vm_name"`
+	Name         string        `json:"name"`
+	Resources    resources     `json:"resources"`
+	Policies     *forkPolicies `json:"policies,omitempty"`
+}
+
+type forkPolicies struct {
+	Rules   map[string]policyRule `json:"rules"`
+	Secrets map[string]string     `json:"secrets"`
+}
+
+type policyRule struct {
+	Type     string       `json:"type"`
+	Priority int          `json:"priority"`
+	Match    policyMatch  `json:"match"`
+	Action   policyAction `json:"action"`
+}
+
+type policyMatch struct {
+	Hosts []string `json:"hosts"`
+	Ports []int    `json:"ports"`
+}
+
+type policyAction struct {
+	Rewrite policyRewrite `json:"rewrite"`
+}
+
+type policyRewrite struct {
+	Headers map[string]string `json:"headers"`
 }
 
 type resources struct {

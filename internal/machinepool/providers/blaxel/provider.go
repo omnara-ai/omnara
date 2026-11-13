@@ -2,6 +2,7 @@ package blaxel
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
 	"maps"
@@ -107,10 +108,16 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
+	startupScript := options.StartupScript
+	network := machineTokenNetwork(p.omnaraAPIURL, machineToken)
+	if network != nil {
+		machineToken = daemonprotocol.ProviderInjectedMachineToken
+		startupScript = providers.StartupScriptWithoutProxyEnv(startupScript)
+	}
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
 		machineToken,
-		options.StartupScript,
+		startupScript,
 		machineEnv,
 	)
 	if err != nil {
@@ -144,6 +151,7 @@ func (p *provider) ProvisionMachine(
 				Memory: *machineProvisioning.MemoryMB,
 				Envs:   sandboxEnvsFromMap(env),
 			},
+			Network: network,
 		},
 	}
 	if options.SleepAfterMS > 0 {
@@ -229,6 +237,19 @@ func (p *provider) ProvisionMachine(
 		result.SandboxURL = strings.TrimSpace(target.Metadata.URL)
 	}
 	return result, nil
+}
+
+func machineTokenNetwork(apiURL, machineToken string) *sandboxNetwork {
+	host, ok := providers.MachineTokenProxyHost(apiURL)
+	if !ok {
+		return nil
+	}
+	secretName := "omnara-machine-token-" + strings.ToLower(cryptorand.Text())
+	return &sandboxNetwork{Proxy: sandboxProxy{Routing: []sandboxProxyRoute{{
+		Destinations: []string{host},
+		Headers:      map[string]string{daemonprotocol.MachineTokenHeader: "{{SECRET:" + secretName + "}}"},
+		Secrets:      map[string]string{secretName: machineToken},
+	}}}}
 }
 
 func ensureDaemonProcess(

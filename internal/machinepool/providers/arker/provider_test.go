@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -78,11 +79,22 @@ func TestArkerProviderStartsTheDaemonInASessionWithTheMachineEnv(t *testing.T) {
 	); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
-	_, _, env, command := fake.snapshot()
+	_, forkBody, env, command := fake.snapshot()
 	var sessionID string
 	fake.record(func() { sessionID = fake.runSessionID })
-	if _, dropped := env["MY-VAR"]; dropped || env["OMNARA_MACHINE_TOKEN"] != "tok-1" || env["MY_VAR"] != "value" {
+	if _, dropped := env["MY-VAR"]; dropped ||
+		env["OMNARA_MACHINE_TOKEN"] != daemonprotocol.ProviderInjectedMachineToken || env["MY_VAR"] != "value" {
 		t.Fatalf("session env = %v", env)
+	}
+	policies, err := json.Marshal(forkBody["policies"])
+	if err != nil {
+		t.Fatalf("encode fork policies: %v", err)
+	}
+	const wantPolicies = `{"rules":{"omnara-machine-token":{"action":{"rewrite":{"headers":{"X-Omnara-Machine-Token":` +
+		`"${secret:OMNARA_MACHINE_TOKEN}"}}},"match":{"hosts":["omnara.example"],"ports":[443]},"priority":1000000,"type":"outbound"}},` +
+		`"secrets":{"OMNARA_MACHINE_TOKEN":"tok-1"}}`
+	if string(policies) != wantPolicies {
+		t.Fatalf("fork policies = %s", policies)
 	}
 	if env[providers.ManagedBootstrapScriptEnvVar] != providers.ManagedBootScriptPayload() {
 		t.Fatal("session env is missing the bootstrap payload")

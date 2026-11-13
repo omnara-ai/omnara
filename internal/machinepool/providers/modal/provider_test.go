@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"maps"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -54,9 +56,15 @@ func TestProviderProvisionCreatesSandbox(t *testing.T) {
 			}
 			env := sources[0].GetEnv().GetContents()
 			if env["APP_ENV"] != "production" ||
-				env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
+				env["OMNARA_MACHINE_TOKEN"] != daemonprotocol.ProviderInjectedMachineToken ||
 				env[providers.ManagedBootstrapScriptEnvVar] == "" {
 				t.Fatalf("create env = %+v", env)
+			}
+			replacements := rpc.create.GetDefinition().GetExperimentalOutboundPolicy().GetHeaderReplacements()
+			if len(replacements) != 1 || replacements[0].GetDomain() != "api.omnara.test" ||
+				replacements[0].GetSecretId() != "" ||
+				!maps.Equal(replacements[0].GetHeaders(), map[string]string{daemonprotocol.MachineTokenHeader: "machine-token"}) {
+				t.Fatalf("outbound policy = %v", replacements)
 			}
 			if _, err := base64.StdEncoding.DecodeString(env[providers.ManagedBootstrapScriptEnvVar]); err != nil {
 				t.Fatalf("decode bootstrap script: %v", err)

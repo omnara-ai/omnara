@@ -143,14 +143,25 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
+	secrets, err := p.machineTokenSecrets(ctx, name, machineToken)
+	if err != nil {
+		return providers.ProvisionMachineResult{}, err
+	}
+	startupScript := options.StartupScript
+	if secrets != nil {
+		startupScript = providers.StartupScriptWithoutProxyEnv(startupScript)
+	}
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
 		machineToken,
-		options.StartupScript,
+		startupScript,
 		machineEnv,
 	)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
+	}
+	if secrets != nil {
+		delete(env, providers.MachineTokenEnvVar)
 	}
 	request := createSandboxRequest{
 		Name:               name,
@@ -160,6 +171,7 @@ func (p *provider) ProvisionMachine(
 		Labels:             map[string]string{"omnara-machine": name},
 		AutoStopInterval:   0,
 		AutoDeleteInterval: -1,
+		Secrets:            secrets,
 	}
 	api := p.api
 	target, err := api.CreateSandbox(ctx, request)
@@ -176,6 +188,9 @@ func (p *provider) ProvisionMachine(
 		}
 		target = existing
 	} else if err != nil {
+		if secrets != nil && rejectedBeforeCreate(err) {
+			err = errors.Join(err, p.deleteMachineTokenSecret(ctx, name))
+		}
 		return providers.ProvisionMachineResult{}, err
 	}
 	var result providers.ProvisionMachineResult
@@ -231,6 +246,33 @@ func (p *provider) ProvisionMachine(
 		return result, err
 	}
 	return result, nil
+}
+
+func (p *provider) machineTokenSecrets(ctx context.Context, name, machineToken string) ([]map[string]string, error) {
+	host, ok := providers.MachineTokenProxyHost(p.omnaraAPIURL)
+	if !ok {
+		return nil, nil
+	}
+	err := p.api.CreateSecret(ctx, createSecretRequest{Name: name, Value: machineToken, Hosts: []string{host}})
+	switch {
+	case err == nil || isConflict(err):
+		return []map[string]string{{providers.MachineTokenEnvVar: name}}, nil
+	case isForbidden(err):
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("create daytona machine token secret: %w", err)
+	}
+}
+
+func (p *provider) deleteMachineTokenSecret(ctx context.Context, name string) error {
+	id, found, err := p.api.FindSecret(ctx, name)
+	if err != nil {
+		return fmt.Errorf("find daytona machine token secret: %w", err)
+	}
+	if !found {
+		return nil
+	}
+	return p.api.DeleteSecret(ctx, id)
 }
 
 func ensureDaemonSession(
@@ -320,6 +362,10 @@ func (p *provider) DeleteMachine(
 	if providerResourceID == "" {
 		return errors.New("provider resource id is required")
 	}
+	name, err := providers.MachineAllocationName(installationID, machineID)
+	if err != nil {
+		return err
+	}
 	resourceID, found, err := p.InspectMachine(
 		ctx,
 		installationID,
@@ -330,10 +376,16 @@ func (p *provider) DeleteMachine(
 	if err == nil && !found {
 		resourceID, found, err = p.InspectMachine(ctx, installationID, machineID, machineProvisioning, "")
 	}
-	if err != nil || !found {
+	if err != nil {
 		return err
 	}
-	return p.api.DeleteSandbox(ctx, resourceID)
+	if found {
+		if err := p.api.DeleteSandbox(ctx, resourceID); err != nil {
+			return err
+		}
+	}
+	_ = p.deleteMachineTokenSecret(ctx, name)
+	return nil
 }
 
 func sandboxOwnedBy(target sandbox, name string) bool {

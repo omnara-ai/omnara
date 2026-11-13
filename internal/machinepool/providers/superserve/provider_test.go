@@ -2,9 +2,11 @@ package superserve
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -188,7 +190,6 @@ func TestSuperserveProvisionMachineCreatesActivatesAndStartsTheDaemon(t *testing
 	for key, want := range map[string]string{
 		"OMNARA_API_URL":                       "https://api.omnara.test/v1",
 		"OMNARA_INSTALLER_URL":                 "https://api.omnara.test/install/omnarad.sh",
-		"OMNARA_MACHINE_TOKEN":                 "machine-token",
 		providers.ManagedBootstrapScriptEnvVar: providers.ManagedBootScriptPayload(),
 		"TEAM":                                 "platform",
 	} {
@@ -196,8 +197,78 @@ func TestSuperserveProvisionMachineCreatesActivatesAndStartsTheDaemon(t *testing
 			t.Fatalf("exec env %s = %q, want %q", key, exec.Env[key], want)
 		}
 	}
-	if _, ok := exec.Env["my-var"]; ok || len(exec.Env) != 5 {
-		t.Fatalf("exec env = %v, want only shell-compatible names", exec.Env)
+	if _, ok := exec.Env["my-var"]; ok || len(exec.Env) != 4 {
+		t.Fatalf("exec env = %v, want only shell-compatible names without the machine token", exec.Env)
+	}
+	wantSecret := createSecretRequest{
+		Name:  name,
+		Value: "machine-token",
+		Hosts: []string{"api.omnara.test"},
+		Auth:  secretAuth{Type: "bearer"},
+	}
+	if len(api.secretRequests) != 1 || !reflect.DeepEqual(api.secretRequests[0], wantSecret) {
+		t.Fatalf("secret requests = %+v, want %+v", api.secretRequests, wantSecret)
+	}
+	wantAttach := attachSecretRequest{EnvKey: "OMNARA_MACHINE_TOKEN", SecretName: name}
+	if len(api.attachRequests) != 1 || api.attachSandboxes[0] != "sb-123" || api.attachRequests[0] != wantAttach {
+		t.Fatalf("attach requests = %+v on %v, want %+v on sb-123", api.attachRequests, api.attachSandboxes, wantAttach)
+	}
+	if want := []string{"create-secret", "attach-secret", "exec"}; !slices.Equal(api.calls, want) {
+		t.Fatalf("calls = %v, want %v", api.calls, want)
+	}
+}
+
+func TestSuperserveProvisionMachineToleratesAnExistingMachineTokenSecret(t *testing.T) {
+	api := newFakeAPI()
+	api.secretErr = apiError{StatusCode: http.StatusConflict}
+	api.attachErr = apiError{StatusCode: http.StatusConflict}
+	_, err := provisionTestMachine(t, api, uuid.New(), uuid.New(), testMachineProvisioning(t, "", ""), nil)
+	if err != nil {
+		t.Fatalf("provision machine: %v", err)
+	}
+	if api.execCalls != 1 {
+		t.Fatalf("exec calls = %d, want the daemon started", api.execCalls)
+	}
+	api = newFakeAPI()
+	api.attachErr = apiError{StatusCode: http.StatusBadRequest}
+	_, err = provisionTestMachine(t, api, uuid.New(), uuid.New(), testMachineProvisioning(t, "", ""), nil)
+	if err == nil || api.execCalls != 0 {
+		t.Fatalf("provision error = %v exec calls = %d, want the attach failure before the daemon starts", err, api.execCalls)
+	}
+}
+
+func TestSuperserveProvisionMachineKeepsThePlainTokenWithoutAnHTTPSAPIHost(t *testing.T) {
+	api := newFakeAPI()
+	provider := newTestProvider(api)
+	provider.omnaraAPIURL = "http://localhost:8080"
+	startupScript := "echo ready\n"
+	_, err := provider.ProvisionMachine(
+		context.Background(), uuid.New(), uuid.New(), testMachineProvisioning(t, "", startupScript),
+		"machine-token", nil, true,
+	)
+	if err != nil {
+		t.Fatalf("provision machine: %v", err)
+	}
+	env := api.execRequests[0].Env
+	if env["OMNARA_MACHINE_TOKEN"] != "machine-token" || len(api.secretRequests) != 0 || len(api.attachRequests) != 0 {
+		t.Fatalf("token = %q secrets = %d attaches = %d, want the plain token only",
+			env["OMNARA_MACHINE_TOKEN"], len(api.secretRequests), len(api.attachRequests))
+	}
+	if env[testStartupScriptEnvVar] != base64.StdEncoding.EncodeToString([]byte(startupScript)) {
+		t.Fatalf("startup payload = %q, want the unmodified startup script", env[testStartupScriptEnvVar])
+	}
+}
+
+func TestSuperserveProvisionMachineRunsTheStartupScriptWithoutTheSecretProxy(t *testing.T) {
+	api := newFakeAPI()
+	startupScript := "echo ready\n"
+	_, err := provisionTestMachine(t, api, uuid.New(), uuid.New(), testMachineProvisioning(t, "", startupScript), nil)
+	if err != nil {
+		t.Fatalf("provision machine: %v", err)
+	}
+	want := base64.StdEncoding.EncodeToString([]byte(providers.StartupScriptWithoutProxyEnv(startupScript)))
+	if got := api.execRequests[0].Env[testStartupScriptEnvVar]; got != want {
+		t.Fatalf("startup payload = %q, want %q", got, want)
 	}
 }
 
@@ -623,10 +694,19 @@ func TestSuperserveDeleteMachine(t *testing.T) {
 		t.Fatal("delete machine accepted an empty resource id")
 	}
 
+	name, err := providers.MachineAllocationName(installationID, machineID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	api := newFakeAPI()
 	api.created = ownedSandbox(t, "sb-123", sandboxStatusFailed, installationID, machineID)
 	if err := deleteMachine(api, "sb-123"); err != nil || api.deletedID != "sb-123" {
 		t.Fatalf("delete owned sandbox error = %v deleted %q", err, api.deletedID)
+	}
+	if want := []string{"delete-sandbox", "delete-secret"}; !slices.Equal(api.calls, want) ||
+		!slices.Equal(api.deletedSecrets, []string{name}) {
+		t.Fatalf("calls = %v deleted secrets = %v, want the machine token secret deleted after the sandbox",
+			api.calls, api.deletedSecrets)
 	}
 
 	api = newFakeAPI()
@@ -643,9 +723,17 @@ func TestSuperserveDeleteMachine(t *testing.T) {
 	}
 
 	api = newFakeAPI()
+	api.created = ownedSandbox(t, "sb-123", sandboxStatusActive, installationID, machineID)
+	api.deleteSecretErr = apiError{StatusCode: http.StatusInternalServerError}
+	if err := deleteMachine(api, "sb-123"); err != nil || api.deletedID != "sb-123" {
+		t.Fatalf("delete with a failing secret API error = %v deleted %q, want the sandbox deleted", err, api.deletedID)
+	}
+
+	api = newFakeAPI()
 	api.getFound = false
-	if err := deleteMachine(api, "sb-gone"); err != nil || api.deleteCalls != 0 {
-		t.Fatalf("delete missing sandbox error = %v delete calls %d, want a quiet no-op", err, api.deleteCalls)
+	if err := deleteMachine(api, "sb-gone"); err != nil || api.deleteCalls != 0 || len(api.deletedSecrets) != 1 {
+		t.Fatalf("delete missing sandbox error = %v delete calls %d secrets %v, want only the secret deleted",
+			err, api.deleteCalls, api.deletedSecrets)
 	}
 
 	api = newFakeAPI()
