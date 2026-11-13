@@ -350,7 +350,8 @@ machine_sources:
 
         if [ -n "${VIDEO_ATTACH_TOKEN:-}" ]; then
           final=$media/comment.md
-          sed 's|^<!-- video -->$|![](video.mp4)|' "$body" > "$final"
+          # A video plays only when its reference is alone in a paragraph.
+          awk '$0 == "<!-- video -->" { print ""; print "![](video.mp4)"; print ""; next } { print }' "$body" > "$final"
           printf '\n<!-- pr-video-agent -->\n' >> "$final"
           GH_TOKEN=$VIDEO_ATTACH_TOKEN gh pr comment "$pr" --repo "$repo" \
             --body-file "$final" --attach "$media/video.mp4"
@@ -378,7 +379,7 @@ machine_sources:
         echo "POST THIS"
         while IFS= read -r line || [ -n "$line" ]; do
           if [ "$line" = "<!-- video -->" ]; then
-            printf '[![Recording of the change](%s/video.gif?raw=true)](%s/video.mp4)\n\n[Open the video](%s/video.mp4)\n' "$base" "$base" "$base"
+            printf '\n[![Recording of the change](%s/video.gif?raw=true)](%s/video.mp4)\n\n[Open the video](%s/video.mp4)\n\n' "$base" "$base" "$base"
           else
             printf '%s\n' "$line"
           fi
