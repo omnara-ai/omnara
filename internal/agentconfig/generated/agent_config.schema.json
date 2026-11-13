@@ -312,7 +312,7 @@
               "type": "null"
             }
           ],
-          "description": "Environment variables set from secrets (sec_...). A null value removes an inherited variable."
+          "description": "Environment variables set from secrets, keyed by variable name. A null value removes an inherited variable."
         }
       },
       "type": "object"
@@ -400,6 +400,7 @@
           "description": "Reasoning effort, such as low, medium, or high, for models that support it.",
           "properties": {
             "effort": {
+              "description": "Reasoning effort, such as low, medium, or high.",
               "minLength": 1,
               "pattern": "\\S",
               "type": "string"
@@ -445,7 +446,8 @@
       "if": {
         "properties": {
           "type": {
-            "const": "profile"
+            "const": "profile",
+            "description": "Applies when type is profile."
           }
         },
         "required": [
@@ -553,6 +555,7 @@
           "description": "Overrides the base model's reasoning effort.",
           "properties": {
             "effort": {
+              "description": "Reasoning effort, such as low, medium, or high.",
               "minLength": 1,
               "pattern": "\\S",
               "type": "string"
@@ -606,7 +609,8 @@
       "if": {
         "properties": {
           "type": {
-            "const": "custom"
+            "const": "custom",
+            "description": "Applies when type is custom."
           }
         },
         "required": [
@@ -680,7 +684,7 @@
         },
         "type": {
           "const": "object",
-          "description": "Must be object."
+          "description": "Root type of the argument schema."
         }
       },
       "required": [
@@ -771,7 +775,7 @@
       "description": "GitHub integration whose credentials the agent's machine processes use for Git and gh. Not passed to subagents."
     },
     "instruction": {
-      "description": "System instruction for the agent.",
+      "description": "System prompt: the agent's job, boundaries, and when to ask a human.",
       "minLength": 1,
       "pattern": "\\S",
       "type": "string"
@@ -810,7 +814,7 @@
     },
     "skills": {
       "$ref": "#/$defs/AgentConfigDefinitionSkills",
-      "description": "IDs (skl_...) of skills the agent can load. The project must own or be granted each one."
+      "description": "Skills the agent can load. The project must own or be granted each one."
     },
     "subagents": {
       "$ref": "#/$defs/AgentConfigDefinitionSubagents",
@@ -821,7 +825,7 @@
       "description": "Built-in and custom tools, keyed by tool name. {} enables a tool with its defaults."
     },
     "version": {
-      "description": "Config format version. Only v1 exists.",
+      "description": "Config format version. Optional; set it to pin the format.",
       "enum": [
         "v1"
       ]

@@ -10,7 +10,11 @@ import (
 )
 
 // Tools whose operation returns no body (204) return {}.
-var emptyOutputSchema = map[string]any{"type": openapi3.TypeObject, "additionalProperties": false}
+var emptyOutputSchema = map[string]any{
+	"type":                 openapi3.TypeObject,
+	"description":          "Empty on success: the operation returns no data.",
+	"additionalProperties": false,
+}
 
 // outputSchemaFor builds an output schema from the operation's 2xx JSON responses.
 func outputSchemaFor(spec *openapi3.T, op *openapi3.Operation) (schema map[string]any, empty bool, _ error) {

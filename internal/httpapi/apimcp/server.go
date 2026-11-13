@@ -522,6 +522,7 @@ func assembleInputSchema(
 	}
 	stripDefaults(decoded)
 	stripExtensions(decoded)
+	describeIDs(decoded)
 	return decoded, nil
 }
 

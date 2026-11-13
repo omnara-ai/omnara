@@ -72,7 +72,14 @@ var Tools = []Tool{
 
 	{Name: "secrets_list", Title: "List secrets", OperationID: "listSecrets"},
 	{Name: "secrets_get", Title: "Get secret", OperationID: "getSecret"},
-	{Name: "secrets_create", Title: "Create secret", OperationID: "createSecret"},
+	{
+		Name:        "secrets_create",
+		Title:       "Create secret",
+		OperationID: "createSecret",
+		Description: "Creates an encrypted secret holding one credential and returns its metadata. The value is " +
+			"never returned and the owner can't be changed later. Projects can use org- or user-owned secrets " +
+			"only after grant_secrets_add. To change the value, rotate the secret in the dashboard or API.",
+	},
 	{Name: "secrets_update", Title: "Update secret", OperationID: "updateSecret"},
 	{Name: "secrets_delete", Title: "Delete secret", OperationID: "deleteSecret"},
 
@@ -94,10 +101,10 @@ var Tools = []Tool{
 	{Name: "crons_update", Title: "Update cron trigger", OperationID: "updateCronTrigger", OpenWorld: true},
 	{Name: "crons_delete", Title: "Delete cron trigger", OperationID: "deleteCronTrigger"},
 
-	{Name: "grant_skills_list", Title: "List skill grants", OperationID: "listSkillGrants"},
+	{Name: "grant_skills_list", Title: "List projects a skill is shared with", OperationID: "listSkillGrants"},
 	{Name: "grant_skills_add", Title: "Grant skill to project", OperationID: "createSkillGrant"},
 	{Name: "grant_skills_delete", Title: "Delete skill grant", OperationID: "deleteSkillGrant"},
-	{Name: "grant_secrets_list", Title: "List secret grants", OperationID: "listSecretGrants"},
+	{Name: "grant_secrets_list", Title: "List projects a secret is shared with", OperationID: "listSecretGrants"},
 	{Name: "grant_secrets_add", Title: "Grant secret to project", OperationID: "createSecretGrant"},
 	{Name: "grant_secrets_delete", Title: "Delete secret grant", OperationID: "deleteSecretGrant"},
 	{Name: "grant_machines_list", Title: "List project machine grants", OperationID: "listProjectMachineGrants"},

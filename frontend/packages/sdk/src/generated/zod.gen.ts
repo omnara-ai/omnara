@@ -213,7 +213,7 @@ export const zAgentConfigToolsDefinition = z.looseObject({
 });
 
 /**
- * Sort order for named resources that expose created and modified timestamps.
+ * Field to sort by; prefix with - for descending order. Defaults to -created_at (newest first).
  */
 export const zResourceListSort = z.enum([
     'name',
@@ -225,7 +225,7 @@ export const zResourceListSort = z.enum([
 ]).default('-created_at');
 
 /**
- * Sort order for named resources that expose a created timestamp.
+ * Field to sort by; prefix with - for descending order. Defaults to -created_at (newest first).
  */
 export const zCreatedResourceListSort = z.enum([
     'name',
@@ -396,7 +396,7 @@ export const zConfiguredModelRevisionId = z.string().regex(/^mrev_[a-z2-7]{26}$/
 export const zProjectModelGrantId = z.string().regex(/^pmog_[a-z2-7]{26}$/);
 
 /**
- * Wire protocol the model endpoint speaks: openai-responses, openai-chat-completions, or anthropic-messages.
+ * Wire protocol the model endpoint speaks.
  */
 export const zModelApiFormat = z.enum([
     'openai-responses',
@@ -405,7 +405,7 @@ export const zModelApiFormat = z.enum([
 ]);
 
 /**
- * How the credential is sent: bearer_token, api_key_header, or sigv4 (AWS).
+ * How the credential is sent: as a bearer token, in the header named by auth_options.header_name, or signed with AWS SigV4.
  */
 export const zModelProviderAuthKind = z.enum([
     'bearer_token',
@@ -416,7 +416,7 @@ export const zModelProviderAuthKind = z.enum([
 export const zModelProviderAuthKindResponse = z.string();
 
 /**
- * Provider-specific flavor of the API format: default, openrouter, or bedrock.
+ * Provider-specific variant of api_format. Use default unless the endpoint is OpenRouter or Bedrock.
  */
 export const zModelProviderApiVariant = z.enum([
     'default',
@@ -1604,12 +1604,12 @@ export const zJsonBlob = z.unknown();
 export const zToolInput = z.record(z.string(), z.unknown());
 
 /**
- * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters.
+ * Arbitrary key-value labels stored with the resource.
  */
 export const zMetadata = z.record(z.string(), z.string().max(512));
 
 /**
- * Arbitrary key-value metadata. Maximum 16 pairs, keys up to 64 characters, values must be strings of up to 512 characters. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
+ * Arbitrary key-value labels. Keys beginning with `omnara_` are reserved for Omnara and may affect product behavior; use them only when intentionally invoking Omnara-defined behavior.
  */
 export const zContentBlockMetadata = zMetadata;
 
@@ -3794,12 +3794,12 @@ export const zResourceNameFilter = z.string().min(1).max(200);
 export const zMachineSourceKindFilter = zMachineSourceKind;
 
 /**
- * Metadata key/value filters, encoded as metadata[key]=value.
+ * Return only secrets whose metadata includes these key-value pairs.
  */
 export const zSecretMetadataFilter = z.record(z.string(), z.string());
 
 /**
- * Filter secrets by material kind.
+ * Return only secrets that hold this type of credential.
  */
 export const zSecretKindFilter = zSecretKind;
 
@@ -3813,7 +3813,7 @@ export const zSkillOwnerKindFilter = z.enum([
 ]);
 
 /**
- * Required with owner_kind=project and invalid with other owner kinds.
+ * Owning project to filter by. Required when owner_kind is project.
  */
 export const zSkillOwnerProjectIdFilter = zProjectId;
 
@@ -3832,7 +3832,7 @@ export const zSecretOwnerKindFilter = z.enum([
 ]);
 
 /**
- * Required with owner_kind=project and invalid with other owner kinds.
+ * Owning project to filter by. Required when owner_kind is project.
  */
 export const zSecretOwnerProjectIdFilter = zProjectId;
 
