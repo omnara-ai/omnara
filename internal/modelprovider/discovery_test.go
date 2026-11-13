@@ -13,7 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 )
 
-var discoverWithLoopback = NewDiscoverer(nil, NewHTTPTransport(true, nil))
+var discoverWithLoopback = NewDiscoverer(nil, true, nil)
 
 func discoveryProviderConfig(
 	baseURL string,
@@ -454,7 +454,7 @@ func TestDiscoverModelsBlocksLoopbackWithoutInsecureDev(t *testing.T) {
 		modelstore.ModelProviderAuthKindBearerToken,
 		`{}`,
 	)
-	if _, err := NewDiscoverer(nil, NewHTTPTransport(false, nil))(context.Background(), config, "sk", nil); err == nil {
+	if _, err := NewDiscoverer(nil, false, nil)(context.Background(), config, "sk", nil); err == nil {
 		t.Fatal("expected loopback models endpoint to be blocked outside insecure dev mode")
 	}
 }

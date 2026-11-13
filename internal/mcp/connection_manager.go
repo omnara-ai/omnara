@@ -295,8 +295,7 @@ func ClarifyTransportError(cause error, endpointURL string) error {
 	}
 	if errors.Is(cause, ssrf.ErrBlockedAddress) {
 		return fmt.Errorf(
-			"mcp endpoint %s resolves to a blocked address (loopback/private/reserved); "+
-				"recompile the agent with a public https URL: %w",
+			"mcp endpoint %s is blocked by the outbound network policy: %w",
 			endpointURL,
 			cause,
 		)

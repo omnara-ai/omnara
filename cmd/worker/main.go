@@ -35,7 +35,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/skills"
-	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/webaccess"
@@ -169,26 +168,13 @@ func main() {
 		),
 		httpRecorder,
 	)
-	mcpHTTPClient := outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
-		AllowLoopback: cfg.AllowInsecureDev,
-		Allowlist:     cfg.EndpointAllowlist,
-		PlainHTTP:     ssrf.PlainHTTPAllowlistOnly,
-	})
-	mcpAuthHTTPClient := outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
-		AllowLoopback: cfg.AllowInsecureDev,
-		Allowlist:     cfg.EndpointAllowlist,
-		PlainHTTP:     ssrf.PlainHTTPLoopbackOnly,
-	})
+	mcpAuth, webFetcher := newOutboundClients(cfg)
 	searchHTTPClient := metrics.NewObservedHTTPClient(
 		outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{}),
 		httpRecorder,
 		metrics.WithHTTPClientPathLabel("/search"),
 	)
 	searchProvider := webaccess.ExaProvider{APIKey: cfg.ExaAPIKey, HTTPClient: searchHTTPClient}
-	webFetcher := webaccess.NewFetcher(webaccess.FetcherOptions{
-		AllowLoopback: cfg.AllowInsecureDev,
-		Allowlist:     cfg.WebFetchAllowlist,
-	})
 	machinePoolManager := machinepool.NewManager(
 		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.EndpointAllowlist,
 	)
@@ -252,8 +238,8 @@ func main() {
 				AppCategories: cfg.OpenRouterAppCategories,
 			},
 		},
-		MCP:                  mcp.New(mcp.Options{HTTPClient: mcpHTTPClient}),
-		MCPAuthHTTPClient:    mcpAuthHTTPClient,
+		MCP:                  mcp.New(mcp.Options{HTTPClient: mcpAuth.EndpointHTTPClient}),
+		MCPAuthHTTPClient:    mcpAuth.HTTPClient,
 		SigV4CredentialCache: sigV4CredentialCache,
 		SafetyIdentifierKey:  safetyIdentifierKey,
 		ToolExecutor: tools.Executor{
@@ -436,6 +422,12 @@ func main() {
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
+}
+
+func newOutboundClients(cfg config.Config) (mcp.AuthOptions, *webaccess.Fetcher) {
+	return mcp.NewAuthOptions(cfg.AllowInsecureDev, cfg.EndpointAllowlist), webaccess.NewFetcher(
+		webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev, Allowlist: cfg.WebFetchAllowlist},
+	)
 }
 
 func cancelAfterDone(parent context.Context, delay time.Duration) (context.Context, context.CancelFunc) {

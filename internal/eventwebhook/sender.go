@@ -76,9 +76,7 @@ func New(
 	return &Sender{store: store, log: log, recorder: recorder, maxInFlight: maxInFlight, perOrgLimit: perOrgLimit,
 		client: metrics.NewObservedHTTPClient(
 			outboundhttp.NewPublicClient(
-				outboundhttp.PublicClientOptions{
-					Timeout: attemptTimeout, Allowlist: endpointAllowlist, PlainHTTP: ssrf.PlainHTTPAllowlistOnly,
-				},
+				outboundhttp.PublicClientOptions{Timeout: attemptTimeout, Allowlist: endpointAllowlist},
 			), httpRecorder,
 			metrics.WithHTTPClientHostLabel("event_webhook"), metrics.WithHTTPClientPathLabel("/*"))}
 }

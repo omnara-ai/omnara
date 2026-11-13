@@ -433,9 +433,7 @@ func apiOptions(
 		httpapi.WithSecretKeyWrapper(secretKeyWrapper),
 		httpapi.WithDefaultMachinePools(cfg.DefaultMachinePools),
 		httpapi.WithDefaultModelProvider(cfg.DefaultModelProvider),
-		httpapi.WithModelDiscoverer(modelprovider.NewDiscoverer(
-			modelprovider.NewLimitsCatalog(), modelprovider.NewHTTPTransport(cfg.AllowInsecureDev, cfg.EndpointAllowlist),
-		)),
+		httpapi.WithModelLimitsCatalog(modelprovider.NewLimitsCatalog()),
 		httpapi.WithEndpointAllowlist(cfg.EndpointAllowlist),
 		httpapi.WithHostedCredentialProvisioner(modelprovider.HTTPHostedCredentialProvisioner{
 			BaseURL:    cfg.HostedAPIURL,

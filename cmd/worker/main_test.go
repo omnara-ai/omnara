@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"slices"
 	"strconv"
@@ -11,6 +13,10 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/config"
+	"github.com/omnara-ai/omnara/internal/ssrf"
+	"github.com/omnara-ai/omnara/internal/webaccess"
 )
 
 func TestWorkerDatabaseMaxConns(t *testing.T) {
@@ -86,4 +92,52 @@ func TestCancelAfterDone(t *testing.T) {
 			t.Fatalf("context error after cancel = %v, want canceled", ctx.Err())
 		}
 	})
+}
+
+func TestOutboundClientsKeepGrantsSeparate(t *testing.T) {
+	endpoint := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer endpoint.Close()
+	fetched := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("fetched"))
+	}))
+	defer fetched.Close()
+	listed := func(server *httptest.Server) *ssrf.Allowlist {
+		t.Helper()
+		allowlist, err := ssrf.ParseAllowlist([]string{server.Listener.Addr().String()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return allowlist
+	}
+	mcpAuth, fetcher := newOutboundClients(config.Config{
+		EndpointAllowlist: listed(endpoint), WebFetchAllowlist: listed(fetched),
+	})
+	get := func(client *http.Client, target string) error {
+		response, err := client.Get(target)
+		if err == nil {
+			_ = response.Body.Close()
+		}
+		return err
+	}
+	fetch := func(target string) error {
+		_, err := fetcher.Fetch(context.Background(), webaccess.FetchRequest{URL: target})
+		return err
+	}
+	if err := get(mcpAuth.EndpointHTTPClient, endpoint.URL); err != nil {
+		t.Fatalf("MCP endpoint client to its listed address: %v", err)
+	}
+	if err := get(mcpAuth.EndpointHTTPClient, fetched.URL); !errors.Is(err, ssrf.ErrBlockedAddress) {
+		t.Fatalf("MCP endpoint client to a web fetch address error = %v, want ErrBlockedAddress", err)
+	}
+	if err := fetch(fetched.URL); err != nil {
+		t.Fatalf("web fetcher to its listed address: %v", err)
+	}
+	err := fetch(endpoint.URL)
+	if providerErr, ok := webaccess.AsProviderError(err); !ok || providerErr.Code != webaccess.ErrorCodeFetchBlocked {
+		t.Fatalf("web fetcher to an endpoint address error = %v, want %s", err, webaccess.ErrorCodeFetchBlocked)
+	}
+	if err := get(mcpAuth.HTTPClient, endpoint.URL); !errors.Is(err, ssrf.ErrBlockedAddress) {
+		t.Fatalf("OAuth client plain HTTP outside development mode error = %v, want ErrBlockedAddress", err)
+	}
 }

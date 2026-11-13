@@ -76,13 +76,11 @@ func NewFetcher(opts FetcherOptions) *Fetcher {
 }
 
 func newSSRFHTTPClient(allowLoopback bool, allowlist *ssrf.Allowlist) *http.Client {
-	plainHTTP := ssrf.PlainHTTPAllowlistOnly
+	opts := outboundhttp.PublicClientOptions{AllowLoopback: allowLoopback, Allowlist: allowlist}
 	if allowLoopback {
-		plainHTTP = ssrf.PlainHTTPUnrestricted
+		opts.PlainHTTP = ssrf.PlainHTTPUnrestricted
 	}
-	client := outboundhttp.NewPublicClient(
-		outboundhttp.PublicClientOptions{AllowLoopback: allowLoopback, Allowlist: allowlist, PlainHTTP: plainHTTP},
-	)
+	client := outboundhttp.NewPublicClient(opts)
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= fetchMaxRedirects {
 			return &ProviderError{

@@ -13,9 +13,9 @@ import (
 type PlainHTTPPolicy uint8
 
 const (
-	PlainHTTPUnrestricted PlainHTTPPolicy = iota
-	PlainHTTPAllowlistOnly
+	PlainHTTPAllowlistOnly PlainHTTPPolicy = iota
 	PlainHTTPLoopbackOnly
+	PlainHTTPUnrestricted
 )
 
 type TransportOptions struct {
@@ -91,11 +91,10 @@ func dial(
 	if err != nil {
 		return nil, err
 	}
-	policy, _ := ctx.Value(plainHTTPKey{}).(PlainHTTPPolicy)
+	policy, plainHTTP := ctx.Value(plainHTTPKey{}).(PlainHTTPPolicy)
 	if policy == PlainHTTPLoopbackOnly {
 		allowlist = nil
 	}
-	plainHTTP := policy != PlainHTTPUnrestricted
 	permitted := func(ip net.IP) bool {
 		if !plainHTTP {
 			return allowlist.PermitsIP(ip, uint16(portNumber), allowLoopback)

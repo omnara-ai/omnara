@@ -156,12 +156,7 @@ func (s strictOpenAPIServer) startMCPOAuth(
 	}
 	outboundCtx, cancel := context.WithTimeout(ctx, mcpOAuthOutboundTimeout)
 	defer cancel()
-	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, mcp.AuthOptions{
-		HTTPClient:             s.server.mcpOAuthHTTPClient,
-		EndpointHTTPClient:     s.server.mcpHTTPClient,
-		EndpointAllowlist:      s.server.endpointAllowlist,
-		AllowInsecureLocalHTTP: s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
-	})
+	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, s.server.mcpAuth)
 	if err != nil {
 		apiErr := mcpUpstreamFailure(
 			err,
@@ -282,7 +277,7 @@ func (s *Server) resolveMCPOAuthClientForAPI(
 			ctx,
 			requirement.AuthorizationServer.RegistrationEndpoint,
 			clientMeta,
-			s.mcpOAuthHTTPClient,
+			s.mcpAuth.HTTPClient,
 		)
 		if err != nil {
 			apiErr := mcpUpstreamFailure(
@@ -350,7 +345,7 @@ func (s *Server) mcpOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {
 		Code:          code,
 		CodeVerifier:  flow.CodeVerifier,
 		Resource:      flow.Resource,
-		HTTPClient:    s.mcpOAuthHTTPClient,
+		HTTPClient:    s.mcpAuth.HTTPClient,
 	})
 	if err != nil {
 		logpkg.LoggerFromContext(r.Context()).WarnContext(r.Context(), "mcp oauth code exchange failed", "error", err)

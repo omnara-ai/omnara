@@ -169,8 +169,11 @@ func TestTransportEnforcesAllowlist(t *testing.T) {
 	if !errors.Is(err, ErrBlockedAddress) {
 		t.Fatalf("plain HTTP to an unlisted public port error = %v, want ErrBlockedAddress", err)
 	}
-	if _, marked := NewTransport(TransportOptions{Allowlist: listedPort}).(plainHTTPMarker); marked {
-		t.Fatal("the default policy restricts plain HTTP")
+	if err := get(TransportOptions{}, "http://93.184.216.34/"); !errors.Is(err, ErrBlockedAddress) {
+		t.Fatalf("default plain HTTP to a public address error = %v, want ErrBlockedAddress", err)
+	}
+	if _, marked := NewTransport(TransportOptions{PlainHTTP: PlainHTTPUnrestricted}).(plainHTTPMarker); marked {
+		t.Fatal("PlainHTTPUnrestricted still restricts plain HTTP")
 	}
 }
 
@@ -304,11 +307,15 @@ func answerDNS(conn net.Conn, ips []net.IP) {
 }
 
 func TestPlainHTTPMarkerReachesDial(t *testing.T) {
-	var seen []PlainHTTPPolicy
+	type mark struct {
+		policy PlainHTTPPolicy
+		marked bool
+	}
+	var seen []mark
 	marker := plainHTTPMarker{policy: PlainHTTPLoopbackOnly, Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			policy, _ := ctx.Value(plainHTTPKey{}).(PlainHTTPPolicy)
-			seen = append(seen, policy)
+			policy, marked := ctx.Value(plainHTTPKey{}).(PlainHTTPPolicy)
+			seen = append(seen, mark{policy: policy, marked: marked})
 			return nil, errors.New("stop")
 		},
 	}}
@@ -318,7 +325,7 @@ func TestPlainHTTPMarkerReachesDial(t *testing.T) {
 			_ = response.Body.Close()
 		}
 	}
-	if len(seen) != 2 || seen[0] != PlainHTTPLoopbackOnly || seen[1] != PlainHTTPUnrestricted {
-		t.Fatalf("plain HTTP policies seen at dial = %v, want [loopback-only unrestricted]", seen)
+	if want := []mark{{policy: PlainHTTPLoopbackOnly, marked: true}, {}}; !slices.Equal(seen, want) {
+		t.Fatalf("plain HTTP marks seen at dial = %+v, want %+v", seen, want)
 	}
 }

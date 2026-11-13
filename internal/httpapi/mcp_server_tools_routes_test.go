@@ -228,7 +228,7 @@ func TestMCPClientsUseEndpointAllowlist(t *testing.T) {
 		}
 	}
 	server := mustNewUnitServer(t, WithEndpointAllowlist(listed))
-	response, err := server.mcpOAuthHTTPClient.Get(upstream.URL)
+	response, err := server.mcpAuth.HTTPClient.Get(upstream.URL)
 	if err == nil {
 		_ = response.Body.Close()
 	}

@@ -62,7 +62,7 @@ func (s strictOpenAPIServer) ListMCPServerTools(
 	manager := mcp.Manager{
 		Client:               s.server.mcpClient,
 		SigV4CredentialCache: s.server.sigV4CredentialCache,
-		OAuthHTTPClient:      s.server.mcpOAuthHTTPClient,
+		OAuthHTTPClient:      s.server.mcpAuth.HTTPClient,
 	}
 	if s.server.store != nil {
 		manager.Secrets = s.server.store.Secrets()
@@ -233,12 +233,7 @@ func (s strictOpenAPIServer) mcpServerAuthRequired(
 	endpoint string,
 	message string,
 ) (openapi.ListMCPServerToolsResponseObject, error) {
-	requirement, err := mcp.DetectAuth(ctx, endpoint, mcp.AuthOptions{
-		HTTPClient:             s.server.mcpOAuthHTTPClient,
-		EndpointHTTPClient:     s.server.mcpHTTPClient,
-		EndpointAllowlist:      s.server.endpointAllowlist,
-		AllowInsecureLocalHTTP: s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP,
-	})
+	requirement, err := mcp.DetectAuth(ctx, endpoint, s.server.mcpAuth)
 	switch {
 	case err == nil && !requirement.Required:
 		return mcpServerUnreachableResponse(message), nil

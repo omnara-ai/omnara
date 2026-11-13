@@ -45,7 +45,6 @@ func NewHTTPTransport(allowLoopback bool, endpointAllowlist *ssrf.Allowlist) htt
 	return ssrf.NewTransport(ssrf.TransportOptions{
 		AllowLoopback:                allowLoopback,
 		Allowlist:                    endpointAllowlist,
-		PlainHTTP:                    ssrf.PlainHTTPAllowlistOnly,
 		DisableResponseHeaderTimeout: true,
 	})
 }

@@ -40,6 +40,19 @@ type AuthOptions struct {
 	AllowInsecureLocalHTTP bool
 }
 
+func NewAuthOptions(allowInsecureLocalHTTP bool, endpointAllowlist *ssrf.Allowlist) AuthOptions {
+	return AuthOptions{
+		HTTPClient: outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{
+			AllowLoopback: allowInsecureLocalHTTP, Allowlist: endpointAllowlist, PlainHTTP: ssrf.PlainHTTPLoopbackOnly,
+		}),
+		EndpointHTTPClient: outboundhttp.NewPublicClient(
+			outboundhttp.PublicClientOptions{AllowLoopback: allowInsecureLocalHTTP, Allowlist: endpointAllowlist},
+		),
+		EndpointAllowlist:      endpointAllowlist,
+		AllowInsecureLocalHTTP: allowInsecureLocalHTTP,
+	}
+}
+
 type AuthRequirement struct {
 	Required                  bool
 	EndpointURL               string
