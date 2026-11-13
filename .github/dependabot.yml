@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: "05:00"
       timezone: America/Los_Angeles
     ignore:
       - dependency-name: "*node"
@@ -23,7 +23,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: "05:00"
       timezone: America/Los_Angeles
     ignore:
       - dependency-name: postgres
@@ -40,7 +40,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: "05:00"
       timezone: America/Los_Angeles
     groups:
       actions-minor-and-patch:
@@ -63,7 +63,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: "05:00"
       timezone: America/Los_Angeles
     groups:
       aws-sdk-minor-and-patch:
@@ -92,7 +92,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: "05:00"
       timezone: America/Los_Angeles
     groups:
       # Dependency-type filters can drop transitive fixes: dependabot/dependabot-core#16250.
