@@ -139,8 +139,9 @@ instruction: |
     rehearsal won't match. `--name` matches part of the name and takes no
     wildcards. `find text` can match a container; prefer `find role`.
   - Pause about a second after each step, and two seconds on the result
-    once it has finished loading, so a viewer can follow. Aim for 15 to 45
-    seconds, never over 60.
+    once it has finished loading, so a viewer can follow. Aim for 15 to 30
+    seconds, never over 45: a shorter take is easier to watch and makes a
+    smaller GIF.
   - Run it with `bash /workspace/video/take.sh || agent-browser record stop`.
     If a step fails, fix the script, put the app back in its starting
     state, and record the whole take again.
@@ -258,12 +259,15 @@ machine_sources:
         #!/bin/bash
         # video-convert <recording> <out-dir>
         # Turns one recording into video.mp4, video.gif, and sheet.png (a grid
-        # of frames to check the take). GitHub shows the GIF inline, so it is
-        # shrunk until it is under VIDEO_GIF_MAX_MB (default 8).
+        # of frames to check the take). The GIF shows inline in the comment
+        # at about 800px wide, so that is the starting size, and it is shrunk
+        # until it is under VIDEO_GIF_MAX_MB (default 5). No dithering and 64
+        # colours keep flat interface colours small; the MP4 is the
+        # full-quality copy.
         set -euo pipefail
         in=${1:?usage: video-convert <recording> <out-dir>}
         out=${2:?usage: video-convert <recording> <out-dir>}
-        max_bytes=$(( ${VIDEO_GIF_MAX_MB:-8} * 1024 * 1024 ))
+        max_bytes=$(( ${VIDEO_GIF_MAX_MB:-5} * 1024 * 1024 ))
         mkdir -p "$out"
         ff() { ffmpeg -hide_banner -loglevel error -y "$@"; }
         size() { wc -c < "$1" | tr -d ' '; }
@@ -274,9 +278,9 @@ machine_sources:
         ff -i "$out/video.mp4" -vf "fps=9/$(( seconds > 0 ? seconds : 1 )),scale=640:-1,tile=3x3" \
           -frames:v 1 "$out/sheet.png"
 
-        for try in "1000 12" "1000 8" "800 8" "640 6"; do
+        for try in "800 8 64" "800 6 64" "640 6 64" "640 5 32"; do
           set -- $try
-          ff -i "$in" -vf "fps=$2,scale='min($1,iw)':-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
+          ff -i "$in" -vf "fps=$2,scale='min($1,iw)':-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=$3:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" \
             "$out/video.gif"
           [ "$(size "$out/video.gif")" -le "$max_bytes" ] && break
         done
