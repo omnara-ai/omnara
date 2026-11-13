@@ -2118,7 +2118,7 @@ tools:
 }
 
 func hashJSON(raw json.RawMessage) string {
-	canonical := canonicalizeJSON(raw)
+	canonical := legacyCanonicalJSON(raw)
 	sum := sha256.Sum256(canonical)
 	return hex.EncodeToString(sum[:])
 }
