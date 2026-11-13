@@ -1,6 +1,6 @@
 import { schemas } from '@omnara/sdk'
 import { expect, type Page, test } from '@playwright/test'
-import { stringify } from 'yaml'
+import { parse, stringify } from 'yaml'
 import { z } from 'zod'
 
 import { exerciseProjectWebhooks } from './event-webhooks'
@@ -716,7 +716,8 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     const previewRequest = schemas.zResolveAgentConfigToolsRequest.parse(
       previewResponse.request().postDataJSON(),
     )
-    expect(previewRequest.source).toMatchObject({
+    expect(previewRequest.source_format).toBe('yaml')
+    expect(parse(z.string().parse(previewRequest.source))).toMatchObject({
       tools: { [selectedTool]: {} },
       interaction_handlers: selectedHandlers,
     })
