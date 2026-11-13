@@ -321,6 +321,8 @@ and you can deploy any of them with one prompt to your coding agent.
   Slack, Discord, or a GitHub pull request and opens a PR.
 - [PR review agent](examples/pr-review-agent) reviews your GitHub pull requests
   against a checkout of the repository and leaves inline findings.
+- [PR video agent](examples/pr-video-agent) records a short video of a pull
+  request's change working in your app and posts it on the pull request.
 - [Dependency roll-up agent](examples/dependency-rollup-agent) rolls your
   Dependabot pull requests into one pull request a day that passes CI.
 - [SRE agent](examples/sre-agent) investigates production problems such as a
