@@ -14,6 +14,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+// Password length limits and Argon2id hashing parameters.
 const (
 	MinPasswordLength = 12
 	MaxPasswordBytes  = 1024
