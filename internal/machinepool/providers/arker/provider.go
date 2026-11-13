@@ -102,8 +102,17 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
+	baseURL := p.regionBaseURL(options.Region)
+	api := p.apiFor(baseURL)
 	var policies *forkPolicies
-	if host, ok := providers.MachineTokenProxyHost(p.omnaraAPIURL); ok {
+	host, inject := providers.MachineTokenProxyHost(p.omnaraAPIURL)
+	if inject {
+		inject, err = machineTokenPriorityFree(ctx, api, options.Source)
+		if err != nil {
+			return providers.ProvisionMachineResult{}, err
+		}
+	}
+	if inject {
 		policies = &forkPolicies{
 			Rules: map[string]policyRule{machineTokenRuleID: {
 				Type:     "outbound",
@@ -115,7 +124,6 @@ func (p *provider) ProvisionMachine(
 			}},
 			Secrets: map[string]string{machineTokenSecret: machineToken},
 		}
-		machineToken = daemonprotocol.ProviderInjectedMachineToken
 	}
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
@@ -136,8 +144,6 @@ func (p *provider) ProvisionMachine(
 		env[daemonprotocol.SleepPlatformEnvVar] = daemonprotocol.SleepPlatformArker
 		command = sleepBootCommand
 	}
-	baseURL := p.regionBaseURL(options.Region)
-	api := p.apiFor(baseURL)
 	target, err := api.Fork(ctx, forkRequest{
 		SourceVMName: options.Source,
 		Name:         name,
@@ -147,6 +153,15 @@ func (p *provider) ProvisionMachine(
 		},
 		Policies: policies,
 	}, name)
+	if isConflict(err) {
+		existing, found, getErr := api.GetVM(ctx, name)
+		if getErr != nil {
+			return providers.ProvisionMachineResult{}, getErr
+		}
+		if found {
+			target, err = existing, nil
+		}
+	}
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
@@ -156,6 +171,9 @@ func (p *provider) ProvisionMachine(
 	if target.Name != name {
 		return providers.ProvisionMachineResult{}, fmt.Errorf("%w: %s", errNotThisMachine, target.ID)
 	}
+	if _, ok := target.Policies.Rules[machineTokenRuleID]; ok {
+		env[providers.MachineTokenEnvVar] = daemonprotocol.ProviderInjectedMachineToken
+	}
 	result := providers.ProvisionMachineResult{ProviderResourceID: target.ID}
 	if err := ensureDaemon(ctx, api, target.ID, command, env); err != nil {
 		return result, err
@@ -164,6 +182,22 @@ func (p *provider) ProvisionMachine(
 		result.SandboxURL = baseURL
 	}
 	return result, nil
+}
+
+func machineTokenPriorityFree(ctx context.Context, api *restClient, source string) (bool, error) {
+	sourceVM, found, err := api.GetVM(ctx, source)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return true, nil
+	}
+	for id, rule := range sourceVM.Policies.Rules {
+		if id != machineTokenRuleID && rule.Type == "outbound" && rule.Priority == machineTokenRulePriority {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func ensureDaemon(

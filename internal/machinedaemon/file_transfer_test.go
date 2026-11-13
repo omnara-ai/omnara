@@ -18,6 +18,8 @@ import (
 const (
 	fileTransferTestProcessID = "prc_aaaaaaaaaaaaaaaaaaaaaaaaae"
 	fileTransferTestProxy     = "http://127.0.0.1:9"
+	fileTransferTestHTTPProxy = "http://127.0.0.1:10"
+	fileTransferTestNoProxy   = "internal.example"
 )
 
 func runFileTransferProbe() int {
@@ -28,7 +30,8 @@ func runFileTransferProbe() int {
 	if os.Getenv(gitCredentialCapabilityEnv) != "" {
 		return 3
 	}
-	if os.Getenv("HTTPS_PROXY") != fileTransferTestProxy {
+	if os.Getenv("HTTPS_PROXY") != fileTransferTestProxy || os.Getenv("HTTP_PROXY") != fileTransferTestHTTPProxy ||
+		os.Getenv("NO_PROXY") != fileTransferTestNoProxy {
 		return 4
 	}
 	result := os.NewFile(3, "file-transfer-result")
@@ -45,6 +48,10 @@ func runFileTransferProbe() int {
 
 func TestDetachedSupervisorFileTransfer(t *testing.T) {
 	t.Setenv("HTTPS_PROXY", fileTransferTestProxy)
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("http_proxy", fileTransferTestHTTPProxy)
+	t.Setenv("NO_PROXY", fileTransferTestNoProxy)
+	t.Setenv("no_proxy", "lowercase.example")
 	metadata := `{"path":"/memory/team/note.md","digest":"sha256:` + strings.Repeat("a", 64) + `"}`
 	failure := `{"error":{"code":"file_content_conflict","error":"file changed","current_digest":"sha256:` +
 		strings.Repeat("b", 64) + `"}}`
@@ -103,6 +110,7 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 			defer cancel()
 			env := map[string]string{
 				"FILE_TRANSFER_TEST_RESULT": tc.result, "FILE_TRANSFER_TEST_EXIT_CODE": strconv.Itoa(tc.exitCode),
+				"https_proxy": "",
 			}
 			timeoutSeconds := 10
 			if tc.wait {

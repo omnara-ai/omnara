@@ -119,7 +119,11 @@ func TestProvisionCreatesSandboxAndStartsDaemon(t *testing.T) {
 	require.Equal(t, []createSandboxRequest{{
 		TemplateID: "claude",
 		Timeout:    createTimeoutSeconds,
-		Metadata:   metadata,
+		Metadata: map[string]string{
+			installationLabel: metadata[installationLabel],
+			machineLabel:      metadata[machineLabel],
+			machineTokenLabel: daemonprotocol.ProviderInjectedMachineToken,
+		},
 		Network: networkConfig{AllowPublicTraffic: false, Rules: map[string][]networkRule{
 			"api.omnara.test": {{Transform: networkTransform{
 				Headers: map[string]string{daemonprotocol.MachineTokenHeader: "machine-token"},
@@ -280,13 +284,14 @@ func TestCreateFailuresDecideWhetherToCreateAgain(t *testing.T) {
 		err       error
 		permanent bool
 		recreates bool
+		fallback  bool
 	}{
 		{name: "rate limited", err: apiError{StatusCode: http.StatusTooManyRequests}, recreates: true},
 		{name: "unavailable", err: apiError{StatusCode: http.StatusServiceUnavailable}, recreates: true},
 		{name: "never sent", err: dialErr, recreates: true},
 		{name: "dns failure", err: dnsErr, recreates: true},
 		{name: "unknown template", err: apiError{StatusCode: http.StatusNotFound}, permanent: true},
-		{name: "bad request", err: apiError{StatusCode: http.StatusBadRequest}, permanent: true},
+		{name: "bad request", err: apiError{StatusCode: http.StatusBadRequest}, permanent: true, fallback: true},
 		{name: "server error", err: apiError{StatusCode: http.StatusInternalServerError}},
 		{name: "request timeout", err: apiError{StatusCode: http.StatusRequestTimeout}},
 		{name: "reset", err: errors.New("connection reset")},
@@ -304,8 +309,48 @@ func TestCreateFailuresDecideWhetherToCreateAgain(t *testing.T) {
 			require.Len(t, a.creates, 2, test.name)
 		} else {
 			require.ErrorContains(t, err, "outcome is unknown", test.name)
-			require.Len(t, a.creates, 1, test.name)
+			wantCreates := 1
+			if test.fallback {
+				wantCreates = 2
+			}
+			require.Len(t, a.creates, wantCreates, test.name)
 		}
+	}
+}
+
+func TestProvisionFallsBackToThePlainTokenWhenRulesAreRejected(t *testing.T) {
+	a := &fakeAPI{noRules: true}
+	installationID, machineID := uuid.New(), uuid.New()
+	_, err := testProvider(a).ProvisionMachine(
+		t.Context(), installationID, machineID, testProvisioning(t), "token", nil, true,
+	)
+	require.NoError(t, err)
+	require.Len(t, a.creates, 2)
+	require.NotNil(t, a.creates[0].Network.Rules)
+	require.Nil(t, a.creates[1].Network.Rules)
+	require.Equal(t, mustMetadata(t, installationID, machineID), a.creates[1].Metadata)
+	require.Len(t, a.starts, 1)
+	require.Equal(t, "token", a.starts[0].Process.Envs["OMNARA_MACHINE_TOKEN"])
+}
+
+func TestAdoptedSandboxKeepsTheTokenModeItWasCreatedWith(t *testing.T) {
+	for _, injected := range []bool{true, false} {
+		installationID, machineID := uuid.New(), uuid.New()
+		metadata := mustMetadata(t, installationID, machineID)
+		want := "token"
+		if injected {
+			metadata[machineTokenLabel] = daemonprotocol.ProviderInjectedMachineToken
+			want = daemonprotocol.ProviderInjectedMachineToken
+		}
+		a := &fakeAPI{}
+		a.addSandbox("sbx-existing", metadata, 2, 2048)
+		_, err := testProvider(a).ProvisionMachine(
+			t.Context(), installationID, machineID, testProvisioning(t), "token", nil, false,
+		)
+		require.NoError(t, err)
+		require.Empty(t, a.creates)
+		require.Len(t, a.starts, 1)
+		require.Equal(t, want, a.starts[0].Process.Envs["OMNARA_MACHINE_TOKEN"], "injected=%v", injected)
 	}
 }
 
