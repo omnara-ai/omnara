@@ -95,16 +95,19 @@ func (rows unitRows) Close() {
 
 func (db unitDB) SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults {
 	if err := db.unit.active(); err != nil {
-		return failedBatch{err: err}
+		return failedBatch{BatchResults: pgx.FailedBatchResults(batch, err), err: err}
 	}
 	return unitBatch{BatchResults: db.unit.tx.SendBatch(ctx, batch), unit: db.unit}
 }
 
-type failedBatch struct{ err error }
+type failedBatch struct {
+	pgx.BatchResults
+	err error
+}
 
 func (b failedBatch) Exec() (pgconn.CommandTag, error) { return pgconn.CommandTag{}, b.err }
 func (b failedBatch) Query() (pgx.Rows, error)         { return nil, b.err }
-func (b failedBatch) QueryRow() pgx.Row                { return errorRow(b) }
+func (b failedBatch) QueryRow() pgx.Row                { return errorRow{err: b.err} }
 func (b failedBatch) Close() error                     { return b.err }
 
 type unitBatch struct {
