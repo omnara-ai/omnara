@@ -5,11 +5,11 @@
 //   export const { GET, POST } = createGuideHandler({ ... })
 //
 // On Omnara, every user of the host app gets their own agent profile, created the first
-// time they use the guide and named after them ("Acme guide · Dana Whitfield"). The
-// profile's config is the guide's config with that user's name and role written into
-// the instruction. Each conversation
-// is one agent launched from the user's profile, so a user's history is simply the
-// agents of their profile.
+// time they use the guide and named after them with a short tag from their user ID
+// ("Acme guide · Dana Whitfield · 3f9a2c1b"). The profile's config is the guide's config
+// with that user's name and role written into the instruction. Each conversation is one
+// agent launched from the user's profile, so a user's history is simply the agents of
+// their profile.
 //
 // The host app decides who the user is (getUser). The conversation is identified by a
 // session token (HMAC-signed user ID + agent ID) that the widget sends in a header, so a
@@ -108,23 +108,32 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
     return `guide-${[...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')}`
   }
 
-  const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u202f\ufeff]/g, ' ').replace(/\s+/g, ' ').trim()
-  function titleFrom(text: string, room: number) {
-    const clean = oneLine(text) || 'Conversation'
-    return clean.length > room ? `${clean.slice(0, room - 1).trimEnd()}…` : clean
+  // Omnara rejects names with control, format or other invisible characters, such as the
+  // variation selector inside a red heart emoji or a soft hyphen, so they are taken out
+  // of anything used as a name.
+  const oneLine = (text: string) =>
+    text.replace(/\p{Cc}/gu, ' ').replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\u2800\ufffd]/gu, '').replace(/\s+/g, ' ').trim()
+  /** Text cut to fit a name. Counted in whole characters, so an emoji is never cut in half. */
+  function titleFrom(text: string, room: number, fallback = 'Conversation') {
+    const chars = [...(oneLine(text) || fallback)]
+    return chars.length > room ? `${chars.slice(0, room - 1).join('').trimEnd()}…` : chars.join('')
   }
 
   // ---- One agent profile per user -------------------------------------------------
-  // A profile is named "<prefix> · <user's name>". Which user it belongs to is recorded
-  // in a comment on the first line of its config, so the name stays clean and two users
-  // with the same name still get separate profiles (the second is named "… (2)").
+  // A profile is named "<prefix> · <user's name> · <tag>". The tag is a short hash of the
+  // user's ID and is what finds the profile again, so a user with no name, a renamed
+  // user and two users with the same name each keep their own profile. The full user ID
+  // is in a comment on the first line of the profile's config.
   type Profile = { id: string; name: string; current_config_id: string; current_config?: { source?: string } }
   const profiles = new Map<string, { id: string; source: string }>()
   const ownerLine = (user: GuideUser) => `# guide-user: ${JSON.stringify(user.id)}`
-  const profileName = (user: GuideUser) => {
-    const prefix = opts.profilePrefix ?? 'Guide'
-    return `${prefix} · ${titleFrom(user.displayName ?? 'User', 64 - prefix.length - 8)}`
+  const prefix = opts.profilePrefix ?? 'Guide'
+  async function userTag(user: GuideUser) {
+    const digest = await crypto.subtle.digest('SHA-256', enc.encode(user.id))
+    return [...new Uint8Array(digest).slice(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join('')
   }
+  const profileName = async (user: GuideUser) =>
+    `${prefix} · ${titleFrom(user.displayName ?? '', 64 - [...prefix].length - 14, 'User')} · ${await userTag(user)}`
 
   /** The guide's config with this user's details written into the instruction. */
   function configFor(user: GuideUser) {
@@ -134,13 +143,12 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
     return `${ownerLine(user)}\n${opts.config.replace(placeholder[0], about.map((line) => `${placeholder[1]}${line}`).join('\n'))}`
   }
 
-  /** Profiles whose name starts with this user's profile name: theirs, and any namesakes'. */
-  async function namedLike(user: GuideUser): Promise<Profile[]> {
-    const glob = `${profileName(user).replace(/[\\*?]/g, '\\$&')}*`
-    return ((await omnara(`/agent-profiles?${new URLSearchParams({ name: glob, limit: '50' })}`)) as { data: Profile[] }).data
+  /** The user's profile: the one whose name ends in their tag and whose config names them. */
+  async function findProfile(user: GuideUser): Promise<Profile | null> {
+    const glob = `${prefix.replace(/[\\*?]/g, '\\$&')} · * · ${await userTag(user)}`
+    const { data } = (await omnara(`/agent-profiles?${new URLSearchParams({ name: glob, limit: '50' })}`)) as { data: Profile[] }
+    return data.find((p) => p.current_config?.source?.startsWith(`${ownerLine(user)}\n`)) ?? null
   }
-  const ownedBy = (user: GuideUser, list: Profile[]) => list.find((p) => p.current_config?.source?.startsWith(`${ownerLine(user)}\n`)) ?? null
-  const findProfile = async (user: GuideUser) => ownedBy(user, await namedLike(user))
 
   /** The user's profile ID, creating the profile or bringing its config up to date first. */
   async function ensureProfile(user: GuideUser): Promise<string> {
@@ -150,15 +158,10 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
 
     const newConfig = async () =>
       ((await omnara('/agent-configs', { method: 'POST', body: JSON.stringify({ source, source_format: 'yaml' }) })) as { id: string }).id
-    const existing = await namedLike(user)
-    let profile = ownedBy(user, existing)
+    let profile = await findProfile(user)
     if (!profile) {
-      // First use. If a namesake already has the plain name, take the next free one.
-      const taken = new Set(existing.map((p) => p.name.toLowerCase()))
-      let name = profileName(user)
-      for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${profileName(user)} (${n})`
       try {
-        profile = (await omnara('/agent-profiles', { method: 'POST', body: JSON.stringify({ name, config: await newConfig() }) })) as Profile
+        profile = (await omnara('/agent-profiles', { method: 'POST', body: JSON.stringify({ name: await profileName(user), config: await newConfig() }) })) as Profile
       } catch (err) {
         // Two first messages at once: the other one created it.
         profile = await findProfile(user)

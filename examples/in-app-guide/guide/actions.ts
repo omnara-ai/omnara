@@ -3,7 +3,7 @@
 // agent can plan the next step from what is actually on screen.
 
 import { Overlay, sleep } from './overlay'
-import { isPrivate, resolveRef, shownName, takeSnapshot } from './snapshot'
+import { isPrivate, optionLabel, resolveRef, shownName, takeSnapshot, textOf } from './snapshot'
 
 export type ToolCall = { id: string; name: string; input: Record<string, unknown> }
 export type ToolResult = { outcome: 'succeeded' | 'failed'; text: string }
@@ -194,7 +194,7 @@ async function chooseOption(el: HTMLElement, value: string, signal: AbortSignal)
   if (!option || signal.aborted) {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     if (signal.aborted) return
-    throw new Error(options.length ? noOption(el, value, options.map((o) => o.innerText.trim())) : `${describeShort(el)} did not open a list of options; use click on it instead.`)
+    throw new Error(options.length ? noOption(el, value, options.map((o) => textOf(o, true).trim())) : `${describeShort(el)} did not open a list of options; use click on it instead.`)
   }
   realClick(option)
 }
@@ -212,7 +212,7 @@ function isField(el: Element) {
 function fieldValue(el: Element) {
   if (el instanceof HTMLInputElement && el.type === 'password') return 'a password'
   if (isPrivate(el)) return 'a value (not shown)'
-  const v = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.value : (el.textContent ?? '')
+  const v = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.value : textOf(el)
   return v.trim() ? `"${v.trim().slice(0, 200)}"` : 'nothing'
 }
 
@@ -246,7 +246,7 @@ async function fillValue(el: Element, value: string, signal: AbortSignal) {
     const option =
       options.find((o) => norm(o.label) === norm(value) || norm(o.value) === norm(value)) ??
       options.find((o) => norm(o.label).includes(norm(value)))
-    if (!option) throw new Error(noOption(el, value, options.map((o) => o.label)))
+    if (!option) throw new Error(noOption(el, value, options.map(optionLabel)))
     setNativeValue(el, option.value)
     el.dispatchEvent(new Event('input', { bubbles: true }))
     el.dispatchEvent(new Event('change', { bubbles: true }))

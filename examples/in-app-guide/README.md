@@ -117,9 +117,8 @@ What it doesn't handle:
 - More than one tab: only the tab the user last sent a message from runs steps. That
   uses the browser's Web Locks, which need https or localhost; on a plain http page
   every open tab runs them.
-- A renamed user: a profile is found by the user's display name, so after a name
-  change they get a new profile and an empty history. The old conversations stay in
-  Omnara.
+- A renamed user keeps their profile and history, and the agent is told the new name,
+  but the profile keeps the name it was created with.
 - Errors from Omnara: any 409 on a message (a full backlog, no credits) is treated
   like an ended conversation and starts a new one, and the user only sees "The guide
   is unavailable right now". Tell those cases apart to suit your app.

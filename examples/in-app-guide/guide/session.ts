@@ -194,11 +194,10 @@ export class GuideSession {
     }[why]
     for (const call of data) {
       this.handled.add(call.id)
-      await this.api(`/tool-calls/${call.id}/result`, {
-        method: 'POST',
-        body: JSON.stringify({ outcome: 'succeeded', text: typeof text === 'function' ? text() : text }),
-      })
+      this.unsent.set(call.id, { outcome: 'succeeded', text: typeof text === 'function' ? text() : text })
     }
+    // One that does not arrive stays queued and is sent again with the next round of steps.
+    await this.flushResults()
   }
 
   private detach() {
@@ -224,6 +223,7 @@ export class GuideSession {
     await this.claim(true)
     // Taking over from another tab is a change of page: what that tab was asked is dropped.
     const busy = this.state.status !== 'idle' || reopened || fromOtherTab
+    let epoch = this.epoch
     const context = `Mode: ${this.state.mode}\nCurrent page:\n${takeSnapshot(this.host).text}`
     this.set({
       messages: [...this.state.messages, { id: crypto.randomUUID(), role: 'user', text }],
@@ -236,10 +236,16 @@ export class GuideSession {
         body: JSON.stringify({ text, context, key: crypto.randomUUID(), steering: busy }),
       })
       const body = (await res.json().catch(() => ({}))) as { error?: string; session?: string }
+      // The user started or opened another conversation while this was sending. The
+      // message stays in its own conversation, in the history list; the panel is left alone.
+      if (epoch !== this.epoch) return
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
       if (body.session) {
         // The server replaced the conversation: drop everything kept for the old one.
-        if (this.token && body.session !== this.token) this.detach()
+        if (this.token && body.session !== this.token) {
+          this.detach()
+          epoch = this.epoch
+        }
         this.setToken(body.session)
       }
       // The message goes in first, so the agent reads it together with the news that its
@@ -247,12 +253,14 @@ export class GuideSession {
       if (reopened || fromOtherTab) {
         this.reopened = false
         await this.releaseStale(reopened ? 'reopened' : 'other_tab')
+        if (epoch !== this.epoch) return
       }
       // A step waiting on the user is now superseded by this message.
       this.running?.abort.abort()
       this.overlay.clearHighlight()
       this.connect()
     } catch (err) {
+      if (epoch !== this.epoch) return
       this.notice(err instanceof Error ? err.message : 'Could not reach the guide.')
       this.set({ status: 'idle' })
     }
@@ -336,10 +344,11 @@ export class GuideSession {
       if (this.streamAbort === abort) this.streamAbort = null
     })
 
-    // Stream frames are hints; reconcile now and then in case one was missed.
+    // Stream frames are hints; reconcile now and then in case one was missed, or a
+    // step result has not been delivered yet.
     clearInterval(this.poll)
     this.poll = window.setInterval(() => {
-      if (this.state.status !== 'idle') void this.reconcile()
+      if (this.state.status !== 'idle' || this.unsent.size) void this.reconcile()
     }, 4000)
   }
 

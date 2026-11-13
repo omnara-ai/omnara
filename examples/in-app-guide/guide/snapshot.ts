@@ -74,7 +74,7 @@ export function isPrivate(el: Element): boolean {
  * private region, otherwise the private parts inside it. Every read of page text that
  * can reach the agent goes through here. `rendered`: as displayed (innerText).
  */
-function textOf(el: Element | null | undefined, rendered = false, mark = '(private)'): string {
+export function textOf(el: Element | null | undefined, rendered = false, mark = '(private)'): string {
   if (!el) return ''
   if (el.closest(PRIVATE)) return mark
   if (!el.querySelector(PRIVATE)) return (rendered ? (el as HTMLElement).innerText : null) ?? el.textContent ?? ''
@@ -82,6 +82,9 @@ function textOf(el: Element | null | undefined, rendered = false, mark = '(priva
   for (const part of copy.querySelectorAll(PRIVATE)) part.replaceWith(mark)
   return copy.textContent ?? ''
 }
+
+/** A native dropdown option's label, unless the option or its group is marked private. */
+export const optionLabel = (option: HTMLOptionElement) => (option.closest(PRIVATE) ? '(private)' : option.label || option.text)
 
 export function takeSnapshot(ignore?: Element | null): Snapshot {
   const root = topDialog() ?? document.body
@@ -274,8 +277,8 @@ function describe(el: Element): string {
   if (hidden && (el instanceof HTMLSelectElement || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
     if (!(el instanceof HTMLInputElement && el.type === 'file')) parts.push('value=(hidden)')
   } else if (el instanceof HTMLSelectElement) {
-    const options = [...el.options].map((o) => clean(o.label || o.text, 40))
-    parts.push(`selected="${clean(el.selectedOptions[0]?.label ?? '', 40)}"`)
+    const options = [...el.options].map((o) => clean(optionLabel(o), 40))
+    parts.push(`selected="${el.selectedOptions[0] ? clean(optionLabel(el.selectedOptions[0]), 40) : ''}"`)
     parts.push(`options=[${options.slice(0, 15).join(', ')}${options.length > 15 ? ', …' : ''}]`)
   } else if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
     parts.push(el.checked ? 'checked' : 'unchecked')

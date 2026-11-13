@@ -278,12 +278,12 @@ Run the app, sign in, and with the user watching:
    `value=(hidden)` for the field and none of the private text.
 
 In the Omnara dashboard, the project now has a profile named
-"<profilePrefix> · <user's name>" and one agent per conversation; open one to read the
-conversation step by step. If a step points at the wrong control or can't see one, look
-at how that control is built: the guide reads standard HTML and ARIA, so it can't
-name an icon-only button with no label, and it misses a clickable element that has
-neither a role nor a pointer cursor. Fix the markup; the app's accessibility improves
-too.
+"<profilePrefix> · <user's name> · <short tag from their user ID>" and one agent per
+conversation; open one to read the conversation step by step. If a step points at the
+wrong control or can't see one, look at how that control is built: the guide reads
+standard HTML and ARIA, so it can't name an icon-only button with no label, and it
+misses a clickable element that has neither a role nor a pointer cursor. Fix the
+markup; the app's accessibility improves too.
 
 ## 11. Wrap up
 
@@ -303,6 +303,5 @@ project, the memory store if any, and that the user holds the API key. Then tell
 
 The copied `guide/` is a starting point, not a finished library. Before real users
 get it, go through the limits at the end of README.md with the user and close the ones
-that matter for this app: what happens when Omnara refuses a message, how a user is
-tied to their profile if display names can change, and whether "Do it for me" should be
-on for pages served over plain http.
+that matter for this app: what happens when Omnara refuses a message, and whether "Do
+it for me" should be on for pages served over plain http.

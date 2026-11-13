@@ -28,7 +28,9 @@ export function guideCss(accent: string) {
 .g-cursor.g-press svg { transform: scale(.82); }
 .g-ring { pointer-events: none; border: 2px solid var(--g-accent); border-radius: 9px; box-shadow: 0 0 0 4px var(--g-accent-soft); animation: g-pulse 1.6s ease-in-out infinite; }
 @keyframes g-pulse { 50% { box-shadow: 0 0 0 7px var(--g-accent-soft); } }
-.g-caption { pointer-events: auto; max-width: 300px; background: #0f172a; color: #f8fafc; border-radius: 10px; padding: 10px 12px; box-shadow: 0 10px 30px rgba(15, 23, 42, .25); font-size: 13px; }
+/* Hidden, the caption must not take clicks or keyboard focus where it last sat. */
+.g-caption { visibility: hidden; pointer-events: none; transition: opacity .18s ease, visibility 0s .18s; max-width: 300px; background: #0f172a; color: #f8fafc; border-radius: 10px; padding: 10px 12px; box-shadow: 0 10px 30px rgba(15, 23, 42, .25); font-size: 13px; }
+.g-caption.g-visible { visibility: visible; pointer-events: auto; transition: opacity .18s ease; }
 .g-caption-text { margin: 0; }
 .g-caption-actions { display: flex; gap: 6px; margin-top: 8px; }
 .g-caption .g-btn { background: transparent; color: #cbd5e1; border: 1px solid #334155; }
