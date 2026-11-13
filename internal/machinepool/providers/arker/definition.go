@@ -75,6 +75,7 @@ func newProvider(
 		apiBaseURL:   config.APIBaseURL,
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 		httpRecorder: runtimeConfig.HTTPRecorder,
+		httpClient:   runtimeConfig.HTTPClient,
 	}, nil
 }
 

@@ -2,6 +2,7 @@ package webaccess
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/omnara-ai/omnara/internal/ssrf"
 )
 
 func devFetcher() *Fetcher {
@@ -17,6 +20,55 @@ func devFetcher() *Fetcher {
 
 func prodFetcher() *Fetcher {
 	return NewFetcher(FetcherOptions{})
+}
+
+func TestFetchAllowsPlainHTTPIntoWebFetchPrivateRanges(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, "lan model endpoint")
+	}))
+	defer server.Close()
+
+	allowlist, err := ssrf.ParseAllowlist([]string{"127.0.0.0/8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewFetcher(FetcherOptions{Allowlist: allowlist}).Fetch(
+		context.Background(), FetchRequest{URL: server.URL},
+	)
+	if err != nil {
+		t.Fatalf("fetch allowlisted loopback http: %v", err)
+	}
+	if result.Content != "lan model endpoint" {
+		t.Fatalf("content=%q", result.Content)
+	}
+}
+
+func TestFetchKeepsPlainHTTPOnlyForListedIPLiterals(t *testing.T) {
+	allowlist, err := ssrf.ParseAllowlist([]string{"10.0.3.0/24", "127.0.0.1:3000", "0.0.0.0/0:11434"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for raw, want := range map[string]string{
+		"http://10.0.3.7/":            "http://10.0.3.7/",
+		"http://10.0.4.7/":            "https://10.0.4.7/",
+		"http://93.184.216.34/":       "https://93.184.216.34/",
+		"http://93.184.216.34:11434/": "http://93.184.216.34:11434/",
+		"http://ollama/":              "https://ollama/",
+		"http://localhost:3000/":      "https://localhost:3000/",
+	} {
+		got, err := normalizeFetchURL(raw, false, allowlist)
+		if err != nil || got != want {
+			t.Errorf("normalizeFetchURL(%s) = %q, %v; want %q", raw, got, err, want)
+		}
+	}
+	response, err := newSSRFHTTPClient(false, allowlist).Get("http://93.184.216.34/")
+	if err == nil {
+		_ = response.Body.Close()
+	}
+	if !errors.Is(err, ssrf.ErrBlockedAddress) {
+		t.Fatalf("plain HTTP to an unlisted port error = %v, want ErrBlockedAddress", err)
+	}
 }
 
 const sampleHTML = `<!DOCTYPE html>
@@ -427,7 +479,7 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestFetchRejectsHTTPSRedirectToHTTPInProduction(t *testing.T) {
-	client := newSSRFHTTPClient(false)
+	client := newSSRFHTTPClient(false, nil)
 	var requests int
 	client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		requests++
@@ -464,13 +516,25 @@ func TestFetchSchemeValidationAndUpgrade(t *testing.T) {
 	if _, err := prodFetcher().Fetch(context.Background(), FetchRequest{URL: "ftp://example.com/x"}); err == nil {
 		t.Fatal("ftp scheme must be rejected")
 	}
-	upgraded, err := normalizeFetchURL("http://example.com/page", false)
+	upgraded, err := normalizeFetchURL("http://example.com/page", false, nil)
 	if err != nil || upgraded != "https://example.com/page" {
 		t.Fatalf("https upgrade: %q %v", upgraded, err)
 	}
-	kept, err := normalizeFetchURL("http://example.com/page", true)
+	kept, err := normalizeFetchURL("http://example.com/page", true, nil)
 	if err != nil || kept != "http://example.com/page" {
 		t.Fatalf("dev mode should keep http: %q %v", kept, err)
+	}
+	listedPort, err := ssrf.ParseAllowlist([]string{"0.0.0.0/0:11434"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rawURL, want := range map[string]string{
+		"http://93.184.216.34/":       "https://93.184.216.34/",
+		"http://93.184.216.34:11434/": "http://93.184.216.34:11434/",
+	} {
+		if got, err := normalizeFetchURL(rawURL, false, listedPort); err != nil || got != want {
+			t.Fatalf("normalizeFetchURL(%s) = %q %v, want %q", rawURL, got, err, want)
+		}
 	}
 }
 

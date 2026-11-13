@@ -10434,7 +10434,7 @@ components:
           type: string
           minLength: 1
           maxLength: 2048
-          description: Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+          description: Endpoint URL, at most 2048 bytes after URL encoding.
         event_types:
           type: array
           minItems: 1
@@ -10455,7 +10455,7 @@ components:
           type: string
           minLength: 1
           maxLength: 2048
-          description: Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+          description: Endpoint URL, at most 2048 bytes after URL encoding.
         event_types:
           type: array
           minItems: 1
@@ -10479,7 +10479,7 @@ components:
           type: string
           minLength: 1
           maxLength: 2048
-          description: Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+          description: Endpoint URL, at most 2048 bytes after URL encoding.
         event_types:
           type: array
           minItems: 1
@@ -10646,7 +10646,7 @@ components:
         base_url:
           type: string
           minLength: 1
-          description: Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
+          description: Provider endpoint base URL.
         endpoint_path:
           type: string
           minLength: 1
@@ -10702,7 +10702,7 @@ components:
         base_url:
           type: string
           minLength: 1
-          description: Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
+          description: Provider endpoint base URL.
         endpoint_path:
           type: string
           minLength: 1
@@ -10769,7 +10769,7 @@ components:
           $ref: '#/components/schemas/ModelProviderAPIVariantResponse'
         base_url:
           type: string
-          description: Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs.
+          description: Provider endpoint base URL.
         endpoint_path:
           type: string
         request_timeout_ms:
@@ -12293,7 +12293,7 @@ components:
           format: uri
           minLength: 1
           maxLength: 2048
-          description: Streamable HTTP MCP endpoint. Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
+          description: Streamable HTTP MCP endpoint.
         auth:
           $ref: '#/components/schemas/MCPServerAuth'
     MCPServerAuth:

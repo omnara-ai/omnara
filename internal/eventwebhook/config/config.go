@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/ssrf"
+	"github.com/omnara-ai/omnara/internal/urlpolicy"
 )
 
 type Settings struct {
@@ -17,8 +18,8 @@ type Settings struct {
 	SigningSecretID uuid.UUID
 }
 
-func Validate(settings Settings) (Settings, error) {
-	url, err := ValidateURL(settings.URL)
+func Validate(settings Settings, endpointAllowlist *ssrf.Allowlist) (Settings, error) {
+	url, err := ValidateURL(settings.URL, endpointAllowlist)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -39,16 +40,19 @@ func Validate(settings Settings) (Settings, error) {
 	return settings, nil
 }
 
-func ValidateURL(raw string) (string, error) {
+func ValidateURL(raw string, endpointAllowlist *ssrf.Allowlist) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.Opaque != "" {
+	if err != nil || parsed.Hostname() == "" || parsed.Opaque != "" || (parsed.Scheme != "https" &&
+		(parsed.Scheme != "http" || !urlpolicy.PermitsPlainHTTP(parsed, endpointAllowlist))) {
 		return "", errors.New("event webhook URL must be an absolute HTTPS URL")
 	}
 	if parsed.User != nil || parsed.Fragment != "" {
 		return "", errors.New("event webhook URL must not contain credentials or a fragment")
 	}
 	host := ssrf.ClassifyURLHost(parsed.Hostname())
-	if host.LocalDev || (host.IP != nil && !ssrf.IsAllowedIP(host.IP, false)) {
+	port := ssrf.URLPort(parsed)
+	if (host.IP == nil && host.LocalDev && !endpointAllowlist.PermitsLocalhost(port)) ||
+		(host.IP != nil && !endpointAllowlist.PermitsIP(host.IP, port, false)) {
 		return "", errors.New("event webhook URL must target a public host")
 	}
 	normalized := parsed.String()

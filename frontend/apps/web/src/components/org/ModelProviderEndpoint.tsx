@@ -191,7 +191,7 @@ function CustomProviderFields({
         />
         <FieldDescription>
           {baseUrlValid
-            ? 'A public HTTPS endpoint. The request path defaults from the API format.'
+            ? 'The request path defaults from the API format.'
             : 'Enter a URL such as https://api.example.com/v1.'}
         </FieldDescription>
       </Field>

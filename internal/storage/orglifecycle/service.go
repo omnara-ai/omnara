@@ -4,6 +4,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution"
@@ -20,29 +21,32 @@ type Config struct {
 	Execution           *executionstore.Store
 	Models              *modelstore.Store
 	Secrets             *secretstore.Store
+	EndpointAllowlist   *ssrf.Allowlist
 }
 
 type Service struct {
-	cell      *agentexecution.AgentCell
-	pool      *storeutil.Pool
-	q         *dbsqlc.Queries
-	blobs     blobstore.Store
-	identity  *identitystore.Store
-	execution *executionstore.Store
-	models    *modelstore.Store
-	secrets   *secretstore.Store
+	cell              *agentexecution.AgentCell
+	pool              *storeutil.Pool
+	q                 *dbsqlc.Queries
+	blobs             blobstore.Store
+	identity          *identitystore.Store
+	execution         *executionstore.Store
+	models            *modelstore.Store
+	secrets           *secretstore.Store
+	endpointAllowlist *ssrf.Allowlist
 }
 
 func New(pool *pgxpool.Pool, config Config) *Service {
 	db := storeutil.WrapPool(pool)
 	return &Service{
-		cell:      agentexecution.NewCell(pool, config.PostCommitPublisher, nil),
-		pool:      db,
-		q:         dbsqlc.New(db),
-		blobs:     config.Blobs,
-		identity:  config.Identity,
-		execution: config.Execution,
-		models:    config.Models,
-		secrets:   config.Secrets,
+		cell:              agentexecution.NewCell(pool, config.PostCommitPublisher, nil),
+		pool:              db,
+		q:                 dbsqlc.New(db),
+		blobs:             config.Blobs,
+		identity:          config.Identity,
+		execution:         config.Execution,
+		models:            config.Models,
+		secrets:           config.Secrets,
+		endpointAllowlist: config.EndpointAllowlist,
 	}
 }

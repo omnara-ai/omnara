@@ -35,14 +35,14 @@ const EventTypeMultiSelect = createResourceMultiCombobox<(typeof eventTypeSelect
   placeholder: 'Select event types…',
 })
 
+const urlHint = 'Enter a URL such as https://example.com/events.'
+
 function urlError(value: string) {
-  if (!value.trim()) return 'Enter an HTTPS URL.'
   try {
-    if (new URL(value.trim()).protocol !== 'https:') return 'Use an HTTPS URL.'
+    return ['https:', 'http:'].includes(new URL(value.trim()).protocol) ? undefined : urlHint
   } catch {
-    return 'Enter a valid HTTPS URL.'
+    return urlHint
   }
-  return undefined
 }
 
 function signingKeyError(value: string) {

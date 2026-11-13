@@ -32,7 +32,7 @@ func IsAllowedIP(ip net.IP, allowLoopback bool) bool {
 	if ip.IsLoopback() {
 		return allowLoopback
 	}
-	if !ip.IsGlobalUnicast() || ip.IsPrivate() {
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || isAlwaysBlocked(ip) {
 		return false
 	}
 	if !embeddedIPv4Allowed(ip, allowLoopback) {

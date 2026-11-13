@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/omnara-ai/omnara/internal/urlpolicy"
 )
 
 const (
@@ -95,7 +96,7 @@ func compileMCPServers(
 ) (map[string]MCPServerCompiled, error) {
 	compiled := make(map[string]MCPServerCompiled, len(source))
 	for serverKey, server := range source {
-		endpoint, err := ValidateMCPURL(server.URL, opts.AllowInsecureLocalMCPHTTP)
+		endpoint, err := ValidateMCPURL(server.URL, opts.AllowInsecureLocalMCPHTTP, opts.EndpointAllowlist)
 		if err != nil {
 			return nil, issueAt(jsonPointer("mcp", serverKey, "url"), err)
 		}
@@ -186,7 +187,7 @@ func mcpAuthSecretKind(authType string) (secrets.Kind, error) {
 	}
 }
 
-func ValidateMCPURL(raw string, allowInsecureLocalHTTP bool) (string, error) {
+func ValidateMCPURL(raw string, allowInsecureLocalHTTP bool, endpointAllowlist *ssrf.Allowlist) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", errors.New("url is required")
@@ -200,24 +201,12 @@ func ValidateMCPURL(raw string, allowInsecureLocalHTTP bool) (string, error) {
 	}
 	host := ssrf.ClassifyURLHost(parsed.Hostname())
 
-	switch parsed.Scheme {
-	case "https":
-	case "http":
-		if !host.LocalDev {
-			return "", errors.New("url scheme must be https")
-		}
-		if !allowInsecureLocalHTTP {
-			return "", fmt.Errorf(
-				"url %q targets loopback; enable AllowInsecureLocalMCPHTTP "+
-					"(set OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1 on the API for local development) "+
-					"to compile loopback MCP endpoints",
-				raw,
-			)
-		}
-	default:
+	plainHTTPAllowed := urlpolicy.PermitsPlainHTTP(parsed, endpointAllowlist) || (host.LocalDev && allowInsecureLocalHTTP)
+	if parsed.Scheme != "https" && (parsed.Scheme != "http" || !plainHTTPAllowed) {
 		return "", errors.New("url scheme must be https")
 	}
-	if host.IP != nil && !ssrf.IsAllowedIP(host.IP, allowInsecureLocalHTTP && parsed.Scheme == "http") {
+	if host.IP != nil &&
+		!endpointAllowlist.PermitsIP(host.IP, ssrf.URLPort(parsed), allowInsecureLocalHTTP && parsed.Scheme == "http") {
 		return "", fmt.Errorf("url host IP is not permitted: %s", host.IP.String())
 	}
 	return parsed.String(), nil

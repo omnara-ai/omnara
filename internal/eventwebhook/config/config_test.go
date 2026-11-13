@@ -22,17 +22,17 @@ func TestSpecSchemaMatchesEventTypes(t *testing.T) {
 		string(events.KindAgentInput), string(events.KindModelOutput), string(events.KindToolResult),
 		string(events.KindContextCheckpoint), "tool_call_update",
 	}, schema.Enum)
-	_, err = Validate(Settings{URL: "https://example.com/events", EventTypes: schema.Enum})
+	_, err = Validate(Settings{URL: "https://example.com/events", EventTypes: schema.Enum}, nil)
 	require.NoError(t, err)
 }
 
 func TestValidate(t *testing.T) {
 	settings, err := Validate(Settings{URL: " https://example.com/events?source=agent ",
-		EventTypes: []string{"model_output", "tool_call_update"}})
+		EventTypes: []string{"model_output", "tool_call_update"}}, nil)
 	require.NoError(t, err)
 	require.Equal(t, "https://example.com/events?source=agent", settings.URL)
 	for _, eventTypes := range [][]string{nil, {}, {"unknown"}, {"model_output", "model_output"}} {
-		_, err := Validate(Settings{URL: settings.URL, EventTypes: eventTypes})
+		_, err := Validate(Settings{URL: settings.URL, EventTypes: eventTypes}, nil)
 		require.Error(t, err)
 	}
 }
@@ -47,7 +47,7 @@ func TestRejectInvalidURLs(t *testing.T) {
 		"https://example.com:bad/events",
 	} {
 		t.Run(endpoint, func(t *testing.T) {
-			_, err := ValidateURL(endpoint)
+			_, err := ValidateURL(endpoint, nil)
 			require.Error(t, err)
 		})
 	}
@@ -56,7 +56,7 @@ func TestRejectInvalidURLs(t *testing.T) {
 func TestAllowPublicHosts(t *testing.T) {
 	for _, endpoint := range []string{"https://example.com/events",
 		"https://8.8.8.8/events", "https://[2606:4700:4700::1111]/events"} {
-		got, err := ValidateURL(endpoint)
+		got, err := ValidateURL(endpoint, nil)
 		require.NoError(t, err)
 		require.Equal(t, endpoint, got)
 	}
@@ -65,11 +65,11 @@ func TestAllowPublicHosts(t *testing.T) {
 func TestURLLength(t *testing.T) {
 	prefix := "https://example.com/"
 	endpoint := prefix + strings.Repeat("a", 2048-len(prefix))
-	_, err := ValidateURL(endpoint)
+	_, err := ValidateURL(endpoint, nil)
 	require.NoError(t, err)
-	_, err = ValidateURL(endpoint + "a")
+	_, err = ValidateURL(endpoint+"a", nil)
 	require.ErrorContains(t, err, "2048 bytes")
-	_, err = ValidateURL(prefix + strings.Repeat("é", 400))
+	_, err = ValidateURL(prefix+strings.Repeat("é", 400), nil)
 	require.ErrorContains(t, err, "2048 bytes")
 }
 

@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/observability/metrics"
@@ -124,7 +125,26 @@ func testSender() (*Sender, *testStore, executionstore.EventWebhookDelivery) {
 	}
 	store.endpoint.OrgID = delivery.OrgID
 	store.endpoint.RootAgentID = delivery.AgentID
-	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7, nil, nil), store, delivery
+	return New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7, nil, nil, nil), store, delivery
+}
+
+func TestSenderReachesOnlyListedPrivateEndpoints(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	require.NoError(t, err)
+	listed, err := ssrf.ParseAllowlist([]string{"127.0.0.1:" + port})
+	require.NoError(t, err)
+	for _, allowlist := range []*ssrf.Allowlist{listed, nil} {
+		_, store, delivery := testSender()
+		store.endpoint.URL = server.URL + "/events"
+		sender := New(store, slog.New(slog.NewTextHandler(io.Discard, nil)), 8, 7, nil, nil, allowlist)
+		sender.deliver(t.Context(), delivery)
+		require.Equal(t, allowlist != nil, store.completed.Load() == 1, "allowlist %v", allowlist != nil)
+		require.Equal(t, allowlist == nil, store.retried.Load() == 1, "allowlist %v", allowlist != nil)
+	}
 }
 
 func TestSenderSignsExactBodyAndKeepsRetryIdentity(t *testing.T) {

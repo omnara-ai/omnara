@@ -143,7 +143,9 @@ func (s strictOpenAPIServer) startMCPOAuth(
 		err := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "client_secret requires client_id")
 		return openapi.MCPOAuthStartResponse{}, &err, nil
 	}
-	mcpURL, err := agentconfig.ValidateMCPURL(body.McpUrl, s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP)
+	mcpURL, err := agentconfig.ValidateMCPURL(
+		body.McpUrl, s.server.agentConfigOptions.AllowInsecureLocalMCPHTTP, s.server.endpointAllowlist,
+	)
 	if err != nil {
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "mcp_url is invalid: "+err.Error())
 		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
@@ -154,7 +156,7 @@ func (s strictOpenAPIServer) startMCPOAuth(
 	}
 	outboundCtx, cancel := context.WithTimeout(ctx, mcpOAuthOutboundTimeout)
 	defer cancel()
-	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, mcp.AuthOptions{HTTPClient: s.server.mcpOAuthHTTPClient})
+	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, s.server.mcpAuth)
 	if err != nil {
 		apiErr := mcpUpstreamFailure(
 			err,
@@ -275,7 +277,7 @@ func (s *Server) resolveMCPOAuthClientForAPI(
 			ctx,
 			requirement.AuthorizationServer.RegistrationEndpoint,
 			clientMeta,
-			s.mcpOAuthHTTPClient,
+			s.mcpAuth.HTTPClient,
 		)
 		if err != nil {
 			apiErr := mcpUpstreamFailure(
@@ -343,7 +345,7 @@ func (s *Server) mcpOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {
 		Code:          code,
 		CodeVerifier:  flow.CodeVerifier,
 		Resource:      flow.Resource,
-		HTTPClient:    s.mcpOAuthHTTPClient,
+		HTTPClient:    s.mcpAuth.HTTPClient,
 	})
 	if err != nil {
 		logpkg.LoggerFromContext(r.Context()).WarnContext(r.Context(), "mcp oauth code exchange failed", "error", err)

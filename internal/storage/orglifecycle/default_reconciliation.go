@@ -65,7 +65,7 @@ func (s *Service) ReconcileDefaults(
 		}
 	}
 	if input.DefaultModelProvider != nil {
-		prepared, err := modelstore.PrepareDefaultModelProviderTemplate(*input.DefaultModelProvider)
+		prepared, err := modelstore.PrepareDefaultModelProviderTemplate(*input.DefaultModelProvider, s.endpointAllowlist)
 		if err != nil {
 			return ReconcileDefaultsResult{}, fmt.Errorf("default model provider %q: %w", input.DefaultModelProvider.Name, err)
 		}

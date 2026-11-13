@@ -228,7 +228,7 @@ func testDefaultOpenRouterTemplate() modelstore.DefaultModelProviderTemplate {
 			InputModalities:     []string{"text", "image"},
 			OutputModalities:    []string{"text"},
 		}},
-	})
+	}, nil)
 	if err != nil {
 		panic(err)
 	}
