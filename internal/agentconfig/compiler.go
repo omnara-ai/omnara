@@ -203,12 +203,16 @@ func EncodeCompiled(compiled Compiled) (EncodedCompiled, error) {
 	if err != nil {
 		return EncodedCompiled{}, fmt.Errorf("marshal compiled agent config: %w", err)
 	}
-	canonical = canonicalizeJSON(canonical)
-	sum := sha256.Sum256(canonical)
-	return EncodedCompiled{CanonicalJSON: canonical, Hash: hex.EncodeToString(sum[:])}, nil
+	canonical = legacyCanonicalJSON(canonical)
+	return EncodedCompiled{CanonicalJSON: canonical, Hash: DefinitionHash(canonical)}, nil
 }
 
-func canonicalizeJSON(raw []byte) []byte {
+func DefinitionHash(canonical []byte) string {
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:])
+}
+
+func legacyCanonicalJSON(raw []byte) []byte {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return raw
@@ -539,7 +543,7 @@ func valueToCanonicalJSON(value any) (json.RawMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal JSON: %w", err)
 	}
-	return json.RawMessage(canonicalizeJSON(rawJSON)), nil
+	return json.RawMessage(legacyCanonicalJSON(rawJSON)), nil
 }
 
 func compileMachineSources(sources []AgentConfigMachineSource, opts CompileOptions) ([]MachineSourceCompiled, error) {

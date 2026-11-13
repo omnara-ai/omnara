@@ -2,8 +2,6 @@ package agentconfig
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +11,7 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -73,21 +72,34 @@ type RuntimeMachine struct {
 	Description                   string
 }
 
+func VerifiedDefinition(
+	compiledJSON json.RawMessage,
+	definitionHash string,
+) (json.RawMessage, error) {
+	if len(compiledJSON) == 0 {
+		return nil, errors.New("agent config compiled definition is required")
+	}
+	canonical, err := jsoncanonical.Canonical(compiledJSON)
+	if err != nil || DefinitionHash(canonical) != definitionHash {
+		canonical = legacyCanonicalJSON(compiledJSON)
+		if got := DefinitionHash(canonical); got != definitionHash {
+			return nil, fmt.Errorf(
+				"agent config definition hash mismatch: got %s want %s",
+				got,
+				definitionHash,
+			)
+		}
+	}
+	return canonical, nil
+}
+
 func RuntimeContractFromCompiled(
 	compiledJSON json.RawMessage,
 	definitionHash string,
 ) (RuntimeContract, error) {
-	if len(compiledJSON) == 0 {
-		return RuntimeContract{}, errors.New("agent config compiled definition is required")
-	}
-	canonical := canonicalizeJSON(compiledJSON)
-	sum := sha256.Sum256(canonical)
-	if got := hex.EncodeToString(sum[:]); got != definitionHash {
-		return RuntimeContract{}, fmt.Errorf(
-			"agent config definition hash mismatch: got %s want %s",
-			got,
-			definitionHash,
-		)
+	canonical, err := VerifiedDefinition(compiledJSON, definitionHash)
+	if err != nil {
+		return RuntimeContract{}, err
 	}
 	var compiled Compiled
 	decoder := json.NewDecoder(bytes.NewReader(canonical))
