@@ -130,7 +130,8 @@ already told you. Then wait for the reply.
    when someone writes, say, "@acme-pr-video record this"). Each pull
    request starts its own agent and machine, so `mention` costs least. Pull
    requests from bots or people without write access never start one on
-   their own.
+   their own, and it refuses pull requests from forks whoever asks: their
+   code would run next to credentials that can write to the repository.
 3. **GIF or video.** Default: a GIF. GitHub gives Apps no way to attach a
    video, so the agent commits a GIF to a hidden ref in the repository and
    embeds it in its comment. This needs no token, and the comment comes from
@@ -267,8 +268,14 @@ GitHub, which lists recent deliveries and their responses.
 
 When the comment is up, have the user check that the recording plays for
 them on the pull request. If the agent couldn't start the app, its comment
-says what failed: fix the notes from step 2, update the profile, and have
-the user mention it again.
+says what failed. Fix the notes from step 2 and update the profile, which
+covers pull requests from now on. The agent already on this pull request
+keeps the config it started with, so for this one have the user put the
+correction in the mention itself, for example "@acme-pr-video record this;
+the API now starts with `npm run api`". It follows a mention over its
+notes. Don't run `npx omnara agents update` on that agent with the
+profile's file: the launcher added the pull request tools and Git
+credentials to its config, and the file would replace them.
 
 ## 8. Wrap up
 
@@ -280,8 +287,10 @@ pushes). Then tell the user:
   with the whole `settings` object, or the **Pull requests** section on the
   integration's page in the dashboard.
 - **Change how the app is run, the model, or anything else:** ask a coding
-  agent with this skill. It updates the profile in place, and the next
-  recording uses it.
+  agent with this skill. It updates the profile in place. Pull requests it
+  hasn't worked on yet use the new config; one it has already recorded
+  keeps the config it started with, so put a correction for that one in
+  the mention.
 - **`pr-video-agent.yaml`** is their copy of the config. They can commit it,
   keep it elsewhere, or delete it; the profile on Omnara is what runs.
 - **Where the GIFs live:** on the ref `refs/uploads/pr-<number>` in the

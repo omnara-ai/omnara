@@ -18,7 +18,8 @@ a short recording on the pull request:
 > Recorded at `3f9c2ab`.
 
 It stays silent on pull requests with nothing to see: documentation, tests,
-CI, dependency bumps, and refactors. Mention it to record again after you
+CI, dependency bumps, and refactors. It works on pull requests from branches
+in your repository, not from forks. Mention it to record again after you
 push, or to ask for a different path through the app.
 
 You choose when it runs: on every new pull request, only when mentioned, or
@@ -75,10 +76,12 @@ need to push.
 
 Either way, a token that can write to the repository is on the machine that
 runs the pull request's code, as it would be in CI. Install the App on the
-one repository only, and scope a personal token to it as well. Only people
-with write access can start the agent, but they can start it on anyone's
-pull request: on a public repository, don't mention it on a pull request
-from a fork you haven't read.
+one repository only, and scope a personal token to it as well. For the same
+reason it records only pull requests from branches in the repository
+itself. It refuses a pull request from a fork whoever asks, because a fork's
+author can push new code at any time and that code would run next to the
+token. Recording forks safely would need the app to run without access to
+the credentials that publish the recording, which this example doesn't do.
 
 ## How it works
 
