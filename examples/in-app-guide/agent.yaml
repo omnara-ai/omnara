@@ -75,7 +75,8 @@ tools:
         text: { type: string, description: "One short sentence telling the user what to do." }
       required: [ref, text]
       additionalProperties: false
-  # --- do mode: delete from here to "end do mode" for a guide that only shows ---
+  # --- do mode: the route leaves out everything from here to "end do mode" when it is
+  # created with doMode: false, for a guide that only shows ---
   click:
     type: custom
     description: >-

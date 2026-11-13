@@ -32,6 +32,13 @@ export type GuideHandlerOptions = {
    * which is replaced by each user's name and context when their profile is made.
    */
   config: string
+  /**
+   * false makes the guide show only. The tools between the config's two "do mode"
+   * comments and the instruction's rule for acting are left out, so the agent has no
+   * way to click, type or submit. Pass `showOnly` to the widget as well, which hides
+   * "Do it for me". Default: true.
+   */
+  doMode?: boolean
   /** Start of every profile name, e.g. "Acme guide". */
   profilePrefix?: string
   getUser: (req: Request) => GuideUser | null | Promise<GuideUser | null>
@@ -135,12 +142,24 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
   const profileName = async (user: GuideUser) =>
     `${prefix} · ${titleFrom(user.displayName ?? '', 64 - [...prefix].length - 14, 'User')} · ${await userTag(user)}`
 
+  /** The guide's config as written, or without everything for acting on the page when doMode is off. */
+  const guideConfig = (() => {
+    if (opts.doMode !== false) return opts.config
+    const tools = /^[ \t]*# --- do mode\b.*\n[\s\S]*?^[ \t]*# --- end do mode ---.*\n/m
+    if (!tools.test(opts.config)) throw new Error('doMode is false, but the guide config has no "# --- do mode" to "# --- end do mode ---" block to leave out.')
+    // The numbered rule that starts with: Mode "do":
+    const rule = /^([ \t]*)(\d+\. )Mode "do":[\s\S]*?(?=^[ \t]*\d+\. )/m
+    const showOnly = (_: string, indent: string, number: string) =>
+      `${indent}${number}You only show; you never act on the page yourself. If the user asks you to do\n${indent}${' '.repeat(number.length)}something for them, say that you can walk them through it, and do that.\n`
+    return opts.config.replace(tools, '').replace(rule, showOnly)
+  })()
+
   /** The guide's config with this user's details written into the instruction. */
   function configFor(user: GuideUser) {
     const about = [`Name: ${oneLine(user.displayName ?? 'Not given')}`, ...user.context.split('\n').map(oneLine).filter(Boolean)]
-    const placeholder = opts.config.match(/^([ \t]*)\{\{user\}\}[ \t]*$/m)
+    const placeholder = guideConfig.match(/^([ \t]*)\{\{user\}\}[ \t]*$/m)
     if (!placeholder) throw new Error('The guide config needs a line containing only {{user}} inside its instruction.')
-    return `${ownerLine(user)}\n${opts.config.replace(placeholder[0], about.map((line) => `${placeholder[1]}${line}`).join('\n'))}`
+    return `${ownerLine(user)}\n${guideConfig.replace(placeholder[0], about.map((line) => `${placeholder[1]}${line}`).join('\n'))}`
   }
 
   /** The user's profile: the one whose name ends in their tag and whose config names them. */
@@ -197,7 +216,8 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
         const idempotencyKey = await requestKey(user, String(body.key))
         const content_blocks = [
           { type: 'text', text: body.text, metadata: { guide: 'question' } },
-          { type: 'text', text: body.context, metadata: { guide: 'context' } },
+          // A show-only guide is in "guide" mode whatever the browser says.
+          { type: 'text', text: opts.doMode === false ? body.context.replace(/^Mode: do\b/, 'Mode: guide') : body.context, metadata: { guide: 'context' } },
         ]
         if (agentPath) {
           try {

@@ -87,8 +87,11 @@ nothing written down, your coding agent writes short notes from your app's code 
 screens and uploads those; read them before going live, because the guide repeats what
 they say.
 
-**Show only.** Remove the `click`, `fill` and `submit` tools and the agent can only
-point. Start there if your app moves money or handles regulated data.
+**Show only.** "Do it for me" is on by default. Pass `doMode: false` to
+`createGuideHandler` and `showOnly` to the widget to turn it off: the route then leaves
+the `click`, `fill` and `submit` tools out of the agent's config, so the agent can only
+point, whatever it is asked. Start there if your app moves money or handles regulated
+data.
 
 ## What it has been tested on
 

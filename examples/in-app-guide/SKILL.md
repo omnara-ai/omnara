@@ -170,10 +170,11 @@ repeats what they say.
    granted (the guide was tested with it), otherwise the strongest model on the list
    that is good at tool use. These are `{{MODEL_PROVIDER_CONFIG}}` and `{{MODEL_NAME}}`.
 2. Replace `{{PRODUCT}}` everywhere.
-3. Show only: delete the tools between the two `do mode` comments, and replace rule 4
-   of the instruction with `You only show; you never act on the page yourself. If the
-   user asks you to do something for them, say that you can walk them through it, and
-   do that.` The agent then has no way to click, type or submit.
+3. Show only: leave the config as it is. In step 8 you pass `doMode: false` to the
+   route, which leaves out the tools between the two `do mode` comments and rule 4 of
+   the instruction, so the agent has no way to click, type or submit. Keep both
+   comments and the words `Mode "do":` at the start of rule 4 so the route can find
+   them.
 4. Check it: `grep -n '{{' guide.agent.yaml` must print only the `{{user}}` line, which
    the server fills in for each user.
 
@@ -206,6 +207,7 @@ export const { GET, POST } = createGuideHandler({
   projectId: process.env.OMNARA_PROJECT_ID!,
   config: readFileSync('guide.agent.yaml', 'utf8'),
   profilePrefix: 'Acme guide',
+  // doMode: false, // show only: the agent gets no tools for clicking, typing or submitting
   sessionSecret: process.env.GUIDE_SESSION_SECRET,
   async getUser(req) {
     const user = await currentUser(req) // the app's own session lookup
@@ -234,8 +236,8 @@ import { Guide } from '@/guide/Guide'
 <Guide endpoint="/api/guide" title="Ask Acme" suggestions={['How do I invite a teammate?']} />
 ```
 
-Add `showOnly` if you made the guide show only in step 6. Use the app's accent color
-for `accent`.
+Add `showOnly` if the route has `doMode: false`. Use the app's accent color for
+`accent`.
 If a support chat bubble already sits in the bottom-right corner, move the guide with
 `placement="bottom-left"` or `offset={{ side: 80 }}`. To open it from the app's own
 Help menu, call `openGuide()` from `guide/Guide`.

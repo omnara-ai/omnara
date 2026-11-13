@@ -22,8 +22,8 @@ export type GuideProps = {
   offset?: { side?: number; bottom?: number }
   /**
    * Hide "Do it for me": the guide only points and the user does every click. Set it
-   * when you deleted the agent's tools for acting on the page from its config
-   * (SKILL.md step 6).
+   * when the route is created with `doMode: false`, which also removes the agent's
+   * tools for acting on the page.
    */
   showOnly?: boolean
 }
