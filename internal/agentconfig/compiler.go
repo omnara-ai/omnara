@@ -205,9 +205,7 @@ func EncodeCompiled(compiled Compiled) (EncodedCompiled, error) {
 	if err != nil {
 		return EncodedCompiled{}, fmt.Errorf("marshal compiled agent config: %w", err)
 	}
-	if canonical, err = jsoncanonical.Canonical(canonical); err != nil {
-		return EncodedCompiled{}, fmt.Errorf("canonicalize compiled agent config: %w", err)
-	}
+	canonical = legacyCanonicalJSON(canonical)
 	return EncodedCompiled{CanonicalJSON: canonical, Hash: DefinitionHash(canonical)}, nil
 }
 
@@ -216,8 +214,6 @@ func DefinitionHash(canonical []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// legacyCanonicalJSON rounds numbers through float64. It only verifies
-// definitions hashed before numbers were kept exact.
 func legacyCanonicalJSON(raw []byte) []byte {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
@@ -545,6 +541,14 @@ func compileCustomTool(
 		Description: strings.TrimSpace(source.Description),
 		InputSchema: schema,
 	}, nil
+}
+
+func valueToCanonicalJSON(value any) (json.RawMessage, error) {
+	rawJSON, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("marshal JSON: %w", err)
+	}
+	return json.RawMessage(legacyCanonicalJSON(rawJSON)), nil
 }
 
 func compileMachineSources(sources []AgentConfigMachineSource, opts CompileOptions) ([]MachineSourceCompiled, error) {
