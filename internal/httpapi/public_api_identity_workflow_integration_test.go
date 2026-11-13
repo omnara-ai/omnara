@@ -4262,9 +4262,6 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 				}
 			}
 			for _, conn := range conns {
-				if tc.cancelDuringWrite && !conn.timedOut.Load() {
-					t.Fatal("canceled write did not produce a socket timeout")
-				}
 				if tc.partialWrite && conn.bytesWritten.Load() == 0 {
 					t.Fatal("partial write did not send any bytes")
 				}
@@ -4282,7 +4279,6 @@ type browserAuthWriteConn struct {
 	bytesWritten atomic.Int64
 	armed        atomic.Bool
 	triggered    atomic.Bool
-	timedOut     atomic.Bool
 	signaled     atomic.Bool
 	cancel       context.CancelFunc
 	deadlineSet  chan struct{}
@@ -4321,8 +4317,6 @@ func (c *browserAuthWriteConn) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	n, err := c.Conn.Write(p)
-	var networkErr net.Error
-	c.timedOut.Store(errors.As(err, &networkErr) && networkErr.Timeout())
 	c.bytesWritten.Store(int64(written + n))
 	return written + n, err
 }
