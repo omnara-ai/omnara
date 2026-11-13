@@ -129,8 +129,8 @@ func rejectTrailingJSONRequestBody(r *http.Request, opID string) error {
 	if err != nil {
 		return err
 	}
-	switch operationID(opID) {
-	case operationCreateAgentConfig, operationCreateAgent, operationUpdateAgentConfig, operationResolveAgentConfigTools:
+	if opID == string(operationCreateAgentConfig) || opID == string(operationCreateAgent) ||
+		opID == string(operationUpdateAgentConfig) || opID == string(operationResolveAgentConfigTools) {
 		*r = *r.WithContext(context.WithValue(r.Context(), originalJSONRequestBodyKey{}, raw))
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
