@@ -78,7 +78,7 @@ COPY cmd/chroot-sandbox/install.sh /src/chroot-sandbox/install.sh
 COPY --from=worker-build /out/omnara-chroot-sandbox /src/omnara-chroot-sandbox
 RUN sh /src/chroot-sandbox/install.sh /src/omnara-chroot-sandbox /out
 
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cc66d222f0a7ec996b78a99fe76a969bc80b539a5016ad866c14d1949bc6d0ab AS worker
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2 AS worker
 WORKDIR /app
 ADD --chmod=0444 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /etc/ssl/rds-global-bundle.pem
 COPY --from=file-tools /usr/bin/rg /usr/local/bin/
