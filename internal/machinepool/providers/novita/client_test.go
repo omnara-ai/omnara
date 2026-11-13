@@ -169,10 +169,14 @@ func TestRESTClientUsesTheSandboxDomainForEnvd(t *testing.T) {
 }
 
 func TestRESTClientSendsTheDefaultUserToOldEnvd(t *testing.T) {
-	var authorization string
+	authorization := map[string]string{}
 	client := testRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
-		authorization = r.Header.Get("Authorization")
-		_, _ = w.Write(connectFrame(0, `{"event":{"start":{"pid":42}}}`))
+		authorization[r.URL.Path] = r.Header.Get("Authorization")
+		if strings.HasSuffix(r.URL.Path, "/Start") {
+			_, _ = w.Write(connectFrame(0, `{"event":{"start":{"pid":42}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"processes":[]}`))
 	})
 	for version, want := range map[string]string{
 		"0.3.9":  "Basic dXNlcjo=",
@@ -182,8 +186,11 @@ func TestRESTClientSendsTheDefaultUserToOldEnvd(t *testing.T) {
 		"banana": "",
 	} {
 		target := sandbox{SandboxID: "sbx1", EnvdVersion: version}
+		_, err := client.ListProcesses(t.Context(), target)
+		require.NoError(t, err)
 		require.NoError(t, client.StartProcess(t.Context(), target, startProcessRequest{}))
-		require.Equal(t, want, authorization, version)
+		require.Equal(t, want, authorization["/process.Process/List"], "list %s", version)
+		require.Equal(t, want, authorization["/process.Process/Start"], "start %s", version)
 	}
 }
 

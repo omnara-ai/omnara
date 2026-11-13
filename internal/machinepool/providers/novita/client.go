@@ -3,6 +3,7 @@ package novita
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ const (
 	connectEndStreamFlag = 0x02
 	sandboxStateRunning  = "running"
 	sandboxStatePaused   = "paused"
+	defaultEnvdUser      = "user"
 	buildStatusReady     = "ready"
 )
 
@@ -234,9 +236,6 @@ func (c *restClient) StartProcess(ctx context.Context, target sandbox, input sta
 	for key, value := range envdHeaders(target) {
 		request.Header.Set(key, value)
 	}
-	if envdNeedsDefaultUser(target.EnvdVersion) {
-		request.SetBasicAuth("user", "")
-	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return fmt.Errorf("novita process start failed: %w", err)
@@ -326,8 +325,15 @@ func (c *restClient) envdURL(target sandbox, path string) string {
 	return "https://" + strconv.Itoa(envdPort) + "-" + target.SandboxID + "." + domain + path
 }
 
+// envdHeaders returns the headers every sandbox daemon request carries. Daemons
+// older than 0.4 identify the OS user through HTTP basic auth, so the default
+// user is added for them on every call, not only on process start.
 func envdHeaders(target sandbox) map[string]string {
-	return map[string]string{"X-Access-Token": target.EnvdAccessToken, "Connect-Protocol-Version": "1"}
+	headers := map[string]string{"X-Access-Token": target.EnvdAccessToken, "Connect-Protocol-Version": "1"}
+	if envdNeedsDefaultUser(target.EnvdVersion) {
+		headers["Authorization"] = "Basic " + base64.StdEncoding.EncodeToString([]byte(defaultEnvdUser+":"))
+	}
+	return headers
 }
 
 // envdNeedsDefaultUser reports whether the sandbox daemon predates access
