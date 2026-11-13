@@ -63,9 +63,60 @@ func TestArkerProviderProvisionKeyIsStableAcrossAttempts(t *testing.T) {
 			t.Fatalf("provision under %s: %v", token, err)
 		}
 	}
-	keys, _, _, _ := fake.snapshot()
+	keys, _, env, _ := fake.snapshot()
 	if len(keys) != 2 || keys[0] != name || keys[1] != name {
 		t.Fatalf("attempts sent keys %v, want the allocation name %q", keys, name)
+	}
+	if env["OMNARA_MACHINE_TOKEN"] != daemonprotocol.ProviderInjectedMachineToken {
+		t.Fatalf("adopted machine env token = %q, want the provider-injected marker", env["OMNARA_MACHINE_TOKEN"])
+	}
+}
+
+func TestArkerProviderAdoptedVMKeepsTheTokenModeItWasForkedWith(t *testing.T) {
+	fake := &fakeArker{sourceRules: `{"egress":{"type":"outbound","priority":1000000,"action":"allow"}}`}
+	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+	config := testProvisioning(testOptions())
+	if _, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID, config, "attempt-1", nil, true,
+	); err != nil {
+		t.Fatalf("provision first attempt: %v", err)
+	}
+	fake.record(func() { fake.sourceRules = `{}` })
+	if _, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID, config, "attempt-2", nil, true,
+	); err != nil {
+		t.Fatalf("provision second attempt: %v", err)
+	}
+	keys, forkBody, env, _ := fake.snapshot()
+	if _, injected := forkBody["policies"]; len(keys) != 2 || !injected || env["OMNARA_MACHINE_TOKEN"] != "attempt-2" {
+		t.Fatalf("forks = %d second injected = %v env token = %q, want the adopted plain-token VM to keep the plain token",
+			len(keys), injected, env["OMNARA_MACHINE_TOKEN"])
+	}
+}
+
+func TestArkerProviderKeepsThePlainTokenWhenTheSourceHoldsTheTopPriority(t *testing.T) {
+	for rules, wantInjected := range map[string]bool{
+		`{"egress":{"type":"outbound","priority":1000000,"action":"allow"}}`:               false,
+		`{"egress":{"type":"outbound","priority":100,"action":"allow"}}`:                   true,
+		`{"omnara-machine-token":{"type":"outbound","priority":1000000,"action":"allow"}}`: true,
+	} {
+		fake := &fakeArker{sourceRules: rules}
+		machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+		if _, err := machineProvider.ProvisionMachine(
+			context.Background(), testInstallationID, testMachineID, testProvisioning(testOptions()), "tok-1", nil, true,
+		); err != nil {
+			t.Fatalf("provision with source rules %s: %v", rules, err)
+		}
+		_, forkBody, env, _ := fake.snapshot()
+		_, injected := forkBody["policies"]
+		wantToken := "tok-1"
+		if wantInjected {
+			wantToken = daemonprotocol.ProviderInjectedMachineToken
+		}
+		if injected != wantInjected || env["OMNARA_MACHINE_TOKEN"] != wantToken {
+			t.Fatalf("source rules %s: injected = %v token = %q, want %v %q",
+				rules, injected, env["OMNARA_MACHINE_TOKEN"], wantInjected, wantToken)
+		}
 	}
 }
 
@@ -288,7 +339,7 @@ func TestArkerProviderDeleteFindsTheMachineByNameWhenTheRecordedIDIsGone(t *test
 			deleted <- r.URL.Path
 			fmt.Fprint(w, `{"deleted":true}`)
 		case r.URL.Path == "/v1/vms/"+name:
-			writeVM(w, name, "idle")
+			writeVM(w, name, "idle", "")
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, `{"error":{"code":"not_found","message":"gone"}}`)

@@ -24,6 +24,7 @@ type fakeAPI struct {
 	sandboxes map[string]sandbox
 	creates   []createSandboxRequest
 	createErr error
+	noRules   bool
 	hide      bool
 	findErr   error
 
@@ -74,6 +75,9 @@ func (f *fakeAPI) CreateSandbox(_ context.Context, request createSandboxRequest)
 	f.creates = append(f.creates, request)
 	if f.createErr != nil {
 		return sandbox{}, f.createErr
+	}
+	if f.noRules && request.Network.Rules != nil {
+		return sandbox{}, apiError{StatusCode: http.StatusBadRequest}
 	}
 	created := f.addSandbox(fmt.Sprintf("sbx%d", len(f.creates)), request.Metadata, 2, 2048)
 	return sandbox{SandboxID: created.SandboxID, EnvdAccessToken: created.EnvdAccessToken}, nil

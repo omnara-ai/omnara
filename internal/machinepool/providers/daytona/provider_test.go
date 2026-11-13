@@ -415,6 +415,11 @@ func TestDaytonaProviderDeleteMachineDeletesTheTokenSecretAfterTheSandbox(t *tes
 
 	api = newFakeAPI()
 	api.findSecretErr = apiError{StatusCode: http.StatusInternalServerError}
+	require.Error(t, deleteMachine(api))
+	require.Equal(t, []string{"delete-sandbox", "find-secret"}, api.calls)
+
+	api = newFakeAPI()
+	api.findSecretErr = apiError{StatusCode: http.StatusForbidden}
 	require.NoError(t, deleteMachine(api))
 	require.Equal(t, []string{"delete-sandbox", "find-secret"}, api.calls)
 

@@ -50,9 +50,15 @@ type resources struct {
 }
 
 type vm struct {
-	ID    string `json:"vm_id"`
-	Name  string `json:"name"`
-	State string `json:"state"`
+	ID       string `json:"vm_id"`
+	Name     string `json:"name"`
+	State    string `json:"state"`
+	Policies struct {
+		Rules map[string]struct {
+			Type     string `json:"type"`
+			Priority int    `json:"priority"`
+		} `json:"rules"`
+	} `json:"policies"`
 }
 
 type runRequest struct {
@@ -183,4 +189,9 @@ func (e apiError) Error() string {
 func isNotFound(err error) bool {
 	var apiErr apiError
 	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
+}
+
+func isConflict(err error) bool {
+	var apiErr apiError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict
 }

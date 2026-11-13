@@ -3,6 +3,7 @@ package arker
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -78,8 +79,11 @@ type fakeArker struct {
 	runState           string
 	existingRunState   string
 	existingRunCommand string
+	sourceRules        string
 
 	mu            sync.Mutex
+	forkBodies    map[string]string
+	vmPolicies    string
 	lookup        string
 	keys          []string
 	forkBody      map[string]any
@@ -111,17 +115,37 @@ func (f *fakeArker) start(t *testing.T, name string) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/fork", func(w http.ResponseWriter, r *http.Request) {
 		f.forks.Add(1)
+		raw, _ := io.ReadAll(r.Body)
 		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		_ = json.Unmarshal(raw, &body)
+		key := r.Header.Get("Idempotency-Key")
+		conflict := false
 		f.record(func() {
-			f.keys = append(f.keys, r.Header.Get("Idempotency-Key"))
+			f.keys = append(f.keys, key)
 			f.forkBody = body
+			if previous, ok := f.forkBodies[key]; ok && previous != string(raw) {
+				conflict = true
+				return
+			}
+			if f.forkBodies == nil {
+				f.forkBodies = map[string]string{}
+			}
+			if _, replay := f.forkBodies[key]; !replay {
+				policies, _ := json.Marshal(body["policies"])
+				f.vmPolicies = string(policies)
+			}
+			f.forkBodies[key] = string(raw)
 		})
+		if conflict {
+			w.WriteHeader(http.StatusConflict)
+			fmt.Fprint(w, `{"error":{"code":"idempotency_conflict","message":"key reused for a different request"}}`)
+			return
+		}
 		vmName := f.vmName
 		if vmName == "" {
 			vmName, _ = body["name"].(string)
 		}
-		writeVM(w, vmName, "running")
+		writeVM(w, vmName, "running", f.policies())
 	})
 	mux.HandleFunc("/v1/vms/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -168,6 +192,8 @@ func (f *fakeArker) start(t *testing.T, name string) *httptest.Server {
 				return
 			}
 			fmt.Fprintf(w, `{"run_id":"run_1","state":%q}`, f.runState)
+		case f.source() != "" && strings.HasSuffix(path, "/ubuntu-base"):
+			fmt.Fprintf(w, `{"vm_id":"vm_source","name":"ubuntu-base","state":"running","policies":{"rules":%s}}`, f.source())
 		default:
 			f.record(func() { f.lookup = path })
 			vmName := f.vmName
@@ -178,7 +204,7 @@ func (f *fakeArker) start(t *testing.T, name string) *httptest.Server {
 			if vmState == "" {
 				vmState = "running"
 			}
-			writeVM(w, vmName, vmState)
+			writeVM(w, vmName, vmState, f.policies())
 		}
 	})
 	server := httptest.NewServer(mux)
@@ -186,8 +212,23 @@ func (f *fakeArker) start(t *testing.T, name string) *httptest.Server {
 	return server
 }
 
-func writeVM(w http.ResponseWriter, name, state string) {
-	fmt.Fprintf(w, `{"vm_id":%q,"name":%q,"state":%q}`, testVMID, name, state)
+func (f *fakeArker) source() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.sourceRules
+}
+
+func (f *fakeArker) policies() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.vmPolicies
+}
+
+func writeVM(w http.ResponseWriter, name, state, policies string) {
+	if policies == "" {
+		policies = "null"
+	}
+	fmt.Fprintf(w, `{"vm_id":%q,"name":%q,"state":%q,"policies":%s}`, testVMID, name, state, policies)
 }
 
 func newTestProvider(baseURL string) *provider {

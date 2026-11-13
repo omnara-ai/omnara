@@ -266,6 +266,9 @@ func (p *provider) machineTokenSecrets(ctx context.Context, name, machineToken s
 
 func (p *provider) deleteMachineTokenSecret(ctx context.Context, name string) error {
 	id, found, err := p.api.FindSecret(ctx, name)
+	if isForbidden(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("find daytona machine token secret: %w", err)
 	}
@@ -384,8 +387,7 @@ func (p *provider) DeleteMachine(
 			return err
 		}
 	}
-	_ = p.deleteMachineTokenSecret(ctx, name)
-	return nil
+	return p.deleteMachineTokenSecret(ctx, name)
 }
 
 func sandboxOwnedBy(target sandbox, name string) bool {

@@ -75,6 +75,13 @@ type sandbox struct {
 	Metadata    map[string]string `json:"metadata"`
 	AccessToken string            `json:"access_token"`
 	RoutingHint string            `json:"routing_hint"`
+	Secrets     []sandboxSecret   `json:"secrets"`
+}
+
+type sandboxSecret struct {
+	EnvKey     string `json:"env_key"`
+	SecretName string `json:"secret_name"`
+	Revoked    bool   `json:"revoked"`
 }
 
 type createSandboxRequest struct {

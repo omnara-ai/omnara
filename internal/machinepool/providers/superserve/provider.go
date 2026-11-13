@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -204,10 +205,17 @@ func (p *provider) attachMachineToken(ctx context.Context, sandboxID, name, host
 		return fmt.Errorf("create superserve machine token secret: %w", err)
 	}
 	err = p.api.AttachSecret(ctx, sandboxID, attachSecretRequest{EnvKey: providers.MachineTokenEnvVar, SecretName: name})
-	if err != nil && apiStatusCode(err) != http.StatusConflict {
+	if err != nil && !p.machineTokenBound(ctx, sandboxID, name) {
 		return fmt.Errorf("attach superserve machine token secret: %w", err)
 	}
 	return nil
+}
+
+func (p *provider) machineTokenBound(ctx context.Context, sandboxID, name string) bool {
+	current, found, err := p.api.GetSandbox(ctx, sandboxID)
+	return err == nil && found && slices.ContainsFunc(current.Secrets, func(binding sandboxSecret) bool {
+		return binding.EnvKey == providers.MachineTokenEnvVar && binding.SecretName == name && !binding.Revoked
+	})
 }
 
 func (p *provider) awaitActive(ctx context.Context, target sandbox) (sandbox, error) {
@@ -468,8 +476,7 @@ func (p *provider) DeleteMachine(
 			return err
 		}
 	}
-	_ = p.api.DeleteSecret(ctx, name)
-	return nil
+	return p.api.DeleteSecret(ctx, name)
 }
 
 func rejectedBeforeCreate(err error) bool {

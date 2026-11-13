@@ -218,22 +218,36 @@ func TestSuperserveProvisionMachineCreatesActivatesAndStartsTheDaemon(t *testing
 	}
 }
 
-func TestSuperserveProvisionMachineToleratesAnExistingMachineTokenSecret(t *testing.T) {
-	api := newFakeAPI()
-	api.secretErr = apiError{StatusCode: http.StatusConflict}
-	api.attachErr = apiError{StatusCode: http.StatusConflict}
-	_, err := provisionTestMachine(t, api, uuid.New(), uuid.New(), testMachineProvisioning(t, "", ""), nil)
+func TestSuperserveProvisionMachineStartsTheDaemonOnlyOnceTheTokenIsBound(t *testing.T) {
+	installationID, machineID := uuid.New(), uuid.New()
+	name, err := providers.MachineAllocationName(installationID, machineID)
 	if err != nil {
-		t.Fatalf("provision machine: %v", err)
+		t.Fatal(err)
 	}
-	if api.execCalls != 1 {
-		t.Fatalf("exec calls = %d, want the daemon started", api.execCalls)
-	}
-	api = newFakeAPI()
-	api.attachErr = apiError{StatusCode: http.StatusBadRequest}
-	_, err = provisionTestMachine(t, api, uuid.New(), uuid.New(), testMachineProvisioning(t, "", ""), nil)
-	if err == nil || api.execCalls != 0 {
-		t.Fatalf("provision error = %v exec calls = %d, want the attach failure before the daemon starts", err, api.execCalls)
+	bound := []sandboxSecret{{EnvKey: "OMNARA_MACHINE_TOKEN", SecretName: name}}
+	for _, test := range []struct {
+		name      string
+		attachErr error
+		bindings  []sandboxSecret
+		started   bool
+	}{
+		{name: "already bound", attachErr: apiError{StatusCode: http.StatusConflict}, bindings: bound, started: true},
+		{name: "conflict without the binding", attachErr: apiError{StatusCode: http.StatusConflict}},
+		{name: "revoked binding", attachErr: apiError{StatusCode: http.StatusConflict},
+			bindings: []sandboxSecret{{EnvKey: "OMNARA_MACHINE_TOKEN", SecretName: name, Revoked: true}}},
+		{name: "server error after binding", attachErr: apiError{StatusCode: http.StatusInternalServerError},
+			bindings: bound, started: true},
+		{name: "rejected", attachErr: apiError{StatusCode: http.StatusBadRequest}},
+	} {
+		api := newFakeAPI()
+		api.secretErr = apiError{StatusCode: http.StatusConflict}
+		api.attachErr = test.attachErr
+		api.created.Secrets = test.bindings
+		_, err := provisionTestMachine(t, api, installationID, machineID, testMachineProvisioning(t, "", ""), nil)
+		if (err == nil) != test.started || (api.execCalls == 1) != test.started {
+			t.Fatalf("%s: provision error = %v exec calls = %d, want started = %v",
+				test.name, err, api.execCalls, test.started)
+		}
 	}
 }
 
@@ -725,8 +739,9 @@ func TestSuperserveDeleteMachine(t *testing.T) {
 	api = newFakeAPI()
 	api.created = ownedSandbox(t, "sb-123", sandboxStatusActive, installationID, machineID)
 	api.deleteSecretErr = apiError{StatusCode: http.StatusInternalServerError}
-	if err := deleteMachine(api, "sb-123"); err != nil || api.deletedID != "sb-123" {
-		t.Fatalf("delete with a failing secret API error = %v deleted %q, want the sandbox deleted", err, api.deletedID)
+	if err := deleteMachine(api, "sb-123"); err == nil || api.deletedID != "sb-123" {
+		t.Fatalf("delete with a failing secret API error = %v deleted %q, want the sandbox deleted and the error retried",
+			err, api.deletedID)
 	}
 
 	api = newFakeAPI()
