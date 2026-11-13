@@ -189,10 +189,18 @@ already told you. Then wait for the reply.
 
    ```text
    When new commits are pushed, you're told the head changed. Decide again
-   as in step 1, looking only at what changed since your last recording. If
-   it changed something visible, fetch and check out the new head, restart
-   the app, and repeat steps 3 to 5. Otherwise post nothing.
+   whether there is something new to show. First make sure your machine is
+   still there, as in step 2; on a replacement, do all of step 2 again.
+   Fetch the new head and compare it with the commit you last recorded:
+   `git diff --stat <recorded commit> FETCH_HEAD`. If nothing a person can
+   see has changed since that recording, post nothing. If something has,
+   check out the new head, restart the app, and repeat steps 3 to 5, and
+   have the comment's one sentence say what is new since the last
+   recording.
    ```
+
+   The agent then looks at every push but records only the ones that
+   change what a reviewer would see.
 6. Check for an existing profile: `npx omnara profiles list --name pr-video-agent --json`.
    - None: `npx omnara profiles create --name pr-video-agent --file ./pr-video-agent.yaml --json`
    - Exists, for this repository: `npx omnara profiles update <agent-profile-id> --file ./pr-video-agent.yaml --json`
