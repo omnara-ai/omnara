@@ -4253,8 +4253,10 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 				if event["http.status_code"] != float64(http.StatusOK) || event["level"] != "info" {
 					t.Fatalf("canceled auth misclassified: %+v", event)
 				}
-				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), "timeout") {
-					t.Fatalf("missing actual socket timeout: %+v", event)
+				// pgx normalizes write timeouts to the canceled context; the connection below
+				// independently verifies that a real socket timeout still occurred.
+				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), context.Canceled.Error()) {
+					t.Fatalf("missing normalized cancellation: %+v", event)
 				}
 			default:
 				if handlerCalls != 1 || rec.Code != http.StatusNoContent || event["http.status_code"] != float64(204) {
@@ -4262,6 +4264,9 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 				}
 			}
 			for _, conn := range conns {
+				if tc.cancelDuringWrite && !conn.timedOut.Load() {
+					t.Fatal("canceled write did not produce a socket timeout")
+				}
 				if tc.partialWrite && conn.bytesWritten.Load() == 0 {
 					t.Fatal("partial write did not send any bytes")
 				}
@@ -4279,6 +4284,7 @@ type browserAuthWriteConn struct {
 	bytesWritten atomic.Int64
 	armed        atomic.Bool
 	triggered    atomic.Bool
+	timedOut     atomic.Bool
 	signaled     atomic.Bool
 	cancel       context.CancelFunc
 	deadlineSet  chan struct{}
@@ -4317,6 +4323,8 @@ func (c *browserAuthWriteConn) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	n, err := c.Conn.Write(p)
+	var networkErr net.Error
+	c.timedOut.Store(errors.As(err, &networkErr) && networkErr.Timeout())
 	c.bytesWritten.Store(int64(written + n))
 	return written + n, err
 }
