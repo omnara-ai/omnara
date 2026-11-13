@@ -24,6 +24,8 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 )
 
+type originalJSONRequestBodyKey struct{}
+
 func newOpenAPIRequestValidator() (middleware, error) {
 	spec, err := openapi.GetSpec()
 	if err != nil {
@@ -74,7 +76,7 @@ func newOpenAPIRequestValidator() (middleware, error) {
 						writeOpenAPIRequestError(w, r, err)
 						return
 					}
-				} else if err := rejectTrailingJSONRequestBody(r); err != nil {
+				} else if err := rejectTrailingJSONRequestBody(r, route.Operation.OperationID); err != nil {
 					writeOpenAPIRequestError(w, r, err)
 					return
 				}
@@ -117,7 +119,7 @@ func rejectUnexpectedOpenAPIRequestBody(r *http.Request) error {
 	return nil
 }
 
-func rejectTrailingJSONRequestBody(r *http.Request) error {
+func rejectTrailingJSONRequestBody(r *http.Request, opID string) error {
 	if r.Body == nil || !isJSONContentType(r.Header.Get("Content-Type")) {
 		return nil
 	}
@@ -126,6 +128,10 @@ func rejectTrailingJSONRequestBody(r *http.Request) error {
 	r.ContentLength = int64(len(raw))
 	if err != nil {
 		return err
+	}
+	switch operationID(opID) {
+	case operationCreateAgentConfig, operationCreateAgent, operationUpdateAgentConfig, operationResolveAgentConfigTools:
+		*r = *r.WithContext(context.WithValue(r.Context(), originalJSONRequestBodyKey{}, raw))
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil
