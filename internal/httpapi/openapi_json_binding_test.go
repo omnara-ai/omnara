@@ -51,8 +51,6 @@ func TestStrictJSONBodyBindsOnlyValidatedMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec.Servers = openapi3.Servers{{URL: openAPIBasePath}}
-	// An open object schema exposes the decoder mismatch; closed schemas would
-	// reject case variants before exercising the real generated body binder.
 	allowExtra := true
 	spec.Components.Schemas["CreateMemoryStore"].Value.AdditionalProperties.Has = &allowExtra
 
@@ -63,11 +61,30 @@ func TestStrictJSONBodyBindsOnlyValidatedMembers(t *testing.T) {
 		status int
 	}{
 		{name: "ordinary", raw: `{"name":"docs","agent_access":"read"}`, access: "read", status: http.StatusNoContent},
-		{name: "case variants", raw: `{"name":"docs","NAME":"../invalid","agent_access":"read","AGENT_ACCESS":"write"}`, access: "read", status: http.StatusNoContent},
-		{name: "case variant before member", raw: `{"NAME":"../invalid","AGENT_ACCESS":"write","name":"docs","agent_access":"read"}`, access: "read", status: http.StatusNoContent},
-		{name: "extra properties", raw: `{"name":"docs","agent_access":"read","extra":{"note":"allowed"}}`, access: "read", status: http.StatusNoContent},
+		{
+			name:   "case variants",
+			raw:    `{"name":"docs","NAME":"../invalid","agent_access":"read","AGENT_ACCESS":"write"}`,
+			access: "read",
+			status: http.StatusNoContent,
+		},
+		{
+			name:   "case variant before member",
+			raw:    `{"NAME":"../invalid","AGENT_ACCESS":"write","name":"docs","agent_access":"read"}`,
+			access: "read",
+			status: http.StatusNoContent,
+		},
+		{
+			name:   "extra properties",
+			raw:    `{"name":"docs","agent_access":"read","extra":{"note":"allowed"}}`,
+			access: "read",
+			status: http.StatusNoContent,
+		},
 		{name: "omission", raw: `{"name":"docs"}`, status: http.StatusNoContent},
-		{name: "case variant cannot supply omitted member", raw: `{"name":"docs","AGENT_ACCESS":"write"}`, status: http.StatusNoContent},
+		{
+			name:   "case variant cannot supply omitted member",
+			raw:    `{"name":"docs","AGENT_ACCESS":"write"}`,
+			status: http.StatusNoContent,
+		},
 		{name: "invalid canonical name", raw: `{"name":"../invalid"}`, status: http.StatusBadRequest},
 		{name: "invalid canonical access", raw: `{"name":"docs","agent_access":"write"}`, status: http.StatusBadRequest},
 		{name: "explicit null", raw: `{"name":"docs","agent_access":null}`, status: http.StatusBadRequest},

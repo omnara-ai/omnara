@@ -4253,8 +4253,6 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 				if event["http.status_code"] != float64(http.StatusOK) || event["level"] != "info" {
 					t.Fatalf("canceled auth misclassified: %+v", event)
 				}
-				// pgx normalizes write timeouts to the canceled context; the connection below
-				// independently verifies that a real socket timeout still occurred.
 				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), context.Canceled.Error()) {
 					t.Fatalf("missing normalized cancellation: %+v", event)
 				}
