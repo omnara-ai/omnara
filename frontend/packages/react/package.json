@@ -18,13 +18,13 @@
     "zod": "^4.6.7"
   },
   "peerDependencies": {
-    "@tanstack/react-query": "^5.105.2",
+    "@tanstack/react-query": "^5.106.1",
     "react": "^19.0.0"
   },
   "devDependencies": {
-    "@tanstack/react-query": "^5.105.2",
+    "@tanstack/react-query": "^5.106.1",
     "@types/react": "^19.0.0",
-    "ai": "7.0.159",
+    "ai": "7.0.163",
     "react": "19.3.0-canary-eb8feb71-20260814",
     "typescript": "^5.6.0",
     "vitest": "5.1.0"
