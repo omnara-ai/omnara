@@ -141,9 +141,10 @@ already told you. Then wait for the reply.
    see the recording, so on a public repository it's public; check with
    `gh repo view <owner>/<name> --json visibility` and say so. `README.md`
    has the trade-offs under "GIF or video"; show them if the user asks.
-4. **New pushes.** Default: it stays quiet when commits land on a pull
-   request it recorded, until someone mentions it. The alternative is
-   recording again on every push.
+4. **New pushes.** Default: it looks at each push to a pull request it
+   recorded, and records again only when the push changes something a
+   reviewer would see. The alternative is staying quiet after the first
+   recording until someone mentions it.
 5. **The App's name.** This agent needs its own GitHub App: an integration
    launches one profile, so it can't share another agent's, such as the PR
    review agent's. Suggest a name with the team's name, such as
@@ -184,23 +185,16 @@ already told you. Then wait for the reply.
    `pr-video-agent-attach-token`, so the token never appears in this
    conversation. Then uncomment the `secret_env_overlay` lines for
    `VIDEO_ATTACH_TOKEN` in the copy and put the secret's ID there.
-5. If the user wants a recording on every push, replace the instruction's
+5. If the user wants it quiet on new pushes, replace the instruction's
    paragraph that starts "When new commits are pushed" with:
 
    ```text
-   When new commits are pushed, you're told the head changed. Decide again
-   whether there is something new to show. First make sure your machine is
-   still there, as in step 2; on a replacement, do all of step 2 again.
-   Fetch the new head and compare it with the commit you last recorded:
-   `git diff --stat <recorded commit> FETCH_HEAD`. If nothing a person can
-   see has changed since that recording, post nothing. If something has,
-   check out the new head, restart the app, and repeat steps 3 to 5, and
-   have the comment's one sentence say what is new since the last
-   recording.
+   When new commits are pushed, you're told the head changed. Don't post
+   anything for that alone; record again only when someone asks. To record
+   again, first make sure your machine is still there, as in step 2. On the
+   same machine, fetch and check out the new head and restart the app. On a
+   replacement, do all of step 2 again. Then repeat steps 3 to 5.
    ```
-
-   The agent then looks at every push but records only the ones that
-   change what a reviewer would see.
 6. Check for an existing profile: `npx omnara profiles list --name pr-video-agent --json`.
    - None: `npx omnara profiles create --name pr-video-agent --file ./pr-video-agent.yaml --json`
    - Exists, for this repository: `npx omnara profiles update <agent-profile-id> --file ./pr-video-agent.yaml --json`
@@ -281,9 +275,25 @@ covers pull requests from now on. The agent already on this pull request
 keeps the config it started with, so for this one have the user put the
 correction in the mention itself, for example "@acme-pr-video record this;
 the API now starts with `npm run api`". It follows a mention over its
-notes. Don't run `npx omnara agents update` on that agent with the
-profile's file: the launcher added the pull request tools and Git
-credentials to its config, and the file would replace them.
+notes.
+
+To change that agent's config instead, don't give it the profile's file as
+it is: the launcher added the pull request tools and Git credentials to
+its config, and the file would replace them. Make a copy of
+`pr-video-agent.yaml`, add these to it, and run
+`npx omnara agents update <agent-id> --file <copy>`
+(`npx omnara agents list --agent-profile-id <agent-profile-id>` lists the
+agents, one per pull request):
+
+```yaml
+tools:
+  # keep the entries already there, and add:
+  int__pr-video-agent-github__read: {}
+  int__pr-video-agent-github__discussion_comment: {}
+
+git_credentials:
+  integration: pr-video-agent-github
+```
 
 ## 8. Wrap up
 

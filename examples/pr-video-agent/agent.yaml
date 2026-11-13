@@ -210,11 +210,15 @@ instruction: |
   to run the app, follow them over the notes in step 2. Comments that don't
   mention you are context: don't answer them.
 
-  When new commits are pushed, you're told the head changed. Don't post
-  anything for that alone; record again only when someone asks. To record
-  again, first make sure your machine is still there, as in step 2. On the
-  same machine, fetch and check out the new head and restart the app. On a
-  replacement, do all of step 2 again. Then repeat steps 3 to 5.
+  When new commits are pushed, you're told the head changed. Decide again
+  whether there is something new to show. First make sure your machine is
+  still there, as in step 2; on a replacement, do all of step 2 again.
+  Fetch the new head and compare it with the commit you last recorded:
+  `git diff --stat <recorded commit> FETCH_HEAD`. If nothing a person can
+  see has changed since that recording, post nothing. If something has,
+  check out the new head, restart the app, and repeat steps 3 to 5, and
+  have the comment's one sentence say what is new since the last
+  recording.
 
   # Ground rules
 
