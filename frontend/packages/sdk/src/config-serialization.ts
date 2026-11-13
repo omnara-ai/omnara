@@ -13,6 +13,7 @@ function hasOriginalValue(node: Scalar, document: Document) {
   const original = parseDocument(source, { schema: document.schema }).contents
   return (
     isScalar(original) &&
+    original.source === node.source &&
     (node.value instanceof Date && original.value instanceof Date
       ? node.value.getTime() === original.value.getTime()
       : Object.is(node.value, original.value))
@@ -35,11 +36,6 @@ const sourceScalarTags: ScalarTag[] = ['int', 'float', 'str', 'timestamp'].map((
 
 export function serializeConfigDocument(document: Document, format: ConfigSourceFormat) {
   const doc = document.clone()
-  const tags = doc.schema.tags
-  doc.setSchema('1.2', {
-    ...configYamlOptions,
-    customTags: () => [...tags, ...sourceScalarTags],
-  })
   visit(doc, {
     Collection(_, node) {
       const flow = format === 'json' || node.items.length === 0
@@ -57,11 +53,16 @@ export function serializeConfigDocument(document: Document, format: ConfigSource
           (node.type === 'PLAIN' &&
             node.value === node.source &&
             scalarPreservationReason(node))) &&
-        hasOriginalValue(node, document)
+        hasOriginalValue(node, doc)
       )
         node.format = 'SOURCE'
       if (format === 'json' && isString(node.value)) node.type = 'QUOTE_DOUBLE'
     },
+  })
+  const tags = doc.schema.tags
+  doc.setSchema('1.2', {
+    ...configYamlOptions,
+    customTags: () => [...tags, ...sourceScalarTags],
   })
   const source = doc.toString({
     lineWidth: 0,

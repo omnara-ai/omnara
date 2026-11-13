@@ -1,21 +1,22 @@
 import { expect, it } from 'vitest'
-import { isScalar, parse } from 'yaml'
+import { Document, isScalar, parse } from 'yaml'
 
-import { parseConfigDocument, serializeConfigDocument } from './config-source'
+import { configNodeSource, parseConfigDocument, serializeConfigDocument } from './config-source'
 
 it.each(['yaml', 'json'] as const)('serializes ordinary document edits in %s', (format) => {
   const { doc } = parseConfigDocument(
     format === 'json'
-      ? '{"max_subagents":1,"nested":{"count":2},"values":[3,9007199254740993,0.123456789012345678901]}'
-      : 'max_subagents: 1\nnested: {count: 2}\nvalues: [3, 9007199254740993, 0.123456789012345678901]\n',
+      ? '{"max_subagents":1,"nested":{"count":2},"values":[3,9007199254740993,0.123456789012345678901],"syntax":["30 # seconds","--- 5","5\\n---\\n6"]}'
+      : 'max_subagents: 1\nnested: {count: 2}\nvalues: [3, 9007199254740993, 0.123456789012345678901]\nsyntax: ["30 # seconds", "--- 5", "5\\n---\\n6"]\n',
     format,
   )
   doc.set('max_subagents', 4)
   doc.setIn(['nested', 'count'], '2')
   doc.setIn(['values', 0], 6)
+  for (const [index, value] of [30, 5, 5].entries()) doc.setIn(['syntax', index], value)
   const source = serializeConfigDocument(doc, format)
   const result: unknown = format === 'json' ? JSON.parse(source) : parse(source)
-  expect(result).toMatchObject({ max_subagents: 4, nested: { count: '2' } })
+  expect(result).toMatchObject({ max_subagents: 4, nested: { count: '2' }, syntax: [30, 5, 5] })
   expect(result).toHaveProperty(['values', 0], 6)
   expect(source).toContain('9007199254740993')
   expect(source).toContain('0.123456789012345678901')
@@ -28,6 +29,15 @@ it('retains unchanged timestamp text but writes a mutated timestamp value', () =
   const node = doc.get('date', true)
   if (!isScalar(node) || !(node.value instanceof Date)) throw new Error('Expected a timestamp')
   node.value.setUTCFullYear(2027)
+  expect(parseConfigDocument(configNodeSource(doc, ['date'], 'yaml'), 'yaml').doc.toJS()).toEqual(
+    node.value,
+  )
+  const moved = new Document(node.clone())
+  const tags = [...moved.schema.tags]
+  expect(parseConfigDocument(serializeConfigDocument(moved, 'yaml'), 'yaml').doc.toJS()).toEqual(
+    node.value,
+  )
+  expect(moved.schema.tags).toEqual(tags)
   expect(parseConfigDocument(serializeConfigDocument(doc, 'yaml'), 'yaml').doc.get('date')).toEqual(
     node.value,
   )
