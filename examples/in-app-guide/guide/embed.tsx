@@ -41,13 +41,16 @@ window.OmnaraGuide = { mount, unmount }
 const script = document.currentScript as HTMLScriptElement | null
 const d = script?.dataset
 if (d?.endpoint) {
-  mount({
+  const props: GuideProps = {
     endpoint: d.endpoint,
     title: d.title,
     accent: d.accent,
     suggestions: d.suggestions ? d.suggestions.split('|') : undefined,
-    placement: d.placement === "bottom-left" ? "bottom-left" : "bottom-right",
+    placement: d.placement === 'bottom-left' ? 'bottom-left' : 'bottom-right',
     showOnly: d.showOnly === 'true',
     offset: { side: d.offsetSide ? Number(d.offsetSide) : undefined, bottom: d.offsetBottom ? Number(d.offsetBottom) : undefined },
-  })
+  }
+  // A script tag in the page's head runs before there is a body to add the guide to.
+  if (document.body) mount(props)
+  else document.addEventListener('DOMContentLoaded', () => mount(props), { once: true })
 }
