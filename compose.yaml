@@ -44,7 +44,7 @@ services:
       - postgres18-data:/var/lib/postgresql
 
   rustfs:
-    image: rustfs/rustfs:1.0.0
+    image: rustfs/rustfs:1.0.4
     command: /data
     environment:
       RUSTFS_ACCESS_KEY: omnara
@@ -61,7 +61,7 @@ services:
 
   # One-shot bucket provisioning: the application assumes buckets exist.
   rustfs-init:
-    image: rustfs/rustfs:1.0.0
+    image: rustfs/rustfs:1.0.4
     depends_on:
       rustfs:
         condition: service_healthy
