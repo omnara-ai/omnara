@@ -1,7 +1,7 @@
+import { parseConfigDocument } from '@omnara/sdk/config-source'
 import { describe, expect, it } from 'vitest'
 import { isNode, isScalar, isSeq, parse, parseDocument } from 'yaml'
 
-import { parseConfigDocument } from './agentConfigCompatibility'
 import { editConfigDocument } from './agentConfigDocument'
 import { createBasicConfigSession } from './agentConfigSession'
 import { configJson } from './agentConfigValidation'
@@ -16,8 +16,8 @@ const sources = `${header}machine_sources:
   - machine_name: managed-machine
 `
 
-function draftFor(source: string) {
-  const session = createBasicConfigSession(source)
+function draftFor(source: string, format: 'yaml' | 'json' = 'yaml') {
+  const session = createBasicConfigSession(source, format)
   if (!session.initialDraft) throw new Error(JSON.stringify(session.diagnostics))
   return { session, draft: session.initialDraft }
 }
@@ -514,7 +514,7 @@ it.each(['<<', '10.0.0.1'])(
   },
 )
 
-it.each(['yaml', 'json'])(
+it.each(['yaml', 'json'] as const)(
   'normalizes edited %s while preserving exact schema numbers and unknown data',
   (format) => {
     const numbers = [
@@ -541,7 +541,7 @@ it.each(['yaml', 'json'])(
         : 'instruction: Help.\n# extension notes\nfuture: {nested: {__proto__: retained}}\ntools: {example: {type: custom, description: Example., input_schema: {type: object, properties: {value: {enum: [' +
           numbers.join(', ') +
           ']}}}}}\n'
-    const { session, draft } = draftFor(source)
+    const { session, draft } = draftFor(source, format)
     expect(session.apply(draft)).toBe(source)
     const definition = draft.advancedEntries?.find((entry) => entry.kind === 'custom')?.source
     expect(written(definition ?? '', schema)).toEqual(numbers)
@@ -551,7 +551,7 @@ it.each(['yaml', 'json'])(
     expect(written(result.yaml, ['tools', 'example', ...schema])).toEqual(numbers)
     if (format === 'json') expect(JSON.parse(result.yaml)).toEqual(parse(result.yaml))
     else expect(result.yaml).toContain('# extension notes')
-    const reopened = draftFor(result.yaml)
+    const reopened = draftFor(result.yaml, format)
     expect(reopened.session.apply(reopened.draft)).toBe(result.yaml)
   },
 )
@@ -676,7 +676,7 @@ it.each(['yaml', 'json'] as const)('handles Unicode line separators safely in %s
     format === 'json'
       ? JSON.stringify({ tools: { example: definition } })
       : 'tools: {example: {type: custom, description: "Before\\Nmiddle\\Lafter\\Pend", input_schema: {type: object}}}\n'
-  const session = createBasicConfigSession(source)
+  const session = createBasicConfigSession(source, format)
   if (format === 'yaml') {
     expect(session.initialDraft).toBeNull()
     expect(session.diagnostics).toMatchObject([
@@ -685,7 +685,7 @@ it.each(['yaml', 'json'] as const)('handles Unicode line separators safely in %s
     expect(session.diagnostics[0]?.message).toContain('Unicode line separator')
     return
   }
-  const { draft } = draftFor(source)
+  const { draft } = draftFor(source, format)
   expect(session.apply(draft)).toBe(source)
   const result = session.evaluate({ ...draft, instruction: definition.description })
   expect(result.issues).toEqual([])

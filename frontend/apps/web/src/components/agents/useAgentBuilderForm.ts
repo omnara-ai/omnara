@@ -140,7 +140,7 @@ export function useAgentBuilderForm(
       : (session.initialDraft ?? emptyBasicConfig),
   )
   const [initialDraft] = useState(draft)
-  const tools = useAgentBuilderTools(draft, scope)
+  const tools = useAgentBuilderTools(draft, scope, session.sourceFormat)
   const [unavailableSkillIds, setUnavailableSkillIds] = useState<string[]>([])
   const [unavailableSourceIds, setUnavailableSourceIds] = useState<string[]>([])
   const [modelUnavailable, setModelUnavailable] = useState(false)

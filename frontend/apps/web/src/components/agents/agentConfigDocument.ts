@@ -1,11 +1,11 @@
-import { type Document, isMap, isNode, isScalar, isSeq, type Node } from 'yaml'
-
-import { configPath, parseConfigDocument } from '@/components/agents/agentConfigCompatibility'
-import { serializeConfigDocument } from '@/components/agents/agentConfigSerialization'
 import {
   type ConfigSourceFormat,
-  configSourceFormat,
-} from '@/components/agents/agentConfigSourceFormat'
+  parseConfigDocument,
+  serializeConfigDocument,
+} from '@omnara/sdk/config-source'
+import { type Document, isMap, isNode, isScalar, isSeq, type Node } from 'yaml'
+
+import { configPath } from '@/components/agents/agentConfigCompatibility'
 import { configJson } from '@/components/agents/agentConfigValidation'
 
 type ConfigPath = (string | number)[]
@@ -30,7 +30,7 @@ export function editConfigDocument(
   source: string,
   original: Document,
   preservedPaths: string[][],
-  format: ConfigSourceFormat = configSourceFormat(source),
+  format: ConfigSourceFormat = 'yaml',
 ) {
   let document = original
   function mutableDocument() {

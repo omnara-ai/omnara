@@ -1,12 +1,9 @@
 import type { ToolCatalog } from '@omnara/sdk'
+import { parseConfigDocument } from '@omnara/sdk/config-source'
 import { zAgentConfigDefinitionTool } from '@omnara/sdk/zod'
 import { useMemo, useState } from 'react'
 
-import {
-  type AdvancedConfigEntry,
-  configPath,
-  parseConfigDocument,
-} from '@/components/agents/agentConfigCompatibility'
+import { type AdvancedConfigEntry, configPath } from '@/components/agents/agentConfigCompatibility'
 import { AgentConfigDiagnostics } from '@/components/agents/AgentConfigDiagnostics'
 import { editConfigDocument } from '@/components/agents/agentConfigDocument'
 import {

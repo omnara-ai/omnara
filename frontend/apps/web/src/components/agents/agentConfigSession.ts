@@ -1,3 +1,4 @@
+import { type ConfigSourceFormat, configYamlOptions } from '@omnara/sdk/config-source'
 import { Document, parseDocument } from 'yaml'
 
 import { parseBasicConfigSource } from '@/components/agents/agentConfigBasicExtract'
@@ -10,11 +11,6 @@ import {
   validateAdvancedEntry,
 } from '@/components/agents/agentConfigCompatibility'
 import { ConfigEditError } from '@/components/agents/agentConfigDocument'
-import {
-  type ConfigSourceFormat,
-  configSourceFormat,
-} from '@/components/agents/agentConfigSourceFormat'
-import { configYamlOptions } from '@/components/agents/agentConfigYaml'
 import type { BasicConfig } from '@/components/agents/useAgentBuilderForm'
 import { memoryGbToMb } from '@/lib/machine-memory'
 
@@ -34,9 +30,8 @@ export interface BasicConfigSession {
 
 export function createBasicConfigSession(
   source: string,
-  storedFormat?: ConfigSourceFormat,
+  sourceFormat: ConfigSourceFormat = 'yaml',
 ): BasicConfigSession {
-  const sourceFormat = configSourceFormat(source, storedFormat)
   const { doc, initialDraft, diagnostics, advancedEntries } = analyzeConfigSource(
     source,
     sourceFormat,

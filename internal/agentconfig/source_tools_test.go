@@ -4,9 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/google/uuid"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -37,7 +37,7 @@ func TestRuntimeDoesNotAddSourceDefaultTools(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			sum := sha256.Sum256(canonicalizeJSON(raw))
+			sum := sha256.Sum256(legacyCanonicalJSON(raw))
 			contract, err := RuntimeContractFromCompiled(raw, hex.EncodeToString(sum[:]))
 			if err != nil || len(contract.Tools) != test.want {
 				t.Fatalf("runtime tools: %+v, %v", contract.Tools, err)

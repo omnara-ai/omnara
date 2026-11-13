@@ -1,9 +1,9 @@
 /** @vitest-environment happy-dom */
-
 import { OmnaraClientProvider } from '@omnara/react'
 import {
   createOmnaraClient,
   type MachinePoolSummary,
+  schemas,
   type ToolCatalog,
   type ToolPermissionProfile,
 } from '@omnara/sdk'
@@ -18,6 +18,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
+import { z } from 'zod'
 
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
@@ -516,7 +517,13 @@ it('shows the Git credentials tool from the preview and saves its permission', a
       method: 'POST',
       path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
       respond: (request) => {
-        previewed = request.body
+        previewed = z
+          .json()
+          .parse(
+            parse(
+              z.string().parse(schemas.zResolveAgentConfigToolsRequest.parse(request.body).source),
+            ),
+          )
         return jsonResponse({
           tools: [{ name, enabled: true, permission: { mode: 'always_allow', parameters: {} } }],
         })
@@ -528,7 +535,7 @@ it('shows the Git credentials tool from the preview and saves its permission', a
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
-  expect(previewed).toMatchObject({ source: { git_credentials: { integration: 'reviews' } } })
+  expect(previewed).toMatchObject({ git_credentials: { integration: 'reviews' } })
   click('[data-slot="collapsible-trigger"]')
   expect(container.querySelector(`[aria-label="${name} permission"]`)?.textContent).toBe(
     'Always allow',

@@ -21,7 +21,7 @@ import {
 } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
-import { Document, isNode, parse, parseDocument } from 'yaml'
+import { Document, parse } from 'yaml'
 import { z } from 'zod'
 
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
@@ -276,7 +276,7 @@ it('does not refetch tool previews for subagent instruction, description, or mod
     expect(container.querySelector('output')?.getAttribute('data-pending')).toBe('false')
   })
   const request = schemas.zResolveAgentConfigToolsRequest.parse(requests[0])
-  expect(request.source).toHaveProperty('subagents.worker', {
+  expect(parse(z.string().parse(request.source))).toHaveProperty('subagents.worker', {
     type: 'profile',
     profile: 'helper',
   })
@@ -414,14 +414,17 @@ function AdvancedEditorHarness({
   source,
   state,
   fullEditor,
+  sourceFormat,
 }: {
   source: string
   state: Ref<AgentConfigEditorState>
   fullEditor: boolean
+  sourceFormat: 'yaml' | 'json'
 }) {
   const editor = useAgentConfigEditor({
     ...scope,
     source,
+    sourceFormat,
     canManage: true,
     preferredMode: 'builder',
     onModeChange: () => undefined,
@@ -471,12 +474,15 @@ function advancedProviders() {
   ])
 }
 
-async function renderAdvancedEditor(source = customFixture, fullEditor = false) {
+async function renderAdvancedEditor(
+  source = customFixture,
+  fullEditor = false,
+  sourceFormat: 'yaml' | 'json' = 'yaml',
+) {
   advancedProviders()
   const state = createRef<AgentConfigEditorState>()
-  await renderAndFlush(
-    <AdvancedEditorHarness source={source} state={state} fullEditor={fullEditor} />,
-  )
+  const props = { source, state, fullEditor, sourceFormat }
+  await renderAndFlush(<AdvancedEditorHarness {...props} />)
   return () => {
     if (!state.current) throw new Error('Missing editor')
     return state.current
@@ -574,13 +580,10 @@ it.each(['yaml', 'json'])(
   async (format) => {
     const fixture = customFixture.replace('Find', format === 'json' ? 'Find\u2028' : 'Find')
     const source = format === 'json' ? JSON.stringify(parse(fixture), null, 2) : fixture
-    const editor = await renderAdvancedEditor(source)
+    const editor = await renderAdvancedEditor(source, false, format === 'json' ? 'json' : 'yaml')
     clickLabel('Edit search_records')
     clickLabel('Save tool')
     expect(editor().yaml).toBe(source)
-    const original = editor().form.advancedEntries.find(
-      (entry) => entry.path[1] === 'search_records',
-    )
     const expected = z.record(z.string(), z.json()).parse(parse(source))
     const expectedTools = z.record(z.string(), z.record(z.string(), z.json())).parse(expected.tools)
     expected.tools = expectedTools
@@ -601,12 +604,7 @@ it.each(['yaml', 'json'])(
       const changed = editor().form.advancedEntries.find(
         (entry) => entry.path[1] === 'search_records',
       )
-      for (const key of ['description', 'input_schema']) {
-        const before = parseDocument(original?.source ?? '').getIn([key], true)
-        const after = parseDocument(changed?.source ?? '').getIn([key], true)
-        if (!isNode(before) || !isNode(after)) throw new Error('Missing definition')
-        expect(after.toJSON()).toEqual(before.toJSON())
-      }
+      expect(parse(changed?.source ?? '')).toEqual({ ...tool, permission: { mode } })
       tool.permission = { mode }
     }
     clickLabel('Remove search_records')
@@ -624,13 +622,11 @@ it.each([includedSource, 'instruction: [', JSON.stringify(parse(includedSource))
     const editor = await renderAdvancedEditor(source.startsWith('{') ? includedSource : source)
     const updated = source.startsWith('{') ? JSON.stringify(parse(customFixture)) : customFixture
     editYaml(editor, updated)
-    expect(editor().editorFormat).toBe('yaml')
     act(() => {
       editor().switchMode('builder')
     })
     expect(editor().showBuilder).toBe(true)
-    expect(editor().sourceFormat).toBe(source.startsWith('{') ? 'json' : 'yaml')
-    expect(editor().editorFormat).toBe(editor().sourceFormat)
+    expect(editor().sourceFormat).toBe('yaml')
     expect(editor().yaml).toBe(updated)
     expect(container.querySelectorAll('button[aria-label^="Edit " ]')).toHaveLength(8)
   },
@@ -779,7 +775,7 @@ it.each(['yaml', 'json', 'inline-yaml'])(
         : format === 'inline-yaml'
           ? new Document(parse(customFixture)).toString({ collectionStyle: 'flow' })
           : customFixture
-    const editor = await renderAdvancedEditor(source)
+    const editor = await renderAdvancedEditor(source, false, format === 'json' ? 'json' : 'yaml')
     await openCustomToolDialog()
     const template = field('Definition').value
     expect(parse(template)).toHaveProperty('type', 'custom')

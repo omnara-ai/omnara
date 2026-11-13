@@ -27,115 +27,141 @@ describe('MCP add names', () => {
   })
 })
 
-it('adds the server to the generated source when the config has no saved source', async () => {
-  const path = { orgID: id('org'), projectID: id('proj'), agentID: id('agt') }
-  const configId = id('acfg')
-  const agent = {
-    id: path.agentID,
-    org_id: path.orgID,
-    project_id: path.projectID,
-    state: 'active',
-    name: 'launched',
-    current_config_id: configId,
-    created_at: now,
-    updated_at: now,
-  }
-  const config = {
-    id: configId,
-    org_id: path.orgID,
-    project_id: path.projectID,
-    effective_definition_hash: 'hash',
-    created_at: now,
-    model: {
-      provider_config: 'openai',
-      name: 'gpt',
-      provider_model_slug: 'gpt',
-      configured_model_id: id('mdl'),
-      current_revision_id: id('mrev'),
-      api_format: 'openai-responses',
-      api_variant: 'openai',
-      context_window_tokens: 128_000,
-      max_output_tokens: null,
-      default_cache_retention: 'none',
-      supports_tools: true,
-      supports_reasoning: false,
-      default_reasoning_effort: '',
-      supported_reasoning_efforts: [],
-      input_modalities: [],
-      output_modalities: [],
-    },
-    compiled_definition: { instruction: 'Help.', model: { configured_model_id: id('mdl') } },
-  }
-  const json = (value: JsonBody, status = 200) =>
-    new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
-  let update: unknown
-  const client = createOmnaraClient({
-    baseUrl: 'https://omnara.test/api/v1',
-    fetch: async (input, init) => {
-      const request = new Request(input, init)
-      const pathname = new URL(request.url).pathname
-      if (pathname.endsWith('/secrets/mcp-oauth')) {
-        return json({
-          flow_id: id('moaf'),
-          authorization_url: 'https://mcp.example.com/authorize',
-          expires_at: '2999-01-01T00:00:00Z',
-        })
-      }
-      if (pathname.endsWith('/secrets')) {
-        return json({
-          data: [
-            {
-              id: secretId,
-              org_id: path.orgID,
-              management_kind: 'tenant',
-              owner: { kind: 'project', project_id: path.projectID },
-              name: 'docs-mcp',
-              kind: 'generic',
-              metadata: {},
-              current_version_number: 1,
-              payload_keys: [],
-              created_at: now,
-              updated_at: now,
-            },
-          ],
-          next_cursor: null,
-        })
-      }
-      if (request.method === 'POST') {
-        update = await request.json()
-        return json({ code: 'conflict', error: 'stop after capturing the update' }, 409)
-      }
-      if (pathname.endsWith('/generated-source')) return json({ source: 'instruction: Help.\n' })
-      if (pathname.endsWith(`/agent-configs/${configId}`)) return json(config)
-      return json({ agent, machine_ids: [], mcp_connections: [] })
-    },
-  })
-  const report = {
-    url: vi.fn(),
-    start: vi.fn(),
-    stop: vi.fn(),
-    fail: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    done: vi.fn(),
-  }
-  await expect(
-    runAgentMcpAdd({
-      client,
-      apiUrl: 'https://omnara.test/api/v1',
-      path,
-      report,
-      body: zMcpAddBody.parse({
-        mcp_url: 'https://mcp.example.com',
-        server_name: 'docs',
-        browser: false,
+it.each(['generated', 'yaml', 'json'] as const)(
+  'adds a server without changing existing %s values',
+  async (format) => {
+    const schema =
+      '{"type":"object","properties":{"value":{"const":9007199254740993,"minimum":0.123456789012345678901}}}'
+    const source =
+      format === 'json'
+        ? '{"instruction":"Help.","tools":{"lookup":{"type":"custom","description":"Example","input_schema":' +
+          schema +
+          '}}}'
+        : 'instruction: Help.\n# preserve this note\ntools: {lookup: {type: custom, description: Example, input_schema: ' +
+          schema +
+          '}}\n'
+
+    const path = { orgID: id('org'), projectID: id('proj'), agentID: id('agt') }
+    const configId = id('acfg')
+    const agent = {
+      id: path.agentID,
+      org_id: path.orgID,
+      project_id: path.projectID,
+      state: 'active',
+      name: 'launched',
+      current_config_id: configId,
+      created_at: now,
+      updated_at: now,
+    }
+    const config = {
+      id: configId,
+      org_id: path.orgID,
+      project_id: path.projectID,
+      effective_definition_hash: 'hash',
+      created_at: now,
+      model: {
+        provider_config: 'openai',
+        name: 'gpt',
+        provider_model_slug: 'gpt',
+        configured_model_id: id('mdl'),
+        current_revision_id: id('mrev'),
+        api_format: 'openai-responses',
+        api_variant: 'openai',
+        context_window_tokens: 128_000,
+        max_output_tokens: null,
+        default_cache_retention: 'none',
+        supports_tools: true,
+        supports_reasoning: false,
+        default_reasoning_effort: '',
+        supported_reasoning_efforts: [],
+        input_modalities: [],
+        output_modalities: [],
+      },
+      compiled_definition: { instruction: 'Help.', model: { configured_model_id: id('mdl') } },
+      ...(format !== 'generated' && { source, source_format: format }),
+    }
+    const json = (value: JsonBody, status = 200) =>
+      new Response(JSON.stringify(value), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    let update: unknown
+    const client = createOmnaraClient({
+      baseUrl: 'https://omnara.test/api/v1',
+      fetch: async (input, init) => {
+        const request = new Request(input, init)
+        const pathname = new URL(request.url).pathname
+        if (pathname.endsWith('/secrets/mcp-oauth')) {
+          return json({
+            flow_id: id('moaf'),
+            authorization_url: 'https://mcp.example.com/authorize',
+            expires_at: '2999-01-01T00:00:00Z',
+          })
+        }
+        if (pathname.endsWith('/secrets')) {
+          return json({
+            data: [
+              {
+                id: secretId,
+                org_id: path.orgID,
+                management_kind: 'tenant',
+                owner: { kind: 'project', project_id: path.projectID },
+                name: 'docs-mcp',
+                kind: 'generic',
+                metadata: {},
+                current_version_number: 1,
+                payload_keys: [],
+                created_at: now,
+                updated_at: now,
+              },
+            ],
+            next_cursor: null,
+          })
+        }
+        if (request.method === 'POST') {
+          update = await request.json()
+          return json({ code: 'conflict', error: 'stop after capturing the update' }, 409)
+        }
+        if (pathname.endsWith('/generated-source')) return json({ source })
+        if (pathname.endsWith(`/agent-configs/${configId}`)) return json(config)
+        return json({ agent, machine_ids: [], mcp_connections: [] })
+      },
+    })
+    const report = {
+      url: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(),
+      fail: vi.fn(),
+      warn: vi.fn(),
+      info: vi.fn(),
+      done: vi.fn(),
+    }
+    await expect(
+      runAgentMcpAdd({
+        client,
+        apiUrl: 'https://omnara.test/api/v1',
+        path,
+        report,
+        body: zMcpAddBody.parse({
+          mcp_url: 'https://mcp.example.com',
+          server_name: 'docs',
+          browser: false,
+        }),
       }),
-    }),
-  ).rejects.toThrow()
-  const body = schemas.zUpdateAgentConfigRequest.parse(update)
-  expect(body).toMatchObject({ source_format: 'yaml', expected_current_config_id: configId })
-  expect(parse(z.string().parse(body.source))).toEqual({
-    instruction: 'Help.',
-    mcp: { docs: { url: 'https://mcp.example.com', auth: { type: 'oauth', secret_id: secretId } } },
-  })
-})
+    ).rejects.toThrow()
+    const body = schemas.zUpdateAgentConfigRequest.parse(update)
+    expect(body).toMatchObject({
+      source_format: format === 'json' ? 'json' : 'yaml',
+      expected_current_config_id: configId,
+    })
+    expect(body.source).toContain('9007199254740993')
+    expect(body.source).toContain('0.123456789012345678901')
+    if (format !== 'json') expect(body.source).toContain('# preserve this note')
+    expect(parse(z.string().parse(body.source))).toEqual({
+      ...parse(source),
+      mcp: {
+        docs: { url: 'https://mcp.example.com', auth: { type: 'oauth', secret_id: secretId } },
+      },
+    })
+  },
+)

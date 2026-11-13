@@ -368,13 +368,15 @@ it('rejects custom insertions that collide with managed or advanced names', () =
   expect(result.yaml).toBe(fixture)
 })
 
-it('recovers JSON format from legacy YAML metadata and blocks cross-format tool edits', () => {
+it('honors declared YAML for JSON-shaped text and rejects YAML in a JSON editor', () => {
   const source = JSON.stringify(parse(fixture))
-  const session = createBasicConfigSession(source, 'yaml')
+  const yamlSession = createBasicConfigSession(source, 'yaml')
+  expect(yamlSession.sourceFormat).toBe('yaml')
+  if (!yamlSession.initialDraft) throw new Error('Missing draft')
+  expect(yamlSession.apply(yamlSession.initialDraft)).toBe(source)
+  const session = createBasicConfigSession(source, 'json')
   const draft = session.initialDraft
   if (!draft) throw new Error('Missing JSON draft')
-  expect(session.sourceFormat).toBe('json')
-  expect(session.apply(draft)).toBe(source)
   const result = session.evaluate({
     ...draft,
     advancedEntries: draft.advancedEntries?.map((entry) => ({

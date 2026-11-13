@@ -41,6 +41,10 @@
     "./zod": {
       "types": "./src/generated/zod.gen.ts",
       "default": "./src/generated/zod.gen.ts"
+    },
+    "./config-source": {
+      "types": "./src/config-source.ts",
+      "default": "./src/config-source.ts"
     }
   },
   "publishConfig": {
@@ -61,6 +65,10 @@
       "./zod": {
         "types": "./dist/zod.d.ts",
         "default": "./dist/zod.js"
+      },
+      "./config-source": {
+        "types": "./dist/config-source.d.ts",
+        "default": "./dist/config-source.js"
       }
     }
   },
@@ -73,7 +81,9 @@
   },
   "dependencies": {
     "standardwebhooks": "1.1.1",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "yaml": "^2.9.1",
+    "jsonc-parser": "^3.3.1"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.62.0"
@@ -89,7 +99,6 @@
     "@tanstack/react-query-minimum": "npm:@tanstack/react-query@5.62.0",
     "tsup": "^9.0.0",
     "typescript": "^5.6.0",
-    "vitest": "5.1.0",
-    "yaml": "^2.9.1"
+    "vitest": "5.1.0"
   }
 }

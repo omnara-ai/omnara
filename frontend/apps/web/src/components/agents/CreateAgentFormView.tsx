@@ -59,7 +59,6 @@ export function CreateAgentFormView({
     showBuilder,
     yaml,
     sourceFormat,
-    editorFormat,
   } = useAgentDraft(catalog, defaultPool, defaultModel, initialTemplate, {
     orgId: activeOrg.id,
     projectId,
@@ -113,7 +112,7 @@ export function CreateAgentFormView({
                 onValueChange={switchMode}
                 tabs={[
                   { value: 'builder', label: 'Builder' },
-                  { value: 'yaml', label: editorFormat.toUpperCase() },
+                  { value: 'yaml', label: sourceFormat.toUpperCase() },
                 ]}
               />
             </div>
@@ -159,7 +158,7 @@ export function CreateAgentFormView({
               <AgentConfigYamlField
                 id="agent-yaml"
                 value={yaml}
-                format={editorFormat}
+                format={sourceFormat}
                 className="h-auto min-h-[24rem] flex-1"
                 issues={issues}
                 onChange={(value) => {

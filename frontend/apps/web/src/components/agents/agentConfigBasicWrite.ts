@@ -1,3 +1,4 @@
+import type { ConfigSourceFormat } from '@omnara/sdk/config-source'
 import { type Document, isMap, isSeq } from 'yaml'
 
 import {
@@ -14,7 +15,6 @@ import {
   isConfigObject,
 } from '@/components/agents/agentConfigDocument'
 import { mcpWire, permissionWire } from '@/components/agents/agentConfigMcp'
-import type { ConfigSourceFormat } from '@/components/agents/agentConfigSourceFormat'
 import { subagentWire } from '@/components/agents/agentConfigSubagents'
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import type { BasicConfig, BasicMachineSource } from '@/components/agents/useAgentBuilderForm'

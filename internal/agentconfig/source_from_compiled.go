@@ -166,12 +166,7 @@ func toolSourcesFromCompiled(
 		switch {
 		case toolcatalog.UsesIntegrationToolNamespace(name):
 		case tool.Type == toolcatalog.ToolTypeCustom:
-			entry.Type, entry.Description = tool.Type, tool.Description
-			if len(tool.InputSchema) > 0 {
-				if err := json.Unmarshal(tool.InputSchema, &entry.InputSchema); err != nil {
-					return nil, err
-				}
-			}
+			entry.Type, entry.Description, entry.InputSchema = tool.Type, tool.Description, tool.InputSchema
 			defaultPermission = new(toolcatalog.DefaultCustomToolPermission())
 		default:
 			if catalogEntry, ok := catalog.Lookup(name); ok {
