@@ -22,9 +22,14 @@ import (
 type Protocol interface {
 	APIFormat() modelprotocol.APIFormat
 	ModelAPIVariant() modelprotocol.APIVariant
-	BuildRequest(context.Context, model.PrepareInput) (json.RawMessage, error)
+	BuildRequest(context.Context, model.PrepareInput) (BuiltRequest, error)
 	ProjectRenderedMedia(modelcontext.Bundle) []modelcontext.RenderedMedia
 	ParseResponse(context.Context, Response) (model.Response, error)
+}
+
+type BuiltRequest struct {
+	Body               json.RawMessage
+	InputTokenEstimate int
 }
 
 type StreamProtocol interface {
@@ -314,6 +319,26 @@ func (c Client) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontext.
 }
 
 func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.PreparedRequest, error) {
+	prepared, err := c.Project(ctx, input)
+	if err != nil {
+		return model.PreparedRequest{}, err
+	}
+	endpoint, err := c.Endpoint.URL()
+	if err != nil {
+		return model.PreparedRequest{}, SetupError{Err: err}
+	}
+	streamMediaType := ""
+	if streamProtocol, ok := c.Protocol.(StreamProtocol); ok {
+		streamMediaType = streamProtocol.StreamAccept()
+	}
+	if err := c.Transport.validateRequest(ctx, endpoint, prepared.Body, c.Auth, streamMediaType); err != nil {
+		return model.PreparedRequest{}, err
+	}
+	return prepared, nil
+}
+
+// Project renders the same request as Prepare without consulting credentials.
+func (c Client) Project(ctx context.Context, input model.PrepareInput) (model.PreparedRequest, error) {
 	if c.Protocol == nil {
 		return model.PreparedRequest{}, SetupError{Err: errors.New("model route protocol is required")}
 	}
@@ -324,14 +349,14 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 	if err != nil {
 		return model.PreparedRequest{}, SetupError{Err: err}
 	}
-	body, err := c.Protocol.BuildRequest(ctx, input)
+	built, err := c.Protocol.BuildRequest(ctx, input)
 	if err != nil {
 		return model.PreparedRequest{}, SetupError{Err: err}
 	}
+	body := built.Body
 	if !json.Valid(body) {
 		return model.PreparedRequest{}, SetupError{Err: errors.New("model protocol built an invalid JSON request")}
 	}
-	streamMediaType := ""
 	if streamProtocol, ok := c.Protocol.(StreamProtocol); ok {
 		streamBody, streamErr := streamProtocol.BuildStreamRequest(body)
 		if streamErr != nil {
@@ -341,18 +366,14 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 			return model.PreparedRequest{}, SetupError{Err: errors.New("model protocol built an invalid JSON stream request")}
 		}
 		body = streamBody
-		streamMediaType = streamProtocol.StreamAccept()
+		streamMediaType := streamProtocol.StreamAccept()
 		if strings.TrimSpace(streamMediaType) == "" {
 			return model.PreparedRequest{}, SetupError{Err: errors.New("model stream media type is required")}
 		}
 	}
-	if err := c.Transport.validateRequest(ctx, endpoint, body, c.Auth, streamMediaType); err != nil {
-		return model.PreparedRequest{}, err
-	}
 	renderedMedia := c.Protocol.ProjectRenderedMedia(input.Context)
-	inputTokenEstimate := modelcontext.EstimatePreparedRequest(body, renderedMedia)
 	return model.PreparedRequest{
-		Body: body, InputTokenEstimate: inputTokenEstimate, RenderedMedia: renderedMedia,
+		Body: body, InputTokenEstimate: built.InputTokenEstimate, RenderedMedia: renderedMedia,
 		InputFingerprint: model.RequestInputFingerprint(body, endpoint),
 	}, nil
 }

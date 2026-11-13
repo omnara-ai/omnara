@@ -66,8 +66,8 @@ func (p *fakeProtocol) ModelAPIVariant() modelprotocol.APIVariant {
 	return "default"
 }
 
-func (p *fakeProtocol) BuildRequest(context.Context, model.PrepareInput) (json.RawMessage, error) {
-	return p.buildBody, nil
+func (p *fakeProtocol) BuildRequest(context.Context, model.PrepareInput) (BuiltRequest, error) {
+	return BuiltRequest{Body: p.buildBody, InputTokenEstimate: modelcontext.EstimatePreparedRequest(p.buildBody, nil)}, nil
 }
 
 func (p *fakeProtocol) ProjectRenderedMedia(modelcontext.Bundle) []modelcontext.RenderedMedia {

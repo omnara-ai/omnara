@@ -28,6 +28,7 @@ type Client struct {
 }
 
 var _ modelcontext.MediaProjector = Client{}
+var _ model.RequestProjector = Client{}
 
 func (c Client) RequestedProviderModelSlug() string {
 	return c.ProviderModelSlug
@@ -73,6 +74,13 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 		return model.PreparedRequest{}, route.SetupError{Err: errors.New("model endpoint path is required")}
 	}
 	return c.routeClient().Prepare(ctx, input)
+}
+
+func (c Client) Project(ctx context.Context, input model.PrepareInput) (model.PreparedRequest, error) {
+	if strings.TrimSpace(c.EndpointPath) == "" {
+		return model.PreparedRequest{}, route.SetupError{Err: errors.New("model endpoint path is required")}
+	}
+	return c.routeClient().Project(ctx, input)
 }
 
 func (c Client) Respond(ctx context.Context, input model.Request) (model.Response, error) {

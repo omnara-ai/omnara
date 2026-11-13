@@ -20,14 +20,20 @@ const (
 	responsesRoleAssistant responsesRole = "assistant"
 )
 
+type responseInput struct {
+	items            []any
+	accountingItems  []any
+	replayAccounting modelcontext.ReasoningReplayAccounting
+}
+
 func buildInput(
 	bundle modelcontext.Bundle,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	policy model.RequestPolicy,
-) ([]any, error) {
+) (responseInput, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
-		return nil, fmt.Errorf("build openai-responses history: %w", err)
+		return responseInput{}, fmt.Errorf("build openai-responses history: %w", err)
 	}
 	bundle.ResolvedMedia = renderableMedia(bundle.ResolvedMedia)
 	capacity := len(bundle.Messages) + len(bundle.ToolResults)
@@ -35,6 +41,7 @@ func buildInput(
 		capacity++
 	}
 	items := make([]any, 0, capacity)
+	projection := responseInput{accountingItems: make([]any, 0, capacity)}
 	clientToolSearch := modelcontext.DeferredToolsEnabled(bundle.ToolSpecs)
 	if checkpoint := bundle.ContextCheckpoint; checkpoint != nil {
 		items = append(
@@ -45,28 +52,45 @@ func buildInput(
 			},
 		)
 	}
+	projection.accountingItems = append(projection.accountingItems, items...)
 	for _, entry := range history {
+		start := len(items)
 		switch entry.Message.Role {
 		case modelprotocol.RoleAssistant:
-			items, err = appendAssistantResponseEntry(
-				items,
-				entry.Message,
-				entry.AssistantContent,
-				replayIdentity,
-				policy,
-				clientToolSearch,
-			)
-			if err != nil {
-				return nil, err
+			var replay responseReplay
+			replayOK := false
+			if policy.AllowsProviderReplay(entry.Message.Sequence) {
+				replay, replayOK = completeResponseReplay(entry.Message, entry.AssistantContent, replayIdentity, clientToolSearch)
+			}
+			if replayOK {
+				useUsage := replay.hasReasoning && projection.replayAccounting.UseOutputUsage(entry.Message.Usage)
+				for _, item := range replay.items {
+					items = append(items, item)
+				}
+				accounted := replay.items
+				if useUsage {
+					accounted = replay.locallyEstimatedItems
+				}
+				for _, item := range accounted {
+					projection.accountingItems = append(projection.accountingItems, item)
+				}
+			} else {
+				items, err = appendCanonicalAssistantResponse(items, entry.AssistantContent, clientToolSearch)
+				if err != nil {
+					return responseInput{}, err
+				}
+				projection.accountingItems = append(projection.accountingItems, items[start:]...)
 			}
 		case modelprotocol.RoleUser:
 			items = append(items, map[string]any{
 				"role":    responsesRoleUser,
 				"content": renderOpenAIInputContent(entry.Message.Content, bundle.ResolvedMedia),
 			})
+			projection.accountingItems = append(projection.accountingItems, items[start:]...)
 		default:
-			return nil, fmt.Errorf("unsupported canonical message role %q", entry.Message.Role)
+			return responseInput{}, fmt.Errorf("unsupported canonical message role %q", entry.Message.Role)
 		}
+		start = len(items)
 		for _, result := range entry.ToolResults {
 			if clientToolSearch && result.Name == toolcatalog.ToolNameToolSearch {
 				var loaded []modelcontext.ToolSearchDefinition
@@ -91,8 +115,10 @@ func buildInput(
 				},
 			)
 		}
+		projection.accountingItems = append(projection.accountingItems, items[start:]...)
 	}
-	return items, nil
+	projection.items = items
+	return projection, nil
 }
 
 func toolSearchOutputItem(callID string, loaded []modelcontext.ToolSearchDefinition) map[string]any {
@@ -107,25 +133,6 @@ func toolSearchOutputItem(callID string, loaded []modelcontext.ToolSearchDefinit
 		"status":    "completed",
 		"tools":     tools,
 	}
-}
-
-func appendAssistantResponseEntry(
-	items []any,
-	source modelcontext.Message,
-	content []modelcontext.AssistantContentEntry,
-	replayIdentity modelenvelope.ProviderReplayIdentity,
-	policy model.RequestPolicy,
-	clientToolSearch bool,
-) ([]any, error) {
-	if policy.AllowsProviderReplay(source.Sequence) {
-		if replayItems, ok := completeResponseReplay(source, content, replayIdentity, clientToolSearch); ok {
-			for _, replayItem := range replayItems {
-				items = append(items, replayItem)
-			}
-			return items, nil
-		}
-	}
-	return appendCanonicalAssistantResponse(items, content, clientToolSearch)
 }
 
 func appendCanonicalAssistantResponse(
@@ -195,28 +202,37 @@ type responseReplaySemantic struct {
 	toolSearchItem bool
 }
 
+// Replay validation also identifies items to estimate separately from model
+// output usage. Provider-only replay, including tool results, stays locally priced.
+type responseReplay struct {
+	items                 []json.RawMessage
+	locallyEstimatedItems []json.RawMessage
+	hasReasoning          bool
+	semantics             []responseReplaySemantic
+}
+
 func completeResponseReplay(
 	source modelcontext.Message,
 	content []modelcontext.AssistantContentEntry,
 	target modelenvelope.ProviderReplayIdentity,
 	clientToolSearch bool,
-) ([]json.RawMessage, bool) {
+) (responseReplay, bool) {
 	if !source.ProviderReplaySource.Matches(target) {
-		return nil, false
+		return responseReplay{}, false
 	}
 	var items []json.RawMessage
 	if json.Unmarshal(source.ProviderReplay, &items) != nil || len(items) == 0 {
-		return nil, false
+		return responseReplay{}, false
 	}
-	replayed, ok := responseReplaySemantics(items)
-	if !ok || !replayMatchesToolSearchMode(replayed, clientToolSearch) {
-		return nil, false
+	replayed, ok := parseResponseReplay(items)
+	if !ok || !replayMatchesToolSearchMode(replayed.semantics, clientToolSearch) {
+		return responseReplay{}, false
 	}
 	canonical, ok := canonicalResponseSemantics(content)
-	if !ok || !sameResponseSemantics(replayed, canonical) {
-		return nil, false
+	if !ok || !sameResponseSemantics(replayed.semantics, canonical) {
+		return responseReplay{}, false
 	}
-	return items, true
+	return replayed, true
 }
 
 func replayMatchesToolSearchMode(replayed []responseReplaySemantic, clientToolSearch bool) bool {
@@ -228,13 +244,14 @@ func replayMatchesToolSearchMode(replayed []responseReplaySemantic, clientToolSe
 	return true
 }
 
-func responseReplaySemantics(items []json.RawMessage) ([]responseReplaySemantic, bool) {
+func parseResponseReplay(items []json.RawMessage) (responseReplay, bool) {
+	parsed := responseReplay{items: items}
 	semantics := make([]responseReplaySemantic, 0, len(items))
 	reasoningNeedsContinuation := false
 	for _, raw := range items {
 		var item responsesOutputItem
 		if json.Unmarshal(raw, &item) != nil {
-			return nil, false
+			return responseReplay{}, false
 		}
 		switch item.Type {
 		case "message":
@@ -256,12 +273,13 @@ func responseReplaySemantics(items []json.RawMessage) ([]responseReplaySemantic,
 						})
 					}
 				default:
-					return nil, false
+					return responseReplay{}, false
 				}
 			}
 		case "reasoning":
+			parsed.hasReasoning = true
 			if item.EncryptedContent == "" {
-				return nil, false
+				return responseReplay{}, false
 			}
 			reasoningNeedsContinuation = true
 			if summary := reasoningSummaryText(item); summary != "" {
@@ -273,7 +291,7 @@ func responseReplaySemantics(items []json.RawMessage) ([]responseReplaySemantic,
 		case "function_call":
 			if strings.TrimSpace(item.CallID) == "" || strings.TrimSpace(item.Name) == "" ||
 				modelenvelope.ValidateToolInput(json.RawMessage(item.Arguments)) != nil {
-				return nil, false
+				return responseReplay{}, false
 			}
 			reasoningNeedsContinuation = false
 			semantics = append(semantics, responseReplaySemantic{
@@ -285,14 +303,15 @@ func responseReplaySemantics(items []json.RawMessage) ([]responseReplaySemantic,
 		case "tool_search_call":
 			if strings.TrimSpace(item.CallID) == "" {
 				if !validProviderOnlyResponseItem(item) {
-					return nil, false
+					return responseReplay{}, false
 				}
+				parsed.locallyEstimatedItems = append(parsed.locallyEstimatedItems, raw)
 				reasoningNeedsContinuation = false
 				continue
 			}
 			arguments := toolSearchCallArguments(raw)
 			if modelenvelope.ValidateToolInput(arguments) != nil {
-				return nil, false
+				return responseReplay{}, false
 			}
 			reasoningNeedsContinuation = false
 			semantics = append(semantics, responseReplaySemantic{
@@ -303,16 +322,18 @@ func responseReplaySemantics(items []json.RawMessage) ([]responseReplaySemantic,
 				toolSearchItem: true,
 			})
 		default:
+			parsed.locallyEstimatedItems = append(parsed.locallyEstimatedItems, raw)
 			if !validProviderOnlyResponseItem(item) {
-				return nil, false
+				return responseReplay{}, false
 			}
 			reasoningNeedsContinuation = false
 		}
 	}
 	if reasoningNeedsContinuation {
-		return nil, false
+		return responseReplay{}, false
 	}
-	return semantics, true
+	parsed.semantics = semantics
+	return parsed, true
 }
 
 func validProviderOnlyResponseItem(item responsesOutputItem) bool {

@@ -183,7 +183,7 @@ func TestRespondStoresWholeOutputWhenReasoningCannotBeReplayed(t *testing.T) {
 		!strings.Contains(string(resp.ProviderReplay), `"type":"reasoning"`) {
 		t.Fatalf("whole provider output was not retained: %s", resp.ProviderReplay)
 	}
-	if _, ok := responseReplaySemantics(providerReplayItemsForTest(t, resp.ProviderReplay)); ok {
+	if _, ok := parseResponseReplay(providerReplayItemsForTest(t, resp.ProviderReplay)); ok {
 		t.Fatalf("reasoning without encrypted content must not be reusable: %s", resp.ProviderReplay)
 	}
 }

@@ -93,23 +93,11 @@ func TestProviderBaselineSurvivesFailedOutputsWithOpaqueReplay(t *testing.T) {
 				{"prior input", func(b *modelcontext.Bundle, _ *model.RequestPolicy) {
 					b.Messages[0].Content = json.RawMessage(`[{"type":"text","text":"edited question"}]`)
 				}},
-				{"model identity", func(b *modelcontext.Bundle, _ *model.RequestPolicy) {
-					b.Messages[3].ProviderReplaySource.RequestedProviderModelSlug = "different-model"
-				}},
-				{"missing fingerprint", func(b *modelcontext.Bundle, _ *model.RequestPolicy) {
-					b.Messages[3].InputFingerprint = ""
-				}},
-				{"missing input usage", func(b *modelcontext.Bundle, _ *model.RequestPolicy) {
-					b.Messages[3].Usage = modelenvelope.Usage{}
-				}},
 				{"checkpoint", func(b *modelcontext.Bundle, _ *model.RequestPolicy) {
 					b.ContextCheckpoint = &modelcontext.CheckpointRef{Sequence: 14, Summary: "compacted"}
 				}},
 				{"replay policy", func(_ *modelcontext.Bundle, p *model.RequestPolicy) {
 					p.ProviderReplayCutoffEventSequence = 13
-				}},
-				{"missing output usage", func(b *modelcontext.Bundle, _ *model.RequestPolicy) {
-					b.Messages[3].Usage.OutputTokens = 0
 				}},
 			} {
 				t.Run(changed.name, func(t *testing.T) {

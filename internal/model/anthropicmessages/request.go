@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/apivariantbody"
+	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -22,26 +23,26 @@ import (
 
 var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
+func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (route.BuiltRequest, error) {
 	_ = ctx
 	c := p.client
 	providerModelSlug := c.RequestedProviderModelSlug()
 	if providerModelSlug == "" {
-		return nil, errors.New("anthropic-messages provider model slug is required")
+		return route.BuiltRequest{}, errors.New("anthropic-messages provider model slug is required")
 	}
 	supportsTools := c.ModelCapabilities.SupportsTools
 	if input.Policy.SupportsTools != nil {
 		supportsTools = input.Policy.SupportsTools
 	}
 	if supportsTools != nil && !*supportsTools && len(input.Context.ToolSpecs) > 0 {
-		return nil, errors.New("anthropic-messages model does not support tools")
+		return route.BuiltRequest{}, errors.New("anthropic-messages model does not support tools")
 	}
 	maxTokens := input.Policy.MaxOutputTokens
 	if maxTokens <= 0 {
-		return nil, errors.New("anthropic-messages max output tokens are required")
+		return route.BuiltRequest{}, errors.New("anthropic-messages max output tokens are required")
 	}
 	if err := validateToolNames(input.Context.ToolSpecs); err != nil {
-		return nil, err
+		return route.BuiltRequest{}, err
 	}
 	control := CacheControlFor(model.PlanPromptCache(
 		model.ProviderRoute{
@@ -59,13 +60,13 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		control,
 	)
 	if err != nil {
-		return nil, err
+		return route.BuiltRequest{}, err
 	}
 	payload := messagesRequest{
 		Model:     providerModelSlug,
 		MaxTokens: maxTokens,
 		System:    systemContent(input.Context, control),
-		Messages:  messages,
+		Messages:  messages.wire,
 		Tools:     buildTools(input.Context.ToolSpecs, control),
 	}
 	if len(payload.Tools) > 0 {
@@ -97,23 +98,36 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if supportsReasoning && input.Policy.ReasoningEffort != "" {
 		options, err := decodeAPIVariantOptions(c.APIVariantOptions)
 		if err != nil {
-			return nil, err
+			return route.BuiltRequest{}, err
 		}
 		payload.OutputConfig, err = outputConfigWithEffort(options["output_config"], input.Policy.ReasoningEffort)
 		if err != nil {
-			return nil, err
+			return route.BuiltRequest{}, err
 		}
 		ownedFields = append(ownedFields, "output_config")
 		thinkingOff, err := thinkingDisabled(options["thinking"])
 		if err != nil {
-			return nil, err
+			return route.BuiltRequest{}, err
 		}
 		if thinkingOff {
 			payload.Thinking = &thinkingConfig{Type: "adaptive"}
 			ownedFields = append(ownedFields, "thinking")
 		}
 	}
-	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+	body, err := apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+	if err != nil {
+		return route.BuiltRequest{}, err
+	}
+	payload.Messages = messages.accounting
+	accountingBody, err := apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+	if err != nil {
+		return route.BuiltRequest{}, err
+	}
+	inputTokens, err := messages.replayAccounting.EstimateInput(accountingBody, p.ProjectRenderedMedia(input.Context))
+	if err != nil {
+		return route.BuiltRequest{}, err
+	}
+	return route.BuiltRequest{Body: body, InputTokenEstimate: inputTokens}, nil
 }
 
 func decodeAPIVariantOptions(raw json.RawMessage) (map[string]json.RawMessage, error) {
@@ -245,15 +259,22 @@ func systemContent(bundle modelcontext.Bundle, control *CacheControl) any {
 	return []textBlock{{Type: "text", Text: prompt, CacheControl: control}}
 }
 
+type requestMessages struct {
+	wire             []message
+	accounting       []message
+	replayAccounting modelcontext.ReasoningReplayAccounting
+}
+
 func buildMessages(
 	bundle modelcontext.Bundle,
 	policy model.RequestPolicy,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	control *CacheControl,
-) ([]message, error) {
+) (requestMessages, error) {
+	var replayAccounting modelcontext.ReasoningReplayAccounting
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
-		return nil, fmt.Errorf("build anthropic-messages history: %w", err)
+		return requestMessages{}, fmt.Errorf("build anthropic-messages history: %w", err)
 	}
 	bundle.ResolvedMedia = renderableMedia(bundle.ResolvedMedia)
 	messageCapacity := len(bundle.Messages) + len(bundle.ToolResults)*2
@@ -261,6 +282,7 @@ func buildMessages(
 		messageCapacity++
 	}
 	messages := make([]message, 0, messageCapacity)
+	accountingMessages := make([]message, 0, messageCapacity)
 	if checkpoint := bundle.ContextCheckpoint; checkpoint != nil {
 		block := textBlock{
 			Type:         "text",
@@ -268,21 +290,24 @@ func buildMessages(
 			CacheControl: control,
 		}
 		messages = appendMessageBlocks(messages, anthropicRoleUser, []any{block})
+		accountingMessages = appendMessageBlocks(accountingMessages, anthropicRoleUser, []any{block})
 	}
 	usedIDs := map[string]bool{}
 	historyAdded := false
+	accountingHistoryAdded := false
 	for _, entry := range history {
 		if entry.Message.Role == modelprotocol.RoleAssistant {
-			assistantBlocks, toolUseIDByCallID, buildErr := assistantTurnForEntry(
+			assistantBlocks, toolUseIDByCallID, usesOutputUsage, buildErr := assistantTurnForEntry(
 				entry.Message,
 				entry.AssistantContent,
 				entry.ToolResults,
 				replayIdentity,
 				policy,
 				usedIDs,
+				&replayAccounting,
 			)
 			if buildErr != nil {
-				return nil, buildErr
+				return requestMessages{}, buildErr
 			}
 			if len(assistantBlocks) > 0 {
 				historyAdded = true
@@ -291,6 +316,10 @@ func buildMessages(
 					anthropicRoleAssistant,
 					assistantBlocks,
 				)
+				if !usesOutputUsage {
+					accountingMessages = appendMessageBlocks(accountingMessages, anthropicRoleAssistant, assistantBlocks)
+					accountingHistoryAdded = true
+				}
 			}
 			if len(entry.ToolResults) == 0 {
 				continue
@@ -311,15 +340,27 @@ func buildMessages(
 				})
 			}
 			messages = appendMessageBlocks(messages, anthropicRoleUser, resultContent)
+			accountingMessages = appendMessageBlocks(accountingMessages, anthropicRoleUser, resultContent)
 			historyAdded = true
+			accountingHistoryAdded = true
 			continue
 		}
 		blocks := messageBlocksFromParts(entry.Message.Content, bundle.ResolvedMedia)
 		if len(blocks) > 0 {
 			messages = appendMessageBlocks(messages, anthropicRoleUser, blocks)
+			accountingMessages = appendMessageBlocks(accountingMessages, anthropicRoleUser, blocks)
 			historyAdded = true
+			accountingHistoryAdded = true
 		}
 	}
+	return requestMessages{
+		wire:             finishMessages(messages, control, historyAdded),
+		accounting:       finishMessages(accountingMessages, control, accountingHistoryAdded),
+		replayAccounting: replayAccounting,
+	}, nil
+}
+
+func finishMessages(messages []message, control *CacheControl, historyAdded bool) []message {
 	if historyAdded {
 		messages = markLastMessageCacheBreakpoint(messages, control)
 	}
@@ -334,7 +375,7 @@ func buildMessages(
 			message{Role: anthropicRoleUser, Content: []any{textBlock{Type: "text", Text: "Continue."}}},
 		)
 	}
-	return messages, nil
+	return messages
 }
 
 func markLastMessageCacheBreakpoint(messages []message, control *CacheControl) []message {
@@ -388,7 +429,7 @@ func appendMessageBlocks(messages []message, role anthropicRole, blocks []any) [
 			return messages
 		}
 	}
-	return append(messages, message{Role: role, Content: blocks})
+	return append(messages, message{Role: role, Content: append([]any(nil), blocks...)})
 }
 
 func messageBlocksFromParts(raw json.RawMessage, media map[string]modelcontext.ResolvedMedia) []any {
@@ -449,15 +490,17 @@ func assistantTurnForEntry(
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	policy model.RequestPolicy,
 	usedIDs map[string]bool,
-) ([]any, map[string]string, error) {
+	accounting *modelcontext.ReasoningReplayAccounting,
+) ([]any, map[string]string, bool, error) {
 	if policy.AllowsProviderReplay(source.Sequence) {
-		if blocks, toolUseIDs, ok := completeAnthropicReplay(
+		if blocks, replay, ok := completeAnthropicReplay(
 			source,
 			content,
 			replayIdentity,
 			usedIDs,
 		); ok {
-			return blocks, toolUseIDs, nil
+			usesOutputUsage := replay.hasThinking && accounting.UseOutputUsage(source.Usage)
+			return blocks, replay.toolUseIDs, usesOutputUsage, nil
 		}
 	}
 	blocks := make([]any, 0, len(content))
@@ -471,14 +514,14 @@ func assistantTurnForEntry(
 		case modelcontext.AssistantBlockEntry:
 			raw, err := json.Marshal([]json.RawMessage{entry.Content})
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, false, err
 			}
 			blocks = append(blocks, messageBlocksFromParts(raw, nil)...)
 		default:
-			return nil, nil, fmt.Errorf("unsupported assistant content entry %T", entry)
+			return nil, nil, false, fmt.Errorf("unsupported assistant content entry %T", entry)
 		}
 	}
-	return blocks, toolUseIDs, nil
+	return blocks, toolUseIDs, false, nil
 }
 
 func completeAnthropicReplay(
@@ -486,30 +529,30 @@ func completeAnthropicReplay(
 	content []modelcontext.AssistantContentEntry,
 	target modelenvelope.ProviderReplayIdentity,
 	usedIDs map[string]bool,
-) ([]any, map[string]string, bool) {
+) ([]any, anthropicReplayDetails, bool) {
 	if !source.ProviderReplaySource.Matches(target) {
-		return nil, nil, false
+		return nil, anthropicReplayDetails{}, false
 	}
 	var rawBlocks []json.RawMessage
 	if err := json.Unmarshal(source.ProviderReplay, &rawBlocks); err != nil || len(rawBlocks) == 0 {
-		return nil, nil, false
+		return nil, anthropicReplayDetails{}, false
 	}
-	replayed, replayToolIDs, ok := anthropicReplaySemantics(rawBlocks, usedIDs)
+	replayed, ok := anthropicReplaySemantics(rawBlocks, usedIDs)
 	if !ok {
-		return nil, nil, false
+		return nil, anthropicReplayDetails{}, false
 	}
 	canonical, ok := canonicalAnthropicSemantics(content)
-	if !ok || !sameAnthropicSemantics(replayed, canonical) {
-		return nil, nil, false
+	if !ok || !sameAnthropicSemantics(replayed.semantics, canonical) {
+		return nil, anthropicReplayDetails{}, false
 	}
 	blocks := make([]any, 0, len(rawBlocks))
 	for _, raw := range rawBlocks {
 		blocks = append(blocks, raw)
 	}
-	for id := range replayToolIDs {
+	for id := range replayed.toolUseIDs {
 		usedIDs[id] = true
 	}
-	return blocks, replayToolIDs, true
+	return blocks, replayed, true
 }
 
 type anthropicReplaySemantic struct {
@@ -520,16 +563,23 @@ type anthropicReplaySemantic struct {
 	input  json.RawMessage
 }
 
+type anthropicReplayDetails struct {
+	semantics   []anthropicReplaySemantic
+	toolUseIDs  map[string]string
+	hasThinking bool
+}
+
 func anthropicReplaySemantics(
 	rawBlocks []json.RawMessage,
 	usedIDs map[string]bool,
-) ([]anthropicReplaySemantic, map[string]string, bool) {
+) (anthropicReplayDetails, bool) {
 	semantics := make([]anthropicReplaySemantic, 0, len(rawBlocks))
 	toolUseIDs := make(map[string]string)
+	hasThinking := false
 	for _, raw := range rawBlocks {
 		var block contentBlock
 		if json.Unmarshal(raw, &block) != nil {
-			return nil, nil, false
+			return anthropicReplayDetails{}, false
 		}
 		switch block.Type {
 		case "text":
@@ -541,8 +591,9 @@ func anthropicReplaySemantics(
 			}
 		case "thinking":
 			if block.Signature == "" {
-				return nil, nil, false
+				return anthropicReplayDetails{}, false
 			}
+			hasThinking = true
 			if block.Thinking != "" {
 				semantics = append(semantics, anthropicReplaySemantic{
 					kind: "reasoning",
@@ -551,15 +602,16 @@ func anthropicReplaySemantics(
 			}
 		case "redacted_thinking":
 			if block.Data == "" {
-				return nil, nil, false
+				return anthropicReplayDetails{}, false
 			}
+			hasThinking = true
 		case "tool_use":
 			if block.ID == "" || block.Name == "" || usedIDs[block.ID] ||
 				modelenvelope.ValidateToolInput(block.Input) != nil {
-				return nil, nil, false
+				return anthropicReplayDetails{}, false
 			}
 			if _, duplicate := toolUseIDs[block.ID]; duplicate {
-				return nil, nil, false
+				return anthropicReplayDetails{}, false
 			}
 			toolUseIDs[block.ID] = block.ID
 			semantics = append(semantics, anthropicReplaySemantic{
@@ -569,10 +621,10 @@ func anthropicReplaySemantics(
 				input:  block.Input,
 			})
 		default:
-			return nil, nil, false
+			return anthropicReplayDetails{}, false
 		}
 	}
-	return semantics, toolUseIDs, true
+	return anthropicReplayDetails{semantics: semantics, toolUseIDs: toolUseIDs, hasThinking: hasThinking}, true
 }
 
 func canonicalAnthropicSemantics(

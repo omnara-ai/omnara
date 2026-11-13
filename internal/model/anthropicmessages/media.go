@@ -32,7 +32,15 @@ func (c Client) prepareWithinRequestBodyLimit(
 	input model.PrepareInput,
 	limit int,
 ) (model.PreparedRequest, error) {
-	routeClient := c.routeClient()
+	return c.buildWithinRequestBodyLimit(ctx, input, limit, c.routeClient().Prepare)
+}
+
+func (c Client) buildWithinRequestBodyLimit(
+	ctx context.Context,
+	input model.PrepareInput,
+	limit int,
+	build func(context.Context, model.PrepareInput) (model.PreparedRequest, error),
+) (model.PreparedRequest, error) {
 	contextCloned := false
 	omittedArtifacts := map[string]bool{}
 	oversizedBodyBytes := 0
@@ -68,7 +76,7 @@ func (c Client) prepareWithinRequestBodyLimit(
 		omittedArtifacts[media.ArtifactID] = true
 	}
 	for {
-		prepared, err := routeClient.Prepare(ctx, input)
+		prepared, err := build(ctx, input)
 		if err != nil {
 			return model.PreparedRequest{}, err
 		}

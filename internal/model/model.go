@@ -47,6 +47,14 @@ type Client interface {
 	Respond(ctx context.Context, input Request) (Response, error)
 }
 
+// RequestProjector rebuilds input without authentication or provider I/O.
+// Project must return the same body, fingerprint, and local InputTokenEstimate as
+// Prepare, before calibration against provider input usage. This contract enables
+// measured-prefix reuse; clients without it retain their own fallback estimate.
+type RequestProjector interface {
+	Project(context.Context, PrepareInput) (PreparedRequest, error)
+}
+
 type OutputTokenLimits struct {
 	Minimum  int
 	Required bool
@@ -159,8 +167,8 @@ type PrepareInput struct {
 }
 
 type PreparedRequest struct {
-	// Body is the exact JSON byte sequence authorized by Prepare and passed to
-	// the provider transport. Respond must not rebuild or mutate it.
+	// Body is the exact JSON byte sequence passed to the provider transport.
+	// Prepare validates it for sending; Respond must not rebuild or mutate it.
 	Body                   json.RawMessage
 	InputFingerprint       string
 	InputTokenEstimate     int

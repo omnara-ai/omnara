@@ -39,6 +39,13 @@ func (c Client) Prepare(ctx context.Context, input model.PrepareInput) (model.Pr
 	return c.prepareWithinRequestBodyLimit(ctx, input, anthropicMessagesRequestBodyLimit)
 }
 
+func (c Client) Project(ctx context.Context, input model.PrepareInput) (model.PreparedRequest, error) {
+	if strings.TrimSpace(c.EndpointPath) == "" {
+		return model.PreparedRequest{}, route.SetupError{Err: errors.New("model endpoint path is required")}
+	}
+	return c.buildWithinRequestBodyLimit(ctx, input, anthropicMessagesRequestBodyLimit, c.routeClient().Project)
+}
+
 func (c Client) Respond(ctx context.Context, input model.Request) (model.Response, error) {
 	if strings.TrimSpace(c.EndpointPath) == "" {
 		return model.Response{}, route.SetupError{Err: errors.New("model endpoint path is required")}

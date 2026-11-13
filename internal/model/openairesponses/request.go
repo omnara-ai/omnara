@@ -8,26 +8,27 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/apivariantbody"
+	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
+func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (route.BuiltRequest, error) {
 	_ = ctx
 	c := p.client
 	if c.ProviderModelSlug == "" {
-		return nil, errors.New("openai-responses provider model slug is required")
+		return route.BuiltRequest{}, errors.New("openai-responses provider model slug is required")
 	}
 	supportsTools := c.ModelCapabilities.SupportsTools
 	if input.Policy.SupportsTools != nil {
 		supportsTools = input.Policy.SupportsTools
 	}
 	if supportsTools != nil && !*supportsTools && len(input.Context.ToolSpecs) > 0 {
-		return nil, errors.New("openai-responses model does not support tools")
+		return route.BuiltRequest{}, errors.New("openai-responses model does not support tools")
 	}
 	if err := validateToolResultProviderCallIDs(input.Context.ToolResults); err != nil {
-		return nil, err
+		return route.BuiltRequest{}, err
 	}
 	requestInput, err := buildInput(
 		input.Context,
@@ -35,12 +36,12 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		input.Policy,
 	)
 	if err != nil {
-		return nil, err
+		return route.BuiltRequest{}, err
 	}
 	payload := responsesRequest{
 		Model:        c.ProviderModelSlug,
 		Instructions: modelcontext.ProjectedSystemPrompt(input.Context),
-		Input:        requestInput,
+		Input:        requestInput.items,
 		Tools:        buildTools(input.Context.ToolSpecs),
 		Store:        false,
 	}
@@ -77,7 +78,20 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		payload.SafetyIdentifier = input.Context.SafetyIdentifier
 		ownedFields = append(ownedFields, "safety_identifier")
 	}
-	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+	body, err := apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+	if err != nil {
+		return route.BuiltRequest{}, err
+	}
+	payload.Input = requestInput.accountingItems
+	accountingBody, err := apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+	if err != nil {
+		return route.BuiltRequest{}, err
+	}
+	inputTokens, err := requestInput.replayAccounting.EstimateInput(accountingBody, p.ProjectRenderedMedia(input.Context))
+	if err != nil {
+		return route.BuiltRequest{}, err
+	}
+	return route.BuiltRequest{Body: body, InputTokenEstimate: inputTokens}, nil
 }
 
 func responsesOwnedFields(supportsReasoning bool, reasoningEffort string) []string {

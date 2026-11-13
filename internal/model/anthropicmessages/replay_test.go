@@ -505,7 +505,7 @@ func TestPrepareRebuiltToolUseIDsAreUniqueAcrossOutputs(t *testing.T) {
 }
 
 func TestAnthropicReplayRejectsNonObjectToolInput(t *testing.T) {
-	_, _, ok := anthropicReplaySemantics([]json.RawMessage{
+	_, ok := anthropicReplaySemantics([]json.RawMessage{
 		json.RawMessage(
 			`{"type":"tool_use","id":"toolu_1","name":"parameterless_tool","input":null}`,
 		),

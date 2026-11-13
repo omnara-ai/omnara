@@ -179,6 +179,19 @@ func TestPrepareDropsOldestMediaToFitProviderBodyLimit(t *testing.T) {
 	if len(prepared.Body) > len(oneMediaPrepared.Body) {
 		t.Fatalf("bounded body bytes = %d, limit %d", len(prepared.Body), len(oneMediaPrepared.Body))
 	}
+	projected, err := client.buildWithinRequestBodyLimit(
+		context.Background(),
+		model.PrepareInput{Context: bundle, Policy: policy},
+		len(oneMediaPrepared.Body),
+		client.routeClient().Project,
+	)
+	if err != nil {
+		t.Fatalf("project bounded media: %v", err)
+	}
+	if !bytes.Equal(prepared.Body, projected.Body) || prepared.InputFingerprint != projected.InputFingerprint ||
+		prepared.InputTokenEstimate != projected.InputTokenEstimate {
+		t.Fatal("pure projection must preserve the prepared request after media pruning")
+	}
 }
 
 func TestPrepareDropsOneHistoricalOccurrenceWhenOpeningReusesArtifact(t *testing.T) {

@@ -69,7 +69,7 @@ func TestPreparedAdaptersReuseMeasuredInputBeforeOutputClamping(t *testing.T) {
 	}
 }
 
-func TestLatestIneligibleAssistantCannotResurrectOlderUsage(t *testing.T) {
+func TestMeasurementSelectionSkipsMissingEvidenceButVerifiesChosenPrefix(t *testing.T) {
 	caps := model.Capabilities{ContextWindowTokens: 100000, DefaultMaxOutputTokens: 1000}
 	for _, tc := range adapterWireClients(wireClientConfig{capabilities: caps}) {
 		t.Run(tc.name, func(t *testing.T) {
@@ -94,14 +94,17 @@ func TestLatestIneligibleAssistantCannotResurrectOlderUsage(t *testing.T) {
 					Usage:                     modelenvelope.Usage{InputTokens: 1000},
 				},
 				modelcontext.Message{
-					ID: "failure", Role: modelprotocol.RoleAssistant, Sequence: 3,
-					Content: json.RawMessage(`[{"type":"text","text":"failed attempt"}]`),
-					Usage:   modelenvelope.Usage{InputTokens: 5000},
+					ID: "unmeasured", Role: modelprotocol.RoleAssistant, Sequence: 3,
+					StopReason: modelenvelope.StopReasonEndTurn,
+					Content:    json.RawMessage(`[{"type":"text","text":"failed attempt"}]`),
+					Usage:      modelenvelope.Usage{InputTokens: 5000},
 				},
 			)
 			next, err := model.PrepareForSend(context.Background(), tc.client, input)
 			require.NoError(t, err)
-			require.False(t, next.UsesProviderInputUsage)
+			require.True(t, next.UsesProviderInputUsage)
+			require.InDelta(t, 1_000, next.InputTokenEstimate, 100)
+			beforeFailure := next.InputTokenEstimate
 
 			input.Context.InputEventSequence = 4
 			input.Context.Messages = append(input.Context.Messages, modelcontext.Message{
@@ -110,7 +113,19 @@ func TestLatestIneligibleAssistantCannotResurrectOlderUsage(t *testing.T) {
 			})
 			next, err = model.PrepareForSend(t.Context(), tc.client, input)
 			require.NoError(t, err)
-			require.False(t, next.UsesProviderInputUsage, "an error cannot make an older ineligible output safe to skip")
+			require.True(t, next.UsesProviderInputUsage)
+			require.Greater(t, next.InputTokenEstimate, beforeFailure, "failed output still contributes new input")
+
+			unverified := &input.Context.Messages[2]
+			unverified.InputEventSequence = 2
+			unverified.InputFingerprint = "changed-request"
+			unverified.AgentConfigID = bundle.AgentConfigID
+			unverified.ConfiguredModelRevisionID = bundle.ConfiguredModelRevisionID
+			unverified.ProviderReplaySource = model.ProviderReplayIdentityForClient("", tc.client)
+			next, err = model.PrepareForSend(t.Context(), tc.client, input)
+			require.NoError(t, err)
+			require.False(t, next.UsesProviderInputUsage,
+				"verify the chosen prefix once; a mismatch falls back without searching every older prefix")
 		})
 	}
 }

@@ -10,36 +10,39 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/apivariantbody"
+	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
-func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
+func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (route.BuiltRequest, error) {
 	_ = ctx
 	c := p.client
 	providerModelSlug := c.RequestedProviderModelSlug()
 	if providerModelSlug == "" {
-		return nil, errors.New("openai-chat-completions provider model slug is required")
+		return route.BuiltRequest{}, errors.New("openai-chat-completions provider model slug is required")
 	}
 	supportsTools := c.ModelCapabilities.SupportsTools
 	if input.Policy.SupportsTools != nil {
 		supportsTools = input.Policy.SupportsTools
 	}
 	if supportsTools != nil && !*supportsTools && len(input.Context.ToolSpecs) > 0 {
-		return nil, errors.New("openai-chat-completions model does not support tools")
+		return route.BuiltRequest{}, errors.New("openai-chat-completions model does not support tools")
 	}
 	if err := validateToolResultProviderCallIDs(input.Context.ToolResults); err != nil {
-		return nil, err
+		return route.BuiltRequest{}, err
 	}
+	var reasoning modelcontext.ReasoningReplayAccounting
 	messages, err := buildMessages(
 		input.Context,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
 		input.Policy,
+		&reasoning,
 	)
 	if err != nil {
-		return nil, err
+		return route.BuiltRequest{}, err
 	}
 	compat := c.compat()
 	payload := chatCompletionsRequest{
@@ -82,7 +85,26 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		payload.SafetyIdentifier = id
 		ownedFields = append(ownedFields, "safety_identifier")
 	}
-	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+	body, err := apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+	if err != nil {
+		return route.BuiltRequest{}, err
+	}
+	accountingMessages := make([]chatMessage, 0, len(payload.Messages))
+	for _, message := range payload.Messages {
+		if !message.AccountedByOutputUsage {
+			accountingMessages = append(accountingMessages, message)
+		}
+	}
+	payload.Messages = accountingMessages
+	accountingBody, err := apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+	if err != nil {
+		return route.BuiltRequest{}, err
+	}
+	inputTokens, err := reasoning.EstimateInput(accountingBody, p.ProjectRenderedMedia(input.Context))
+	if err != nil {
+		return route.BuiltRequest{}, err
+	}
+	return route.BuiltRequest{Body: body, InputTokenEstimate: inputTokens}, nil
 }
 
 func chatCompletionsOwnedFields(reasoningOwned bool) []string {
@@ -150,11 +172,12 @@ const (
 )
 
 type chatMessage struct {
-	Role           chatRole        `json:"role"`
-	Content        any             `json:"content"`
-	ToolCalls      []chatToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID     string          `json:"tool_call_id,omitempty"`
-	ProviderReplay json.RawMessage `json:"-"`
+	Role                   chatRole        `json:"role"`
+	Content                any             `json:"content"`
+	ToolCalls              []chatToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID             string          `json:"tool_call_id,omitempty"`
+	ProviderReplay         json.RawMessage `json:"-"`
+	AccountedByOutputUsage bool            `json:"-"`
 }
 
 func (m chatMessage) MarshalJSON() ([]byte, error) {
@@ -192,6 +215,7 @@ func buildMessages(
 	bundle modelcontext.Bundle,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	policy model.RequestPolicy,
+	accounting *modelcontext.ReasoningReplayAccounting,
 ) ([]chatMessage, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
@@ -221,6 +245,7 @@ func buildMessages(
 				bundle,
 				replayIdentity,
 				policy,
+				accounting,
 			)
 			if buildErr != nil {
 				return nil, buildErr
@@ -301,9 +326,10 @@ func assistantMessagesForEntry(
 	bundle modelcontext.Bundle,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	policy model.RequestPolicy,
+	accounting *modelcontext.ReasoningReplayAccounting,
 ) ([]chatMessage, error) {
 	if policy.AllowsProviderReplay(source.Sequence) {
-		if replay, ok := completeChatReplay(source, content, replayIdentity); ok {
+		if replay, ok := completeChatReplay(source, content, replayIdentity, accounting); ok {
 			return appendToolResultMessages([]chatMessage{replay}, group, bundle)
 		}
 	}
@@ -389,6 +415,7 @@ func completeChatReplay(
 	source modelcontext.Message,
 	content []modelcontext.AssistantContentEntry,
 	target modelenvelope.ProviderReplayIdentity,
+	accounting *modelcontext.ReasoningReplayAccounting,
 ) (chatMessage, bool) {
 	if !source.ProviderReplaySource.Matches(target) {
 		return chatMessage{}, false
@@ -409,7 +436,10 @@ func completeChatReplay(
 	if err != nil {
 		return chatMessage{}, false
 	}
-	return chatMessage{Role: chatRoleAssistant, ProviderReplay: normalized}, true
+	return chatMessage{
+		Role: chatRoleAssistant, ProviderReplay: normalized,
+		AccountedByOutputUsage: chatMessageHasReasoningReplay(message) && accounting.UseOutputUsage(source.Usage),
+	}, true
 }
 
 type chatReplaySemantic struct {

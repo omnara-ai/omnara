@@ -28,6 +28,7 @@ type Client struct {
 }
 
 var _ modelcontext.MediaProjector = Client{}
+var _ model.RequestProjector = Client{}
 
 func (c Client) RequestedProviderModelSlug() string {
 	return c.ProviderModelSlug

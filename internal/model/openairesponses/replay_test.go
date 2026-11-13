@@ -317,7 +317,7 @@ func TestPrepareIgnoresReplayFromDifferentProviderIdentity(t *testing.T) {
 }
 
 func TestResponsesReplayRejectsNonObjectToolInput(t *testing.T) {
-	_, ok := responseReplaySemantics([]json.RawMessage{
+	_, ok := parseResponseReplay([]json.RawMessage{
 		json.RawMessage(
 			`{"id":"fc_1","type":"function_call","call_id":"call_1","name":"parameterless_tool","arguments":"null"}`,
 		),
@@ -328,7 +328,7 @@ func TestResponsesReplayRejectsNonObjectToolInput(t *testing.T) {
 }
 
 func TestResponsesReplayRequiresFunctionCallID(t *testing.T) {
-	_, ok := responseReplaySemantics([]json.RawMessage{
+	_, ok := parseResponseReplay([]json.RawMessage{
 		json.RawMessage(
 			`{"id":"fc_1","type":"function_call","name":"lookup","arguments":"{}"}`,
 		),
