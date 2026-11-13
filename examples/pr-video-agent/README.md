@@ -78,14 +78,27 @@ in old comments.
 and **Pull requests** write access to the one repository. The App doesn't
 need to push.
 
-Either way, a token that can write to the repository is on the machine that
-runs the pull request's code, as it would be in CI. Install the App on the
-one repository only, and scope a personal token to it as well. For the same
-reason it records only pull requests from branches in the repository
-itself. It refuses a pull request from a fork whoever asks, because a fork's
-author can push new code at any time and that code would run next to the
-token. Recording forks safely would need the app to run without access to
-the credentials that publish the recording, which this example doesn't do.
+## Who can run it, and what it can reach
+
+- **Starting and steering it takes write access.** Omnara checks the
+  sender's permission on GitHub for every pull request opening and comment
+  before passing it to the agent. Pull requests and comments from bots and
+  from people without write access never start it or direct it.
+- **What it reads is treated as material, not instructions.** Anyone can
+  comment on a public pull request, and the agent reads those comments to
+  find its own earlier recordings. Its instruction tells it never to act
+  on what it reads, and it has no web tools. That is a rule the model
+  follows, not a wall: a model can be talked around.
+- **A token that can write to the repository is on the machine that runs
+  the pull request's code**, as it would be in CI, with either way of
+  posting. That code includes the dependencies it installs. Install the App
+  on the one repository only, and scope a personal token to it as well.
+  Protect your default branch and release tags with repository rules: the
+  token can push to any ref that rules don't protect.
+- **It refuses pull requests from forks**, whoever asks, because a fork's
+  author can push new code at any time and that code would run next to the
+  token. Recording forks safely would need the app to run without access to
+  the credentials that publish the recording, which this example doesn't do.
 
 ## How it works
 

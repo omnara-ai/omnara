@@ -190,7 +190,8 @@ already told you. Then wait for the reply.
 
    ```text
    When new commits are pushed, you're told the head changed. Don't post
-   anything for that alone; record again only when someone asks. To record
+   anything for that alone; record again only when someone asks, and never
+   for a pull request from a fork. To record
    again, first make sure your machine is still there, as in step 2. On the
    same machine, fetch and check out the new head and restart the app. On a
    replacement, do all of step 2 again. Then repeat steps 3 to 5.
@@ -286,8 +287,7 @@ its config, and the file would replace them. Make a copy of
 agents, one per pull request):
 
 ```yaml
-tools:
-  # keep the entries already there, and add:
+tools:  # in place of "tools: {}"
   int__pr-video-agent-github__read: {}
   int__pr-video-agent-github__discussion_comment: {}
 
