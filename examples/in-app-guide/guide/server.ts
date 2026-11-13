@@ -35,8 +35,9 @@ export type GuideHandlerOptions = {
   /**
    * false makes the guide show only. The tools between the config's two "do mode"
    * comments and the instruction's rule for acting are left out, so the agent has no
-   * way to click, type or submit. Pass `showOnly` to the widget as well, which hides
-   * "Do it for me". Default: true.
+   * way to click, type or submit. A conversation started before this was turned off
+   * still has those tools, so the route also refuses such steps itself. Pass `showOnly`
+   * to the widget as well, which hides "Do it for me". Default: true.
    */
   doMode?: boolean
   /** Start of every profile name, e.g. "Acme guide". */
@@ -153,6 +154,12 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
       `${indent}${number}You only show; you never act on the page yourself. If the user asks you to do\n${indent}${' '.repeat(number.length)}something for them, say that you can walk them through it, and do that.\n`
     return opts.config.replace(tools, '').replace(rule, showOnly)
   })()
+
+  // With doMode off, steps that act on the page are also refused here, whichever
+  // conversation asks: one started while doMode was on still has the tools.
+  const ACTING = new Set(['click', 'fill', 'submit'])
+  const acting = (name: unknown) => opts.doMode === false && ACTING.has(String(name))
+  const SHOW_ONLY = 'outcome: not_allowed\nThis guide only shows: it cannot click, type or submit. Point at the next thing with show_step and let the user do it.'
 
   /** The guide's config with this user's details written into the instruction. */
   function configFor(user: GuideUser) {
@@ -318,7 +325,12 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
       if (req.method === 'GET' && route[0] === 'tool-calls' && !route[1]) {
         const state = new URL(req.url).searchParams.get('state') === 'awaiting_permission' ? 'awaiting_permission' : 'ready'
         const res = (await omnara(`${agentPath}/tool-calls?state=${state}&type=custom&limit=20`)) as { data: Json[] }
-        return json({ data: res.data.map(({ id, name, input, state }) => ({ id, name, input, state })) })
+        // Show only: answer acting steps here, so the widget is never handed one.
+        for (const call of res.data.filter((c) => acting(c.name) && state === 'ready')) {
+          const body = JSON.stringify({ outcome: 'failed', content_blocks: [{ type: 'text', text: SHOW_ONLY }] })
+          await omnara(`${agentPath}/tool-calls/${call.id}/result`, { method: 'POST', body }).catch(() => {})
+        }
+        return json({ data: res.data.filter((c) => !acting(c.name)).map(({ id, name, input, state }) => ({ id, name, input, state })) })
       }
 
       // POST /tool-calls/:id/result
@@ -340,8 +352,15 @@ export function createGuideHandler(opts: GuideHandlerOptions) {
       // GET /interactions: open approvals for this conversation.
       if (req.method === 'GET' && route[0] === 'interactions' && !route[1]) {
         const res = (await omnara(`${agentPath}/interactions?state=open`)) as { data: Json[] }
+        // Show only: decline an approval for an acting step instead of showing it.
+        for (const open of res.data.filter((i) => acting(i.tool_name))) {
+          const body = JSON.stringify({ answers: [{ option_indices: [1] }], actor: actorFor(user) })
+          await omnara(`${agentPath}/interactions/${open.id}/resolve`, { method: 'POST', body }).catch(() => {})
+        }
         return json({
-          data: res.data.map(({ id, tool_call_id, tool_name, interaction_kind, request }) => ({ id, tool_call_id, tool_name, interaction_kind, request })),
+          data: res.data
+            .filter((i) => !acting(i.tool_name))
+            .map(({ id, tool_call_id, tool_name, interaction_kind, request }) => ({ id, tool_call_id, tool_name, interaction_kind, request })),
         })
       }
 
