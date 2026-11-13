@@ -143,8 +143,8 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
-github.com/oapi-codegen/nethttp-middleware v1.2.0 h1:2tsVYoKyEWeeQT/niCbip414w9Q4xfVOKedhgC0hIDM=
-github.com/oapi-codegen/nethttp-middleware v1.2.0/go.mod h1:YF1jty00n7tKy9zH5kXixia0awaE+PgVzJyujqCH39A=
+github.com/oapi-codegen/nethttp-middleware v1.3.1 h1:EtgqCb0ebw6O8Gex65OWisNa2VdOclUrtUyOTvdteps=
+github.com/oapi-codegen/nethttp-middleware v1.3.1/go.mod h1:j/ahaBItEQnKZCLc8vG3FqiVL17/J6QSd1AnLU4fNIY=
 github.com/oapi-codegen/nullable v1.2.0 h1:VflFkDW980KhBPiFF7nWSyjg+r4Obqj8lXipV0UkP5w=
 github.com/oapi-codegen/nullable v1.2.0/go.mod h1:KUZ3vUzkmEKY90ksAmit2+5juDIhIZhfDl+0PwOQlFY=
 github.com/oapi-codegen/runtime v1.7.0 h1:t7358VYPvNbWJ9gdAkIK/smVeHpBf6yp8VTsaZsb/7k=
