@@ -19,9 +19,9 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "@oxlint/plugins": "1.90.0",
+    "@oxlint/plugins": "1.91.0",
     "eslint-plugin-simple-import-sort": "^14.0.0",
-    "oxlint": "1.90.0",
+    "oxlint": "1.91.0",
     "oxlint-tsgolint": "7.0.2006",
     "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
