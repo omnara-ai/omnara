@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"maps"
 	"reflect"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -237,15 +236,12 @@ func sourceYAMLNode(decoder *json.Decoder) (*yaml.Node, error) {
 		}
 		_, err = decoder.Token()
 	case json.Number:
-		node.Kind, node.Tag, node.Value = yaml.ScalarNode, "!!int", string(value)
-		if strings.ContainsAny(string(value), ".eE") {
-			node.Tag = "!!float"
-		}
+		node.Kind, node.Value = yaml.ScalarNode, string(value)
 	case string:
-		err = node.Encode(value)
-		node.Tag, node.Value = "!!str", value
-		if value == "<<" || yamlOverflowedNumber(value) {
-			node.Style = yaml.DoubleQuotedStyle
+		var native yaml.Node
+		node.Kind, node.Tag, node.Value, node.Style = yaml.ScalarNode, "!!str", value, yaml.DoubleQuotedStyle
+		if native.Encode(value) == nil && native.Value == value && value != "<<" && !yamlOverflowedNumber(value) {
+			node.Style = native.Style
 		}
 	default:
 		err = node.Encode(value)
