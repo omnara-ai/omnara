@@ -27,8 +27,12 @@ func DeriveIntegrationProfileConfig(
 	); err != nil {
 		return executionstore.CreateAgentConfigInput{}, err
 	}
+	verified, err := agentconfig.VerifiedDefinition(base.CompiledDefinition, base.EffectiveDefinitionHash)
+	if err != nil {
+		return executionstore.CreateAgentConfigInput{}, err
+	}
 	var compiled agentconfig.Compiled
-	if err := json.Unmarshal(base.CompiledDefinition, &compiled); err != nil {
+	if err := json.Unmarshal(verified, &compiled); err != nil {
 		return executionstore.CreateAgentConfigInput{}, err
 	}
 	derived, err := agentconfig.DeriveWithIntegrationCapabilities(compiled, additions, opts)

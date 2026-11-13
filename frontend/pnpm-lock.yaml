@@ -194,6 +194,9 @@ importers:
       ink:
         specifier: ^8.0.0
         version: 8.0.0(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
       react:
         specifier: 19.3.0-canary-eb8feb71-20260814
         version: 19.3.0-canary-eb8feb71-20260814
@@ -262,9 +265,15 @@ importers:
 
   packages/sdk:
     dependencies:
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
       standardwebhooks:
         specifier: 1.1.1
         version: 1.1.1
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -287,9 +296,6 @@ importers:
       vitest:
         specifier: 5.1.0
         version: 5.1.0(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(happy-dom@21.0.4)(vite@8.3.6(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
-      yaml:
-        specifier: ^2.9.1
-        version: 2.9.1
 
 packages:
 

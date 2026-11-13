@@ -49,7 +49,13 @@ tools:
       required: [title]
 ```
 
+In the dashboard, choose **Tools → + → Custom tool**. Enter a name and edit the starter definition in the config's YAML or JSON format. Custom tools appear alongside other tools with a **Custom** label. Click a row to edit its full definition; its permission and remove controls work like those of other tools.
+
+`input_schema` is a JSON Schema object even when written using YAML syntax. Omnara validates the schema when compiling the config, using the same validator that checks tool-call inputs. The root must be an object schema, and every root `required` field must appear in `properties`. Remote references and regex features unsupported by RE2 are rejected with a schema-path error.
+
 Custom tools default to `always_allow`; set `permission.mode: always_ask` to put a human between the model and your system ([Tools & permissions](/tools/permissions)).
+
+Custom input schemas default to JSON Schema 2020-12. Use `$schema` to declare another supported dialect, such as draft-07. Compilation validates the schema before saving the configuration.
 
 ## Find calls waiting for you
 

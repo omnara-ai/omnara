@@ -166,12 +166,7 @@ func toolSourcesFromCompiled(
 		switch {
 		case toolcatalog.UsesIntegrationToolNamespace(name):
 		case tool.Type == toolcatalog.ToolTypeCustom:
-			entry.Type, entry.Description = tool.Type, tool.Description
-			if len(tool.InputSchema) > 0 {
-				if err := json.Unmarshal(tool.InputSchema, &entry.InputSchema); err != nil {
-					return nil, err
-				}
-			}
+			entry.Type, entry.Description, entry.InputSchema = tool.Type, tool.Description, tool.InputSchema
 			defaultPermission = new(toolcatalog.DefaultCustomToolPermission())
 		default:
 			if catalogEntry, ok := catalog.Lookup(name); ok {
@@ -205,25 +200,53 @@ func EncodeSource(source AgentConfigSource, format SourceFormat) (string, error)
 	if format == SourceFormatJSON {
 		return raw.String(), nil
 	}
-	var document yaml.Node
-	if err := yaml.Unmarshal(raw.Bytes(), &document); err != nil {
+	decoder := json.NewDecoder(&raw)
+	decoder.UseNumber()
+	document, err := sourceYAMLNode(decoder)
+	if err != nil {
 		return "", err
 	}
-	blockStyle(&document)
 	var out bytes.Buffer
 	encoder := yaml.NewEncoder(&out)
 	encoder.SetIndent(2)
-	if err := encoder.Encode(&document); err != nil {
+	if err := encoder.Encode(document); err != nil {
 		return "", err
 	}
 	return out.String(), nil
 }
 
-func blockStyle(node *yaml.Node) {
-	node.Style = 0
-	for _, child := range node.Content {
-		blockStyle(child)
+func sourceYAMLNode(decoder *json.Decoder) (*yaml.Node, error) {
+	value, err := decoder.Token()
+	if err != nil {
+		return nil, err
 	}
+	node := &yaml.Node{}
+	switch value := value.(type) {
+	case json.Delim:
+		node.Kind = yaml.SequenceNode
+		if value == '{' {
+			node.Kind = yaml.MappingNode
+		}
+		for decoder.More() {
+			child, err := sourceYAMLNode(decoder)
+			if err != nil {
+				return nil, err
+			}
+			node.Content = append(node.Content, child)
+		}
+		_, err = decoder.Token()
+	case json.Number:
+		node.Kind, node.Value = yaml.ScalarNode, string(value)
+	case string:
+		var native yaml.Node
+		node.Kind, node.Tag, node.Value, node.Style = yaml.ScalarNode, "!!str", value, yaml.DoubleQuotedStyle
+		if native.Encode(value) == nil && native.Value == value && value != "<<" && !yamlOverflowedNumber(value) {
+			node.Style = native.Style
+		}
+	default:
+		err = node.Encode(value)
+	}
+	return node, err
 }
 
 func sourcePermission(permission *toolpermission.Selection) *toolpermission.Selection {

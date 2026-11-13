@@ -1,5 +1,5 @@
 import type { ToolCatalog, ToolCatalogEntry } from '@omnara/sdk'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import {
   type PermissionSelection,
@@ -12,15 +12,18 @@ import {
   permissionModeOptions,
 } from '@/components/agents/permissionModeOptions'
 import { ChevronDownIcon, PlusIcon, Trash2Icon } from '@/components/icons'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 
 export interface BasicTool {
   name: string
@@ -55,19 +58,27 @@ export function AgentConfigToolsField({
   catalog,
   tools,
   resolvedTools,
+  reservedNames = [],
   onToolsChange,
+  onAddCustomTool,
+  children,
 }: {
   catalog?: ToolCatalog
   tools: BasicTool[]
+  reservedNames?: string[]
   resolvedTools?: { name: string; enabled: boolean }[]
   onToolsChange: (tools: BasicTool[]) => void
+  onAddCustomTool?: () => void
+  children?: ReactNode
 }) {
   const catalogTools = catalog?.built_in_tools ?? []
   const catalogByName = new Map(catalogTools.map((entry) => [entry.name, entry]))
+  const reserved = new Set(reservedNames)
+  const configured = new Set(tools.map((tool) => tool.name))
   const displayedTools: BasicTool[] = [
-    ...tools,
+    ...tools.filter((tool) => !reserved.has(tool.name)),
     ...(resolvedTools ?? [])
-      .filter((tool) => !tools.some((configured) => configured.name === tool.name))
+      .filter((tool) => !reserved.has(tool.name) && !configured.has(tool.name))
       .map((tool) => ({ name: tool.name, enabled: tool.enabled, permission: null })),
   ]
   const includedTools = displayedTools
@@ -77,7 +88,7 @@ export function AgentConfigToolsField({
     ? tools.filter((tool) => !catalogByName.get(tool.name)?.implicit)
     : []
   const availableTools = catalogTools.filter(
-    (entry) => !entry.implicit && tools.every((tool) => tool.name !== entry.name),
+    (entry) => !reserved.has(entry.name) && !entry.implicit && !configured.has(entry.name),
   )
 
   return (
@@ -91,7 +102,7 @@ export function AgentConfigToolsField({
               size="icon"
               variant="ghost"
               className="text-muted-foreground size-10 sm:size-8"
-              disabled={availableTools.length === 0}
+              disabled={availableTools.length === 0 && !onAddCustomTool}
               aria-label="Add tools"
             >
               <PlusIcon />
@@ -114,6 +125,12 @@ export function AgentConfigToolsField({
                 {entry.name}
               </DropdownMenuItem>
             ))}
+            {onAddCustomTool && (
+              <>
+                {availableTools.length > 0 && <DropdownMenuSeparator />}
+                <DropdownMenuItem onSelect={onAddCustomTool}>Custom tool</DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       }
@@ -123,48 +140,35 @@ export function AgentConfigToolsField({
           {visibleTools.map((tool) => {
             const entry = catalogByName.get(tool.name)
             return (
-              <div
+              <AgentConfigToolRow
                 key={tool.name}
-                className="flex flex-wrap items-center gap-2 px-4 py-2.5 sm:flex-nowrap sm:gap-3 sm:px-5"
-              >
-                <ToolName name={tool.name} entry={entry} />
-                <PermissionModeSelect
-                  tool={tool}
-                  entry={entry}
-                  allowDisable={tool.enabled === false}
-                  onChange={(mode) => {
-                    onToolsChange(
-                      tools.map((currentTool) =>
-                        currentTool.name === tool.name
-                          ? {
-                              ...currentTool,
-                              enabled: mode === 'disabled' ? false : undefined,
-                              permission:
-                                mode === 'disabled'
-                                  ? currentTool.permission
-                                  : { mode, parameters: {} },
-                            }
-                          : currentTool,
-                      ),
-                    )
-                  }}
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label={`Remove ${tool.name}`}
-                  onClick={() => {
-                    onToolsChange(tools.filter((currentTool) => currentTool.name !== tool.name))
-                  }}
-                >
-                  <Trash2Icon />
-                </Button>
-              </div>
+                tool={tool}
+                entry={entry}
+                onPermissionChange={(mode) => {
+                  onToolsChange(
+                    tools.map((currentTool) =>
+                      currentTool.name === tool.name
+                        ? {
+                            ...currentTool,
+                            enabled: mode === 'disabled' ? false : undefined,
+                            permission:
+                              mode === 'disabled'
+                                ? currentTool.permission
+                                : { mode, parameters: {} },
+                          }
+                        : currentTool,
+                    ),
+                  )
+                }}
+                onRemove={() => {
+                  onToolsChange(tools.filter((currentTool) => currentTool.name !== tool.name))
+                }}
+              />
             )
           })}
         </div>
       ) : null}
+      {children}
       <AgentConfigIncludedTools
         catalog={catalog}
         tools={includedTools}
@@ -177,6 +181,55 @@ export function AgentConfigToolsField({
         }}
       />
     </AgentConfigSectionCard>
+  )
+}
+
+export function AgentConfigToolRow({
+  tool,
+  entry,
+  onPermissionChange,
+  onRemove,
+  onEdit,
+  permissionDisabled,
+  allowDisable = tool.enabled === false,
+}: {
+  tool: BasicTool
+  entry?: ToolCatalogEntry
+  onPermissionChange: (mode: string) => void
+  onRemove?: () => void
+  onEdit?: () => void
+  permissionDisabled?: boolean
+  allowDisable?: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        'relative flex flex-wrap items-center justify-end gap-2 px-4 py-2.5 sm:flex-nowrap sm:gap-3 sm:px-5',
+        onEdit && 'hover:bg-muted/50',
+      )}
+    >
+      <ToolName name={tool.name} entry={entry} onEdit={onEdit} />
+      <div className="relative flex items-center gap-2 sm:gap-3">
+        <PermissionModeSelect
+          tool={tool}
+          entry={entry}
+          allowDisable={allowDisable}
+          disabled={permissionDisabled}
+          onChange={onPermissionChange}
+        />
+        {onRemove && (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label={`Remove ${tool.name}`}
+            onClick={onRemove}
+          >
+            <Trash2Icon />
+          </Button>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -193,7 +246,7 @@ function AgentConfigIncludedTools({
   const catalogByName = new Map(catalog?.built_in_tools.map((entry) => [entry.name, entry]))
 
   return (
-    <Collapsible>
+    <Collapsible className="border-y last:border-b-0">
       <Tooltip>
         <CollapsibleTrigger asChild>
           <TooltipTrigger className="text-muted-foreground group flex w-fit items-center gap-2 px-4 py-3 text-left text-sm sm:px-5">
@@ -213,21 +266,19 @@ function AgentConfigIncludedTools({
           const { name } = tool
           const entry = catalogByName.get(name)
           return (
-            <div key={name} className="flex flex-wrap items-center gap-2 px-4 py-2 sm:px-5">
-              <ToolName name={name} entry={entry} />
-              <PermissionModeSelect
-                tool={tool}
-                entry={entry}
-                allowDisable
-                onChange={(mode) => {
-                  onToolChange({
-                    ...tool,
-                    enabled: mode === 'disabled' ? false : undefined,
-                    permission: mode === 'disabled' ? tool.permission : { mode, parameters: {} },
-                  })
-                }}
-              />
-            </div>
+            <AgentConfigToolRow
+              key={name}
+              tool={tool}
+              entry={entry}
+              allowDisable
+              onPermissionChange={(mode) => {
+                onToolChange({
+                  ...tool,
+                  enabled: mode === 'disabled' ? false : undefined,
+                  permission: mode === 'disabled' ? tool.permission : { mode, parameters: {} },
+                })
+              }}
+            />
           )
         })}
       </CollapsibleContent>
@@ -239,11 +290,13 @@ function PermissionModeSelect({
   tool,
   entry,
   allowDisable = false,
+  disabled = false,
   onChange,
 }: {
   tool: BasicTool
   entry?: ToolCatalogEntry
   allowDisable?: boolean
+  disabled?: boolean
   onChange: (mode: string) => void
 }) {
   const permissionMode = tool.permission?.mode ?? entry?.default_permission.mode ?? ''
@@ -253,18 +306,30 @@ function PermissionModeSelect({
       label={`${tool.name} permission`}
       options={allowDisable ? [...options, disabledPermissionOption] : options}
       value={tool.enabled === false ? 'disabled' : permissionMode}
-      disabled={entry == null || (!allowDisable && options.length === 1)}
+      disabled={disabled || entry == null || (!allowDisable && options.length === 1)}
       onChange={onChange}
     />
   )
 }
 
-function ToolName({ name, entry }: { name: string; entry?: ToolCatalogEntry }) {
+function ToolName({
+  name,
+  entry,
+  onEdit,
+}: {
+  name: string
+  entry?: ToolCatalogEntry
+  onEdit?: () => void
+}) {
   const [open, setOpen] = useState(false)
-  const description = toolDescriptions.get(name) ?? entry?.description
+  const description = onEdit
+    ? entry?.description.length
+      ? entry.description
+      : 'Click to edit this custom tool’s definition.'
+    : (toolDescriptions.get(name) ?? entry?.description)
   return (
     <div
-      className="-my-2.5 flex min-w-0 flex-1 basis-full items-center self-stretch py-2.5 sm:basis-auto"
+      className="-my-2.5 flex min-w-0 flex-1 basis-full items-center gap-2 self-stretch py-2.5 sm:basis-auto"
       onPointerEnter={() => {
         setOpen(true)
       }}
@@ -277,8 +342,15 @@ function ToolName({ name, entry }: { name: string; entry?: ToolCatalogEntry }) {
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="bg-muted block max-w-full cursor-default truncate rounded-md px-2 py-1 text-left font-mono text-xs outline-none focus-visible:ring-2"
-              aria-label={`About ${name}`}
+              className={cn(
+                'bg-muted inline-flex max-w-full min-w-0 items-center rounded-md px-2 py-1 text-left font-mono text-xs outline-none',
+                onEdit
+                  ? 'focus-visible:after:ring-ring cursor-pointer after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-inset'
+                  : 'cursor-default focus-visible:ring-2',
+              )}
+              aria-label={`${onEdit ? 'Edit' : 'About'} ${name}`}
+              aria-haspopup={onEdit ? 'dialog' : undefined}
+              onClick={onEdit}
               onFocus={() => {
                 setOpen(true)
               }}
@@ -286,7 +358,7 @@ function ToolName({ name, entry }: { name: string; entry?: ToolCatalogEntry }) {
                 setOpen(false)
               }}
             >
-              {name}
+              <span className="truncate">{name}</span>
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" className="max-w-sm px-4 py-2 text-sm leading-relaxed">
@@ -295,6 +367,11 @@ function ToolName({ name, entry }: { name: string; entry?: ToolCatalogEntry }) {
         </Tooltip>
       ) : (
         <span className="bg-muted truncate rounded-md px-2 py-1 font-mono text-xs">{name}</span>
+      )}
+      {onEdit && (
+        <Badge variant="outline" className="text-muted-foreground">
+          Custom
+        </Badge>
       )}
     </div>
   )

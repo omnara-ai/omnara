@@ -10,17 +10,17 @@ model:
 `
 
 function deserialize(source: string): BasicConfig | null {
-  return createBasicConfigSession(source).initialDraft
+  return createBasicConfigSession(source, 'yaml').initialDraft
 }
 
 function mustDeserialize(source: string): BasicConfig {
-  const config = createBasicConfigSession(source).initialDraft
+  const config = createBasicConfigSession(source, 'yaml').initialDraft
   if (config == null) throw new Error('expected the config to deserialize')
   return config
 }
 
 function applyToSource(source: string, config: BasicConfig): string {
-  return createBasicConfigSession(source).apply(config)
+  return createBasicConfigSession(source, 'yaml').apply(config)
 }
 
 describe('builder source tools', () => {
@@ -78,7 +78,6 @@ machine_sources:
       expect(parse(applyToSource(source, config))).toHaveProperty(['tools', name, 'enabled'], false)
       config.tools = config.tools.map((tool) => ({ ...tool, enabled: true }))
       expect(parse(applyToSource(source, config))).toHaveProperty(['tools', name], {
-        type: 'built_in',
         permission: { mode: 'always_ask' },
       })
     },

@@ -1,7 +1,9 @@
 import './monacoEnvironment'
 import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js'
+import 'monaco-editor/esm/vs/language/json/monaco.contribution.js'
 
 import type { AgentConfigErrorIssue } from '@omnara/sdk'
+import type { ConfigSourceFormat } from '@omnara/sdk/config-source'
 import * as monaco from 'monaco-editor'
 import { configureMonacoYaml, type MonacoYaml, type MonacoYamlOptions } from 'monaco-yaml'
 import { useEffect, useRef, useState } from 'react'
@@ -82,12 +84,13 @@ function serverIssueMarkers(
   })
 }
 
-function agentConfigYamlAriaLabel(readOnly: boolean) {
-  return readOnly ? 'Config preview (YAML)' : 'Config (YAML)'
+function agentConfigYamlAriaLabel(readOnly: boolean, format: ConfigSourceFormat) {
+  return `${readOnly ? 'Config preview' : 'Config'} (${format.toUpperCase()})`
 }
 
 export interface AgentConfigYamlEditorProps {
   id: string
+  format?: ConfigSourceFormat
   value: string
   onChange: (value: string) => void
   readOnly?: boolean
@@ -102,6 +105,7 @@ export function AgentConfigYamlEditor({
   value,
   onChange,
   readOnly = false,
+  format = 'yaml',
   className,
   issues = noIssues,
 }: AgentConfigYamlEditorProps) {
@@ -109,7 +113,7 @@ export function AgentConfigYamlEditor({
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const modelRef = useRef<monaco.editor.ITextModel | null>(null)
   const onChangeRef = useRef(onChange)
-  const initialValueRef = useRef(value)
+  const valueRef = useRef(value)
   const initialReadOnlyRef = useRef(readOnly)
   const issuesRef = useRef(issues)
   const [staleIssues, setStaleIssues] = useState<readonly AgentConfigErrorIssue[] | null>(null)
@@ -117,28 +121,46 @@ export function AgentConfigYamlEditor({
 
   useEffect(() => {
     onChangeRef.current = onChange
-  }, [onChange])
+    valueRef.current = value
+  }, [onChange, value])
 
   useEffect(() => {
     if (!editorElementRef.current) return
 
-    configureYaml()
+    if (format === 'yaml') configureYaml()
+    else
+      monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+        validate: true,
+        allowComments: false,
+        trailingCommas: 'error',
+        schemas: [
+          {
+            uri: agentConfigSchemaUri,
+            fileMatch: ['file:///agent-config-*.json'],
+            schema: agentConfigSchema,
+          },
+        ],
+      })
 
-    const modelUri = monaco.Uri.parse(`file:///agent-config-${id}.yaml`)
+    const modelUri = monaco.Uri.parse(`file:///agent-config-${id}.${format}`)
     const model =
       monaco.editor.getModel(modelUri) ??
-      monaco.editor.createModel(initialValueRef.current, 'yaml', modelUri)
+      monaco.editor.createModel(valueRef.current, format, modelUri)
 
     modelRef.current = model
     editorRef.current = monaco.editor.create(editorElementRef.current, {
       model,
-      ariaLabel: agentConfigYamlAriaLabel(initialReadOnlyRef.current),
+      ariaLabel: agentConfigYamlAriaLabel(initialReadOnlyRef.current, format),
       ariaRequired: !initialReadOnlyRef.current,
       automaticLayout: true,
       ...editorAppearance(monaco, editorElementRef.current),
       minimap: { enabled: false },
+      occurrencesHighlight: 'off',
       padding: { top: 12, bottom: 12 },
-      placeholder: agentConfigYamlPlaceholder,
+      placeholder:
+        format === 'yaml'
+          ? agentConfigYamlPlaceholder
+          : '{"instruction": "You are a helpful assistant.", "model": {"provider_config": "<provider-config-name>", "name": "<model-name>"}}',
       quickSuggestions: { comments: false, other: true, strings: true },
       readOnly: initialReadOnlyRef.current,
       scrollBeyondLastLine: false,
@@ -181,7 +203,7 @@ export function AgentConfigYamlEditor({
       model.dispose()
       modelRef.current = null
     }
-  }, [id])
+  }, [id, format])
 
   useEffect(() => {
     const model = modelRef.current
@@ -208,11 +230,11 @@ export function AgentConfigYamlEditor({
 
   useEffect(() => {
     editorRef.current?.updateOptions({
-      ariaLabel: agentConfigYamlAriaLabel(readOnly),
+      ariaLabel: agentConfigYamlAriaLabel(readOnly, format),
       ariaRequired: !readOnly,
       readOnly,
     })
-  }, [readOnly])
+  }, [readOnly, format])
 
   return (
     <>

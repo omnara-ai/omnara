@@ -8,6 +8,29 @@ const password = requiredEnvironmentVariable('OMNARA_WEB_E2E_PASSWORD')
 
 const sessionCookies = new Map<string, Cookie[]>()
 
+export async function typeInConfigEditor(page: Page, text: string) {
+  const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
+  await expect(editor).toBeVisible()
+  await editor.focus()
+  await page.keyboard.insertText(text)
+}
+
+export async function replaceConfigEditor(page: Page, text: string) {
+  const editor = page.getByRole('textbox', { name: 'Config (YAML)' })
+  await expect(editor).toBeVisible()
+  await editor.focus()
+  // Desktop Chrome uses a Windows user agent, which selects Monaco's Ctrl
+  // bindings even on macOS. Paste avoids typing auto-closing extra JSON quotes.
+  await page.keyboard.press('Control+A')
+  await editor.evaluate((element, value) => {
+    const clipboardData = new DataTransfer()
+    clipboardData.setData('text/plain', value)
+    element.dispatchEvent(
+      new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }),
+    )
+  }, text)
+}
+
 export async function signInThroughLoginForm(page: Page, email: string, returnTo: string) {
   await page.goto(returnTo)
 

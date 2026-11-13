@@ -1020,7 +1020,11 @@ func agentConfigDetailResponse(
 	summary openapi.AgentConfigSummary,
 	compiled json.RawMessage,
 ) (openapi.AgentConfig, error) {
-	definition, err := publicCompiledDefinition(compiled)
+	verified, err := agentconfig.VerifiedDefinition(compiled, summary.EffectiveDefinitionHash)
+	if err != nil {
+		return openapi.AgentConfig{}, err
+	}
+	definition, err := publicCompiledDefinition(verified)
 	if err != nil {
 		return openapi.AgentConfig{}, err
 	}

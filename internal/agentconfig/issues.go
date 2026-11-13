@@ -1,6 +1,7 @@
 package agentconfig
 
 import (
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"regexp"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	kjsonschema "github.com/kaptinlin/jsonschema"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"gopkg.in/yaml.v3"
 )
 
@@ -81,6 +83,17 @@ func validationErrorFrom(err error, root *yaml.Node) error {
 		return validationErr
 	}
 	var wrapped issueError
+	if errors.As(err, &wrapped) {
+		return newValidationError([]Issue{wrapped.issue}, root)
+	}
+	var syntax *jsontext.SyntacticError
+	if errors.As(err, &syntax) {
+		err = NewIssue(string(syntax.JSONPointer), syntax.Err)
+	}
+	var value *jsoncanonical.ValueError
+	if errors.As(err, &value) {
+		err = NewIssue(string(value.Pointer), value.Err)
+	}
 	if errors.As(err, &wrapped) {
 		return newValidationError([]Issue{wrapped.issue}, root)
 	}
