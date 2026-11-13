@@ -24,8 +24,6 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 )
 
-type originalJSONRequestBodyKey struct{}
-
 func newOpenAPIRequestValidator() (middleware, error) {
 	spec, err := openapi.GetSpec()
 	if err != nil {
@@ -44,14 +42,19 @@ func newOpenAPIRequestValidator() (middleware, error) {
 		SkipSettingDefaults: true,
 	}
 	options.WithCustomSchemaErrorFunc(openAPISchemaErrorMessage)
-	validator := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
+	validatorOptions := nethttpmiddleware.Options{
 		Options:               options,
 		SilenceServersWarning: true,
 		ErrorHandlerWithOpts:  openAPIValidationErrorHandler,
-	})
+	}
+	validator := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &validatorOptions)
+	configSourceOptions := validatorOptions
+	configSourceOptions.DiscardValidatedValue = true
+	configSourceValidator := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &configSourceOptions)
 
 	return func(next http.Handler) http.Handler {
 		validated := validator(next)
+		configSourceValidated := configSourceValidator(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasPrefix(r.URL.Path, openAPIBasePath+"/") {
 				next.ServeHTTP(w, r)
@@ -76,8 +79,14 @@ func newOpenAPIRequestValidator() (middleware, error) {
 						writeOpenAPIRequestError(w, r, err)
 						return
 					}
-				} else if err := rejectTrailingJSONRequestBody(r, route.Operation.OperationID); err != nil {
+				} else if err := rejectTrailingJSONRequestBody(r); err != nil {
 					writeOpenAPIRequestError(w, r, err)
+					return
+				}
+				switch route.Operation.OperationID {
+				case string(operationCreateAgentConfig), string(operationCreateAgent),
+					string(operationUpdateAgentConfig), string(operationResolveAgentConfigTools):
+					configSourceValidated.ServeHTTP(w, r)
 					return
 				}
 			}
@@ -119,7 +128,7 @@ func rejectUnexpectedOpenAPIRequestBody(r *http.Request) error {
 	return nil
 }
 
-func rejectTrailingJSONRequestBody(r *http.Request, opID string) error {
+func rejectTrailingJSONRequestBody(r *http.Request) error {
 	if r.Body == nil || !isJSONContentType(r.Header.Get("Content-Type")) {
 		return nil
 	}
@@ -128,10 +137,6 @@ func rejectTrailingJSONRequestBody(r *http.Request, opID string) error {
 	r.ContentLength = int64(len(raw))
 	if err != nil {
 		return err
-	}
-	if opID == string(operationCreateAgentConfig) || opID == string(operationCreateAgent) ||
-		opID == string(operationUpdateAgentConfig) || opID == string(operationResolveAgentConfigTools) {
-		*r = *r.WithContext(context.WithValue(r.Context(), originalJSONRequestBodyKey{}, raw))
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil

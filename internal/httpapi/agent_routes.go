@@ -716,7 +716,7 @@ func (s strictOpenAPIServer) createAgent(
 			return nil, *err
 		}
 		compiled, err := s.server.compileAgentConfigSourceForProject(
-			ctx, project, string(configSource.SourceFormat), configSource.Source, "config_source",
+			ctx, project, string(configSource.SourceFormat), configSource.Source,
 		)
 		if err != nil {
 			return nil, agentConfigCompileError(err)
@@ -1235,15 +1235,9 @@ func agentConfigSourceFormatFromString(value string) (agentconfig.SourceFormat, 
 
 // agentConfigSourceInput resolves a request's source and source_format into compiler input.
 func agentConfigSourceInput(
-	ctx context.Context,
 	sourceFormatRaw string,
 	source json.RawMessage,
-	container ...string,
 ) (agentconfig.SourceFormat, string, error) {
-	source, err := originalAgentConfigSource(ctx, source, container...)
-	if err != nil {
-		return "", "", err
-	}
 	sourceFormat, err := agentConfigSourceFormatFromString(sourceFormatRaw)
 	if err != nil {
 		return "", "", err
@@ -1273,9 +1267,8 @@ func (s *Server) compileAgentConfigSourceForProject(
 	project identitystore.ProjectRecord,
 	sourceFormatRaw string,
 	rawSource json.RawMessage,
-	container ...string,
 ) (agentconfigcompile.Body, error) {
-	sourceFormat, source, err := agentConfigSourceInput(ctx, sourceFormatRaw, rawSource, container...)
+	sourceFormat, source, err := agentConfigSourceInput(sourceFormatRaw, rawSource)
 	if err != nil {
 		return agentconfigcompile.Body{}, err
 	}
@@ -1288,29 +1281,6 @@ func (s *Server) compileAgentConfigSourceForProject(
 		sourceFormat,
 		source,
 	)
-}
-
-func originalAgentConfigSource(
-	ctx context.Context,
-	fallback json.RawMessage,
-	container ...string,
-) (json.RawMessage, error) {
-	raw, ok := ctx.Value(originalJSONRequestBodyKey{}).([]byte)
-	if !ok {
-		return fallback, nil
-	}
-	for _, name := range append(container, "source") {
-		var members map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &members); err != nil {
-			return nil, fmt.Errorf("read original config source: %w", err)
-		}
-		member, found := members[name]
-		if !found {
-			return fallback, nil
-		}
-		raw = member
-	}
-	return raw, nil
 }
 
 func agentConfigCompileError(err error) apierror.ResponseError {
