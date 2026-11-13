@@ -57,7 +57,7 @@ base: &base {large: 9007199254740993, decimal: 0.123456789012345678901, replace:
 merged: {<<: *base, replace: 2}
 values: [010, 0x10, 0b10, 0o10, +1_000, .5, 01.2, 1.e2, 2026-01-02, "1e400"]
 strings: [_1, ._5, .5_, 0xFFFFFFFFFFFFFFFFFF, !!str 1e400]
-exact: [0777777777777777777777777, !!float 9007199254740993, !!float 010]
+exact: [0777777777777777777777777, !!float 9007199254740993, !!float 010, !!int "010", !!int "9007199254740993"]
 sequence: {<<: [{x: 1, y: 2}, {x: 3, z: 4}], y: null}`)
 	require.NoError(t, err)
 	require.True(t, jsoncanonical.Equal(value, []byte(`
@@ -65,7 +65,7 @@ sequence: {<<: [{x: 1, y: 2}, {x: 3, z: 4}], y: null}`)
 "merged":{"large":9007199254740993,"decimal":0.123456789012345678901,"replace":2},
 "values":[8,16,2,8,1000,0.5,1.2,100,"2026-01-02T00:00:00Z","1e400"],
 "strings":["_1","._5",".5_","0xFFFFFFFFFFFFFFFFFF","1e400"],
-"exact":[777777777777777777777777,9007199254740993,8],
+"exact":[777777777777777777777777,9007199254740993,8,8,9007199254740993],
 "sequence":{"x":1,"y":null,"z":4}}`)))
 	for _, source := range []string{
 		"a: &a [*a]", "a: {1: value}", "a: {b: 1, b: 2}", "a: 1e400",
