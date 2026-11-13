@@ -73,7 +73,7 @@ function WhatHappensNext() {
   return (
     <details className="text-muted-foreground mt-2 max-w-xl text-sm">
       <summary className="hover:text-foreground cursor-pointer transition-colors">
-        What happens when I paste the prompt?
+        What happens after I paste the prompt?
       </summary>
       <ol className="mt-3 list-decimal space-y-1 pl-5 text-left">
         <li>Your coding agent signs in to Omnara from your terminal.</li>
