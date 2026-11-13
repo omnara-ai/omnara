@@ -25,125 +25,6 @@ interface DitherBackdropProps {
   source?: string
 }
 
-function startBackdrop(
-  canvas: HTMLCanvasElement,
-  blobs: readonly Blob[],
-  fadeFrom: number,
-  source: string,
-) {
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-
-  const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
-  let img: ImageData | null = null
-  let width = 0
-  let height = 0
-  let ink = 0
-  let inkDirty = true
-  let dirty = true
-  let inView = false
-  let disposed = false
-  let raf: number | null = null
-  let last = 0
-
-  const canRender = () => !disposed && inView && !document.hidden && width > 0 && height > 0
-
-  const publishPositions = (now: number) => {
-    const rect = canvas.getBoundingClientRect()
-    const t = motion.matches ? 0 : now / 1000
-    publishAurora(
-      blobCentres(blobs, width, height, t).map((c) => ({
-        x: rect.left + c.x * CELL,
-        y: rect.top + c.y * CELL,
-      })),
-      source,
-      !motion.matches,
-    )
-    return t
-  }
-
-  const render = (now: number) => {
-    if (inkDirty) {
-      ink = readInk()
-      inkDirty = false
-    }
-    const t = publishPositions(now)
-    if (img?.width !== width || img.height !== height) {
-      canvas.width = width
-      canvas.height = height
-      img = ctx.createImageData(width, height)
-    }
-    drawAurora(img, t, ink, blobs, fadeFrom)
-    ctx.putImageData(img, 0, 0)
-  }
-
-  const schedule = () => {
-    if (canRender() && (dirty || !motion.matches)) {
-      raf ??= requestAnimationFrame(frame)
-    } else if (raf !== null) {
-      cancelAnimationFrame(raf)
-      raf = null
-    }
-  }
-
-  const frame = (now: number) => {
-    raf = null
-    if (!canRender()) return
-    if (dirty || now - last >= 1000 / FPS) {
-      render(now)
-      dirty = false
-      last = now
-    }
-    schedule()
-  }
-
-  const resize = new ResizeObserver(([entry]) => {
-    if (disposed || !entry) return
-    width = Math.ceil(entry.contentRect.width / CELL)
-    height = Math.ceil(entry.contentRect.height / CELL)
-    if (width === 0 || height === 0) resetAurora(source)
-    else if (!inView) publishPositions(performance.now())
-    dirty = true
-    schedule()
-  })
-  const intersection = new IntersectionObserver(([entry]) => {
-    inView = entry?.isIntersecting ?? false
-    dirty = true
-    schedule()
-  })
-  const onVisibility = () => {
-    dirty = true
-    schedule()
-  }
-  const onMotion = () => {
-    dirty = true
-    schedule()
-  }
-  // The app switches themes with the `dark` class on <html>, not the media query.
-  const scheme = new MutationObserver(() => {
-    inkDirty = true
-    dirty = true
-    schedule()
-  })
-
-  resize.observe(canvas)
-  intersection.observe(canvas)
-  document.addEventListener('visibilitychange', onVisibility)
-  motion.addEventListener('change', onMotion)
-  scheme.observe(document.documentElement, { attributeFilter: ['class'] })
-
-  return () => {
-    disposed = true
-    if (raf !== null) cancelAnimationFrame(raf)
-    resize.disconnect()
-    intersection.disconnect()
-    document.removeEventListener('visibilitychange', onVisibility)
-    motion.removeEventListener('change', onMotion)
-    scheme.disconnect()
-    resetAurora(source)
-  }
-}
-
 export const DitherBackdrop = ({
   className,
   blobs = HERO_BLOBS,
@@ -156,7 +37,117 @@ export const DitherBackdrop = ({
     const canvas = canvasRef.current
     if (!canvas) return
 
-    return startBackdrop(canvas, blobs, fadeFrom, source)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    let img: ImageData | null = null
+    let width = 0
+    let height = 0
+    let ink = 0
+    let inkDirty = true
+    let dirty = true
+    let inView = false
+    let disposed = false
+    let raf: number | null = null
+    let last = 0
+
+    const canRender = () => !disposed && inView && !document.hidden && width > 0 && height > 0
+
+    const publishPositions = (now: number) => {
+      const rect = canvas.getBoundingClientRect()
+      const t = motion.matches ? 0 : now / 1000
+      publishAurora(
+        blobCentres(blobs, width, height, t).map((c) => ({
+          x: rect.left + c.x * CELL,
+          y: rect.top + c.y * CELL,
+        })),
+        source,
+        !motion.matches,
+      )
+      return t
+    }
+
+    const render = (now: number) => {
+      if (inkDirty) {
+        ink = readInk()
+        inkDirty = false
+      }
+      const t = publishPositions(now)
+      if (img?.width !== width || img.height !== height) {
+        canvas.width = width
+        canvas.height = height
+        img = ctx.createImageData(width, height)
+      }
+      drawAurora(img, t, ink, blobs, fadeFrom)
+      ctx.putImageData(img, 0, 0)
+    }
+
+    const schedule = () => {
+      if (canRender() && (dirty || !motion.matches)) {
+        raf ??= requestAnimationFrame(frame)
+      } else if (raf !== null) {
+        cancelAnimationFrame(raf)
+        raf = null
+      }
+    }
+
+    const frame = (now: number) => {
+      raf = null
+      if (!canRender()) return
+      if (dirty || now - last >= 1000 / FPS) {
+        render(now)
+        dirty = false
+        last = now
+      }
+      schedule()
+    }
+
+    const resize = new ResizeObserver(([entry]) => {
+      if (disposed || !entry) return
+      width = Math.ceil(entry.contentRect.width / CELL)
+      height = Math.ceil(entry.contentRect.height / CELL)
+      if (width === 0 || height === 0) resetAurora(source)
+      else if (!inView) publishPositions(performance.now())
+      dirty = true
+      schedule()
+    })
+    const intersection = new IntersectionObserver(([entry]) => {
+      inView = entry?.isIntersecting ?? false
+      dirty = true
+      schedule()
+    })
+    const onVisibility = () => {
+      dirty = true
+      schedule()
+    }
+    const onMotion = () => {
+      dirty = true
+      schedule()
+    }
+    // The app switches themes with the `dark` class on <html>, not the media query.
+    const scheme = new MutationObserver(() => {
+      inkDirty = true
+      dirty = true
+      schedule()
+    })
+
+    resize.observe(canvas)
+    intersection.observe(canvas)
+    document.addEventListener('visibilitychange', onVisibility)
+    motion.addEventListener('change', onMotion)
+    scheme.observe(document.documentElement, { attributeFilter: ['class'] })
+
+    return () => {
+      disposed = true
+      if (raf !== null) cancelAnimationFrame(raf)
+      resize.disconnect()
+      intersection.disconnect()
+      document.removeEventListener('visibilitychange', onVisibility)
+      motion.removeEventListener('change', onMotion)
+      scheme.disconnect()
+      resetAurora(source)
+    }
   }, [blobs, fadeFrom, source])
 
   return (

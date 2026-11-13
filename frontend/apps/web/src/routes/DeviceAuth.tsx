@@ -20,25 +20,6 @@ type DeviceAuthState =
   | { kind: 'denied' }
   | { kind: 'error'; message: string }
 
-function loadPendingDeviceAuth(userCode: string, setState: (state: DeviceAuthState) => void) {
-  let cancelled = false
-  async function load() {
-    if (!userCode) return
-    try {
-      const flow = await pendingDeviceAuth(userCode)
-      if (!cancelled) setState({ kind: 'ready', flow })
-    } catch (error) {
-      if (!cancelled) {
-        setState({ kind: 'error', message: errorMessage(error, 'Device approval failed') })
-      }
-    }
-  }
-  void load()
-  return () => {
-    cancelled = true
-  }
-}
-
 export function DeviceAuth() {
   const userCode = new URLSearchParams(window.location.search).get('user_code')?.trim() ?? ''
   const [state, setState] = useState<DeviceAuthState>(
@@ -46,7 +27,22 @@ export function DeviceAuth() {
   )
 
   useEffect(() => {
-    return loadPendingDeviceAuth(userCode, setState)
+    let cancelled = false
+    async function load() {
+      if (!userCode) return
+      try {
+        const flow = await pendingDeviceAuth(userCode)
+        if (!cancelled) setState({ kind: 'ready', flow })
+      } catch (error) {
+        if (!cancelled) {
+          setState({ kind: 'error', message: errorMessage(error, 'Device approval failed') })
+        }
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
   }, [userCode])
 
   async function submit(decision: 'approve' | 'deny') {
