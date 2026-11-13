@@ -108,7 +108,8 @@
                   "examples/email-agent"
                 ]
               },
-              "examples/video-generation-agent"
+              "examples/video-generation-agent",
+              "examples/live-demos"
             ]
           },
           {
