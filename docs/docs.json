@@ -98,6 +98,8 @@
                   "examples/sre-agent",
                   "examples/slack-coding-agent",
                   "examples/pr-review-agent",
+                  "examples/pr-video-agent",
+                  "examples/dependency-rollup-agent",
                   "examples/posthog-analytics-agent"
                 ]
               },
