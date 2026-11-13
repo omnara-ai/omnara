@@ -8,6 +8,10 @@ allowBuilds:
 minimumReleaseAge: 10080
 
 overrides:
+  # Patch GHSA-mrhx-c7xc-m3w5 in tooling without moving already-safe consumers.
+  'eslint-plugin-react-hooks>zod': 4.6.6
+  # Smallest patch for the undici 7.30.0 advisories in AI SDK tooling.
+  '@ai-sdk/provider-utils>undici': 7.30.1
   # @hey-api/json-schema-ref-parser pins the vulnerable js-yaml 4.2.0 release.
   '@hey-api/json-schema-ref-parser@1.4.4>js-yaml': 4.3.2
   react: 19.3.0-canary-eb8feb71-20260814
