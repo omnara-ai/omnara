@@ -27,7 +27,7 @@ require (
 	github.com/landlock-lsm/go-landlock v0.11.0
 	github.com/modal-labs/modal-client/go v0.11.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/oapi-codegen/nethttp-middleware v1.2.0
+	github.com/oapi-codegen/nethttp-middleware v1.3.1
 	github.com/oapi-codegen/nullable v1.2.0
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/omnara-ai/omnara/observability v0.0.0-00010101000000-000000000000
