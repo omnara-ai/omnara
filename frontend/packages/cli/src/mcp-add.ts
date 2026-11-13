@@ -111,7 +111,9 @@ function prepareYamlConfig(
   const { doc, diagnostics } = parseConfigDocument(source, 'yaml')
   const fatal = diagnostics.find((issue) => issue.kind === 'fatal')
   if (fatal)
-    throw new CliInputError(`${fatal.path.join(' → ') || 'Configuration'}: ${fatal.message}`)
+    throw new CliInputError(
+      `${fatal.path.join(' → ') || 'Configuration'}: ${fatal.message} Add the MCP server in the source editor instead.`,
+    )
   if (doc.contents !== null && !isMap(doc.contents)) {
     throw new CliInputError('the current agent config must be an object')
   }
@@ -122,6 +124,13 @@ function prepareYamlConfig(
   }
   if (isMap(mcp) && doc.hasIn(['mcp', serverName])) {
     throw new CliInputError(`MCP server ${serverName} already exists in the current config`)
+  }
+  try {
+    serializeConfigDocument(doc, 'yaml')
+  } catch (error) {
+    throw new CliInputError(
+      `The current configuration cannot be safely edited automatically: ${String(error)}. Add the MCP server in the source editor instead.`,
+    )
   }
   return {
     currentConfigId: configId,

@@ -22,9 +22,10 @@ const sourceScalarTags: ScalarTag[] = ['int', 'float', 'str'].map((type) => ({
 
 export function serializeConfigDocument(document: Document, format: ConfigSourceFormat) {
   const doc = document.clone()
+  const tags = doc.schema.tags
   doc.setSchema('1.2', {
     ...configYamlOptions,
-    customTags: (tags) => [...tags, ...sourceScalarTags],
+    customTags: () => [...tags, ...sourceScalarTags],
   })
   visit(doc, {
     Collection(_, node) {

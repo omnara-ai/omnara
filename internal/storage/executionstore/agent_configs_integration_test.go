@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
@@ -378,10 +379,33 @@ func TestAgentConfigSchemaValuesSurviveJSONBAndRuntime(t *testing.T) {
 	require.True(t, found)
 	contract, err := agentconfig.RuntimeContractFromCompiled(loaded.CompiledDefinition, loaded.EffectiveDefinitionHash)
 	require.NoError(t, err)
+	var inputSchema json.RawMessage
 	for _, tool := range contract.Tools {
 		if tool.Name == "lookup" {
-			require.True(t, jsoncanonical.Equal([]byte(schema), tool.InputSchema))
+			inputSchema = tool.InputSchema
 		}
 	}
+	require.True(t, jsoncanonical.Equal([]byte(schema), inputSchema))
 	require.True(t, jsoncanonical.Equal(compiled.CanonicalJSON, loaded.CompiledDefinition))
+
+	var legacy any
+	require.NoError(t, json.Unmarshal(compiled.CanonicalJSON, &legacy))
+	rounded, err := json.Marshal(legacy)
+	require.NoError(t, err)
+	input := executionstore.CreateAgentConfigInput{
+		ProjectID: testProjectID, ConfiguredModelID: saved.ConfiguredModelID,
+		CompiledDefinition: compiled.CanonicalJSON, EffectiveDefinitionHash: agentconfig.DefinitionHash(rounded),
+	}
+	legacySaved, err := store.Execution().CreateAgentConfig(ctx, input)
+	require.NoError(t, err)
+	input.CompiledDefinition = rounded
+	duplicate, err := store.Execution().CreateAgentConfig(ctx, input)
+	require.NoError(t, err)
+	require.Equal(t, legacySaved.ID, duplicate.ID)
+	exported, err := agentconfigcompile.GenerateSource(
+		ctx, store.Store, testOrgID, testProjectID, legacySaved, agentconfig.SourceFormatYAML,
+	)
+	require.NoError(t, err)
+	recompiled := mustCompileAgentYAMLResolved(t, ctx, store, exported)
+	require.Equal(t, legacySaved.EffectiveDefinitionHash, recompiled.Hash)
 }

@@ -8,7 +8,7 @@ import fixture from './fixtures/inline-custom-tools.yaml?raw'
 import { type BasicConfig, createBasicConfigSession, emptyBasicConfig } from './useAgentBuilderForm'
 
 function sessionFor(source = fixture) {
-  const session = createBasicConfigSession(source)
+  const session = createBasicConfigSession(source, 'yaml')
   const draft = session.initialDraft
   if (!draft) throw new Error(JSON.stringify(session.diagnostics))
   return { session, draft }
@@ -303,7 +303,7 @@ it.each([
   'instruction: Help.\n',
   '',
 ])('inserts a custom definition without losing existing content (%#)', (source) => {
-  const session = createBasicConfigSession(source)
+  const session = createBasicConfigSession(source, 'yaml')
   const draft = session.initialDraft ?? emptyBasicConfig
   const entry = {
     path: ['tools', 'new_tool'],

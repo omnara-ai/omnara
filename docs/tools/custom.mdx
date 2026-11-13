@@ -55,6 +55,8 @@ In the dashboard, choose **Tools → + → Custom tool**. Enter a name and edit 
 
 Custom tools default to `always_allow`; set `permission.mode: always_ask` to put a human between the model and your system ([Tools & permissions](/tools/permissions)).
 
+Custom input schemas default to JSON Schema 2020-12. Use `$schema` to declare another supported dialect, such as draft-07. Compilation validates the schema before saving the configuration.
+
 ## Find calls waiting for you
 
 `GET /tool-calls` lists an agent's tool calls, filterable by `state` and `type`. Your worker polls for ready custom calls:

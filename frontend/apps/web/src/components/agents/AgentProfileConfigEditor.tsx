@@ -38,7 +38,7 @@ export function AgentProfileConfigEditor({
     orgId,
     projectId,
     source,
-    sourceFormat: profile.current_config.source_format,
+    sourceFormat: profile.current_config.source_format ?? 'yaml',
     canManage,
     preferredMode,
     onModeChange,

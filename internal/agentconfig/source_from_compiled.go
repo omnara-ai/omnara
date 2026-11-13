@@ -216,6 +216,9 @@ func EncodeSource(source AgentConfigSource, format SourceFormat) (string, error)
 
 func blockStyle(node *yaml.Node) {
 	node.Style = 0
+	if node.Kind == yaml.ScalarNode && node.Tag == "!!str" && yamlOverflowedNumber(node.Value) {
+		node.Style = yaml.DoubleQuotedStyle
+	}
 	for _, child := range node.Content {
 		blockStyle(child)
 	}

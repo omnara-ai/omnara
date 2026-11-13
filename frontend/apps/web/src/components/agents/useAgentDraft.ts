@@ -26,7 +26,7 @@ export function useAgentDraft(
 ) {
   const restored = useMcpBuilderOAuthRestore()
   const [session, setSession] = useState(() =>
-    createBasicConfigSession(restored?.draft.originalSource ?? ''),
+    createBasicConfigSession(restored?.draft.originalSource ?? '', 'yaml'),
   )
   const [initial] = useState(() => {
     const draft = initialTemplate
@@ -39,7 +39,7 @@ export function useAgentDraft(
     return {
       name: initialTemplate?.name ?? '',
       draft,
-      yaml: createBasicConfigSession('').apply(draft),
+      yaml: createBasicConfigSession('', 'yaml').apply(draft),
     }
   })
   const [name, setName] = useState(restored?.agentName ?? initial.name)
@@ -61,7 +61,7 @@ export function useAgentDraft(
       next.providerConfig = form.model.providerConfig
       next.modelName = form.model.modelName
     }
-    setSession(createBasicConfigSession(''))
+    setSession(createBasicConfigSession('', 'yaml'))
     form.reset({ ...next, originalSource: '', advancedEntries: [] })
     controller.dispatchMode({ type: 'adopt-yaml-edits' })
     setName((prev) => agentTemplateName(prev, template))

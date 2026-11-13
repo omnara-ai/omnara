@@ -26,7 +26,7 @@ export function useAgentConfigEditor({
   orgId: string
   projectId: string
   source: string
-  sourceFormat?: ConfigSourceFormat
+  sourceFormat: ConfigSourceFormat
   canManage: boolean
   preferredMode: AgentConfigMode
   onModeChange: (mode: AgentConfigMode) => void

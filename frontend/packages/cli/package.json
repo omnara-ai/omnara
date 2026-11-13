@@ -28,7 +28,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "esbuild src/bin.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/bin.js --banner:js='#!/usr/bin/env node' --external:@clack/prompts --external:@tanstack/react-query --external:commander --external:ink --external:react --external:tar --external:yaml --external:zod",
+    "build": "esbuild src/bin.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/bin.js --banner:js='#!/usr/bin/env node' --external:@clack/prompts --external:@tanstack/react-query --external:commander --external:ink --external:jsonc-parser --external:react --external:tar --external:yaml --external:zod",
     "prepublishOnly": "pnpm build",
     "omnara": "tsx src/bin.ts",
     "test": "vitest run",

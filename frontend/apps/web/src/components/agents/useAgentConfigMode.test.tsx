@@ -23,7 +23,7 @@ type State = ReturnType<typeof useAgentConfigMode> & {
 }
 
 function Harness({ state, source }: { state: Ref<State>; source: string }) {
-  const [session, setSession] = useState(() => createBasicConfigSession(source))
+  const [session, setSession] = useState(() => createBasicConfigSession(source, 'yaml'))
   const form = useAgentBuilderForm(session, undefined, {
     orgId: 'org-test',
     projectId: 'project-test',

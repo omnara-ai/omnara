@@ -13,15 +13,20 @@ import (
 
 var yamlDecimal = regexp.MustCompile(`^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$`)
 
-func yamlJSONValue(root *yaml.Node) (value any, err error) {
+func decodeYAMLDocument(root *yaml.Node) (value any, err error) {
 	// yaml.v3 can panic on collection keys inside merged mappings.
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			value, err = nil, issuef("", "unsupported YAML mapping key")
+			value, err = nil, errors.New("unsupported YAML mapping key")
 		}
 	}()
-	var decoded any
-	if err := root.Decode(&decoded); err != nil {
+	err = root.Decode(&value)
+	return value, err
+}
+
+func yamlJSONValue(root *yaml.Node) (any, error) {
+	decoded, err := decodeYAMLDocument(root)
+	if err != nil {
 		return nil, yamlSyntaxIssue(err)
 	}
 	if err := validateYAMLKeys(decoded, ""); err != nil {

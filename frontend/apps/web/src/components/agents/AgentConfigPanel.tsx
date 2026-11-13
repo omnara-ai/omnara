@@ -145,7 +145,7 @@ function AgentConfigPanelEditor({
     orgId,
     projectId,
     source,
-    sourceFormat,
+    sourceFormat: sourceFormat ?? 'yaml',
     canManage,
     preferredMode,
     onModeChange,

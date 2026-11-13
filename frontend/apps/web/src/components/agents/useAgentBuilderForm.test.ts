@@ -155,17 +155,17 @@ machine_sources:
 `
 
 function deserialize(source: string): BasicConfig | null {
-  return createBasicConfigSession(source).initialDraft
+  return createBasicConfigSession(source, 'yaml').initialDraft
 }
 
 function mustDeserialize(source: string): BasicConfig {
-  const config = createBasicConfigSession(source).initialDraft
+  const config = createBasicConfigSession(source, 'yaml').initialDraft
   if (config == null) throw new Error('expected the config to deserialize')
   return config
 }
 
 function applyToSource(source: string, config: BasicConfig): string {
-  return createBasicConfigSession(source).apply(config)
+  return createBasicConfigSession(source, 'yaml').apply(config)
 }
 
 describe('createBasicConfigSession initialDraft', () => {
@@ -175,7 +175,7 @@ describe('createBasicConfigSession initialDraft', () => {
     ['tools: {<<: {web_search: {}}}\n', 'merge keys', ['tools', '<<']],
   ])('preserves shared YAML and explains the exact blocker: %s', (tools, reason, path) => {
     const source = minimalYaml + tools
-    const session = createBasicConfigSession(source)
+    const session = createBasicConfigSession(source, 'yaml')
     expect(session.initialDraft).toBeNull()
     expect(session.apply(fullConfig)).toBe(source)
     const issue = session.diagnostics.find((issue) => issue.path.join('/') === path.join('/'))
@@ -188,7 +188,7 @@ describe('createBasicConfigSession initialDraft', () => {
 instruction: *mode
 model: {provider_config: openai, name: primary}
 `
-    const session = createBasicConfigSession(source)
+    const session = createBasicConfigSession(source, 'yaml')
     expect(session.initialDraft).toBeNull()
     expect(session.apply(emptyBasicConfig)).toBe(source)
   })
@@ -274,7 +274,7 @@ model: {provider_config: openai, name: primary}
 
   it('accepts a v1 version marker', () => {
     expect(mustDeserialize(`${minimalYaml}version: v1\n`).instruction).toBe('Do the thing.')
-    expect(createBasicConfigSession(`${minimalYaml}version: v2\n`).diagnostics).toEqual(
+    expect(createBasicConfigSession(`${minimalYaml}version: v2\n`, 'yaml').diagnostics).toEqual(
       expect.arrayContaining([expect.objectContaining({ path: ['version'], error: true })]),
     )
   })
@@ -390,10 +390,13 @@ mcp:
 
   it('preserves invalid machine sources with a scoped error', () => {
     expect(
-      createBasicConfigSession(`${minimalYaml}machine_sources:
+      createBasicConfigSession(
+        `${minimalYaml}machine_sources:
   - machine_pool_name: default-pool
     max_machines: -1
-`),
+`,
+        'yaml',
+      ),
     ).toHaveProperty(
       'diagnostics',
       expect.arrayContaining([
@@ -543,7 +546,7 @@ interaction_handlers:
     permission:
       mode: always_ask
 `
-    const session = createBasicConfigSession(source)
+    const session = createBasicConfigSession(source, 'yaml')
     expect(session.initialDraft?.tools).toEqual([])
     expect(session.diagnostics).toEqual(
       expect.arrayContaining([

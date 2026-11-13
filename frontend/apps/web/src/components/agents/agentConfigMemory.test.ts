@@ -24,7 +24,7 @@ describe('memory attachments in the builder', () => {
 git_credentials: {integration: reviews}
 interaction_handlers: {chat: {}}
 `
-    const session = createBasicConfigSession(combined)
+    const session = createBasicConfigSession(combined, 'yaml')
     const draft = session.initialDraft
     if (!draft) throw new Error('Missing draft')
     const changed = {
@@ -58,7 +58,7 @@ interaction_handlers: {chat: {}}
         int__chat__post_message: { permission: { mode: 'always_ask' }, deferred: true },
       },
     })
-    const next = createBasicConfigSession(updated)
+    const next = createBasicConfigSession(updated, 'yaml')
     if (!next.initialDraft) throw new Error('Missing round-trip draft')
     expect(next.apply(next.initialDraft)).toBe(updated)
     expect(parse(next.apply({ ...next.initialDraft, interactionHandlers: {} }))).toMatchObject({
@@ -68,7 +68,7 @@ interaction_handlers: {chat: {}}
   })
 
   it('preserves existing attachments and tool overrides through Basic/YAML round trips', () => {
-    const session = createBasicConfigSession(source)
+    const session = createBasicConfigSession(source, 'yaml')
     const draft = session.initialDraft
     expect(draft).not.toBeNull()
     if (!draft) throw new Error('Missing draft')
@@ -89,7 +89,7 @@ interaction_handlers: {chat: {}}
         storage_read: { permission: { mode: 'always_ask' } },
       },
     })
-    const next = createBasicConfigSession(updated)
+    const next = createBasicConfigSession(updated, 'yaml')
     expect(next.initialDraft && next.apply(next.initialDraft)).toBe(updated)
     expect(agentBuilderToolsDefinition(draft)).toMatchObject({
       memory_stores: draft.memoryStores,
@@ -97,7 +97,7 @@ interaction_handlers: {chat: {}}
   })
 
   it('removes detached stores without changing tool overrides', () => {
-    const session = createBasicConfigSession(source)
+    const session = createBasicConfigSession(source, 'yaml')
     const draft = session.initialDraft
     if (!draft) throw new Error('Missing draft')
     const updated: unknown = parse(session.apply({ ...draft, memoryStores: [] }))

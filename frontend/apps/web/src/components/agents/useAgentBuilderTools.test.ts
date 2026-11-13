@@ -72,7 +72,7 @@ describe('agentBuilderToolsDefinition', () => {
       tools: { int__chat__post_message: tool },
       interaction_handlers: { chat: handler },
     }
-    const session = createBasicConfigSession(JSON.stringify(source))
+    const session = createBasicConfigSession(JSON.stringify(source), 'yaml')
     if (session.initialDraft === null)
       throw new Error('Integration source must support builder preview')
     const changed = {
@@ -85,7 +85,7 @@ describe('agentBuilderToolsDefinition', () => {
       tools: { int__chat__post_message: tool },
       interaction_handlers: source.interaction_handlers,
     })
-    const updated = createBasicConfigSession(session.apply(changed)).initialDraft
+    const updated = createBasicConfigSession(session.apply(changed), 'yaml').initialDraft
     expect(updated?.reasoningEffort).toBe('medium')
     expect(updated?.interactionHandlers).toEqual(source.interaction_handlers)
     expect(updated?.tools[0]).toEqual({
@@ -94,7 +94,8 @@ describe('agentBuilderToolsDefinition', () => {
       deferred: true,
     })
     const restored = createBasicConfigSession(
-      createBasicConfigSession('').apply(changed),
+      createBasicConfigSession('', 'yaml').apply(changed),
+      'yaml',
     ).initialDraft
     expect(restored?.interactionHandlers).toEqual(changed.interactionHandlers)
     expect(restored?.reasoningEffort).toBe('medium')
@@ -103,7 +104,8 @@ describe('agentBuilderToolsDefinition', () => {
 })
 
 it('includes preserved custom tools and opaque sources in tool resolution', () => {
-  const session = createBasicConfigSession(`
+  const session = createBasicConfigSession(
+    `
 instruction: Help.
 model: {provider_config: openai, name: primary}
 tools:
@@ -118,7 +120,9 @@ machine_sources:
     extension: {value: retained}
 mcp:
   docs: {url: 'https://example.com', extension: true, auth: {type: bearer, secret: example}}
-`)
+`,
+    'yaml',
+  )
   if (!session.initialDraft) throw new Error('Missing draft')
   const request = agentBuilderToolsRequest(session.initialDraft, session.sourceFormat)
   const preview = previewSource(request)

@@ -435,7 +435,7 @@ function IncludedToolsHarness({
   source?: string
   catalog?: ToolCatalog
 }) {
-  const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, {
+  const form = useAgentBuilderForm(createBasicConfigSession(source, 'yaml'), undefined, {
     orgId: 'org-test',
     projectId: 'project-test',
   })
@@ -558,7 +558,7 @@ it.each(['run_command', 'skill', 'list_agents'])(
       web_search: { permission: { mode: 'always_ask' } },
       [name]: { enabled: false },
     })
-    expect(createBasicConfigSession(saved).initialDraft).not.toBeNull()
+    expect(createBasicConfigSession(saved, 'yaml').initialDraft).not.toBeNull()
     expect(container.querySelector(`[aria-label="${name} permission"]`)?.textContent).toBe(
       'Disabled',
     )

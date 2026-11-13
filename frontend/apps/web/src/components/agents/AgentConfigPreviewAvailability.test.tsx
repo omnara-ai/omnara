@@ -136,6 +136,7 @@ function PreviewModeHarness() {
   const editor = useAgentConfigEditor({
     ...scope,
     source: includedSource,
+    sourceFormat: 'yaml',
     canManage: true,
     preferredMode: 'builder',
     onModeChange: () => undefined,
@@ -221,7 +222,7 @@ it.each(['pending', 'error'])(
 )
 
 function SubagentPreviewHarness({ source }: { source: string }) {
-  const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, scope)
+  const form = useAgentBuilderForm(createBasicConfigSession(source, 'yaml'), undefined, scope)
   return (
     <>
       {' '}
@@ -664,7 +665,7 @@ it.each([false, true])(
     const pendingSource =
       customFixture +
       'extension: pending-source\nmcp: {docs: {url: "https://example.test/mcp", auth: {type: oauth, secret_id: old-secret}}}\n'
-    const baseline = createBasicConfigSession(pendingSource).initialDraft
+    const baseline = createBasicConfigSession(pendingSource, 'yaml').initialDraft
     const server = baseline?.mcpServers[0]
     if (!baseline || !server) throw new Error('Missing fixture draft')
     savePendingMcpBuilderOAuth({
@@ -712,7 +713,7 @@ it.each(['yaml', 'oauth'])(
     advancedProviders()
     const source = customFixture + 'extension: retained-until-template\n'
     if (mode === 'oauth') {
-      const draft = createBasicConfigSession(source).initialDraft
+      const draft = createBasicConfigSession(source, 'yaml').initialDraft
       if (!draft) throw new Error('Missing fixture draft')
       savePendingMcpBuilderOAuth({
         returnPath: window.location.pathname,
