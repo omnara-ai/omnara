@@ -41,6 +41,7 @@ export function AgentOnboarding({
             ? 'Follow the steps to create an agent profile and start a chat.'
             : 'Paste one prompt into your coding agent and it sets up your first agent.'}
         </p>
+        {!manual && <WhatHappensNext />}
       </div>
       {manual ? (
         <div className="flex flex-col gap-8">
@@ -64,6 +65,22 @@ export function AgentOnboarding({
         />
       )}
     </div>
+  )
+}
+
+/** Explains the prompt flow before the user pastes anything; closed until asked for. */
+function WhatHappensNext() {
+  return (
+    <details className="text-muted-foreground mt-2 max-w-xl text-sm">
+      <summary className="hover:text-foreground cursor-pointer transition-colors">
+        What happens when I paste the prompt?
+      </summary>
+      <ol className="mt-3 list-decimal space-y-1 pl-5 text-left">
+        <li>Your coding agent signs in to Omnara from your terminal.</li>
+        <li>It creates an agent profile in this project.</li>
+        <li>It launches your first agent, and this page opens its chat.</li>
+      </ol>
+    </details>
   )
 }
 
