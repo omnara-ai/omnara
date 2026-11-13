@@ -192,8 +192,12 @@ func DeriveSubagentConfig(
 	subagent agentconfig.SubagentCompiled,
 	depth agentconfig.SubagentDepth,
 ) (Body, error) {
+	verified, err := agentconfig.VerifiedDefinition(base.CompiledDefinition, base.EffectiveDefinitionHash)
+	if err != nil {
+		return Body{}, err
+	}
 	var baseCompiled agentconfig.Compiled
-	if err := json.Unmarshal(base.CompiledDefinition, &baseCompiled); err != nil {
+	if err := json.Unmarshal(verified, &baseCompiled); err != nil {
 		return Body{}, fmt.Errorf("decode base compiled agent config: %w", err)
 	}
 	child := agentconfig.SubagentCompiledFrom(baseCompiled, subagent, depth)

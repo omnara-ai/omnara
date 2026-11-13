@@ -530,7 +530,18 @@ it.each(['yaml', 'json'] as const)(
       '1.234567890123456789e+40',
       ...(format === 'json'
         ? []
-        : ['010', '1_0', '0x1_F', '-0x1F', '-0o17', '0b1', '1e_3', '2026-1-2']),
+        : [
+            '010',
+            '1_0',
+            '0x1_F',
+            '-0x1F',
+            '-0o17',
+            '0b1',
+            '1e_3',
+            '2026-1-2',
+            '!!int "010"',
+            '!!int "9007199254740993"',
+          ]),
     ]
     const written = (text: string, path: string[]) => {
       const list = parseDocument(text, { schema: 'failsafe' }).getIn([...path, 'enum'], true)
@@ -550,11 +561,12 @@ it.each(['yaml', 'json'] as const)(
     const { session, draft } = draftFor(source, format)
     expect(session.apply(draft)).toBe(source)
     const definition = draft.advancedEntries?.find((entry) => entry.kind === 'custom')?.source
-    expect(written(definition ?? '', schema)).toEqual(numbers)
+    const literals = numbers.map((number) => number.replace(/^!!int "(.*)"$/, '$1'))
+    expect(written(definition ?? '', schema)).toEqual(literals)
     const result = session.evaluate({ ...draft, instruction: 'Changed.\nSecond line.' })
     expect(result.issues).toEqual([])
     expect(parse(result.yaml)).toEqual({ ...parse(source), instruction: 'Changed.\nSecond line.' })
-    expect(written(result.yaml, ['tools', 'example', ...schema])).toEqual(numbers)
+    expect(written(result.yaml, ['tools', 'example', ...schema])).toEqual(literals)
     if (format === 'json') expect(JSON.parse(result.yaml)).toEqual(parse(result.yaml))
     else expect(result.yaml).toContain('# extension notes')
     const reopened = draftFor(result.yaml, format)

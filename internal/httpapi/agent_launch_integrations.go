@@ -84,8 +84,9 @@ func (s strictOpenAPIServer) publicLaunchBaseConfig(
 ) (executionstore.AgentConfigRecord, error) {
 	if input.DerivedConfig != nil {
 		return executionstore.AgentConfigRecord{
-			ConfiguredModelID:  input.DerivedConfig.ConfiguredModelID,
-			CompiledDefinition: input.DerivedConfig.CompiledDefinition,
+			ConfiguredModelID:       input.DerivedConfig.ConfiguredModelID,
+			CompiledDefinition:      input.DerivedConfig.CompiledDefinition,
+			EffectiveDefinitionHash: input.DerivedConfig.EffectiveDefinitionHash,
 		}, nil
 	}
 	configID := input.AgentConfigID

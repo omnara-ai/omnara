@@ -1,11 +1,23 @@
 import { applyEdits, format as formatJson } from 'jsonc-parser'
-import { Document, isNode, type Scalar, type ScalarTag, visit } from 'yaml'
+import { Document, isNode, isScalar, parseDocument, type Scalar, type ScalarTag, visit } from 'yaml'
 
 import type { ConfigSourceFormat } from './config-source'
 import { configYamlOptions, scalarPreservationReason } from './config-yaml'
 
 const isString = (value: Scalar['value']): value is string => typeof value === 'string'
 const isNumber = (value: Scalar['value']): value is number => typeof value === 'number'
+
+function hasOriginalValue(node: Scalar, document: Document) {
+  if (node.source === undefined) return false
+  const source = `${node.tag ? `!<${node.tag}> ` : ''}${node.source}`
+  const original = parseDocument(source, { schema: document.schema }).contents
+  return (
+    isScalar(original) &&
+    (node.value instanceof Date && original.value instanceof Date
+      ? node.value.getTime() === original.value.getTime()
+      : Object.is(node.value, original.value))
+  )
+}
 
 const sourceScalarTags: ScalarTag[] = ['int', 'float', 'str', 'timestamp'].map((type) => ({
   tag: `tag:yaml.org,2002:${type}`,
@@ -39,12 +51,15 @@ export function serializeConfigDocument(document: Document, format: ConfigSource
     },
     Scalar(_, node) {
       if (
-        node.type === 'PLAIN' &&
         node.source &&
-        (isNumber(node.value) || (node.value === node.source && scalarPreservationReason(node)))
+        (isNumber(node.value) ||
+          node.value instanceof Date ||
+          (node.type === 'PLAIN' &&
+            node.value === node.source &&
+            scalarPreservationReason(node))) &&
+        hasOriginalValue(node, document)
       )
         node.format = 'SOURCE'
-      if (node.tag === 'tag:yaml.org,2002:timestamp' && node.source) node.format = 'SOURCE'
       if (format === 'json' && isString(node.value)) node.type = 'QUOTE_DOUBLE'
     },
   })
