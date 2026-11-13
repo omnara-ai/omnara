@@ -40,7 +40,7 @@ it.each(['generated', 'yaml', 'json'] as const)(
         : 'instruction: Help.\n# preserve this note\ntools: {lookup: {type: custom, description: Example, input_schema: ' +
           schema.replace(
             '"const":',
-            '"examples": [!!binary Zm9v, !!timestamp 2026-01-02], "const":',
+            '"examples": [!!binary Zm9v, !!timestamp 2026-01-02, !!timestamp 2026-01-02T10:00:00Z, !!timestamp 2026-01-02T10:00:05.123+05:00], "const":',
           ) +
           '}}\n'
 
@@ -159,7 +159,11 @@ it.each(['generated', 'yaml', 'json'] as const)(
     })
     expect(body.source).toContain('9007199254740993')
     expect(body.source).toContain('0.123456789012345678901')
-    if (format !== 'json') expect(body.source).toContain('# preserve this note')
+    if (format !== 'json') {
+      expect(body.source).toContain('# preserve this note')
+      expect(body.source).toContain('2026-01-02T10:00:00Z')
+      expect(body.source).toContain('2026-01-02T10:00:05.123+05:00')
+    }
     expect(parse(z.string().parse(body.source))).toEqual({
       ...parse(source),
       mcp: {

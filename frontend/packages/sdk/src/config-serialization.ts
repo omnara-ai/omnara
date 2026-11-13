@@ -7,11 +7,12 @@ import { configYamlOptions, scalarPreservationReason } from './config-yaml'
 const isString = (value: Scalar['value']): value is string => typeof value === 'string'
 const isNumber = (value: Scalar['value']): value is number => typeof value === 'number'
 
-const sourceScalarTags: ScalarTag[] = ['int', 'float', 'str'].map((type) => ({
+const sourceScalarTags: ScalarTag[] = ['int', 'float', 'str', 'timestamp'].map((type) => ({
   tag: `tag:yaml.org,2002:${type}`,
   default: true,
   format: 'SOURCE',
-  identify: type === 'str' ? isString : isNumber,
+  identify:
+    type === 'str' ? isString : type === 'timestamp' ? (value) => value instanceof Date : isNumber,
   ...(type !== 'str' && { test: /$^/ }),
   resolve: (source) => source,
   stringify: (node) => {
@@ -43,6 +44,7 @@ export function serializeConfigDocument(document: Document, format: ConfigSource
         (isNumber(node.value) || (node.value === node.source && scalarPreservationReason(node)))
       )
         node.format = 'SOURCE'
+      if (node.tag === 'tag:yaml.org,2002:timestamp' && node.source) node.format = 'SOURCE'
       if (format === 'json' && isString(node.value)) node.type = 'QUOTE_DOUBLE'
     },
   })

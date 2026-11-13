@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"maps"
 	"reflect"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -200,28 +201,56 @@ func EncodeSource(source AgentConfigSource, format SourceFormat) (string, error)
 	if format == SourceFormatJSON {
 		return raw.String(), nil
 	}
-	var document yaml.Node
-	if err := yaml.Unmarshal(raw.Bytes(), &document); err != nil {
+	decoder := json.NewDecoder(&raw)
+	decoder.UseNumber()
+	document, err := sourceYAMLNode(decoder)
+	if err != nil {
 		return "", err
 	}
-	blockStyle(&document)
 	var out bytes.Buffer
 	encoder := yaml.NewEncoder(&out)
 	encoder.SetIndent(2)
-	if err := encoder.Encode(&document); err != nil {
+	if err := encoder.Encode(document); err != nil {
 		return "", err
 	}
 	return out.String(), nil
 }
 
-func blockStyle(node *yaml.Node) {
-	node.Style = 0
-	if node.Kind == yaml.ScalarNode && node.Tag == "!!str" && yamlOverflowedNumber(node.Value) {
-		node.Style = yaml.DoubleQuotedStyle
+func sourceYAMLNode(decoder *json.Decoder) (*yaml.Node, error) {
+	value, err := decoder.Token()
+	if err != nil {
+		return nil, err
 	}
-	for _, child := range node.Content {
-		blockStyle(child)
+	node := &yaml.Node{}
+	switch value := value.(type) {
+	case json.Delim:
+		node.Kind = yaml.SequenceNode
+		if value == '{' {
+			node.Kind = yaml.MappingNode
+		}
+		for decoder.More() {
+			child, err := sourceYAMLNode(decoder)
+			if err != nil {
+				return nil, err
+			}
+			node.Content = append(node.Content, child)
+		}
+		_, err = decoder.Token()
+	case json.Number:
+		node.Kind, node.Tag, node.Value = yaml.ScalarNode, "!!int", string(value)
+		if strings.ContainsAny(string(value), ".eE") {
+			node.Tag = "!!float"
+		}
+	case string:
+		err = node.Encode(value)
+		node.Tag, node.Value = "!!str", value
+		if value == "<<" || yamlOverflowedNumber(value) {
+			node.Style = yaml.DoubleQuotedStyle
+		}
+	default:
+		err = node.Encode(value)
 	}
+	return node, err
 }
 
 func sourcePermission(permission *toolpermission.Selection) *toolpermission.Selection {
