@@ -403,9 +403,16 @@ func findOrInsertAgentConfigVersionTx(
 }
 
 func sameAgentConfigDefinition(definition dbsqlc.AgentConfigDefinition, input CreateAgentConfigInput) bool {
-	return definition.ConfiguredModelID == input.ConfiguredModelID &&
-		sameJSON(definition.CompiledDefinition, input.CompiledDefinition) &&
-		definition.EffectiveDefinitionHash == input.EffectiveDefinitionHash
+	if definition.ConfiguredModelID != input.ConfiguredModelID ||
+		definition.EffectiveDefinitionHash != input.EffectiveDefinitionHash {
+		return false
+	}
+	stored, err := agentconfig.VerifiedDefinition(definition.CompiledDefinition, definition.EffectiveDefinitionHash)
+	if err != nil {
+		return false
+	}
+	incoming, err := agentconfig.VerifiedDefinition(input.CompiledDefinition, input.EffectiveDefinitionHash)
+	return err == nil && bytes.Equal(stored, incoming)
 }
 
 func loadAgentConfigTx(

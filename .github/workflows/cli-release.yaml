@@ -59,6 +59,8 @@ jobs:
 
       - run: pnpm --filter omnara build
 
+      - run: node packages/cli/dist/bin.js --help
+
       - name: Publish
         working-directory: frontend/packages/cli
         run: |

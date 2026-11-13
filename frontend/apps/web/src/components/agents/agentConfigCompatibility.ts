@@ -58,7 +58,7 @@ const customTool = z
 
 export function validateAdvancedEntry(
   entry: AdvancedConfigEntry,
-  format: ConfigSourceFormat = 'yaml',
+  format: ConfigSourceFormat,
 ): ConfigDiagnostic[] {
   const { doc, diagnostics } = parseConfigDocument(entry.source, format)
   const blockers = diagnostics.filter((issue) => issue.kind === 'fatal')

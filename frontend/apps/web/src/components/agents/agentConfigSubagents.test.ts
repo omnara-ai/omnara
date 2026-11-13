@@ -17,7 +17,7 @@ subagents:
     type: self
     model: ${model}
 `
-  const session = createBasicConfigSession(source)
+  const session = createBasicConfigSession(source, 'yaml')
   expect(session.diagnostics.every((issue) => !issue.error)).toBe(valid)
   if (session.initialDraft !== null) {
     expect(session.apply(session.initialDraft)).toBe(source)
@@ -36,7 +36,7 @@ subagents:
       provider_config: anthropic
       name: claude-haiku
 `
-  const session = createBasicConfigSession(source)
+  const session = createBasicConfigSession(source, 'yaml')
   const config = session.initialDraft
   if (config === null) throw new Error('expected the config to deserialize')
   expect(config.subagents[0]?.modelOverride).toEqual({

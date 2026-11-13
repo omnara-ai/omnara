@@ -205,7 +205,7 @@ function BasicFormHarness({
   source?: string
   projectId?: string
 }) {
-  const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, {
+  const form = useAgentBuilderForm(createBasicConfigSession(source, 'yaml'), undefined, {
     orgId: 'org-test',
     projectId,
   })
@@ -632,7 +632,7 @@ it('displays retrieval defaults without changing source and saves only edited ov
     expect(parse(saved)).toHaveProperty('tools.storage_read.enabled', false)
     expect(parse(saved)).toHaveProperty('tools.storage_search.permission.mode', 'always_ask')
     expect(
-      createBasicConfigSession(saved).initialDraft?.tools.find(
+      createBasicConfigSession(saved, 'yaml').initialDraft?.tools.find(
         (tool) => tool.name === 'storage_read',
       )?.enabled,
     ).toBe(false)

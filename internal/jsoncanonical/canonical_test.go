@@ -3,6 +3,7 @@ package jsoncanonical
 import (
 	"encoding/json"
 	"math"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,8 +46,10 @@ func FuzzCanonicalPreservesFloat64Encoding(f *testing.F) {
 		}
 		encoded, err := json.Marshal(number)
 		require.NoError(t, err)
-		canonical, err := Canonical(encoded)
-		require.NoError(t, err)
-		require.Equal(t, json.RawMessage(encoded), canonical)
+		for _, spelling := range []string{string(encoded), strconv.FormatFloat(number, 'f', -1, 64)} {
+			canonical, err := Canonical([]byte(spelling))
+			require.NoError(t, err)
+			require.Equal(t, json.RawMessage(encoded), canonical)
+		}
 	})
 }

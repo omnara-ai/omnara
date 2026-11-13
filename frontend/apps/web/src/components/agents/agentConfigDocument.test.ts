@@ -78,7 +78,7 @@ it.each([
   })
   if (source.includes('# Keep this tool comment.'))
     expect(result.yaml).toContain('# Keep this tool comment.')
-  expect(createBasicConfigSession(result.yaml).initialDraft).not.toBeNull()
+  expect(createBasicConfigSession(result.yaml, 'yaml').initialDraft).not.toBeNull()
   expect(session.apply(draft)).toBe(source)
 })
 
@@ -132,9 +132,12 @@ describe('document ownership', () => {
   it('rejects edits to a preserved path or its parent', () => {
     const source = `${header}tools: {managed: {}, opaque: {future: true}}\n`
     for (const path of [['tools'], ['tools', 'opaque'], ['tools', 'opaque', 'future']]) {
-      const transaction = editConfigDocument(source, parseConfigDocument(source).doc, [
-        ['tools', 'opaque'],
-      ])
+      const transaction = editConfigDocument(
+        source,
+        parseConfigDocument(source, 'yaml').doc,
+        [['tools', 'opaque']],
+        'yaml',
+      )
       expect(() => {
         transaction.set(path, {})
       }).toThrow('is preserved')
@@ -147,9 +150,12 @@ describe('document ownership', () => {
 
   it('cannot insert raw definitions over existing nodes or under opaque parents', () => {
     const source = `${header}tools: {managed: {}, opaque: {future: true}}\n`
-    const transaction = editConfigDocument(source, parseConfigDocument(source).doc, [
-      ['tools', 'opaque'],
-    ])
+    const transaction = editConfigDocument(
+      source,
+      parseConfigDocument(source, 'yaml').doc,
+      [['tools', 'opaque']],
+      'yaml',
+    )
     for (const path of [
       ['tools', 'managed'],
       ['tools', 'opaque', 'new'],
@@ -314,7 +320,7 @@ it.each(['tools: {web_search}', 'mcp: {docs}', 'subagents: {helper}', 'max_depth
   'reports value-less entries without throwing: %s',
   (entry) => {
     const source = header + entry + '\n'
-    const session = createBasicConfigSession(source)
+    const session = createBasicConfigSession(source, 'yaml')
     expect(session.initialDraft).not.toBeNull()
     expect(session.diagnostics.some((issue) => issue.error)).toBe(true)
     if (session.initialDraft) expect(session.apply(session.initialDraft)).toBe(source)
@@ -334,7 +340,7 @@ it.each(['2026-01-02', '2026-1-2', '1_000', '0b1', '-0x1F', '0x1_F', '0X1F', '-0
     }
     for (const result of [
       session.evaluate(changed),
-      createBasicConfigSession('').evaluate(changed),
+      createBasicConfigSession('', 'yaml').evaluate(changed),
     ]) {
       expect(result.issues).toEqual([])
       expect(parse(result.yaml)).toHaveProperty(
@@ -346,7 +352,7 @@ it.each(['2026-01-02', '2026-1-2', '1_000', '0b1', '-0x1F', '0x1_F', '0X1F', '-0
         true,
       )
       expect(isScalar(scalar) && scalar.type !== 'PLAIN').toBe(true)
-      expect(createBasicConfigSession(result.yaml).diagnostics).toEqual([])
+      expect(createBasicConfigSession(result.yaml, 'yaml').diagnostics).toEqual([])
     }
   },
 )
@@ -409,7 +415,7 @@ it('changes a machine source kind without losing the sequence entry', () => {
 
 it('explains explicit YAML 1.1 documents without rewriting them', () => {
   const source = '%YAML 1.1\n---\n' + header
-  const session = createBasicConfigSession(source)
+  const session = createBasicConfigSession(source, 'yaml')
   expect(session.initialDraft).toBeNull()
   expect(session.diagnostics.some((issue) => issue.kind === 'fatal')).toBe(true)
   expect(session.diagnostics.map((issue) => issue.message).join('\n')).toContain(
@@ -472,7 +478,7 @@ it('keeps invalid numeric drafts out of the source while applying other edits', 
   ]
   const { draft } = draftFor(original)
   for (const source of [original, '']) {
-    const result = createBasicConfigSession(source).evaluate({
+    const result = createBasicConfigSession(source, 'yaml').evaluate({
       ...draft,
       instruction: 'Pending instruction.',
       maxDepth: 'abc',
@@ -510,7 +516,7 @@ it.each(['<<', '10.0.0.1'])(
     const written = text === '<<' ? '"<<"' : text
     expect(result.issues).toEqual([])
     expect(result.yaml).toContain(`${written}: ${written}`)
-    expect(createBasicConfigSession(result.yaml).diagnostics).toEqual([])
+    expect(createBasicConfigSession(result.yaml, 'yaml').diagnostics).toEqual([])
   },
 )
 
@@ -712,7 +718,7 @@ it.each([
   header + '# note\u2028hidden: true\n',
   header + 'tools: {} # note\u2029hidden: true\n',
 ])('detects Unicode line separators in comments: %j', (source) => {
-  const session = createBasicConfigSession(source)
+  const session = createBasicConfigSession(source, 'yaml')
   expect(session.initialDraft).toBeNull()
   expect(
     session.diagnostics.some((issue) => issue.message.includes('Unicode line separator')),

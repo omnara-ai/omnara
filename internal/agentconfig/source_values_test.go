@@ -12,7 +12,7 @@ import (
 
 func TestSourceValuesSurviveCompilationRuntimeAndExport(t *testing.T) {
 	schema := `{"type":"object","properties":{"value":{
- "enum":[9007199254740993,0.123456789012345678901,-9223372036854775808,-0.0,1e-7]}}}`
+ "enum":["1e400","-1e999","1e309",9007199254740993,0.123456789012345678901,-9223372036854775808,-0.0,1e-7]}}}`
 	tool := `{"type":"custom","description":"Example lookup","input_schema":` + schema + `}`
 	sources := map[SourceFormat]string{
 		SourceFormatYAML: "instruction: Help.\nmodel: {provider_config: example, name: primary}\n" +
@@ -82,6 +82,10 @@ sequence: {<<: [{x: 1, y: 2}, {x: 3, z: 4}], y: null}`)
 	expansion.WriteString("}\nexpanded: [" + strings.Repeat("*base,", 300) + "]")
 	_, err = sourceJSONValueForTest(expansion.String())
 	require.ErrorContains(t, err, "excessive aliasing")
+	_, err = ParseSource(SourceFormatYAML, []byte("instruction: first\ninstruction: second\n"))
+	var duplicate *ValidationError
+	require.ErrorAs(t, err, &duplicate)
+	require.Positive(t, duplicate.Issues[0].Line)
 	for _, format := range []SourceFormat{SourceFormatJSON, SourceFormatYAML} {
 		_, err := ParseSource(format, []byte(`{"instruction":"first","instruction":"second",
  "model":{"provider_config":"Café","name":"primary"}}`))

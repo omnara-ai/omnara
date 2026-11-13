@@ -41,7 +41,7 @@ it('sends integration selection to preview and exposes the resolver issue to the
     },
   ])
   function Builder() {
-    const form = useAgentBuilderForm(createBasicConfigSession(source), undefined, scope)
+    const form = useAgentBuilderForm(createBasicConfigSession(source, 'yaml'), undefined, scope)
     return <output>{form.toolsError ? form.toolsErrorMessage : 'Resolving tools'}</output>
   }
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })

@@ -10,17 +10,17 @@ model:
 `
 
 function deserialize(source: string): BasicConfig | null {
-  return createBasicConfigSession(source).initialDraft
+  return createBasicConfigSession(source, 'yaml').initialDraft
 }
 
 function mustDeserialize(source: string): BasicConfig {
-  const config = createBasicConfigSession(source).initialDraft
+  const config = createBasicConfigSession(source, 'yaml').initialDraft
   if (config == null) throw new Error('expected the config to deserialize')
   return config
 }
 
 function applyToSource(source: string, config: BasicConfig): string {
-  return createBasicConfigSession(source).apply(config)
+  return createBasicConfigSession(source, 'yaml').apply(config)
 }
 
 describe('builder source tools', () => {

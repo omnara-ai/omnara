@@ -183,7 +183,7 @@ const basicDocument = z.looseObject({
   max_depth: positiveCount,
 })
 
-export function parseBasicConfigSource(source: string, format: ConfigSourceFormat = 'yaml') {
+export function parseBasicConfigSource(source: string, format: ConfigSourceFormat) {
   const { doc, diagnostics: sourceDiagnostics } = parseConfigDocument(source, format)
   const diagnostics: ConfigDiagnostic[] = sourceDiagnostics
   if (!isMap(doc.contents) && !diagnostics.some((issue) => issue.kind === 'fatal')) {

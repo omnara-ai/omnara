@@ -38,7 +38,10 @@ it.each(['generated', 'yaml', 'json'] as const)(
           schema +
           '}}}'
         : 'instruction: Help.\n# preserve this note\ntools: {lookup: {type: custom, description: Example, input_schema: ' +
-          schema +
+          schema.replace(
+            '"const":',
+            '"examples": [!!binary Zm9v, !!timestamp 2026-01-02], "const":',
+          ) +
           '}}\n'
 
     const path = { orgID: id('org'), projectID: id('proj'), agentID: id('agt') }

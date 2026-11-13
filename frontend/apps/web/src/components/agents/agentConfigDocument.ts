@@ -30,7 +30,7 @@ export function editConfigDocument(
   source: string,
   original: Document,
   preservedPaths: string[][],
-  format: ConfigSourceFormat = 'yaml',
+  format: ConfigSourceFormat,
 ) {
   let document = original
   function mutableDocument() {

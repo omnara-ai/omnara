@@ -3,18 +3,18 @@ import { z } from 'zod'
 
 import { scalarPreservationReason } from './config-yaml'
 export { configNodeSource, serializeConfigDocument } from './config-serialization'
-export { configYamlOptions, scalarPreservationReason } from './config-yaml'
+export { configYamlOptions } from './config-yaml'
 
 export type ConfigSourceFormat = 'yaml' | 'json'
 
-export interface SourceDiagnostic {
+interface SourceDiagnostic {
   path: string[]
   kind: 'fatal' | 'opaque'
   message: string
   error?: boolean
 }
 
-export function parseConfigDocument(source: string, format: ConfigSourceFormat = 'yaml') {
+export function parseConfigDocument(source: string, format: ConfigSourceFormat) {
   const doc = parseDocument(source)
   const diagnostics: SourceDiagnostic[] = doc.errors.map((error) => ({
     path: [],
@@ -38,8 +38,7 @@ export function parseConfigDocument(source: string, format: ConfigSourceFormat =
     diagnostics.push({
       path: [],
       kind: 'fatal',
-      message:
-        'This document declares YAML 1.1, which the Builder cannot safely edit. It remains available in YAML.',
+      message: 'This document declares YAML 1.1, which cannot be safely edited automatically.',
     })
   function inspect(node: Document['contents'], path: string[], documentComments = '') {
     if (node == null) return
@@ -66,7 +65,7 @@ export function parseConfigDocument(source: string, format: ConfigSourceFormat =
       diagnostics.push({
         path,
         kind: 'fatal',
-        message: `This configuration uses ${blocker}, which the Builder cannot safely edit.`,
+        message: `This configuration uses ${blocker}, which cannot be safely edited automatically.`,
       })
     }
     if (isMap(node)) {
@@ -77,7 +76,7 @@ export function parseConfigDocument(source: string, format: ConfigSourceFormat =
             path,
             kind: 'fatal',
             error: true,
-            message: 'The Builder requires string mapping keys.',
+            message: 'Automatic edits require string mapping keys.',
           })
           continue
         }
@@ -91,7 +90,7 @@ export function parseConfigDocument(source: string, format: ConfigSourceFormat =
             path: childPath,
             kind: 'fatal',
             message:
-              'This configuration uses YAML merge keys, which the Builder cannot safely edit.',
+              'This configuration uses YAML merge keys, which cannot be safely edited automatically.',
           })
         }
         if (isNode(pair.key)) inspect(pair.key, childPath)

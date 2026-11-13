@@ -30,7 +30,7 @@ export interface BasicConfigSession {
 
 export function createBasicConfigSession(
   source: string,
-  sourceFormat: ConfigSourceFormat = 'yaml',
+  sourceFormat: ConfigSourceFormat,
 ): BasicConfigSession {
   const { doc, initialDraft, diagnostics, advancedEntries } = analyzeConfigSource(
     source,
