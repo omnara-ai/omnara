@@ -37,7 +37,19 @@ func TestPrepareProvisioningResolvesTemplateNamesAndIDs(t *testing.T) {
 		Names:      []string{"acme/built"},
 		Builds:     []templateBuild{{Status: "building"}, {Status: buildStatusReady, CPUCount: 8, MemoryMB: 8192}},
 	}
-	templates := map[string]template{"pub123": public, "team456": team, "bld789": fromBuild}
+	// A rebuilt template lists its builds oldest first here; the newest ready
+	// build is the one new sandboxes start from.
+	rebuilt := template{
+		TemplateID: "rbl012",
+		Names:      []string{"acme/rebuilt"},
+		Builds: []templateBuild{
+			{Status: buildStatusReady, CPUCount: 2, MemoryMB: 1024, FinishedAt: testTime(1)},
+			{Status: buildStatusReady, CPUCount: 4, MemoryMB: 4096, FinishedAt: testTime(3)},
+			{Status: "error", CPUCount: 16, MemoryMB: 16384, FinishedAt: testTime(4)},
+			{Status: "building", CPUCount: 8, MemoryMB: 8192, CreatedAt: testTime(5)},
+		},
+	}
+	templates := map[string]template{"pub123": public, "team456": team, "bld789": fromBuild, "rbl012": rebuilt}
 	for _, test := range []struct {
 		ref     string
 		aliases map[string]string
@@ -49,6 +61,7 @@ func TestPrepareProvisioningResolvesTemplateNamesAndIDs(t *testing.T) {
 		{ref: "team456", cpu: 4},
 		{ref: "acme/claude", aliases: map[string]string{"acme/claude": "team456"}, cpu: 4},
 		{ref: "built", aliases: map[string]string{"built": "bld789"}, cpu: 8},
+		{ref: "rbl012", cpu: 4},
 	} {
 		a := &fakeAPI{templates: templates, aliases: test.aliases}
 		facts, err := testProvider(a).PrepareProvisioning(
@@ -385,4 +398,69 @@ func mustMetadata(t *testing.T, installationID, machineID uuid.UUID) map[string]
 	metadata, err := ownershipMetadata(installationID, machineID)
 	require.NoError(t, err)
 	return metadata
+}
+
+func TestTemplateSizeUsesTheNewestReadyBuild(t *testing.T) {
+	ready := func(cpu, memoryMB int, finished, created time.Time) templateBuild {
+		return templateBuild{
+			Status: buildStatusReady, CPUCount: cpu, MemoryMB: memoryMB, FinishedAt: finished, CreatedAt: created,
+		}
+	}
+	for _, test := range []struct {
+		name          string
+		template      template
+		cpu, memoryMB int
+	}{
+		{
+			name:     "top-level size wins",
+			template: template{CPUCount: 1, MemoryMB: 512, Builds: []templateBuild{ready(8, 8192, testTime(9), testTime(9))}},
+			cpu:      1, memoryMB: 512,
+		},
+		{
+			name: "newest ready build regardless of order",
+			template: template{Builds: []templateBuild{
+				ready(2, 1024, testTime(1), testTime(1)),
+				ready(4, 4096, testTime(3), testTime(3)),
+				ready(3, 2048, testTime(2), testTime(2)),
+			}},
+			cpu: 4, memoryMB: 4096,
+		},
+		{
+			name: "newest first also works",
+			template: template{Builds: []templateBuild{
+				ready(4, 4096, testTime(3), testTime(3)),
+				ready(2, 1024, testTime(1), testTime(1)),
+			}},
+			cpu: 4, memoryMB: 4096,
+		},
+		{
+			name: "failed and in-progress builds are ignored even when newer",
+			template: template{Builds: []templateBuild{
+				ready(2, 1024, testTime(1), testTime(1)),
+				{Status: "error", CPUCount: 8, MemoryMB: 8192, FinishedAt: testTime(5)},
+				{Status: "building", CPUCount: 16, MemoryMB: 16384, CreatedAt: testTime(6)},
+			}},
+			cpu: 2, memoryMB: 1024,
+		},
+		{
+			name: "created time breaks a finished-time tie",
+			template: template{Builds: []templateBuild{
+				ready(2, 1024, testTime(3), testTime(1)),
+				ready(4, 4096, testTime(3), testTime(2)),
+			}},
+			cpu: 4, memoryMB: 4096,
+		},
+		{
+			name:     "no usable build reports zero",
+			template: template{Builds: []templateBuild{{Status: "building"}}},
+		},
+	} {
+		cpu, memoryMB := test.template.size()
+		require.Equal(t, test.cpu, cpu, test.name)
+		require.Equal(t, test.memoryMB, memoryMB, test.name)
+	}
+}
+
+func testTime(step int) time.Time {
+	return time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(step) * time.Minute)
 }

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/stretchr/testify/assert"
@@ -54,7 +55,10 @@ func TestRESTClientUsesNovitaEndpoints(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 		case "GET api.novita.test/templates/t1":
 			_, _ = w.Write([]byte(`{"templateID":"t1","names":["claude"],"cpuCount":2,"memoryMB":2048,` +
-				`"builds":[{"buildID":"b1","status":"ready","cpuCount":2,"memoryMB":2048}]}`))
+				`"builds":[{"buildID":"b0","status":"ready","cpuCount":1,"memoryMB":512,` +
+				`"createdAt":"2026-01-01T00:00:00Z","finishedAt":"2026-01-01T00:01:00Z"},` +
+				`{"buildID":"b1","status":"ready","cpuCount":2,"memoryMB":2048,` +
+				`"createdAt":"2026-01-01T00:02:00Z","finishedAt":"2026-01-01T00:03:00Z"}]}`))
 		case "GET api.novita.test/templates/missing":
 			w.WriteHeader(http.StatusNotFound)
 		case "POST api.novita.test/sandboxes":
@@ -109,10 +113,12 @@ func TestRESTClientUsesNovitaEndpoints(t *testing.T) {
 	require.True(t, isNotFound(err))
 	resolved, err := client.GetTemplate(ctx, "t1")
 	require.NoError(t, err)
-	require.Equal(t, template{
-		TemplateID: "t1", Names: []string{"claude"}, CPUCount: 2, MemoryMB: 2048,
-		Builds: []templateBuild{{Status: "ready", CPUCount: 2, MemoryMB: 2048}},
-	}, resolved)
+	require.Equal(t, "t1", resolved.TemplateID)
+	require.Len(t, resolved.Builds, 2)
+	require.Equal(t, time.Date(2026, time.January, 1, 0, 3, 0, 0, time.UTC), resolved.Builds[1].FinishedAt)
+	cpu, memoryMB := resolved.size()
+	require.Equal(t, 2, cpu)
+	require.Equal(t, 2048, memoryMB)
 	_, err = client.GetTemplate(ctx, "missing")
 	require.True(t, isNotFound(err))
 

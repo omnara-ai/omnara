@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
@@ -39,7 +40,8 @@ type apiClient interface {
 
 // template is the subset of the Novita template detail the provider needs.
 // The size comes from the template itself when the API reports it there and
-// from its latest ready build otherwise.
+// from the most recently finished ready build otherwise, which is the build a
+// new sandbox starts from.
 type template struct {
 	TemplateID string          `json:"templateID"`
 	Names      []string        `json:"names"`
@@ -49,22 +51,42 @@ type template struct {
 }
 
 type templateBuild struct {
-	Status   string `json:"status"`
-	CPUCount int    `json:"cpuCount"`
-	MemoryMB int    `json:"memoryMB"`
+	Status     string    `json:"status"`
+	CPUCount   int       `json:"cpuCount"`
+	MemoryMB   int       `json:"memoryMB"`
+	CreatedAt  time.Time `json:"createdAt"`
+	FinishedAt time.Time `json:"finishedAt"`
 }
 
 // size returns the CPU and memory a sandbox created from the template gets.
+// The API serves builds newest first, but the spec does not document that
+// order, so the newest ready build is chosen by its timestamps rather than by
+// position.
 func (t template) size() (int, int) {
 	if t.CPUCount > 0 && t.MemoryMB > 0 {
 		return t.CPUCount, t.MemoryMB
 	}
-	for _, build := range t.Builds {
-		if build.Status == buildStatusReady && build.CPUCount > 0 && build.MemoryMB > 0 {
-			return build.CPUCount, build.MemoryMB
+	var latest *templateBuild
+	for index := range t.Builds {
+		build := &t.Builds[index]
+		if build.Status != buildStatusReady || build.CPUCount <= 0 || build.MemoryMB <= 0 {
+			continue
+		}
+		if latest == nil || build.newerThan(*latest) {
+			latest = build
 		}
 	}
-	return t.CPUCount, t.MemoryMB
+	if latest == nil {
+		return t.CPUCount, t.MemoryMB
+	}
+	return latest.CPUCount, latest.MemoryMB
+}
+
+func (b templateBuild) newerThan(other templateBuild) bool {
+	if !b.FinishedAt.Equal(other.FinishedAt) {
+		return b.FinishedAt.After(other.FinishedAt)
+	}
+	return b.CreatedAt.After(other.CreatedAt)
 }
 
 type sandbox struct {
