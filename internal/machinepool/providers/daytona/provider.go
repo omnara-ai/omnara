@@ -16,9 +16,8 @@ import (
 )
 
 const (
-	daemonSessionName                = "omnara-daemon"
-	provisioningTimeout              = time.Minute
-	machineTokenSecretCleanupTimeout = 10 * time.Second
+	daemonSessionName   = "omnara-daemon"
+	provisioningTimeout = time.Minute
 
 	// Daytona sandbox states follow https://www.daytona.io/docs/en/go-sdk/daytona/#constants.
 	sandboxStateCreating         sandboxState = "creating"
@@ -144,30 +143,10 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	secrets, err := p.machineTokenSecrets(ctx, name, machineToken)
+	secrets, createdSecret, err := p.machineTokenSecrets(ctx, name, machineToken)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	result, err := p.provisionSandbox(ctx, name, options, machineProvisioning, machineToken, machineEnv, secrets)
-	if err != nil && secrets != nil {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), machineTokenSecretCleanupTimeout)
-		if _, found, getErr := p.api.GetSandbox(cleanupCtx, name); getErr == nil && !found {
-			err = errors.Join(err, p.deleteMachineTokenSecret(cleanupCtx, name))
-		}
-		cancel()
-	}
-	return result, err
-}
-
-func (p *provider) provisionSandbox(
-	ctx context.Context,
-	name string,
-	options providerOptions,
-	machineProvisioning executionstore.MachineProvisioningConfig,
-	machineToken string,
-	machineEnv map[string]string,
-	secrets []map[string]string,
-) (providers.ProvisionMachineResult, error) {
 	startupScript := options.StartupScript
 	if secrets != nil {
 		startupScript = providers.StartupScriptWithoutProxyEnv(startupScript)
@@ -196,8 +175,7 @@ func (p *provider) provisionSandbox(
 	}
 	api := p.api
 	target, err := api.CreateSandbox(ctx, request)
-	adopted := isConflict(err)
-	if adopted {
+	if isConflict(err) {
 		existing, found, getErr := api.GetSandbox(ctx, name)
 		if getErr != nil {
 			return providers.ProvisionMachineResult{}, getErr
@@ -210,6 +188,9 @@ func (p *provider) provisionSandbox(
 		}
 		target = existing
 	} else if err != nil {
+		if createdSecret && rejectedBeforeCreate(err) {
+			err = errors.Join(err, p.deleteMachineTokenSecret(ctx, name))
+		}
 		return providers.ProvisionMachineResult{}, err
 	}
 	var result providers.ProvisionMachineResult
@@ -261,30 +242,28 @@ func (p *provider) provisionSandbox(
 	if err := validateSandboxResources(target, machineProvisioning, options.Target); err != nil {
 		return result, err
 	}
-	if adopted && secrets != nil {
-		if err := api.UpdateSandboxSecrets(ctx, target.ID, secrets); err != nil {
-			return result, err
-		}
-	}
 	if err := ensureDaemonSession(ctx, api, target, options.StartupScript); err != nil {
 		return result, err
 	}
 	return result, nil
 }
 
-func (p *provider) machineTokenSecrets(ctx context.Context, name, machineToken string) ([]map[string]string, error) {
+func (p *provider) machineTokenSecrets(
+	ctx context.Context,
+	name, machineToken string,
+) ([]map[string]string, bool, error) {
 	host, ok := providers.MachineTokenProxyHost(p.omnaraAPIURL)
 	if !ok {
-		return nil, nil
+		return nil, false, nil
 	}
 	err := p.api.CreateSecret(ctx, createSecretRequest{Name: name, Value: machineToken, Hosts: []string{host}})
 	switch {
 	case err == nil || isConflict(err):
-		return []map[string]string{{providers.MachineTokenEnvVar: name}}, nil
+		return []map[string]string{{providers.MachineTokenEnvVar: name}}, err == nil, nil
 	case isForbidden(err):
-		return nil, nil
+		return nil, false, nil
 	default:
-		return nil, fmt.Errorf("create daytona machine token secret: %w", err)
+		return nil, false, fmt.Errorf("create daytona machine token secret: %w", err)
 	}
 }
 

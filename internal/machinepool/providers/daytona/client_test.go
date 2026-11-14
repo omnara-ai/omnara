@@ -183,7 +183,6 @@ func TestDaytonaRESTClientListsSandboxesWithCursorAndStateFilters(t *testing.T) 
 
 func TestDaytonaRESTClientManagesMachineTokenSecrets(t *testing.T) {
 	var deleted []string
-	remounted := false
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/secret":
@@ -201,13 +200,6 @@ func TestDaytonaRESTClientManagesMachineTokenSecrets(t *testing.T) {
 		case r.Method == http.MethodDelete:
 			deleted = append(deleted, r.URL.Path)
 			http.NotFound(w, r)
-		case r.Method == http.MethodPut && r.URL.Path == "/sandbox/sandbox-1/secrets":
-			var request map[string][]map[string]string
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || len(request["secrets"]) != 1 ||
-				request["secrets"][0]["OMNARA_MACHINE_TOKEN"] != "omnara-mch-a" {
-				t.Errorf("update sandbox secrets request = %+v err %v", request, err)
-			}
-			remounted = true
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
@@ -227,9 +219,5 @@ func TestDaytonaRESTClientManagesMachineTokenSecrets(t *testing.T) {
 	}
 	if err := client.DeleteSecret(ctx, id); err != nil || len(deleted) != 1 || deleted[0] != "/secret/id-a" {
 		t.Fatalf("delete secret error = %v requests %v, want a quiet 404 by id", err, deleted)
-	}
-	err = client.UpdateSandboxSecrets(ctx, "sandbox-1", []map[string]string{{"OMNARA_MACHINE_TOKEN": "omnara-mch-a"}})
-	if err != nil || !remounted {
-		t.Fatalf("update sandbox secrets error = %v remounted %v", err, remounted)
 	}
 }
