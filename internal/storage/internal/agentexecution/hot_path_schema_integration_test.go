@@ -148,3 +148,102 @@ opening_input_ids,opening_event_sequence)
 		}
 	}
 }
+
+func TestExecutionBudgetReachedPlan(t *testing.T) {
+	f := migratedExecutionFixture(t)
+	ctx := t.Context()
+	tx, err := f.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, `
+INSERT INTO projects(org_id,name,created_at,updated_at)
+SELECT $1,'budget-plan-'||n,now(),now() FROM generate_series(1,20) n`, f.org)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+INSERT INTO daily_model_costs(org_id,day,project_id,effective_cost_usd)
+SELECT $1,day,p.id,1 FROM generate_series(current_date-1095,current_date,interval '1 day') day
+CROSS JOIN projects p WHERE p.org_id=$1`, f.org)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `
+INSERT INTO budgets(org_id,project_id,interval,amount_usd) VALUES
+($1,NULL,'month',1000000),($1,NULL,'week',1000000),($1,$2,'day',1000000)`, f.org, f.project)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `ANALYZE projects; ANALYZE daily_model_costs; ANALYZE budgets;
+SET LOCAL plan_cache_mode=force_generic_plan`)
+	require.NoError(t, err)
+	query := integrationdb.GeneratedQuery(
+		t, "internal/executiondb/commands_models.sql.go", "ExecutionBudgetReached",
+	)
+	var raw []byte
+	require.NoError(t, tx.QueryRow(ctx, "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) "+query, f.org, f.project, nil,
+		uuid.New()).Scan(&raw))
+	t.Logf("budget check plan=%s", raw)
+	integrationdb.ReadPlan(t, raw).Walk(func(node integrationdb.PlanNode) {
+		if node.Relation == "daily_model_costs" {
+			require.Equal(t, "daily_model_costs_day_call_idx", node.Index, "%s", raw)
+		}
+	})
+	require.LessOrEqual(t, integrationdb.PlanBuffers(t, raw), 40)
+}
+
+func TestBudgetSpendFollowsTheTopLevelAgent(t *testing.T) {
+	f := migratedExecutionFixture(t)
+	ctx := t.Context()
+	profile := func(name string) uuid.UUID {
+		id, version := uuid.New(), uuid.New()
+		_, err := f.pool.Exec(ctx, `WITH profile AS (
+INSERT INTO agent_profiles(id,project_id,name,current_version_id,created_at,updated_at) VALUES($1,$2,$3,$4,now(),now()))
+INSERT INTO agent_profile_versions(id,project_id,profile_id,generation,agent_config_id,created_at)
+VALUES($4,$2,$1,1,$5,now())`, id, f.project, name, version, f.config)
+		require.NoError(t, err)
+		return id
+	}
+	rootProfile, childProfile := profile("budget-root"), profile("budget-child")
+	root := f.createWithProfile(t, uuid.New(), uuid.Nil, rootProfile)
+	child := f.createWithProfile(t, uuid.New(), root, childProfile)
+	openings := map[uuid.UUID][2]uuid.UUID{}
+	for _, agent := range []uuid.UUID{root, child} {
+		turn, input := f.opening(t, agent, 1, uuid.Nil, "content")
+		openings[agent] = [2]uuid.UUID{turn, input}
+	}
+	tx, err := f.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	for agent, cost := range map[uuid.UUID]string{root: "1", child: "2"} {
+		id := uuid.New()
+		_, err = tx.Exec(ctx, `
+INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,turn_id,operation_kind,attempt_number,
+agent_config_id,configured_model_revision_id,input_event_sequence,runtime_lock_id,created_at,
+opening_input_ids,opening_event_sequence)
+VALUES($1,$2,$3,$4,$5,'normal',1,$6,$7,1,$8,now(),ARRAY[$9::uuid],1)`,
+			id, f.org, f.project, agent, openings[agent][0], f.config, f.revision, uuid.New(), openings[agent][1])
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `
+UPDATE model_call_contexts SET state='succeeded',api_format='openai-chat-completions',api_variant='default',
+input_tokens_total=10,uncached_input_tokens=10,effective_cost_usd=$2::numeric,effective_cost_kind='estimated',
+completed_at=now() WHERE id=$1`, id, cost)
+		require.NoError(t, err)
+	}
+	var profiles []uuid.UUID
+	rows, err := tx.Query(ctx, `SELECT agent_profile_id FROM daily_model_costs WHERE org_id=$1`, f.org)
+	require.NoError(t, err)
+	for rows.Next() {
+		var id uuid.UUID
+		require.NoError(t, rows.Scan(&id))
+		profiles = append(profiles, id)
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, []uuid.UUID{rootProfile, rootProfile}, profiles,
+		"a subagent's spend counts toward its root's profile")
+	spent := func(profileID, agentID any) string {
+		var cost string
+		require.NoError(t, tx.QueryRow(ctx,
+			`SELECT effective_cost_usd::text FROM budget_interval_cost($1,$2,$3,$4,'lifetime')`,
+			f.org, f.project, profileID, agentID).Scan(&cost))
+		return cost
+	}
+	require.Equal(t, "3.000000000000000", spent(rootProfile, nil))
+	require.Equal(t, "0", spent(childProfile, nil))
+	require.Equal(t, "3.000000000000000", spent(nil, root), "an agent budget covers its subagents")
+	require.Equal(t, "0", spent(nil, child), "only top-level agents have budgets")
+}

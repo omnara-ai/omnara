@@ -99,7 +99,7 @@ model:
 		t.Fatalf("replay launch: %v", err)
 	}
 	requireCurrentAgentLaunchReplay(t, replayed, launch.Agent)
-	if err := store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID); err != nil {
+	if err := store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID, true); err != nil {
 		t.Fatalf("delete profile after launch: %v", err)
 	}
 	replayedAfterProfileDelete, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
@@ -562,7 +562,7 @@ model:
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
 	}
-	if err := store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID); err != nil {
+	if err := store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID, true); err != nil {
 		t.Fatalf("delete profile: %v", err)
 	}
 	if _, err := store.Execution().GetAgentProfile(ctx, testProjectID, profile.ID); !storeerr.IsNotFound(
@@ -594,7 +594,7 @@ WHERE project_id = $1 AND profile_id = $2
 	); err != nil || !found {
 		t.Fatalf("profile config should survive profile deletion: %v", err)
 	}
-	if err := store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID); !storeerr.IsNotFound(
+	if err := store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID, true); !storeerr.IsNotFound(
 		err,
 	) {
 		t.Fatalf("second delete profile error = %v, want not found", err)
@@ -639,7 +639,7 @@ model:
 	}
 	deleteDone := make(chan error, 1)
 	go func() {
-		deleteDone <- store.Execution().DeleteAgentProfile(context.Background(), testProjectID, profile.ID)
+		deleteDone <- store.Execution().DeleteAgentProfile(context.Background(), testProjectID, profile.ID, true)
 	}()
 	integrationdb.WaitForLockWaitBlockedBy(t, ctx, pool, "-- name: LockAgentProfile", blockingPID)
 
@@ -725,7 +725,7 @@ FOR UPDATE
 	}
 	deleteDone := make(chan error, 1)
 	go func() {
-		deleteDone <- store.Execution().DeleteAgentProfile(context.Background(), testProjectID, profile.ID)
+		deleteDone <- store.Execution().DeleteAgentProfile(context.Background(), testProjectID, profile.ID, true)
 	}()
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DeleteAgentProfileVersions", 1)
 

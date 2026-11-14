@@ -232,7 +232,7 @@ func TestExecutionBacklogAnchorConcurrentInvalidation(t *testing.T) {
 			moved := receiveCommand(t, h, "queued", "moved")
 			require.NoError(t, u.Commit(t.Context(), "backlog"))
 			u, h = f.handle(t, a)
-			waiting, err := agentexecution.BeginTestUnit(t.Context(), agentexecution.NewCell(f.pool, nil, nil))
+			waiting, err := agentexecution.BeginTestUnit(t.Context(), agentexecution.NewCell(f.pool, nil, nil, nil))
 			require.NoError(t, err)
 			defer func() { _ = waiting.Rollback(t.Context()) }()
 			plan, err := waiting.PlanAgents(t.Context(), []lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: a}}, nil)

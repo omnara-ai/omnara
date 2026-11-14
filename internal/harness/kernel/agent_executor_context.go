@@ -13,7 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelretry"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type modelStepState string
@@ -95,8 +94,7 @@ func (e AgentExecutor) executeModelStep(
 		return modelStep{}, err
 	}
 	if !claim.Claimed {
-		if claim.Created &&
-			claim.Context.ErrorCode == storeerr.ManagedWorkAdmissionDeniedCode {
+		if claim.Created {
 			e.notifyModelFailure(ctx, input)
 		}
 		state := modelStepWaiting
@@ -333,6 +331,7 @@ func (e AgentExecutor) executeModelStep(
 		)
 	}
 	envelope.InputFingerprint = prepared.InputFingerprint
+	envelope.ProviderBaseURL = resolved.BaseURL
 	step := modelStep{
 		Context:             claim.Context,
 		Bundle:              bundle,
@@ -496,8 +495,10 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 			RecoveryKind:            executionstore.ModelCallRecoveryRetry,
 			APIFormat:               failureEvidence.APIFormat,
 			APIVariant:              failureEvidence.APIVariant,
+			ProviderBaseURL:         failureEvidence.BaseURL,
 			ProviderRequestID:       failureEvidence.ProviderRequestID,
 			ProviderResponseID:      failureEvidence.ProviderResponseID,
+			ServedProviderModelSlug: failureEvidence.ServedModelSlug,
 			ErrorKind:               evidence.Kind,
 			ErrorCode:               evidence.Code,
 			ErrorMessage:            evidence.Message,
@@ -522,6 +523,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 			ModelCallContextID:      claim.Context.ID,
 			APIFormat:               failureEvidence.APIFormat,
 			APIVariant:              failureEvidence.APIVariant,
+			ProviderBaseURL:         failureEvidence.BaseURL,
 			ServedProviderModelSlug: failureEvidence.ServedModelSlug,
 			ProviderRequestID:       failureEvidence.ProviderRequestID,
 			ProviderResponseID:      failureEvidence.ProviderResponseID,

@@ -168,6 +168,7 @@ type chatStreamAccumulator struct {
 	id             string
 	servedModel    string
 	provider       lenientString
+	serviceTier    lenientString
 	usage          chatUsage
 	usageReceived  bool
 	completed      bool
@@ -175,12 +176,15 @@ type chatStreamAccumulator struct {
 }
 
 func (a *chatStreamAccumulator) partialResponse(ctx context.Context) model.Response {
-	return a.protocol.chatResponseEvidence(ctx, chatCompletionsResponse{
-		ID:       a.id,
-		Model:    a.servedModel,
-		Provider: a.provider,
-		Usage:    a.usage,
+	out := a.protocol.chatResponseEvidence(ctx, chatCompletionsResponse{
+		ID:          a.id,
+		Model:       a.servedModel,
+		Provider:    a.provider,
+		ServiceTier: a.serviceTier,
+		Usage:       a.usage,
 	})
+	out.Usage.Incomplete = out.Usage != (model.Usage{}) && !a.hasCompleteTerminalOutcome()
+	return out
 }
 
 type chatStreamChoiceState struct {
@@ -220,12 +224,13 @@ type chatStreamReasoningDetailState struct {
 }
 
 type chatStreamChunk struct {
-	ID       string             `json:"id"`
-	Model    string             `json:"model"`
-	Provider lenientString      `json:"provider,omitempty"`
-	Choices  []chatStreamChoice `json:"choices"`
-	Usage    *chatUsage         `json:"usage"`
-	Error    chatProviderError  `json:"error"`
+	ID          string             `json:"id"`
+	Model       string             `json:"model"`
+	Provider    lenientString      `json:"provider,omitempty"`
+	ServiceTier lenientString      `json:"service_tier"`
+	Choices     []chatStreamChoice `json:"choices"`
+	Usage       *chatUsage         `json:"usage"`
+	Error       chatProviderError  `json:"error"`
 }
 
 type chatStreamChoice struct {
@@ -284,6 +289,9 @@ func (a *chatStreamAccumulator) handle(ctx context.Context, ev route.SSEEvent) e
 	}
 	if chunk.Provider != "" {
 		a.provider = chunk.Provider
+	}
+	if chunk.ServiceTier != "" {
+		a.serviceTier = chunk.ServiceTier
 	}
 	if chunk.Usage != nil {
 		a.usage = *chunk.Usage
@@ -595,11 +603,12 @@ func (a *chatStreamAccumulator) responseBody() (json.RawMessage, error) {
 		})
 	}
 	return json.Marshal(chatCompletionsResponse{
-		ID:       a.id,
-		Model:    a.servedModel,
-		Provider: a.provider,
-		Choices:  choices,
-		Usage:    a.usage,
+		ID:          a.id,
+		Model:       a.servedModel,
+		Provider:    a.provider,
+		ServiceTier: a.serviceTier,
+		Choices:     choices,
+		Usage:       a.usage,
 	})
 }
 

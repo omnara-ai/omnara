@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/executionpolicy"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -21,9 +22,11 @@ import (
 type ModelEvidence struct {
 	APIFormat        modelprotocol.APIFormat
 	APIVariant       modelprotocol.APIVariant
+	BaseURL          string
 	RequestID        string
 	ResponseID       string
 	InputFingerprint string
+	ServedModel      string
 	Usage            modelenvelope.Usage
 	Cost             modelenvelope.ProviderReportedCostUSD
 	Metadata         modelenvelope.ProviderMetadata
@@ -122,6 +125,7 @@ func (h *Handle) finishAttempt(
 	if err != nil {
 		return false, err
 	}
+	args.EffectiveCost, args.EffectiveCostKind = h.effectiveCost(ctx, row, evidence)
 	details, err := objectJSON(failure.ErrorDetails)
 	if err != nil {
 		return false, err
@@ -155,8 +159,49 @@ func (h *Handle) finishAttempt(
 	if n != 1 {
 		return false, storeerr.ErrRuntimeLockInactive
 	}
+	h.unit.finishedCall = &dbsqlc.MergeDailyModelCostsParams{AgentID: h.route.AgentID, ID: row.ID}
 	m.changed()
 	return true, nil
+}
+
+func (h *Handle) effectiveCost(
+	ctx context.Context,
+	row executiondb.ReadExecutionAttemptRow,
+	evidence ModelEvidence,
+) (*string, *string) {
+	usage := normalizedUsage(evidence.Usage)
+	hasTokens := usage.InputTokens > 0 || usage.OutputTokens > 0
+	if row.Pricing != nil && hasTokens {
+		if cost := modelprice.CustomCost(*row.Pricing, usage); cost != "" {
+			return costOfKind(cost, "custom")
+		}
+	}
+	if evidence.Cost != "" {
+		return costOfKind(evidence.Cost, "provider_reported")
+	}
+	estimator := h.unit.cell.costEstimator
+	if estimator == nil || !hasTokens {
+		return nil, nil
+	}
+	cost := estimator.Estimate(ctx, modelprice.Input{
+		BaseURL:         evidence.BaseURL,
+		APIFormat:       evidence.APIFormat,
+		APIVariant:      evidence.APIVariant,
+		ConfiguredModel: row.ProviderModelSlug,
+		ServedModel:     evidence.ServedModel,
+		Usage:           usage,
+		Metadata:        evidence.Metadata,
+		CreatedAt:       row.CreatedAt,
+	})
+	if cost == "" {
+		return nil, nil
+	}
+	return costOfKind(cost, "estimated")
+}
+
+func costOfKind(cost modelenvelope.ProviderReportedCostUSD, kind string) (*string, *string) {
+	value := string(cost)
+	return &value, &kind
 }
 
 func (h *Handle) FailModel(ctx context.Context, input ModelFailure) (bool, error) {

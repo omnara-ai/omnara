@@ -165,7 +165,9 @@ func (h *Handle) createAttempt(
 	revision, err := q.ExecutionModelRevision(
 		ctx,
 		h.unit.DB(),
-		executiondb.ExecutionModelRevisionParams{ProjectID: h.route.ProjectID, ConfigID: desired.ConfigID},
+		executiondb.ExecutionModelRevisionParams{
+			RootAgentID: h.route.RootAgentID, ProjectID: h.route.ProjectID, ConfigID: desired.ConfigID,
+		},
 	)
 	if err != nil {
 		return PreparedModel{}, err
@@ -234,18 +236,46 @@ func (h *Handle) createAttempt(
 	}
 	desired.RevisionID = revision.CurrentRevisionID
 	desired.Created = true
-	desired.Claimed = revision.Allowed
-	if !revision.Allowed {
+	code, message, err := h.admissionDenial(ctx, q, revision)
+	if err != nil {
+		return PreparedModel{}, err
+	}
+	desired.Claimed = code == ""
+	if !desired.Claimed {
 		_, err := h.terminalFailure(ctx, m, ModelFailure{ContextID: c.ID, RuntimeLockID: desired.RuntimeLockID,
 			ErrorKind:    "runtime",
-			ErrorCode:    storeerr.ManagedWorkAdmissionDeniedCode,
-			ErrorMessage: storeerr.InsufficientOmnaraCreditsMessage})
+			ErrorCode:    code,
+			ErrorMessage: message})
 		if err != nil {
 			return PreparedModel{}, err
 		}
 		desired.Context.State = ContextFailed
 	}
 	return desired, nil
+}
+
+func (h *Handle) admissionDenial(
+	ctx context.Context,
+	q *executiondb.Queries,
+	revision executiondb.ExecutionModelRevisionRow,
+) (string, string, error) {
+	if !revision.Allowed {
+		return storeerr.ManagedWorkAdmissionDeniedCode, storeerr.InsufficientOmnaraCreditsMessage, nil
+	}
+	if !revision.Budgeted {
+		return "", "", nil
+	}
+	reached, err := q.ExecutionBudgetReached(ctx, h.unit.DB(), executiondb.ExecutionBudgetReachedParams{
+		OrgID: revision.OrgID, ProjectID: h.route.ProjectID,
+		AgentProfileID: revision.RootAgentProfileID, RootAgentID: h.route.RootAgentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return storeerr.BudgetReachedCode, storeerr.BudgetReachedMessage(reached.Scope, reached.Interval), nil
 }
 
 type PrepareNormalInput struct {

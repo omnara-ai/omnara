@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
@@ -1420,4 +1422,62 @@ func TestModelProviderBaseURLsFollowEndpointAllowlist(t *testing.T) {
 	}
 	create("listed-network-hostname", "http://models.invalid:8080/v1", http.StatusCreated)
 	create("unlisted-private-ip", "http://10.0.6.21:8080/v1", http.StatusBadRequest)
+}
+
+func TestConfiguredModelPricing(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool, WithModelDiscoverer(func(
+		_ context.Context, _ modelstore.ModelProviderConfigRecord, _ string, _ map[string]string,
+	) ([]modelprovider.DiscoveredModel, error) {
+		return nil, nil
+	}))
+	project := bootstrapPublicHTTPProject(t, handler, "model-pricing")
+	orgPath := "/api/v1/orgs/" + project.OrgID
+	request := func(method, path, body string, status int) map[string]any {
+		return requestJSONWithHeaders(t, handler, method, path, body, "", status, authHeaders(project.AdminToken))
+	}
+	secret := request(http.MethodPost, orgPath+"/secrets",
+		`{"owner":{"kind":"org"},"name":"pricing-test-key","material":{"kind":"generic","value":"test-key"}}`,
+		http.StatusCreated)
+	provider := createdModelProviderConfig(t, request(http.MethodPost, orgPath+"/model-provider-configs", fmt.Sprintf(
+		`{"name":"pricing-provider","api_format":"openai-chat-completions","api_variant":"default","base_url":"https://example.test","credential_secret_id":%q}`,
+		testutil.RequireType[string](t, secret["id"]),
+	), http.StatusCreated))
+	modelsPath := orgPath + "/model-provider-configs/" + testutil.RequireType[string](t, provider["id"]) + "/models"
+
+	pricing := map[string]any{
+		"input_usd_per_million": "3", "cache_read_input_usd_per_million": "0.3", "output_usd_per_million": "15",
+	}
+	created := request(http.MethodPost, modelsPath,
+		`{"name":"priced","provider_model_slug":"priced","context_window_tokens":128000,`+
+			`"pricing":{"input_usd_per_million":"3","cache_read_input_usd_per_million":"0.3","output_usd_per_million":"15"}}`,
+		http.StatusCreated)
+	require.Equal(t, pricing, created["pricing"])
+	modelPath := modelsPath + "/" + testutil.RequireType[string](t, created["id"])
+
+	renamed := request(http.MethodPut, modelPath, `{"name":"renamed"}`, http.StatusOK)
+	require.Equal(t, pricing, renamed["pricing"])
+	require.Equal(t, created["current_revision_id"], renamed["current_revision_id"])
+
+	resent := request(http.MethodPut, modelPath,
+		`{"pricing":{"input_usd_per_million":"3","cache_read_input_usd_per_million":"0.3","output_usd_per_million":"15"}}`,
+		http.StatusOK)
+	require.Equal(t, renamed["current_revision_id"], resent["current_revision_id"])
+
+	changed := request(http.MethodPut, modelPath,
+		`{"pricing":{"input_usd_per_million":"4","output_usd_per_million":"15"}}`, http.StatusOK)
+	require.Equal(t, map[string]any{"input_usd_per_million": "4", "output_usd_per_million": "15"}, changed["pricing"])
+	require.NotEqual(t, renamed["current_revision_id"], changed["current_revision_id"])
+
+	cleared := request(http.MethodPut, modelPath, `{"pricing":null}`, http.StatusOK)
+	require.NotContains(t, cleared, "pricing")
+	require.NotEqual(t, changed["current_revision_id"], cleared["current_revision_id"])
+
+	request(http.MethodPut, modelPath,
+		`{"pricing":{"input_usd_per_million":"-1","output_usd_per_million":"15"}}`, http.StatusBadRequest)
+	request(http.MethodPut, modelPath,
+		`{"pricing":{"input_usd_per_million":"0.123456789012345678901234567890","output_usd_per_million":"15"}}`,
+		http.StatusBadRequest)
 }

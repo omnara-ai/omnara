@@ -763,6 +763,31 @@ it('labels the configured model edit controls', async () => {
   }
 })
 
+it('sets custom prices under Advanced and requires input and output prices', async () => {
+  const modelPath = `${modelsPath}/${model.id}`
+  const api = creationApi({
+    extraRoutes: [{ method: 'PUT', path: modelPath, respond: () => jsonResponse(model) }],
+  })
+  await render(
+    api,
+    <EditConfiguredModelDialog open onOpenChange={() => undefined} orgId={orgId} model={model} />,
+  )
+  await clickButton('Advanced')
+  await type('[id$="-inputPrice"]', '0.15')
+  expect(button('Save changes').disabled).toBe(true)
+  await type('[id$="-outputPrice"]', '0.6')
+  await clickButton('Save changes')
+  expect(api.requestsTo('PUT', modelPath).map((request) => request.body)).toEqual([
+    {
+      provider_model_slug: model.provider_model_slug,
+      context_window_tokens: model.context_window_tokens,
+      max_output_tokens: null,
+      default_max_output_tokens: null,
+      pricing: { input_usd_per_million: '0.15', output_usd_per_million: '0.6' },
+    },
+  ])
+})
+
 it('labels the provider edit controls including AWS signing region', async () => {
   await render(
     creationApi(),

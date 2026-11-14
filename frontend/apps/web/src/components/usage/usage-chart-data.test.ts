@@ -27,7 +27,12 @@ function totals(input: number, output: number, cost: string, calls: number): Usa
       output_tokens_total: output,
       reasoning_output_tokens: 0,
     },
-    cost: { provider_reported_usd: cost, model_calls_with_reported_cost: calls },
+    cost: {
+      provider_reported_usd: cost,
+      model_calls_with_reported_cost: calls,
+      effective_usd: cost,
+      model_calls_with_effective_cost: calls,
+    },
   }
 }
 
@@ -162,13 +167,26 @@ describe('usageChartData', () => {
     expect(data.columns.map((column) => column.total)).toEqual([1, 0, 0.5])
   })
 
-  it('says when calls were made but no cost was reported, rather than no usage', () => {
+  it('says when calls were made but none could be priced, rather than no usage', () => {
     const unreported = { ...timeseries([{ kind: 'all', total: 0, values: [0, 0, 0] }]) }
     unreported.totals = {
       ...unreported.totals,
-      cost: { provider_reported_usd: '0', model_calls_with_reported_cost: 0 },
+      cost: {
+        provider_reported_usd: '0',
+        model_calls_with_reported_cost: 0,
+        effective_usd: '0',
+        model_calls_with_effective_cost: 0,
+      },
     }
-    expect(usageChartData(unreported, 'cost').emptyMessage).toBe('No cost reported for 10 calls')
+    expect(usageChartData(unreported, 'cost').emptyMessage).toBe("10 calls couldn't be priced")
+    const free = {
+      ...unreported,
+      totals: {
+        ...unreported.totals,
+        cost: { ...unreported.totals.cost, model_calls_with_effective_cost: 10 },
+      },
+    }
+    expect(usageChartData(free, 'cost').emptyMessage).toBe('10 calls cost $0')
     expect(usageChartData(unreported, 'tokens').emptyMessage).toBe('No usage')
     const idle = { ...unreported, totals: totals(0, 0, '0', 0) }
     expect(usageChartData(idle, 'cost').emptyMessage).toBe('No usage')

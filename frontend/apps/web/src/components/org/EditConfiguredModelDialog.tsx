@@ -1,8 +1,10 @@
 import { useUpdateConfiguredModel } from '@omnara/react'
-import { type ConfiguredModel } from '@omnara/sdk'
+import { type ConfiguredModel, type DiscoveredModelPricing } from '@omnara/sdk'
+import { zDiscoveredModelPricing } from '@omnara/sdk/zod'
 import { useForm } from '@tanstack/react-form'
 import { useId } from 'react'
 
+import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -22,6 +24,43 @@ import { configuredModelTokenLimitsError } from './CreateConfiguredModelDialogSt
 function optionalNumber(value: string) {
   return value.trim() === '' ? null : Number(value)
 }
+
+interface PricingValues {
+  inputPrice: string
+  outputPrice: string
+  cacheReadPrice: string
+  cacheWritePrice: string
+}
+
+function pricingFromValues(values: PricingValues): DiscoveredModelPricing | null {
+  const input = values.inputPrice.trim()
+  const output = values.outputPrice.trim()
+  const cacheRead = values.cacheReadPrice.trim()
+  const cacheWrite = values.cacheWritePrice.trim()
+  if (!input && !output && !cacheRead && !cacheWrite) {
+    return null
+  }
+  return {
+    input_usd_per_million: input,
+    output_usd_per_million: output,
+    ...(cacheRead && { cache_read_input_usd_per_million: cacheRead }),
+    ...(cacheWrite && { cache_write_input_usd_per_million: cacheWrite }),
+  }
+}
+
+function pricingError(values: PricingValues) {
+  const pricing = pricingFromValues(values)
+  return pricing && !zDiscoveredModelPricing.safeParse(pricing).success
+    ? 'Enter input and output prices, and any cache prices, as USD amounts like 0.15.'
+    : ''
+}
+
+const priceFields = [
+  { name: 'inputPrice', label: 'Input price', placeholder: '' },
+  { name: 'outputPrice', label: 'Output price', placeholder: '' },
+  { name: 'cacheReadPrice', label: 'Cache read price', placeholder: 'Input price' },
+  { name: 'cacheWritePrice', label: 'Cache write price', placeholder: 'Input price' },
+] as const
 
 export function EditConfiguredModelDialog({
   open,
@@ -43,11 +82,16 @@ export function EditConfiguredModelDialog({
     maxOutputTokens: model.max_output_tokens == null ? '' : String(model.max_output_tokens),
     defaultMaxOutputTokens:
       model.default_max_output_tokens == null ? '' : String(model.default_max_output_tokens),
+    inputPrice: model.pricing?.input_usd_per_million ?? '',
+    outputPrice: model.pricing?.output_usd_per_million ?? '',
+    cacheReadPrice: model.pricing?.cache_read_input_usd_per_million ?? '',
+    cacheWritePrice: model.pricing?.cache_write_input_usd_per_million ?? '',
   }
   const valid = (value: typeof defaultValues) =>
     resourceNameValid(value.name) &&
     value.slug.trim() !== '' &&
-    !configuredModelTokenLimitsError(value)
+    !configuredModelTokenLimitsError(value) &&
+    !pricingError(value)
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
@@ -63,6 +107,7 @@ export function EditConfiguredModelDialog({
           context_window_tokens: Number(value.contextWindowTokens),
           max_output_tokens: optionalNumber(value.maxOutputTokens),
           default_max_output_tokens: optionalNumber(value.defaultMaxOutputTokens),
+          pricing: pricingFromValues(value),
         })
         onOpenChange(false)
       } catch {
@@ -174,6 +219,37 @@ export function EditConfiguredModelDialog({
               </form.Field>
             </div>
             <form.Subscribe selector={(state) => configuredModelTokenLimitsError(state.values)}>
+              {(error) => error && <p className="text-destructive text-sm">{error}</p>}
+            </form.Subscribe>
+            <OverridesCollapsible title="Advanced">
+              <FieldGroup>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {priceFields.map(({ name, label, placeholder }) => (
+                    <form.Field key={name} name={name}>
+                      {(field) => (
+                        <Field>
+                          <FieldLabel htmlFor={`${idPrefix}-${name}`}>{label}</FieldLabel>
+                          <Input
+                            id={`${idPrefix}-${name}`}
+                            inputMode="decimal"
+                            placeholder={placeholder}
+                            value={field.state.value}
+                            onChange={(event) => {
+                              field.handleChange(event.target.value)
+                            }}
+                          />
+                        </Field>
+                      )}
+                    </form.Field>
+                  ))}
+                </div>
+                <FieldDescription>
+                  Your own prices in USD per million tokens. When set, usage and budgets price this
+                  model's calls from them instead of the provider-reported cost.
+                </FieldDescription>
+              </FieldGroup>
+            </OverridesCollapsible>
+            <form.Subscribe selector={(state) => pricingError(state.values)}>
               {(error) => error && <p className="text-destructive text-sm">{error}</p>}
             </form.Subscribe>
             {error && <p className="text-destructive text-sm">{error}</p>}

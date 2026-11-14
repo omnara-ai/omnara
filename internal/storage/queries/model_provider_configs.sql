@@ -189,7 +189,7 @@ revision AS (
     context_window_tokens, max_output_tokens, default_max_output_tokens,
         default_cache_retention, supports_tools, supports_reasoning, default_reasoning_effort,
         supported_reasoning_efforts, input_modalities, output_modalities,
-        api_variant_options, created_at
+        api_variant_options, pricing, created_at
   )
   SELECT configured_model.current_revision_id, configured_model.org_id, configured_model.id,
          configured_model.model_provider_config_id, sqlc.arg(provider_model_slug),
@@ -199,14 +199,14 @@ revision AS (
          sqlc.arg(supports_reasoning)::bool, sqlc.arg(default_reasoning_effort)::text,
              sqlc.arg(supported_reasoning_efforts)::text[],
              sqlc.arg(input_modalities)::text[], sqlc.arg(output_modalities)::text[],
-             sqlc.arg(api_variant_options), statement_timestamp()
+             sqlc.arg(api_variant_options), sqlc.narg(pricing), statement_timestamp()
   FROM configured_model
   RETURNING id, org_id, configured_model_id, model_provider_config_id,
             provider_model_slug, context_window_tokens, max_output_tokens,
             default_max_output_tokens,
                 default_cache_retention, supports_tools, supports_reasoning,
                 default_reasoning_effort, supported_reasoning_efforts,
-                input_modalities, output_modalities, api_variant_options, created_at
+                input_modalities, output_modalities, api_variant_options, pricing, created_at
 )
 SELECT configured_model.id, configured_model.org_id, configured_model.model_provider_config_id,
        configured_model.management_kind, configured_model.name,
@@ -215,7 +215,7 @@ SELECT configured_model.id, configured_model.org_id, configured_model.model_prov
        revision.default_max_output_tokens,
        revision.default_cache_retention, revision.supports_tools, revision.supports_reasoning,
        revision.default_reasoning_effort, revision.supported_reasoning_efforts,
-           revision.input_modalities, revision.output_modalities, revision.api_variant_options,
+           revision.input_modalities, revision.output_modalities, revision.api_variant_options, revision.pricing,
        configured_model.deleted_at, configured_model.created_at, configured_model.updated_at,
        revision.created_at AS revision_created_at
 FROM configured_model
@@ -229,7 +229,7 @@ SELECT configured_model.id, configured_model.org_id, configured_model.model_prov
        revision.default_max_output_tokens,
        revision.default_cache_retention, revision.supports_tools, revision.supports_reasoning,
        revision.default_reasoning_effort, revision.supported_reasoning_efforts,
-           revision.input_modalities, revision.output_modalities, revision.api_variant_options,
+           revision.input_modalities, revision.output_modalities, revision.api_variant_options, revision.pricing,
        configured_model.deleted_at, configured_model.created_at, configured_model.updated_at,
        revision.created_at AS revision_created_at
 FROM configured_models configured_model
@@ -251,7 +251,7 @@ SELECT configured_model.id, configured_model.org_id, configured_model.model_prov
        revision.default_max_output_tokens,
        revision.default_cache_retention, revision.supports_tools, revision.supports_reasoning,
        revision.default_reasoning_effort, revision.supported_reasoning_efforts,
-           revision.input_modalities, revision.output_modalities, revision.api_variant_options,
+           revision.input_modalities, revision.output_modalities, revision.api_variant_options, revision.pricing,
        configured_model.deleted_at, configured_model.created_at, configured_model.updated_at,
        revision.created_at AS revision_created_at
 FROM configured_models configured_model
@@ -271,7 +271,7 @@ SELECT configured_model.id, configured_model.org_id, configured_model.model_prov
        revision.default_max_output_tokens,
        revision.default_cache_retention, revision.supports_tools, revision.supports_reasoning,
        revision.default_reasoning_effort, revision.supported_reasoning_efforts,
-           revision.input_modalities, revision.output_modalities, revision.api_variant_options,
+           revision.input_modalities, revision.output_modalities, revision.api_variant_options, revision.pricing,
        configured_model.deleted_at, configured_model.created_at, configured_model.updated_at,
        revision.created_at AS revision_created_at
 FROM configured_models configured_model
@@ -294,7 +294,7 @@ SELECT configured_model.id, configured_model.org_id, configured_model.model_prov
        revision.default_max_output_tokens,
        revision.default_cache_retention, revision.supports_tools, revision.supports_reasoning,
        revision.default_reasoning_effort, revision.supported_reasoning_efforts,
-           revision.input_modalities, revision.output_modalities, revision.api_variant_options,
+           revision.input_modalities, revision.output_modalities, revision.api_variant_options, revision.pricing,
        configured_model.deleted_at, configured_model.created_at, configured_model.updated_at,
        revision.created_at AS revision_created_at
 FROM configured_models configured_model
@@ -322,7 +322,7 @@ SELECT configured_model.id, configured_model.org_id, configured_model.model_prov
        revision.default_max_output_tokens,
        revision.default_cache_retention, revision.supports_tools, revision.supports_reasoning,
        revision.default_reasoning_effort, revision.supported_reasoning_efforts,
-           revision.input_modalities, revision.output_modalities, revision.api_variant_options,
+           revision.input_modalities, revision.output_modalities, revision.api_variant_options, revision.pricing,
        configured_model.deleted_at, configured_model.created_at, configured_model.updated_at,
        revision.created_at AS revision_created_at
 FROM configured_models configured_model
@@ -379,7 +379,7 @@ revision AS (
     context_window_tokens, max_output_tokens, default_max_output_tokens,
         default_cache_retention, supports_tools, supports_reasoning, default_reasoning_effort,
         supported_reasoning_efforts, input_modalities, output_modalities,
-        api_variant_options, created_at
+        api_variant_options, pricing, created_at
   )
   SELECT target_configured_model.org_id, target_configured_model.id,
          target_configured_model.model_provider_config_id, sqlc.arg(provider_model_slug),
@@ -389,14 +389,14 @@ revision AS (
          sqlc.arg(supports_reasoning)::bool, sqlc.arg(default_reasoning_effort)::text,
              sqlc.arg(supported_reasoning_efforts)::text[],
              sqlc.arg(input_modalities)::text[], sqlc.arg(output_modalities)::text[],
-             sqlc.arg(api_variant_options), statement_timestamp()
+             sqlc.arg(api_variant_options), sqlc.narg(pricing), statement_timestamp()
   FROM target_configured_model
   RETURNING id, org_id, configured_model_id, model_provider_config_id,
             provider_model_slug, context_window_tokens, max_output_tokens,
             default_max_output_tokens,
                 default_cache_retention, supports_tools, supports_reasoning,
                 default_reasoning_effort, supported_reasoning_efforts,
-                input_modalities, output_modalities, api_variant_options, created_at
+                input_modalities, output_modalities, api_variant_options, pricing, created_at
 ),
 configured_model AS (
   UPDATE configured_models
@@ -419,7 +419,7 @@ SELECT configured_model.id, configured_model.org_id, configured_model.model_prov
        revision.default_max_output_tokens,
        revision.default_cache_retention, revision.supports_tools, revision.supports_reasoning,
        revision.default_reasoning_effort, revision.supported_reasoning_efforts,
-           revision.input_modalities, revision.output_modalities, revision.api_variant_options,
+           revision.input_modalities, revision.output_modalities, revision.api_variant_options, revision.pricing,
        configured_model.deleted_at, configured_model.created_at, configured_model.updated_at,
        revision.created_at AS revision_created_at
 FROM configured_model
@@ -451,7 +451,7 @@ SELECT configured_model.id, configured_model.org_id, configured_model.model_prov
        revision.default_max_output_tokens,
        revision.default_cache_retention, revision.supports_tools, revision.supports_reasoning,
        revision.default_reasoning_effort, revision.supported_reasoning_efforts,
-           revision.input_modalities, revision.output_modalities, revision.api_variant_options,
+           revision.input_modalities, revision.output_modalities, revision.api_variant_options, revision.pricing,
        configured_model.deleted_at, configured_model.created_at, configured_model.updated_at,
        revision.created_at AS revision_created_at
 FROM configured_model
@@ -682,7 +682,7 @@ SELECT revision.id, revision.org_id, revision.configured_model_id,
        revision.default_reasoning_effort,
        revision.supported_reasoning_efforts, revision.input_modalities,
            revision.output_modalities, revision.api_variant_options,
-       revision.created_at
+       revision.created_at, revision.pricing
 FROM configured_model_revisions revision
 JOIN configured_models configured_model ON configured_model.org_id = revision.org_id
   AND configured_model.id = revision.configured_model_id
@@ -704,7 +704,7 @@ SELECT revision.id, revision.org_id, revision.configured_model_id,
        revision.supports_tools, revision.supports_reasoning,
        revision.default_reasoning_effort,
        revision.supported_reasoning_efforts, revision.input_modalities,
-           revision.output_modalities, revision.api_variant_options,
+           revision.output_modalities, revision.api_variant_options, revision.pricing,
        revision.created_at,
        configured_model.name AS configured_model_name,
        provider_config.name AS provider_config_name,

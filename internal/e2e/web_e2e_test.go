@@ -146,7 +146,7 @@ func TestWebE2E(t *testing.T) {
 		t.Fatalf("decode onboarding profile id: %v", err)
 	}
 	if err := store.Execution().
-		DeleteAgentProfile(ctx, onboardingProjectID, onboardingProfileID); err != nil {
+		DeleteAgentProfile(ctx, onboardingProjectID, onboardingProfileID, true); err != nil {
 		t.Fatalf("delete bootstrapped onboarding profile: %v", err)
 	}
 	onboardingEmail := "web-onboarding-" + env.seed + "@example.com"

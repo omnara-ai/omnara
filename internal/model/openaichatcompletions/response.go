@@ -161,6 +161,12 @@ func (p protocol) chatResponseEvidence(
 		ServedProviderModelSlug: response.Model,
 		Usage:                   usageFromResponse(response.Usage),
 	}
+	out.ProviderMetadata.OpenAI = modelenvelope.OpenAIRateClass(string(response.ServiceTier), 0)
+	cost, valid := modelenvelope.ProviderReportedCostFromTicks(response.Usage.CostInUSDTicks)
+	if !valid {
+		logent.ModelResponseProviderCostInvalid(ctx)
+	}
+	out.ProviderReportedCostUSD = cost
 	if p.client.compat().reportsServedProviderAndCost {
 		out.ProviderMetadata.OpenRouter.Provider = string(response.Provider)
 		cost, issue := openRouterReportedCost(response.Usage)
@@ -181,12 +187,13 @@ func (p protocol) chatResponseEvidence(
 }
 
 type chatCompletionsResponse struct {
-	ID       string            `json:"id"`
-	Model    string            `json:"model"`
-	Provider lenientString     `json:"provider,omitempty"`
-	Choices  []chatChoice      `json:"choices"`
-	Usage    chatUsage         `json:"usage"`
-	Error    chatProviderError `json:"error"`
+	ID          string            `json:"id"`
+	Model       string            `json:"model"`
+	Provider    lenientString     `json:"provider,omitempty"`
+	ServiceTier lenientString     `json:"service_tier,omitempty"`
+	Choices     []chatChoice      `json:"choices"`
+	Usage       chatUsage         `json:"usage"`
+	Error       chatProviderError `json:"error"`
 }
 
 type chatChoice struct {
@@ -314,6 +321,8 @@ type chatUsage struct {
 	PromptCacheHitTokens    lenientCount     `json:"prompt_cache_hit_tokens,omitzero"`
 	CachedTokens            lenientCount     `json:"cached_tokens,omitzero"`
 	CompletionTokens        int              `json:"completion_tokens"`
+	TotalTokens             lenientCount     `json:"total_tokens,omitzero"`
+	CostInUSDTicks          json.RawMessage  `json:"cost_in_usd_ticks,omitempty"`
 	OpenRouterCost          json.RawMessage  `json:"cost,omitempty"`
 	OpenRouterCostDetails   json.RawMessage  `json:"cost_details,omitempty"`
 	OpenRouterIsBYOK        json.RawMessage  `json:"is_byok,omitempty"`
@@ -391,14 +400,18 @@ func usageFromResponse(usage chatUsage) model.Usage {
 		cache.CacheWriteTokens > usage.PromptTokens-cache.CachedTokens.Count {
 		cache = chatTokenDetails{}
 	}
+	output := usage.CompletionTokens
+	if usage.TotalTokens.count-usage.PromptTokens > output {
+		output = usage.TotalTokens.count - usage.PromptTokens
+	}
 	reasoning := usage.CompletionTokensDetails.ReasoningTokens
-	if reasoning < 0 || reasoning > usage.CompletionTokens {
+	if reasoning < 0 || reasoning > output {
 		reasoning = 0
 	}
 	return model.Usage{
 		InputTokens:         usage.PromptTokens,
 		UncachedInputTokens: usage.PromptTokens - cache.CachedTokens.Count - cache.CacheWriteTokens,
-		OutputTokens:        usage.CompletionTokens,
+		OutputTokens:        output,
 		ReasoningTokens:     reasoning,
 		CacheReadTokens:     cache.CachedTokens.Count,
 		CacheReported:       cache.CachedTokens.Reported && usage.PromptTokens > 0,

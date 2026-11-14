@@ -44,6 +44,20 @@ func TestProjectDeleteAndRenameRequireOrganizationManage(t *testing.T) {
 	}
 }
 
+func TestBudgetsRequireOrganizationManage(t *testing.T) {
+	for _, operation := range []operationID{
+		operationListBudgets, operationCreateBudget, operationGetBudget, operationUpdateBudget, operationDeleteBudget,
+	} {
+		policy := openAPIOperationPolicies[operation]
+		if policy.principal != principalKindAccount {
+			t.Fatalf("%s principal = %v, want account", operation, policy.principal)
+		}
+		if policy.scope.kind != scopeKindOrg || policy.scope.action != identitystore.OrgActionManage {
+			t.Fatalf("%s scope = %+v, want organization manage", operation, policy.scope)
+		}
+	}
+}
+
 func TestDeleteOrganizationRequiresOrganizationOwnership(t *testing.T) {
 	policy := openAPIOperationPolicies[operationDeleteOrganization]
 	if policy.principal != principalKindAccount {

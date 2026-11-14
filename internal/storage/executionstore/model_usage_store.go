@@ -12,15 +12,17 @@ import (
 )
 
 type ModelUsageTotals struct {
-	ModelCalls                 int64
-	ModelCallsWithReportedCost int64
-	InputTokensTotal           int64
-	UncachedInputTokens        int64
-	CacheReadInputTokens       int64
-	CacheWriteInputTokens      int64
-	OutputTokensTotal          int64
-	ReasoningOutputTokens      int64
-	ProviderReportedCostUSD    modelenvelope.ProviderReportedCostUSD
+	ModelCalls                  int64
+	ModelCallsWithReportedCost  int64
+	ModelCallsWithEffectiveCost int64
+	InputTokensTotal            int64
+	UncachedInputTokens         int64
+	CacheReadInputTokens        int64
+	CacheWriteInputTokens       int64
+	OutputTokensTotal           int64
+	ReasoningOutputTokens       int64
+	ProviderReportedCostUSD     modelenvelope.ProviderReportedCostUSD
+	EffectiveCostUSD            modelenvelope.ProviderReportedCostUSD
 }
 
 type ModelUsageRecord struct {
@@ -162,9 +164,10 @@ func (s *Store) sumModelUsage(
 	}
 	records := make([]ModelUsageRecord, 0, len(rows))
 	for _, row := range rows {
-		cost, ok := modelenvelope.ParseProviderReportedCostUSD(row.ProviderReportedCostUsd)
+		cost, effective, ok := usageCosts(row.ProviderReportedCostUsd, row.EffectiveCostUsd)
 		if !ok {
-			return nil, fmt.Errorf("sum model usage: invalid cost total %q", row.ProviderReportedCostUsd)
+			return nil, fmt.Errorf("sum model usage: invalid cost totals %q, %q",
+				row.ProviderReportedCostUsd, row.EffectiveCostUsd)
 		}
 		records = append(records, ModelUsageRecord{
 			ConfiguredModelID:       row.ConfiguredModelID,
@@ -173,15 +176,17 @@ func (s *Store) sumModelUsage(
 			ModelProviderConfigID:   row.ModelProviderConfigID,
 			ModelProviderConfigName: row.ModelProviderConfigName,
 			Totals: ModelUsageTotals{
-				ModelCalls:                 row.ModelCalls,
-				ModelCallsWithReportedCost: row.ModelCallsWithReportedCost,
-				InputTokensTotal:           row.InputTokensTotal,
-				UncachedInputTokens:        row.UncachedInputTokens,
-				CacheReadInputTokens:       row.CacheReadInputTokens,
-				CacheWriteInputTokens:      row.CacheWriteInputTokens,
-				OutputTokensTotal:          row.OutputTokensTotal,
-				ReasoningOutputTokens:      row.ReasoningOutputTokens,
-				ProviderReportedCostUSD:    cost,
+				ModelCalls:                  row.ModelCalls,
+				ModelCallsWithReportedCost:  row.ModelCallsWithReportedCost,
+				ModelCallsWithEffectiveCost: row.ModelCallsWithEffectiveCost,
+				InputTokensTotal:            row.InputTokensTotal,
+				UncachedInputTokens:         row.UncachedInputTokens,
+				CacheReadInputTokens:        row.CacheReadInputTokens,
+				CacheWriteInputTokens:       row.CacheWriteInputTokens,
+				OutputTokensTotal:           row.OutputTokensTotal,
+				ReasoningOutputTokens:       row.ReasoningOutputTokens,
+				ProviderReportedCostUSD:     cost,
+				EffectiveCostUSD:            effective,
 			},
 		})
 	}
@@ -200,9 +205,12 @@ func sumModelUsageTotals(items []ModelUsageTotals) (ModelUsageTotals, error) {
 	var totals ModelUsageTotals
 	costs := make([]string, 0, len(items)+1)
 	costs = append(costs, "0")
+	effectiveCosts := make([]string, 0, len(items)+1)
+	effectiveCosts = append(effectiveCosts, "0")
 	for _, item := range items {
 		totals.ModelCalls += item.ModelCalls
 		totals.ModelCallsWithReportedCost += item.ModelCallsWithReportedCost
+		totals.ModelCallsWithEffectiveCost += item.ModelCallsWithEffectiveCost
 		totals.InputTokensTotal += item.InputTokensTotal
 		totals.UncachedInputTokens += item.UncachedInputTokens
 		totals.CacheReadInputTokens += item.CacheReadInputTokens
@@ -210,13 +218,32 @@ func sumModelUsageTotals(items []ModelUsageTotals) (ModelUsageTotals, error) {
 		totals.OutputTokensTotal += item.OutputTokensTotal
 		totals.ReasoningOutputTokens += item.ReasoningOutputTokens
 		costs = append(costs, string(item.ProviderReportedCostUSD))
+		effectiveCosts = append(effectiveCosts, string(item.EffectiveCostUSD))
 	}
 	cost, ok := modelenvelope.SumProviderReportedCostUSD(costs...)
 	if !ok {
 		return ModelUsageTotals{}, errors.New("sum model usage: invalid cost totals")
 	}
+	effective, ok := modelenvelope.SumProviderReportedCostUSD(effectiveCosts...)
+	if !ok {
+		return ModelUsageTotals{}, errors.New("sum model usage: invalid effective cost totals")
+	}
 	totals.ProviderReportedCostUSD = cost
+	totals.EffectiveCostUSD = effective
 	return totals, nil
+}
+
+func usageCosts(reported, effective string) (
+	modelenvelope.ProviderReportedCostUSD,
+	modelenvelope.ProviderReportedCostUSD,
+	bool,
+) {
+	reportedCost, ok := modelenvelope.ParseProviderReportedCostUSD(reported)
+	if !ok {
+		return "", "", false
+	}
+	effectiveCost, ok := modelenvelope.ParseProviderReportedCostUSD(effective)
+	return reportedCost, effectiveCost, ok
 }
 
 type AgentProfileStatsInput struct {
@@ -269,21 +296,24 @@ func (s *Store) AgentProfileStats(
 		return nil, fmt.Errorf("sum model usage by profile: %w", err)
 	}
 	for _, row := range usage {
-		cost, ok := modelenvelope.ParseProviderReportedCostUSD(row.ProviderReportedCostUsd)
+		cost, effective, ok := usageCosts(row.ProviderReportedCostUsd, row.EffectiveCostUsd)
 		if !ok {
-			return nil, fmt.Errorf("sum model usage by profile: invalid cost total %q", row.ProviderReportedCostUsd)
+			return nil, fmt.Errorf("sum model usage by profile: invalid cost totals %q, %q",
+				row.ProviderReportedCostUsd, row.EffectiveCostUsd)
 		}
 		entry := stats[row.AgentProfileID]
 		entry.Usage = ModelUsageTotals{
-			ModelCalls:                 row.ModelCalls,
-			ModelCallsWithReportedCost: row.ModelCallsWithReportedCost,
-			InputTokensTotal:           row.InputTokensTotal,
-			UncachedInputTokens:        row.UncachedInputTokens,
-			CacheReadInputTokens:       row.CacheReadInputTokens,
-			CacheWriteInputTokens:      row.CacheWriteInputTokens,
-			OutputTokensTotal:          row.OutputTokensTotal,
-			ReasoningOutputTokens:      row.ReasoningOutputTokens,
-			ProviderReportedCostUSD:    cost,
+			ModelCalls:                  row.ModelCalls,
+			ModelCallsWithReportedCost:  row.ModelCallsWithReportedCost,
+			ModelCallsWithEffectiveCost: row.ModelCallsWithEffectiveCost,
+			InputTokensTotal:            row.InputTokensTotal,
+			UncachedInputTokens:         row.UncachedInputTokens,
+			CacheReadInputTokens:        row.CacheReadInputTokens,
+			CacheWriteInputTokens:       row.CacheWriteInputTokens,
+			OutputTokensTotal:           row.OutputTokensTotal,
+			ReasoningOutputTokens:       row.ReasoningOutputTokens,
+			ProviderReportedCostUSD:     cost,
+			EffectiveCostUSD:            effective,
 		}
 		stats[row.AgentProfileID] = entry
 	}
@@ -320,20 +350,23 @@ func (s *Store) AgentUsageTotals(
 		return nil, fmt.Errorf("sum model usage by agent: %w", err)
 	}
 	for _, row := range rows {
-		cost, ok := modelenvelope.ParseProviderReportedCostUSD(row.ProviderReportedCostUsd)
+		cost, effective, ok := usageCosts(row.ProviderReportedCostUsd, row.EffectiveCostUsd)
 		if !ok {
-			return nil, fmt.Errorf("sum model usage by agent: invalid cost total %q", row.ProviderReportedCostUsd)
+			return nil, fmt.Errorf("sum model usage by agent: invalid cost totals %q, %q",
+				row.ProviderReportedCostUsd, row.EffectiveCostUsd)
 		}
 		totals[row.AgentID] = ModelUsageTotals{
-			ModelCalls:                 row.ModelCalls,
-			ModelCallsWithReportedCost: row.ModelCallsWithReportedCost,
-			InputTokensTotal:           row.InputTokensTotal,
-			UncachedInputTokens:        row.UncachedInputTokens,
-			CacheReadInputTokens:       row.CacheReadInputTokens,
-			CacheWriteInputTokens:      row.CacheWriteInputTokens,
-			OutputTokensTotal:          row.OutputTokensTotal,
-			ReasoningOutputTokens:      row.ReasoningOutputTokens,
-			ProviderReportedCostUSD:    cost,
+			ModelCalls:                  row.ModelCalls,
+			ModelCallsWithReportedCost:  row.ModelCallsWithReportedCost,
+			ModelCallsWithEffectiveCost: row.ModelCallsWithEffectiveCost,
+			InputTokensTotal:            row.InputTokensTotal,
+			UncachedInputTokens:         row.UncachedInputTokens,
+			CacheReadInputTokens:        row.CacheReadInputTokens,
+			CacheWriteInputTokens:       row.CacheWriteInputTokens,
+			OutputTokensTotal:           row.OutputTokensTotal,
+			ReasoningOutputTokens:       row.ReasoningOutputTokens,
+			ProviderReportedCostUSD:     cost,
+			EffectiveCostUSD:            effective,
 		}
 	}
 	return totals, nil

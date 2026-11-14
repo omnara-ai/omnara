@@ -45,7 +45,7 @@ func TestLaunchFeedbackWaitsForCommittedFreezeAndPreservesObserver(t *testing.T)
 	owner := acceptLaunchFeedbackReceipt(t, f, "reserved-launch")
 	_, err := freezeTestIntegrationEvent(ctx, f.consumer.router, owner.Lease(), &f.event)
 	require.NoError(t, err)
-	require.NoError(t, f.store.Execution().DeleteAgentProfile(ctx, f.ids.ProjectID, f.profiles[0].ID))
+	require.NoError(t, f.store.Execution().DeleteAgentProfile(ctx, f.ids.ProjectID, f.profiles[0].ID, true))
 	receipt := acceptLaunchFeedbackReceipt(t, f, "unavailable-profile")
 	f.event.SemanticKey = "unavailable-profile"
 	f.provider.event = &f.event
@@ -152,7 +152,7 @@ func TestLaunchFeedbackDoesNotSendOnFailedFreeze(t *testing.T) {
 			f := newChoiceJourney(t, 1)
 			ctx := t.Context()
 			observer := launcherObserver(t, f)
-			require.NoError(t, f.store.Execution().DeleteAgentProfile(ctx, f.ids.ProjectID, f.profiles[0].ID))
+			require.NoError(t, f.store.Execution().DeleteAgentProfile(ctx, f.ids.ProjectID, f.profiles[0].ID, true))
 			receipt := acceptLaunchFeedbackReceipt(t, f, "unavailable-profile")
 			f.provider.event = &f.event
 			failure := &launchFeedbackFreezeFailure{
@@ -184,7 +184,7 @@ func TestLaunchFeedbackRejectsStaleDecision(t *testing.T) {
 	f := newChoiceJourney(t, 1)
 	ctx := t.Context()
 	observer := launcherObserver(t, f)
-	require.NoError(t, f.store.Execution().DeleteAgentProfile(ctx, f.ids.ProjectID, f.profiles[0].ID))
+	require.NoError(t, f.store.Execution().DeleteAgentProfile(ctx, f.ids.ProjectID, f.profiles[0].ID, true))
 	receipt := acceptLaunchFeedbackReceipt(t, f, "stale-decision")
 	f.provider.event = &f.event
 	launcher := f.consumer.launchers.launchers[integrationdefinition.SlackThread]
@@ -218,7 +218,7 @@ func TestLaunchFeedbackDoesNotSendForCompetingFreeze(t *testing.T) {
 	f := newChoiceJourney(t, 1)
 	ctx := t.Context()
 	observer := launcherObserver(t, f)
-	require.NoError(t, f.store.Execution().DeleteAgentProfile(ctx, f.ids.ProjectID, f.profiles[0].ID))
+	require.NoError(t, f.store.Execution().DeleteAgentProfile(ctx, f.ids.ProjectID, f.profiles[0].ID, true))
 	receipt := acceptLaunchFeedbackReceipt(t, f, "competing-freeze")
 	f.provider.event = &f.event
 	launcher := f.consumer.launchers.launchers[integrationdefinition.SlackThread]

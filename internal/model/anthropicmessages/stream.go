@@ -154,11 +154,9 @@ type anthropicStreamToolInput struct {
 }
 
 func (a *anthropicStreamAccumulator) partialResponse() model.Response {
-	return model.Response{
-		ID:                      a.id,
-		ServedProviderModelSlug: a.servedModel,
-		Usage:                   usageFromResponse(a.usageRaw),
-	}
+	out := anthropicResponseEvidence(messagesResponse{ID: a.id, Model: a.servedModel, Usage: a.usageRaw})
+	out.Usage.Incomplete = out.Usage != (model.Usage{})
+	return out
 }
 
 type anthropicStreamBlock struct {
@@ -501,5 +499,17 @@ func mergeAnthropicUsage(into, delta usage) usage {
 		into.CacheReadInputTokens.Count = delta.CacheReadInputTokens.Count
 	}
 	into.CacheReadInputTokens.Reported = into.CacheReadInputTokens.Reported || delta.CacheReadInputTokens.Reported
+	if delta.CacheCreation != nil {
+		into.CacheCreation = delta.CacheCreation
+	}
+	if delta.Speed != "" {
+		into.Speed = delta.Speed
+	}
+	if delta.InferenceGeo != "" {
+		into.InferenceGeo = delta.InferenceGeo
+	}
+	if delta.ServiceTier != "" {
+		into.ServiceTier = delta.ServiceTier
+	}
 	return into
 }

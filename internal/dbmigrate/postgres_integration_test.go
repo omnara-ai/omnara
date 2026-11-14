@@ -127,10 +127,11 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 	defer cancel()
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
-	const expected = "agent_config_definitions,agent_configs,agent_machine_bindings,agents,configured_model_revisions," +
-		"configured_models,daemon_runtimes,event_webhook_deliveries,event_webhooks,integrations,machine_daemon_tokens," +
-		"machine_online_intervals,machine_pools,machines,mcp_server_catalogs,model_call_contexts," +
-		"model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission," +
+	const expected = "agent_config_definitions,agent_configs,agent_machine_bindings,agents,budgets," +
+		"configured_model_revisions,configured_models,daemon_runtimes,daily_model_costs,event_webhook_deliveries," +
+		"event_webhooks," +
+		"integrations,machine_daemon_tokens,machine_online_intervals,machine_pools,machines,mcp_server_catalogs," +
+		"model_call_contexts,model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission," +
 		"org_memberships,org_resource_limit_overrides,process_actions,processes," +
 		"project_machine_grants,project_machine_pool_grants,project_memberships," +
 		"project_model_grants,projects,secret_grants,secret_oauth_refresh_leases," +
@@ -159,8 +160,9 @@ func TestPostgresStoredProjectScopeColumnsMatchOwnershipBoundaries(t *testing.T)
 	_, db := openPostgresMigrationTestDB(t, ctx)
 	const expected = "actors,agent_config_definitions,agent_configs,agent_inputs,agent_interactions," +
 		"agent_machine_bindings,agent_profile_versions," +
-		"agent_profiles,agents,cron_triggers,event_webhooks,integration_inbox,integration_runtime,integration_states," +
-		"integration_subscriptions,integration_targets,integrations," +
+		"agent_profiles,agents,budgets,cron_triggers,daily_model_costs,event_webhooks,integration_inbox," +
+		"integration_runtime," +
+		"integration_states,integration_subscriptions,integration_targets,integrations," +
 		"memory_stores,model_call_contexts,process_actions,processes," +
 		"project_machine_grants,project_machine_pool_grants,project_memberships,project_model_grants,tool_calls"
 	var actual string

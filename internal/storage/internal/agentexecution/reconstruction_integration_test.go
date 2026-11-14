@@ -394,7 +394,7 @@ func (f executionFixture) handle(
 ) (*agentexecution.Unit, *agentexecution.Handle) {
 	t.Helper()
 	ctx := t.Context()
-	cell := agentexecution.NewCell(f.pool, nil, nil)
+	cell := agentexecution.NewCell(f.pool, nil, nil, nil)
 	u, err := agentexecution.BeginTestUnit(ctx, cell)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = u.Rollback(context.Background()) })

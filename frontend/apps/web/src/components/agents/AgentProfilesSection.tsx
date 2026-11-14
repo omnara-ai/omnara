@@ -29,8 +29,8 @@ import { ProjectTag } from '@/components/agents/ProjectTag'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { TriangleAlert, Users } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import { ReportedCost } from '@/components/usage/ReportedCost'
 import { defaultUsageDays, lastDaysUsageWindow } from '@/components/usage/usage-date-range'
+import { UsageCost } from '@/components/usage/UsageCost'
 import { type PaginationControls, usePagedQuery } from '@/hooks/use-paged-query'
 import { useProjectDirectory } from '@/hooks/use-project-directory'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
@@ -366,7 +366,7 @@ function ProfileCard({
             label={`cost, last ${String(defaultUsageDays)} days`}
             value={
               profile.stats && (
-                <ReportedCost
+                <UsageCost
                   modelCalls={profile.stats.usage.model_calls}
                   cost={profile.stats.usage.cost}
                 />

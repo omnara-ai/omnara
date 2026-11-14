@@ -7,13 +7,16 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	log "github.com/omnara-ai/omnara/observability/wideevent"
 )
 
 var ErrUnitClosed = errors.New("agent execution unit is closed")
@@ -29,6 +32,7 @@ type Unit struct {
 	notifications     *notifications.TxNotifications
 	handles           map[uuid.UUID]*Handle
 	exclusiveProjects map[uuid.UUID]struct{}
+	finishedCall      *dbsqlc.MergeDailyModelCostsParams
 	runtimeLocked     bool
 	closed            bool
 	aborted           bool
@@ -96,6 +100,20 @@ func (u *Unit) Commit(ctx context.Context, operation string) (err error) {
 	}
 	u.closed = true
 	u.notifications.Flush(context.WithoutCancel(ctx), u.cell.publisher)
+	if u.finishedCall != nil {
+		mergeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		err := dbsqlc.New(u.cell.pool).MergeDailyModelCosts(mergeCtx, *u.finishedCall)
+		cancel()
+		if err != nil {
+			event := log.NewEvent(ctx, "model_costs.merge", log.Fields{
+				"agent.id":              u.finishedCall.AgentID,
+				"model_call_context.id": u.finishedCall.ID,
+			})
+			event.Level(log.WarnLevel)
+			event.Error(err)
+			event.Done(ctx)
+		}
+	}
 	return nil
 }
 

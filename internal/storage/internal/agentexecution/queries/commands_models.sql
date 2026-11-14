@@ -15,11 +15,12 @@ SELECT c.id,c.agent_id,c.turn_id,c.operation_kind,c.attempt_number,c.input_event
  c.error_kind,c.error_code,c.error_message,c.error_details,c.input_tokens_total,c.uncached_input_tokens,
  c.cache_read_input_tokens,c.cache_write_input_tokens,c.output_tokens_total,c.reasoning_output_tokens,
  coalesce(c.provider_reported_cost_usd::text,'')::text AS provider_reported_cost_usd,c.provider_metadata,
- r.provider_model_slug,coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
+ r.provider_model_slug,r.pricing,coalesce(c.input_fingerprint,'')::text AS input_fingerprint,
  (SELECT count(*) FROM model_call_contexts prior WHERE prior.agent_id=c.agent_id
  AND prior.operation_kind='compaction' AND prior.input_event_sequence=c.input_event_sequence
  AND prior.source_event_sequence_end=c.source_event_sequence_end AND prior.attempt_number<c.attempt_number
- AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count
+ AND prior.state='failed' AND prior.recovery_kind='reduce_compaction_source')::bigint AS source_excerpt_reduction_count,
+ c.created_at
 FROM model_call_contexts c JOIN configured_model_revisions r ON r.org_id=c.org_id AND r.id=c.configured_model_revision_id
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
 
@@ -35,12 +36,30 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
 -- @sqlc-vet-disable configured-models-deleted-at
 -- @sqlc-vet-disable model-provider-configs-deleted-at
 SELECT m.current_revision_id,CASE WHEN p.management_kind='cluster' THEN coalesce(w.new_managed_work_allowed,true)
- ELSE true END::boolean AS allowed
-FROM agent_configs c JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
+ ELSE true END::boolean AS allowed,c.org_id,root.agent_profile_id AS root_agent_profile_id,
+ EXISTS(SELECT 1 FROM budgets b WHERE b.org_id=c.org_id AND (b.project_id IS NULL OR b.project_id=c.project_id)
+ AND (b.agent_profile_id IS NULL OR b.agent_profile_id=root.agent_profile_id)
+ AND (b.agent_id IS NULL OR b.agent_id=root.id) AND b.deleted_at IS NULL)::boolean AS budgeted
+FROM agent_configs c JOIN agents root ON root.project_id=c.project_id AND root.id=sqlc.arg(root_agent_id)
+JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
 JOIN configured_models m ON m.org_id=d.org_id AND m.id=d.configured_model_id
 JOIN model_provider_configs p ON p.org_id=m.org_id AND p.id=m.model_provider_config_id
 LEFT JOIN org_managed_work_admission w ON w.org_id=c.org_id
 WHERE c.project_id=sqlc.arg(project_id) AND c.id=sqlc.arg(config_id);
+
+-- name: ExecutionBudgetReached :one
+SELECT CASE WHEN b.agent_id IS NOT NULL THEN 'agent' WHEN b.agent_profile_id IS NOT NULL THEN 'profile'
+ WHEN b.project_id IS NOT NULL THEN 'project' ELSE 'org' END::text AS scope,b.interval
+FROM budgets b
+CROSS JOIN LATERAL budget_interval_cost(b.org_id,b.project_id,b.agent_profile_id,b.agent_id,b.interval) cost
+WHERE b.org_id=sqlc.arg(org_id) AND (b.project_id IS NULL OR b.project_id=sqlc.arg(project_id)::uuid)
+ AND (b.agent_profile_id IS NULL OR b.agent_profile_id=sqlc.narg(agent_profile_id)::uuid)
+ AND (b.agent_id IS NULL OR b.agent_id=sqlc.arg(root_agent_id)::uuid)
+ AND b.deleted_at IS NULL AND cost.effective_cost_usd>=b.amount_usd
+ORDER BY CASE WHEN b.agent_id IS NOT NULL THEN 3 WHEN b.agent_profile_id IS NOT NULL THEN 2
+ WHEN b.project_id IS NOT NULL THEN 1 ELSE 0 END,
+ CASE b.interval WHEN 'lifetime' THEN 0 WHEN 'month' THEN 1 WHEN 'week' THEN 2 ELSE 3 END
+LIMIT 1;
 
 -- name: CreateExecutionAttempt :one
 INSERT INTO model_call_contexts(org_id,project_id,agent_id,id,turn_id,operation_kind,attempt_number,
@@ -64,7 +83,9 @@ UPDATE model_call_contexts c SET state=sqlc.arg(state),recovery_kind=sqlc.narg(r
  input_tokens_total=sqlc.narg(input_tokens)::integer,uncached_input_tokens=sqlc.narg(uncached_tokens)::integer,
  cache_read_input_tokens=sqlc.narg(cache_read_tokens)::integer,cache_write_input_tokens=sqlc.narg(cache_write_tokens)::integer,
  output_tokens_total=sqlc.narg(output_tokens)::integer,reasoning_output_tokens=sqlc.narg(reasoning_tokens)::integer,
- provider_reported_cost_usd=sqlc.narg(cost)::text::numeric,provider_metadata=sqlc.arg(provider_metadata)::jsonb,
+ provider_reported_cost_usd=sqlc.narg(cost)::text::numeric,effective_cost_usd=sqlc.narg(effective_cost)::text::numeric,
+ effective_cost_kind=sqlc.narg(effective_cost_kind)::text,
+ provider_metadata=sqlc.arg(provider_metadata)::jsonb,
  input_fingerprint=sqlc.narg(input_fingerprint)::text,completed_at=statement_timestamp()
 WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id) AND c.state='started' AND c.runtime_lock_id=sqlc.arg(runtime_id)
  AND EXISTS(SELECT 1 FROM agent_runtime_locks r WHERE r.agent_id=c.agent_id

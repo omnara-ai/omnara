@@ -809,6 +809,218 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/budgets:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: listBudgets
+      tags: [Organizations and Projects]
+      summary: List budgets
+      description: >-
+        Lists the organization's budgets, ordered by created_at then id ascending. scope_type=org
+        returns organization-wide budgets; scope_type=project with project_id returns that project's
+        budgets; scope_type=profile with project_id and agent_profile_id returns that profile's
+        budgets; scope_type=agent with project_id and agent_id returns that agent's budgets. The ID
+        filters require their scope_type.
+      parameters:
+        - name: scope_type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/BudgetScopeType'
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+        - name: agent_profile_id
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
+        - name: agent_id
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgentID'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Budgets matching the requested scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListBudgetsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    post:
+      operationId: createBudget
+      tags: [Organizations and Projects]
+      summary: Create a budget
+      description: >-
+        Sets a model spend budget for the organization, a project, an agent profile, or a top-level
+        agent. Profile and agent budgets include subagents. Once spend in the current interval
+        reaches the budget, new model calls in that scope stop until the budget is raised or removed, or
+        the interval resets; calls already running finish. Each scope can have one budget per interval;
+        duplicates return 409.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBudgetRequest'
+      responses:
+        '201':
+          description: Budget created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/budgets/{budgetID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: budgetID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/BudgetID'
+    get:
+      operationId: getBudget
+      tags: [Organizations and Projects]
+      summary: Get budget
+      description: Returns one budget with its spend in the current interval.
+      responses:
+        '200':
+          description: The budget.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      operationId: updateBudget
+      tags: [Organizations and Projects]
+      summary: Update budget amount
+      description: Changes the budget's amount. The scope and interval cannot change.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBudgetRequest'
+      responses:
+        '200':
+          description: Budget updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      operationId: deleteBudget
+      tags: [Organizations and Projects]
+      summary: Delete a budget
+      description: Removes the budget, so new model calls in its scope are no longer limited by it.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Budget deleted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/usage:
     parameters:
       - name: orgID
@@ -822,7 +1034,7 @@ paths:
       tags: [Organizations and Projects]
       summary: Get org usage
       description: >-
-        Tallies model token usage and provider-reported cost across every
+        Tallies model token usage and cost across every
         project the caller can read in the organization, broken down by
         configured model. Optionally limits the tally to a time window or to a
         subset of those projects; including a project the caller can't read is
@@ -1304,7 +1516,7 @@ paths:
       tags: [Organizations and Projects]
       summary: Get project usage
       description: >-
-        Tallies model token usage and provider-reported cost across every
+        Tallies model token usage and cost across every
         agent in the project, including subagents, broken down by configured model.
         Optionally limits the tally to a time window.
       parameters:
@@ -3980,10 +4192,12 @@ paths:
       summary: Delete agent profile
       description: >-
         Deletes the profile, all of its profile versions, and any cron triggers targeting the
-        profile. Agents launched from the profile are retained and keep running: each agent holds an
-        immutable snapshot of the configuration it was launched with, so its reference to the profile
-        becomes historical provenance only. Integration settings may retain the public profile ID;
-        future launches fail as unavailable until those settings reference an available profile.
+        profile. Also deletes the profile's budgets, which requires an org admin; other callers get
+        409 while the profile has budgets. Agents launched from the profile are retained and keep
+        running: each agent holds an immutable snapshot of the configuration it was launched with,
+        so its reference to the profile becomes historical provenance only. Integration settings may
+        retain the public profile ID; future launches fail as unavailable until those settings
+        reference an available profile.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -4032,7 +4246,7 @@ paths:
       tags: [Configs and Profiles]
       summary: Get agent profile usage
       description: >-
-        Tallies model token usage and provider-reported cost across the
+        Tallies model token usage and cost across the
         top-level agents launched from this profile, broken down by configured
         model. Usage from subagents those agents spawned is included only when
         `include_subagents` is true. Optionally limits the tally to a time window.
@@ -4816,7 +5030,7 @@ paths:
       tags: [Agents]
       summary: Get agent usage
       description: >-
-        Tallies this agent's model token usage and provider-reported cost,
+        Tallies this agent's model token usage and cost,
         broken down by configured model. Optionally limits the tally to a time
         window.
       parameters:
@@ -10869,27 +11083,32 @@ components:
             type: string
         pricing:
           $ref: '#/components/schemas/DiscoveredModelPricing'
+          description: >-
+            Provider-advertised list prices, present only when the provider publishes
+            pricing in its model catalog (OpenRouter).
     DiscoveredModelPricing:
       type: object
       additionalProperties: false
       description: >-
-        Provider-advertised list prices in USD per million tokens, as exact decimal
-        strings. Present only when the provider publishes pricing in its model
-        catalog (OpenRouter). Cache prices are omitted when the provider does not
-        publish them.
+        Prices in USD per million tokens, as exact decimal strings. Cache prices are
+        omitted when not set.
       required: [input_usd_per_million, output_usd_per_million]
       properties:
         input_usd_per_million:
           type: string
+          maxLength: 31
           pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
         cache_read_input_usd_per_million:
           type: string
+          maxLength: 31
           pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
         cache_write_input_usd_per_million:
           type: string
+          maxLength: 31
           pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
         output_usd_per_million:
           type: string
+          maxLength: 31
           pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
     ModelProviderConfigList:
       type: object
@@ -10962,6 +11181,12 @@ components:
             type: string
         api_variant_options:
           $ref: '#/components/schemas/ModelAPIVariantOptions'
+        pricing:
+          $ref: '#/components/schemas/DiscoveredModelPricing'
+          description: >-
+            Your own prices for this model. Calls on it are priced from these
+            instead of the provider-reported cost or list prices. Missing cache
+            prices use the input price.
     UpdateConfiguredModelRequest:
       type: object
       description: Update a configured model. Omitted fields keep their current values. Runtime changes create a new immutable model revision; changing only name just renames the model.
@@ -11020,6 +11245,11 @@ components:
             type: string
         api_variant_options:
           $ref: '#/components/schemas/ModelAPIVariantOptions'
+        pricing:
+          anyOf:
+            - $ref: '#/components/schemas/DiscoveredModelPricing'
+            - type: 'null'
+          description: Your own prices for this model. Omit to keep them, or set to null to remove them.
     ConfiguredModel:
       type: object
       additionalProperties: false
@@ -11078,6 +11308,9 @@ components:
             type: string
         api_variant_options:
           $ref: '#/components/schemas/ModelAPIVariantOptions'
+        pricing:
+          $ref: '#/components/schemas/DiscoveredModelPricing'
+          description: Your own prices for this model, when set.
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -17138,6 +17371,150 @@ components:
           format: int64
           minimum: 0
           description: Agents, not counting subagents, launched from the profile, including archived ones.
+    BudgetID:
+      type: string
+      pattern: '^bdg_[a-z2-7]{26}$'
+    BudgetScopeType:
+      type: string
+      enum: [org, project, profile, agent]
+      x-enum-varnames: [BudgetScopeOrg, BudgetScopeProject, BudgetScopeProfile, BudgetScopeAgent]
+    OrgBudgetScope:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [org]
+          x-enum-varnames: [OrgBudgetScopeTypeOrg]
+    ProjectBudgetScope:
+      type: object
+      additionalProperties: false
+      required: [type, project_id]
+      properties:
+        type:
+          type: string
+          enum: [project]
+          x-enum-varnames: [ProjectBudgetScopeTypeProject]
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+    AgentProfileBudgetScope:
+      type: object
+      additionalProperties: false
+      required: [type, project_id, agent_profile_id]
+      description: Counts the profile's top-level agents and their subagents.
+      properties:
+        type:
+          type: string
+          enum: [profile]
+          x-enum-varnames: [AgentProfileBudgetScopeTypeProfile]
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        agent_profile_id:
+          $ref: '#/components/schemas/AgentProfileID'
+    AgentBudgetScope:
+      type: object
+      additionalProperties: false
+      required: [type, project_id, agent_id]
+      description: Counts a top-level agent and its subagents.
+      properties:
+        type:
+          type: string
+          enum: [agent]
+          x-enum-varnames: [AgentBudgetScopeTypeAgent]
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+    BudgetScope:
+      oneOf:
+        - $ref: '#/components/schemas/OrgBudgetScope'
+        - $ref: '#/components/schemas/ProjectBudgetScope'
+        - $ref: '#/components/schemas/AgentProfileBudgetScope'
+        - $ref: '#/components/schemas/AgentBudgetScope'
+      discriminator:
+        propertyName: type
+        mapping:
+          org: '#/components/schemas/OrgBudgetScope'
+          project: '#/components/schemas/ProjectBudgetScope'
+          profile: '#/components/schemas/AgentProfileBudgetScope'
+          agent: '#/components/schemas/AgentBudgetScope'
+    BudgetInterval:
+      type: string
+      description: >-
+        How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime
+        never resets and counts spend recorded since budgets became available.
+      enum: [day, week, month, lifetime]
+      x-enum-varnames: [BudgetIntervalDay, BudgetIntervalWeek, BudgetIntervalMonth, BudgetIntervalLifetime]
+    BudgetAmount:
+      type: string
+      description: Amount in USD as a positive decimal string.
+      pattern: '^(0|[1-9][0-9]{0,14})(\.[0-9]{1,15})?$'
+    BudgetUsage:
+      type: object
+      additionalProperties: false
+      required: [amount_usd]
+      properties:
+        amount_usd:
+          type: string
+          description: >-
+            Model spend in USD in the current interval. Each call counts the model's own
+            pricing when set, otherwise the provider-reported cost, otherwise a list-price
+            estimate. Calls that could not be priced contribute nothing.
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+    Budget:
+      type: object
+      additionalProperties: false
+      required: [id, org_id, scope, interval, amount_usd, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/BudgetID'
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        scope:
+          $ref: '#/components/schemas/BudgetScope'
+        interval:
+          $ref: '#/components/schemas/BudgetInterval'
+        amount_usd:
+          $ref: '#/components/schemas/BudgetAmount'
+        usage:
+          $ref: '#/components/schemas/BudgetUsage'
+          description: Spend in the current interval. Populated when the budget is returned by the list or get endpoint.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateBudgetRequest:
+      type: object
+      additionalProperties: false
+      required: [scope, interval, amount_usd]
+      properties:
+        scope:
+          $ref: '#/components/schemas/BudgetScope'
+        interval:
+          $ref: '#/components/schemas/BudgetInterval'
+        amount_usd:
+          $ref: '#/components/schemas/BudgetAmount'
+    UpdateBudgetRequest:
+      type: object
+      additionalProperties: false
+      required: [amount_usd]
+      properties:
+        amount_usd:
+          $ref: '#/components/schemas/BudgetAmount'
+    ListBudgetsResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Budget'
+        next_cursor:
+          type: [string, 'null']
     UsageTimeseriesInterval:
       type: string
       enum: [hour, day, week, month]
@@ -17149,8 +17526,10 @@ components:
     UsageTimeseriesMetric:
       type: string
       description: >-
-        `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported
-        cost in USD. `count_model_calls` counts model calls that recorded usage.
+        `sum_tokens` is input plus output tokens. `sum_cost` is cost in USD: the
+        model's own pricing when set, otherwise the provider-reported cost, otherwise
+        a list-price estimate; calls that could not be priced contribute nothing.
+        `count_model_calls` counts model calls that recorded usage.
       enum: [sum_tokens, sum_input_tokens, sum_output_tokens, sum_cost, count_model_calls]
       x-enum-varnames:
         - UsageTimeseriesMetricSumTokens
@@ -17285,7 +17664,7 @@ components:
     UsageCostTotals:
       type: object
       additionalProperties: false
-      required: [provider_reported_usd, model_calls_with_reported_cost]
+      required: [provider_reported_usd, model_calls_with_reported_cost, effective_usd, model_calls_with_effective_cost]
       properties:
         provider_reported_usd:
           type: string
@@ -17296,6 +17675,19 @@ components:
             to see how complete the figure is.
           pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
         model_calls_with_reported_cost:
+          type: integer
+          format: int64
+          minimum: 0
+        effective_usd:
+          type: string
+          description: >-
+            Decimal sum in USD of the cost Omnara counts for each tallied model
+            call: the model's own pricing when set, otherwise the provider-reported
+            cost, otherwise a list-price estimate. Calls that could not be priced
+            contribute nothing; compare model_calls_with_effective_cost against
+            model_calls to see how complete the figure is.
+          pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
+        model_calls_with_effective_cost:
           type: integer
           format: int64
           minimum: 0

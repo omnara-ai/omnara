@@ -349,9 +349,9 @@ func usageMetricValue(metric openapi.UsageTimeseriesMetric, totals executionstor
 	case openapi.UsageTimeseriesMetricCountModelCalls:
 		return float64(totals.ModelCalls), nil
 	case openapi.UsageTimeseriesMetricSumCost:
-		cost, err := strconv.ParseFloat(string(totals.ProviderReportedCostUSD), 64)
+		cost, err := strconv.ParseFloat(string(totals.EffectiveCostUSD), 64)
 		if err != nil {
-			return 0, fmt.Errorf("parse usage cost %q: %w", totals.ProviderReportedCostUSD, err)
+			return 0, fmt.Errorf("parse usage cost %q: %w", totals.EffectiveCostUSD, err)
 		}
 		return cost, nil
 	default:

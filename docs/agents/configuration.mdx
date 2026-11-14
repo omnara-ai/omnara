@@ -355,7 +355,7 @@ Updating a profile points it to a new immutable config. Future launches use the 
 
 To launch from a profile, click **Launch** on its card under **Agents → Profiles**, pass `--profile` to `omnara agents launch`, or pass `profile` to the API. Add `config` or `config_source` to run a different config under the profile's name. See [Launch an agent](/agents/overview#launch-an-agent).
 
-Deleting a profile removes the profile and its version history, but agents launched from it keep running. In the dashboard, open the profile's **Configuration** tab and click **Delete profile**, or run `omnara profiles delete {agent-profile-id}`. Integration settings can retain its public ID; future launches report the profile as unavailable until you choose an available profile. See [Delete agent profile](/api-reference/endpoints/configs-and-profiles/delete-agent-profile).
+Deleting a profile removes the profile and its version history, but agents launched from it keep running. If the profile has budgets, only an org admin can delete it, and its budgets are deleted with it. In the dashboard, open the profile's **Configuration** tab and click **Delete profile**, or run `omnara profiles delete {agent-profile-id}`. Integration settings can retain its public ID; future launches report the profile as unavailable until you choose an available profile. See [Delete agent profile](/api-reference/endpoints/configs-and-profiles/delete-agent-profile).
 
 ## Next
 

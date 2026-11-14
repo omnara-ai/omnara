@@ -112,7 +112,7 @@ func (r Runner) RunClaimed(
 			providerAttemptEvidence{},
 		)
 	}
-	providerAttempt := providerAttemptEvidence{APIFormat: apiFormat, APIVariant: apiVariant}
+	providerAttempt := providerAttemptEvidence{APIFormat: apiFormat, APIVariant: apiVariant, BaseURL: resolved.BaseURL}
 	errorSource := modelErrorSourceForAPIFormat(apiFormat)
 	summaryClient, policy, err := compactionModel(client, errorSource)
 	if err != nil {
@@ -243,8 +243,10 @@ func (r Runner) RunClaimed(
 			Summary:                 summary,
 			APIFormat:               apiFormat,
 			APIVariant:              apiVariant,
+			ProviderBaseURL:         resolved.BaseURL,
 			ProviderRequestID:       response.ProviderRequestID,
 			ProviderResponseID:      response.ID,
+			ServedProviderModelSlug: response.ServedProviderModelSlug,
 			Usage:                   response.Usage,
 			ProviderReportedCostUSD: response.ProviderReportedCostUSD,
 			ProviderMetadata:        response.ProviderMetadata,

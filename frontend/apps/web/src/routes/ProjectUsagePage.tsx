@@ -3,24 +3,39 @@ import { Link } from '@tanstack/react-router'
 
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
+import { BudgetCard } from '@/components/usage/BudgetCard'
 import { defaultUsageDays, isDefaultUsageRange } from '@/components/usage/usage-date-range'
 import { updateUsageViewState, useUsageViewState } from '@/components/usage/usage-view-state'
 import { UsageDateRangeMenu } from '@/components/usage/UsageDateRangeMenu'
 import { UsageReportView } from '@/components/usage/UsageReport'
 import { UsageTimeseriesPanel } from '@/components/usage/UsageTimeseriesPanel'
+import { canManageOrg } from '@/lib/permissions'
 
 export function ProjectUsagePage() {
   return (
     <ProjectPageFrame>
       {({ activeOrg, projectId }) => (
         // Keyed so a project switch shows a loading state, not the last project's usage.
-        <ProjectUsage key={projectId} orgId={activeOrg.id} projectId={projectId} />
+        <ProjectUsage
+          key={projectId}
+          orgId={activeOrg.id}
+          projectId={projectId}
+          canManageBudget={canManageOrg(activeOrg.role)}
+        />
       )}
     </ProjectPageFrame>
   )
 }
 
-function ProjectUsage({ orgId, projectId }: { orgId: string; projectId: string }) {
+function ProjectUsage({
+  orgId,
+  projectId,
+  canManageBudget,
+}: {
+  orgId: string
+  projectId: string
+  canManageBudget: boolean
+}) {
   const view = useUsageViewState()
   const range = view.range
   const query = useProjectUsage(orgId, projectId, range.window)
@@ -49,6 +64,11 @@ function ProjectUsage({ orgId, projectId }: { orgId: string; projectId: string }
             selection={view}
             onSelectionChange={updateUsageViewState}
           />
+        }
+        budget={
+          canManageBudget && (
+            <BudgetCard orgId={orgId} scope={{ type: 'project', project_id: projectId }} />
+          )
         }
         emptyMessage={
           filtered

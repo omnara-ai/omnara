@@ -29,6 +29,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
@@ -128,12 +129,19 @@ func main() {
 		log.Error("configure secret encryption", "error", err)
 		os.Exit(1)
 	}
+	modelPrices, err := modelprice.New(cfg.ModelPricesURL)
+	if err != nil {
+		log.Error("load model prices", "error", err)
+		os.Exit(1)
+	}
+	go modelPrices.Run(logpkg.WithLogger(ctx, log))
 	storeOpts := []storage.Option{
 		storage.WithPostCommitPublisher(publisher),
 		storage.WithSecretKeyWrapper(secretKeyWrapper),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
 		storage.WithMemoryRecorder(metrics.NewMemoryRecorder(metricSet)),
 		storage.WithEndpointAllowlist(cfg.EndpointAllowlist),
+		storage.WithModelCostEstimator(modelPrices),
 	}
 	if cfg.BlobS3Bucket != "" {
 		blobs, err := blobstore.NewS3Store(context.Background(), cfg.BlobStoreS3Config())

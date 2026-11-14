@@ -39,7 +39,7 @@ type Service struct {
 func New(pool *pgxpool.Pool, config Config) *Service {
 	db := storeutil.WrapPool(pool)
 	return &Service{
-		cell:              agentexecution.NewCell(pool, config.PostCommitPublisher, nil),
+		cell:              agentexecution.NewCell(pool, config.PostCommitPublisher, nil, nil),
 		pool:              db,
 		q:                 dbsqlc.New(db),
 		blobs:             config.Blobs,
