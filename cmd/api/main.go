@@ -7,9 +7,11 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -326,18 +328,27 @@ func writeDefaultReconciliationResult(
 	mode string,
 	result orglifecycle.ReconcileDefaultsResult,
 ) error {
-	for _, change := range result.Changes {
-		if _, err := fmt.Fprintf(output, "%s: change: %s\n", mode, change); err != nil {
-			return err
-		}
+	if err := writeDefaultReconciliationLines(output, mode, "change", result.Changes); err != nil {
+		return err
 	}
-	for _, warning := range result.Warnings {
-		if _, err := fmt.Fprintf(output, "%s: warning: %s\n", mode, warning); err != nil {
-			return err
-		}
+	if err := writeDefaultReconciliationLines(output, mode, "warning", result.Warnings); err != nil {
+		return err
 	}
 	_, err := fmt.Fprintf(output, "%s: changes=%d warnings=%d\n", mode, len(result.Changes), len(result.Warnings))
 	return err
+}
+
+func writeDefaultReconciliationLines(output io.Writer, mode, kind string, lines []string) error {
+	orgs := make(map[string]int)
+	for _, line := range lines {
+		orgs[line]++
+	}
+	for _, line := range slices.Sorted(maps.Keys(orgs)) {
+		if _, err := fmt.Fprintf(output, "%s: %s: %s (orgs=%d)\n", mode, kind, line, orgs[line]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func bootstrapAuthConnectors(ctx context.Context, store *storage.Store, cfg config.Config) error {
