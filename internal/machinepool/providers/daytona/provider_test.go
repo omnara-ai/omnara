@@ -131,20 +131,57 @@ func TestDaytonaProviderProvisionHandlesMachineTokenSecretFailures(t *testing.T)
 	require.Equal(t, []string{"create-secret"}, api.calls)
 }
 
-func TestDaytonaProviderProvisionDeletesTheSecretOnlyWhenCreateWasRejected(t *testing.T) {
-	for status, wantCalls := range map[int][]string{
-		http.StatusBadRequest:          {"create-secret", "create-sandbox", "find-secret", "delete-secret"},
-		http.StatusInternalServerError: {"create-secret", "create-sandbox"},
-		http.StatusTooManyRequests:     {"create-secret", "create-sandbox"},
+func TestDaytonaProviderProvisionDeletesTheSecretWhenNoSandboxSurvives(t *testing.T) {
+	cleanup := []string{"create-secret", "create-sandbox", "find-secret", "delete-secret"}
+	for _, test := range []struct {
+		name        string
+		expired     bool
+		sandboxGone bool
+		configure   func(*fakeAPI)
+		wantErr     error
+		wantCalls   []string
+	}{
+		{name: "rejected", sandboxGone: true, configure: func(api *fakeAPI) {
+			api.createErr = apiError{StatusCode: http.StatusBadRequest}
+		}, wantErr: apiError{StatusCode: http.StatusBadRequest}, wantCalls: cleanup},
+		{name: "unknown outcome", sandboxGone: true, configure: func(api *fakeAPI) {
+			api.createErr = apiError{StatusCode: http.StatusInternalServerError}
+		}, wantErr: apiError{StatusCode: http.StatusInternalServerError}, wantCalls: cleanup},
+		{name: "deadline passed", expired: true, sandboxGone: true, configure: func(api *fakeAPI) {
+			api.createErr = context.Canceled
+		}, wantErr: context.Canceled, wantCalls: cleanup},
+		{name: "replaced", sandboxGone: true, configure: func(api *fakeAPI) {
+			api.sandbox.State = "error"
+		}, wantErr: providers.ErrResourceReplaced,
+			wantCalls: []string{"create-secret", "create-sandbox", "delete-sandbox", "find-secret", "delete-secret"}},
+		{name: "sandbox from an earlier attempt still exists", configure: func(api *fakeAPI) {
+			api.createErr = apiError{StatusCode: http.StatusInternalServerError}
+		}, wantErr: apiError{StatusCode: http.StatusInternalServerError},
+			wantCalls: []string{"create-secret", "create-sandbox"}},
+		{name: "sandbox lookup fails", sandboxGone: true, configure: func(api *fakeAPI) {
+			api.createErr = apiError{StatusCode: http.StatusInternalServerError}
+			api.getSandboxErr = apiError{StatusCode: http.StatusBadGateway}
+		}, wantErr: apiError{StatusCode: http.StatusInternalServerError},
+			wantCalls: []string{"create-secret", "create-sandbox"}},
 	} {
+		installationID, machineID := uuid.New(), uuid.New()
+		name, err := providers.MachineAllocationName(installationID, machineID)
+		require.NoError(t, err)
 		api := newFakeAPI()
-		api.createErr = apiError{StatusCode: status}
-		_, err := newTestProvider(api).ProvisionMachine(
-			context.Background(), uuid.New(), uuid.New(),
+		api.missingSandboxIDs = map[string]bool{name: test.sandboxGone}
+		test.configure(api)
+		ctx, cancel := context.WithCancel(context.Background())
+		if test.expired {
+			cancel()
+		}
+		_, err = newTestProvider(api).ProvisionMachine(
+			ctx, installationID, machineID,
 			testMachineProvisioning(t, "team-snapshot", "us", ""), "machine-token", nil, true,
 		)
-		require.True(t, isStatus(err, status), "status %d error %v", status, err)
-		require.Equal(t, wantCalls, api.calls, "status %d", status)
+		cancel()
+		require.ErrorIs(t, err, test.wantErr, test.name)
+		require.Equal(t, test.wantCalls, api.calls, test.name)
+		require.Equal(t, []string{name}, api.getSandboxLookups, test.name)
 	}
 }
 
@@ -176,6 +213,9 @@ func TestDaytonaProviderProvisionConvergesOnExistingSession(t *testing.T) {
 			api.createSessionCalls,
 		)
 	}
+	require.Equal(t, []string{"create-secret", "create-sandbox", "update-secrets"}, api.calls)
+	require.Equal(t, api.sandbox.ID, api.remountedSandbox)
+	require.Equal(t, api.createRequest.Secrets, api.remountedSecrets)
 }
 
 func TestDaytonaProviderProvisionRejectsUnexpectedOwnership(t *testing.T) {

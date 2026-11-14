@@ -107,8 +107,9 @@ func (p *provider) ProvisionMachine(
 	baseURL := p.regionBaseURL(options.Region)
 	api := p.apiFor(baseURL)
 	var policies *forkPolicies
-	host, inject := providers.MachineTokenProxyHost(p.omnaraAPIURL)
-	if inject {
+	host, eligible := providers.MachineTokenProxyHost(p.omnaraAPIURL)
+	inject := eligible
+	if eligible {
 		inject, err = machineTokenPriorityFree(ctx, api, options.Source)
 		if err != nil {
 			return providers.ProvisionMachineResult{}, err
@@ -173,7 +174,8 @@ func (p *provider) ProvisionMachine(
 	if target.Name != name {
 		return providers.ProvisionMachineResult{}, fmt.Errorf("%w: %s", errNotThisMachine, target.ID)
 	}
-	if _, ok := target.Policies.Rules[machineTokenRuleID]; ok {
+	if rule, ok := target.Policies.Rules[machineTokenRuleID]; eligible && ok && rule.Type == "outbound" &&
+		rule.Priority == machineTokenRulePriority {
 		env[providers.MachineTokenEnvVar] = daemonprotocol.ProviderInjectedMachineToken
 	}
 	result := providers.ProvisionMachineResult{ProviderResourceID: target.ID}

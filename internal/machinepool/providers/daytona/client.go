@@ -18,6 +18,7 @@ type apiClient interface {
 	ListSandboxes(context.Context, listSandboxesQuery) (sandboxPage, error)
 	GetSandbox(context.Context, string) (sandbox, bool, error)
 	DeleteSandbox(context.Context, string) error
+	UpdateSandboxSecrets(context.Context, string, []map[string]string) error
 	CreateSecret(context.Context, createSecretRequest) error
 	FindSecret(context.Context, string) (string, bool, error)
 	DeleteSecret(context.Context, string) error
@@ -50,6 +51,10 @@ type createSandboxRequest struct {
 	AutoStopInterval   int                 `json:"autoStopInterval"`
 	AutoDeleteInterval int                 `json:"autoDeleteInterval"`
 	Secrets            []map[string]string `json:"secrets,omitempty"`
+}
+
+type updateSandboxSecretsRequest struct {
+	Secrets []map[string]string `json:"secrets"`
 }
 
 type createSecretRequest struct {
@@ -195,6 +200,16 @@ func (c *restClient) DeleteSandbox(ctx context.Context, idOrName string) error {
 		return nil
 	}
 	return err
+}
+
+func (c *restClient) UpdateSandboxSecrets(ctx context.Context, idOrName string, secrets []map[string]string) error {
+	return c.doRequest(
+		ctx,
+		http.MethodPut,
+		c.apiBaseURL+"/sandbox/"+url.PathEscape(idOrName)+"/secrets",
+		updateSandboxSecretsRequest{Secrets: secrets},
+		nil,
+	)
 }
 
 func (c *restClient) CreateSecret(ctx context.Context, request createSecretRequest) error {
@@ -382,11 +397,4 @@ func isConflict(err error) bool {
 
 func isForbidden(err error) bool {
 	return isStatus(err, http.StatusForbidden)
-}
-
-func rejectedBeforeCreate(err error) bool {
-	var apiErr apiError
-	return errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 &&
-		apiErr.StatusCode != http.StatusRequestTimeout && apiErr.StatusCode != http.StatusConflict &&
-		apiErr.StatusCode != http.StatusTooManyRequests
 }

@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	daemonSessionName   = "omnara-daemon"
-	provisioningTimeout = time.Minute
+	daemonSessionName                = "omnara-daemon"
+	provisioningTimeout              = time.Minute
+	machineTokenSecretCleanupTimeout = 10 * time.Second
 
 	// Daytona sandbox states follow https://www.daytona.io/docs/en/go-sdk/daytona/#constants.
 	sandboxStateCreating         sandboxState = "creating"
@@ -147,6 +148,26 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
+	result, err := p.provisionSandbox(ctx, name, options, machineProvisioning, machineToken, machineEnv, secrets)
+	if err != nil && secrets != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), machineTokenSecretCleanupTimeout)
+		if _, found, getErr := p.api.GetSandbox(cleanupCtx, name); getErr == nil && !found {
+			err = errors.Join(err, p.deleteMachineTokenSecret(cleanupCtx, name))
+		}
+		cancel()
+	}
+	return result, err
+}
+
+func (p *provider) provisionSandbox(
+	ctx context.Context,
+	name string,
+	options providerOptions,
+	machineProvisioning executionstore.MachineProvisioningConfig,
+	machineToken string,
+	machineEnv map[string]string,
+	secrets []map[string]string,
+) (providers.ProvisionMachineResult, error) {
 	startupScript := options.StartupScript
 	if secrets != nil {
 		startupScript = providers.StartupScriptWithoutProxyEnv(startupScript)
@@ -175,7 +196,8 @@ func (p *provider) ProvisionMachine(
 	}
 	api := p.api
 	target, err := api.CreateSandbox(ctx, request)
-	if isConflict(err) {
+	adopted := isConflict(err)
+	if adopted {
 		existing, found, getErr := api.GetSandbox(ctx, name)
 		if getErr != nil {
 			return providers.ProvisionMachineResult{}, getErr
@@ -188,9 +210,6 @@ func (p *provider) ProvisionMachine(
 		}
 		target = existing
 	} else if err != nil {
-		if secrets != nil && rejectedBeforeCreate(err) {
-			err = errors.Join(err, p.deleteMachineTokenSecret(ctx, name))
-		}
 		return providers.ProvisionMachineResult{}, err
 	}
 	var result providers.ProvisionMachineResult
@@ -241,6 +260,11 @@ func (p *provider) ProvisionMachine(
 	}
 	if err := validateSandboxResources(target, machineProvisioning, options.Target); err != nil {
 		return result, err
+	}
+	if adopted && secrets != nil {
+		if err := api.UpdateSandboxSecrets(ctx, target.ID, secrets); err != nil {
+			return result, err
+		}
 	}
 	if err := ensureDaemonSession(ctx, api, target, options.StartupScript); err != nil {
 		return result, err

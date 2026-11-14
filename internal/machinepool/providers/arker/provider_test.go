@@ -99,6 +99,11 @@ func TestArkerProviderKeepsThePlainTokenWhenTheSourceHoldsTheTopPriority(t *test
 		`{"egress":{"type":"outbound","priority":1000000,"action":"allow"}}`:               false,
 		`{"egress":{"type":"outbound","priority":100,"action":"allow"}}`:                   true,
 		`{"omnara-machine-token":{"type":"outbound","priority":1000000,"action":"allow"}}`: true,
+		`{"ingress":{"type":"inbound","priority":1000000,"action":"allow"}}`:               true,
+		`{"egress":{"type":"outbound","priority":1000000,"action":"allow"},` +
+			`"omnara-machine-token":{"type":"outbound","priority":100,"action":"allow"}}`: false,
+		`{"egress":{"type":"outbound","priority":1000000,"action":"allow"},` +
+			`"omnara-machine-token":{"type":"inbound","priority":1000000,"action":"allow"}}`: false,
 	} {
 		fake := &fakeArker{sourceRules: rules}
 		machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
@@ -117,6 +122,22 @@ func TestArkerProviderKeepsThePlainTokenWhenTheSourceHoldsTheTopPriority(t *test
 			t.Fatalf("source rules %s: injected = %v token = %q, want %v %q",
 				rules, injected, env["OMNARA_MACHINE_TOKEN"], wantInjected, wantToken)
 		}
+	}
+}
+
+func TestArkerProviderKeepsThePlainTokenWhenTheAPIURLCannotBeInjected(t *testing.T) {
+	fake := &fakeArker{sourceRules: `{"omnara-machine-token":{"type":"outbound","priority":1000000,"action":"allow"}}`}
+	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+	machineProvider.omnaraAPIURL = "http://omnara.example"
+	if _, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID, testProvisioning(testOptions()), "tok-1", nil, true,
+	); err != nil {
+		t.Fatalf("provision with an http API URL: %v", err)
+	}
+	_, forkBody, env, _ := fake.snapshot()
+	if _, injected := forkBody["policies"]; injected || env["OMNARA_MACHINE_TOKEN"] != "tok-1" {
+		t.Fatalf("injected = %v token = %q, want the plain token despite the inherited rule",
+			injected, env["OMNARA_MACHINE_TOKEN"])
 	}
 }
 
