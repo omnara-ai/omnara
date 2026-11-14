@@ -21,7 +21,9 @@ func (p protocol) ParseResponse(ctx context.Context, resp route.Response) (model
 func (p protocol) parseResponse(resp route.Response, streamed bool) (model.Response, error) {
 	body := resp.Body
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return model.Response{}, classifyHTTPError(p.errorSource(), resp.StatusCode, resp.Header, body)
+		return model.Response{}, classifyHTTPError(
+			p.errorSource(), p.client.ModelAPIVariant(), resp.StatusCode, resp.Header, body,
+		)
 	}
 	if err := model.ValidateProviderJSON(body); err != nil {
 		return model.Response{}, p.invalidResponseError(resp, messagesResponse{}, err)
@@ -33,6 +35,7 @@ func (p protocol) parseResponse(resp route.Response, streamed bool) (model.Respo
 	if decoded.Type == "error" || decoded.Error.present() {
 		return anthropicResponseEvidence(decoded), anthropicProviderError(
 			p.errorSource(),
+			p.client.ModelAPIVariant(),
 			resp.StatusCode,
 			resp.Header,
 			anthropicErrorEnvelope{

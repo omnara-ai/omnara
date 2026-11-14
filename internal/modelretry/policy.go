@@ -180,6 +180,9 @@ func EvidenceFor(err error) Evidence {
 	if providerErr.Retryable != nil {
 		detailFields["provider_retryable"] = *providerErr.Retryable
 	}
+	if providerErr.AffordableOutputTokens != nil {
+		detailFields["affordable_output_tokens"] = *providerErr.AffordableOutputTokens
+	}
 	if metadata, ok := providerMetadataForStorage(providerErr.Metadata); ok {
 		detailFields["provider_metadata"] = metadata
 	}

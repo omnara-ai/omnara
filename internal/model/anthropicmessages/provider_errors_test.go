@@ -8,10 +8,12 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
 
 func TestRespondClassifiesAnthropicErrorsByEvidencePrecedence(t *testing.T) {
 	tests := []struct {
+		variant    modelprotocol.APIVariant
 		name       string
 		statusCode int
 		body       string
@@ -89,6 +91,7 @@ func TestRespondClassifiesAnthropicErrorsByEvidencePrecedence(t *testing.T) {
 		},
 		{
 			name:       "typed context",
+			variant:    modelprotocol.APIVariantOpenRouter,
 			statusCode: http.StatusBadRequest,
 			body: `{"type":"error","error":{"type":"invalid_request_error",` +
 				`"error_type":"context_length_exceeded","message":"prompt exceeds context window"}}`,
@@ -182,6 +185,7 @@ func TestRespondClassifiesAnthropicErrorsByEvidencePrecedence(t *testing.T) {
 			}))
 			defer server.Close()
 			client := testRespondClient(server)
+			client.APIVariant = tt.variant
 			_, err := client.Respond(context.Background(), model.Request{ProviderRequest: json.RawMessage(`{"messages":[]}`)})
 			providerErr, ok := model.ClassifyError(err)
 			if !ok || providerErr.Kind != tt.want || providerErr.Source != server.URL ||
