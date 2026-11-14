@@ -1,7 +1,7 @@
 /** @vitest-environment happy-dom */
 
 import { OmnaraClientProvider } from '@omnara/react'
-import { type Budget, createOmnaraClient, type UsageReport } from '@omnara/sdk'
+import { type Budget, type BudgetScope, createOmnaraClient, type UsageReport } from '@omnara/sdk'
 import { getCurrentUserQueryKey } from '@omnara/sdk/tanstack'
 import { zCreateBudgetRequest, zUpdateBudgetRequest } from '@omnara/sdk/zod'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -118,13 +118,17 @@ function clientFor(api: FakeApi) {
   return client
 }
 
-async function renderCard(api: FakeApi, project?: string) {
+async function renderCard(
+  api: FakeApi,
+  scope: BudgetScope = { type: 'org' },
+  variant: 'card' | 'sidebar' = 'card',
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   await act(async () => {
     root.render(
       <OmnaraClientProvider client={clientFor(api)}>
         <QueryClientProvider client={queryClient}>
-          <BudgetCard orgId={orgId} projectId={project} />
+          <BudgetCard orgId={orgId} scope={scope} variant={variant} />
         </QueryClientProvider>
       </OmnaraClientProvider>,
     )
@@ -165,7 +169,7 @@ it('lists each interval with its spend, reset, and reached state', async () => {
 
 it('adds a project budget for an interval without one', async () => {
   const api = budgetApi([])
-  await renderCard(api, projectId)
+  await renderCard(api, { type: 'project', project_id: projectId })
   await waitForUI(() => {
     expect(container.textContent).toContain('No budgets set')
   })
@@ -188,6 +192,34 @@ it('adds a project budget for an interval without one', async () => {
   await waitForUI(() => {
     expect(container.textContent).toContain('Weekly$0.00of $25.00')
   })
+})
+
+it('lists and adds budgets for an agent and its subagents in the sidebar', async () => {
+  const scope = { type: 'agent', project_id: projectId, agent_id: fakeId('agt') } as const
+  const api = budgetApi([])
+  await renderCard(api, scope, 'sidebar')
+  await waitForUI(() => {
+    expect(container.textContent).toContain('No budgets')
+  })
+  expect(container.textContent).not.toContain('Model calls only')
+  expect([...(api.requestsTo('GET', budgetsPath)[0]?.url.searchParams ?? [])]).toEqual([
+    ['scope_type', 'agent'],
+    ['project_id', projectId],
+    ['agent_id', scope.agent_id],
+  ])
+  act(() => {
+    button('Add').click()
+  })
+  await waitForUI(() => {
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'New model calls from this agent and its subagents stop',
+    )
+  })
+  await enter('Budget (USD)', '5')
+  await submit()
+  expect(api.requestsTo('POST', budgetsPath).map((request) => request.body)).toEqual([
+    { scope, interval: 'month', amount_usd: '5' },
+  ])
 })
 
 it('edits and removes a budget', async () => {

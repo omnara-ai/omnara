@@ -34,6 +34,7 @@ import { MessageScrollerProvider } from '@/components/ui/message-scroller'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
 import type { CssVariables } from '@/lib/css'
+import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
@@ -256,6 +257,7 @@ export function AgentView() {
         mcpConnections={data.mcp_connections}
         profile={profile}
         canManage={project?.access.can_manage ?? false}
+        canManageBudget={canManageOrg(activeOrg.role)}
       />
     </SidebarProvider>
   )

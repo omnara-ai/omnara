@@ -16,14 +16,16 @@ import (
 )
 
 type BudgetRecord struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	ProjectID *uuid.UUID
-	Interval  string
-	AmountUSD string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Usage     *BudgetUsage
+	ID             uuid.UUID
+	OrgID          uuid.UUID
+	ProjectID      *uuid.UUID
+	AgentProfileID *uuid.UUID
+	AgentID        *uuid.UUID
+	Interval       string
+	AmountUSD      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Usage          *BudgetUsage
 }
 
 type BudgetUsage struct {
@@ -31,18 +33,22 @@ type BudgetUsage struct {
 }
 
 type CreateBudgetInput struct {
-	OrgID     uuid.UUID
-	ProjectID *uuid.UUID
-	Interval  string
-	AmountUSD string
+	OrgID          uuid.UUID
+	ProjectID      *uuid.UUID
+	AgentProfileID *uuid.UUID
+	AgentID        *uuid.UUID
+	Interval       string
+	AmountUSD      string
 }
 
 type ListBudgetsInput struct {
-	OrgID       uuid.UUID
-	FilterScope bool
-	ProjectID   *uuid.UUID
-	Limit       int
-	After       listing.KeysetCursor
+	OrgID          uuid.UUID
+	FilterScope    bool
+	ProjectID      *uuid.UUID
+	AgentProfileID *uuid.UUID
+	AgentID        *uuid.UUID
+	Limit          int
+	After          listing.KeysetCursor
 }
 
 type ListBudgetsResult struct {
@@ -59,8 +65,13 @@ func (s *Store) CreateBudget(ctx context.Context, input CreateBudgetInput) (Budg
 	if err := enterBudgetScope(ctx, tx, input.OrgID, input.ProjectID); err != nil {
 		return BudgetRecord{}, err
 	}
-	row, err := s.q.WithTx(tx).InsertBudget(ctx, dbsqlc.InsertBudgetParams{
-		OrgID: input.OrgID, ProjectID: input.ProjectID, Interval: input.Interval, AmountUsd: input.AmountUSD,
+	qtx := s.q.WithTx(tx)
+	if err := validateBudgetScope(ctx, qtx, input); err != nil {
+		return BudgetRecord{}, err
+	}
+	row, err := qtx.InsertBudget(ctx, dbsqlc.InsertBudgetParams{
+		OrgID: input.OrgID, ProjectID: input.ProjectID, AgentProfileID: input.AgentProfileID, AgentID: input.AgentID,
+		Interval: input.Interval, AmountUsd: input.AmountUSD,
 	})
 	if storeutil.IsUniqueViolationOnConstraint(err, "budgets_active_scope_interval_idx") {
 		return BudgetRecord{}, storeerr.Tag(storeerr.ErrConflict,
@@ -100,7 +111,8 @@ func (s *Store) ListBudgets(ctx context.Context, input ListBudgetsInput) (ListBu
 		}
 	}
 	params := dbsqlc.ListBudgetsParams{
-		OrgID: input.OrgID, FilterScope: input.FilterScope, ProjectID: input.ProjectID, RowLimit: int32(input.Limit) + 1,
+		OrgID: input.OrgID, FilterScope: input.FilterScope, ProjectID: input.ProjectID,
+		AgentProfileID: input.AgentProfileID, AgentID: input.AgentID, RowLimit: int32(input.Limit) + 1,
 	}
 	if input.After.Set {
 		params.CursorCreatedAt = &input.After.CreatedAt
@@ -164,6 +176,39 @@ func (s *Store) DeleteBudget(ctx context.Context, orgID, id uuid.UUID) error {
 	return nil
 }
 
+func validateBudgetScope(ctx context.Context, q *dbsqlc.Queries, input CreateBudgetInput) error {
+	if input.AgentProfileID == nil && input.AgentID == nil {
+		return nil
+	}
+	if input.ProjectID == nil {
+		return storeerr.InvalidRequest(errors.New("profile and agent budgets need a project"))
+	}
+	switch {
+	case input.AgentProfileID != nil:
+		_, err := q.LockAgentProfile(ctx, dbsqlc.LockAgentProfileParams{
+			ProjectID: *input.ProjectID, ProfileID: *input.AgentProfileID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrNotFound
+		}
+		return err
+	case input.AgentID != nil:
+		agent, err := q.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{
+			ProjectID: *input.ProjectID, ID: *input.AgentID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return storeerr.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if agent.ParentAgentID != nil {
+			return storeerr.InvalidRequest(errors.New("budgets apply to top-level agents, not subagents"))
+		}
+	}
+	return nil
+}
+
 func enterBudgetScope(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, projectID *uuid.UUID) error {
 	if projectID == nil {
 		return lifecyclelock.EnterActiveOrganization(ctx, tx, orgID)
@@ -177,8 +222,9 @@ func budgetRecordWithUsage(row dbsqlc.ListBudgetsRow) (BudgetRecord, error) {
 		return BudgetRecord{}, errors.New("invalid budget spend")
 	}
 	return budgetRecord(dbsqlc.UpdateBudgetAmountRow{
-		ID: row.ID, OrgID: row.OrgID, ProjectID: row.ProjectID, Interval: row.Interval,
-		AmountUsd: row.AmountUsd, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		ID: row.ID, OrgID: row.OrgID, ProjectID: row.ProjectID, AgentProfileID: row.AgentProfileID,
+		AgentID: row.AgentID, Interval: row.Interval, AmountUsd: row.AmountUsd,
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}, &BudgetUsage{AmountUSD: string(spent)})
 }
 
@@ -188,7 +234,8 @@ func budgetRecord(row dbsqlc.UpdateBudgetAmountRow, usage *BudgetUsage) (BudgetR
 		return BudgetRecord{}, errors.New("invalid budget amount")
 	}
 	return BudgetRecord{
-		ID: row.ID, OrgID: row.OrgID, ProjectID: row.ProjectID, Interval: row.Interval,
-		AmountUSD: string(amount), CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, Usage: usage,
+		ID: row.ID, OrgID: row.OrgID, ProjectID: row.ProjectID, AgentProfileID: row.AgentProfileID,
+		AgentID: row.AgentID, Interval: row.Interval, AmountUSD: string(amount),
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, Usage: usage,
 	}, nil
 }

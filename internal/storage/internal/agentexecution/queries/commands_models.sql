@@ -36,21 +36,28 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
 -- @sqlc-vet-disable configured-models-deleted-at
 -- @sqlc-vet-disable model-provider-configs-deleted-at
 SELECT m.current_revision_id,CASE WHEN p.management_kind='cluster' THEN coalesce(w.new_managed_work_allowed,true)
- ELSE true END::boolean AS allowed,c.org_id,
+ ELSE true END::boolean AS allowed,c.org_id,root.agent_profile_id AS root_agent_profile_id,
  EXISTS(SELECT 1 FROM budgets b WHERE b.org_id=c.org_id AND (b.project_id IS NULL OR b.project_id=c.project_id)
- AND b.deleted_at IS NULL)::boolean AS budgeted
-FROM agent_configs c JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
+ AND (b.agent_profile_id IS NULL OR b.agent_profile_id=root.agent_profile_id)
+ AND (b.agent_id IS NULL OR b.agent_id=root.id) AND b.deleted_at IS NULL)::boolean AS budgeted
+FROM agent_configs c JOIN agents root ON root.project_id=c.project_id AND root.id=sqlc.arg(root_agent_id)
+JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
 JOIN configured_models m ON m.org_id=d.org_id AND m.id=d.configured_model_id
 JOIN model_provider_configs p ON p.org_id=m.org_id AND p.id=m.model_provider_config_id
 LEFT JOIN org_managed_work_admission w ON w.org_id=c.org_id
 WHERE c.project_id=sqlc.arg(project_id) AND c.id=sqlc.arg(config_id);
 
 -- name: ExecutionBudgetReached :one
-SELECT (b.project_id IS NOT NULL)::boolean AS project_scope,b.interval
-FROM budgets b CROSS JOIN LATERAL budget_interval_cost(b.org_id,b.project_id,b.interval) cost
+SELECT CASE WHEN b.agent_id IS NOT NULL THEN 'agent' WHEN b.agent_profile_id IS NOT NULL THEN 'profile'
+ WHEN b.project_id IS NOT NULL THEN 'project' ELSE 'org' END::text AS scope,b.interval
+FROM budgets b
+CROSS JOIN LATERAL budget_interval_cost(b.org_id,b.project_id,b.agent_profile_id,b.agent_id,b.interval) cost
 WHERE b.org_id=sqlc.arg(org_id) AND (b.project_id IS NULL OR b.project_id=sqlc.arg(project_id)::uuid)
+ AND (b.agent_profile_id IS NULL OR b.agent_profile_id=sqlc.narg(agent_profile_id)::uuid)
+ AND (b.agent_id IS NULL OR b.agent_id=sqlc.arg(root_agent_id)::uuid)
  AND b.deleted_at IS NULL AND cost.effective_cost_usd>=b.amount_usd
-ORDER BY b.project_id IS NOT NULL,
+ORDER BY CASE WHEN b.agent_id IS NOT NULL THEN 3 WHEN b.agent_profile_id IS NOT NULL THEN 2
+ WHEN b.project_id IS NOT NULL THEN 1 ELSE 0 END,
  CASE b.interval WHEN 'lifetime' THEN 0 WHEN 'month' THEN 1 WHEN 'week' THEN 2 ELSE 3 END
 LIMIT 1;
 

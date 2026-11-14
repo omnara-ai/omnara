@@ -165,7 +165,9 @@ func (h *Handle) createAttempt(
 	revision, err := q.ExecutionModelRevision(
 		ctx,
 		h.unit.DB(),
-		executiondb.ExecutionModelRevisionParams{ProjectID: h.route.ProjectID, ConfigID: desired.ConfigID},
+		executiondb.ExecutionModelRevisionParams{
+			RootAgentID: h.route.RootAgentID, ProjectID: h.route.ProjectID, ConfigID: desired.ConfigID,
+		},
 	)
 	if err != nil {
 		return PreparedModel{}, err
@@ -265,6 +267,7 @@ func (h *Handle) admissionDenial(
 	}
 	reached, err := q.ExecutionBudgetReached(ctx, h.unit.DB(), executiondb.ExecutionBudgetReachedParams{
 		OrgID: revision.OrgID, ProjectID: h.route.ProjectID,
+		AgentProfileID: revision.RootAgentProfileID, RootAgentID: h.route.RootAgentID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", nil
@@ -272,7 +275,7 @@ func (h *Handle) admissionDenial(
 	if err != nil {
 		return "", "", err
 	}
-	return storeerr.BudgetReachedCode, storeerr.BudgetReachedMessage(reached.ProjectScope, reached.Interval), nil
+	return storeerr.BudgetReachedCode, storeerr.BudgetReachedMessage(reached.Scope, reached.Interval), nil
 }
 
 type PrepareNormalInput struct {

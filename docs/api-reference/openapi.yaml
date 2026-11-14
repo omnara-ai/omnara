@@ -823,7 +823,9 @@ paths:
       description: >-
         Lists the organization's budgets, ordered by created_at then id ascending. scope_type=org
         returns organization-wide budgets; scope_type=project with project_id returns that project's
-        budgets. project_id requires scope_type=project.
+        budgets; scope_type=profile with project_id and agent_profile_id returns that profile's
+        budgets; scope_type=agent with project_id and agent_id returns that agent's budgets. The ID
+        filters require their scope_type.
       parameters:
         - name: scope_type
           in: query
@@ -835,6 +837,16 @@ paths:
           required: false
           schema:
             $ref: '#/components/schemas/ProjectID'
+        - name: agent_profile_id
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
+        - name: agent_id
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgentID'
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -865,7 +877,8 @@ paths:
       tags: [Organizations and Projects]
       summary: Create a budget
       description: >-
-        Sets a model spend budget for the organization or one project. Once spend in the current interval
+        Sets a model spend budget for the organization, a project, an agent profile, or a top-level
+        agent. Profile and agent budgets include subagents. Once spend in the current interval
         reaches the budget, new model calls in that scope stop until the budget is raised or removed, or
         the interval resets; calls already running finish. Each scope can have one budget per interval;
         duplicates return 409.
@@ -17361,8 +17374,8 @@ components:
       pattern: '^bdg_[a-z2-7]{26}$'
     BudgetScopeType:
       type: string
-      enum: [org, project]
-      x-enum-varnames: [BudgetScopeOrg, BudgetScopeProject]
+      enum: [org, project, profile, agent]
+      x-enum-varnames: [BudgetScopeOrg, BudgetScopeProject, BudgetScopeProfile, BudgetScopeAgent]
     OrgBudgetScope:
       type: object
       additionalProperties: false
@@ -17383,15 +17396,47 @@ components:
           x-enum-varnames: [ProjectBudgetScopeTypeProject]
         project_id:
           $ref: '#/components/schemas/ProjectID'
+    AgentProfileBudgetScope:
+      type: object
+      additionalProperties: false
+      required: [type, project_id, agent_profile_id]
+      description: Counts the profile's top-level agents and their subagents.
+      properties:
+        type:
+          type: string
+          enum: [profile]
+          x-enum-varnames: [AgentProfileBudgetScopeTypeProfile]
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        agent_profile_id:
+          $ref: '#/components/schemas/AgentProfileID'
+    AgentBudgetScope:
+      type: object
+      additionalProperties: false
+      required: [type, project_id, agent_id]
+      description: Counts a top-level agent and its subagents.
+      properties:
+        type:
+          type: string
+          enum: [agent]
+          x-enum-varnames: [AgentBudgetScopeTypeAgent]
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
     BudgetScope:
       oneOf:
         - $ref: '#/components/schemas/OrgBudgetScope'
         - $ref: '#/components/schemas/ProjectBudgetScope'
+        - $ref: '#/components/schemas/AgentProfileBudgetScope'
+        - $ref: '#/components/schemas/AgentBudgetScope'
       discriminator:
         propertyName: type
         mapping:
           org: '#/components/schemas/OrgBudgetScope'
           project: '#/components/schemas/ProjectBudgetScope'
+          profile: '#/components/schemas/AgentProfileBudgetScope'
+          agent: '#/components/schemas/AgentBudgetScope'
     BudgetInterval:
       type: string
       description: >-

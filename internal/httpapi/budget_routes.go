@@ -25,19 +25,24 @@ func (s strictOpenAPIServer) ListBudgets(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	input := identitystore.ListBudgetsInput{OrgID: org.ID, Limit: limit}
-	if request.Params.ScopeType != nil {
-		projectID, err := parseBudgetScopeIDs(*request.Params.ScopeType, request.Params.ProjectId)
+	params := request.Params
+	if params.ScopeType != nil {
+		ids, err := parseBudgetScopeIDs(*params.ScopeType, params.ProjectId, params.AgentProfileId, params.AgentId)
 		if err != nil {
 			return nil, err
 		}
-		input.FilterScope, input.ProjectID = true, projectID
-	} else if request.Params.ProjectId != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "project_id requires scope_type")
+		input.FilterScope = true
+		input.ProjectID, input.AgentProfileID, input.AgentID = ids.ProjectID, ids.AgentProfileID, ids.AgentID
+	} else if params.ProjectId != nil || params.AgentProfileId != nil || params.AgentId != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest,
+			"project_id, agent_profile_id, and agent_id require scope_type")
 	}
 	filter := struct {
-		Set       bool
-		ProjectID *uuid.UUID
-	}{input.FilterScope, input.ProjectID}
+		Set            bool
+		ProjectID      *uuid.UUID
+		AgentProfileID *uuid.UUID
+		AgentID        *uuid.UUID
+	}{input.FilterScope, input.ProjectID, input.AgentProfileID, input.AgentID}
 	sort := "created_at"
 	options, err := parseResourceListQuery(resourceListQueryInput{
 		Cursor: request.Params.Cursor, Sort: &sort, AllowedSorts: sortSet(sort),
@@ -88,7 +93,7 @@ func (s strictOpenAPIServer) CreateBudget(
 	if err != nil {
 		return nil, err
 	}
-	projectID, err := parseBudgetScope(request.Body.Scope)
+	ids, err := parseBudgetScope(request.Body.Scope)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +102,8 @@ func (s strictOpenAPIServer) CreateBudget(
 		return nil, err
 	}
 	record, err := s.server.store.Identity().CreateBudget(ctx, identitystore.CreateBudgetInput{
-		OrgID: org.ID, ProjectID: projectID, Interval: string(request.Body.Interval), AmountUSD: amount,
+		OrgID: org.ID, ProjectID: ids.ProjectID, AgentProfileID: ids.AgentProfileID, AgentID: ids.AgentID,
+		Interval: string(request.Body.Interval), AmountUSD: amount,
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
@@ -180,34 +186,80 @@ func (s strictOpenAPIServer) DeleteBudget(
 	return openapi.DeleteBudget204Response{}, nil
 }
 
-func parseBudgetScope(input openapi.BudgetScope) (*uuid.UUID, error) {
-	scopeType, err := input.Discriminator()
-	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid budget scope")
-	}
-	var projectID *string
-	if openapi.BudgetScopeType(scopeType) == openapi.BudgetScopeProject {
-		scope, err := input.AsProjectBudgetScope()
-		if err != nil {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid budget scope")
-		}
-		projectID = &scope.ProjectId
-	}
-	return parseBudgetScopeIDs(openapi.BudgetScopeType(scopeType), projectID)
+type budgetScopeIDs struct {
+	ProjectID      *uuid.UUID
+	AgentProfileID *uuid.UUID
+	AgentID        *uuid.UUID
 }
 
-func parseBudgetScopeIDs(scopeType openapi.BudgetScopeType, projectID *string) (*uuid.UUID, error) {
-	switch {
-	case scopeType == openapi.BudgetScopeOrg && projectID == nil:
-		return nil, nil //nolint:nilnil // A nil project is the org scope.
-	case scopeType == openapi.BudgetScopeProject && projectID != nil:
-		id, ok := parseOpenAPIPublicID(publicid.KindProject, *projectID)
-		if !ok {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid budget scope id")
-		}
-		return &id, nil
+func parseBudgetScope(input openapi.BudgetScope) (budgetScopeIDs, error) {
+	invalid := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid budget scope")
+	scopeType, err := input.Discriminator()
+	if err != nil {
+		return budgetScopeIDs{}, invalid
 	}
-	return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid budget scope")
+	var projectID, profileID, agentID *string
+	switch openapi.BudgetScopeType(scopeType) {
+	case openapi.BudgetScopeOrg:
+	case openapi.BudgetScopeProject:
+		scope, err := input.AsProjectBudgetScope()
+		if err != nil {
+			return budgetScopeIDs{}, invalid
+		}
+		projectID = &scope.ProjectId
+	case openapi.BudgetScopeProfile:
+		scope, err := input.AsAgentProfileBudgetScope()
+		if err != nil {
+			return budgetScopeIDs{}, invalid
+		}
+		projectID, profileID = &scope.ProjectId, &scope.AgentProfileId
+	case openapi.BudgetScopeAgent:
+		scope, err := input.AsAgentBudgetScope()
+		if err != nil {
+			return budgetScopeIDs{}, invalid
+		}
+		projectID, agentID = &scope.ProjectId, &scope.AgentId
+	}
+	return parseBudgetScopeIDs(openapi.BudgetScopeType(scopeType), projectID, profileID, agentID)
+}
+
+func parseBudgetScopeIDs(
+	scopeType openapi.BudgetScopeType, projectID, profileID, agentID *string,
+) (budgetScopeIDs, error) {
+	valid := false
+	switch scopeType {
+	case openapi.BudgetScopeOrg:
+		valid = projectID == nil && profileID == nil && agentID == nil
+	case openapi.BudgetScopeProject:
+		valid = projectID != nil && profileID == nil && agentID == nil
+	case openapi.BudgetScopeProfile:
+		valid = projectID != nil && profileID != nil && agentID == nil
+	case openapi.BudgetScopeAgent:
+		valid = projectID != nil && profileID == nil && agentID != nil
+	}
+	if !valid {
+		return budgetScopeIDs{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid budget scope")
+	}
+	var ids budgetScopeIDs
+	for _, field := range []struct {
+		raw    *string
+		kind   publicid.Kind
+		target **uuid.UUID
+	}{
+		{projectID, publicid.KindProject, &ids.ProjectID},
+		{profileID, publicid.KindAgentProfile, &ids.AgentProfileID},
+		{agentID, publicid.KindAgent, &ids.AgentID},
+	} {
+		if field.raw == nil {
+			continue
+		}
+		id, ok := parseOpenAPIPublicID(field.kind, *field.raw)
+		if !ok {
+			return budgetScopeIDs{}, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid budget scope id")
+		}
+		*field.target = &id
+	}
+	return ids, nil
 }
 
 func budgetAmountFromRequest(raw string) (string, error) {
@@ -227,18 +279,7 @@ func budgetResponse(record identitystore.BudgetRecord) (openapi.Budget, error) {
 	if err != nil {
 		return openapi.Budget{}, err
 	}
-	var scope openapi.BudgetScope
-	if record.ProjectID == nil {
-		err = scope.FromOrgBudgetScope(openapi.OrgBudgetScope{Type: openapi.OrgBudgetScopeTypeOrg})
-	} else {
-		projectID, idErr := publicID(publicid.KindProject, *record.ProjectID)
-		if idErr != nil {
-			return openapi.Budget{}, idErr
-		}
-		err = scope.FromProjectBudgetScope(openapi.ProjectBudgetScope{
-			Type: openapi.ProjectBudgetScopeTypeProject, ProjectId: projectID,
-		})
-	}
+	scope, err := budgetScopeResponse(record)
 	if err != nil {
 		return openapi.Budget{}, err
 	}
@@ -250,4 +291,40 @@ func budgetResponse(record identitystore.BudgetRecord) (openapi.Budget, error) {
 		response.Usage = &openapi.BudgetUsage{AmountUsd: record.Usage.AmountUSD}
 	}
 	return response, nil
+}
+
+func budgetScopeResponse(record identitystore.BudgetRecord) (openapi.BudgetScope, error) {
+	var scope openapi.BudgetScope
+	if record.ProjectID == nil {
+		err := scope.FromOrgBudgetScope(openapi.OrgBudgetScope{Type: openapi.OrgBudgetScopeTypeOrg})
+		return scope, err
+	}
+	projectID, err := publicID(publicid.KindProject, *record.ProjectID)
+	if err != nil {
+		return scope, err
+	}
+	switch {
+	case record.AgentProfileID != nil:
+		profileID, err := publicID(publicid.KindAgentProfile, *record.AgentProfileID)
+		if err != nil {
+			return scope, err
+		}
+		err = scope.FromAgentProfileBudgetScope(openapi.AgentProfileBudgetScope{
+			Type: openapi.AgentProfileBudgetScopeTypeProfile, ProjectId: projectID, AgentProfileId: profileID,
+		})
+		return scope, err
+	case record.AgentID != nil:
+		agentID, err := publicID(publicid.KindAgent, *record.AgentID)
+		if err != nil {
+			return scope, err
+		}
+		err = scope.FromAgentBudgetScope(openapi.AgentBudgetScope{
+			Type: openapi.AgentBudgetScopeTypeAgent, ProjectId: projectID, AgentId: agentID,
+		})
+		return scope, err
+	}
+	err = scope.FromProjectBudgetScope(openapi.ProjectBudgetScope{
+		Type: openapi.ProjectBudgetScopeTypeProject, ProjectId: projectID,
+	})
+	return scope, err
 }

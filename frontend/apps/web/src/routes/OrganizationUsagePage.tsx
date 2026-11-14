@@ -40,7 +40,11 @@ export function OrganizationUsagePage() {
               onSelectionChange={updateUsageViewState}
             />
           }
-          budget={canManageOrg(activeOrg.role) && <BudgetCard orgId={activeOrg.id} />}
+          budget={
+            canManageOrg(activeOrg.role) && (
+              <BudgetCard orgId={activeOrg.id} scope={{ type: 'org' }} />
+            )
+          }
           emptyMessage={
             filtered
               ? 'No model usage in this time range.'

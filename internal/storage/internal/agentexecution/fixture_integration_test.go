@@ -110,6 +110,11 @@ func seedExecutionFixture(
 
 func (f executionFixture) create(t *testing.T, id, parent uuid.UUID) uuid.UUID {
 	t.Helper()
+	return f.createWithProfile(t, id, parent, uuid.Nil)
+}
+
+func (f executionFixture) createWithProfile(t *testing.T, id, parent, profile uuid.UUID) uuid.UUID {
+	t.Helper()
 	cell := agentexecution.NewCell(f.pool, nil, nil, nil)
 	u, err := agentexecution.BeginTestUnit(t.Context(), cell)
 	require.NoError(t, err)
@@ -121,7 +126,7 @@ func (f executionFixture) create(t *testing.T, id, parent uuid.UUID) uuid.UUID {
 			[]lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: parent}}, nil))
 	}
 	_, err = u.CreateAgent(t.Context(), agentexecution.CreateAgentInput{ID: id, ProjectID: f.project,
-		ConfigID: f.config, ParentID: parent, SubagentKey: key, Name: "Agent"})
+		ConfigID: f.config, ProfileID: profile, ParentID: parent, SubagentKey: key, Name: "Agent"})
 	require.NoError(t, err)
 	require.NoError(t, u.Commit(t.Context(), "create fixture"))
 	return id

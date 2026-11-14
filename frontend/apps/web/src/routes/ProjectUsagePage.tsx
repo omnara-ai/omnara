@@ -65,7 +65,11 @@ function ProjectUsage({
             onSelectionChange={updateUsageViewState}
           />
         }
-        budget={canManageBudget && <BudgetCard orgId={orgId} projectId={projectId} />}
+        budget={
+          canManageBudget && (
+            <BudgetCard orgId={orgId} scope={{ type: 'project', project_id: projectId }} />
+          )
+        }
         emptyMessage={
           filtered
             ? 'No model usage in this time range.'

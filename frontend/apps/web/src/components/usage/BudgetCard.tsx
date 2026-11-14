@@ -1,8 +1,9 @@
 import { useBudgets, useCreateBudget, useDeleteBudget, useUpdateBudget } from '@omnara/react'
-import type { Budget, BudgetInterval } from '@omnara/sdk'
+import type { Budget, BudgetInterval, BudgetScope } from '@omnara/sdk'
 import { zBudgetAmount } from '@omnara/sdk/zod'
-import { type SyntheticEvent, useState } from 'react'
+import { type ReactNode, type SyntheticEvent, useState } from 'react'
 
+import { PlusIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -21,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel } from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { spendReachesBudget } from '@/components/usage/budget-spend'
 import { formatUsd } from '@/lib/format'
@@ -35,76 +37,139 @@ const intervals: { value: BudgetInterval; label: string }[] = [
   { value: 'lifetime', label: 'Lifetime' },
 ]
 
-type Scope = 'organization' | 'project'
+const stoppedCalls: Record<BudgetScope['type'], string> = {
+  org: 'New model calls in this organization',
+  project: 'New model calls in this project',
+  profile: "New model calls from this profile's top-level agents and their subagents",
+  agent: 'New model calls from this agent and its subagents',
+}
 
-export function BudgetCard({ orgId, projectId }: { orgId: string; projectId?: string }) {
-  const budgets = useBudgets(orgId, projectId)
+interface BudgetsView {
+  status: 'error' | 'loading' | 'ready'
+  empty: boolean
+  rows: ReactNode
+  dialog: ReactNode
+  onAdd: (() => void) | undefined
+}
+
+export function BudgetCard({
+  orgId,
+  scope,
+  variant = 'card',
+}: {
+  orgId: string
+  scope: BudgetScope
+  variant?: 'card' | 'sidebar'
+}) {
+  const budgets = useBudgets(orgId, scope)
   const [editing, setEditing] = useState<Budget | 'new' | null>(null)
-  const scope: Scope = projectId ? 'project' : 'organization'
-  if (budgets.isError) {
+  const byInterval = new Map((budgets.data?.data ?? []).map((budget) => [budget.interval, budget]))
+  const available = intervals.filter(({ value }) => !byInterval.has(value))
+  const view: BudgetsView = {
+    status: budgets.isError ? 'error' : budgets.data ? 'ready' : 'loading',
+    empty: byInterval.size === 0,
+    rows: intervals.map(({ value, label }) => {
+      const budget = byInterval.get(value)
+      return (
+        budget && (
+          <BudgetRow
+            key={budget.id}
+            budget={budget}
+            label={label}
+            onEdit={() => {
+              setEditing(budget)
+            }}
+          />
+        )
+      )
+    }),
+    dialog: editing && (
+      <BudgetDialog
+        orgId={orgId}
+        scope={scope}
+        budget={editing === 'new' ? undefined : editing}
+        available={available}
+        onClose={() => {
+          setEditing(null)
+        }}
+      />
+    ),
+    onAdd:
+      budgets.data && available.length > 0
+        ? () => {
+            setEditing('new')
+          }
+        : undefined,
+  }
+  return variant === 'sidebar' ? <BudgetSidebarGroup {...view} /> : <BudgetCardSection {...view} />
+}
+
+function BudgetSidebarGroup({ status, empty, rows, dialog, onAdd }: BudgetsView) {
+  return (
+    <SidebarGroup>
+      <div className="flex items-center justify-between">
+        <SidebarGroupLabel className="px-0 text-sm">Budgets</SidebarGroupLabel>
+        {onAdd && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground h-9 px-2 sm:h-7"
+            onClick={onAdd}
+          >
+            <PlusIcon />
+            Add
+          </Button>
+        )}
+      </div>
+      <SidebarGroupContent className="flex flex-col gap-4">
+        {status === 'error' && (
+          <p className="text-destructive py-1.5 text-sm" role="alert">
+            Could not load budgets.
+          </p>
+        )}
+        {status === 'loading' && (
+          <p className="text-muted-foreground truncate py-1.5 text-sm">Loading…</p>
+        )}
+        {status === 'ready' &&
+          (empty ? (
+            <p className="text-muted-foreground truncate py-1.5 text-sm">No budgets</p>
+          ) : (
+            rows
+          ))}
+      </SidebarGroupContent>
+      {dialog}
+    </SidebarGroup>
+  )
+}
+
+function BudgetCardSection({ status, empty, rows, dialog, onAdd }: BudgetsView) {
+  if (status === 'error') {
     return (
       <p className="text-destructive rounded-xl border px-4 py-3 text-sm" role="alert">
         Could not load budgets.
       </p>
     )
   }
-  if (!budgets.data) {
+  if (status === 'loading') {
     return <Skeleton className="h-28 rounded-xl" />
   }
-  const byInterval = new Map(budgets.data.data.map((budget) => [budget.interval, budget]))
-  const available = intervals.filter(({ value }) => !byInterval.has(value))
   return (
     <section className="bg-muted/50 rounded-xl border">
       <div className="bg-card -mx-px -mt-px flex flex-col gap-4 rounded-xl border px-4 py-3.5">
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-muted-foreground text-xs">Budgets</h2>
-          {available.length > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setEditing('new')
-              }}
-            >
+          {onAdd && (
+            <Button size="sm" variant="outline" onClick={onAdd}>
               Add budget
             </Button>
           )}
         </div>
-        {byInterval.size === 0 ? (
-          <p className="text-muted-foreground text-sm">No budgets set.</p>
-        ) : (
-          intervals.map(({ value, label }) => {
-            const budget = byInterval.get(value)
-            return (
-              budget && (
-                <BudgetRow
-                  key={budget.id}
-                  budget={budget}
-                  label={label}
-                  onEdit={() => {
-                    setEditing(budget)
-                  }}
-                />
-              )
-            )
-          })
-        )}
+        {empty ? <p className="text-muted-foreground text-sm">No budgets set.</p> : rows}
       </div>
       <p className="text-muted-foreground px-4 py-2 text-xs">
         Model calls only, not machines · Days, weeks, and months are UTC; weeks start Monday
       </p>
-      {editing && (
-        <BudgetDialog
-          orgId={orgId}
-          projectId={projectId}
-          scope={scope}
-          budget={editing === 'new' ? undefined : editing}
-          available={available}
-          onClose={() => {
-            setEditing(null)
-          }}
-        />
-      )}
+      {dialog}
     </section>
   )
 }
@@ -135,7 +200,7 @@ function BudgetRow({
         </Button>
       </div>
       <div
-        className="bg-muted h-1.5 overflow-hidden rounded-full"
+        className="bg-border h-1.5 overflow-hidden rounded-full"
         role="progressbar"
         aria-label={`${label} budget used`}
         aria-valuemin={0}
@@ -187,15 +252,13 @@ function resetDate(interval: BudgetInterval, now = new Date()) {
 
 function BudgetDialog({
   orgId,
-  projectId,
   scope,
   budget,
   available,
   onClose,
 }: {
   orgId: string
-  projectId: string | undefined
-  scope: Scope
+  scope: BudgetScope
   budget: Budget | undefined
   available: typeof intervals
   onClose: () => void
@@ -236,7 +299,7 @@ function BudgetDialog({
         return
       }
       await create.mutateAsync({
-        scope: projectId ? { type: 'project', project_id: projectId } : { type: 'org' },
+        scope,
         interval,
         amount_usd: trimmed,
       })
@@ -254,8 +317,8 @@ function BudgetDialog({
         <DialogHeader>
           <DialogTitle>{budget ? `${label} budget` : 'Add budget'}</DialogTitle>
           <DialogDescription>
-            New model calls in this {scope} stop once model spend for the interval reaches the
-            budget. Calls already running finish, so spend can exceed the budget by their cost.
+            {stoppedCalls[scope.type]} stop once model spend for the interval reaches the budget.
+            Calls already running finish, so spend can exceed the budget by their cost.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit}>

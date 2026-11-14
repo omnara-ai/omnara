@@ -439,7 +439,7 @@ export const getOrgOverview = <ThrowOnError extends boolean = true>(options: Opt
 /**
  * List budgets
  *
- * Lists the organization's budgets, ordered by created_at then id ascending. scope_type=org returns organization-wide budgets; scope_type=project with project_id returns that project's budgets. project_id requires scope_type=project.
+ * Lists the organization's budgets, ordered by created_at then id ascending. scope_type=org returns organization-wide budgets; scope_type=project with project_id returns that project's budgets; scope_type=profile with project_id and agent_profile_id returns that profile's budgets; scope_type=agent with project_id and agent_id returns that agent's budgets. The ID filters require their scope_type.
  */
 export const listBudgets = <ThrowOnError extends boolean = true>(options: Options<ListBudgetsData, ThrowOnError>): RequestResult<ListBudgetsResponses, ListBudgetsErrors, ThrowOnError> => (options.client ?? client).get<ListBudgetsResponses, ListBudgetsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zListBudgetsResponse2),
@@ -459,7 +459,7 @@ export const listBudgets = <ThrowOnError extends boolean = true>(options: Option
 /**
  * Create a budget
  *
- * Sets a model spend budget for the organization or one project. Once spend in the current interval reaches the budget, new model calls in that scope stop until the budget is raised or removed, or the interval resets; calls already running finish. Each scope can have one budget per interval; duplicates return 409.
+ * Sets a model spend budget for the organization, a project, an agent profile, or a top-level agent. Profile and agent budgets include subagents. Once spend in the current interval reaches the budget, new model calls in that scope stop until the budget is raised or removed, or the interval resets; calls already running finish. Each scope can have one budget per interval; duplicates return 409.
  */
 export const createBudget = <ThrowOnError extends boolean = true>(options: Options<CreateBudgetData, ThrowOnError>): RequestResult<CreateBudgetResponses, CreateBudgetErrors, ThrowOnError> => (options.client ?? client).post<CreateBudgetResponses, CreateBudgetErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateBudgetResponse),

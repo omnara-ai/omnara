@@ -559,6 +559,11 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID)
 	}); err != nil {
 		return fmt.Errorf("delete agent profile webhooks: %w", err)
 	}
+	if err := qtx.DeleteBudgetsForAgentProfile(ctx, dbsqlc.DeleteBudgetsForAgentProfileParams{
+		OrgID: project.OrgID, ProjectID: projectID, AgentProfileID: id,
+	}); err != nil {
+		return fmt.Errorf("delete agent profile budgets: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit delete agent profile: %w", err)
 	}

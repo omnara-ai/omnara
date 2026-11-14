@@ -4387,7 +4387,7 @@ export type OrgOverviewAgentProfileReference = {
 
 export type BudgetId = string;
 
-export type BudgetScopeType = 'org' | 'project';
+export type BudgetScopeType = 'org' | 'project' | 'profile' | 'agent';
 
 export type OrgBudgetScope = {
     type: 'org';
@@ -4398,11 +4398,33 @@ export type ProjectBudgetScope = {
     project_id: ProjectId;
 };
 
+/**
+ * Counts the profile's top-level agents and their subagents.
+ */
+export type AgentProfileBudgetScope = {
+    type: 'profile';
+    project_id: ProjectId;
+    agent_profile_id: AgentProfileId;
+};
+
+/**
+ * Counts a top-level agent and its subagents.
+ */
+export type AgentBudgetScope = {
+    type: 'agent';
+    project_id: ProjectId;
+    agent_id: AgentId;
+};
+
 export type BudgetScope = ({
     type: 'org';
 } & OrgBudgetScope) | ({
     type: 'project';
-} & ProjectBudgetScope);
+} & ProjectBudgetScope) | ({
+    type: 'profile';
+} & AgentProfileBudgetScope) | ({
+    type: 'agent';
+} & AgentBudgetScope);
 
 /**
  * How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime never resets and counts spend recorded since budgets became available.
@@ -6292,6 +6314,8 @@ export type ListBudgetsData = {
     query?: {
         scope_type?: BudgetScopeType;
         project_id?: ProjectId;
+        agent_profile_id?: AgentProfileId;
+        agent_id?: AgentId;
         /**
          * Maximum number of items to return in one page.
          */
