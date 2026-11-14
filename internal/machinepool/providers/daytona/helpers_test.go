@@ -79,6 +79,8 @@ type fakeAPI struct {
 	secretIDs          map[string]string
 	findSecretErr      error
 	deletedSecretIDs   []string
+	remountedSandbox   string
+	remountedSecrets   []map[string]string
 	calls              []string
 }
 
@@ -162,10 +164,20 @@ func (a *fakeAPI) CreateSecret(_ context.Context, request createSecretRequest) e
 	return nil
 }
 
-func (a *fakeAPI) FindSecret(_ context.Context, name string) (string, bool, error) {
+func (a *fakeAPI) UpdateSandboxSecrets(_ context.Context, idOrName string, secrets []map[string]string) error {
+	a.calls = append(a.calls, "update-secrets")
+	a.remountedSandbox = idOrName
+	a.remountedSecrets = secrets
+	return nil
+}
+
+func (a *fakeAPI) FindSecret(ctx context.Context, name string) (string, bool, error) {
 	a.calls = append(a.calls, "find-secret")
 	if a.findSecretErr != nil {
 		return "", false, a.findSecretErr
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
 	}
 	id, ok := a.secretIDs[name]
 	return id, ok, nil

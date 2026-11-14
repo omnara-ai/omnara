@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -131,8 +132,7 @@ func (f *fakeArker) start(t *testing.T, name string) *httptest.Server {
 				f.forkBodies = map[string]string{}
 			}
 			if _, replay := f.forkBodies[key]; !replay {
-				policies, _ := json.Marshal(body["policies"])
-				f.vmPolicies = string(policies)
+				f.vmPolicies = forkedPolicies(t, f.sourceRules, body["policies"])
 			}
 			f.forkBodies[key] = string(raw)
 		})
@@ -210,6 +210,21 @@ func (f *fakeArker) start(t *testing.T, name string) *httptest.Server {
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	return server
+}
+
+func forkedPolicies(t *testing.T, sourceRules string, requested any) string {
+	rules := map[string]any{}
+	_ = json.Unmarshal([]byte(sourceRules), &rules)
+	if policies, ok := requested.(map[string]any); ok {
+		if requestedRules, ok := policies["rules"].(map[string]any); ok {
+			maps.Copy(rules, requestedRules)
+		}
+	}
+	merged, err := json.Marshal(map[string]any{"rules": rules})
+	if err != nil {
+		t.Errorf("merge fork policies: %v", err)
+	}
+	return string(merged)
 }
 
 func (f *fakeArker) source() string {
