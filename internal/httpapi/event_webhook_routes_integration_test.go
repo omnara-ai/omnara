@@ -151,7 +151,7 @@ func TestEventWebhookRoutes(t *testing.T) {
 			"url":   "https://example.com/events", "event_types": []string{"tool_call_update"},
 		}), "", http.StatusNotFound, authHeaders(f.project.AdminToken))
 	require.NoError(t, f.project.Store.Execution().DeleteAgentProfile(t.Context(), f.project.ProjectUUID,
-		mustPublicHTTPID(t, publicid.KindAgentProfile, f.profileID)))
+		mustPublicHTTPID(t, publicid.KindAgentProfile, f.profileID), true))
 	requestJSONWithHeaders(t, f.handler, http.MethodGet,
 		endpoint+"?scope_type=profile&agent_profile_id="+f.profileID, "", "",
 		http.StatusNotFound, authHeaders(f.project.AdminToken))

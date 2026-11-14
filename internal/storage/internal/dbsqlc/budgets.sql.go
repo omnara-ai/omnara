@@ -30,7 +30,7 @@ func (q *Queries) DeleteBudget(ctx context.Context, arg DeleteBudgetParams) (int
 	return result.RowsAffected(), nil
 }
 
-const deleteBudgetsForAgentProfile = `-- name: DeleteBudgetsForAgentProfile :exec
+const deleteBudgetsForAgentProfile = `-- name: DeleteBudgetsForAgentProfile :execrows
 UPDATE budgets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE org_id = $1 AND project_id = $2::uuid
   AND agent_profile_id = $3::uuid AND deleted_at IS NULL
@@ -42,9 +42,12 @@ type DeleteBudgetsForAgentProfileParams struct {
 	AgentProfileID uuid.UUID
 }
 
-func (q *Queries) DeleteBudgetsForAgentProfile(ctx context.Context, arg DeleteBudgetsForAgentProfileParams) error {
-	_, err := q.db.Exec(ctx, deleteBudgetsForAgentProfile, arg.OrgID, arg.ProjectID, arg.AgentProfileID)
-	return err
+func (q *Queries) DeleteBudgetsForAgentProfile(ctx context.Context, arg DeleteBudgetsForAgentProfileParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBudgetsForAgentProfile, arg.OrgID, arg.ProjectID, arg.AgentProfileID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteBudgetsForProjectDeletion = `-- name: DeleteBudgetsForProjectDeletion :exec
