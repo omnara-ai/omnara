@@ -59,8 +59,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 		}
 		if !sameModelProviderConfigIntent(current, desiredProvider) {
 			changes = append(changes, fmt.Sprintf(
-				"org %s: update model provider %q",
-				current.OrgID,
+				"update model provider %q",
 				prepared.Name,
 			))
 			if apply {
@@ -108,8 +107,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 			model, found := existing[modelTemplate.Name]
 			if !found {
 				changes = append(changes, fmt.Sprintf(
-					"org %s: add configured model %q",
-					current.OrgID,
+					"add configured model %q",
 					modelTemplate.Name,
 				))
 				if apply {
@@ -134,8 +132,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 			}
 			if model.ManagementKind != management.Cluster {
 				warnings = append(warnings, fmt.Sprintf(
-					"org %s: cannot add configured model %q because a tenant-managed model already uses that name",
-					current.OrgID,
+					"cannot add configured model %q because a tenant-managed model already uses that name",
 					modelTemplate.Name,
 				))
 				continue
@@ -151,8 +148,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 				continue
 			}
 			changes = append(changes, fmt.Sprintf(
-				"org %s: update configured model %q",
-				current.OrgID,
+				"update configured model %q",
 				modelTemplate.Name,
 			))
 			if apply {
@@ -191,15 +187,13 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 			}
 			if state.UsedByActiveAgent || state.UsedByAgentProfile {
 				warnings = append(warnings, fmt.Sprintf(
-					"org %s: cannot remove configured model %q because an active agent or current agent profile still references it",
-					current.OrgID,
+					"cannot remove configured model %q because an active agent or current agent profile still references it",
 					name,
 				))
 				continue
 			}
 			changes = append(changes, fmt.Sprintf(
-				"org %s: remove configured model %q",
-				current.OrgID,
+				"remove configured model %q",
 				name,
 			))
 			if apply {
