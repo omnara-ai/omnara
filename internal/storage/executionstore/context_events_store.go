@@ -38,6 +38,7 @@ type ContextEventRecord struct {
 	APIVariant                modelprotocol.APIVariant
 	ProviderReplay            json.RawMessage
 	StopReason                modelenvelope.StopReason
+	OutputNoProgressRetries   int
 	CreatedAt                 time.Time
 }
 
@@ -93,6 +94,7 @@ func contextEventsFromSQLC(rows []dbsqlc.ListContextEventsRow, projectID, agentI
 			APIVariant:                modelprotocol.APIVariant(row.ApiVariant),
 			ProviderReplay:            rawMessageFromSQLCPtr(row.ProviderReplay),
 			StopReason:                modelenvelope.StopReason(row.StopReason),
+			OutputNoProgressRetries:   int(row.OutputNoProgressRetries),
 		}
 		if row.IsSuccessfulNormalCall {
 			record.InputFingerprint = row.InputFingerprint

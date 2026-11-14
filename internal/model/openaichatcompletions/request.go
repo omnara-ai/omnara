@@ -1,6 +1,7 @@
 package openaichatcompletions
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -33,15 +34,16 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if err := validateToolResultProviderCallIDs(input.Context.ToolResults); err != nil {
 		return nil, err
 	}
+	compat := c.compat()
 	messages, err := buildMessages(
 		input.Context,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
 		input.Policy,
+		c.effortSteering(compat, input.Policy),
 	)
 	if err != nil {
 		return nil, err
 	}
-	compat := c.compat()
 	payload := chatCompletionsRequest{
 		Model:    providerModelSlug,
 		Messages: messages,
@@ -83,6 +85,64 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		ownedFields = append(ownedFields, "safety_identifier")
 	}
 	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+}
+
+func (c Client) effortSteering(compat compat, policy model.RequestPolicy) *model.EffortSteering {
+	steering := model.EffortSteering{}
+	supportsReasoning := c.ModelCapabilities.SupportsReasoning
+	if policy.SupportsReasoning != nil {
+		supportsReasoning = *policy.SupportsReasoning
+	}
+	slug := c.RequestedProviderModelSlug()
+	if !supportsReasoning || compat.reasoningFormat != reasoningFormatOpenRouter ||
+		!model.OpenRouterSupportsConfigurationUpdate(slug) {
+		return &steering
+	}
+	base, ok := c.topLevelEffort(policy)
+	if ok {
+		steering = model.NewEffortSteering(base, c.ModelCapabilities.SupportedReasoningEfforts)
+	}
+	return &steering
+}
+
+// OpenRouter rejects configuration updates in pro mode.
+func (c Client) topLevelEffort(policy model.RequestPolicy) (string, bool) {
+	if policy.ReasoningEffort != "" {
+		return policy.ReasoningEffort, true
+	}
+	var options struct {
+		Reasoning       json.RawMessage `json:"reasoning"`
+		ReasoningEffort json.RawMessage `json:"reasoning_effort"`
+	}
+	if raw := bytes.TrimSpace(c.APIVariantOptions); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		if err := json.Unmarshal(raw, &options); err != nil {
+			return "", false
+		}
+	}
+	var reasoning struct {
+		Effort string `json:"effort"`
+		Mode   string `json:"mode"`
+	}
+	if len(options.Reasoning) > 0 {
+		if err := json.Unmarshal(options.Reasoning, &reasoning); err != nil {
+			return "", false
+		}
+		if reasoning.Mode == "pro" {
+			return "", false
+		}
+	}
+	if len(options.ReasoningEffort) > 0 {
+		var effort string
+		if err := json.Unmarshal(options.ReasoningEffort, &effort); err != nil || effort == "" {
+			return "", false
+		}
+		return effort, true
+	}
+	if len(options.Reasoning) > 0 {
+		return reasoning.Effort, reasoning.Effort != ""
+	}
+	effort := model.ClaudeDefaultReasoningEffort(c.RequestedProviderModelSlug())
+	return effort, effort != ""
 }
 
 func chatCompletionsOwnedFields(reasoningOwned bool) []string {
@@ -150,11 +210,16 @@ const (
 )
 
 type chatMessage struct {
-	Role           chatRole        `json:"role"`
-	Content        any             `json:"content"`
-	ToolCalls      []chatToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID     string          `json:"tool_call_id,omitempty"`
-	ProviderReplay json.RawMessage `json:"-"`
+	Role                chatRole                 `json:"role"`
+	Content             any                      `json:"content"`
+	ToolCalls           []chatToolCall           `json:"tool_calls,omitempty"`
+	ToolCallID          string                   `json:"tool_call_id,omitempty"`
+	ConfigurationUpdate *chatConfigurationUpdate `json:"configuration_update,omitempty"`
+	ProviderReplay      json.RawMessage          `json:"-"`
+}
+
+type chatConfigurationUpdate struct {
+	Reasoning chatReasoning `json:"reasoning"`
 }
 
 func (m chatMessage) MarshalJSON() ([]byte, error) {
@@ -188,10 +253,18 @@ type chatFunction struct {
 	Arguments model.ToolArgumentString `json:"arguments,omitempty"`
 }
 
+func configurationUpdate(effort string) chatMessage {
+	return chatMessage{
+		Role: chatRoleSystem, Content: "",
+		ConfigurationUpdate: &chatConfigurationUpdate{Reasoning: chatReasoning{Effort: effort}},
+	}
+}
+
 func buildMessages(
 	bundle modelcontext.Bundle,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	policy model.RequestPolicy,
+	steering *model.EffortSteering,
 ) ([]chatMessage, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
@@ -226,11 +299,19 @@ func buildMessages(
 				return nil, buildErr
 			}
 			messages = append(messages, assistantMessages...)
+			if len(assistantMessages) > 0 {
+				if effort, ok := steering.Restore(); ok {
+					messages = append(messages, configurationUpdate(effort))
+				}
+			}
 			continue
 		}
 		message, ok := messageFromContext(entry.Message, bundle.ResolvedMedia)
 		if ok {
 			messages = append(messages, message)
+		}
+		if effort, ok := steering.Lower(entry.ReasoningEffortReduction); ok {
+			messages = append(messages, configurationUpdate(effort))
 		}
 	}
 	if len(messages) == 0 {

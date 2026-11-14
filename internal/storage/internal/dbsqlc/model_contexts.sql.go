@@ -51,6 +51,51 @@ func (q *Queries) CountModelCallRetries(ctx context.Context, arg CountModelCallR
 	return retry_count, err
 }
 
+const countModelCallRetriesWithErrorCode = `-- name: CountModelCallRetriesWithErrorCode :one
+SELECT (
+  SELECT count(*) FROM model_call_contexts failure
+  WHERE failure.project_id = context.project_id
+    AND failure.agent_id = context.agent_id
+    AND failure.input_event_sequence = context.input_event_sequence
+    AND failure.operation_kind = context.operation_kind
+    AND failure.state = 'failed' AND failure.recovery_kind = 'retry'
+    AND failure.error_code = $1::text
+    AND (
+      failure.source_event_sequence_end > context.source_event_sequence_end
+      OR (failure.source_event_sequence_end IS NOT DISTINCT FROM context.source_event_sequence_end
+          AND failure.attempt_number <= context.attempt_number)
+    )
+)::bigint AS retry_count
+FROM model_call_contexts context
+WHERE context.agent_id = $2
+  AND context.id = $3
+  AND EXISTS (
+    SELECT 1
+    FROM agents scoped_agent
+    WHERE scoped_agent.project_id = $4
+      AND scoped_agent.id = $2
+  )
+`
+
+type CountModelCallRetriesWithErrorCodeParams struct {
+	ErrorCode          string
+	AgentID            uuid.UUID
+	ModelCallContextID uuid.UUID
+	ProjectID          uuid.UUID
+}
+
+func (q *Queries) CountModelCallRetriesWithErrorCode(ctx context.Context, arg CountModelCallRetriesWithErrorCodeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countModelCallRetriesWithErrorCode,
+		arg.ErrorCode,
+		arg.AgentID,
+		arg.ModelCallContextID,
+		arg.ProjectID,
+	)
+	var retry_count int64
+	err := row.Scan(&retry_count)
+	return retry_count, err
+}
+
 const getModelCallContext = `-- name: GetModelCallContext :one
 SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.operation_kind, context.attempt_number, context.agent_config_id,

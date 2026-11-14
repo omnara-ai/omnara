@@ -52,11 +52,24 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		input.Context,
 		input.Policy.CacheRetention,
 	))
+	supportsReasoning := c.ModelCapabilities.SupportsReasoning
+	if input.Policy.SupportsReasoning != nil {
+		supportsReasoning = *input.Policy.SupportsReasoning
+	}
+	options, err := decodeAPIVariantOptions(c.APIVariantOptions)
+	if err != nil {
+		return nil, err
+	}
+	steering, err := c.effortSteering(input.Policy, options, supportsReasoning)
+	if err != nil {
+		return nil, err
+	}
 	messages, err := buildMessages(
 		input.Context,
 		input.Policy,
 		model.ProviderReplayIdentityForClient(c.ModelProviderConfigID, c),
 		control,
+		&steering,
 	)
 	if err != nil {
 		return nil, err
@@ -70,10 +83,6 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	}
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = map[string]string{"type": "auto"}
-	}
-	supportsReasoning := c.ModelCapabilities.SupportsReasoning
-	if input.Policy.SupportsReasoning != nil {
-		supportsReasoning = *input.Policy.SupportsReasoning
 	}
 	ownedFields := []string{
 		"model",
@@ -93,10 +102,6 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	case model.IsOpenRouterHost(baseURL):
 		payload.User = id
 		ownedFields = append(ownedFields, "user")
-	}
-	options, err := decodeAPIVariantOptions(c.APIVariantOptions)
-	if err != nil {
-		return nil, err
 	}
 	if supportsReasoning && input.Policy.ReasoningEffort != "" {
 		payload.OutputConfig, err = outputConfigWithEffort(options["output_config"], input.Policy.ReasoningEffort)
@@ -133,6 +138,60 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		}
 	}
 	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+}
+
+func (c Client) effortSteering(
+	policy model.RequestPolicy,
+	options map[string]json.RawMessage,
+	supportsReasoning bool,
+) (model.EffortSteering, error) {
+	if !supportsReasoning || !c.supportsPerMessageEffort() {
+		return model.EffortSteering{}, nil
+	}
+	thinkingType := ""
+	if policy.ReasoningEffort != "" {
+		off, err := thinkingDisabled(options["thinking"])
+		if err != nil {
+			return model.EffortSteering{}, err
+		}
+		if off {
+			thinkingType = "adaptive"
+		}
+	}
+	if thinkingType == "" {
+		thinking, err := decodeThinkingConfig(options["thinking"])
+		if err != nil {
+			return model.EffortSteering{}, err
+		}
+		_ = json.Unmarshal(thinking["type"], &thinkingType)
+	}
+	// Some models reject an effort change in these modes.
+	if thinkingType == "disabled" || thinkingType == "between_tools" {
+		return model.EffortSteering{}, nil
+	}
+	base, err := c.topLevelEffort(policy, options["output_config"])
+	if err != nil {
+		return model.EffortSteering{}, err
+	}
+	return model.NewEffortSteering(base, c.ModelCapabilities.SupportedReasoningEfforts), nil
+}
+
+func (c Client) topLevelEffort(policy model.RequestPolicy, rawOutputConfig json.RawMessage) (string, error) {
+	if policy.ReasoningEffort != "" {
+		return policy.ReasoningEffort, nil
+	}
+	if raw := bytes.TrimSpace(rawOutputConfig); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		var config struct {
+			Effort string `json:"effort"`
+		}
+		if err := json.Unmarshal(raw, &config); err != nil {
+			return "", fmt.Errorf("api_variant_options.output_config must be a JSON object: %w", err)
+		}
+		if config.Effort != "" {
+			return config.Effort, nil
+		}
+	}
+	return model.ClaudeDefaultReasoningEffort(c.ProviderModelSlug), nil
 }
 
 func decodeAPIVariantOptions(raw json.RawMessage) (map[string]json.RawMessage, error) {
@@ -221,11 +280,13 @@ type anthropicRole string
 const (
 	anthropicRoleUser      anthropicRole = "user"
 	anthropicRoleAssistant anthropicRole = "assistant"
+	anthropicRoleSystem    anthropicRole = "system"
 )
 
 type message struct {
-	Role    anthropicRole `json:"role"`
-	Content any           `json:"content"`
+	Role         anthropicRole     `json:"role"`
+	Content      any               `json:"content"`
+	OutputConfig map[string]string `json:"output_config,omitempty"`
 }
 
 type textBlock struct {
@@ -292,6 +353,7 @@ func buildMessages(
 	policy model.RequestPolicy,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	control *CacheControl,
+	steering *model.EffortSteering,
 ) ([]message, error) {
 	history, err := modelcontext.CanonicalHistory(bundle)
 	if err != nil {
@@ -334,32 +396,41 @@ func buildMessages(
 					assistantBlocks,
 				)
 			}
-			if len(entry.ToolResults) == 0 {
-				continue
-			}
-			resultContent := make([]any, 0, len(entry.ToolResults))
-			for _, result := range entry.ToolResults {
-				content := toolResultContent(result, bundle.ResolvedMedia)
-				if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
-					if references := toolReferenceBlocks(bundle.ToolSpecs, search); len(references) > 0 {
-						content = references
+			if len(entry.ToolResults) > 0 {
+				resultContent := make([]any, 0, len(entry.ToolResults))
+				for _, result := range entry.ToolResults {
+					content := toolResultContent(result, bundle.ResolvedMedia)
+					if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
+						if references := toolReferenceBlocks(bundle.ToolSpecs, search); len(references) > 0 {
+							content = references
+						}
 					}
+					resultContent = append(resultContent, toolResultBlock{
+						Type:      "tool_result",
+						ToolUseID: toolUseIDByCallID[result.ProviderCallID],
+						Content:   content,
+						IsError:   result.Outcome == executionstore.ToolResultOutcomeFailed,
+					})
 				}
-				resultContent = append(resultContent, toolResultBlock{
-					Type:      "tool_result",
-					ToolUseID: toolUseIDByCallID[result.ProviderCallID],
-					Content:   content,
-					IsError:   result.Outcome == executionstore.ToolResultOutcomeFailed,
-				})
+				messages = appendMessageBlocks(messages, anthropicRoleUser, resultContent)
+				historyAdded = true
 			}
-			messages = appendMessageBlocks(messages, anthropicRoleUser, resultContent)
-			historyAdded = true
+			// After the reply and its tool results, so a tool_result still
+			// directly follows its tool_use.
+			if len(assistantBlocks) > 0 || len(entry.ToolResults) > 0 {
+				if effort, ok := steering.Restore(); ok {
+					messages = append(messages, effortMessage(effort))
+				}
+			}
 			continue
 		}
 		blocks := messageBlocksFromParts(entry.Message.Content, bundle.ResolvedMedia)
 		if len(blocks) > 0 {
 			messages = appendMessageBlocks(messages, anthropicRoleUser, blocks)
 			historyAdded = true
+		}
+		if effort, ok := steering.Lower(entry.ReasoningEffortReduction); ok {
+			messages = append(messages, effortMessage(effort))
 		}
 	}
 	if historyAdded {
@@ -377,6 +448,10 @@ func buildMessages(
 		)
 	}
 	return messages, nil
+}
+
+func effortMessage(effort string) message {
+	return message{Role: anthropicRoleSystem, Content: []any{}, OutputConfig: map[string]string{"effort": effort}}
 }
 
 func markLastMessageCacheBreakpoint(messages []message, control *CacheControl) []message {

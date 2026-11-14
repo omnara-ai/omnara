@@ -204,23 +204,29 @@ func TestPrepareDropsPrefixMismatchedThinkingWithoutConfiguredEffort(t *testing.
 func TestThinkingBindingBetaHeaderOnlyForClaudeModels(t *testing.T) {
 	const claude = "claude-opus-5-5"
 	operatorBetas := route.Headers{"Anthropic-Beta": "context-1m-2025-08-07, interleaved-thinking-2025-05-14"}
+	const bothBetas = thinkingBindingControlsBeta + "," + midConversationOutputConfigBeta
 	for _, tc := range []struct {
 		name     string
 		client   Client
 		wantBeta string
 	}{
-		{name: "default base URL", client: Client{ProviderModelSlug: claude}, wantBeta: thinkingBindingControlsBeta},
+		{name: "default base URL", client: Client{ProviderModelSlug: claude}, wantBeta: bothBetas},
 		{
 			name:     "keeps operator betas",
 			client:   Client{ProviderModelSlug: claude, Auth: operatorBetas},
-			wantBeta: "context-1m-2025-08-07,interleaved-thinking-2025-05-14," + thinkingBindingControlsBeta,
+			wantBeta: "context-1m-2025-08-07,interleaved-thinking-2025-05-14," + bothBetas,
 		},
 		{
 			name: "operator already sends the beta",
 			client: Client{ProviderModelSlug: claude, Auth: route.Headers{
 				"Anthropic-Beta": thinkingBindingControlsBeta + ",context-1m-2025-08-07",
 			}},
-			wantBeta: thinkingBindingControlsBeta + ",context-1m-2025-08-07",
+			wantBeta: thinkingBindingControlsBeta + ",context-1m-2025-08-07," + midConversationOutputConfigBeta,
+		},
+		{
+			name:     "claude without per-message effort",
+			client:   Client{ProviderModelSlug: "claude-fable-5"},
+			wantBeta: thinkingBindingControlsBeta,
 		},
 		{
 			name: "openrouter claude slug",

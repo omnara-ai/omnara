@@ -218,6 +218,7 @@ SELECT page.id,
        coalesce(context.operation_kind = 'normal' AND context.state = 'succeeded', false)::boolean AS is_successful_normal_call,
        output.provider_replay,
        coalesce(output.stop_reason, '') AS stop_reason,
+       coalesce(no_progress.retry_count, 0)::bigint AS output_no_progress_retries,
        CASE
          WHEN page.event_kind = 'agent_input' AND input.input_kind = 'config_change' AND page.sequence > 1 THEN
            jsonb_build_array(jsonb_build_object('type', 'text', 'text', 'Agent configuration changed. The current system prompt, model, and tool policy are reflected in this model call.'))
@@ -237,6 +238,20 @@ LEFT JOIN model_call_contexts context
 LEFT JOIN configured_model_revisions revision
   ON revision.org_id = context.org_id
  AND revision.id = context.configured_model_revision_id
+LEFT JOIN LATERAL (
+  SELECT count(*) AS retry_count
+  FROM model_call_contexts failure
+  WHERE context.operation_kind = 'normal'
+    AND (context.state = 'succeeded' OR context.error_code = 'model_output_no_progress')
+    AND failure.project_id = context.project_id
+    AND failure.agent_id = context.agent_id
+    AND failure.input_event_sequence = context.input_event_sequence
+    AND failure.operation_kind = context.operation_kind
+    AND failure.state = 'failed' AND failure.recovery_kind = 'retry'
+    AND failure.error_code = 'model_output_no_progress'
+    AND failure.source_event_sequence_end IS NOT DISTINCT FROM context.source_event_sequence_end
+    AND failure.attempt_number < context.attempt_number
+) no_progress ON true
 LEFT JOIN LATERAL (
   SELECT jsonb_agg(
            CASE

@@ -59,6 +59,37 @@ func TestOutputLimitNoticePreservesHistoricalPrefix(t *testing.T) {
 	}
 }
 
+func TestOutputNoProgressNoticePersistsAtTheRetryPosition(t *testing.T) {
+	input := Message{ID: "input", Sequence: 41, Role: modelprotocol.RoleUser,
+		Content: json.RawMessage(`[{"type":"text","text":"go"}]`)}
+	retrying := Bundle{Messages: []Message{input}, InputEventSequence: 41, OutputNoProgressRetries: 2}
+	sent, err := CanonicalHistory(retrying)
+	require.NoError(t, err)
+	require.Len(t, sent, 2)
+	notice := sent[1]
+	require.Equal(t, modelprotocol.RoleUser, notice.Message.Role)
+	require.Equal(t, int64(41), notice.Sequence)
+	require.Equal(t, 2, notice.ReasoningEffortReduction)
+	require.JSONEq(t, `[{"type":"text","text":"`+OutputNoProgressNotice+`"}]`, string(notice.Message.Content))
+
+	output := Message{ID: "output", ModelCallContextID: testIDN(9201).String(), Sequence: 42,
+		Role: modelprotocol.RoleAssistant, Content: json.RawMessage(`[{"type":"text","text":"done"}]`),
+		InputEventSequence: 41, OutputNoProgressRetries: 2}
+	later := Bundle{Messages: []Message{input, output, {
+		ID: "next", Sequence: 43, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"more"}]`),
+	}}}
+	replayed, err := CanonicalHistory(later)
+	require.NoError(t, err)
+	require.Len(t, replayed, 4)
+	require.Equal(t, sent, replayed[:len(sent)], "later requests must keep the retry's prefix, steering included")
+	require.Equal(t, output, replayed[2].Message)
+	require.Zero(t, replayed[3].ReasoningEffortReduction)
+
+	plain, err := CanonicalHistory(Bundle{Messages: []Message{input}})
+	require.NoError(t, err)
+	require.Len(t, plain, 1, "first attempts carry no steering")
+}
+
 func TestCheckpointOutputLimitNoticeUsesFixedBoundary(t *testing.T) {
 	for _, override := range []bool{false, true} {
 		for _, cutoff := range []bool{false, true} {
