@@ -305,8 +305,8 @@ func TestBudgetsApplyAcrossProjects(t *testing.T) {
 			"/api/v1/orgs/"+first.OrgID+"/budgets/"+testutil.RequireType[string](t, created["id"]),
 			"", "", http.StatusOK, admin)
 	}
-	projectReached := storeerr.BudgetReachedMessage(true, "month")
-	orgReached := storeerr.BudgetReachedMessage(false, "month")
+	projectReached := storeerr.BudgetReachedMessage("project", "month")
+	orgReached := storeerr.BudgetReachedMessage("org", "month")
 
 	spend(first.ProjectUUID, "3")
 	spend(secondUUID, "2")
@@ -322,4 +322,86 @@ func TestBudgetsApplyAcrossProjects(t *testing.T) {
 
 	requestJSONWithHeaders(t, handler, http.MethodDelete, first.ProjectPath, "", "", http.StatusNoContent, admin)
 	require.Equal(t, orgReached, denial(secondUUID), "a deleted project's spend still counts toward the org budget")
+}
+
+func TestBudgetsForProfilesAndAgents(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	store := integrationStoreForHandler(t, handler)
+	project := bootstrapPublicHTTPProject(t, handler, "budget-profile-agent")
+	admin := authHeaders(project.AdminToken)
+	budgetsPath := "/api/v1/orgs/" + project.OrgID + "/budgets"
+	agent := createHTTPRuntimeAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID,
+		"budget-scoped").Agent
+	usage := modelenvelope.Usage{InputTokens: 10, UncachedInputTokens: 10, OutputTokens: 5}
+	recordHTTPModelUsageForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID,
+		agent, usage, "2")
+	encode := func(kind publicid.Kind, id uuid.UUID) string {
+		value, err := publicid.Encode(kind, id)
+		require.NoError(t, err)
+		return value
+	}
+	profileID, agentID := encode(publicid.KindAgentProfile, agent.AgentProfileID), encode(publicid.KindAgent, agent.ID)
+	create := func(scope map[string]any, interval string, status int) map[string]any {
+		return requestJSONWithHeaders(t, handler, http.MethodPost, budgetsPath,
+			integrationHTTPJSON(t, map[string]any{"scope": scope, "interval": interval, "amount_usd": "2"}),
+			"", status, admin)
+	}
+	get := func(id any, status int) map[string]any {
+		return requestJSONWithHeaders(t, handler, http.MethodGet,
+			budgetsPath+"/"+testutil.RequireType[string](t, id), "", "", status, admin)
+	}
+	list := func(query string) []any {
+		page := requestJSONWithHeaders(t, handler, http.MethodGet, budgetsPath+"?"+query, "", "", http.StatusOK, admin)
+		return testutil.RequireType[[]any](t, page["data"])
+	}
+
+	profileScope := map[string]any{"type": "profile", "project_id": project.ProjectID, "agent_profile_id": profileID}
+	agentScope := map[string]any{"type": "agent", "project_id": project.ProjectID, "agent_id": agentID}
+	profileBudget := create(profileScope, "month", http.StatusCreated)
+	require.Equal(t, profileScope, profileBudget["scope"])
+	agentBudget := create(agentScope, "lifetime", http.StatusCreated)
+	require.Equal(t, agentScope, agentBudget["scope"])
+	create(agentScope, "lifetime", http.StatusConflict)
+	require.Equal(t, map[string]any{"amount_usd": "2"}, get(profileBudget["id"], http.StatusOK)["usage"])
+	require.Equal(t, map[string]any{"amount_usd": "2"}, get(agentBudget["id"], http.StatusOK)["usage"])
+
+	require.Len(t, list("scope_type=profile&project_id="+project.ProjectID+"&agent_profile_id="+profileID), 1)
+	require.Len(t, list("scope_type=agent&project_id="+project.ProjectID+"&agent_id="+agentID), 1)
+	require.Empty(t, list("scope_type=project&project_id="+project.ProjectID))
+	requestJSONWithHeaders(t, handler, http.MethodGet, budgetsPath+"?agent_id="+agentID, "", "",
+		http.StatusBadRequest, admin)
+
+	sibling, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: project.ProjectUUID, ProfileID: agent.AgentProfileID, AgentConfigID: agent.CurrentConfigID,
+		LaunchedBy: httpUserPrincipal(project.AdminUserUUID), IdempotencyKey: "budget-sibling",
+	})
+	require.NoError(t, err)
+	_, claim := claimHTTPModelCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID,
+		project.AdminUserUUID, sibling.Agent)
+	require.False(t, claim.Claimed)
+	require.Equal(t, storeerr.BudgetReachedMessage("profile", "month"), claim.Context.ErrorMessage,
+		"another agent from the profile hits the profile budget, not the first agent's own budget")
+
+	create(map[string]any{
+		"type": "profile", "project_id": project.ProjectID,
+		"agent_profile_id": encode(publicid.KindAgentProfile, uuid.New()),
+	}, "month", http.StatusNotFound)
+	child := uuid.New()
+	_, err = pool.Exec(ctx, `
+INSERT INTO agents(id, org_id, project_id, state, current_config_id, parent_agent_id, root_agent_id, subagent_key,
+                   created_at, updated_at)
+SELECT $1, org_id, project_id, state, current_config_id, id, id, 'child', now(), now() FROM agents WHERE id = $2`,
+		child, agent.ID)
+	require.NoError(t, err)
+	create(map[string]any{
+		"type": "agent", "project_id": project.ProjectID, "agent_id": encode(publicid.KindAgent, child),
+	}, "month", http.StatusBadRequest)
+
+	profilePath := project.ProjectPath + "/agent-profiles/" + profileID
+	requestJSONWithHeaders(t, handler, http.MethodDelete, profilePath, "", "", http.StatusNoContent, admin)
+	get(profileBudget["id"], http.StatusNotFound)
+	get(agentBudget["id"], http.StatusOK)
 }

@@ -3122,7 +3122,12 @@ export const zOrgOverviewAgentProfileReference = z.object({
 
 export const zBudgetId = z.string().regex(/^bdg_[a-z2-7]{26}$/);
 
-export const zBudgetScopeType = z.enum(['org', 'project']);
+export const zBudgetScopeType = z.enum([
+    'org',
+    'project',
+    'profile',
+    'agent'
+]);
 
 export const zOrgBudgetScope = z.object({
     type: z.enum(['org'])
@@ -3133,9 +3138,29 @@ export const zProjectBudgetScope = z.object({
     project_id: zProjectId
 });
 
+/**
+ * Counts the profile's top-level agents and their subagents.
+ */
+export const zAgentProfileBudgetScope = z.object({
+    type: z.enum(['profile']),
+    project_id: zProjectId,
+    agent_profile_id: zAgentProfileId
+});
+
+/**
+ * Counts a top-level agent and its subagents.
+ */
+export const zAgentBudgetScope = z.object({
+    type: z.enum(['agent']),
+    project_id: zProjectId,
+    agent_id: zAgentId
+});
+
 export const zBudgetScope = z.discriminatedUnion('type', [
     zOrgBudgetScope.extend({ type: z.literal('org') }),
-    zProjectBudgetScope.extend({ type: z.literal('project') })
+    zProjectBudgetScope.extend({ type: z.literal('project') }),
+    zAgentProfileBudgetScope.extend({ type: z.literal('profile') }),
+    zAgentBudgetScope.extend({ type: z.literal('agent') })
 ]);
 
 /**
@@ -4111,6 +4136,8 @@ export const zListBudgetsPath = z.object({
 export const zListBudgetsQuery = z.object({
     scope_type: zBudgetScopeType.optional(),
     project_id: zProjectId.optional(),
+    agent_profile_id: zAgentProfileId.optional(),
+    agent_id: zAgentId.optional(),
     limit: z.int().gte(1).lte(100).optional().default(50),
     cursor: z.string().max(1024).optional()
 });

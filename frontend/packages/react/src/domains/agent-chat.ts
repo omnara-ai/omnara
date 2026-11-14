@@ -46,6 +46,7 @@ import {
   useAgentInputBacklog,
 } from './agent-input-backlog'
 import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
+import { invalidateBudgetQueries } from './budgets'
 import { agentUsageQueryPredicate } from './usage'
 
 export type { OmnaraUIMessage } from './agent-chat-messages'
@@ -338,6 +339,7 @@ export class AgentChatSession {
       void this.queryClient.invalidateQueries({
         predicate: agentUsageQueryPredicate(this.scope.orgID, this.scope.projectID),
       })
+      void invalidateBudgetQueries(this.queryClient, this.scope.orgID)
     }
     if (hasToolCalls(event) || event.event_kind === 'tool_result' || isControlEvent(event)) {
       this.invalidateInteractions()

@@ -1,4 +1,4 @@
-import { sdk, type UpdateBudgetRequest } from '@omnara/sdk'
+import { type BudgetScope, sdk, type UpdateBudgetRequest } from '@omnara/sdk'
 import { listBudgetsOptions } from '@omnara/sdk/tanstack'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -6,14 +6,11 @@ import { useOmnaraClient } from '../omnara-client'
 import { generatedQueryKey } from './query-keys'
 import { useScopedMutation } from './scoped-mutation'
 
-export function useBudgets(orgID: string, projectID?: string) {
+export function useBudgets(orgID: string, scope: BudgetScope) {
   const client = useOmnaraClient()
+  const { type, ...ids } = scope
   return useQuery(
-    listBudgetsOptions({
-      client,
-      path: { orgID },
-      query: projectID ? { scope_type: 'project', project_id: projectID } : { scope_type: 'org' },
-    }),
+    listBudgetsOptions({ client, path: { orgID }, query: { scope_type: type, ...ids } }),
   )
 }
 
@@ -57,7 +54,7 @@ export function useDeleteBudget(orgID: string) {
   })
 }
 
-function invalidateBudgetQueries(queryClient: QueryClient, orgID: string) {
+export function invalidateBudgetQueries(queryClient: QueryClient, orgID: string) {
   return queryClient.invalidateQueries({
     predicate: (query) => {
       const entry = generatedQueryKey(query)

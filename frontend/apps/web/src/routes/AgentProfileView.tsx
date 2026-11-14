@@ -22,6 +22,7 @@ import { FiltersMenu } from '@/components/data-table/FiltersMenu'
 import { TriangleAlert } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
+import { BudgetCard } from '@/components/usage/BudgetCard'
 import {
   defaultUsageDays,
   defaultUsageRange,
@@ -34,6 +35,7 @@ import { useProjectDirectory } from '@/hooks/use-project-directory'
 import { profileIcon } from '@/lib/agent-icon'
 import { formatCount } from '@/lib/format'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
+import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useWebConfig } from '@/lib/web-config'
 
@@ -182,6 +184,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           orgId={activeOrg.id}
           projectId={projectId}
           profileId={profile.id}
+          canManageBudget={canManageOrg(activeOrg.role)}
           emptyAction={launchButton('Launch agent')}
         />
       )}
@@ -240,11 +243,13 @@ function ProfileUsageTab({
   orgId,
   projectId,
   profileId,
+  canManageBudget,
   emptyAction,
 }: {
   orgId: string
   projectId: string
   profileId: string
+  canManageBudget: boolean
   emptyAction: ReactNode
 }) {
   const [range, setRange] = useState(defaultUsageRange)
@@ -262,6 +267,14 @@ function ProfileUsageTab({
       </div>
       <UsageReportView
         query={query}
+        budget={
+          canManageBudget && (
+            <BudgetCard
+              orgId={orgId}
+              scope={{ type: 'profile', project_id: projectId, agent_profile_id: profileId }}
+            />
+          )
+        }
         chart={
           <UsageTimeseriesPanel
             orgId={orgId}
