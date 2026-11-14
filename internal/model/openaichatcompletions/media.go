@@ -18,13 +18,7 @@ const claudeImageBase64Limit = 5_000_000
 func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontext.RenderedMedia {
 	var rendered []modelcontext.RenderedMedia
 	compat := p.client.compat()
-	modelCandidates := []string{p.client.ProviderModelSlug}
-	if compat.routesFallbackModels {
-		modelCandidates = append(
-			modelCandidates,
-			openRouterFallbackModelSlugs(p.client.APIVariantOptions)...,
-		)
-	}
+	modelCandidates := p.client.modelCandidates(compat)
 	servesClaude := slices.ContainsFunc(modelCandidates, isClaudeModelSlug)
 	for _, occurrence := range modelcontext.ResolvedMediaOccurrences(bundle) {
 		if occurrence.MessageRole != modelprotocol.RoleUser && !occurrence.IsToolResult() {
@@ -67,6 +61,14 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 		})
 	}
 	return rendered
+}
+
+func (c Client) modelCandidates(compat compat) []string {
+	candidates := []string{c.ProviderModelSlug}
+	if compat.routesFallbackModels {
+		candidates = append(candidates, openRouterFallbackModelSlugs(c.APIVariantOptions)...)
+	}
+	return candidates
 }
 
 func isClaudeModelSlug(slug string) bool {

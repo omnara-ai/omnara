@@ -66,7 +66,7 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		MaxTokens: maxTokens,
 		System:    systemContent(input.Context, control),
 		Messages:  messages,
-		Tools:     buildTools(input.Context.ToolSpecs, control),
+		Tools:     buildTools(model.ClaudeCompatibleToolSpecs(input.Context.ToolSpecs), control),
 	}
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = map[string]string{"type": "auto"}
