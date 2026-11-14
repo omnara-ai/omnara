@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -62,9 +63,81 @@ func TestArkerProviderProvisionKeyIsStableAcrossAttempts(t *testing.T) {
 			t.Fatalf("provision under %s: %v", token, err)
 		}
 	}
-	keys, _, _, _ := fake.snapshot()
+	keys, _, env, _ := fake.snapshot()
 	if len(keys) != 2 || keys[0] != name || keys[1] != name {
 		t.Fatalf("attempts sent keys %v, want the allocation name %q", keys, name)
+	}
+	if env["OMNARA_MACHINE_TOKEN"] != daemonprotocol.ProviderInjectedMachineToken {
+		t.Fatalf("adopted machine env token = %q, want the provider-injected marker", env["OMNARA_MACHINE_TOKEN"])
+	}
+}
+
+func TestArkerProviderAdoptedVMKeepsTheTokenModeItWasForkedWith(t *testing.T) {
+	fake := &fakeArker{sourceRules: `{"egress":{"type":"outbound","priority":1000000,"action":"allow"}}`}
+	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+	config := testProvisioning(testOptions())
+	if _, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID, config, "attempt-1", nil, true,
+	); err != nil {
+		t.Fatalf("provision first attempt: %v", err)
+	}
+	fake.record(func() { fake.sourceRules = `{}` })
+	if _, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID, config, "attempt-2", nil, true,
+	); err != nil {
+		t.Fatalf("provision second attempt: %v", err)
+	}
+	keys, forkBody, env, _ := fake.snapshot()
+	if _, injected := forkBody["policies"]; len(keys) != 2 || !injected || env["OMNARA_MACHINE_TOKEN"] != "attempt-2" {
+		t.Fatalf("forks = %d second injected = %v env token = %q, want the adopted plain-token VM to keep the plain token",
+			len(keys), injected, env["OMNARA_MACHINE_TOKEN"])
+	}
+}
+
+func TestArkerProviderKeepsThePlainTokenWhenTheSourceHoldsTheTopPriority(t *testing.T) {
+	for rules, wantInjected := range map[string]bool{
+		`{"egress":{"type":"outbound","priority":1000000,"action":"allow"}}`:               false,
+		`{"egress":{"type":"outbound","priority":100,"action":"allow"}}`:                   true,
+		`{"omnara-machine-token":{"type":"outbound","priority":1000000,"action":"allow"}}`: true,
+		`{"ingress":{"type":"inbound","priority":1000000,"action":"allow"}}`:               true,
+		`{"egress":{"type":"outbound","priority":1000000,"action":"allow"},` +
+			`"omnara-machine-token":{"type":"outbound","priority":100,"action":"allow"}}`: false,
+		`{"egress":{"type":"outbound","priority":1000000,"action":"allow"},` +
+			`"omnara-machine-token":{"type":"inbound","priority":1000000,"action":"allow"}}`: false,
+	} {
+		fake := &fakeArker{sourceRules: rules}
+		machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+		if _, err := machineProvider.ProvisionMachine(
+			context.Background(), testInstallationID, testMachineID, testProvisioning(testOptions()), "tok-1", nil, true,
+		); err != nil {
+			t.Fatalf("provision with source rules %s: %v", rules, err)
+		}
+		_, forkBody, env, _ := fake.snapshot()
+		_, injected := forkBody["policies"]
+		wantToken := "tok-1"
+		if wantInjected {
+			wantToken = daemonprotocol.ProviderInjectedMachineToken
+		}
+		if injected != wantInjected || env["OMNARA_MACHINE_TOKEN"] != wantToken {
+			t.Fatalf("source rules %s: injected = %v token = %q, want %v %q",
+				rules, injected, env["OMNARA_MACHINE_TOKEN"], wantInjected, wantToken)
+		}
+	}
+}
+
+func TestArkerProviderKeepsThePlainTokenWhenTheAPIURLCannotBeInjected(t *testing.T) {
+	fake := &fakeArker{sourceRules: `{"omnara-machine-token":{"type":"outbound","priority":1000000,"action":"allow"}}`}
+	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+	machineProvider.omnaraAPIURL = "http://omnara.example"
+	if _, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID, testProvisioning(testOptions()), "tok-1", nil, true,
+	); err != nil {
+		t.Fatalf("provision with an http API URL: %v", err)
+	}
+	_, forkBody, env, _ := fake.snapshot()
+	if _, injected := forkBody["policies"]; injected || env["OMNARA_MACHINE_TOKEN"] != "tok-1" {
+		t.Fatalf("injected = %v token = %q, want the plain token despite the inherited rule",
+			injected, env["OMNARA_MACHINE_TOKEN"])
 	}
 }
 
@@ -78,11 +151,22 @@ func TestArkerProviderStartsTheDaemonInASessionWithTheMachineEnv(t *testing.T) {
 	); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
-	_, _, env, command := fake.snapshot()
+	_, forkBody, env, command := fake.snapshot()
 	var sessionID string
 	fake.record(func() { sessionID = fake.runSessionID })
-	if _, dropped := env["MY-VAR"]; dropped || env["OMNARA_MACHINE_TOKEN"] != "tok-1" || env["MY_VAR"] != "value" {
+	if _, dropped := env["MY-VAR"]; dropped ||
+		env["OMNARA_MACHINE_TOKEN"] != daemonprotocol.ProviderInjectedMachineToken || env["MY_VAR"] != "value" {
 		t.Fatalf("session env = %v", env)
+	}
+	policies, err := json.Marshal(forkBody["policies"])
+	if err != nil {
+		t.Fatalf("encode fork policies: %v", err)
+	}
+	const wantPolicies = `{"rules":{"omnara-machine-token":{"action":{"rewrite":{"headers":{"X-Omnara-Machine-Token":` +
+		`"${secret:OMNARA_MACHINE_TOKEN}"}}},"match":{"hosts":["omnara.example"],"ports":[443]},"priority":1000000,"type":"outbound"}},` +
+		`"secrets":{"OMNARA_MACHINE_TOKEN":"tok-1"}}`
+	if string(policies) != wantPolicies {
+		t.Fatalf("fork policies = %s", policies)
 	}
 	if env[providers.ManagedBootstrapScriptEnvVar] != providers.ManagedBootScriptPayload() {
 		t.Fatal("session env is missing the bootstrap payload")
@@ -276,7 +360,7 @@ func TestArkerProviderDeleteFindsTheMachineByNameWhenTheRecordedIDIsGone(t *test
 			deleted <- r.URL.Path
 			fmt.Fprint(w, `{"deleted":true}`)
 		case r.URL.Path == "/v1/vms/"+name:
-			writeVM(w, name, "idle")
+			writeVM(w, name, "idle", "")
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, `{"error":{"code":"not_found","message":"gone"}}`)

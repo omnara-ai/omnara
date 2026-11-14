@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -24,6 +26,7 @@ const (
 	launcherLockPath     = "/tmp/omnara-launcher.lock"
 	installationLabel    = "omnara-installation"
 	machineLabel         = "omnara-machine"
+	machineTokenLabel    = "omnara-machine-token"
 )
 
 type provider struct {
@@ -129,12 +132,25 @@ func (p *provider) ProvisionMachine(
 	env[providers.ManagedBootstrapScriptEnvVar] = providers.ManagedBootScriptPayload()
 	if firstAttempt && !p.createAttempted {
 		p.createAttempted = true
-		created, err := p.api.CreateSandbox(ctx, createSandboxRequest{
+		request := createSandboxRequest{
 			TemplateID: options.Template,
 			Timeout:    createTimeoutSeconds,
 			Metadata:   metadata,
 			Network:    networkConfig{AllowPublicTraffic: false},
-		})
+		}
+		if host, ok := providers.MachineTokenProxyHost(p.omnaraAPIURL); ok {
+			request.Metadata = maps.Clone(metadata)
+			request.Metadata[machineTokenLabel] = daemonprotocol.ProviderInjectedMachineToken
+			request.Network.Rules = map[string][]networkRule{host: {{Transform: networkTransform{
+				Headers: map[string]string{daemonprotocol.MachineTokenHeader: machineToken},
+			}}}}
+		}
+		created, err := p.api.CreateSandbox(ctx, request)
+		if request.Network.Rules != nil && apiStatusCode(err) == http.StatusBadRequest {
+			request.Metadata = metadata
+			request.Network.Rules = nil
+			created, err = p.api.CreateSandbox(ctx, request)
+		}
 		if err != nil {
 			status := apiStatusCode(err)
 			if status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable || isDialError(err) {
@@ -189,6 +205,9 @@ func (p *provider) ProvisionMachine(
 	}
 	if slices.ContainsFunc(processes, func(current process) bool { return current.Tag == daemonProcessTag }) {
 		return result, nil
+	}
+	if target.Metadata[machineTokenLabel] == daemonprotocol.ProviderInjectedMachineToken {
+		env[providers.MachineTokenEnvVar] = daemonprotocol.ProviderInjectedMachineToken
 	}
 	launcher := daemonLauncherArgs()
 	return result, p.api.StartProcess(ctx, target, startProcessRequest{

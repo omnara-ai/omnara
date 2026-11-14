@@ -74,6 +74,12 @@ type fakeAPI struct {
 	deleteCalls        int
 	deletedResourceID  string
 	missingSandboxIDs  map[string]bool
+	secretRequests     []createSecretRequest
+	secretErr          error
+	secretIDs          map[string]string
+	findSecretErr      error
+	deletedSecretIDs   []string
+	calls              []string
 }
 
 func (a *fakeAPI) GetSnapshot(context.Context, string) (snapshot, error) {
@@ -97,6 +103,7 @@ func (a *fakeAPI) CreateSandbox(
 	_ context.Context,
 	request createSandboxRequest,
 ) (sandbox, error) {
+	a.calls = append(a.calls, "create-sandbox")
 	a.createRequest = request
 	if a.sandbox.Name == "" {
 		a.sandbox.Name = request.Name
@@ -142,7 +149,36 @@ func (a *fakeAPI) GetSandbox(_ context.Context, resourceID string) (sandbox, boo
 	return a.sandbox, true, nil
 }
 
+func (a *fakeAPI) CreateSecret(_ context.Context, request createSecretRequest) error {
+	a.calls = append(a.calls, "create-secret")
+	a.secretRequests = append(a.secretRequests, request)
+	if a.secretErr != nil {
+		return a.secretErr
+	}
+	if a.secretIDs == nil {
+		a.secretIDs = map[string]string{}
+	}
+	a.secretIDs[request.Name] = "secret-" + request.Name
+	return nil
+}
+
+func (a *fakeAPI) FindSecret(_ context.Context, name string) (string, bool, error) {
+	a.calls = append(a.calls, "find-secret")
+	if a.findSecretErr != nil {
+		return "", false, a.findSecretErr
+	}
+	id, ok := a.secretIDs[name]
+	return id, ok, nil
+}
+
+func (a *fakeAPI) DeleteSecret(_ context.Context, id string) error {
+	a.calls = append(a.calls, "delete-secret")
+	a.deletedSecretIDs = append(a.deletedSecretIDs, id)
+	return nil
+}
+
 func (a *fakeAPI) DeleteSandbox(_ context.Context, resourceID string) error {
+	a.calls = append(a.calls, "delete-sandbox")
 	a.deleteCalls++
 	a.deletedResourceID = resourceID
 	return nil

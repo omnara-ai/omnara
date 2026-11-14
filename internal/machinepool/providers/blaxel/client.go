@@ -45,8 +45,23 @@ type resourceMetadata struct {
 }
 
 type sandboxSpec struct {
-	Region  string         `json:"region"`
-	Runtime sandboxRuntime `json:"runtime"`
+	Region  string          `json:"region"`
+	Runtime sandboxRuntime  `json:"runtime"`
+	Network *sandboxNetwork `json:"network,omitempty"`
+}
+
+type sandboxNetwork struct {
+	Proxy sandboxProxy `json:"proxy"`
+}
+
+type sandboxProxy struct {
+	Routing []sandboxProxyRoute `json:"routing"`
+}
+
+type sandboxProxyRoute struct {
+	Destinations []string          `json:"destinations"`
+	Headers      map[string]string `json:"headers"`
+	Secrets      map[string]string `json:"secrets"`
 }
 
 type sandboxRuntime struct {

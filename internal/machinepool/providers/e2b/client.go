@@ -63,7 +63,16 @@ type createSandboxRequest struct {
 }
 
 type networkConfig struct {
-	AllowPublicTraffic bool `json:"allowPublicTraffic"`
+	AllowPublicTraffic bool                     `json:"allowPublicTraffic"`
+	Rules              map[string][]networkRule `json:"rules,omitempty"`
+}
+
+type networkRule struct {
+	Transform networkTransform `json:"transform"`
+}
+
+type networkTransform struct {
+	Headers map[string]string `json:"headers"`
 }
 
 type process struct {

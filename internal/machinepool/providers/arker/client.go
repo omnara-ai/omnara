@@ -13,9 +13,35 @@ import (
 )
 
 type forkRequest struct {
-	SourceVMName string    `json:"source_vm_name"`
-	Name         string    `json:"name"`
-	Resources    resources `json:"resources"`
+	SourceVMName string        `json:"source_vm_name"`
+	Name         string        `json:"name"`
+	Resources    resources     `json:"resources"`
+	Policies     *forkPolicies `json:"policies,omitempty"`
+}
+
+type forkPolicies struct {
+	Rules   map[string]policyRule `json:"rules"`
+	Secrets map[string]string     `json:"secrets"`
+}
+
+type policyRule struct {
+	Type     string       `json:"type"`
+	Priority int          `json:"priority"`
+	Match    policyMatch  `json:"match"`
+	Action   policyAction `json:"action"`
+}
+
+type policyMatch struct {
+	Hosts []string `json:"hosts"`
+	Ports []int    `json:"ports"`
+}
+
+type policyAction struct {
+	Rewrite policyRewrite `json:"rewrite"`
+}
+
+type policyRewrite struct {
+	Headers map[string]string `json:"headers"`
 }
 
 type resources struct {
@@ -24,9 +50,15 @@ type resources struct {
 }
 
 type vm struct {
-	ID    string `json:"vm_id"`
-	Name  string `json:"name"`
-	State string `json:"state"`
+	ID       string `json:"vm_id"`
+	Name     string `json:"name"`
+	State    string `json:"state"`
+	Policies struct {
+		Rules map[string]struct {
+			Type     string `json:"type"`
+			Priority int    `json:"priority"`
+		} `json:"rules"`
+	} `json:"policies"`
 }
 
 type runRequest struct {
@@ -157,4 +189,9 @@ func (e apiError) Error() string {
 func isNotFound(err error) bool {
 	var apiErr apiError
 	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
+}
+
+func isConflict(err error) bool {
+	var apiErr apiError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict
 }

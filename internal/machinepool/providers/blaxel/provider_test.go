@@ -62,8 +62,21 @@ func TestBlaxelProviderProvisionCreatesSandboxAndDaemon(t *testing.T) {
 	if len(env) != 3 ||
 		env["OMNARA_API_URL"] != "https://api.omnara.test/v1" ||
 		env["OMNARA_INSTALLER_URL"] != "https://api.omnara.test/install/omnarad.sh" ||
-		env["OMNARA_MACHINE_TOKEN"] != "machine-token" {
+		env["OMNARA_MACHINE_TOKEN"] != daemonprotocol.ProviderInjectedMachineToken {
 		t.Fatalf("unexpected sandbox env: %+v", create.Spec.Runtime.Envs)
+	}
+	if create.Spec.Network == nil || len(create.Spec.Network.Proxy.Routing) != 1 {
+		t.Fatalf("unexpected sandbox network: %+v", create.Spec.Network)
+	}
+	route := create.Spec.Network.Proxy.Routing[0]
+	if !slices.Equal(route.Destinations, []string{"api.omnara.test"}) || len(route.Secrets) != 1 {
+		t.Fatalf("unexpected proxy route: %+v", route)
+	}
+	for secretName, secretValue := range route.Secrets {
+		if !strings.HasPrefix(secretName, "omnara-machine-token-") || secretValue != "machine-token" ||
+			route.Headers[daemonprotocol.MachineTokenHeader] != "{{SECRET:"+secretName+"}}" || len(route.Headers) != 1 {
+			t.Fatalf("unexpected proxy route: %+v", route)
+		}
 	}
 	if _, ok := env[testStartupScriptEnvVar]; ok {
 		t.Fatalf("startup payload should be omitted: %+v", create.Spec.Runtime.Envs)
@@ -184,8 +197,35 @@ func TestBlaxelProviderProvisionIncludesMachineEnv(t *testing.T) {
 	if env["APP_ENV"] != "production" || env["GITHUB_TOKEN"] != "resolved-secret" {
 		t.Fatalf("sandbox env missing machine env: %+v", env)
 	}
-	if env["OMNARA_API_URL"] == "" || env["OMNARA_MACHINE_TOKEN"] != "machine-token" {
+	if env["OMNARA_API_URL"] == "" || env["OMNARA_MACHINE_TOKEN"] != daemonprotocol.ProviderInjectedMachineToken {
 		t.Fatalf("sandbox env missing bootstrap env: %+v", env)
+	}
+}
+
+func TestBlaxelProviderProvisionKeepsTokenInEnvWithoutHTTPSHostname(t *testing.T) {
+	for _, apiURL := range []string{"http://api.omnara.test/v1", "https://203.0.113.10/v1"} {
+		api := newFakeAPI()
+		provider := newTestProvider(api)
+		provider.omnaraAPIURL = apiURL
+
+		_, err := provider.ProvisionMachine(
+			context.Background(),
+			testInstallationID(),
+			uuid.New(),
+			testMachineProvisioning(t, map[string]any{"startup_script": "echo ready\n"}),
+			"machine-token",
+			nil,
+			true,
+		)
+		if err != nil {
+			t.Fatalf("provision blaxel machine with %s: %v", apiURL, err)
+		}
+		create := api.createRequests[0]
+		env := sandboxEnvMap(create.Spec.Runtime.Envs)
+		if create.Spec.Network != nil || env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
+			env[testStartupScriptEnvVar] != base64.StdEncoding.EncodeToString([]byte("echo ready\n")) {
+			t.Fatalf("api url %s: network = %+v, env = %+v", apiURL, create.Spec.Network, env)
+		}
 	}
 }
 
@@ -212,7 +252,7 @@ func TestBlaxelProviderProvisionRunsStartupScriptBeforeDaemon(t *testing.T) {
 		t.Fatalf("process command does not run startup before daemon")
 	}
 	env := sandboxEnvMap(api.createRequests[0].Spec.Runtime.Envs)
-	wantPayload := base64.StdEncoding.EncodeToString([]byte(startupScript))
+	wantPayload := base64.StdEncoding.EncodeToString([]byte(providers.StartupScriptWithoutProxyEnv(startupScript)))
 	if env[testStartupScriptEnvVar] != wantPayload {
 		t.Fatalf("startup payload = %q, want %q", env[testStartupScriptEnvVar], wantPayload)
 	}
