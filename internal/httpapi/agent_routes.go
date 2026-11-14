@@ -354,7 +354,11 @@ func (s strictOpenAPIServer) deleteAgentProfile(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
 	}
-	if err := s.server.store.Execution().DeleteAgentProfile(ctx, project.ID, profileID); err != nil {
+	canDeleteBudgets, err := s.server.canManageOrg(ctx, project.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.server.store.Execution().DeleteAgentProfile(ctx, project.ID, profileID, canDeleteBudgets); err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
 	return openapi.DeleteAgentProfile204Response{}, nil

@@ -2445,7 +2445,7 @@ export const createAgentProfileMutation = (options?: Partial<Options<CreateAgent
 /**
  * Delete agent profile
  *
- * Deletes the profile, all of its profile versions, and any cron triggers targeting the profile. Agents launched from the profile are retained and keep running: each agent holds an immutable snapshot of the configuration it was launched with, so its reference to the profile becomes historical provenance only. Integration settings may retain the public profile ID; future launches fail as unavailable until those settings reference an available profile.
+ * Deletes the profile, all of its profile versions, and any cron triggers targeting the profile. Also deletes the profile's budgets, which requires an org admin; other callers get 409 while the profile has budgets. Agents launched from the profile are retained and keep running: each agent holds an immutable snapshot of the configuration it was launched with, so its reference to the profile becomes historical provenance only. Integration settings may retain the public profile ID; future launches fail as unavailable until those settings reference an available profile.
  */
 export const deleteAgentProfileMutation = (options?: Partial<Options<DeleteAgentProfileData>>): UseMutationOptions<DeleteAgentProfileResponse, DeleteAgentProfileError, Options<DeleteAgentProfileData>> => {
     const mutationOptions: UseMutationOptions<DeleteAgentProfileResponse, DeleteAgentProfileError, Options<DeleteAgentProfileData>> = {

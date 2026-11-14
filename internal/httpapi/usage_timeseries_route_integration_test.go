@@ -56,7 +56,7 @@ func TestGetOrgUsageTimeseries(t *testing.T) {
 		t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID, child,
 		modelenvelope.Usage{InputTokens: 10, UncachedInputTokens: 10, OutputTokens: 2}, "",
 	)
-	if err := store.Execution().DeleteAgentProfile(ctx, secondProjectUUID, second.Agent.AgentProfileID); err != nil {
+	if err := store.Execution().DeleteAgentProfile(ctx, secondProjectUUID, second.Agent.AgentProfileID, true); err != nil {
 		t.Fatalf("delete second profile: %v", err)
 	}
 

@@ -139,7 +139,7 @@ func TestScheduledLaunchRetryReusesConfigFrozenBeforeProfileEdit(t *testing.T) {
 func TestScheduledLaunchRejectsDeletedProfileBeforePublication(t *testing.T) {
 	f := newScheduledJourney(t)
 	receipt := f.fire()
-	require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, f.profile.ID))
+	require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, f.profile.ID, true))
 	worker := NewIntegrationInboxWorker(f.store.Integrations(), f.consumer, IntegrationInboxWorkerOptions{})
 	err := worker.consume(t.Context(), receipt)
 	require.ErrorContains(t, err, "load agent profile")

@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -374,34 +375,53 @@ func TestBudgetsForProfilesAndAgents(t *testing.T) {
 	requestJSONWithHeaders(t, handler, http.MethodGet, budgetsPath+"?agent_id="+agentID, "", "",
 		http.StatusBadRequest, admin)
 
+	denial := func(agent executionstore.AgentRecord) string {
+		_, claim := claimHTTPModelCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID,
+			project.AdminUserUUID, agent)
+		require.False(t, claim.Claimed)
+		return claim.Context.ErrorMessage
+	}
 	sibling, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID: project.ProjectUUID, ProfileID: agent.AgentProfileID, AgentConfigID: agent.CurrentConfigID,
 		LaunchedBy: httpUserPrincipal(project.AdminUserUUID), IdempotencyKey: "budget-sibling",
 	})
 	require.NoError(t, err)
-	_, claim := claimHTTPModelCallForAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID,
-		project.AdminUserUUID, sibling.Agent)
-	require.False(t, claim.Claimed)
-	require.Equal(t, storeerr.BudgetReachedMessage("profile", "month"), claim.Context.ErrorMessage,
+	require.Equal(t, storeerr.BudgetReachedMessage("profile", "month"), denial(sibling.Agent),
 		"another agent from the profile hits the profile budget, not the first agent's own budget")
 
 	create(map[string]any{
 		"type": "profile", "project_id": project.ProjectID,
 		"agent_profile_id": encode(publicid.KindAgentProfile, uuid.New()),
 	}, "month", http.StatusNotFound)
-	child := uuid.New()
-	_, err = pool.Exec(ctx, `
-INSERT INTO agents(id, org_id, project_id, state, current_config_id, parent_agent_id, root_agent_id, subagent_key,
-                   created_at, updated_at)
-SELECT $1, org_id, project_id, state, current_config_id, id, id, 'child', now(), now() FROM agents WHERE id = $2`,
-		child, agent.ID)
+	actor, err := executionstore.SubagentActorParams(agent.OrgID, agent)
 	require.NoError(t, err)
+	spawn := func(key string) executionstore.AgentRecord {
+		launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+			ProjectID: project.ProjectUUID, AgentConfigID: agent.CurrentConfigID,
+			LaunchedBy: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: agent.ID},
+			Name:       &key, MessageActor: actor, IdempotencyKey: "budget-" + key,
+			Subagent: &executionstore.SubagentLaunch{
+				ParentAgentID: agent.ID, Key: key, MaxDepth: agentconfig.MaxSubagentDepth,
+			},
+		})
+		require.NoError(t, err)
+		return launched.Agent
+	}
+	child := spawn("child")
 	create(map[string]any{
-		"type": "agent", "project_id": project.ProjectID, "agent_id": encode(publicid.KindAgent, child),
+		"type": "agent", "project_id": project.ProjectID, "agent_id": encode(publicid.KindAgent, child.ID),
 	}, "month", http.StatusBadRequest)
+	require.Equal(t, storeerr.BudgetReachedMessage("profile", "month"), denial(child),
+		"a subagent without a profile hits its top-level agent's profile budget")
 
 	profilePath := project.ProjectPath + "/agent-profiles/" + profileID
+	developer := authHeaders(createHTTPProjectMemberToken(t, ctx, pool, project, "budget-developer", "developer"))
+	refused := requestJSONWithHeaders(t, handler, http.MethodDelete, profilePath, "", "", http.StatusConflict, developer)
+	require.Contains(t, refused["error"], "only an org admin")
+	get(profileBudget["id"], http.StatusOK)
 	requestJSONWithHeaders(t, handler, http.MethodDelete, profilePath, "", "", http.StatusNoContent, admin)
 	get(profileBudget["id"], http.StatusNotFound)
 	get(agentBudget["id"], http.StatusOK)
+	require.Equal(t, storeerr.BudgetReachedMessage("agent", "lifetime"), denial(spawn("second-child")),
+		"a subagent hits its top-level agent's budget")
 }

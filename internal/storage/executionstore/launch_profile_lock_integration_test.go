@@ -89,7 +89,7 @@ func TestLaunchProfileLocks(t *testing.T) {
 			after, err := store.Execution().LaunchAgent(ctx, input)
 			require.NoError(t, err)
 			require.Equal(t, config.ID, after.Agent.CurrentConfigID)
-			require.NoError(t, store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID))
+			require.NoError(t, store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID, true))
 			input.IdempotencyKey = "after-delete"
 			_, err = store.Execution().LaunchAgent(ctx, input)
 			require.ErrorIs(t, err, storeerr.ErrNotFound)

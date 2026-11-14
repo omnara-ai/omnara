@@ -147,7 +147,7 @@ func TestScheduledDiscordStartupFailureIsTerminal(t *testing.T) {
 					return true
 				}
 				if test.deleteProfile {
-					if !assert.NoError(t, f.store.Execution().DeleteAgentProfile(r.Context(), f.ids.ProjectID, f.profile.ID)) {
+					if !assert.NoError(t, f.store.Execution().DeleteAgentProfile(r.Context(), f.ids.ProjectID, f.profile.ID, true)) {
 						w.WriteHeader(http.StatusInternalServerError)
 						return true
 					}
