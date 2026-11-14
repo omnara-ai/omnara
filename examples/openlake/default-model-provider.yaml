@@ -1,0 +1,89 @@
+# OpenLake platform catalog snapshot, 2026-11-10.
+# Includes the nine visible models; checkpoints marked is_visible=false are excluded.
+# Unknown output ceilings are omitted; 4096 is the example request allowance.
+# Reasoning effort values and pricing units were not specified by the catalog.
+provisioner: openlake
+name: omnara-openlake
+credential_secret_name: omnara-openlake-key
+api_format: openai-chat-completions
+api_variant: default
+base_url: https://api.theopenlake.com/v1
+endpoint_path: /chat/completions
+auth_kind: bearer_token
+models:
+  - name: google/gemma-4-31b-it
+    provider_model_slug: google/gemma-4-31b-it
+    context_window_tokens: 262144
+    max_output_tokens: 32768
+    default_max_output_tokens: 4096
+    supports_tools: true
+    input_modalities: [text, image]
+    output_modalities: [text]
+  - name: moonshotai/kimi-k3
+    provider_model_slug: moonshotai/kimi-k3
+    context_window_tokens: 1048576
+    default_max_output_tokens: 4096
+    supports_tools: true
+    supports_reasoning: true
+    input_modalities: [text, image]
+    output_modalities: [text]
+  - name: z-ai/glm-5
+    provider_model_slug: z-ai/glm-5
+    context_window_tokens: 204800
+    max_output_tokens: 131072
+    default_max_output_tokens: 4096
+    supports_tools: true
+    supports_reasoning: true
+    input_modalities: [text]
+    output_modalities: [text]
+  - name: z-ai/glm-5.2
+    provider_model_slug: z-ai/glm-5.2
+    context_window_tokens: 1048576
+    default_max_output_tokens: 4096
+    supports_tools: true
+    supports_reasoning: true
+    input_modalities: [text]
+    output_modalities: [text]
+  - name: z-ai/glm-5.3-flash
+    provider_model_slug: z-ai/glm-5.3-flash
+    context_window_tokens: 1048576
+    max_output_tokens: 943718
+    default_max_output_tokens: 4096
+    supports_tools: true
+    supports_reasoning: true
+    input_modalities: [text, image]
+    output_modalities: [text]
+  - name: z-ai/glm-5.3
+    provider_model_slug: z-ai/glm-5.3
+    context_window_tokens: 1048576
+    max_output_tokens: 131072
+    default_max_output_tokens: 4096
+    supports_tools: true
+    supports_reasoning: true
+    input_modalities: [text]
+    output_modalities: [text]
+  - name: deepseek/deepseek-v4-flash-0731
+    provider_model_slug: deepseek/deepseek-v4-flash-0731
+    context_window_tokens: 1048576
+    default_max_output_tokens: 4096
+    supports_tools: true
+    input_modalities: [text]
+    output_modalities: [text]
+  - name: deepseek/deepseek-v4.1-flash
+    provider_model_slug: deepseek/deepseek-v4.1-flash
+    context_window_tokens: 1048576
+    max_output_tokens: 943718
+    default_max_output_tokens: 4096
+    supports_tools: true
+    supports_reasoning: true
+    input_modalities: [text, image]
+    output_modalities: [text]
+  - name: meta/muse-spark-open
+    provider_model_slug: meta/muse-spark-open
+    context_window_tokens: 1048576
+    max_output_tokens: 943718
+    default_max_output_tokens: 4096
+    supports_tools: true
+    supports_reasoning: true
+    input_modalities: [text, image]
+    output_modalities: [text]
