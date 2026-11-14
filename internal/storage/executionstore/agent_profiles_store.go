@@ -514,7 +514,7 @@ func (s *Store) ListProjectLastActivity(
 	return activity, nil
 }
 
-func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID) error {
+func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID, canDeleteBudgets bool) error {
 	if projectID == uuid.Nil || id == uuid.Nil {
 		return errors.New("project and agent profile are required")
 	}
@@ -533,6 +533,15 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID)
 	}
 	if _, err := lockAgentProfileTx(ctx, qtx, projectID, id); err != nil {
 		return err
+	}
+	budgets, err := qtx.DeleteBudgetsForAgentProfile(ctx, dbsqlc.DeleteBudgetsForAgentProfileParams{
+		OrgID: project.OrgID, ProjectID: projectID, AgentProfileID: id,
+	})
+	if err != nil {
+		return fmt.Errorf("delete agent profile budgets: %w", err)
+	}
+	if budgets > 0 && !canDeleteBudgets {
+		return storeerr.Tag(storeerr.ErrConflict, errors.New("only an org admin can delete a profile that has budgets"))
 	}
 	rows, err := qtx.DeleteAgentProfile(
 		ctx,
@@ -558,11 +567,6 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID)
 		ProjectID: projectID, AgentProfileID: &id,
 	}); err != nil {
 		return fmt.Errorf("delete agent profile webhooks: %w", err)
-	}
-	if err := qtx.DeleteBudgetsForAgentProfile(ctx, dbsqlc.DeleteBudgetsForAgentProfileParams{
-		OrgID: project.OrgID, ProjectID: projectID, AgentProfileID: id,
-	}); err != nil {
-		return fmt.Errorf("delete agent profile budgets: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit delete agent profile: %w", err)

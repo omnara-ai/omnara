@@ -64,7 +64,9 @@ func TestLauncherDeletedProfilesFailClearlyWithoutNarrowingOrBlockingObservers(t
 		t.Run(fmt.Sprintf("profiles=%d", count), func(t *testing.T) {
 			f := newChoiceJourney(t, count)
 			observer := launcherObserver(t, f)
-			require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, f.profiles[count-1].ID))
+			require.NoError(t, f.store.Execution().DeleteAgentProfile(
+				t.Context(), f.ids.ProjectID, f.profiles[count-1].ID, true,
+			))
 			results := f.receive("deleted-profile", f.event)
 			require.Len(t, results, 1)
 			require.Nil(t, results[0].Launch)
@@ -86,7 +88,7 @@ func TestLauncherMissingIntentProfileReportsUnavailable(t *testing.T) {
 			LaunchKey: integrationdefinition.ProfileLaunchKey,
 		}}, nil
 	}
-	require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, f.profiles[0].ID))
+	require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, f.profiles[0].ID, true))
 	require.Empty(t, f.receive("missing-intent-profile", f.event))
 	require.Equal(t, []string{launchUnavailableMessage}, f.provider.notices)
 }
@@ -102,7 +104,7 @@ func TestLauncherArchivedOwnerWithScheduledKeyPreventsRespawn(t *testing.T) {
 	_, _, err = f.store.Execution().ArchiveAgent(t.Context(), f.ids.ProjectID, owner.ID,
 		identitystore.NewUserPrincipal(f.ids.ProviderAdminUserID))
 	require.NoError(t, err)
-	require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, f.profiles[0].ID))
+	require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, f.profiles[0].ID, true))
 	event := f.event
 	event.SemanticKey = "later-mention"
 	event.ContentBlocks = json.RawMessage(`[{"type":"text","text":"please continue"}]`)
@@ -127,7 +129,7 @@ func TestLauncherLateSiblingFindsScheduledOwnerWithoutSubscriptionOrLiveProfile(
 	_, err = f.pool.Exec(t.Context(),
 		`UPDATE integration_targets SET launch_key='scheduled' WHERE agent_id=$1`, owner.ID)
 	require.NoError(t, err)
-	require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, owner.AgentProfileID))
+	require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, owner.AgentProfileID, true))
 	content, artifactID := []byte("original attachment"), uuid.New()
 	event := f.event
 	event.SemanticKey = "late-files"

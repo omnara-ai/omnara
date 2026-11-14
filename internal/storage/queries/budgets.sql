@@ -53,7 +53,7 @@ WHERE org_id = sqlc.arg(org_id) AND id = sqlc.arg(id) AND deleted_at IS NULL;
 UPDATE budgets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id)::uuid AND deleted_at IS NULL;
 
--- name: DeleteBudgetsForAgentProfile :exec
+-- name: DeleteBudgetsForAgentProfile :execrows
 UPDATE budgets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id)::uuid
   AND agent_profile_id = sqlc.arg(agent_profile_id)::uuid AND deleted_at IS NULL;
