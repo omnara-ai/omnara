@@ -529,7 +529,7 @@ export const listBudgetsQueryKey = (options: Options<ListBudgetsData>) => create
 /**
  * List budgets
  *
- * Lists the organization's budgets, ordered by created_at then id ascending. scope_type=org returns organization-wide budgets; scope_type=project with project_id returns that project's budgets. project_id requires scope_type=project.
+ * Lists the organization's budgets, ordered by created_at then id ascending. scope_type=org returns organization-wide budgets; scope_type=project with project_id returns that project's budgets; scope_type=profile with project_id and agent_profile_id returns that profile's budgets; scope_type=agent with project_id and agent_id returns that agent's budgets. The ID filters require their scope_type.
  */
 export const listBudgetsOptions = (options: Options<ListBudgetsData>): UnusedSkipTokenOptions<ListBudgetsResponse2, ListBudgetsError, ListBudgetsResponse2, ReturnType<typeof listBudgetsQueryKey>> & { queryKey: DataTag<ReturnType<typeof listBudgetsQueryKey>, ListBudgetsResponse2, ListBudgetsError> } => queryOptions<ListBudgetsResponse2, ListBudgetsError, ListBudgetsResponse2, ReturnType<typeof listBudgetsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -549,7 +549,7 @@ export const listBudgetsInfiniteQueryKey = (options: Options<ListBudgetsData>): 
 /**
  * List budgets
  *
- * Lists the organization's budgets, ordered by created_at then id ascending. scope_type=org returns organization-wide budgets; scope_type=project with project_id returns that project's budgets. project_id requires scope_type=project.
+ * Lists the organization's budgets, ordered by created_at then id ascending. scope_type=org returns organization-wide budgets; scope_type=project with project_id returns that project's budgets; scope_type=profile with project_id and agent_profile_id returns that profile's budgets; scope_type=agent with project_id and agent_id returns that agent's budgets. The ID filters require their scope_type.
  */
 export const listBudgetsInfiniteOptions = (options: Options<ListBudgetsData>): Omit<UnusedSkipTokenInfiniteOptions<ListBudgetsResponse2, ListBudgetsError, InfiniteData<ListBudgetsResponse2>, QueryKey<Options<ListBudgetsData>>, string | Pick<QueryKey<Options<ListBudgetsData>>[0], 'body' | 'headers' | 'path' | 'query'>> & { queryKey: DataTag<QueryKey<Options<ListBudgetsData>>, InfiniteData<ListBudgetsResponse2>, ListBudgetsError> }, 'initialData'> => {
     const opts = infiniteQueryOptions<ListBudgetsResponse2, ListBudgetsError, InfiniteData<ListBudgetsResponse2>, QueryKey<Options<ListBudgetsData>>, string | Pick<QueryKey<Options<ListBudgetsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -579,7 +579,7 @@ export const listBudgetsInfiniteOptions = (options: Options<ListBudgetsData>): O
 /**
  * Create a budget
  *
- * Sets a model spend budget for the organization or one project. Once spend in the current interval reaches the budget, new model calls in that scope stop until the budget is raised or removed, or the interval resets; calls already running finish. Each scope can have one budget per interval; duplicates return 409.
+ * Sets a model spend budget for the organization, a project, an agent profile, or a top-level agent. Profile and agent budgets include subagents. Once spend in the current interval reaches the budget, new model calls in that scope stop until the budget is raised or removed, or the interval resets; calls already running finish. Each scope can have one budget per interval; duplicates return 409.
  */
 export const createBudgetMutation = (options?: Partial<Options<CreateBudgetData>>): UseMutationOptions<CreateBudgetResponse, CreateBudgetError, Options<CreateBudgetData>> => {
     const mutationOptions: UseMutationOptions<CreateBudgetResponse, CreateBudgetError, Options<CreateBudgetData>> = {

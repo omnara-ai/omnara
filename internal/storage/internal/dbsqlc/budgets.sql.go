@@ -30,6 +30,23 @@ func (q *Queries) DeleteBudget(ctx context.Context, arg DeleteBudgetParams) (int
 	return result.RowsAffected(), nil
 }
 
+const deleteBudgetsForAgentProfile = `-- name: DeleteBudgetsForAgentProfile :exec
+UPDATE budgets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
+WHERE org_id = $1 AND project_id = $2::uuid
+  AND agent_profile_id = $3::uuid AND deleted_at IS NULL
+`
+
+type DeleteBudgetsForAgentProfileParams struct {
+	OrgID          uuid.UUID
+	ProjectID      uuid.UUID
+	AgentProfileID uuid.UUID
+}
+
+func (q *Queries) DeleteBudgetsForAgentProfile(ctx context.Context, arg DeleteBudgetsForAgentProfileParams) error {
+	_, err := q.db.Exec(ctx, deleteBudgetsForAgentProfile, arg.OrgID, arg.ProjectID, arg.AgentProfileID)
+	return err
+}
+
 const deleteBudgetsForProjectDeletion = `-- name: DeleteBudgetsForProjectDeletion :exec
 UPDATE budgets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE org_id = $1 AND project_id = $2::uuid AND deleted_at IS NULL
@@ -60,11 +77,13 @@ func (q *Queries) DeleteOrganizationBudgets(ctx context.Context, arg DeleteOrgan
 }
 
 const getBudget = `-- name: GetBudget :one
-SELECT budget.id, budget.org_id, budget.project_id, budget.interval, budget.amount_usd::text AS amount_usd,
-       budget.created_at, budget.updated_at,
+SELECT budget.id, budget.org_id, budget.project_id, budget.agent_profile_id, budget.agent_id, budget.interval,
+       budget.amount_usd::text AS amount_usd, budget.created_at, budget.updated_at,
        cost.effective_cost_usd::text AS spent_usd
 FROM budgets budget
-CROSS JOIN LATERAL budget_interval_cost(budget.org_id, budget.project_id, budget.interval) cost
+CROSS JOIN LATERAL budget_interval_cost(
+  budget.org_id, budget.project_id, budget.agent_profile_id, budget.agent_id, budget.interval
+) cost
 WHERE budget.org_id = $1 AND budget.id = $2 AND budget.deleted_at IS NULL
 `
 
@@ -74,14 +93,16 @@ type GetBudgetParams struct {
 }
 
 type GetBudgetRow struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	ProjectID *uuid.UUID
-	Interval  string
-	AmountUsd string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	SpentUsd  string
+	ID             uuid.UUID
+	OrgID          uuid.UUID
+	ProjectID      *uuid.UUID
+	AgentProfileID *uuid.UUID
+	AgentID        *uuid.UUID
+	Interval       string
+	AmountUsd      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	SpentUsd       string
 }
 
 func (q *Queries) GetBudget(ctx context.Context, arg GetBudgetParams) (GetBudgetRow, error) {
@@ -91,6 +112,8 @@ func (q *Queries) GetBudget(ctx context.Context, arg GetBudgetParams) (GetBudget
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
+		&i.AgentProfileID,
+		&i.AgentID,
 		&i.Interval,
 		&i.AmountUsd,
 		&i.CreatedAt,
@@ -101,32 +124,42 @@ func (q *Queries) GetBudget(ctx context.Context, arg GetBudgetParams) (GetBudget
 }
 
 const insertBudget = `-- name: InsertBudget :one
-INSERT INTO budgets (org_id, project_id, interval, amount_usd)
-VALUES ($1, $2, $3, $4::text::numeric)
-RETURNING id, org_id, project_id, interval, amount_usd::text AS amount_usd, created_at, updated_at
+INSERT INTO budgets (org_id, project_id, agent_profile_id, agent_id, interval, amount_usd)
+VALUES (
+  $1, $2, $3, $4,
+  $5, $6::text::numeric
+)
+RETURNING id, org_id, project_id, agent_profile_id, agent_id, interval, amount_usd::text AS amount_usd,
+          created_at, updated_at
 `
 
 type InsertBudgetParams struct {
-	OrgID     uuid.UUID
-	ProjectID *uuid.UUID
-	Interval  string
-	AmountUsd string
+	OrgID          uuid.UUID
+	ProjectID      *uuid.UUID
+	AgentProfileID *uuid.UUID
+	AgentID        *uuid.UUID
+	Interval       string
+	AmountUsd      string
 }
 
 type InsertBudgetRow struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	ProjectID *uuid.UUID
-	Interval  string
-	AmountUsd string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             uuid.UUID
+	OrgID          uuid.UUID
+	ProjectID      *uuid.UUID
+	AgentProfileID *uuid.UUID
+	AgentID        *uuid.UUID
+	Interval       string
+	AmountUsd      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 func (q *Queries) InsertBudget(ctx context.Context, arg InsertBudgetParams) (InsertBudgetRow, error) {
 	row := q.db.QueryRow(ctx, insertBudget,
 		arg.OrgID,
 		arg.ProjectID,
+		arg.AgentProfileID,
+		arg.AgentID,
 		arg.Interval,
 		arg.AmountUsd,
 	)
@@ -135,6 +168,8 @@ func (q *Queries) InsertBudget(ctx context.Context, arg InsertBudgetParams) (Ins
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
+		&i.AgentProfileID,
+		&i.AgentID,
 		&i.Interval,
 		&i.AmountUsd,
 		&i.CreatedAt,
@@ -144,40 +179,50 @@ func (q *Queries) InsertBudget(ctx context.Context, arg InsertBudgetParams) (Ins
 }
 
 const listBudgets = `-- name: ListBudgets :many
-SELECT budget.id, budget.org_id, budget.project_id, budget.interval, budget.amount_usd::text AS amount_usd,
-       budget.created_at, budget.updated_at,
+SELECT budget.id, budget.org_id, budget.project_id, budget.agent_profile_id, budget.agent_id, budget.interval,
+       budget.amount_usd::text AS amount_usd, budget.created_at, budget.updated_at,
        cost.effective_cost_usd::text AS spent_usd
 FROM budgets budget
-CROSS JOIN LATERAL budget_interval_cost(budget.org_id, budget.project_id, budget.interval) cost
+CROSS JOIN LATERAL budget_interval_cost(
+  budget.org_id, budget.project_id, budget.agent_profile_id, budget.agent_id, budget.interval
+) cost
 WHERE budget.org_id = $1
-  AND (NOT $2::boolean OR budget.project_id IS NOT DISTINCT FROM $3::uuid)
+  AND (NOT $2::boolean OR (
+    budget.project_id IS NOT DISTINCT FROM $3::uuid
+    AND budget.agent_profile_id IS NOT DISTINCT FROM $4::uuid
+    AND budget.agent_id IS NOT DISTINCT FROM $5::uuid
+  ))
   AND budget.deleted_at IS NULL
   AND (budget.created_at, budget.id) > (
-    coalesce($4::timestamptz, '-infinity'::timestamptz),
-    coalesce($5::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+    coalesce($6::timestamptz, '-infinity'::timestamptz),
+    coalesce($7::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
   )
 ORDER BY budget.created_at, budget.id
-LIMIT $6
+LIMIT $8
 `
 
 type ListBudgetsParams struct {
 	OrgID           uuid.UUID
 	FilterScope     bool
 	ProjectID       *uuid.UUID
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
 	CursorCreatedAt *time.Time
 	CursorID        *uuid.UUID
 	RowLimit        int32
 }
 
 type ListBudgetsRow struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	ProjectID *uuid.UUID
-	Interval  string
-	AmountUsd string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	SpentUsd  string
+	ID             uuid.UUID
+	OrgID          uuid.UUID
+	ProjectID      *uuid.UUID
+	AgentProfileID *uuid.UUID
+	AgentID        *uuid.UUID
+	Interval       string
+	AmountUsd      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	SpentUsd       string
 }
 
 func (q *Queries) ListBudgets(ctx context.Context, arg ListBudgetsParams) ([]ListBudgetsRow, error) {
@@ -185,6 +230,8 @@ func (q *Queries) ListBudgets(ctx context.Context, arg ListBudgetsParams) ([]Lis
 		arg.OrgID,
 		arg.FilterScope,
 		arg.ProjectID,
+		arg.AgentProfileID,
+		arg.AgentID,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.RowLimit,
@@ -200,6 +247,8 @@ func (q *Queries) ListBudgets(ctx context.Context, arg ListBudgetsParams) ([]Lis
 			&i.ID,
 			&i.OrgID,
 			&i.ProjectID,
+			&i.AgentProfileID,
+			&i.AgentID,
 			&i.Interval,
 			&i.AmountUsd,
 			&i.CreatedAt,
@@ -216,41 +265,41 @@ func (q *Queries) ListBudgets(ctx context.Context, arg ListBudgetsParams) ([]Lis
 	return items, nil
 }
 
-const mergeProjectDailyModelCosts = `-- name: MergeProjectDailyModelCosts :exec
+const mergeDailyModelCosts = `-- name: MergeDailyModelCosts :exec
 WITH pending AS (
-    SELECT cost.org_id, cost.day, cost.project_id, cost.model_call_context_id
-    FROM model_call_contexts c JOIN project_daily_model_costs cost
+    SELECT cost.org_id, cost.model_call_context_id
+    FROM model_call_contexts c JOIN daily_model_costs cost
         ON cost.org_id = c.org_id AND cost.model_call_context_id IS NOT NULL
     WHERE c.agent_id = $1 AND c.id = $2
-      AND pg_try_advisory_xact_lock(hashtextextended('project_daily_model_costs:' || c.org_id::text, 0))
+      AND pg_try_advisory_xact_lock(hashtextextended('daily_model_costs:' || c.org_id::text, 0))
     LIMIT 1000
 ), calls AS (
-    DELETE FROM project_daily_model_costs cost USING pending
-    WHERE cost.org_id = pending.org_id AND cost.day = pending.day AND cost.project_id = pending.project_id
-      AND cost.model_call_context_id = pending.model_call_context_id
-    RETURNING cost.org_id, cost.day, cost.project_id, cost.effective_cost_usd
+    DELETE FROM daily_model_costs cost USING pending
+    WHERE cost.org_id = pending.org_id AND cost.model_call_context_id = pending.model_call_context_id
+    RETURNING cost.org_id, cost.day, cost.project_id, cost.agent_profile_id, cost.effective_cost_usd
 )
-INSERT INTO project_daily_model_costs(org_id, day, project_id, effective_cost_usd)
-SELECT org_id, day, project_id, sum(effective_cost_usd)
-FROM calls GROUP BY org_id, day, project_id
-ON CONFLICT (org_id, day, project_id, model_call_context_id) DO UPDATE
-SET effective_cost_usd = project_daily_model_costs.effective_cost_usd + EXCLUDED.effective_cost_usd
+INSERT INTO daily_model_costs(org_id, day, project_id, agent_profile_id, effective_cost_usd)
+SELECT org_id, day, project_id, agent_profile_id, sum(effective_cost_usd)
+FROM calls GROUP BY org_id, day, project_id, agent_profile_id
+ON CONFLICT (org_id, day, project_id, agent_profile_id, model_call_context_id) DO UPDATE
+SET effective_cost_usd = daily_model_costs.effective_cost_usd + EXCLUDED.effective_cost_usd
 `
 
-type MergeProjectDailyModelCostsParams struct {
+type MergeDailyModelCostsParams struct {
 	AgentID uuid.UUID
 	ID      uuid.UUID
 }
 
-func (q *Queries) MergeProjectDailyModelCosts(ctx context.Context, arg MergeProjectDailyModelCostsParams) error {
-	_, err := q.db.Exec(ctx, mergeProjectDailyModelCosts, arg.AgentID, arg.ID)
+func (q *Queries) MergeDailyModelCosts(ctx context.Context, arg MergeDailyModelCostsParams) error {
+	_, err := q.db.Exec(ctx, mergeDailyModelCosts, arg.AgentID, arg.ID)
 	return err
 }
 
 const updateBudgetAmount = `-- name: UpdateBudgetAmount :one
 UPDATE budgets SET amount_usd = $1::text::numeric, updated_at = statement_timestamp()
 WHERE org_id = $2 AND id = $3 AND deleted_at IS NULL
-RETURNING id, org_id, project_id, interval, amount_usd::text AS amount_usd, created_at, updated_at
+RETURNING id, org_id, project_id, agent_profile_id, agent_id, interval, amount_usd::text AS amount_usd,
+          created_at, updated_at
 `
 
 type UpdateBudgetAmountParams struct {
@@ -260,13 +309,15 @@ type UpdateBudgetAmountParams struct {
 }
 
 type UpdateBudgetAmountRow struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	ProjectID *uuid.UUID
-	Interval  string
-	AmountUsd string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             uuid.UUID
+	OrgID          uuid.UUID
+	ProjectID      *uuid.UUID
+	AgentProfileID *uuid.UUID
+	AgentID        *uuid.UUID
+	Interval       string
+	AmountUsd      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 func (q *Queries) UpdateBudgetAmount(ctx context.Context, arg UpdateBudgetAmountParams) (UpdateBudgetAmountRow, error) {
@@ -276,6 +327,8 @@ func (q *Queries) UpdateBudgetAmount(ctx context.Context, arg UpdateBudgetAmount
 		&i.ID,
 		&i.OrgID,
 		&i.ProjectID,
+		&i.AgentProfileID,
+		&i.AgentID,
 		&i.Interval,
 		&i.AmountUsd,
 		&i.CreatedAt,

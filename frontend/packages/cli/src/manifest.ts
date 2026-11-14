@@ -636,7 +636,7 @@ export const commandGroups: CommandGroup[] = [
     operations: [
       op({
         verb: 'list',
-        summary: 'List budgets for the organization or a project',
+        summary: 'List budgets for the organization, a project, a profile, or an agent',
         fn: sdk.listBudgets,
         format: formatTable(['id', 'scope', 'interval', 'amount_usd', 'usage']),
         path: schemas.zListBudgetsPath,

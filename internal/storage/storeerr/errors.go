@@ -15,11 +15,7 @@ const (
 	BudgetReachedCode                = "budget_reached"
 )
 
-func BudgetReachedMessage(projectScope bool, interval string) string {
-	scope := "organization"
-	if projectScope {
-		scope = "project"
-	}
+func BudgetReachedMessage(scope, interval string) string {
 	period := interval
 	switch interval {
 	case "day":
@@ -29,7 +25,19 @@ func BudgetReachedMessage(projectScope bool, interval string) string {
 	case "month":
 		period = "monthly"
 	}
-	return fmt.Sprintf("This %s's %s budget has been reached. An org admin can raise it on the Usage page.", scope, period)
+	switch scope {
+	case "project":
+		return fmt.Sprintf("This project's %s budget has been reached. "+
+			"An org admin can raise it on the Usage page.", period)
+	case "profile":
+		return fmt.Sprintf("The top-level agent's profile has reached its %s budget. "+
+			"An org admin can raise it on that profile's Usage tab.", period)
+	case "agent":
+		return fmt.Sprintf("The top-level agent's %s budget has been reached. "+
+			"An org admin can raise it on that agent's page.", period)
+	}
+	return fmt.Sprintf("This organization's %s budget has been reached. "+
+		"An org admin can raise it on the Usage page.", period)
 }
 
 var (
