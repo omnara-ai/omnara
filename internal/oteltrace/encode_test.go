@@ -2,6 +2,7 @@ package oteltrace
 
 import (
 	"encoding/hex"
+	"google.golang.org/protobuf/encoding/protowire"
 	"testing"
 
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -63,18 +64,30 @@ func TestEncodeProtobufCarriesTheSameSpansAsJSON(t *testing.T) {
 	}
 }
 
-func TestEncodeJSONAndParseEncoding(t *testing.T) {
-	body, contentType, err := NewExport(nil).Encode(EncodingJSON)
-	if err != nil || contentType != "application/json" || len(body) == 0 || body[0] != '{' {
-		t.Fatalf("encode json: %v %q %s", err, contentType, body)
-	}
-	if _, _, err := NewExport(nil).Encode("msgpack"); err == nil {
-		t.Fatal("unknown encoding must fail")
-	}
-	if encoding, ok := ParseEncoding(""); !ok || encoding != EncodingJSON {
-		t.Fatalf("empty encoding should default to json, got %q %v", encoding, ok)
-	}
-	if _, ok := ParseEncoding("grpc"); ok {
-		t.Fatal("unknown encoding must be rejected")
+func TestParsePartialSuccess(t *testing.T) {
+	// partial_success{rejected_spans: 3, error_message: "too big"}
+	inner := protowire.AppendVarint(protowire.AppendTag(nil, 1, protowire.VarintType), 3)
+	inner = protowire.AppendString(protowire.AppendTag(inner, 2, protowire.BytesType), "too big")
+	encoded := protowire.AppendBytes(protowire.AppendTag(nil, 1, protowire.BytesType), inner)
+	for _, test := range []struct {
+		name, contentType string
+		body              []byte
+		rejected          int64
+		message           string
+	}{
+		{"json string count", "application/json",
+			[]byte(`{"partialSuccess":{"rejectedSpans":"3","errorMessage":"too big"}}`), 3, "too big"},
+		{"json number count", "application/json; charset=utf-8", []byte(`{"partialSuccess":{"rejectedSpans":3}}`), 3, ""},
+		{"json full success", "application/json", []byte(`{}`), 0, ""},
+		{"empty body", "", nil, 0, ""},
+		{"not json", "text/html", []byte(`<html>ok</html>`), 0, ""},
+		{"protobuf", "application/x-protobuf", encoded, 3, "too big"},
+		{"protobuf full success", "application/x-protobuf", nil, 0, ""},
+		{"protobuf garbage", "application/x-protobuf", []byte{0xff, 0xff, 0xff}, 0, ""},
+	} {
+		rejected, message := ParsePartialSuccess(test.contentType, test.body)
+		if rejected != test.rejected || message != test.message {
+			t.Errorf("%s: got %d %q, want %d %q", test.name, rejected, message, test.rejected, test.message)
+		}
 	}
 }

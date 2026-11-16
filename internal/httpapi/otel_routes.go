@@ -3,6 +3,8 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -39,22 +41,31 @@ func (s strictOpenAPIServer) GetTurnTrace(
 	if err != nil {
 		return nil, err
 	}
-	var response openapi.OtelTrace
-	if err := json.Unmarshal(encoded, &response); err != nil {
-		return nil, err
-	}
-	return openapi.GetTurnTrace200JSONResponse(response), nil
+	return turnTraceResponse(encoded), nil
 }
 
+// turnTraceResponse is an already encoded OtelTrace, written as is instead of
+// being decoded into the generated type only to be encoded again.
+type turnTraceResponse []byte
+
+func (body turnTraceResponse) VisitGetTurnTraceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write(body)
+	return err
+}
+
+var errInvalidOtelExporterScope = apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid exporter scope")
+
 func parseOtelExporterScope(input openapi.OtelExporterScope) (executionstore.OtelExporterScope, error) {
-	invalid := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid exporter scope")
-	scopeType, err := input.Discriminator()
+	invalid := errInvalidOtelExporterScope
+	discriminator, err := input.Discriminator()
 	if err != nil {
 		return executionstore.OtelExporterScope{}, invalid
 	}
-	scope := executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeType(scopeType)}
+	scopeType := executionstore.OtelExporterScopeType(discriminator)
 	var projectID, agentID *string
-	switch scope.Type {
+	switch scopeType {
 	case executionstore.OtelExporterScopeOrg:
 	case executionstore.OtelExporterScopeProject:
 		value, err := input.AsProjectOtelExporterScope()
@@ -71,13 +82,13 @@ func parseOtelExporterScope(input openapi.OtelExporterScope) (executionstore.Ote
 	default:
 		return executionstore.OtelExporterScope{}, invalid
 	}
-	return parseOtelExporterScopeIDs(scope.Type, projectID, agentID)
+	return parseOtelExporterScopeIDs(scopeType, projectID, agentID)
 }
 
 func parseOtelExporterScopeIDs(
 	scopeType executionstore.OtelExporterScopeType, projectID, agentID *string,
 ) (executionstore.OtelExporterScope, error) {
-	invalid := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid exporter scope")
+	invalid := errInvalidOtelExporterScope
 	scope := executionstore.OtelExporterScope{Type: scopeType}
 	var ok bool
 	if projectID != nil {
@@ -156,9 +167,7 @@ func otelExporterResponseFromRecord(record executionstore.OtelExporterRecord) (o
 		SamplePercent: record.Settings.SamplePercent,
 		CreatedAt:     record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
-	for name, value := range record.Settings.Headers {
-		result.Headers[name] = value
-	}
+	maps.Copy(result.Headers, record.Settings.Headers)
 	for name, secretID := range record.Settings.SecretHeaders {
 		if result.SecretHeaders[name], err = publicID(publicid.KindSecret, secretID); err != nil {
 			return openapi.OtelExporter{}, err
@@ -298,7 +307,9 @@ func (s strictOpenAPIServer) UpdateOtelExporter(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	input := executionstore.UpdateOtelExporterInput{OrgID: org.ID, ExporterID: id, Endpoint: request.Body.Endpoint}
+	input := executionstore.UpdateOtelExporterInput{
+		OrgID: org.ID, ExporterID: id, Endpoint: request.Body.Endpoint, SamplePercent: request.Body.SamplePercent,
+	}
 	if request.Body.Variant != nil {
 		variant := oteltrace.Variant(*request.Body.Variant)
 		input.Variant = &variant
@@ -308,18 +319,12 @@ func (s strictOpenAPIServer) UpdateOtelExporter(
 		input.Encoding = &encoding
 	}
 	if request.Body.Headers != nil {
-		input.Headers = map[string]string{}
-		for name, value := range *request.Body.Headers {
-			input.Headers[name] = value
-		}
+		input.Headers = *request.Body.Headers
 	}
 	if request.Body.SecretHeaders != nil {
 		if input.SecretHeaders, err = parseOtelExporterSecretHeaders(*request.Body.SecretHeaders); err != nil {
 			return nil, err
 		}
-	}
-	if request.Body.SamplePercent != nil {
-		input.SamplePercent = request.Body.SamplePercent
 	}
 	record, err := s.server.store.Execution().UpdateOtelExporter(ctx, input)
 	if err != nil {

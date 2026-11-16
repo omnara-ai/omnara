@@ -9,7 +9,6 @@ const (
 	SpanKindInternal = 1
 	SpanKindClient   = 3
 
-	StatusCodeOK    = 1
 	StatusCodeError = 2
 )
 
@@ -60,6 +59,7 @@ type KeyValue struct {
 type AnyValue struct {
 	StringValue *string     `json:"stringValue,omitempty"`
 	IntValue    *string     `json:"intValue,omitempty"`
+	BoolValue   *bool       `json:"boolValue,omitempty"`
 	ArrayValue  *ArrayValue `json:"arrayValue,omitempty"`
 }
 
@@ -89,6 +89,10 @@ func stringAttr(key, value string) KeyValue {
 func intAttr(key string, value int64) KeyValue {
 	encoded := strconv.FormatInt(value, 10)
 	return KeyValue{Key: key, Value: AnyValue{IntValue: &encoded}}
+}
+
+func boolAttr(key string, value bool) KeyValue {
+	return KeyValue{Key: key, Value: AnyValue{BoolValue: &value}}
 }
 
 func stringsAttr(key string, values ...string) KeyValue {

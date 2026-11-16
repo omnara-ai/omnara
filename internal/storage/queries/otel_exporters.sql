@@ -64,7 +64,7 @@ JOIN otel_exporters exporter ON exporter.org_id = agent.org_id
 WHERE event.agent_id = sqlc.arg(agent_id)
   AND event.sequence = ANY(sqlc.arg(event_sequences)::bigint[])
   AND event.event_kind = 'model_output'
-  AND output.stop_reason <> 'tool_use'
+  AND output.stop_reason NOT IN ('tool_use', 'max_tokens')
   AND exporter.deleted_at IS NULL
   AND project.deleted_at IS NULL
   AND org.deleted_at IS NULL
@@ -92,6 +92,7 @@ WITH saturated_orgs AS MATERIALIZED (
       AND delivery.org_id NOT IN (SELECT org_id FROM saturated_orgs)
     ORDER BY delivery.next_attempt_at, delivery.id
     LIMIT 1
+    FOR UPDATE OF delivery SKIP LOCKED
 ), candidates AS (
     SELECT delivery.id
     FROM otel_export_deliveries delivery
@@ -114,13 +115,15 @@ RETURNING delivery.id, delivery.org_id, delivery.exporter_id, delivery.agent_id,
     delivery.attempt_count, delivery.created_at;
 
 -- name: CompleteOtelExportDeliveries :execrows
-DELETE FROM otel_export_deliveries WHERE claim_token = sqlc.arg(claim_token)::uuid;
+DELETE FROM otel_export_deliveries
+WHERE claim_token = sqlc.arg(claim_token)::uuid;
 
 -- name: RetryOtelExportDeliveries :execrows
 UPDATE otel_export_deliveries
 SET next_attempt_at = statement_timestamp() + sqlc.arg(delay_seconds)::double precision * interval '1 second',
     claim_token = NULL, claim_expires_at = NULL
-WHERE claim_token = sqlc.arg(claim_token)::uuid;
+WHERE claim_token = sqlc.arg(claim_token)::uuid
+  AND id = ANY(sqlc.arg(delivery_ids)::uuid[]);
 
 -- name: DeleteExpiredOtelExportDeliveries :execrows
 WITH candidates AS (
@@ -138,7 +141,7 @@ WHERE delivery.id = candidates.id;
 
 -- name: GetTurnTraceContext :one
 SELECT agent.org_id, agent.project_id, agent.id AS agent_id, agent.name AS agent_name,
-       agent.agent_profile_id, agent.parent_agent_id, agent.root_agent_id,
+       agent.parent_agent_id, agent.root_agent_id,
        turn.id AS turn_id, turn.turn_sequence
 FROM agent_turns turn
 JOIN agents agent ON agent.id = turn.agent_id
@@ -171,8 +174,8 @@ WHERE context.agent_id = sqlc.arg(agent_id)
 ORDER BY context.created_at, context.id;
 
 -- name: ListTurnTraceToolCalls :many
-SELECT call.id, call.name, call.type, call.provider_call_id, call.input, call.created_at,
-       call.model_call_context_id, result.outcome, result.completed_at
+SELECT call.id, call.name, call.provider_call_id, call.input, call.created_at,
+       result.outcome, result.completed_at
 FROM tool_call_read_projection call
 JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool_call_id = call.id
 WHERE call.agent_id = sqlc.arg(agent_id)

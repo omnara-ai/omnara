@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -108,13 +109,20 @@ func (s *Store) loadTurnTrace(
 		if len(page) < int(MaxAgentEventsReadPageLimit) {
 			break
 		}
+		if count >= maxTurnTraceEvents {
+			older, err := listTurnEventsForReadTx(ctx, s.q, projectID, agentID, turnID, beforeSequence, 1)
+			if err != nil {
+				return oteltrace.Turn{}, err
+			}
+			turn.Truncated = len(older) > 0
+		}
 	}
 	for i := len(pages) - 1; i >= 0; i-- {
 		for _, event := range pages[i] {
 			turn.Events = append(turn.Events, oteltrace.Event{
-				Sequence: event.Sequence, Kind: event.EventKind, IsOpening: event.IsOpeningEvent,
+				Kind: events.Kind(event.EventKind), IsOpening: event.IsOpeningEvent,
 				ModelCallID: event.ModelCallContextID, ToolCallID: event.ToolCallID,
-				StopReason: string(event.ModelStopReason), ContentBlocks: event.ContentBlocks,
+				StopReason: event.ModelStopReason, ContentBlocks: event.ContentBlocks,
 				CreatedAt: event.CreatedAt,
 			})
 		}

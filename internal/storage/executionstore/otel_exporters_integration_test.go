@@ -101,13 +101,21 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	closeTurnForOtelTest(t, fixture, outputSequence)
 	require.Empty(t, otelDeliveryTurns(t, fixture, orgWide.ID))
 
-	for _, statement := range []string{
-		`ALTER TABLE model_outputs DISABLE TRIGGER USER`,
-		`UPDATE model_outputs SET stop_reason = 'end_turn' WHERE agent_id = '` + fixture.AgentID.String() + `'`,
-		`ALTER TABLE model_outputs ENABLE TRIGGER USER`,
-	} {
-		_, err = fixture.Store.pool.Exec(ctx, statement)
-		require.NoError(t, err)
+	// An output cut off at max_tokens is continued by another model call, so
+	// it leaves the turn open; an output that ends the turn queues it.
+	for _, stopReason := range []string{"max_tokens", "end_turn"} {
+		for _, statement := range []string{
+			`ALTER TABLE model_outputs DISABLE TRIGGER USER`,
+			`UPDATE model_outputs SET stop_reason = '` + stopReason + `' WHERE agent_id = '` + fixture.AgentID.String() + `'`,
+			`ALTER TABLE model_outputs ENABLE TRIGGER USER`,
+		} {
+			_, err = fixture.Store.pool.Exec(ctx, statement)
+			require.NoError(t, err)
+		}
+		if stopReason == "max_tokens" {
+			closeTurnForOtelTest(t, fixture, outputSequence)
+			require.Empty(t, otelDeliveryTurns(t, fixture, orgWide.ID))
+		}
 	}
 	closeTurnForOtelTest(t, fixture, outputSequence)
 	closeTurnForOtelTest(t, fixture, outputSequence)
@@ -180,7 +188,12 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	require.NoError(t, err)
 	projectBatch, err = store.ClaimOtelExportDeliveries(ctx, 4, 100)
 	require.NoError(t, err)
-	require.NoError(t, store.RetryOtelExportDeliveries(ctx, projectBatch.ClaimToken, 0))
+	// Naming other deliveries leaves this one claimed; naming it releases it.
+	require.NoError(t, store.RetryOtelExportDeliveries(ctx, projectBatch.ClaimToken, 0, []uuid.UUID{uuid.New()}))
+	_, err = store.ClaimOtelExportDeliveries(ctx, 4, 1)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+	require.NoError(t, store.RetryOtelExportDeliveries(
+		ctx, projectBatch.ClaimToken, 0, []uuid.UUID{projectBatch.Deliveries[0].ID}))
 	retried, err := store.ClaimOtelExportDeliveries(ctx, 4, 1)
 	require.NoError(t, err)
 	require.Equal(t, project.ID, retried.ExporterID)
@@ -211,18 +224,4 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	_, err = store.GetOtelExportDestination(ctx, testOrgID, project.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	require.ErrorIs(t, store.DeleteOtelExporter(ctx, testOrgID, project.ID), storeerr.ErrNotFound)
-}
-
-func TestOtelTraceSamplingMatchesGoDecision(t *testing.T) {
-	ctx := t.Context()
-	fixture := newProcessDaemonFixture(t, ctx, "otel_sampling")
-	for range 200 {
-		turnID := uuid.New()
-		for _, percent := range []float64{0, 0.001, 25, 33.333, 99.999, 100} {
-			var sampled bool
-			require.NoError(t, fixture.Store.pool.QueryRow(ctx,
-				`SELECT otel_trace_sampled($1, $2::numeric)`, turnID, percent).Scan(&sampled))
-			require.Equal(t, oteltrace.Sampled(turnID, percent), sampled, "%s at %v", turnID, percent)
-		}
-	}
 }

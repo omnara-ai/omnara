@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +32,15 @@ type OtelExportBatch struct {
 	OrgID      uuid.UUID
 	ExporterID uuid.UUID
 	Deliveries []OtelExportDelivery
+}
+
+// MaxAttempt is the highest attempt count among the batch's deliveries.
+func (b OtelExportBatch) MaxAttempt() int32 {
+	var attempt int32
+	for _, delivery := range b.Deliveries {
+		attempt = max(attempt, delivery.AttemptCount)
+	}
+	return attempt
 }
 
 type OtelExportDestination struct {
@@ -64,14 +74,18 @@ func (s *Store) ClaimOtelExportDeliveries(ctx context.Context, perOrgLimit, batc
 	return batch, nil
 }
 
+// CompleteOtelExportDeliveries removes the deliveries the claim still holds.
 func (s *Store) CompleteOtelExportDeliveries(ctx context.Context, claimToken uuid.UUID) error {
 	_, err := s.q.CompleteOtelExportDeliveries(ctx, dbsqlc.CompleteOtelExportDeliveriesParams{ClaimToken: claimToken})
 	return err
 }
 
-func (s *Store) RetryOtelExportDeliveries(ctx context.Context, claimToken uuid.UUID, delay time.Duration) error {
+// RetryOtelExportDeliveries releases deliveryIDs from the claim for another attempt.
+func (s *Store) RetryOtelExportDeliveries(
+	ctx context.Context, claimToken uuid.UUID, delay time.Duration, deliveryIDs []uuid.UUID,
+) error {
 	_, err := s.q.RetryOtelExportDeliveries(ctx, dbsqlc.RetryOtelExportDeliveriesParams{
-		ClaimToken: claimToken, DelaySeconds: delay.Seconds(),
+		ClaimToken: claimToken, DelaySeconds: delay.Seconds(), DeliveryIds: deliveryIDs,
 	})
 	return err
 }
@@ -93,9 +107,7 @@ func (s *Store) GetOtelExportDestination(
 		Endpoint: record.Settings.Endpoint, Variant: record.Settings.Variant, Encoding: record.Settings.Encoding,
 		Headers: make(map[string]string, len(record.Settings.Headers)+len(record.Settings.SecretHeaders)),
 	}
-	for name, value := range record.Settings.Headers {
-		destination.Headers[name] = value
-	}
+	maps.Copy(destination.Headers, record.Settings.Headers)
 	for name, secretID := range record.Settings.SecretHeaders {
 		value, err := s.readOtelExporterSecret(ctx, orgID, secretID)
 		if errors.Is(err, storeerr.ErrNotFound) {

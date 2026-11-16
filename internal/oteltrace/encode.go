@@ -4,11 +4,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"strconv"
+	"strings"
 
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -112,6 +115,8 @@ func protoValue(value AnyValue) *commonpb.AnyValue {
 	case value.IntValue != nil:
 		parsed, _ := strconv.ParseInt(*value.IntValue, 10, 64)
 		return &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: parsed}}
+	case value.BoolValue != nil:
+		return &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: *value.BoolValue}}
 	case value.ArrayValue != nil:
 		array := &commonpb.ArrayValue{Values: make([]*commonpb.AnyValue, len(value.ArrayValue.Values))}
 		for i, item := range value.ArrayValue.Values {
@@ -121,4 +126,52 @@ func protoValue(value AnyValue) *commonpb.AnyValue {
 	default:
 		return &commonpb.AnyValue{}
 	}
+}
+
+// ParsePartialSuccess reads an OTLP export response and reports how many
+// spans the endpoint rejected despite answering with success.
+func ParsePartialSuccess(contentType string, body []byte) (rejectedSpans int64, message string) {
+	if mediaType, _, _ := mime.ParseMediaType(contentType); mediaType == "application/x-protobuf" {
+		// ExportTraceServiceResponse.partial_success is field 1; within it
+		// rejected_spans is field 1 and error_message is field 2.
+		partial, _ := protoField(body, 1, protowire.BytesType)
+		rejected, _ := protoField(partial, 1, protowire.VarintType)
+		text, _ := protoField(partial, 2, protowire.BytesType)
+		count, _ := protowire.ConsumeVarint(rejected)
+		return int64(count), string(text)
+	}
+	var response struct {
+		PartialSuccess struct {
+			// int64 is a string in OTLP/JSON, but some servers send a number.
+			RejectedSpans json.RawMessage `json:"rejectedSpans"`
+			ErrorMessage  string          `json:"errorMessage"`
+		} `json:"partialSuccess"`
+	}
+	if json.Unmarshal(body, &response) != nil {
+		return 0, ""
+	}
+	rejectedSpans, _ = strconv.ParseInt(strings.Trim(string(response.PartialSuccess.RejectedSpans), `"`), 10, 64)
+	return rejectedSpans, response.PartialSuccess.ErrorMessage
+}
+
+// protoField returns the raw value of the last occurrence of one field.
+func protoField(message []byte, field protowire.Number, kind protowire.Type) (value []byte, ok bool) {
+	for len(message) > 0 {
+		number, wireType, tagLength := protowire.ConsumeTag(message)
+		if tagLength < 0 {
+			return nil, false
+		}
+		valueLength := protowire.ConsumeFieldValue(number, wireType, message[tagLength:])
+		if valueLength < 0 {
+			return nil, false
+		}
+		if number == field && wireType == kind {
+			value, ok = message[tagLength:tagLength+valueLength], true
+			if kind == protowire.BytesType {
+				value, _ = protowire.ConsumeBytes(value)
+			}
+		}
+		message = message[tagLength+valueLength:]
+	}
+	return value, ok
 }

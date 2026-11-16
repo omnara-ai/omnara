@@ -58,6 +58,8 @@ func TestOtelExporterRoutes(t *testing.T) {
 		`{"scope":{"type":"org"},"endpoint":"https://other.example.com","sample_percent":101}`,
 		`{"scope":{"type":"org"},"endpoint":"https://other.example.com","encoding":"grpc"}`,
 		`{"scope":{"type":"org"},"endpoint":"https://other.example.com","headers":{"Content-Type":"text/plain"}}`,
+		`{"scope":{"type":"org"},"endpoint":"https://other.example.com","headers":{"Content-Encoding":"gzip"}}`,
+		`{"scope":{"type":"org"},"endpoint":"https://other.example.com","headers":{"Transfer-Encoding":"chunked"}}`,
 		`{"scope":{"type":"agent","agent_id":"` + agentID + `"},"endpoint":"https://other.example.com"}`,
 		`{"endpoint":"https://other.example.com"}`,
 	} {

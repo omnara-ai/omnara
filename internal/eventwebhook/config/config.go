@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/base64"
 	"errors"
-	"net/url"
 	"slices"
 	"strings"
 
@@ -41,29 +40,7 @@ func Validate(settings Settings, endpointAllowlist *ssrf.Allowlist) (Settings, e
 }
 
 func ValidateURL(raw string, endpointAllowlist *ssrf.Allowlist) (string, error) {
-	return ValidateEndpointURL(raw, endpointAllowlist, "event webhook URL")
-}
-
-func ValidateEndpointURL(raw string, endpointAllowlist *ssrf.Allowlist, label string) (string, error) {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Hostname() == "" || parsed.Opaque != "" || (parsed.Scheme != "https" &&
-		(parsed.Scheme != "http" || !urlpolicy.PermitsPlainHTTP(parsed, endpointAllowlist))) {
-		return "", errors.New(label + " must be an absolute HTTPS URL")
-	}
-	if parsed.User != nil || parsed.Fragment != "" {
-		return "", errors.New(label + " must not contain credentials or a fragment")
-	}
-	host := ssrf.ClassifyURLHost(parsed.Hostname())
-	port := ssrf.URLPort(parsed)
-	if (host.IP == nil && host.LocalDev && !endpointAllowlist.PermitsLocalhost(port)) ||
-		(host.IP != nil && !endpointAllowlist.PermitsIP(host.IP, port, false)) {
-		return "", errors.New(label + " must target a public host")
-	}
-	normalized := parsed.String()
-	if len(normalized) > 2048 {
-		return "", errors.New(label + " must not exceed 2048 bytes")
-	}
-	return normalized, nil
+	return urlpolicy.ValidateEndpointURL(raw, endpointAllowlist, "event webhook URL")
 }
 
 func DecodeSigningKey(secret string) ([]byte, error) {
