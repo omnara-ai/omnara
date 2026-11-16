@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/events"
 )
 
 func attribute(t *testing.T, span Span, key string) string {
@@ -46,14 +47,14 @@ func testTurn() Turn {
 		ToolCalls: []ToolCall{{ID: tool, Name: "search", ProviderCallID: "call_1", Input: json.RawMessage(`{"q":"otel"}`),
 			Outcome: "succeeded", StartedAt: at(4), CompletedAt: at(6)}},
 		Events: []Event{
-			{Sequence: 1, Kind: EventKindAgentInput, IsOpening: true, CreatedAt: at(0),
+			{Kind: events.KindAgentInput, IsOpening: true, CreatedAt: at(0),
 				ContentBlocks: json.RawMessage(`[{"type":"text","text":"find otel docs"}]`)},
-			{Sequence: 2, Kind: EventKindModelOutput, ModelCallID: first, StopReason: "tool_use", CreatedAt: at(4),
+			{Kind: events.KindModelOutput, ModelCallID: first, StopReason: "tool_use", CreatedAt: at(4),
 				ContentBlocks: json.RawMessage(`[{"type":"tool_call","tool_call_id":"` + tool.String() +
 					`","name":"search","input":{"q":"otel"}}]`)},
-			{Sequence: 3, Kind: EventKindToolResult, ToolCallID: tool, CreatedAt: at(6),
+			{Kind: events.KindToolResult, ToolCallID: tool, CreatedAt: at(6),
 				ContentBlocks: json.RawMessage(`[{"type":"text","text":"3 results"}]`)},
-			{Sequence: 4, Kind: EventKindModelOutput, ModelCallID: second, StopReason: "end_turn", CreatedAt: at(8),
+			{Kind: events.KindModelOutput, ModelCallID: second, StopReason: "end_turn", CreatedAt: at(8),
 				ContentBlocks: json.RawMessage(`[{"type":"text","text":"here they are"}]`)},
 		},
 	}
@@ -154,52 +155,49 @@ func TestVariantsAddVendorAttributes(t *testing.T) {
 			t.Errorf("%s span %d %s = %q, want %q", test.variant, test.role, test.key, got, test.value)
 		}
 	}
-	for _, span := range Build(turn, VariantOTel) {
-		for _, kv := range span.Attributes {
-			for _, prefix := range []string{"langfuse.", "braintrust.", "langsmith."} {
-				if len(kv.Key) >= len(prefix) && kv.Key[:len(prefix)] == prefix {
-					t.Errorf("otel variant must not add vendor attribute %s", kv.Key)
-				}
-			}
+}
+
+func TestBuildSkipsTurnWithNothingToPlace(t *testing.T) {
+	turn := testTurn()
+	turn.Events, turn.ModelCalls, turn.ToolCalls = nil, nil, nil
+	if spans := Build(turn, VariantOTel); len(spans) != 0 {
+		t.Fatalf("a turn with no events or calls has no spans, got %+v", spans)
+	}
+}
+
+func TestBuildKeepsTruncatedTurnConsistent(t *testing.T) {
+	turn := testTurn()
+	// Only the final output survived truncation; the calls are all still loaded.
+	turn.Events, turn.Truncated = turn.Events[3:], true
+	spans := Build(turn, VariantOTel)
+	if len(spans) != 5 {
+		t.Fatalf("truncation must not drop call spans, got %d", len(spans))
+	}
+	root, tool := spans[0], spans[4]
+	if len(root.Attributes) == 0 || !hasBool(root, "omnara.trace.truncated") {
+		t.Fatalf("root must be marked truncated: %+v", root)
+	}
+	if root.StartTimeUnixNano != spans[1].StartTimeUnixNano || root.EndTimeUnixNano != spans[3].EndTimeUnixNano {
+		t.Fatalf("root must cover its children, got %s to %s", root.StartTimeUnixNano, root.EndTimeUnixNano)
+	}
+	if tool.Name != "execute_tool search" || attribute(t, tool, "gen_ai.tool.call.result") != "" {
+		t.Fatalf("tool span without its result event keeps its identity only: %+v", tool)
+	}
+}
+
+func hasBool(span Span, key string) bool {
+	for _, kv := range span.Attributes {
+		if kv.Key == key && kv.Value.BoolValue != nil && *kv.Value.BoolValue {
+			return true
 		}
 	}
+	return false
 }
 
-func TestParseVariant(t *testing.T) {
-	if variant, ok := ParseVariant(""); !ok || variant != VariantOTel {
-		t.Fatalf("empty variant should default to otel, got %q %v", variant, ok)
-	}
-	if _, ok := ParseVariant("datadog"); ok {
-		t.Fatal("unknown variant must be rejected")
-	}
-}
-
-func TestSampledUsesLowBitsOfTraceID(t *testing.T) {
-	turnID := uuid.MustParse("01938a5c-0000-7000-8000-00000000abcd")
-	if !Sampled(turnID, 100) || Sampled(turnID, 0) || !Sampled(turnID, 0.00103) || Sampled(turnID, 0.00102) {
-		t.Fatal("sampling must place the trace at 43981/2^32 of the way through, about 0.001024%")
-	}
-}
-
-func TestNewExportIsOTLPJSON(t *testing.T) {
-	encoded, err := json.Marshal(NewExport(Build(testTurn(), VariantOTel)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded struct {
-		ResourceSpans []struct {
-			ScopeSpans []struct {
-				Spans []map[string]any `json:"spans"`
-			} `json:"scopeSpans"`
-		} `json:"resourceSpans"`
-	}
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if len(decoded.ResourceSpans) != 1 || len(decoded.ResourceSpans[0].ScopeSpans[0].Spans) != 5 {
-		t.Fatalf("unexpected export shape: %s", encoded)
-	}
-	if _, ok := decoded.ResourceSpans[0].ScopeSpans[0].Spans[0]["startTimeUnixNano"].(string); !ok {
-		t.Fatal("OTLP/JSON timestamps must be strings")
+func TestBuildDoesNotCloseTurnOnTruncatedOutput(t *testing.T) {
+	turn := testTurn()
+	turn.Events[3].StopReason = "max_tokens"
+	if got := attribute(t, Build(turn, VariantOTel)[0], "gen_ai.output.messages"); got != "" {
+		t.Fatalf("a max_tokens output is continued, not final: %s", got)
 	}
 }

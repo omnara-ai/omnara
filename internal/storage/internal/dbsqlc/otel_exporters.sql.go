@@ -33,6 +33,7 @@ WITH saturated_orgs AS MATERIALIZED (
       AND delivery.org_id NOT IN (SELECT org_id FROM saturated_orgs)
     ORDER BY delivery.next_attempt_at, delivery.id
     LIMIT 1
+    FOR UPDATE OF delivery SKIP LOCKED
 ), candidates AS (
     SELECT delivery.id
     FROM otel_export_deliveries delivery
@@ -108,7 +109,8 @@ func (q *Queries) ClaimOtelExportDeliveries(ctx context.Context, arg ClaimOtelEx
 }
 
 const completeOtelExportDeliveries = `-- name: CompleteOtelExportDeliveries :execrows
-DELETE FROM otel_export_deliveries WHERE claim_token = $1::uuid
+DELETE FROM otel_export_deliveries
+WHERE claim_token = $1::uuid
 `
 
 type CompleteOtelExportDeliveriesParams struct {
@@ -200,7 +202,7 @@ JOIN otel_exporters exporter ON exporter.org_id = agent.org_id
 WHERE event.agent_id = $2
   AND event.sequence = ANY($3::bigint[])
   AND event.event_kind = 'model_output'
-  AND output.stop_reason <> 'tool_use'
+  AND output.stop_reason NOT IN ('tool_use', 'max_tokens')
   AND exporter.deleted_at IS NULL
   AND project.deleted_at IS NULL
   AND org.deleted_at IS NULL
@@ -259,7 +261,7 @@ func (q *Queries) GetOtelExporter(ctx context.Context, arg GetOtelExporterParams
 
 const getTurnTraceContext = `-- name: GetTurnTraceContext :one
 SELECT agent.org_id, agent.project_id, agent.id AS agent_id, agent.name AS agent_name,
-       agent.agent_profile_id, agent.parent_agent_id, agent.root_agent_id,
+       agent.parent_agent_id, agent.root_agent_id,
        turn.id AS turn_id, turn.turn_sequence
 FROM agent_turns turn
 JOIN agents agent ON agent.id = turn.agent_id
@@ -275,15 +277,14 @@ type GetTurnTraceContextParams struct {
 }
 
 type GetTurnTraceContextRow struct {
-	OrgID          uuid.UUID
-	ProjectID      uuid.UUID
-	AgentID        uuid.UUID
-	AgentName      string
-	AgentProfileID *uuid.UUID
-	ParentAgentID  *uuid.UUID
-	RootAgentID    uuid.UUID
-	TurnID         uuid.UUID
-	TurnSequence   int64
+	OrgID         uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	AgentName     string
+	ParentAgentID *uuid.UUID
+	RootAgentID   uuid.UUID
+	TurnID        uuid.UUID
+	TurnSequence  int64
 }
 
 func (q *Queries) GetTurnTraceContext(ctx context.Context, arg GetTurnTraceContextParams) (GetTurnTraceContextRow, error) {
@@ -294,7 +295,6 @@ func (q *Queries) GetTurnTraceContext(ctx context.Context, arg GetTurnTraceConte
 		&i.ProjectID,
 		&i.AgentID,
 		&i.AgentName,
-		&i.AgentProfileID,
 		&i.ParentAgentID,
 		&i.RootAgentID,
 		&i.TurnID,
@@ -519,8 +519,8 @@ func (q *Queries) ListTurnTraceModelCalls(ctx context.Context, arg ListTurnTrace
 }
 
 const listTurnTraceToolCalls = `-- name: ListTurnTraceToolCalls :many
-SELECT call.id, call.name, call.type, call.provider_call_id, call.input, call.created_at,
-       call.model_call_context_id, result.outcome, result.completed_at
+SELECT call.id, call.name, call.provider_call_id, call.input, call.created_at,
+       result.outcome, result.completed_at
 FROM tool_call_read_projection call
 JOIN tool_call_results result ON result.agent_id = call.agent_id AND result.tool_call_id = call.id
 WHERE call.agent_id = $1
@@ -534,15 +534,13 @@ type ListTurnTraceToolCallsParams struct {
 }
 
 type ListTurnTraceToolCallsRow struct {
-	ID                 uuid.UUID
-	Name               string
-	Type               string
-	ProviderCallID     string
-	Input              json.RawMessage
-	CreatedAt          time.Time
-	ModelCallContextID uuid.UUID
-	Outcome            string
-	CompletedAt        time.Time
+	ID             uuid.UUID
+	Name           string
+	ProviderCallID string
+	Input          json.RawMessage
+	CreatedAt      time.Time
+	Outcome        string
+	CompletedAt    time.Time
 }
 
 func (q *Queries) ListTurnTraceToolCalls(ctx context.Context, arg ListTurnTraceToolCallsParams) ([]ListTurnTraceToolCallsRow, error) {
@@ -557,11 +555,9 @@ func (q *Queries) ListTurnTraceToolCalls(ctx context.Context, arg ListTurnTraceT
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
-			&i.Type,
 			&i.ProviderCallID,
 			&i.Input,
 			&i.CreatedAt,
-			&i.ModelCallContextID,
 			&i.Outcome,
 			&i.CompletedAt,
 		); err != nil {
@@ -580,15 +576,17 @@ UPDATE otel_export_deliveries
 SET next_attempt_at = statement_timestamp() + $1::double precision * interval '1 second',
     claim_token = NULL, claim_expires_at = NULL
 WHERE claim_token = $2::uuid
+  AND id = ANY($3::uuid[])
 `
 
 type RetryOtelExportDeliveriesParams struct {
 	DelaySeconds float64
 	ClaimToken   uuid.UUID
+	DeliveryIds  []uuid.UUID
 }
 
 func (q *Queries) RetryOtelExportDeliveries(ctx context.Context, arg RetryOtelExportDeliveriesParams) (int64, error) {
-	result, err := q.db.Exec(ctx, retryOtelExportDeliveries, arg.DelaySeconds, arg.ClaimToken)
+	result, err := q.db.Exec(ctx, retryOtelExportDeliveries, arg.DelaySeconds, arg.ClaimToken, arg.DeliveryIds)
 	if err != nil {
 		return 0, err
 	}

@@ -102,8 +102,8 @@ func TestCleanupJobsRerunOnlyWhileBehind(t *testing.T) {
 			return identitystore.AuthStateCleanupResult{DeletedInactiveTokens: deleted}, nil
 		})(t.Context()).more
 	}
-	require.True(t, webhooks(int64(eventWebhookDeliveryCleanupBatchSize)))
-	require.False(t, webhooks(int64(eventWebhookDeliveryCleanupBatchSize)-1))
+	require.True(t, webhooks(int64(deliveryCleanupBatchSize)))
+	require.False(t, webhooks(int64(deliveryCleanupBatchSize)-1))
 	require.True(t, states(full))
 	require.False(t, states(full-1))
 	require.True(t, auth(500))

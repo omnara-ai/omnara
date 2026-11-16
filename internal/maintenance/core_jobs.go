@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	runtimeLockReapBatchSize             int32 = 100
-	daemonRuntimeExpiryBatchSize         int32 = 100
-	eventWebhookDeliveryCleanupBatchSize int32 = 500
-	eventWebhookDeliveryCleanupTimeout         = 5 * time.Second
+	runtimeLockReapBatchSize     int32 = 100
+	daemonRuntimeExpiryBatchSize int32 = 100
+	deliveryCleanupBatchSize     int32 = 500
+	deliveryCleanupTimeout             = 5 * time.Second
 )
 
 func reapRuntimeLocks(
@@ -56,33 +56,26 @@ func deleteExpiredWebhookDeliveries(
 	deleteExpired func(context.Context, int32) (int64, error),
 	recorder *metrics.EventWebhookBacklogRecorder,
 ) func(context.Context) maintenanceResult {
-	return func(ctx context.Context) maintenanceResult {
-		cleanupCtx, cancel := context.WithTimeout(ctx, eventWebhookDeliveryCleanupTimeout)
-		defer cancel()
-		count, err := deleteExpired(cleanupCtx, eventWebhookDeliveryCleanupBatchSize)
-		if err == nil {
-			recorder.RecordExpired(count)
-		}
-		result := reportMaintenanceCount(
-			ctx, log, "cleanup expired event webhook deliveries", "cleaned expired event webhook deliveries", count, err,
-		)
-		result.more = count >= int64(eventWebhookDeliveryCleanupBatchSize)
-		return result
-	}
+	return deleteExpiredDeliveries(log, "event webhook deliveries", deleteExpired, recorder.RecordExpired)
 }
 
-func deleteExpiredOtelExportDeliveries(
+// deleteExpiredDeliveries cleans one batch of an outbound delivery queue;
+// what names the queue in logs.
+func deleteExpiredDeliveries(
 	log *slog.Logger,
+	what string,
 	deleteExpired func(context.Context, int32) (int64, error),
+	onDeleted func(int64),
 ) func(context.Context) maintenanceResult {
 	return func(ctx context.Context) maintenanceResult {
-		cleanupCtx, cancel := context.WithTimeout(ctx, eventWebhookDeliveryCleanupTimeout)
+		cleanupCtx, cancel := context.WithTimeout(ctx, deliveryCleanupTimeout)
 		defer cancel()
-		count, err := deleteExpired(cleanupCtx, eventWebhookDeliveryCleanupBatchSize)
-		result := reportMaintenanceCount(
-			ctx, log, "cleanup expired otel export deliveries", "cleaned expired otel export deliveries", count, err,
-		)
-		result.more = count >= int64(eventWebhookDeliveryCleanupBatchSize)
+		count, err := deleteExpired(cleanupCtx, deliveryCleanupBatchSize)
+		if err == nil && onDeleted != nil {
+			onDeleted(count)
+		}
+		result := reportMaintenanceCount(ctx, log, "cleanup expired "+what, "cleaned expired "+what, count, err)
+		result.more = count >= int64(deliveryCleanupBatchSize)
 		return result
 	}
 }

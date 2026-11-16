@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
@@ -15,10 +16,10 @@ func (u *Unit) enqueueOtelExports(ctx context.Context) error {
 		return nil
 	}
 	q := dbsqlc.New(u.DB())
-	for agentID, events := range pending.AgentEvents() {
-		sequences := make([]int64, 0, len(events))
-		for _, event := range events {
-			if event.Kind == "model_output" {
+	for agentID, agentEvents := range pending.AgentEvents() {
+		sequences := make([]int64, 0, len(agentEvents))
+		for _, event := range agentEvents {
+			if event.Kind == string(events.KindModelOutput) {
 				sequences = append(sequences, event.Sequence)
 			}
 		}

@@ -2,13 +2,14 @@ package oteltrace
 
 import (
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/events"
+	"github.com/omnara-ai/omnara/internal/modelenvelope"
 )
 
 type Turn struct {
@@ -20,6 +21,9 @@ type Turn struct {
 	ModelCalls []ModelCall
 	ToolCalls  []ToolCall
 	Events     []Event
+	// Truncated is set when the turn has more events than were loaded, so
+	// Events holds only the most recent ones.
+	Truncated bool
 }
 
 type ModelCall struct {
@@ -52,31 +56,18 @@ type ToolCall struct {
 	CompletedAt    time.Time
 }
 
-const (
-	EventKindAgentInput  = "agent_input"
-	EventKindModelOutput = "model_output"
-	EventKindToolResult  = "tool_result"
-
-	stopReasonToolUse = "tool_use"
-)
-
 type Event struct {
-	Sequence      int64
-	Kind          string
+	Kind          events.Kind
 	IsOpening     bool
 	ModelCallID   uuid.UUID
 	ToolCallID    uuid.UUID
-	StopReason    string
+	StopReason    modelenvelope.StopReason
 	ContentBlocks json.RawMessage
 	CreatedAt     time.Time
 }
 
 func TraceID(turnID uuid.UUID) string {
 	return hex.EncodeToString(turnID[:])
-}
-
-func Sampled(turnID uuid.UUID, samplePercent float64) bool {
-	return float64(binary.BigEndian.Uint32(turnID[12:16]))*100/4294967296 < samplePercent
 }
 
 func spanID(kind string, id uuid.UUID) string {
@@ -95,28 +86,49 @@ func Build(turn Turn, variant Variant) []Span {
 		providerCallIDs[call.ID.String()] = call.ProviderCallID
 	}
 	var opening, closing *Event
+	// The root spans everything the trace holds, so no child falls outside it.
 	var start, end time.Time
+	extend := func(times ...time.Time) {
+		for _, t := range times {
+			if t.IsZero() {
+				continue
+			}
+			if start.IsZero() || t.Before(start) {
+				start = t
+			}
+			if t.After(end) {
+				end = t
+			}
+		}
+	}
+	for _, call := range turn.ModelCalls {
+		extend(call.StartedAt, call.CompletedAt)
+	}
+	for _, call := range turn.ToolCalls {
+		extend(call.StartedAt, call.CompletedAt)
+	}
 	for i := range turn.Events {
 		event := &turn.Events[i]
-		if start.IsZero() || event.CreatedAt.Before(start) {
-			start = event.CreatedAt
-		}
-		if event.CreatedAt.After(end) {
-			end = event.CreatedAt
-		}
+		extend(event.CreatedAt)
 		switch event.Kind {
-		case EventKindAgentInput:
+		case events.KindAgentInput:
 			if event.IsOpening && opening == nil {
 				opening = event
 			}
-		case EventKindModelOutput:
+		case events.KindModelOutput:
 			outputs[event.ModelCallID] = *event
-			if event.StopReason != stopReasonToolUse {
+			// A truncated output is continued by a later model call.
+			if event.StopReason != modelenvelope.StopReasonToolUse && event.StopReason != modelenvelope.StopReasonMaxTokens {
 				closing = event
 			}
-		case EventKindToolResult:
+		case events.KindToolResult:
 			results[event.ToolCallID] = *event
 		}
+	}
+
+	// Nothing has happened in the turn yet, so there is no time to place a span at.
+	if start.IsZero() {
+		return nil
 	}
 
 	spans := make([]Span, 0, 1+len(turn.ModelCalls)+len(turn.ToolCalls))
@@ -130,6 +142,9 @@ func Build(turn Turn, variant Variant) []Span {
 			stringAttr("gen_ai.agent.name", turn.AgentName),
 			stringAttr("gen_ai.conversation.id", turn.AgentID),
 		}, common...),
+	}
+	if turn.Truncated {
+		root.Attributes = append(root.Attributes, boolAttr("omnara.trace.truncated", true))
 	}
 	rootContent := spanContent{}
 	if opening != nil {
@@ -163,10 +178,8 @@ func Build(turn Turn, variant Variant) []Span {
 	}
 
 	for _, call := range turn.ToolCalls {
-		result, ok := results[call.ID]
-		if !ok {
-			continue
-		}
+		// The result event is absent only when the turn's events were truncated.
+		result := results[call.ID]
 		span := Span{
 			TraceID: traceID, SpanID: spanID("tool_call", call.ID), ParentSpanID: rootID, Kind: SpanKindInternal,
 			Name:              strings.TrimSpace("execute_tool " + call.Name),

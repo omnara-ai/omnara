@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -30,6 +31,7 @@ type fakeStore struct {
 	loads          int
 	completed      []uuid.UUID
 	retried        []uuid.UUID
+	retriedIDs     []uuid.UUID
 }
 
 func (s *fakeStore) ClaimOtelExportDeliveries(context.Context, int, int) (executionstore.OtelExportBatch, error) {
@@ -41,8 +43,11 @@ func (s *fakeStore) CompleteOtelExportDeliveries(_ context.Context, token uuid.U
 	return nil
 }
 
-func (s *fakeStore) RetryOtelExportDeliveries(_ context.Context, token uuid.UUID, _ time.Duration) error {
+func (s *fakeStore) RetryOtelExportDeliveries(
+	_ context.Context, token uuid.UUID, _ time.Duration, ids []uuid.UUID,
+) error {
 	s.retried = append(s.retried, token)
+	s.retriedIDs = append(s.retriedIDs, ids...)
 	return nil
 }
 
@@ -69,9 +74,9 @@ func testTurn() oteltrace.Turn {
 		ModelCalls: []oteltrace.ModelCall{{ID: call, State: "succeeded", RequestModel: "claude",
 			StopReason: "end_turn", StartedAt: start, CompletedAt: start.Add(time.Second)}},
 		Events: []oteltrace.Event{
-			{Sequence: 1, Kind: oteltrace.EventKindAgentInput, IsOpening: true, CreatedAt: start,
+			{Kind: events.KindAgentInput, IsOpening: true, CreatedAt: start,
 				ContentBlocks: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
-			{Sequence: 2, Kind: oteltrace.EventKindModelOutput, ModelCallID: call, StopReason: "end_turn",
+			{Kind: events.KindModelOutput, ModelCallID: call, StopReason: "end_turn",
 				CreatedAt: start.Add(time.Second), ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`)},
 		},
 	}
@@ -166,7 +171,6 @@ func TestSenderRetriesOrDropsByResponse(t *testing.T) {
 		expectedRetry bool
 	}{
 		{"server error", http.StatusServiceUnavailable, true},
-		{"rate limited", http.StatusTooManyRequests, true},
 		{"bad credentials", http.StatusUnauthorized, true},
 		{"malformed payload", http.StatusBadRequest, false},
 	} {
@@ -273,10 +277,46 @@ func TestBatchAttemptLogsOneWideEvent(t *testing.T) {
 	}
 }
 
-func TestRetryDelayIsBounded(t *testing.T) {
-	for attempt := range int32(40) {
-		delay := retryDelay(attempt)
-		require.GreaterOrEqual(t, delay, time.Second)
-		require.LessOrEqual(t, delay, 2*time.Minute)
-	}
+// A refused batch is resent one trace at a time: the bad trace is dropped,
+// a trace the endpoint cannot take right now is retried, the rest are delivered.
+func TestSenderIsolatesTracesOfRejectedBatch(t *testing.T) {
+	good, bad, busy := testTurn(), testTurn(), testTurn()
+	store := &fakeStore{turns: map[uuid.UUID]oteltrace.Turn{good.TurnID: good, bad.TurnID: bad, busy.TurnID: busy}}
+	var requests, delivered int
+	sender := newTestSender(t, store, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		body, _ := io.ReadAll(r.Body)
+		switch {
+		case bytes.Contains(body, []byte(oteltrace.TraceID(bad.TurnID))):
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+		case bytes.Contains(body, []byte(oteltrace.TraceID(busy.TurnID))):
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			delivered++
+		}
+	})
+	batch := testBatch(good.TurnID, bad.TurnID, busy.TurnID)
+	sender.deliver(t.Context(), batch)
+
+	require.Equal(t, 4, requests)
+	require.Equal(t, 1, delivered)
+	require.Equal(t, []uuid.UUID{batch.Deliveries[2].ID}, store.retriedIDs)
+	require.Equal(t, []uuid.UUID{batch.ClaimToken}, store.completed)
+}
+
+func TestSenderReadsPartialSuccess(t *testing.T) {
+	turn := testTurn()
+	store := &fakeStore{turns: map[uuid.UUID]oteltrace.Turn{turn.TurnID: turn}}
+	sender := newTestSender(t, store, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"partialSuccess":{"rejectedSpans":"1","errorMessage":"span too large"}}`))
+	})
+	batch := testBatch(turn.TurnID)
+	result := sender.send(t.Context(), batch)
+
+	// Rejected spans are reported, and never retried: the endpoint kept the rest.
+	require.EqualValues(t, 1, result.rejectedSpans)
+	require.Equal(t, 1, result.delivered)
+	require.Empty(t, result.retry)
+	require.ErrorContains(t, result.err, "rejected 1 spans")
 }

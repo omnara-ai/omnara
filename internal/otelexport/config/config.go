@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	webhookconfig "github.com/omnara-ai/omnara/internal/eventwebhook/config"
 	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/ssrf"
+	"github.com/omnara-ai/omnara/internal/urlpolicy"
 	"golang.org/x/net/http/httpguts"
 )
 
@@ -23,10 +23,16 @@ type Settings struct {
 	SamplePercent float64
 }
 
-var reservedHeaders = map[string]bool{"content-type": true, "content-length": true, "host": true}
+// reservedHeaders are set by the sender or describe the connection and body
+// framing it controls, so an exporter cannot override them.
+var reservedHeaders = map[string]bool{
+	"content-type": true, "content-length": true, "content-encoding": true, "host": true,
+	"connection": true, "keep-alive": true, "proxy-connection": true, "transfer-encoding": true,
+	"te": true, "trailer": true, "upgrade": true, "expect": true,
+}
 
 func Validate(settings Settings, endpointAllowlist *ssrf.Allowlist) (Settings, error) {
-	endpoint, err := webhookconfig.ValidateEndpointURL(settings.Endpoint, endpointAllowlist, "exporter endpoint")
+	endpoint, err := urlpolicy.ValidateEndpointURL(settings.Endpoint, endpointAllowlist, "exporter endpoint")
 	if err != nil {
 		return Settings{}, err
 	}
