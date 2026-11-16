@@ -22,7 +22,7 @@ func TestParseAllowlistEntries(t *testing.T) {
 	t.Parallel()
 	list, err := ParseAllowlist([]string{
 		"10.0.5.21", "10.1.2.3/16", "10.0.5.21:8000", "10.0.0.0/8:8000", "[fd00::5]:8080", "fd00::/8",
-		"100.64.0.0/10", "169.254.0.0/15", "0.0.0.0/0",
+		"100.64.0.0/10", "169.254.0.0/15", "0.0.0.0/0", "::/127",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +33,8 @@ func TestParseAllowlistEntries(t *testing.T) {
 	invalid := []string{
 		"localhost:11434", "10.0.0.0/33", "10.0.5.21:0", "10.0.5.21:http", "[::1]", "fe80::1%eth0", "::ffff:10.0.5.21",
 		"169.254.169.254", "169.254.169.254:80", "169.254.0.0/16", "100.100.100.200", "fe80::/10", "fd00:ec2::254",
-		"64:ff9b::a9fe:a9fe", "64:ff9b:1::/48", "64:ff9b:1:2::/64",
+		"64:ff9b::a9fe:a9fe", "64:ff9b:1::/48", "64:ff9b:1:2::/64", "::ffff:0:169.254.169.254",
+		"64:ff9b::10.0.5.21", "2002:a00:515::/48",
 	}
 	for _, raw := range invalid {
 		if _, err := ParseAllowlist([]string{raw}); err == nil {
@@ -65,8 +66,10 @@ func TestAllowlistPermits(t *testing.T) {
 		{name: "nat64 metadata inside listed range", ip: "64:ff9b::169.254.169.254", port: 80},
 		{name: "local-use nat64 inside listed range", ip: "64:ff9b:1::6464:64c8", port: 80},
 		{name: "ipv4-compatible metadata inside listed range", ip: "::169.254.169.254", port: 80},
+		{name: "ipv4-translated metadata inside listed range", ip: "::ffff:0:169.254.169.254", port: 80},
 		{name: "6to4 metadata inside listed range", ip: "2002:a9fe:a9fe::1", port: 80},
 		{name: "nat64 address inside listed range", ip: "64:ff9b::10.0.5.21", port: 443, want: true},
+		{name: "nat64 address outside listed ipv4 range", ip: "64:ff9b::10.0.6.1", port: 443},
 		{name: "ipv6 loopback inside listed range", ip: "::1", port: 8080, want: true},
 		{name: "invalid port", ip: "10.0.5.21", port: 0},
 	}
@@ -108,6 +111,7 @@ func TestAllowlistPermits(t *testing.T) {
 	for _, raw := range []string{
 		"169.254.170.2", "169.254.170.23", "100.100.100.200", "168.63.129.16", "fd00:ec2::23", "fd20:ce::254",
 		"fd00:c1::a9fe:a9fe", "fe80::a9fe:a9fe", "64:ff9b::169.254.170.2", "64:ff9b::a83f:8110", "64:ff9b:1::1",
+		"::ffff:0:168.63.129.16", "2001:0:808:808:8000:ffaf:5601:5601",
 	} {
 		ip := net.ParseIP(raw)
 		for _, devMode := range []bool{false, true} {
