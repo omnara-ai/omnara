@@ -585,7 +585,7 @@ export type UpdateEventWebhookRequest = {
      */
     scope?: EventWebhookScope;
     /**
-     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     * Endpoint URL, at most 2048 bytes after URL encoding.
      */
     url?: string;
     event_types?: Array<EventWebhookEventType>;
@@ -597,7 +597,7 @@ export type UpdateEventWebhookRequest = {
 
 export type CreateEventWebhookRequest = {
     /**
-     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     * Endpoint URL, at most 2048 bytes after URL encoding.
      */
     url: string;
     event_types: Array<EventWebhookEventType>;
@@ -612,7 +612,7 @@ export type EventWebhookEventType = 'agent_input' | 'model_output' | 'tool_resul
 
 export type EventWebhook = {
     /**
-     * Public HTTPS endpoint, at most 2048 bytes after URL encoding.
+     * Endpoint URL, at most 2048 bytes after URL encoding.
      */
     url: string;
     event_types: Array<EventWebhookEventType>;
@@ -710,7 +710,7 @@ export type CreateModelProviderConfigRequest = {
     api_format?: ModelApiFormat;
     api_variant?: ModelProviderApiVariant;
     /**
-     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
+     * Provider endpoint base URL.
      */
     base_url?: string;
     /**
@@ -763,7 +763,7 @@ export type CreateModelProviderConfigRequest = {
  */
 export type UpdateModelProviderConfigRequest = {
     /**
-     * Provider endpoint base URL. Normal API mode requires a public HTTPS endpoint; localhost and loopback endpoints are accepted only when the API is running in insecure dev mode.
+     * Provider endpoint base URL.
      */
     base_url?: string;
     /**
@@ -837,7 +837,7 @@ export type ModelProviderConfig = {
      */
     api_variant: ModelProviderApiVariantResponse;
     /**
-     * Provider endpoint base URL. Normal API mode uses public HTTPS endpoints; localhost and loopback endpoints are only for insecure dev-mode configs.
+     * Provider endpoint base URL.
      */
     base_url: string;
     /**
@@ -1915,7 +1915,7 @@ export type ListMcpServersResponse = {
 
 export type McpServerToolsRequest = {
     /**
-     * Streamable HTTP MCP endpoint. Must use HTTPS, except that HTTP is allowed for loopback hosts during local development.
+     * Streamable HTTP MCP endpoint.
      */
     url: string;
     auth: McpServerAuth;

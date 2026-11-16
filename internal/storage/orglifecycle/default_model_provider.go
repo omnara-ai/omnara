@@ -129,7 +129,7 @@ func (s *Service) CompleteDefaultModelProviderProvisioning(
 	if !validDefaultModelProviderProvisioningClaim(input.Claim) {
 		return errors.New("valid default model provider provisioning claim is required")
 	}
-	prepared, err := modelstore.PrepareDefaultModelProviderTemplate(input.Template)
+	prepared, err := modelstore.PrepareDefaultModelProviderTemplate(input.Template, s.endpointAllowlist)
 	if err != nil {
 		return fmt.Errorf("default model provider %q: %w", input.Template.Name, err)
 	}

@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
@@ -134,6 +133,7 @@ func main() {
 		storage.WithSecretKeyWrapper(secretKeyWrapper),
 		storage.WithMachinePoolProviders(machinepool.DefaultCatalog()),
 		storage.WithMemoryRecorder(metrics.NewMemoryRecorder(metricSet)),
+		storage.WithEndpointAllowlist(cfg.EndpointAllowlist),
 	}
 	if cfg.BlobS3Bucket != "" {
 		blobs, err := blobstore.NewS3Store(context.Background(), cfg.BlobStoreS3Config())
@@ -168,17 +168,16 @@ func main() {
 		),
 		httpRecorder,
 	)
-	mcpHTTPClient := outboundhttp.NewPublicClient(
-		outboundhttp.PublicClientOptions{AllowLoopback: cfg.AllowInsecureDev},
-	)
+	mcpAuth, webFetcher := newOutboundClients(cfg)
 	searchHTTPClient := metrics.NewObservedHTTPClient(
 		outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{}),
 		httpRecorder,
 		metrics.WithHTTPClientPathLabel("/search"),
 	)
 	searchProvider := webaccess.ExaProvider{APIKey: cfg.ExaAPIKey, HTTPClient: searchHTTPClient}
-	webFetcher := webaccess.NewFetcher(webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev})
-	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder)
+	machinePoolManager := machinepool.NewManager(
+		store.Execution(), store.Identity(), cfg.PublicAPIURL, httpRecorder, cfg.EndpointAllowlist,
+	)
 	backgroundRunner, err := tools.NewBackgroundExecutionRunner(
 		executionCtx,
 		log,
@@ -231,7 +230,7 @@ func main() {
 			Models:               store.Models(),
 			Secrets:              store.Secrets(),
 			HTTPRecorder:         httpRecorder,
-			AllowLoopback:        cfg.AllowInsecureDev,
+			HTTPTransport:        modelprovider.NewHTTPTransport(cfg.AllowInsecureDev, cfg.EndpointAllowlist),
 			SigV4CredentialCache: sigV4CredentialCache,
 			OpenRouterAttribution: modelprovider.OpenRouterAttribution{
 				SiteURL:       cfg.OpenRouterSiteURL,
@@ -239,8 +238,8 @@ func main() {
 				AppCategories: cfg.OpenRouterAppCategories,
 			},
 		},
-		MCP:                  mcp.New(mcp.Options{HTTPClient: mcpHTTPClient}),
-		MCPAuthHTTPClient:    mcpHTTPClient,
+		MCP:                  mcp.New(mcp.Options{HTTPClient: mcpAuth.EndpointHTTPClient}),
+		MCPAuthHTTPClient:    mcpAuth.HTTPClient,
 		SigV4CredentialCache: sigV4CredentialCache,
 		SafetyIdentifierKey:  safetyIdentifierKey,
 		ToolExecutor: tools.Executor{
@@ -252,7 +251,6 @@ func main() {
 			MachinePoolManager:    machinePoolManager,
 			BackgroundRunner:      backgroundRunner,
 			SkillBroadcaster:      skillBroadcaster,
-			AgentConfigOptions:    agentconfig.CompileOptions{AllowInsecureLocalMCPHTTP: cfg.AllowInsecureDev},
 			Log:                   log,
 		},
 		StreamPublisher: redisBus,
@@ -376,6 +374,7 @@ func main() {
 	eventWebhooks := eventwebhook.New(
 		store.Execution(), log, cfg.WorkerEventWebhookConcurrency, cfg.EventWebhookPerOrgConcurrency,
 		metrics.NewEventWebhookRecorder(metricSet), httpRecorder,
+		cfg.EndpointAllowlist,
 	)
 	eventWebhookDone := make(chan struct{})
 	go func() {
@@ -423,6 +422,12 @@ func main() {
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
+}
+
+func newOutboundClients(cfg config.Config) (mcp.AuthOptions, *webaccess.Fetcher) {
+	return mcp.NewAuthOptions(cfg.AllowInsecureDev, cfg.EndpointAllowlist), webaccess.NewFetcher(
+		webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev, Allowlist: cfg.WebFetchAllowlist},
+	)
 }
 
 func cancelAfterDone(parent context.Context, delay time.Duration) (context.Context, context.CancelFunc) {

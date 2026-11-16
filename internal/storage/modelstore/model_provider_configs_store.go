@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
@@ -89,7 +90,7 @@ func (s *Store) createModelProviderConfigTx(
 	if err := validateModelProviderAPIFormat(input.APIFormat); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
-	input.BaseURL, err = normalizeModelProviderBaseURL(input.BaseURL)
+	input.BaseURL, err = normalizeModelProviderBaseURL(input.BaseURL, s.endpointAllowlist)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -380,7 +381,7 @@ func (s *Store) PatchModelProviderConfig(
 			return ModelProviderConfigRecord{}, err
 		}
 	}
-	record, err := updateModelProviderConfigTx(ctx, tx, qtx, update, management.Tenant)
+	record, err := updateModelProviderConfigTx(ctx, tx, qtx, update, management.Tenant, s.endpointAllowlist)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -396,10 +397,12 @@ func updateModelProviderConfigTx(
 	qtx *dbsqlc.Queries,
 	input modelProviderConfigUpdate,
 	managementKind management.Kind,
+	endpointAllowlist *ssrf.Allowlist,
 ) (ModelProviderConfigRecord, error) {
 	update, err := normalizeModelProviderConfigUpdate(
 		ctx,
 		input,
+		endpointAllowlist,
 		func(ctx context.Context, orgID, credentialSecretID uuid.UUID, authKind string) error {
 			return validateModelProviderCredentialTx(
 				ctx,
@@ -446,6 +449,7 @@ func updateModelProviderConfigTx(
 func normalizeModelProviderConfigUpdate(
 	ctx context.Context,
 	input modelProviderConfigUpdate,
+	endpointAllowlist *ssrf.Allowlist,
 	validateCredential func(context.Context, uuid.UUID, uuid.UUID, string) error,
 ) (modelProviderConfigUpdate, error) {
 	if input.OrgID == uuid.Nil || input.ID == uuid.Nil || input.BaseURL == "" || input.EndpointPath == "" ||
@@ -456,7 +460,7 @@ func normalizeModelProviderConfigUpdate(
 		)
 	}
 	var err error
-	input.BaseURL, err = normalizeModelProviderBaseURL(input.BaseURL)
+	input.BaseURL, err = normalizeModelProviderBaseURL(input.BaseURL, endpointAllowlist)
 	if err != nil {
 		return modelProviderConfigUpdate{}, err
 	}

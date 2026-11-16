@@ -1,14 +1,24 @@
 ---
 title: Examples
-description: Agents you can deploy with one prompt, plus code samples for specific features
+description: Agents you can deploy with one prompt, live demos built on Omnara, and code samples for specific features
 icon: "flask"
 ---
 
-Every example lives in the repository's [`examples/`](https://github.com/omnara-ai/omnara/tree/main/examples) directory. If you're evaluating Omnara, start with the [Quickstart](/quickstart).
+import LiveDemos from '/snippets/live-demos.mdx'
+
+The agents and code samples live in the repository's [`examples/`](https://github.com/omnara-ai/omnara/tree/main/examples) directory; the live demos are hosted apps. If you're evaluating Omnara, start with the [Quickstart](/quickstart).
 
 ## Agents you can deploy
 
 Give one prompt to Claude Code, Codex, Cursor, or any other coding agent, and it sets the agent up in your Omnara project and runs it once. Each is an `agent.yaml` plus a `SKILL.md`, so any of them is a starting point for your own.
+
+### In your product
+
+<CardGroup cols={2}>
+  <Card title="In-app guide" icon="arrow-pointer" href="/examples/in-app-guide">
+    Shows your users how to do things in your web app, with a cursor on the page they are on, and can do the steps for them with approval
+  </Card>
+</CardGroup>
 
 ### GTM agents
 
@@ -27,14 +37,6 @@ Give one prompt to Claude Code, Codex, Cursor, or any other coding agent, and it
   </Card>
 </CardGroup>
 
-### Product
-
-<CardGroup cols={2}>
-  <Card title="PostHog analytics agent" icon="chart-line" href="/examples/posthog-analytics-agent">
-    A daily usage report from PostHog: active users, top events, and anything unusual
-  </Card>
-</CardGroup>
-
 ### Engineering
 
 <CardGroup cols={2}>
@@ -46,6 +48,15 @@ Give one prompt to Claude Code, Codex, Cursor, or any other coding agent, and it
   </Card>
   <Card title="PR review agent" icon="code-compare" href="/examples/pr-review-agent">
     Reviews your GitHub pull requests against a checkout of the repository and leaves inline findings
+  </Card>
+  <Card title="PR video agent" icon="video" href="/examples/pr-video-agent">
+    Records a short video of a pull request's change working in your app and posts it on the pull request
+  </Card>
+  <Card title="Dependency roll-up agent" icon="layer-group" href="/examples/dependency-rollup-agent">
+    Rolls your Dependabot pull requests into one pull request a day that passes CI, and says which upgrades to skip
+  </Card>
+  <Card title="PostHog analytics agent" icon="chart-line" href="/examples/posthog-analytics-agent">
+    A daily usage report from PostHog: active users, top events, and anything unusual
   </Card>
 </CardGroup>
 
@@ -67,6 +78,12 @@ Give one prompt to Claude Code, Codex, Cursor, or any other coding agent, and it
     Short videos from a brief, built with Remotion, checked frame by frame, and delivered as an MP4
   </Card>
 </CardGroup>
+
+## Live demos
+
+Apps built on Omnara that you can try in your browser.
+
+<LiveDemos />
 
 ## Code samples
 

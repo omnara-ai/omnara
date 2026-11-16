@@ -4253,8 +4253,8 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 				if event["http.status_code"] != float64(http.StatusOK) || event["level"] != "info" {
 					t.Fatalf("canceled auth misclassified: %+v", event)
 				}
-				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), "timeout") {
-					t.Fatalf("missing actual socket timeout: %+v", event)
+				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), context.Canceled.Error()) {
+					t.Fatalf("missing normalized cancellation: %+v", event)
 				}
 			default:
 				if handlerCalls != 1 || rec.Code != http.StatusNoContent || event["http.status_code"] != float64(204) {

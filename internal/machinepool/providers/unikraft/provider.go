@@ -28,6 +28,7 @@ type provider struct {
 	apiBaseURL    string
 	omnaraAPIURL  string
 	httpRecorder  *metrics.HTTPClientRecorder
+	httpClient    *http.Client
 	wakeTransport http.RoundTripper
 }
 
@@ -42,7 +43,7 @@ func (p *provider) apiForMetro(metro string) apiClient {
 	return &restClient{
 		baseURL:    baseURL,
 		apiToken:   p.apiToken,
-		httpClient: providers.NewHTTPClient(p.httpRecorder, providers.Unikraft),
+		httpClient: providers.ObserveHTTPClient(p.httpClient, p.httpRecorder, providers.Unikraft),
 	}
 }
 
@@ -209,7 +210,7 @@ func (p *provider) WakeMachine(
 	if err != nil {
 		return fmt.Errorf("build unikraft wake request: %w", err)
 	}
-	client := providers.NewHTTPClient(p.httpRecorder, providers.Unikraft)
+	client := providers.ObserveHTTPClient(p.httpClient, p.httpRecorder, providers.Unikraft)
 	if p.wakeTransport != nil {
 		client.Transport = p.wakeTransport
 	}

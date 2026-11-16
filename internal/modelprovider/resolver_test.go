@@ -171,11 +171,11 @@ func TestHTTPClientForProviderConfigReusesGuardedTransport(t *testing.T) {
 			second.Transport,
 		)
 	}
-	transport, ok := first.Transport.(*http.Transport)
+	cloner, ok := first.Transport.(interface{ Clone() *http.Transport })
 	if !ok {
-		t.Fatalf("transport = %T, want *http.Transport", first.Transport)
+		t.Fatalf("transport = %T, want an http.Transport", first.Transport)
 	}
-	if transport.ResponseHeaderTimeout != 0 {
+	if transport := cloner.Clone(); transport.ResponseHeaderTimeout != 0 {
 		t.Fatalf(
 			"response header timeout = %s, want disabled for model generation budget",
 			transport.ResponseHeaderTimeout,
@@ -209,7 +209,8 @@ func TestHTTPClientForProviderConfigAllowsLoopbackInDevMode(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := (Resolver{AllowLoopback: true}).httpClientForProviderConfig(modelstore.ModelProviderConfigRecord{
+	resolver := Resolver{HTTPTransport: NewHTTPTransport(true, nil)}
+	client, err := resolver.httpClientForProviderConfig(modelstore.ModelProviderConfigRecord{
 		APIFormat: modelprotocol.APIFormatOpenAIResponses,
 	})
 	if err != nil {
@@ -230,11 +231,11 @@ func TestHTTPClientForProviderConfigDefersRedirectHandlingToRoute(t *testing.T) 
 		name     string
 		resolver Resolver
 	}{
-		{name: "plain", resolver: Resolver{AllowLoopback: true}},
+		{name: "plain", resolver: Resolver{HTTPTransport: NewHTTPTransport(true, nil)}},
 		{
 			name: "observed",
 			resolver: Resolver{
-				AllowLoopback: true,
+				HTTPTransport: NewHTTPTransport(true, nil),
 				HTTPRecorder:  metrics.NewHTTPClientRecorder(metrics.New(), metrics.SubsystemHTTPClient),
 			},
 		},

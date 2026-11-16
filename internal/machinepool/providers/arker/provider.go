@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"regexp"
 	"strconv"
 	"time"
@@ -41,6 +42,7 @@ type provider struct {
 	apiBaseURL   string
 	omnaraAPIURL string
 	httpRecorder *metrics.HTTPClientRecorder
+	httpClient   *http.Client
 }
 
 func (p *provider) regionBaseURL(region string) string {
@@ -57,7 +59,7 @@ func (p *provider) apiFor(baseURL string) *restClient {
 	return &restClient{
 		baseURL:    baseURL,
 		apiToken:   p.apiToken,
-		httpClient: providers.NewHTTPClient(p.httpRecorder, providers.Arker),
+		httpClient: providers.ObserveHTTPClient(p.httpClient, p.httpRecorder, providers.Arker),
 	}
 }
 

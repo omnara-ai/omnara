@@ -231,7 +231,11 @@ func createModelProviderConfigHasField(body openapigen.CreateModelProviderConfig
 	}
 }
 
-func validateModelProviderBaseURLNetworkPolicy(baseURL string, allowInsecureDev bool) error {
+func validateModelProviderBaseURLNetworkPolicy(
+	baseURL string,
+	allowInsecureDev bool,
+	endpointAllowlist *ssrf.Allowlist,
+) error {
 	parsed, err := url.Parse(strings.TrimRight(strings.TrimSpace(baseURL), "/"))
 	if err != nil {
 		return errors.New("base_url is invalid")
@@ -241,20 +245,20 @@ func validateModelProviderBaseURLNetworkPolicy(baseURL string, allowInsecureDev 
 	}
 	hostname := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
 	if hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") {
-		if allowInsecureDev {
+		if allowInsecureDev || endpointAllowlist.PermitsLocalhost(ssrf.URLPort(parsed)) {
 			return nil
 		}
-		return errors.New("base_url cannot target localhost unless insecure dev mode is enabled")
+		return errors.New("base_url cannot target localhost")
 	}
 	ip := net.ParseIP(hostname)
 	if ip == nil {
 		return nil
 	}
-	if ssrf.IsAllowedIP(ip, allowInsecureDev) {
+	if endpointAllowlist.PermitsIP(ip, ssrf.URLPort(parsed), allowInsecureDev) {
 		return nil
 	}
 	if ip.IsLoopback() {
-		return errors.New("base_url cannot target loopback IPs unless insecure dev mode is enabled")
+		return errors.New("base_url cannot target loopback IPs")
 	}
 	return errors.New("base_url cannot target private or special-use IP addresses")
 }
@@ -315,6 +319,7 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 	if err := validateModelProviderBaseURLNetworkPolicy(
 		command.BaseURL,
 		s.server.allowInsecureModelProviderEndpoints,
+		s.server.endpointAllowlist,
 	); err != nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
 	}
@@ -399,13 +404,7 @@ func (s strictOpenAPIServer) providerModelCatalog(
 	if err != nil {
 		return failed("could not read the header secrets")
 	}
-	models, err := s.server.modelDiscoverer(
-		ctx,
-		record,
-		apiKey,
-		headers,
-		s.server.allowInsecureModelProviderEndpoints,
-	)
+	models, err := s.server.modelDiscoverer(ctx, record, apiKey, headers)
 	if err != nil {
 		return failed(err.Error())
 	}
@@ -551,6 +550,7 @@ func (s strictOpenAPIServer) UpdateModelProviderConfig(
 		if err := validateModelProviderBaseURLNetworkPolicy(
 			*input.BaseURL,
 			s.server.allowInsecureModelProviderEndpoints,
+			s.server.endpointAllowlist,
 		); err != nil {
 			return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
 		}

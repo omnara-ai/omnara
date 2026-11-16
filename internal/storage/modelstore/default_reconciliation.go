@@ -82,6 +82,7 @@ func (s *Store) ReconcileDefaultModelProviderTx(
 						APIVariant:         current.APIVariant,
 					},
 					management.Cluster,
+					s.endpointAllowlist,
 				); err != nil {
 					return nil, nil, fmt.Errorf("update default model provider %q: %w", prepared.Name, err)
 				}

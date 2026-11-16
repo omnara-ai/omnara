@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -689,5 +690,30 @@ func TestConnectionCheckFailure(t *testing.T) {
 				t.Fatalf("failure = (%q, %t), want (%q, %t)", message, upstream, test.want, test.wantUpstream)
 			}
 		})
+	}
+}
+
+func TestProviderClientReachesOnlyListedPrivateEndpoints(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := ssrf.ParseAllowlist([]string{"127.0.0.1:" + port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, allowlist := range []*ssrf.Allowlist{listed, nil} {
+		client := providers.ObserveHTTPClient(
+			NewManager(nil, nil, "", nil, allowlist).ProviderHTTPClient, nil, providers.Daytona,
+		)
+		response, err := client.Get(server.URL)
+		if err == nil {
+			_ = response.Body.Close()
+		}
+		if (err == nil) != (allowlist != nil) {
+			t.Fatalf("listed=%v: request error = %v", allowlist != nil, err)
+		}
 	}
 }

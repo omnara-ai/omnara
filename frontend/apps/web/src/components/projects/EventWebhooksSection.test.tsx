@@ -332,8 +332,10 @@ it('validates the URL and events, and cancels without writes', async () => {
   act(() => {
     button('Add webhook').click()
   })
-  await enter('Webhook URL', 'http://example.com/events')
+  await enter('Webhook URL', 'ftp://example.com/events')
   expect(button('Create webhook').disabled).toBe(true)
+  await enter('Webhook URL', 'http://10.0.5.21:8080/events')
+  expect(button('Create webhook').disabled).toBe(false)
   await enter('Webhook URL', 'https://example.com/events')
   act(() => {
     button('Remove Tool-call updates').click()
