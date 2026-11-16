@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
-	"slices"
 	"strconv"
 )
 
@@ -16,18 +15,6 @@ type Allowlist struct {
 type allowEntry struct {
 	prefix netip.Prefix
 	port   uint16
-}
-
-var alwaysBlocked = []netip.Prefix{
-	netip.MustParsePrefix("169.254.0.0/16"),
-	netip.MustParsePrefix("fe80::/10"),
-	netip.MustParsePrefix("100.100.100.200/32"),
-	netip.MustParsePrefix("168.63.129.16/32"),
-	netip.MustParsePrefix("fd00:ec2::254/128"),
-	netip.MustParsePrefix("fd00:ec2::23/128"),
-	netip.MustParsePrefix("fd20:ce::254/128"),
-	netip.MustParsePrefix("fd00:c1::a9fe:a9fe/128"),
-	netip.MustParsePrefix("64:ff9b:1::/48"),
 }
 
 func ParseAllowlist(raw []string) (*Allowlist, error) {
@@ -59,20 +46,14 @@ func parseAllowEntry(raw string) (allowEntry, error) {
 		}
 		prefix = netip.PrefixFrom(addr, addr.BitLen())
 	}
-	if prefix.Addr().Is4In6() {
+	if prefix.Addr().Is4In6() || covers(nat64WellKnown, prefix) {
 		return allowEntry{}, fmt.Errorf("%q must use the IPv4 form", raw)
 	}
 	prefix = prefix.Masked()
-	if alwaysBlockedPrefix(prefix) {
+	if whollyNever(prefix) {
 		return allowEntry{}, fmt.Errorf("%q is always blocked and cannot be allowed", raw)
 	}
 	return allowEntry{prefix: prefix, port: uint16(port)}, nil
-}
-
-func alwaysBlockedPrefix(prefix netip.Prefix) bool {
-	return slices.ContainsFunc(alwaysBlocked, func(blocked netip.Prefix) bool {
-		return blocked.Bits() <= prefix.Bits() && blocked.Contains(prefix.Addr())
-	}) || (prefix.IsSingleIP() && isAlwaysBlocked(prefix.Addr().AsSlice()))
 }
 
 func (a *Allowlist) PermitsIP(ip net.IP, port uint16, allowLoopback bool) bool {
@@ -106,9 +87,8 @@ func (a *Allowlist) Contains(ip net.IP, port uint16) bool {
 	if a == nil || port == 0 {
 		return false
 	}
-	addr, ok := netip.AddrFromSlice(ip)
-	addr = addr.Unmap()
-	if !ok || isAlwaysBlocked(ip) {
+	addr, ok := canonicalAddr(ip)
+	if !ok || classifyAddr(addr) == classNever {
 		return false
 	}
 	for _, entry := range a.entries {
@@ -117,15 +97,6 @@ func (a *Allowlist) Contains(ip net.IP, port uint16) bool {
 		}
 	}
 	return false
-}
-
-func isAlwaysBlocked(ip net.IP) bool {
-	return slices.ContainsFunc(append(embeddedIPv4Addresses(ip), ip), func(candidate net.IP) bool {
-		addr, ok := netip.AddrFromSlice(candidate)
-		return ok && slices.ContainsFunc(alwaysBlocked, func(prefix netip.Prefix) bool {
-			return prefix.Contains(addr.Unmap())
-		})
-	})
 }
 
 func (a *Allowlist) blocked(host, port string, literal, plainHTTP bool) error {
