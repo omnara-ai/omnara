@@ -64,28 +64,28 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	orgWide := createOtelExporterForTest(t, fixture,
 		executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeOrg},
 		otelconfig.Settings{
-			Endpoint: "https://otel.example.com/v1/traces", Variant: oteltrace.VariantLangfuse, SampleBasisPoints: 10000,
+			Endpoint: "https://otel.example.com/v1/traces", Variant: oteltrace.VariantLangfuse, SamplePercent: 100,
 			Headers:       map[string]string{"x-langfuse-ingestion-version": "4"},
 			SecretHeaders: map[string]uuid.UUID{"Authorization": secret.ID},
 		})
 	project := createOtelExporterForTest(t, fixture,
 		executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeProject, ProjectID: testProjectID},
-		otelconfig.Settings{Endpoint: "https://project.example.com/v1/traces", SampleBasisPoints: 10000})
+		otelconfig.Settings{Endpoint: "https://project.example.com/v1/traces", SamplePercent: 100})
 	unsampled := createOtelExporterForTest(t, fixture,
 		executionstore.OtelExporterScope{
 			Type: executionstore.OtelExporterScopeAgent, ProjectID: testProjectID, AgentID: fixture.AgentID,
 		},
-		otelconfig.Settings{Endpoint: "https://agent.example.com/v1/traces", SampleBasisPoints: 0})
+		otelconfig.Settings{Endpoint: "https://agent.example.com/v1/traces", SamplePercent: 0})
 	require.Equal(t, oteltrace.VariantOTel, project.Settings.Variant)
 
 	_, err = store.CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
 		OrgID: testOrgID, Scope: executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeOrg},
-		Settings: otelconfig.Settings{Endpoint: "https://otel.example.com/v1/traces", SampleBasisPoints: 10000},
+		Settings: otelconfig.Settings{Endpoint: "https://otel.example.com/v1/traces", SamplePercent: 100},
 	})
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	_, err = store.CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
 		OrgID: testOrgID, Scope: executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeOrg},
-		Settings: otelconfig.Settings{Endpoint: "https://other.example.com", SampleBasisPoints: 10000,
+		Settings: otelconfig.Settings{Endpoint: "https://other.example.com", SamplePercent: 100,
 			SecretHeaders: map[string]uuid.UUID{"Authorization": uuid.New()}},
 	})
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
@@ -194,12 +194,12 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	require.Len(t, retried.Deliveries, 1)
 	require.EqualValues(t, 3, retried.Deliveries[0].AttemptCount)
 
-	sampleRate := int32(2500)
+	sampleRate := 25.5
 	updated, err := store.UpdateOtelExporter(ctx, executionstore.UpdateOtelExporterInput{
-		OrgID: testOrgID, ExporterID: orgWide.ID, SampleBasisPoints: &sampleRate, SecretHeaders: map[string]uuid.UUID{},
+		OrgID: testOrgID, ExporterID: orgWide.ID, SamplePercent: &sampleRate, SecretHeaders: map[string]uuid.UUID{},
 	})
 	require.NoError(t, err)
-	require.EqualValues(t, 2500, updated.Settings.SampleBasisPoints)
+	require.InDelta(t, 25.5, updated.Settings.SamplePercent, 0)
 	require.Empty(t, updated.Settings.SecretHeaders)
 	require.Equal(t, map[string]string{"x-langfuse-ingestion-version": "4"}, updated.Settings.Headers)
 
@@ -224,11 +224,11 @@ func TestOtelTraceSamplingMatchesGoDecision(t *testing.T) {
 	fixture := newProcessDaemonFixture(t, ctx, "otel_sampling")
 	for range 200 {
 		turnID := uuid.New()
-		for _, basisPoints := range []int32{0, 1, 2500, 9999, 10000} {
+		for _, percent := range []float64{0, 0.01, 25, 33.33, 99.99, 100} {
 			var sampled bool
 			require.NoError(t, fixture.Store.pool.QueryRow(ctx,
-				`SELECT otel_trace_sampled($1, $2)`, turnID, basisPoints).Scan(&sampled))
-			require.Equal(t, oteltrace.Sampled(turnID, basisPoints), sampled, "%s at %d", turnID, basisPoints)
+				`SELECT otel_trace_sampled($1, $2::numeric)`, turnID, percent).Scan(&sampled))
+			require.Equal(t, oteltrace.Sampled(turnID, percent), sampled, "%s at %v", turnID, percent)
 		}
 	}
 }

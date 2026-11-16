@@ -206,7 +206,7 @@ WHERE event.agent_id = $2
   AND exporter.deleted_at IS NULL
   AND project.deleted_at IS NULL
   AND org.deleted_at IS NULL
-  AND otel_trace_sampled(event.turn_id, exporter.sample_basis_points)
+  AND otel_trace_sampled(event.turn_id, exporter.sample_percent)
 ON CONFLICT (exporter_id, turn_id) DO UPDATE
 SET next_attempt_at = excluded.next_attempt_at, claim_token = NULL, claim_expires_at = NULL
 `
@@ -229,7 +229,7 @@ func (q *Queries) EnqueueOtelExportDeliveries(ctx context.Context, arg EnqueueOt
 
 const getOtelExporter = `-- name: GetOtelExporter :one
 SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
-       exporter.headers, exporter.secret_headers, exporter.sample_basis_points,
+       exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 JOIN orgs org ON org.id = exporter.org_id AND org.deleted_at IS NULL
@@ -253,7 +253,7 @@ func (q *Queries) GetOtelExporter(ctx context.Context, arg GetOtelExporterParams
 		&i.Variant,
 		&i.Headers,
 		&i.SecretHeaders,
-		&i.SampleBasisPoints,
+		&i.SamplePercent,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -309,22 +309,22 @@ func (q *Queries) GetTurnTraceContext(ctx context.Context, arg GetTurnTraceConte
 
 const insertOtelExporter = `-- name: InsertOtelExporter :one
 INSERT INTO otel_exporters (
-    org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_basis_points
+    org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_percent
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_basis_points,
+RETURNING id, org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_percent,
           created_at, updated_at, deleted_at
 `
 
 type InsertOtelExporterParams struct {
-	OrgID             uuid.UUID
-	ProjectID         *uuid.UUID
-	AgentID           *uuid.UUID
-	Endpoint          string
-	Variant           string
-	Headers           json.RawMessage
-	SecretHeaders     json.RawMessage
-	SampleBasisPoints int32
+	OrgID         uuid.UUID
+	ProjectID     *uuid.UUID
+	AgentID       *uuid.UUID
+	Endpoint      string
+	Variant       string
+	Headers       json.RawMessage
+	SecretHeaders json.RawMessage
+	SamplePercent float64
 }
 
 func (q *Queries) InsertOtelExporter(ctx context.Context, arg InsertOtelExporterParams) (OtelExporter, error) {
@@ -336,7 +336,7 @@ func (q *Queries) InsertOtelExporter(ctx context.Context, arg InsertOtelExporter
 		arg.Variant,
 		arg.Headers,
 		arg.SecretHeaders,
-		arg.SampleBasisPoints,
+		arg.SamplePercent,
 	)
 	var i OtelExporter
 	err := row.Scan(
@@ -348,7 +348,7 @@ func (q *Queries) InsertOtelExporter(ctx context.Context, arg InsertOtelExporter
 		&i.Variant,
 		&i.Headers,
 		&i.SecretHeaders,
-		&i.SampleBasisPoints,
+		&i.SamplePercent,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -358,23 +358,25 @@ func (q *Queries) InsertOtelExporter(ctx context.Context, arg InsertOtelExporter
 
 const listOtelExporters = `-- name: ListOtelExporters :many
 SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
-       exporter.headers, exporter.secret_headers, exporter.sample_basis_points,
+       exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 WHERE exporter.org_id = $1
   AND ($2::uuid IS NULL OR exporter.project_id = $2::uuid)
+  AND ($3::uuid IS NULL OR exporter.agent_id = $3::uuid)
   AND exporter.deleted_at IS NULL
   AND (exporter.created_at, exporter.id) > (
-    coalesce($3::timestamptz, '-infinity'::timestamptz),
-    coalesce($4::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+    coalesce($4::timestamptz, '-infinity'::timestamptz),
+    coalesce($5::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
   )
 ORDER BY exporter.created_at, exporter.id
-LIMIT $5
+LIMIT $6
 `
 
 type ListOtelExportersParams struct {
 	OrgID           uuid.UUID
 	ProjectID       *uuid.UUID
+	AgentID         *uuid.UUID
 	CursorCreatedAt *time.Time
 	CursorID        *uuid.UUID
 	RowLimit        int32
@@ -384,6 +386,7 @@ func (q *Queries) ListOtelExporters(ctx context.Context, arg ListOtelExportersPa
 	rows, err := q.db.Query(ctx, listOtelExporters,
 		arg.OrgID,
 		arg.ProjectID,
+		arg.AgentID,
 		arg.CursorCreatedAt,
 		arg.CursorID,
 		arg.RowLimit,
@@ -404,7 +407,7 @@ func (q *Queries) ListOtelExporters(ctx context.Context, arg ListOtelExportersPa
 			&i.Variant,
 			&i.Headers,
 			&i.SecretHeaders,
-			&i.SampleBasisPoints,
+			&i.SamplePercent,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -592,20 +595,20 @@ func (q *Queries) RetryOtelExportDeliveries(ctx context.Context, arg RetryOtelEx
 
 const updateOtelExporter = `-- name: UpdateOtelExporter :one
 UPDATE otel_exporters SET endpoint = $3, variant = $4, headers = $5, secret_headers = $6,
-    sample_basis_points = $7, updated_at = statement_timestamp()
+    sample_percent = $7, updated_at = statement_timestamp()
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_basis_points,
+RETURNING id, org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_percent,
           created_at, updated_at, deleted_at
 `
 
 type UpdateOtelExporterParams struct {
-	OrgID             uuid.UUID
-	ID                uuid.UUID
-	Endpoint          string
-	Variant           string
-	Headers           json.RawMessage
-	SecretHeaders     json.RawMessage
-	SampleBasisPoints int32
+	OrgID         uuid.UUID
+	ID            uuid.UUID
+	Endpoint      string
+	Variant       string
+	Headers       json.RawMessage
+	SecretHeaders json.RawMessage
+	SamplePercent float64
 }
 
 func (q *Queries) UpdateOtelExporter(ctx context.Context, arg UpdateOtelExporterParams) (OtelExporter, error) {
@@ -616,7 +619,7 @@ func (q *Queries) UpdateOtelExporter(ctx context.Context, arg UpdateOtelExporter
 		arg.Variant,
 		arg.Headers,
 		arg.SecretHeaders,
-		arg.SampleBasisPoints,
+		arg.SamplePercent,
 	)
 	var i OtelExporter
 	err := row.Scan(
@@ -628,7 +631,7 @@ func (q *Queries) UpdateOtelExporter(ctx context.Context, arg UpdateOtelExporter
 		&i.Variant,
 		&i.Headers,
 		&i.SecretHeaders,
-		&i.SampleBasisPoints,
+		&i.SamplePercent,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,

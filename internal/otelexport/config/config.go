@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/google/uuid"
@@ -13,20 +14,19 @@ import (
 	"golang.org/x/net/http/httpguts"
 )
 
-const (
-	MaxHeaders           = 20
-	MaxSampleBasisPoints = 10000
-)
+const MaxHeaders = 20
 
 // Settings is one exporter's destination. Endpoint is the full OTLP/HTTP
 // traces URL and is used exactly as given. SecretHeaders maps a header name to
 // the generic secret holding its value.
 type Settings struct {
-	Endpoint          string
-	Variant           oteltrace.Variant
-	Headers           map[string]string
-	SecretHeaders     map[string]uuid.UUID
-	SampleBasisPoints int32
+	Endpoint      string
+	Variant       oteltrace.Variant
+	Headers       map[string]string
+	SecretHeaders map[string]uuid.UUID
+	// SamplePercent is the share of turns exported, 0 to 100, kept to two
+	// decimal places.
+	SamplePercent float64
 }
 
 // reservedHeaders are set by the sender and cannot be overridden.
@@ -43,7 +43,8 @@ func Validate(settings Settings, endpointAllowlist *ssrf.Allowlist) (Settings, e
 		return Settings{}, errors.New("unsupported exporter variant")
 	}
 	settings.Variant = variant
-	if settings.SampleBasisPoints < 0 || settings.SampleBasisPoints > MaxSampleBasisPoints {
+	settings.SamplePercent = math.Round(settings.SamplePercent*100) / 100
+	if !(settings.SamplePercent >= 0 && settings.SamplePercent <= 100) {
 		return Settings{}, errors.New("sample_percent must be between 0 and 100")
 	}
 	if settings.Headers == nil {

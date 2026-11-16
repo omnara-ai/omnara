@@ -11,7 +11,7 @@ CREATE TABLE otel_exporters (
     variant text NOT NULL DEFAULT 'otel' CHECK (variant IN ('otel', 'langfuse', 'braintrust', 'langsmith')),
     headers jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(headers) = 'object'),
     secret_headers jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(secret_headers) = 'object'),
-    sample_basis_points integer NOT NULL DEFAULT 10000 CHECK (sample_basis_points BETWEEN 0 AND 10000),
+    sample_percent numeric(5, 2) NOT NULL DEFAULT 100 CHECK (sample_percent BETWEEN 0 AND 100),
     created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT statement_timestamp(),
     deleted_at timestamptz,
@@ -29,15 +29,15 @@ CREATE INDEX otel_exporters_org_created_idx ON otel_exporters(org_id, created_at
 
 -- Head sampling keyed on the trace (turn) ID, so every span of one trace
 -- gets the same decision for one exporter. Buckets are the low 32 bits of
--- the ID modulo 10000, compared against the rate in basis points (0.01%).
+-- the ID modulo 10000, so a percentage is honored to two decimal places.
 -- +goose StatementBegin
-CREATE FUNCTION otel_trace_sampled(trace_id uuid, sample_basis_points integer)
+CREATE FUNCTION otel_trace_sampled(trace_id uuid, sample_percent numeric)
 RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
 PARALLEL SAFE
 AS $$
-    SELECT (('x' || right(replace(trace_id::text, '-', ''), 8))::bit(32)::bigint % 10000) < sample_basis_points;
+    SELECT (('x' || right(replace(trace_id::text, '-', ''), 8))::bit(32)::bigint % 10000) < sample_percent * 100;
 $$;
 -- +goose StatementEnd
 

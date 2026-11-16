@@ -88,8 +88,10 @@ type ListOtelExportersInput struct {
 	// ProjectID, when set, returns only exporters scoped to that project or
 	// to one of its agents.
 	ProjectID uuid.UUID
-	Limit     int
-	After     listing.KeysetCursor
+	// AgentID, when set, returns only exporters scoped to that agent.
+	AgentID uuid.UUID
+	Limit   int
+	After   listing.KeysetCursor
 }
 
 type ListOtelExportersResult struct {
@@ -98,20 +100,20 @@ type ListOtelExportersResult struct {
 }
 
 type UpdateOtelExporterInput struct {
-	OrgID             uuid.UUID
-	ExporterID        uuid.UUID
-	Endpoint          *string
-	Variant           *oteltrace.Variant
-	Headers           map[string]string
-	SecretHeaders     map[string]uuid.UUID
-	SampleBasisPoints *int32
+	OrgID         uuid.UUID
+	ExporterID    uuid.UUID
+	Endpoint      *string
+	Variant       *oteltrace.Variant
+	Headers       map[string]string
+	SecretHeaders map[string]uuid.UUID
+	SamplePercent *float64
 }
 
 func otelExporterRecordFromSQLC(row dbsqlc.OtelExporter) (OtelExporterRecord, error) {
 	record := OtelExporterRecord{
 		ID: row.ID, OrgID: row.OrgID, Scope: otelExporterScopeFromColumns(row.ProjectID, row.AgentID),
 		Settings: otelconfig.Settings{
-			Endpoint: row.Endpoint, Variant: oteltrace.Variant(row.Variant), SampleBasisPoints: row.SampleBasisPoints,
+			Endpoint: row.Endpoint, Variant: oteltrace.Variant(row.Variant), SamplePercent: row.SamplePercent,
 		},
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
@@ -236,7 +238,7 @@ func (s *Store) CreateOtelExporter(ctx context.Context, input CreateOtelExporter
 	row, err := q.InsertOtelExporter(ctx, dbsqlc.InsertOtelExporterParams{
 		OrgID: input.OrgID, ProjectID: storeutil.IDFromNil(input.Scope.ProjectID),
 		AgentID: storeutil.IDFromNil(input.Scope.AgentID), Endpoint: settings.Endpoint, Variant: string(settings.Variant),
-		Headers: headers, SecretHeaders: secretHeaders, SampleBasisPoints: settings.SampleBasisPoints,
+		Headers: headers, SecretHeaders: secretHeaders, SamplePercent: settings.SamplePercent,
 	})
 	if err != nil {
 		return OtelExporterRecord{}, otelExporterConflict(err)
@@ -253,7 +255,8 @@ func (s *Store) ListOtelExporters(ctx context.Context, input ListOtelExportersIn
 			errors.New("organization and limit between 1 and 100 are required"))
 	}
 	params := dbsqlc.ListOtelExportersParams{
-		OrgID: input.OrgID, ProjectID: storeutil.IDFromNil(input.ProjectID), RowLimit: int32(input.Limit) + 1,
+		OrgID: input.OrgID, ProjectID: storeutil.IDFromNil(input.ProjectID),
+		AgentID: storeutil.IDFromNil(input.AgentID), RowLimit: int32(input.Limit) + 1,
 	}
 	if input.After.Set {
 		params.CursorCreatedAt = &input.After.CreatedAt
@@ -330,8 +333,8 @@ func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporter
 	if input.SecretHeaders != nil {
 		settings.SecretHeaders = input.SecretHeaders
 	}
-	if input.SampleBasisPoints != nil {
-		settings.SampleBasisPoints = *input.SampleBasisPoints
+	if input.SamplePercent != nil {
+		settings.SamplePercent = *input.SamplePercent
 	}
 	if settings, err = s.validateOtelExporterSettings(ctx, input.OrgID, settings); err != nil {
 		return OtelExporterRecord{}, err
@@ -342,7 +345,7 @@ func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporter
 	}
 	row, err = q.UpdateOtelExporter(ctx, dbsqlc.UpdateOtelExporterParams{
 		OrgID: input.OrgID, ID: input.ExporterID, Endpoint: settings.Endpoint, Variant: string(settings.Variant),
-		Headers: headers, SecretHeaders: secretHeaders, SampleBasisPoints: settings.SampleBasisPoints,
+		Headers: headers, SecretHeaders: secretHeaders, SamplePercent: settings.SamplePercent,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return OtelExporterRecord{}, storeerr.ErrNotFound

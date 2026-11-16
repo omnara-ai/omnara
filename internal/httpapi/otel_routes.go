@@ -124,9 +124,10 @@ func parseOtelExporterSecretHeaders(input openapi.OtelExporterSecretHeaders) (ma
 	return result, nil
 }
 
-// Sample rates are stored in basis points; the API speaks percent.
-func otelSampleBasisPoints(percent openapi.OtelExporterSamplePercent) int32 {
-	return int32(math.Round(float64(percent) * 100))
+// otelSamplePercent widens the API's float32 without carrying its binary
+// noise (33.33 would otherwise become 33.33000183...).
+func otelSamplePercent(percent openapi.OtelExporterSamplePercent) float64 {
+	return math.Round(float64(percent)*100) / 100
 }
 
 func otelExporterResponseFromRecord(record executionstore.OtelExporterRecord) (openapi.OtelExporter, error) {
@@ -147,7 +148,7 @@ func otelExporterResponseFromRecord(record executionstore.OtelExporterRecord) (o
 		Variant:       openapi.OtelTraceVariant(record.Settings.Variant),
 		Headers:       openapi.OtelExporterHeaders{},
 		SecretHeaders: openapi.OtelExporterSecretHeaders{},
-		SamplePercent: float32(record.Settings.SampleBasisPoints) / 100,
+		SamplePercent: float32(record.Settings.SamplePercent),
 		CreatedAt:     record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
 	for name, value := range record.Settings.Headers {
@@ -177,8 +178,7 @@ func (s strictOpenAPIServer) CreateOtelExporter(
 		return nil, err
 	}
 	settings := otelconfig.Settings{
-		Endpoint: request.Body.Endpoint, Variant: oteltrace.VariantOTel,
-		SampleBasisPoints: otelconfig.MaxSampleBasisPoints,
+		Endpoint: request.Body.Endpoint, Variant: oteltrace.VariantOTel, SamplePercent: 100,
 	}
 	if request.Body.Variant != nil {
 		settings.Variant = oteltrace.Variant(*request.Body.Variant)
@@ -192,7 +192,7 @@ func (s strictOpenAPIServer) CreateOtelExporter(
 		}
 	}
 	if request.Body.SamplePercent != nil {
-		settings.SampleBasisPoints = otelSampleBasisPoints(*request.Body.SamplePercent)
+		settings.SamplePercent = otelSamplePercent(*request.Body.SamplePercent)
 	}
 	record, err := s.server.store.Execution().CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
 		OrgID: org.ID, Scope: scope, Settings: settings,
@@ -224,6 +224,12 @@ func (s strictOpenAPIServer) ListOtelExporters(
 		var ok bool
 		if input.ProjectID, ok = parseOpenAPIPublicID(publicid.KindProject, *request.Params.ProjectId); !ok {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid project_id")
+		}
+	}
+	if request.Params.AgentId != nil {
+		var ok bool
+		if input.AgentID, ok = parseOpenAPIPublicID(publicid.KindAgent, *request.Params.AgentId); !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent_id")
 		}
 	}
 	page, err := s.server.store.Execution().ListOtelExporters(ctx, input)
@@ -303,8 +309,8 @@ func (s strictOpenAPIServer) UpdateOtelExporter(
 		}
 	}
 	if request.Body.SamplePercent != nil {
-		basisPoints := otelSampleBasisPoints(*request.Body.SamplePercent)
-		input.SampleBasisPoints = &basisPoints
+		samplePercent := otelSamplePercent(*request.Body.SamplePercent)
+		input.SamplePercent = &samplePercent
 	}
 	record, err := s.server.store.Execution().UpdateOtelExporter(ctx, input)
 	if err != nil {

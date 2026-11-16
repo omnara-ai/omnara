@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"math"
 	"strings"
 	"time"
 
@@ -85,8 +86,8 @@ func TraceID(turnID uuid.UUID) string {
 
 // Sampled reports the head-sampling decision for a trace. It matches the
 // otel_trace_sampled SQL function so the API and the export queue agree.
-func Sampled(turnID uuid.UUID, basisPoints int32) bool {
-	return int32(binary.BigEndian.Uint32(turnID[12:16])%10000) < basisPoints
+func Sampled(turnID uuid.UUID, samplePercent float64) bool {
+	return float64(binary.BigEndian.Uint32(turnID[12:16])%10000) < math.Round(samplePercent*100)
 }
 
 func spanID(kind string, id uuid.UUID) string {

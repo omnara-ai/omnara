@@ -301,13 +301,18 @@ paths:
       operationId: listOtelExporters
       tags: [Events]
       summary: List OpenTelemetry exporters
-      description: Lists the organization's exporters at every scope, ordered by created_at then id ascending. Pass project_id to return only exporters scoped to that project or one of its agents. Requires organization management permission.
+      description: Lists the organization's exporters at every scope, ordered by created_at then id ascending. Pass project_id to return only exporters scoped to that project or one of its agents, and agent_id to return only exporters scoped to that agent. Filters match an exporter's own scope, not inherited coverage, so agent_id does not return project or organization exporters that also cover the agent. Requires organization management permission.
       parameters:
         - name: project_id
           in: query
           required: false
           schema:
             $ref: '#/components/schemas/ProjectID'
+        - name: agent_id
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgentID'
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
