@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	otelconfig "github.com/omnara-ai/omnara/internal/otelexport/config"
 	"github.com/omnara-ai/omnara/internal/oteltrace"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -23,12 +22,13 @@ const (
 	otelExportClaimDuration = 2 * time.Minute
 )
 
+// OtelExportDelivery is one turn's trace awaiting export to one exporter.
 type OtelExportDelivery struct {
-	ID            uuid.UUID
-	AgentID       uuid.UUID
-	EventSequence int64
-	AttemptCount  int32
-	CreatedAt     time.Time
+	ID           uuid.UUID
+	AgentID      uuid.UUID
+	TurnID       uuid.UUID
+	AttemptCount int32
+	CreatedAt    time.Time
 }
 
 // OtelExportBatch is a set of deliveries for one exporter claimed together.
@@ -64,7 +64,7 @@ func (s *Store) ClaimOtelExportDeliveries(ctx context.Context, perOrgLimit, batc
 	batch.Deliveries = make([]OtelExportDelivery, 0, len(rows))
 	for _, row := range rows {
 		batch.Deliveries = append(batch.Deliveries, OtelExportDelivery{
-			ID: row.ID, AgentID: row.AgentID, EventSequence: row.EventSequence,
+			ID: row.ID, AgentID: row.AgentID, TurnID: row.TurnID,
 			AttemptCount: row.AttemptCount, CreatedAt: row.CreatedAt,
 		})
 	}
@@ -125,18 +125,8 @@ func (s *Store) GetOtelExportDestination(
 
 var ErrOtelExporterMisconfigured = errors.New("otel exporter is misconfigured")
 
-// LoadTurnTraceForEvent loads the trace of the turn an agent event belongs to.
-func (s *Store) LoadTurnTraceForEvent(
-	ctx context.Context, agentID uuid.UUID, eventSequence int64,
-) (oteltrace.Turn, error) {
-	row, err := s.q.GetOtelExportDeliveryTurn(ctx, dbsqlc.GetOtelExportDeliveryTurnParams{
-		AgentID: agentID, EventSequence: eventSequence,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return oteltrace.Turn{}, storeerr.ErrNotFound
-	}
-	if err != nil {
-		return oteltrace.Turn{}, fmt.Errorf("load otel export delivery turn: %w", err)
-	}
-	return s.LoadTurnTrace(ctx, row.ProjectID, agentID, row.TurnID)
+// LoadTurnTraceForExport loads a queued delivery's turn. The delivery row,
+// not a caller, vouches for the agent and turn, so no project is required.
+func (s *Store) LoadTurnTraceForExport(ctx context.Context, agentID, turnID uuid.UUID) (oteltrace.Turn, error) {
+	return s.loadTurnTrace(ctx, nil, agentID, turnID)
 }

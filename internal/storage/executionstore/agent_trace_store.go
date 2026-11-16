@@ -19,10 +19,19 @@ import (
 const maxTurnTraceEvents = 5000
 
 // LoadTurnTrace reads one turn as trace input: its model call attempts,
-// completed tool calls, and events.
+// completed tool calls, and events. The turn must belong to the project.
 func (s *Store) LoadTurnTrace(ctx context.Context, projectID, agentID, turnID uuid.UUID) (oteltrace.Turn, error) {
+	if projectID == uuid.Nil {
+		return oteltrace.Turn{}, errors.New("project is required")
+	}
+	return s.loadTurnTrace(ctx, &projectID, agentID, turnID)
+}
+
+func (s *Store) loadTurnTrace(
+	ctx context.Context, requiredProjectID *uuid.UUID, agentID, turnID uuid.UUID,
+) (oteltrace.Turn, error) {
 	row, err := s.q.GetTurnTraceContext(ctx, dbsqlc.GetTurnTraceContextParams{
-		ProjectID: projectID, AgentID: agentID, TurnID: turnID,
+		ProjectID: requiredProjectID, AgentID: agentID, TurnID: turnID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return oteltrace.Turn{}, storeerr.ErrNotFound
@@ -30,6 +39,7 @@ func (s *Store) LoadTurnTrace(ctx context.Context, projectID, agentID, turnID uu
 	if err != nil {
 		return oteltrace.Turn{}, fmt.Errorf("load turn trace context: %w", err)
 	}
+	projectID := row.ProjectID
 	turn := oteltrace.Turn{TurnID: row.TurnID, TurnSequence: row.TurnSequence, AgentName: row.AgentName}
 	for _, id := range []struct {
 		target *string

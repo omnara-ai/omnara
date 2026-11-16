@@ -51,7 +51,7 @@ SET attempt_count = attempt_count + 1,
     claim_expires_at = statement_timestamp() + $2::double precision * interval '1 second'
 FROM candidates
 WHERE delivery.id = candidates.id
-RETURNING delivery.id, delivery.org_id, delivery.exporter_id, delivery.agent_id, delivery.event_sequence,
+RETURNING delivery.id, delivery.org_id, delivery.exporter_id, delivery.agent_id, delivery.turn_id,
     delivery.attempt_count, delivery.created_at
 `
 
@@ -64,13 +64,13 @@ type ClaimOtelExportDeliveriesParams struct {
 }
 
 type ClaimOtelExportDeliveriesRow struct {
-	ID            uuid.UUID
-	OrgID         uuid.UUID
-	ExporterID    uuid.UUID
-	AgentID       uuid.UUID
-	EventSequence int64
-	AttemptCount  int32
-	CreatedAt     time.Time
+	ID           uuid.UUID
+	OrgID        uuid.UUID
+	ExporterID   uuid.UUID
+	AgentID      uuid.UUID
+	TurnID       uuid.UUID
+	AttemptCount int32
+	CreatedAt    time.Time
 }
 
 // Claims up to batch_limit due deliveries for the exporter that owns the
@@ -95,7 +95,7 @@ func (q *Queries) ClaimOtelExportDeliveries(ctx context.Context, arg ClaimOtelEx
 			&i.OrgID,
 			&i.ExporterID,
 			&i.AgentID,
-			&i.EventSequence,
+			&i.TurnID,
 			&i.AttemptCount,
 			&i.CreatedAt,
 		); err != nil {
@@ -188,10 +188,11 @@ func (q *Queries) DeleteOtelExporter(ctx context.Context, arg DeleteOtelExporter
 }
 
 const enqueueOtelExportDeliveries = `-- name: EnqueueOtelExportDeliveries :exec
-INSERT INTO otel_export_deliveries (org_id, exporter_id, agent_id, event_sequence, next_attempt_at)
-SELECT exporter.org_id, exporter.id, event.agent_id, event.sequence,
+INSERT INTO otel_export_deliveries (org_id, exporter_id, agent_id, turn_id, next_attempt_at)
+SELECT DISTINCT exporter.org_id, exporter.id, event.agent_id, event.turn_id,
        statement_timestamp() + $1::double precision * interval '1 second'
 FROM agent_events event
+JOIN model_outputs output ON output.agent_id = event.agent_id AND output.id = event.model_output_id
 JOIN agents agent ON agent.id = event.agent_id
 JOIN projects project ON project.id = agent.project_id
 JOIN orgs org ON org.id = project.org_id
@@ -200,11 +201,14 @@ JOIN otel_exporters exporter ON exporter.org_id = agent.org_id
     AND (exporter.agent_id IS NULL OR exporter.agent_id = agent.id)
 WHERE event.agent_id = $2
   AND event.sequence = ANY($3::bigint[])
-  AND event.event_kind IN ('model_output', 'tool_result')
+  AND event.event_kind = 'model_output'
+  AND output.stop_reason <> 'tool_use'
   AND exporter.deleted_at IS NULL
   AND project.deleted_at IS NULL
   AND org.deleted_at IS NULL
   AND otel_trace_sampled(event.turn_id, exporter.sample_basis_points)
+ON CONFLICT (exporter_id, turn_id) DO UPDATE
+SET next_attempt_at = excluded.next_attempt_at, claim_token = NULL, claim_expires_at = NULL
 `
 
 type EnqueueOtelExportDeliveriesParams struct {
@@ -213,35 +217,14 @@ type EnqueueOtelExportDeliveriesParams struct {
 	EventSequences    []int64
 }
 
-// Matches every active exporter whose scope covers the agent, applies the
-// exporter's trace sampling, and queues one delivery per span-producing event.
+// Queues one trace export per (exporter, turn) when a model output closes the
+// turn, meaning it did not ask for tools. Matches every active exporter whose
+// scope covers the agent and applies the exporter's trace sampling. A turn
+// that closes again while its delivery is pending or in flight is re-armed, so
+// the later, complete trace is the one exported.
 func (q *Queries) EnqueueOtelExportDeliveries(ctx context.Context, arg EnqueueOtelExportDeliveriesParams) error {
 	_, err := q.db.Exec(ctx, enqueueOtelExportDeliveries, arg.BatchDelaySeconds, arg.AgentID, arg.EventSequences)
 	return err
-}
-
-const getOtelExportDeliveryTurn = `-- name: GetOtelExportDeliveryTurn :one
-SELECT agent.project_id, event.turn_id
-FROM agent_events event
-JOIN agents agent ON agent.id = event.agent_id
-WHERE event.agent_id = $1 AND event.sequence = $2
-`
-
-type GetOtelExportDeliveryTurnParams struct {
-	AgentID       uuid.UUID
-	EventSequence int64
-}
-
-type GetOtelExportDeliveryTurnRow struct {
-	ProjectID uuid.UUID
-	TurnID    uuid.UUID
-}
-
-func (q *Queries) GetOtelExportDeliveryTurn(ctx context.Context, arg GetOtelExportDeliveryTurnParams) (GetOtelExportDeliveryTurnRow, error) {
-	row := q.db.QueryRow(ctx, getOtelExportDeliveryTurn, arg.AgentID, arg.EventSequence)
-	var i GetOtelExportDeliveryTurnRow
-	err := row.Scan(&i.ProjectID, &i.TurnID)
-	return i, err
 }
 
 const getOtelExporter = `-- name: GetOtelExporter :one
@@ -284,13 +267,13 @@ SELECT agent.org_id, agent.project_id, agent.id AS agent_id, agent.name AS agent
        turn.id AS turn_id, turn.turn_sequence
 FROM agent_turns turn
 JOIN agents agent ON agent.id = turn.agent_id
-WHERE agent.project_id = $1
+WHERE ($1::uuid IS NULL OR agent.project_id = $1::uuid)
   AND turn.agent_id = $2
   AND turn.id = $3
 `
 
 type GetTurnTraceContextParams struct {
-	ProjectID uuid.UUID
+	ProjectID *uuid.UUID
 	AgentID   uuid.UUID
 	TurnID    uuid.UUID
 }

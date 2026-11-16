@@ -65,7 +65,7 @@ func TestBuildRendersTurnAsOneTrace(t *testing.T) {
 	if len(spans) != 5 {
 		t.Fatalf("expected root, three chat and one tool span, got %d", len(spans))
 	}
-	root := spans[0].Span
+	root := spans[0]
 	if root.TraceID != "01938a5c00007000800000000000abcd" || len(root.SpanID) != 16 || root.ParentSpanID != "" {
 		t.Fatalf("unexpected root identity: %+v", root)
 	}
@@ -76,13 +76,8 @@ func TestBuildRendersTurnAsOneTrace(t *testing.T) {
 	if got := attribute(t, root, "gen_ai.input.messages"); got != wantInput {
 		t.Fatalf("unexpected root input: %s", got)
 	}
-	// The root closes with the last output that did not ask for tools.
-	if spans[0].EventSequence != 4 {
-		t.Fatalf("expected root to complete with event 4, got %d", spans[0].EventSequence)
-	}
 	seen := map[string]bool{}
-	for _, sourced := range spans {
-		span := sourced.Span
+	for _, span := range spans {
 		if span.TraceID != root.TraceID || seen[span.SpanID] {
 			t.Fatalf("span %s has a wrong trace or duplicate ID", span.Name)
 		}
@@ -93,12 +88,11 @@ func TestBuildRendersTurnAsOneTrace(t *testing.T) {
 	}
 
 	failed, chat, tool := spans[1], spans[2], spans[4]
-	// A failed attempt has no event of its own; it rides with the next output.
-	if failed.EventSequence != 2 || failed.Span.Status == nil || failed.Span.Status.Code != StatusCodeError ||
-		attribute(t, failed.Span, "error.type") != "provider_overloaded" {
+	if failed.Status == nil || failed.Status.Code != StatusCodeError ||
+		attribute(t, failed, "error.type") != "provider_overloaded" {
 		t.Fatalf("unexpected failed attempt span: %+v", failed)
 	}
-	if chat.Span.Name != "chat claude" || chat.Span.Kind != SpanKindClient || chat.EventSequence != 2 {
+	if chat.Name != "chat claude" || chat.Kind != SpanKindClient {
 		t.Fatalf("unexpected chat span: %+v", chat)
 	}
 	for key, want := range map[string]string{
@@ -107,28 +101,32 @@ func TestBuildRendersTurnAsOneTrace(t *testing.T) {
 		"gen_ai.usage.output_tokens": "20", "omnara.model_call.cost_usd": "0.0125", "omnara.turn.id": "trn_1",
 		"gen_ai.output.messages": `[{"role":"assistant","parts":[{"type":"tool_call","id":"call_1","name":"search","arguments":{"q":"otel"}}]}]`,
 	} {
-		if got := attribute(t, chat.Span, key); got != want {
+		if got := attribute(t, chat, key); got != want {
 			t.Fatalf("chat %s = %q, want %q", key, got, want)
 		}
 	}
-	if tool.Span.Name != "execute_tool search" || tool.EventSequence != 3 ||
-		attribute(t, tool.Span, "gen_ai.tool.call.id") != "call_1" ||
-		attribute(t, tool.Span, "gen_ai.tool.call.arguments") != `{"q":"otel"}` ||
-		attribute(t, tool.Span, "gen_ai.tool.call.result") != "3 results" {
+	if tool.Name != "execute_tool search" ||
+		attribute(t, tool, "gen_ai.tool.call.id") != "call_1" ||
+		attribute(t, tool, "gen_ai.tool.call.arguments") != `{"q":"otel"}` ||
+		attribute(t, tool, "gen_ai.tool.call.result") != "3 results" {
 		t.Fatalf("unexpected tool span: %+v", tool)
 	}
-	if tool.Span.StartTimeUnixNano != "1794830404000000000" || tool.Span.EndTimeUnixNano != "1794830406000000000" {
-		t.Fatalf("unexpected tool times: %s to %s", tool.Span.StartTimeUnixNano, tool.Span.EndTimeUnixNano)
+	if tool.StartTimeUnixNano != "1794830404000000000" || tool.EndTimeUnixNano != "1794830406000000000" {
+		t.Fatalf("unexpected tool times: %s to %s", tool.StartTimeUnixNano, tool.EndTimeUnixNano)
 	}
 }
 
-func TestBuildLeavesRunningTurnRootUnsourced(t *testing.T) {
+func TestBuildRendersRunningTurnSoFar(t *testing.T) {
 	turn := testTurn()
 	turn.Events = turn.Events[:3]
 	turn.ModelCalls = turn.ModelCalls[:2]
 	spans := Build(turn, VariantOTel)
-	if spans[0].EventSequence != 0 {
-		t.Fatalf("a turn without a final output must not complete its root, got %d", spans[0].EventSequence)
+	if len(spans) != 4 || attribute(t, spans[0], "gen_ai.output.messages") != "" {
+		t.Fatalf("a running turn has no final output on its root yet: %+v", spans[0])
+	}
+	// The root ends at the latest event so far.
+	if spans[0].EndTimeUnixNano != spans[3].EndTimeUnixNano {
+		t.Fatalf("root should end with the tool result, got %s", spans[0].EndTimeUnixNano)
 	}
 }
 
@@ -153,12 +151,12 @@ func TestVariantsAddVendorAttributes(t *testing.T) {
 	}
 	for _, test := range tests {
 		spans := Build(turn, test.variant)
-		if got := attribute(t, spans[test.role].Span, test.key); got != test.value {
+		if got := attribute(t, spans[test.role], test.key); got != test.value {
 			t.Errorf("%s span %d %s = %q, want %q", test.variant, test.role, test.key, got, test.value)
 		}
 	}
-	for _, sourced := range Build(turn, VariantOTel) {
-		for _, kv := range sourced.Span.Attributes {
+	for _, span := range Build(turn, VariantOTel) {
+		for _, kv := range span.Attributes {
 			for _, prefix := range []string{"langfuse.", "braintrust.", "langsmith."} {
 				if len(kv.Key) >= len(prefix) && kv.Key[:len(prefix)] == prefix {
 					t.Errorf("otel variant must not add vendor attribute %s", kv.Key)
@@ -186,7 +184,7 @@ func TestSampledUsesLowBitsOfTraceID(t *testing.T) {
 }
 
 func TestNewExportIsOTLPJSON(t *testing.T) {
-	encoded, err := json.Marshal(NewExport(Spans(Build(testTurn(), VariantOTel))))
+	encoded, err := json.Marshal(NewExport(Build(testTurn(), VariantOTel)))
 	if err != nil {
 		t.Fatal(err)
 	}
