@@ -20,8 +20,10 @@ SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exp
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 WHERE exporter.org_id = sqlc.arg(org_id)
-  AND (sqlc.narg(project_id)::uuid IS NULL OR exporter.project_id = sqlc.narg(project_id)::uuid)
-  AND (sqlc.narg(agent_id)::uuid IS NULL OR exporter.agent_id = sqlc.narg(agent_id)::uuid)
+  AND (NOT sqlc.arg(filter_scope)::boolean OR (
+    exporter.project_id IS NOT DISTINCT FROM sqlc.narg(project_id)::uuid
+    AND exporter.agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)::uuid
+  ))
   AND exporter.deleted_at IS NULL
   AND (exporter.created_at, exporter.id) > (
     coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),

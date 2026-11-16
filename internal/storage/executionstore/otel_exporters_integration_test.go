@@ -207,10 +207,12 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listed.Exporters, 3)
 	listed, err = store.ListOtelExporters(ctx, executionstore.ListOtelExportersInput{
-		OrgID: testOrgID, ProjectID: testProjectID, Limit: 100,
+		OrgID: testOrgID, Limit: 100,
+		Scope: &executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeProject, ProjectID: testProjectID},
 	})
 	require.NoError(t, err)
-	require.Len(t, listed.Exporters, 2)
+	require.Len(t, listed.Exporters, 1)
+	require.Equal(t, project.ID, listed.Exporters[0].ID)
 
 	// Queued deliveries of a deleted exporter have no destination left.
 	require.NoError(t, store.DeleteOtelExporter(ctx, testOrgID, project.ID))
