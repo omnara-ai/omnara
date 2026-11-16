@@ -52,7 +52,7 @@ func TestRESTClientUsesE2BEndpoints(t *testing.T) {
 			_, _ = w.Write([]byte(`{"templateID":"t1","public":false}`))
 		case "GET api.e2b.test/templates/aliases/base":
 			w.WriteHeader(http.StatusForbidden)
-		case "GET dashboard-api.e2b.test/templates":
+		case "GET api.e2b.test/unstable/templates/search":
 			assert.Equal(t, "claude", r.URL.Query().Get("search"))
 			assert.Equal(t, "100", r.URL.Query().Get("limit"))
 			if r.URL.Query().Get("cursor") == "" {

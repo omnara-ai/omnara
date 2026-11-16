@@ -109,7 +109,7 @@ func (c *restClient) ListTemplates(ctx context.Context, search, cursor string) (
 		Data       []template `json:"data"`
 		NextCursor *string    `json:"nextCursor"`
 	}
-	requestURL := "https://dashboard-api." + c.domain + "/templates?" + values.Encode()
+	requestURL := c.apiURL("/unstable/templates/search?" + values.Encode())
 	err := c.do(ctx, http.MethodGet, requestURL, c.apiKey(), nil, &out)
 	next := ""
 	if out.NextCursor != nil {
