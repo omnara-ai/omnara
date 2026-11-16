@@ -65,14 +65,27 @@ func TestOtelExporterRoutes(t *testing.T) {
 
 	listed := requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint, "", "", http.StatusOK, admin)
 	require.Len(t, testutil.RequireType[[]any](t, listed["data"]), 4)
-	listed = requestJSONWithHeaders(t, f.handler, http.MethodGet,
-		endpoint+"?project_id="+f.project.ProjectID, "", "", http.StatusOK, admin)
-	require.Len(t, testutil.RequireType[[]any](t, listed["data"]), 2)
-	listed = requestJSONWithHeaders(t, f.handler, http.MethodGet,
-		endpoint+"?agent_id="+agentID, "", "", http.StatusOK, admin)
-	byAgent := testutil.RequireType[[]any](t, listed["data"])
-	require.Len(t, byAgent, 1)
-	require.Equal(t, ids[2], testutil.RequireType[map[string]any](t, byAgent[0])["id"])
+	// An explicit scope matches exactly: the project filter leaves out the
+	// project's agent-scoped exporter.
+	projectQuery := "&project_id=" + f.project.ProjectID
+	for query, expected := range map[string][]string{
+		"?scope_type=org":                                           {ids[0], testutil.RequireType[string](t, defaults["id"])},
+		"?scope_type=project" + projectQuery:                        {ids[1]},
+		"?scope_type=agent" + projectQuery + "&agent_id=" + agentID: {ids[2]},
+	} {
+		listed = requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+query, "", "", http.StatusOK, admin)
+		var got []string
+		for _, item := range testutil.RequireType[[]any](t, listed["data"]) {
+			got = append(got, testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, item)["id"]))
+		}
+		require.Equal(t, expected, got, query)
+	}
+	for _, invalid := range []string{
+		"?project_id=" + f.project.ProjectID, "?agent_id=" + agentID, "?scope_type=project",
+		"?scope_type=agent&agent_id=" + agentID, "?scope_type=org" + projectQuery, "?scope_type=profile",
+	} {
+		requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint+invalid, "", "", http.StatusBadRequest, admin)
+	}
 	requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint, "", "", http.StatusForbidden, operator)
 
 	updated := requestJSONWithHeaders(t, f.handler, http.MethodPatch, endpoint+"/"+ids[0],

@@ -72,6 +72,16 @@ func parseOtelExporterScope(input openapi.OtelExporterScope) (executionstore.Ote
 	default:
 		return executionstore.OtelExporterScope{}, invalid
 	}
+	return parseOtelExporterScopeIDs(scope.Type, projectID, agentID)
+}
+
+// parseOtelExporterScopeIDs builds a scope from its type and the IDs that
+// type requires; it rejects missing and surplus IDs alike.
+func parseOtelExporterScopeIDs(
+	scopeType executionstore.OtelExporterScopeType, projectID, agentID *string,
+) (executionstore.OtelExporterScope, error) {
+	invalid := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid exporter scope")
+	scope := executionstore.OtelExporterScope{Type: scopeType}
 	var ok bool
 	if projectID != nil {
 		if scope.ProjectID, ok = parseOpenAPIPublicID(publicid.KindProject, *projectID); !ok {
@@ -82,6 +92,9 @@ func parseOtelExporterScope(input openapi.OtelExporterScope) (executionstore.Ote
 		if scope.AgentID, ok = parseOpenAPIPublicID(publicid.KindAgent, *agentID); !ok {
 			return executionstore.OtelExporterScope{}, invalid
 		}
+	}
+	if scope.Validate() != nil {
+		return executionstore.OtelExporterScope{}, invalid
 	}
 	return scope, nil
 }
@@ -220,17 +233,15 @@ func (s strictOpenAPIServer) ListOtelExporters(
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
 	input := executionstore.ListOtelExportersInput{OrgID: org.ID, Limit: limit, After: after}
-	if request.Params.ProjectId != nil {
-		var ok bool
-		if input.ProjectID, ok = parseOpenAPIPublicID(publicid.KindProject, *request.Params.ProjectId); !ok {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid project_id")
+	if request.Params.ScopeType != nil {
+		scope, err := parseOtelExporterScopeIDs(executionstore.OtelExporterScopeType(*request.Params.ScopeType),
+			request.Params.ProjectId, request.Params.AgentId)
+		if err != nil {
+			return nil, err
 		}
-	}
-	if request.Params.AgentId != nil {
-		var ok bool
-		if input.AgentID, ok = parseOpenAPIPublicID(publicid.KindAgent, *request.Params.AgentId); !ok {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent_id")
-		}
+		input.Scope = &scope
+	} else if request.Params.ProjectId != nil || request.Params.AgentId != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "project or agent ID requires scope_type")
 	}
 	page, err := s.server.store.Execution().ListOtelExporters(ctx, input)
 	if err != nil {

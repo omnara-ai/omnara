@@ -85,13 +85,10 @@ type CreateOtelExporterInput struct {
 
 type ListOtelExportersInput struct {
 	OrgID uuid.UUID
-	// ProjectID, when set, returns only exporters scoped to that project or
-	// to one of its agents.
-	ProjectID uuid.UUID
-	// AgentID, when set, returns only exporters scoped to that agent.
-	AgentID uuid.UUID
-	Limit   int
-	After   listing.KeysetCursor
+	// Scope, when set, returns only exporters with exactly that scope.
+	Scope *OtelExporterScope
+	Limit int
+	After listing.KeysetCursor
 }
 
 type ListOtelExportersResult struct {
@@ -254,9 +251,13 @@ func (s *Store) ListOtelExporters(ctx context.Context, input ListOtelExportersIn
 		return ListOtelExportersResult{}, storeerr.InvalidRequest(
 			errors.New("organization and limit between 1 and 100 are required"))
 	}
-	params := dbsqlc.ListOtelExportersParams{
-		OrgID: input.OrgID, ProjectID: storeutil.IDFromNil(input.ProjectID),
-		AgentID: storeutil.IDFromNil(input.AgentID), RowLimit: int32(input.Limit) + 1,
+	params := dbsqlc.ListOtelExportersParams{OrgID: input.OrgID, RowLimit: int32(input.Limit) + 1}
+	if scope := input.Scope; scope != nil {
+		if err := scope.Validate(); err != nil {
+			return ListOtelExportersResult{}, err
+		}
+		params.FilterScope = true
+		params.ProjectID, params.AgentID = storeutil.IDFromNil(scope.ProjectID), storeutil.IDFromNil(scope.AgentID)
 	}
 	if input.After.Set {
 		params.CursorCreatedAt = &input.After.CreatedAt

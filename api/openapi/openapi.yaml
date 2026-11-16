@@ -300,8 +300,13 @@ paths:
       operationId: listOtelExporters
       tags: [Events]
       summary: List OpenTelemetry exporters
-      description: Lists the organization's exporters at every scope, ordered by created_at then id ascending. Pass project_id to return only exporters scoped to that project or one of its agents, and agent_id to return only exporters scoped to that agent. Filters match an exporter's own scope, not inherited coverage, so agent_id does not return project or organization exporters that also cover the agent. Requires organization management permission.
+      description: Lists the organization's exporters at every scope, ordered by created_at then id ascending. An explicit scope returns only exporters with that exact scope, not inherited matches. Project or agent IDs require the corresponding scope_type; the agent scope needs both project_id and agent_id. Requires organization management permission.
       parameters:
+        - name: scope_type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/OtelExporterScopeType'
         - name: project_id
           in: query
           required: false
@@ -316,7 +321,7 @@ paths:
         - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Exporters in the organization.
+          description: Exporters matching the requested scope.
           content:
             application/json:
               schema:
@@ -11109,6 +11114,10 @@ components:
           items:
             type: object
             additionalProperties: true
+    OtelExporterScopeType:
+      type: string
+      enum: [org, project, agent]
+      x-enum-varnames: [OtelExporterScopeOrg, OtelExporterScopeProject, OtelExporterScopeAgent]
     OrgOtelExporterScope:
       type: object
       additionalProperties: false

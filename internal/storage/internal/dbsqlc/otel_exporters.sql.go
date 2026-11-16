@@ -362,19 +362,22 @@ SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exp
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 WHERE exporter.org_id = $1
-  AND ($2::uuid IS NULL OR exporter.project_id = $2::uuid)
-  AND ($3::uuid IS NULL OR exporter.agent_id = $3::uuid)
+  AND (NOT $2::boolean OR (
+    exporter.project_id IS NOT DISTINCT FROM $3::uuid
+    AND exporter.agent_id IS NOT DISTINCT FROM $4::uuid
+  ))
   AND exporter.deleted_at IS NULL
   AND (exporter.created_at, exporter.id) > (
-    coalesce($4::timestamptz, '-infinity'::timestamptz),
-    coalesce($5::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+    coalesce($5::timestamptz, '-infinity'::timestamptz),
+    coalesce($6::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
   )
 ORDER BY exporter.created_at, exporter.id
-LIMIT $6
+LIMIT $7
 `
 
 type ListOtelExportersParams struct {
 	OrgID           uuid.UUID
+	FilterScope     bool
 	ProjectID       *uuid.UUID
 	AgentID         *uuid.UUID
 	CursorCreatedAt *time.Time
@@ -385,6 +388,7 @@ type ListOtelExportersParams struct {
 func (q *Queries) ListOtelExporters(ctx context.Context, arg ListOtelExportersParams) ([]OtelExporter, error) {
 	rows, err := q.db.Query(ctx, listOtelExporters,
 		arg.OrgID,
+		arg.FilterScope,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.CursorCreatedAt,
