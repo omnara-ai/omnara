@@ -1,10 +1,8 @@
-// Package config validates OpenTelemetry exporter settings.
 package config
 
 import (
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/google/uuid"
@@ -16,21 +14,15 @@ import (
 
 const MaxHeaders = 20
 
-// Settings is one exporter's destination. Endpoint is the full OTLP/HTTP
-// traces URL and is used exactly as given. Encoding is the request body format. SecretHeaders maps a header name to
-// the generic secret holding its value.
 type Settings struct {
 	Endpoint      string
 	Variant       oteltrace.Variant
 	Encoding      oteltrace.Encoding
 	Headers       map[string]string
 	SecretHeaders map[string]uuid.UUID
-	// SamplePercent is the share of turns exported, 0 to 100, kept to two
-	// decimal places.
 	SamplePercent float64
 }
 
-// reservedHeaders are set by the sender and cannot be overridden.
 var reservedHeaders = map[string]bool{"content-type": true, "content-length": true, "host": true}
 
 func Validate(settings Settings, endpointAllowlist *ssrf.Allowlist) (Settings, error) {
@@ -49,7 +41,6 @@ func Validate(settings Settings, endpointAllowlist *ssrf.Allowlist) (Settings, e
 		return Settings{}, errors.New("unsupported exporter encoding")
 	}
 	settings.Encoding = encoding
-	settings.SamplePercent = math.Round(settings.SamplePercent*100) / 100
 	if !(settings.SamplePercent >= 0 && settings.SamplePercent <= 100) {
 		return Settings{}, errors.New("sample_percent must be between 0 and 100")
 	}

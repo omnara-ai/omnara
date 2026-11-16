@@ -73,8 +73,6 @@ type ClaimOtelExportDeliveriesRow struct {
 	CreatedAt    time.Time
 }
 
-// Claims up to batch_limit due deliveries for the exporter that owns the
-// oldest due delivery, under one caller-supplied claim token.
 func (q *Queries) ClaimOtelExportDeliveries(ctx context.Context, arg ClaimOtelExportDeliveriesParams) ([]ClaimOtelExportDeliveriesRow, error) {
 	rows, err := q.db.Query(ctx, claimOtelExportDeliveries,
 		arg.ClaimToken,
@@ -217,11 +215,8 @@ type EnqueueOtelExportDeliveriesParams struct {
 	EventSequences    []int64
 }
 
-// Queues one trace export per (exporter, turn) when a model output closes the
-// turn, meaning it did not ask for tools. Matches every active exporter whose
-// scope covers the agent and applies the exporter's trace sampling. A turn
-// that closes again while its delivery is pending or in flight is re-armed, so
-// the later, complete trace is the one exported.
+// A turn that closes again while its delivery is claimed is re-armed, so the
+// in-flight claim no longer owns the row.
 func (q *Queries) EnqueueOtelExportDeliveries(ctx context.Context, arg EnqueueOtelExportDeliveriesParams) error {
 	_, err := q.db.Exec(ctx, enqueueOtelExportDeliveries, arg.BatchDelaySeconds, arg.AgentID, arg.EventSequences)
 	return err
@@ -483,8 +478,6 @@ type ListTurnTraceModelCallsRow struct {
 	StopReason              string
 }
 
-// Every finished model call attempt of one turn, including failed attempts
-// that never produced a model output event.
 func (q *Queries) ListTurnTraceModelCalls(ctx context.Context, arg ListTurnTraceModelCallsParams) ([]ListTurnTraceModelCallsRow, error) {
 	rows, err := q.db.Query(ctx, listTurnTraceModelCalls, arg.AgentID, arg.TurnID)
 	if err != nil {

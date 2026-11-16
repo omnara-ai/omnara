@@ -1,7 +1,3 @@
-// Package oteltrace renders one agent turn as an OpenTelemetry trace in the
-// OTLP/JSON encoding, using the GenAI semantic conventions. It builds the wire
-// payload directly and does not depend on the OpenTelemetry SDK: spans are
-// reconstructed from stored rows with explicit IDs and timestamps.
 package oteltrace
 
 import (
@@ -9,7 +5,6 @@ import (
 	"time"
 )
 
-// Span kinds and status codes from the OTLP trace protobuf.
 const (
 	SpanKindInternal = 1
 	SpanKindClient   = 3
@@ -18,7 +13,6 @@ const (
 	StatusCodeError = 2
 )
 
-// Export is an OTLP ExportTraceServiceRequest in its JSON encoding.
 type Export struct {
 	ResourceSpans []ResourceSpans `json:"resourceSpans"`
 }
@@ -41,8 +35,6 @@ type Scope struct {
 	Name string `json:"name"`
 }
 
-// Span is one OTLP span. IDs are lowercase hex and timestamps are decimal
-// strings of Unix nanoseconds, as OTLP/JSON requires.
 type Span struct {
 	TraceID           string     `json:"traceId"`
 	SpanID            string     `json:"spanId"`
@@ -65,7 +57,6 @@ type KeyValue struct {
 	Value AnyValue `json:"value"`
 }
 
-// AnyValue holds exactly one value. 64-bit integers are strings in OTLP/JSON.
 type AnyValue struct {
 	StringValue *string     `json:"stringValue,omitempty"`
 	IntValue    *string     `json:"intValue,omitempty"`
@@ -81,7 +72,6 @@ const (
 	serviceName = "omnara"
 )
 
-// NewExport wraps spans in the single resource and scope Omnara reports.
 func NewExport(spans []Span) Export {
 	if spans == nil {
 		spans = []Span{}

@@ -1,6 +1,7 @@
 package otelexport
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -59,7 +61,6 @@ func (s *fakeStore) LoadTurnTraceForExport(_ context.Context, _, turnID uuid.UUI
 	return turn, nil
 }
 
-// testTurn is a finished turn: one model output that ends it.
 func testTurn() oteltrace.Turn {
 	start := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 	call := uuid.New()
@@ -114,7 +115,6 @@ func TestSenderExportsBatchInOneRequest(t *testing.T) {
 		path, contentType, authorization = r.URL.Path, r.Header.Get("Content-Type"), r.Header.Get("Authorization")
 		body, _ = io.ReadAll(r.Body)
 	})
-	// Two turns and one that no longer exists: one request, two whole traces.
 	batch := testBatch(turn.TurnID, other.TurnID, uuid.New())
 	sender.deliver(t.Context(), batch)
 
@@ -209,6 +209,65 @@ func TestSenderSkipsRequestWithoutSpansOrExporter(t *testing.T) {
 				require.Equal(t, []uuid.UUID{batch.ClaimToken}, test.store.retried)
 			} else {
 				require.Equal(t, []uuid.UUID{batch.ClaimToken}, test.store.completed)
+			}
+		})
+	}
+}
+
+func TestBatchAttemptLogsOneWideEvent(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		status  int
+		outcome string
+		cause   string
+		level   string
+	}{
+		{"success", http.StatusOK, "completed", "none", "INFO"},
+		{"retry", http.StatusServiceUnavailable, "retry_scheduled", "recipient", "WARN"},
+		{"rejected", http.StatusBadRequest, "dropped", "recipient", "WARN"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			turn := testTurn()
+			store := &fakeStore{
+				destination: executionstore.OtelExportDestination{
+					Variant: oteltrace.VariantLangfuse, Encoding: oteltrace.EncodingJSON,
+					Headers: map[string]string{"Authorization": "Bearer private-token"},
+				},
+				turns: map[uuid.UUID]oteltrace.Turn{turn.TurnID: turn},
+			}
+			sender := newTestSender(t, store, func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(test.status)
+			})
+			var output bytes.Buffer
+			sender.log = slog.New(slog.NewJSONHandler(&output, nil))
+			batch := testBatch(turn.TurnID)
+			batch.Deliveries[0].CreatedAt = time.Now().Add(-time.Minute)
+			sender.deliver(t.Context(), batch)
+
+			lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
+			require.Len(t, lines, 1)
+			var record map[string]any
+			require.NoError(t, json.Unmarshal(lines[0], &record))
+			require.Equal(t, "otel_export.batch_attempt", record["event.name"])
+			require.Equal(t, test.level, record["level"])
+			require.Equal(t, test.outcome, record["otel_export.outcome"])
+			require.Equal(t, test.cause, record["otel_export.cause"])
+			require.Equal(t, batch.OrgID.String(), record["org.id"])
+			require.Equal(t, batch.ExporterID.String(), record["otel_export.exporter_id"])
+			require.InDelta(t, 1, record["otel_export.turns"], 0)
+			require.InDelta(t, 2, record["otel_export.spans"], 0)
+			require.InDelta(t, 1, record["otel_export.attempt"], 0)
+			require.GreaterOrEqual(t, record["otel_export.age_seconds"], 60.0)
+			require.Equal(t, "langfuse", record["otel_export.variant"])
+			require.Equal(t, "json", record["otel_export.encoding"])
+			require.Equal(t, "127.0.0.1", record["otel_export.endpoint_host"])
+			require.InDelta(t, test.status, record["http.status_code"], 0)
+			require.NotContains(t, output.String(), "private-token")
+			require.NotContains(t, output.String(), "/v1/traces")
+			if test.status == http.StatusOK {
+				require.NotContains(t, record, "error.message")
+			} else {
+				require.Contains(t, record["error.message"], strconv.Itoa(test.status))
 			}
 		})
 	}

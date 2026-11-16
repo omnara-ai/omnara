@@ -124,7 +124,6 @@ func TestBuildRendersRunningTurnSoFar(t *testing.T) {
 	if len(spans) != 4 || attribute(t, spans[0], "gen_ai.output.messages") != "" {
 		t.Fatalf("a running turn has no final output on its root yet: %+v", spans[0])
 	}
-	// The root ends at the latest event so far.
 	if spans[0].EndTimeUnixNano != spans[3].EndTimeUnixNano {
 		t.Fatalf("root should end with the tool result, got %s", spans[0].EndTimeUnixNano)
 	}
@@ -176,10 +175,9 @@ func TestParseVariant(t *testing.T) {
 }
 
 func TestSampledUsesLowBitsOfTraceID(t *testing.T) {
-	// The low 32 bits are 0x0000abcd = 43981, bucket 43981 % 10000 = 3981.
 	turnID := uuid.MustParse("01938a5c-0000-7000-8000-00000000abcd")
-	if !Sampled(turnID, 100) || Sampled(turnID, 0) || !Sampled(turnID, 39.82) || Sampled(turnID, 39.81) {
-		t.Fatal("sampling must compare bucket 3981 against the percentage")
+	if !Sampled(turnID, 100) || Sampled(turnID, 0) || !Sampled(turnID, 0.00103) || Sampled(turnID, 0.00102) {
+		t.Fatal("sampling must place the trace at 43981/2^32 of the way through, about 0.001024%")
 	}
 }
 

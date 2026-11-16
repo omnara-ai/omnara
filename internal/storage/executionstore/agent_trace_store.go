@@ -14,12 +14,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// maxTurnTraceEvents bounds how much of one turn a trace reads. A longer turn
-// keeps its most recent events.
 const maxTurnTraceEvents = 5000
 
-// LoadTurnTrace reads one turn as trace input: its model call attempts,
-// completed tool calls, and events. The turn must belong to the project.
 func (s *Store) LoadTurnTrace(ctx context.Context, projectID, agentID, turnID uuid.UUID) (oteltrace.Turn, error) {
 	if projectID == uuid.Nil {
 		return oteltrace.Turn{}, errors.New("project is required")
@@ -95,7 +91,6 @@ func (s *Store) loadTurnTrace(
 		})
 	}
 
-	// Pages arrive newest first, each in ascending order.
 	var pages [][]AgentEventReadRecord
 	var beforeSequence int64
 	for count := 0; count < maxTurnTraceEvents; {

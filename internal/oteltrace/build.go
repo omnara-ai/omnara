@@ -5,28 +5,23 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"math"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// Turn is everything needed to render one agent turn as a trace.
 type Turn struct {
-	TurnID       uuid.UUID
-	TurnSequence int64
-	AgentName    string
-	// Public (prefixed) IDs, reported as span attributes.
+	TurnID                                                              uuid.UUID
+	TurnSequence                                                        int64
+	AgentName                                                           string
 	OrgID, ProjectID, AgentID, ParentAgentID, RootAgentID, PublicTurnID string
 
 	ModelCalls []ModelCall
 	ToolCalls  []ToolCall
-	// Events are the turn's agent events in ascending sequence order.
-	Events []Event
+	Events     []Event
 }
 
-// ModelCall is one finished model call attempt.
 type ModelCall struct {
 	ID            uuid.UUID
 	Operation     string
@@ -47,7 +42,6 @@ type ModelCall struct {
 	OutputTokens, ReasoningTokens                  int64
 }
 
-// ToolCall is one completed tool call.
 type ToolCall struct {
 	ID             uuid.UUID
 	Name           string
@@ -66,7 +60,6 @@ const (
 	stopReasonToolUse = "tool_use"
 )
 
-// Event is the part of an agent event the trace needs.
 type Event struct {
 	Sequence      int64
 	Kind          string
@@ -78,16 +71,12 @@ type Event struct {
 	CreatedAt     time.Time
 }
 
-// TraceID is the turn ID: both are 16 bytes, so a trace can be found from a
-// turn and back without any stored mapping.
 func TraceID(turnID uuid.UUID) string {
 	return hex.EncodeToString(turnID[:])
 }
 
-// Sampled reports the head-sampling decision for a trace. It matches the
-// otel_trace_sampled SQL function so the API and the export queue agree.
 func Sampled(turnID uuid.UUID, samplePercent float64) bool {
-	return float64(binary.BigEndian.Uint32(turnID[12:16])%10000) < math.Round(samplePercent*100)
+	return float64(binary.BigEndian.Uint32(turnID[12:16]))*100/4294967296 < samplePercent
 }
 
 func spanID(kind string, id uuid.UUID) string {
@@ -95,8 +84,6 @@ func spanID(kind string, id uuid.UUID) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// Build renders the turn's spans: one invoke_agent root, one chat span per
-// model call attempt, and one execute_tool span per completed tool call.
 func Build(turn Turn, variant Variant) []Span {
 	traceID := TraceID(turn.TurnID)
 	rootID := spanID("turn", turn.TurnID)
@@ -270,8 +257,6 @@ func (call ModelCall) attributes() []KeyValue {
 	return attributes
 }
 
-// message and part follow the GenAI message schema used by
-// gen_ai.input.messages and gen_ai.output.messages.
 type message struct {
 	Role  string `json:"role"`
 	Parts []part `json:"parts"`
@@ -285,8 +270,6 @@ type part struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
-// parseParts converts stored content blocks. Unknown block types keep their
-// type and any text so new block kinds degrade instead of failing a trace.
 func parseParts(raw json.RawMessage, providerCallIDs map[string]string) []part {
 	var blocks []struct {
 		Type       string          `json:"type"`

@@ -11185,9 +11185,10 @@ components:
         $ref: '#/components/schemas/SecretID'
     OtelExporterSamplePercent:
       type: number
+      format: double
       minimum: 0
       maximum: 100
-      description: Percentage of turns exported, to two decimal places. The decision is made once per turn, so a trace is exported whole or not at all.
+      description: Percentage of turns exported. The decision is made once per turn, so a trace is exported whole or not at all.
     CreateOtelExporterRequest:
       type: object
       additionalProperties: false

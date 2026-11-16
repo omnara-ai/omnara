@@ -7,13 +7,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-// otelExportBatchDelaySeconds holds new deliveries back briefly so the worker
-// can send several finished turns in a single OTLP request.
 const otelExportBatchDelaySeconds = 5
 
-// enqueueOtelExports queues a trace export for each turn a committed model
-// output closes. Which outputs close a turn, exporter matching, and sampling
-// are all decided in the query.
 func (u *Unit) enqueueOtelExports(ctx context.Context) error {
 	pending := u.notifications
 	if pending == nil || len(pending.AgentEvents()) == 0 {

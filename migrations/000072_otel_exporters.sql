@@ -1,7 +1,5 @@
 -- +goose Up
 
--- An OTLP/HTTP trace destination. Scope narrows from the organization
--- (project_id and agent_id NULL) to one project, to one agent.
 CREATE TABLE otel_exporters (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     org_id uuid NOT NULL REFERENCES orgs(id),
@@ -12,7 +10,7 @@ CREATE TABLE otel_exporters (
     encoding text NOT NULL DEFAULT 'json' CHECK (encoding IN ('json', 'protobuf')),
     headers jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(headers) = 'object'),
     secret_headers jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(secret_headers) = 'object'),
-    sample_percent numeric(5, 2) NOT NULL DEFAULT 100 CHECK (sample_percent BETWEEN 0 AND 100),
+    sample_percent numeric NOT NULL DEFAULT 100 CHECK (sample_percent BETWEEN 0 AND 100),
     created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT statement_timestamp(),
     deleted_at timestamptz,
@@ -28,9 +26,6 @@ CREATE UNIQUE INDEX otel_exporters_active_scope_endpoint_idx
 
 CREATE INDEX otel_exporters_org_created_idx ON otel_exporters(org_id, created_at, id);
 
--- Head sampling keyed on the trace (turn) ID, so every span of one trace
--- gets the same decision for one exporter. Buckets are the low 32 bits of
--- the ID modulo 10000, so a percentage is honored to two decimal places.
 -- +goose StatementBegin
 CREATE FUNCTION otel_trace_sampled(trace_id uuid, sample_percent numeric)
 RETURNS boolean
@@ -38,13 +33,10 @@ LANGUAGE sql
 IMMUTABLE
 PARALLEL SAFE
 AS $$
-    SELECT (('x' || right(replace(trace_id::text, '-', ''), 8))::bit(32)::bigint % 10000) < sample_percent * 100;
+    SELECT ('x' || right(replace(trace_id::text, '-', ''), 8))::bit(32)::bigint::numeric * 100 / 4294967296 < sample_percent;
 $$;
 -- +goose StatementEnd
 
--- One row per (exporter, turn) whose trace still has to be exported. A turn is
--- one trace. The worker claims many rows for one exporter at a time and sends
--- their traces as a single OTLP request.
 CREATE TABLE otel_export_deliveries (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     org_id uuid NOT NULL REFERENCES orgs(id),
