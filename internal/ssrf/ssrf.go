@@ -32,7 +32,7 @@ func IsAllowedIP(ip net.IP, allowLoopback bool) bool {
 	if ip.IsLoopback() {
 		return allowLoopback
 	}
-	if !ip.IsGlobalUnicast() || ip.IsPrivate() || isAlwaysBlocked(ip) {
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || isAlwaysBlocked(ip) || reservedIPv6(ip) {
 		return false
 	}
 	if !embeddedIPv4Allowed(ip, allowLoopback) {
@@ -72,11 +72,16 @@ var blockedPrefixes = []netip.Prefix{
 }
 
 var (
+	globalUnicastIPv6  = netip.MustParsePrefix("2000::/3")
 	ipv4CompatibleIPv6 = netip.MustParsePrefix("::/96")
 	ipv4TranslatedIPv6 = netip.MustParsePrefix("::ffff:0:0:0/96")
 	nat64WellKnownIPv6 = netip.MustParsePrefix("64:ff9b::/96")
 	sixToFourIPv6      = netip.MustParsePrefix("2002::/16")
 )
+
+func reservedIPv6(ip net.IP) bool {
+	return ip.To4() == nil && !cidrContains(globalUnicastIPv6, ip) && embeddedIPv4Addresses(ip) == nil
+}
 
 func embeddedIPv4Allowed(ip net.IP, allowLoopback bool) bool {
 	if ip.To4() != nil {
