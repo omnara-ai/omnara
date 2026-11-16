@@ -2,13 +2,12 @@
 // endpoints. One delivery is one finished turn, exported as one whole trace.
 // It follows the event webhook sender: a transactional outbox claimed with a
 // lease, bounded concurrency, and jittered retries. Unlike webhooks, one
-// request carries a batch of traces for one exporter.
+// request carries a batch of traces for one exporter, as OTLP JSON or protobuf.
 package otelexport
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -166,7 +165,7 @@ func (s *Sender) send(ctx context.Context, batch executionstore.OtelExportBatch)
 	if err != nil || len(spans) == 0 {
 		return 0, err
 	}
-	body, err := json.Marshal(oteltrace.NewExport(spans))
+	body, contentType, err := oteltrace.NewExport(spans).Encode(destination.Encoding)
 	if err != nil {
 		return len(spans), rejectedError{fmt.Errorf("encode otel export: %w", err)}
 	}
@@ -179,7 +178,7 @@ func (s *Sender) send(ctx context.Context, batch executionstore.OtelExportBatch)
 	for name, value := range destination.Headers {
 		req.Header.Set(name, value)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	response, err := s.client.Do(req)
 	if err != nil {
 		var requestError *url.Error

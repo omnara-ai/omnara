@@ -468,6 +468,7 @@ type OtelExporter struct {
 	AgentID       *uuid.UUID
 	Endpoint      string
 	Variant       string
+	Encoding      string
 	Headers       json.RawMessage
 	SecretHeaders json.RawMessage
 	SamplePercent float64

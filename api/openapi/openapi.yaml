@@ -346,7 +346,7 @@ paths:
       operationId: createOtelExporter
       tags: [Events]
       summary: Create an OpenTelemetry exporter
-      description: Exports future agent turns as OpenTelemetry traces to an OTLP/HTTP endpoint. Spans follow the GenAI semantic conventions and are sent in batches as OTLP/JSON. The scope selects every agent in the organization, every agent in one project, or one agent; matching scopes are additive. Organizations can have up to 100 exporters, and each scope can have only one exporter per endpoint. Requires organization management permission.
+      description: Exports future agent turns as OpenTelemetry traces to an OTLP/HTTP endpoint. Spans follow the GenAI semantic conventions and are sent in batches as OTLP JSON or protobuf. The scope selects every agent in the organization, every agent in one project, or one agent; matching scopes are additive. Organizations can have up to 100 exporters, and each scope can have only one exporter per endpoint. Requires organization management permission.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -426,7 +426,7 @@ paths:
       operationId: updateOtelExporter
       tags: [Events]
       summary: Update OpenTelemetry exporter settings
-      description: Updates an exporter's endpoint, variant, headers, or sampling. Omitted fields stay unchanged; headers and secret_headers each replace the whole map when present. The scope is fixed at creation. Changes also apply to spans already queued for export.
+      description: Updates an exporter's endpoint, variant, encoding, headers, or sampling. Omitted fields stay unchanged; headers and secret_headers each replace the whole map when present. The scope is fixed at creation. Changes also apply to spans already queued for export.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -10884,6 +10884,10 @@ components:
       type: string
       enum: [otel, langfuse, braintrust, langsmith]
       description: Which backend-specific attributes are added on top of the GenAI semantic conventions. otel adds none.
+    OtelExporterEncoding:
+      type: string
+      enum: [json, protobuf]
+      description: OTLP/HTTP request body encoding. json sends application/json; protobuf sends application/x-protobuf.
     OtelTrace:
       type: object
       required: [resourceSpans]
@@ -10978,6 +10982,9 @@ components:
           $ref: '#/components/schemas/OtelExporterScope'
         variant:
           $ref: '#/components/schemas/OtelTraceVariant'
+        encoding:
+          $ref: '#/components/schemas/OtelExporterEncoding'
+          default: json
         headers:
           $ref: '#/components/schemas/OtelExporterHeaders'
         secret_headers:
@@ -10997,6 +11004,8 @@ components:
           description: Full OTLP/HTTP traces URL, used exactly as given.
         variant:
           $ref: '#/components/schemas/OtelTraceVariant'
+        encoding:
+          $ref: '#/components/schemas/OtelExporterEncoding'
         headers:
           $ref: '#/components/schemas/OtelExporterHeaders'
         secret_headers:
@@ -11006,7 +11015,7 @@ components:
     OtelExporter:
       type: object
       additionalProperties: false
-      required: [id, org_id, endpoint, scope, variant, headers, secret_headers, sample_percent, created_at, updated_at]
+      required: [id, org_id, endpoint, scope, variant, encoding, headers, secret_headers, sample_percent, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/OtelExporterID'
@@ -11021,6 +11030,8 @@ components:
           $ref: '#/components/schemas/OtelExporterScope'
         variant:
           $ref: '#/components/schemas/OtelTraceVariant'
+        encoding:
+          $ref: '#/components/schemas/OtelExporterEncoding'
         headers:
           $ref: '#/components/schemas/OtelExporterHeaders'
         secret_headers:

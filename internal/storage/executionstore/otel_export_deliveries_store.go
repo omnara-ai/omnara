@@ -44,6 +44,7 @@ type OtelExportBatch struct {
 type OtelExportDestination struct {
 	Endpoint string
 	Variant  oteltrace.Variant
+	Encoding oteltrace.Encoding
 	Headers  map[string]string
 }
 
@@ -100,7 +101,7 @@ func (s *Store) GetOtelExportDestination(
 		return OtelExportDestination{}, err
 	}
 	destination := OtelExportDestination{
-		Endpoint: record.Settings.Endpoint, Variant: record.Settings.Variant,
+		Endpoint: record.Settings.Endpoint, Variant: record.Settings.Variant, Encoding: record.Settings.Encoding,
 		Headers: make(map[string]string, len(record.Settings.Headers)+len(record.Settings.SecretHeaders)),
 	}
 	for name, value := range record.Settings.Headers {

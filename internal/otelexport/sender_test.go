@@ -17,6 +17,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 type fakeStore struct {
@@ -131,6 +133,30 @@ func TestSenderExportsBatchInOneRequest(t *testing.T) {
 	require.Equal(t, "chat claude", spans[1].Name)
 	require.Equal(t, oteltrace.TraceID(turn.TurnID), spans[1].TraceID)
 	require.Equal(t, oteltrace.TraceID(other.TurnID), spans[2].TraceID)
+}
+
+func TestSenderExportsProtobufWhenConfigured(t *testing.T) {
+	turn := testTurn()
+	store := &fakeStore{
+		destination: executionstore.OtelExportDestination{Encoding: oteltrace.EncodingProtobuf},
+		turns:       map[uuid.UUID]oteltrace.Turn{turn.TurnID: turn},
+	}
+	var contentType string
+	var body []byte
+	sender := newTestSender(t, store, func(_ http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
+		body, _ = io.ReadAll(r.Body)
+	})
+	batch := testBatch(turn.TurnID)
+	sender.deliver(t.Context(), batch)
+
+	require.Equal(t, "application/x-protobuf", contentType)
+	var decoded tracepb.TracesData
+	require.NoError(t, proto.Unmarshal(body, &decoded))
+	spans := decoded.GetResourceSpans()[0].GetScopeSpans()[0].GetSpans()
+	require.Len(t, spans, 2)
+	require.Equal(t, turn.TurnID[:], spans[0].GetTraceId())
+	require.Equal(t, []uuid.UUID{batch.ClaimToken}, store.completed)
 }
 
 func TestSenderRetriesOrDropsByResponse(t *testing.T) {
