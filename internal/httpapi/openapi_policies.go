@@ -133,6 +133,12 @@ const (
 	operationUpdateEventWebhook            operationID = "UpdateEventWebhook"
 	operationDeleteCronTrigger             operationID = "DeleteCronTrigger"
 	operationDeleteEventWebhook            operationID = "DeleteEventWebhook"
+	operationCreateOtelExporter            operationID = "CreateOtelExporter"
+	operationListOtelExporters             operationID = "ListOtelExporters"
+	operationGetOtelExporter               operationID = "GetOtelExporter"
+	operationUpdateOtelExporter            operationID = "UpdateOtelExporter"
+	operationDeleteOtelExporter            operationID = "DeleteOtelExporter"
+	operationGetTurnTrace                  operationID = "GetTurnTrace"
 	operationDeclineInvitation             operationID = "DeclineInvitation"
 	operationArchiveAgent                  operationID = "ArchiveAgent"
 	operationDeleteAgentProfile            operationID = "DeleteAgentProfile"
@@ -483,6 +489,12 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationListEvents:                    accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListTurns:                     accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListTurnEvents:                accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationGetTurnTrace:                  accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationCreateOtelExporter:            accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListOtelExporters:             accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetOtelExporter:               accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationUpdateOtelExporter:            accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationDeleteOtelExporter:            accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationStreamEvents:                  accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationListAgentInteractions:         accountPolicy(agentScope(identitystore.AgentActionRead)),
 	operationGetArtifact:                   accountPolicy(agentScope(identitystore.AgentActionRead)),
