@@ -69,10 +69,6 @@ func TestDerivationsPreserveVerifiedRuntimeValues(t *testing.T) {
 		}},
 	})
 	require.NoError(t, err)
-	var rounded any
-	require.NoError(t, json.Unmarshal(encoded.CanonicalJSON, &rounded))
-	legacy, err := json.Marshal(rounded)
-	require.NoError(t, err)
 	derivations := map[string]func(executionstore.AgentConfigRecord) (executionstore.CreateAgentConfigInput, error){
 		"subagent": func(base executionstore.AgentConfigRecord) (executionstore.CreateAgentConfigInput, error) {
 			body, err := agentconfigcompile.DeriveSubagentConfig(base,
@@ -92,7 +88,7 @@ func TestDerivationsPreserveVerifiedRuntimeValues(t *testing.T) {
 	}
 	for name, derive := range derivations {
 		for kind, hash := range map[string]string{
-			"exact": encoded.Hash, "legacy": agentconfig.DefinitionHash(legacy), "invalid": "mismatched", "missing": "",
+			"exact": encoded.Hash, "invalid": "mismatched", "missing": "",
 		} {
 			t.Run(name+"/"+kind, func(t *testing.T) {
 				base := executionstore.AgentConfigRecord{ID: uuid.New(), ProjectID: uuid.New(),

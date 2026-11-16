@@ -80,15 +80,11 @@ func VerifiedDefinition(
 		return nil, errors.New("agent config compiled definition is required")
 	}
 	canonical, err := jsoncanonical.Canonical(compiledJSON)
-	if err != nil || DefinitionHash(canonical) != definitionHash {
-		canonical = legacyCanonicalJSON(compiledJSON)
-		if got := DefinitionHash(canonical); got != definitionHash {
-			return nil, fmt.Errorf(
-				"agent config definition hash mismatch: got %s want %s",
-				got,
-				definitionHash,
-			)
-		}
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize compiled agent config: %w", err)
+	}
+	if got := DefinitionHash(canonical); got != definitionHash {
+		return nil, fmt.Errorf("agent config definition hash mismatch: got %s want %s", got, definitionHash)
 	}
 	return canonical, nil
 }

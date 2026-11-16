@@ -214,18 +214,6 @@ func DefinitionHash(canonical []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func legacyCanonicalJSON(raw []byte) []byte {
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return raw
-	}
-	canonical, err := json.Marshal(value)
-	if err != nil {
-		return raw
-	}
-	return canonical
-}
-
 func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 	compiledModel, err := compileModel(source.Model, opts)
 	if err != nil {

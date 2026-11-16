@@ -1,8 +1,6 @@
 package agentconfig
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +11,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/processaction"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -1490,7 +1489,7 @@ tools:
 		if err != nil {
 			t.Fatalf("marshal mutated %s: %v", name, err)
 		}
-		if _, err := RuntimeContractFromCompiled(raw, hashJSON(raw)); err == nil {
+		if _, err := RuntimeContractFromCompiled(raw, hashJSON(t, raw)); err == nil {
 			t.Fatalf("expected mutated %s contract to be rejected", name)
 		}
 	}
@@ -1542,7 +1541,7 @@ tools:
 	if err != nil {
 		t.Fatalf("marshal mutated compiled: %v", err)
 	}
-	if _, err := RuntimeContractFromCompiled(raw, hashJSON(raw)); err == nil {
+	if _, err := RuntimeContractFromCompiled(raw, hashJSON(t, raw)); err == nil {
 		t.Fatal("expected built-in name marked custom to be rejected")
 	}
 }
@@ -1551,7 +1550,7 @@ func TestRuntimeContractRejectsPublicMachineID(t *testing.T) {
 	machineID, err := publicid.Encode(publicid.KindMachine, uuid.New())
 	require.NoError(t, err)
 	raw := json.RawMessage(`{"instruction":"test","model":{},"machine_sources":[{"machine_id":"` + machineID + `"}]}`)
-	_, err = RuntimeContractFromCompiled(raw, hashJSON(raw))
+	_, err = RuntimeContractFromCompiled(raw, hashJSON(t, raw))
 	require.ErrorContains(t, err, "parse compiled agent config")
 	require.ErrorContains(t, err, "invalid UUID")
 }
@@ -2117,8 +2116,9 @@ tools:
 	}
 }
 
-func hashJSON(raw json.RawMessage) string {
-	canonical := legacyCanonicalJSON(raw)
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+func hashJSON(t *testing.T, raw json.RawMessage) string {
+	t.Helper()
+	canonical, err := jsoncanonical.Canonical(raw)
+	require.NoError(t, err)
+	return DefinitionHash(canonical)
 }

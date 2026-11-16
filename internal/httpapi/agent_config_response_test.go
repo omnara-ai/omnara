@@ -87,29 +87,17 @@ func TestPublicCompiledDefinition(t *testing.T) {
 
 	exact, err := jsoncanonical.Canonical(raw)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(raw, &value))
-	legacy, err := json.Marshal(value)
+	detail, err := agentConfigDetailResponse(openapi.AgentConfigSummary{
+		EffectiveDefinitionHash: agentconfig.DefinitionHash(exact),
+	}, raw)
 	require.NoError(t, err)
-	for kind, canonical := range map[string][]byte{"exact": exact, "legacy": legacy} {
-		t.Run("detail without source/"+kind, func(t *testing.T) {
-			t.Parallel()
-			detail, err := agentConfigDetailResponse(openapi.AgentConfigSummary{
-				EffectiveDefinitionHash: agentconfig.DefinitionHash(canonical),
-			}, raw)
-			require.NoError(t, err)
-			expected, err := publicCompiledDefinition(canonical)
-			require.NoError(t, err)
-			expectedJSON, err := json.Marshal(expected)
-			require.NoError(t, err)
-			body, err := json.Marshal(detail)
-			require.NoError(t, err)
-			var fields map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(body, &fields))
-			require.NotContains(t, fields, "source")
-			require.NotContains(t, fields, "source_format")
-			require.Equal(t, decode(t, expectedJSON), decode(t, fields["compiled_definition"]))
-		})
-	}
+	body, err := json.Marshal(detail)
+	require.NoError(t, err)
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(body, &fields))
+	require.NotContains(t, fields, "source")
+	require.NotContains(t, fields, "source_format")
+	require.True(t, jsoncanonical.Equal(actual, fields["compiled_definition"]))
 }
 
 func TestCompiledConfigEnums(t *testing.T) {

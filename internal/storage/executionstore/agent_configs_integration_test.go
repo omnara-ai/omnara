@@ -388,24 +388,20 @@ func TestAgentConfigSchemaValuesSurviveJSONBAndRuntime(t *testing.T) {
 	require.True(t, jsoncanonical.Equal([]byte(schema), inputSchema))
 	require.True(t, jsoncanonical.Equal(compiled.CanonicalJSON, loaded.CompiledDefinition))
 
-	var legacy any
-	require.NoError(t, json.Unmarshal(compiled.CanonicalJSON, &legacy))
-	rounded, err := json.Marshal(legacy)
-	require.NoError(t, err)
 	input := executionstore.CreateAgentConfigInput{
 		ProjectID: testProjectID, ConfiguredModelID: saved.ConfiguredModelID,
-		CompiledDefinition: compiled.CanonicalJSON, EffectiveDefinitionHash: agentconfig.DefinitionHash(rounded),
+		CompiledDefinition: compiled.CanonicalJSON, EffectiveDefinitionHash: compiled.Hash,
 	}
-	legacySaved, err := store.Execution().CreateAgentConfig(ctx, input)
+	withoutSource, err := store.Execution().CreateAgentConfig(ctx, input)
 	require.NoError(t, err)
-	input.CompiledDefinition = rounded
+	input.CompiledDefinition = loaded.CompiledDefinition
 	duplicate, err := store.Execution().CreateAgentConfig(ctx, input)
 	require.NoError(t, err)
-	require.Equal(t, legacySaved.ID, duplicate.ID)
+	require.Equal(t, withoutSource.ID, duplicate.ID)
 	exported, err := agentconfigcompile.GenerateSource(
-		ctx, store.Store, testOrgID, testProjectID, legacySaved, agentconfig.SourceFormatYAML,
+		ctx, store.Store, testOrgID, testProjectID, withoutSource, agentconfig.SourceFormatYAML,
 	)
 	require.NoError(t, err)
 	recompiled := mustCompileAgentYAMLResolved(t, ctx, store, exported)
-	require.Equal(t, legacySaved.EffectiveDefinitionHash, recompiled.Hash)
+	require.Equal(t, withoutSource.EffectiveDefinitionHash, recompiled.Hash)
 }
