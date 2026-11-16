@@ -73,6 +73,7 @@ var blockedPrefixes = []netip.Prefix{
 
 var (
 	ipv4CompatibleIPv6 = netip.MustParsePrefix("::/96")
+	ipv4TranslatedIPv6 = netip.MustParsePrefix("::ffff:0:0:0/96")
 	nat64WellKnownIPv6 = netip.MustParsePrefix("64:ff9b::/96")
 	sixToFourIPv6      = netip.MustParsePrefix("2002::/16")
 )
@@ -95,9 +96,9 @@ func embeddedIPv4Allowed(ip net.IP, allowLoopback bool) bool {
 
 func embeddedIPv4Addresses(ip net.IP) []net.IP {
 	switch {
-	case cidrContains(ipv4CompatibleIPv6, ip):
-		return []net.IP{net.IPv4(ip[12], ip[13], ip[14], ip[15])}
-	case cidrContains(nat64WellKnownIPv6, ip):
+	case cidrContains(ipv4CompatibleIPv6, ip),
+		cidrContains(ipv4TranslatedIPv6, ip),
+		cidrContains(nat64WellKnownIPv6, ip):
 		return []net.IP{net.IPv4(ip[12], ip[13], ip[14], ip[15])}
 	case cidrContains(sixToFourIPv6, ip):
 		return []net.IP{net.IPv4(ip[2], ip[3], ip[4], ip[5])}

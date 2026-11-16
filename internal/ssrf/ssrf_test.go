@@ -88,6 +88,8 @@ func TestIsAllowedIPBlocksSpecialUseRanges(t *testing.T) {
 		{name: "ipv4 mapped public", ip: "::ffff:8.8.8.8", want: true},
 		{name: "ipv4-compatible metadata", ip: "::169.254.169.254"},
 		{name: "ipv4-compatible public", ip: "::8.8.8.8", want: true},
+		{name: "ipv4-translated private", ip: "::ffff:0:10.0.0.1"},
+		{name: "ipv4-translated public", ip: "::ffff:0:8.8.8.8", want: true},
 		{name: "nat64 embedded metadata ipv4", ip: "64:ff9b::169.254.169.254"},
 		{name: "nat64 embedded public ipv4", ip: "64:ff9b::8.8.8.8", want: true},
 		{name: "6to4 embedded loopback ipv4", ip: "2002:7f00:1::"},
