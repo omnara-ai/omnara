@@ -71,6 +71,22 @@ func deleteExpiredWebhookDeliveries(
 	}
 }
 
+func deleteExpiredOtelExportDeliveries(
+	log *slog.Logger,
+	deleteExpired func(context.Context, int32) (int64, error),
+) func(context.Context) maintenanceResult {
+	return func(ctx context.Context) maintenanceResult {
+		cleanupCtx, cancel := context.WithTimeout(ctx, eventWebhookDeliveryCleanupTimeout)
+		defer cancel()
+		count, err := deleteExpired(cleanupCtx, eventWebhookDeliveryCleanupBatchSize)
+		result := reportMaintenanceCount(
+			ctx, log, "cleanup expired otel export deliveries", "cleaned expired otel export deliveries", count, err,
+		)
+		result.more = count >= int64(eventWebhookDeliveryCleanupBatchSize)
+		return result
+	}
+}
+
 func cleanupAuthState(
 	log *slog.Logger,
 	cleanup func(context.Context) (identitystore.AuthStateCleanupResult, error),

@@ -80,6 +80,9 @@ func (u *Unit) Commit(ctx context.Context, operation string) (err error) {
 	if err := u.enqueueWebhooks(ctx); err != nil {
 		return err
 	}
+	if err := u.enqueueOtelExports(ctx); err != nil {
+		return err
+	}
 	if err := resourceguard.CheckCreations(ctx, u.DB(), u.creations); err != nil {
 		return err
 	}

@@ -41,23 +41,29 @@ func Validate(settings Settings, endpointAllowlist *ssrf.Allowlist) (Settings, e
 }
 
 func ValidateURL(raw string, endpointAllowlist *ssrf.Allowlist) (string, error) {
+	return ValidateEndpointURL(raw, endpointAllowlist, "event webhook URL")
+}
+
+// ValidateEndpointURL applies the outbound endpoint policy shared by every
+// customer-configured delivery target. Label names the field in errors.
+func ValidateEndpointURL(raw string, endpointAllowlist *ssrf.Allowlist, label string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Hostname() == "" || parsed.Opaque != "" || (parsed.Scheme != "https" &&
 		(parsed.Scheme != "http" || !urlpolicy.PermitsPlainHTTP(parsed, endpointAllowlist))) {
-		return "", errors.New("event webhook URL must be an absolute HTTPS URL")
+		return "", errors.New(label + " must be an absolute HTTPS URL")
 	}
 	if parsed.User != nil || parsed.Fragment != "" {
-		return "", errors.New("event webhook URL must not contain credentials or a fragment")
+		return "", errors.New(label + " must not contain credentials or a fragment")
 	}
 	host := ssrf.ClassifyURLHost(parsed.Hostname())
 	port := ssrf.URLPort(parsed)
 	if (host.IP == nil && host.LocalDev && !endpointAllowlist.PermitsLocalhost(port)) ||
 		(host.IP != nil && !endpointAllowlist.PermitsIP(host.IP, port, false)) {
-		return "", errors.New("event webhook URL must target a public host")
+		return "", errors.New(label + " must target a public host")
 	}
 	normalized := parsed.String()
 	if len(normalized) > 2048 {
-		return "", errors.New("event webhook URL must not exceed 2048 bytes")
+		return "", errors.New(label + " must not exceed 2048 bytes")
 	}
 	return normalized, nil
 }

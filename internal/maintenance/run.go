@@ -58,6 +58,8 @@ func Run(ctx context.Context, options Options) {
 		{"expire_process_tools", interval, expireProcessTools(log, execution.ExpireProcessToolCallsForAllProjects)},
 		{"delete_expired_webhook_deliveries", webhookDeliveryCleanupInterval,
 			deleteExpiredWebhookDeliveries(log, execution.DeleteExpiredEventWebhookDeliveries, webhookRecorder)},
+		{"delete_expired_otel_export_deliveries", webhookDeliveryCleanupInterval,
+			deleteExpiredOtelExportDeliveries(log, execution.DeleteExpiredOtelExportDeliveries)},
 		{"cleanup_auth_state", expiredDataCleanupInterval,
 			cleanupAuthState(log, options.Store.Identity().CleanupInactiveAuthState)},
 		{"cleanup_integration_states", expiredDataCleanupInterval,
