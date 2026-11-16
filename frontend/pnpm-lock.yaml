@@ -74,8 +74,8 @@ importers:
         specifier: ^1.33.5
         version: 1.33.5(react-dom@19.3.0-canary-eb8feb71-20260814(react@19.3.0-canary-eb8feb71-20260814))(react@19.3.0-canary-eb8feb71-20260814)
       '@tanstack/react-query':
-        specifier: ^5.106.1
-        version: 5.106.1(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
+        specifier: ^5.107.1
+        version: 5.107.1(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
       '@tanstack/react-router':
         specifier: ^1.170.46
         version: 1.170.46(react-dom@19.3.0-canary-eb8feb71-20260814(react@19.3.0-canary-eb8feb71-20260814))(react@19.3.0-canary-eb8feb71-20260814)
@@ -186,8 +186,8 @@ importers:
         specifier: ^1.9.0
         version: 1.9.0
       '@tanstack/react-query':
-        specifier: ^5.106.1
-        version: 5.106.1(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
+        specifier: ^5.107.1
+        version: 5.107.1(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
       commander:
         specifier: ^15.0.0
         version: 15.0.0
@@ -242,8 +242,8 @@ importers:
         version: 4.6.7
     devDependencies:
       '@tanstack/react-query':
-        specifier: ^5.106.1
-        version: 5.106.1(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
+        specifier: ^5.107.1
+        version: 5.107.1(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.17
@@ -273,8 +273,8 @@ importers:
         specifier: 0.99.0
         version: 0.99.0(magicast@0.5.4)(typescript@5.9.3)
       '@tanstack/react-query':
-        specifier: ^5.106.1
-        version: 5.106.1(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
+        specifier: ^5.107.1
+        version: 5.107.1(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)
       '@tanstack/react-query-minimum':
         specifier: npm:@tanstack/react-query@5.62.0
         version: '@tanstack/react-query@5.62.0(react@19.3.0-canary-eb8feb71-20260814)'
@@ -2611,8 +2611,8 @@ packages:
     resolution: {integrity: sha512-y/xtNPNt/YeyoVxE/JCx+T7yjEzpezmbb+toK8DDD1P4m7Kzs5YR956+7OKexG3f8aXgC3rLZl7b1V+yNUSy5w==}
     engines: {node: '>=18'}
 
-  '@tanstack/query-core@5.106.1':
-    resolution: {integrity: sha512-erYv/UACddcdgjOL2ixmFdK6tO/AVBeUcTCOtX2N51yZpDQ2U7KJ+xgB/bCNfsF3uoCDTqGHEEbDiFsIO9YUmQ==}
+  '@tanstack/query-core@5.107.1':
+    resolution: {integrity: sha512-PSyAik11oQBEVOiVy5hjZWHmoUqOXqK1WYy4v55mcxozEfKaQgpUMsgnXhWjuESzSht8JfzqMS1m6M/9CpNgvg==}
 
   '@tanstack/query-core@5.62.0':
     resolution: {integrity: sha512-sx38bGrqF9bop92AXOvzDr0L9fWDas5zXdPglxa9cuqeVSWS7lY6OnVyl/oodfXjgOGRk79IfCpgVmxrbHuFHg==}
@@ -2626,8 +2626,8 @@ packages:
       '@tanstack/react-start':
         optional: true
 
-  '@tanstack/react-query@5.106.1':
-    resolution: {integrity: sha512-ORDvJG/DSfmlFL9lQ8GDkE0VjtQbLeRDY7BL8xjKkQFGLfjFGfNWNuteWgPqA2gPJgLLuWfQ7IX0FlsHCJriyg==}
+  '@tanstack/react-query@5.107.1':
+    resolution: {integrity: sha512-udCOOLp3ZAheUrIHLCe+ZZge6nr2ZUrGMSWcCuXsjY1Bf2JeeE09oxst97PILiCY6N8xo/7bIo3Hvz13zh06FA==}
     peerDependencies:
       '@types/react': ^18 || ^19
       react: 19.3.0-canary-eb8feb71-20260814
@@ -6653,7 +6653,7 @@ snapshots:
 
   '@tanstack/pacer-lite@0.1.1': {}
 
-  '@tanstack/query-core@5.106.1': {}
+  '@tanstack/query-core@5.107.1': {}
 
   '@tanstack/query-core@5.62.0': {}
 
@@ -6665,9 +6665,9 @@ snapshots:
     transitivePeerDependencies:
       - react-dom
 
-  '@tanstack/react-query@5.106.1(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)':
+  '@tanstack/react-query@5.107.1(@types/react@19.2.17)(react@19.3.0-canary-eb8feb71-20260814)':
     dependencies:
-      '@tanstack/query-core': 5.106.1
+      '@tanstack/query-core': 5.107.1
       react: 19.3.0-canary-eb8feb71-20260814
     optionalDependencies:
       '@types/react': 19.2.17
