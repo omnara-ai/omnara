@@ -9,6 +9,7 @@ CREATE TABLE otel_exporters (
     agent_id uuid,
     endpoint text NOT NULL CHECK (octet_length(endpoint) BETWEEN 1 AND 2048),
     variant text NOT NULL DEFAULT 'otel' CHECK (variant IN ('otel', 'langfuse', 'braintrust', 'langsmith')),
+    encoding text NOT NULL DEFAULT 'json' CHECK (encoding IN ('json', 'protobuf')),
     headers jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(headers) = 'object'),
     secret_headers jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(secret_headers) = 'object'),
     sample_percent numeric(5, 2) NOT NULL DEFAULT 100 CHECK (sample_percent BETWEEN 0 AND 100),

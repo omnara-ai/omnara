@@ -101,6 +101,7 @@ type UpdateOtelExporterInput struct {
 	ExporterID    uuid.UUID
 	Endpoint      *string
 	Variant       *oteltrace.Variant
+	Encoding      *oteltrace.Encoding
 	Headers       map[string]string
 	SecretHeaders map[string]uuid.UUID
 	SamplePercent *float64
@@ -110,7 +111,8 @@ func otelExporterRecordFromSQLC(row dbsqlc.OtelExporter) (OtelExporterRecord, er
 	record := OtelExporterRecord{
 		ID: row.ID, OrgID: row.OrgID, Scope: otelExporterScopeFromColumns(row.ProjectID, row.AgentID),
 		Settings: otelconfig.Settings{
-			Endpoint: row.Endpoint, Variant: oteltrace.Variant(row.Variant), SamplePercent: row.SamplePercent,
+			Endpoint: row.Endpoint, Variant: oteltrace.Variant(row.Variant),
+			Encoding: oteltrace.Encoding(row.Encoding), SamplePercent: row.SamplePercent,
 		},
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
@@ -235,7 +237,8 @@ func (s *Store) CreateOtelExporter(ctx context.Context, input CreateOtelExporter
 	row, err := q.InsertOtelExporter(ctx, dbsqlc.InsertOtelExporterParams{
 		OrgID: input.OrgID, ProjectID: storeutil.IDFromNil(input.Scope.ProjectID),
 		AgentID: storeutil.IDFromNil(input.Scope.AgentID), Endpoint: settings.Endpoint, Variant: string(settings.Variant),
-		Headers: headers, SecretHeaders: secretHeaders, SamplePercent: settings.SamplePercent,
+		Encoding: string(settings.Encoding),
+		Headers:  headers, SecretHeaders: secretHeaders, SamplePercent: settings.SamplePercent,
 	})
 	if err != nil {
 		return OtelExporterRecord{}, otelExporterConflict(err)
@@ -328,6 +331,9 @@ func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporter
 	if input.Variant != nil {
 		settings.Variant = *input.Variant
 	}
+	if input.Encoding != nil {
+		settings.Encoding = *input.Encoding
+	}
 	if input.Headers != nil {
 		settings.Headers = input.Headers
 	}
@@ -346,7 +352,8 @@ func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporter
 	}
 	row, err = q.UpdateOtelExporter(ctx, dbsqlc.UpdateOtelExporterParams{
 		OrgID: input.OrgID, ID: input.ExporterID, Endpoint: settings.Endpoint, Variant: string(settings.Variant),
-		Headers: headers, SecretHeaders: secretHeaders, SamplePercent: settings.SamplePercent,
+		Encoding: string(settings.Encoding),
+		Headers:  headers, SecretHeaders: secretHeaders, SamplePercent: settings.SamplePercent,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return OtelExporterRecord{}, storeerr.ErrNotFound

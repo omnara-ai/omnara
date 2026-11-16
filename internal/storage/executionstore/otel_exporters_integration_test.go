@@ -65,6 +65,7 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 		executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeOrg},
 		otelconfig.Settings{
 			Endpoint: "https://otel.example.com/v1/traces", Variant: oteltrace.VariantLangfuse, SamplePercent: 100,
+			Encoding:      oteltrace.EncodingProtobuf,
 			Headers:       map[string]string{"x-langfuse-ingestion-version": "4"},
 			SecretHeaders: map[string]uuid.UUID{"Authorization": secret.ID},
 		})
@@ -77,6 +78,7 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 		},
 		otelconfig.Settings{Endpoint: "https://agent.example.com/v1/traces", SamplePercent: 0})
 	require.Equal(t, oteltrace.VariantOTel, project.Settings.Variant)
+	require.Equal(t, oteltrace.EncodingJSON, project.Settings.Encoding)
 
 	_, err = store.CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
 		OrgID: testOrgID, Scope: executionstore.OtelExporterScope{Type: executionstore.OtelExporterScopeOrg},
@@ -167,7 +169,8 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, executionstore.OtelExportDestination{
 		Endpoint: "https://otel.example.com/v1/traces", Variant: oteltrace.VariantLangfuse,
-		Headers: map[string]string{"x-langfuse-ingestion-version": "4", "Authorization": "Bearer test-key"},
+		Encoding: oteltrace.EncodingProtobuf,
+		Headers:  map[string]string{"x-langfuse-ingestion-version": "4", "Authorization": "Bearer test-key"},
 	}, destination)
 
 	require.NoError(t, store.CompleteOtelExportDeliveries(ctx, orgBatch.ClaimToken))

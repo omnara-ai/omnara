@@ -37,6 +37,7 @@ func TestOtelExporterRoutes(t *testing.T) {
 		created := requestJSONWithHeaders(t, f.handler, http.MethodPost, endpoint, body, "", http.StatusCreated, admin)
 		require.Equal(t, scope, created["scope"])
 		require.Equal(t, "langfuse", created["variant"])
+		require.Equal(t, "json", created["encoding"])
 		require.Equal(t, 12.5, created["sample_percent"])
 		require.Equal(t, map[string]any{"x-langfuse-ingestion-version": "4"}, created["headers"])
 		require.Equal(t, map[string]any{}, created["secret_headers"])
@@ -56,6 +57,7 @@ func TestOtelExporterRoutes(t *testing.T) {
 		`{"scope":{"type":"org"},"endpoint":"http://otel.example.com/v1/traces"}`,
 		`{"scope":{"type":"org"},"endpoint":"https://other.example.com","variant":"datadog"}`,
 		`{"scope":{"type":"org"},"endpoint":"https://other.example.com","sample_percent":101}`,
+		`{"scope":{"type":"org"},"endpoint":"https://other.example.com","encoding":"grpc"}`,
 		`{"scope":{"type":"org"},"endpoint":"https://other.example.com","headers":{"Content-Type":"text/plain"}}`,
 		`{"scope":{"type":"agent","agent_id":"` + agentID + `"},"endpoint":"https://other.example.com"}`,
 		`{"endpoint":"https://other.example.com"}`,
@@ -89,8 +91,9 @@ func TestOtelExporterRoutes(t *testing.T) {
 	requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint, "", "", http.StatusForbidden, operator)
 
 	updated := requestJSONWithHeaders(t, f.handler, http.MethodPatch, endpoint+"/"+ids[0],
-		`{"variant":"braintrust","sample_percent":0,"headers":{}}`, "", http.StatusOK, admin)
+		`{"variant":"braintrust","encoding":"protobuf","sample_percent":0,"headers":{}}`, "", http.StatusOK, admin)
 	require.Equal(t, "braintrust", updated["variant"])
+	require.Equal(t, "protobuf", updated["encoding"])
 	require.EqualValues(t, 0, updated["sample_percent"])
 	require.Equal(t, map[string]any{}, updated["headers"])
 	require.Equal(t, "https://otel.example.com/v1/traces", updated["endpoint"])

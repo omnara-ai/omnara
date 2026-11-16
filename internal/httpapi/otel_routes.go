@@ -159,6 +159,7 @@ func otelExporterResponseFromRecord(record executionstore.OtelExporterRecord) (o
 	result := openapi.OtelExporter{
 		Id: id, OrgId: orgID, Scope: scope, Endpoint: record.Settings.Endpoint,
 		Variant:       openapi.OtelTraceVariant(record.Settings.Variant),
+		Encoding:      openapi.OtelExporterEncoding(record.Settings.Encoding),
 		Headers:       openapi.OtelExporterHeaders{},
 		SecretHeaders: openapi.OtelExporterSecretHeaders{},
 		SamplePercent: float32(record.Settings.SamplePercent),
@@ -195,6 +196,9 @@ func (s strictOpenAPIServer) CreateOtelExporter(
 	}
 	if request.Body.Variant != nil {
 		settings.Variant = oteltrace.Variant(*request.Body.Variant)
+	}
+	if request.Body.Encoding != nil {
+		settings.Encoding = oteltrace.Encoding(*request.Body.Encoding)
 	}
 	if request.Body.Headers != nil {
 		settings.Headers = *request.Body.Headers
@@ -307,6 +311,10 @@ func (s strictOpenAPIServer) UpdateOtelExporter(
 	if request.Body.Variant != nil {
 		variant := oteltrace.Variant(*request.Body.Variant)
 		input.Variant = &variant
+	}
+	if request.Body.Encoding != nil {
+		encoding := oteltrace.Encoding(*request.Body.Encoding)
+		input.Encoding = &encoding
 	}
 	if request.Body.Headers != nil {
 		input.Headers = map[string]string{}
