@@ -1,14 +1,14 @@
 -- name: InsertOtelExporter :one
 INSERT INTO otel_exporters (
-    org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_basis_points
+    org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_percent
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_basis_points,
+RETURNING id, org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_percent,
           created_at, updated_at, deleted_at;
 
 -- name: GetOtelExporter :one
 SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
-       exporter.headers, exporter.secret_headers, exporter.sample_basis_points,
+       exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 JOIN orgs org ON org.id = exporter.org_id AND org.deleted_at IS NULL
@@ -16,11 +16,12 @@ WHERE exporter.org_id = $1 AND exporter.id = $2 AND exporter.deleted_at IS NULL;
 
 -- name: ListOtelExporters :many
 SELECT exporter.id, exporter.org_id, exporter.project_id, exporter.agent_id, exporter.endpoint, exporter.variant,
-       exporter.headers, exporter.secret_headers, exporter.sample_basis_points,
+       exporter.headers, exporter.secret_headers, exporter.sample_percent,
        exporter.created_at, exporter.updated_at, exporter.deleted_at
 FROM otel_exporters exporter
 WHERE exporter.org_id = sqlc.arg(org_id)
   AND (sqlc.narg(project_id)::uuid IS NULL OR exporter.project_id = sqlc.narg(project_id)::uuid)
+  AND (sqlc.narg(agent_id)::uuid IS NULL OR exporter.agent_id = sqlc.narg(agent_id)::uuid)
   AND exporter.deleted_at IS NULL
   AND (exporter.created_at, exporter.id) > (
     coalesce(sqlc.narg(cursor_created_at)::timestamptz, '-infinity'::timestamptz),
@@ -35,9 +36,9 @@ WHERE org_id = $1 AND deleted_at IS NULL;
 
 -- name: UpdateOtelExporter :one
 UPDATE otel_exporters SET endpoint = $3, variant = $4, headers = $5, secret_headers = $6,
-    sample_basis_points = $7, updated_at = statement_timestamp()
+    sample_percent = $7, updated_at = statement_timestamp()
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
-RETURNING id, org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_basis_points,
+RETURNING id, org_id, project_id, agent_id, endpoint, variant, headers, secret_headers, sample_percent,
           created_at, updated_at, deleted_at;
 
 -- name: DeleteOtelExporter :execrows
@@ -68,7 +69,7 @@ WHERE event.agent_id = sqlc.arg(agent_id)
   AND exporter.deleted_at IS NULL
   AND project.deleted_at IS NULL
   AND org.deleted_at IS NULL
-  AND otel_trace_sampled(event.turn_id, exporter.sample_basis_points)
+  AND otel_trace_sampled(event.turn_id, exporter.sample_percent)
 ON CONFLICT (exporter_id, turn_id) DO UPDATE
 SET next_attempt_at = excluded.next_attempt_at, claim_token = NULL, claim_expires_at = NULL;
 

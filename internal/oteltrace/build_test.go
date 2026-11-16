@@ -178,8 +178,8 @@ func TestParseVariant(t *testing.T) {
 func TestSampledUsesLowBitsOfTraceID(t *testing.T) {
 	// The low 32 bits are 0x0000abcd = 43981, bucket 43981 % 10000 = 3981.
 	turnID := uuid.MustParse("01938a5c-0000-7000-8000-00000000abcd")
-	if !Sampled(turnID, 10000) || Sampled(turnID, 0) || !Sampled(turnID, 3982) || Sampled(turnID, 3981) {
-		t.Fatal("sampling must compare bucket 3981 against the basis points")
+	if !Sampled(turnID, 100) || Sampled(turnID, 0) || !Sampled(turnID, 39.82) || Sampled(turnID, 39.81) {
+		t.Fatal("sampling must compare bucket 3981 against the percentage")
 	}
 }
 

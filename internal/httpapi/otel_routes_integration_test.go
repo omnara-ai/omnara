@@ -68,6 +68,11 @@ func TestOtelExporterRoutes(t *testing.T) {
 	listed = requestJSONWithHeaders(t, f.handler, http.MethodGet,
 		endpoint+"?project_id="+f.project.ProjectID, "", "", http.StatusOK, admin)
 	require.Len(t, testutil.RequireType[[]any](t, listed["data"]), 2)
+	listed = requestJSONWithHeaders(t, f.handler, http.MethodGet,
+		endpoint+"?agent_id="+agentID, "", "", http.StatusOK, admin)
+	byAgent := testutil.RequireType[[]any](t, listed["data"])
+	require.Len(t, byAgent, 1)
+	require.Equal(t, ids[2], testutil.RequireType[map[string]any](t, byAgent[0])["id"])
 	requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint, "", "", http.StatusForbidden, operator)
 
 	updated := requestJSONWithHeaders(t, f.handler, http.MethodPatch, endpoint+"/"+ids[0],
