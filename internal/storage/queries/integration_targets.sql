@@ -42,7 +42,7 @@ WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integratio
 ORDER BY updated_at DESC, id DESC
 LIMIT 1;
 
--- name: GetAgentIntegrationLaunchOwners :many
+-- name: ListTurnInputLaunchOwners :many
 SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_id, target.scope_ref,
        target.scope_kind, target.display_name, target.launch_key, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
@@ -53,8 +53,19 @@ JOIN integrations integration ON integration.project_id = target.project_id AND 
     AND integration.deleted_at IS NULL AND integration.state = 'active'
 WHERE target.project_id = sqlc.arg(project_id) AND target.agent_id = sqlc.arg(agent_id)
   AND target.deleted_at IS NULL AND target.launch_key IS NOT NULL
-ORDER BY target.id
-LIMIT 2;
+  AND EXISTS (
+    SELECT 1
+    FROM model_call_contexts context
+    JOIN agent_inputs input ON input.project_id = context.project_id AND input.agent_id = context.agent_id
+        AND input.id = ANY(context.opening_input_ids)
+    WHERE context.agent_id = target.agent_id AND context.project_id = target.project_id
+      AND context.turn_id = sqlc.arg(turn_id) AND input.integration_target_id = target.id
+  )
+ORDER BY target.id;
+
+-- name: PromoteIntegrationConversationTarget :exec
+UPDATE integration_targets SET launch_key = sqlc.arg(launch_key)::text, updated_at = transaction_timestamp()
+WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND launch_key IS NULL AND deleted_at IS NULL;
 
 -- name: InsertIntegrationConversationTarget :one
 INSERT INTO integration_targets(project_id, agent_id, integration_id,

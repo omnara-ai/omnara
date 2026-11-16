@@ -70,74 +70,6 @@ func (q *Queries) GetAgentConversationTarget(ctx context.Context, arg GetAgentCo
 	return i, err
 }
 
-const getAgentIntegrationLaunchOwners = `-- name: GetAgentIntegrationLaunchOwners :many
-SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_id, target.scope_ref,
-       target.scope_kind, target.display_name, target.launch_key, target.deleted_at, target.created_at, target.updated_at
-FROM integration_targets target
-JOIN agents agent ON agent.project_id = target.project_id AND agent.id = target.agent_id AND agent.state = 'active'
-JOIN projects project ON project.id = target.project_id AND project.deleted_at IS NULL
-JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
-JOIN integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
-    AND integration.deleted_at IS NULL AND integration.state = 'active'
-WHERE target.project_id = $1 AND target.agent_id = $2
-  AND target.deleted_at IS NULL AND target.launch_key IS NOT NULL
-ORDER BY target.id
-LIMIT 2
-`
-
-type GetAgentIntegrationLaunchOwnersParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-}
-
-type GetAgentIntegrationLaunchOwnersRow struct {
-	ID            uuid.UUID
-	OrgID         uuid.UUID
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-	IntegrationID uuid.UUID
-	ScopeRef      string
-	ScopeKind     string
-	DisplayName   string
-	LaunchKey     *string
-	DeletedAt     *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-}
-
-func (q *Queries) GetAgentIntegrationLaunchOwners(ctx context.Context, arg GetAgentIntegrationLaunchOwnersParams) ([]GetAgentIntegrationLaunchOwnersRow, error) {
-	rows, err := q.db.Query(ctx, getAgentIntegrationLaunchOwners, arg.ProjectID, arg.AgentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []GetAgentIntegrationLaunchOwnersRow{}
-	for rows.Next() {
-		var i GetAgentIntegrationLaunchOwnersRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.ProjectID,
-			&i.AgentID,
-			&i.IntegrationID,
-			&i.ScopeRef,
-			&i.ScopeKind,
-			&i.DisplayName,
-			&i.LaunchKey,
-			&i.DeletedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getConversationDisplayName = `-- name: GetConversationDisplayName :one
 SELECT display_name
 FROM integration_targets
@@ -357,6 +289,82 @@ func (q *Queries) ListConversationLaunchOwners(ctx context.Context, arg ListConv
 	return items, nil
 }
 
+const listTurnInputLaunchOwners = `-- name: ListTurnInputLaunchOwners :many
+SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_id, target.scope_ref,
+       target.scope_kind, target.display_name, target.launch_key, target.deleted_at, target.created_at, target.updated_at
+FROM integration_targets target
+JOIN agents agent ON agent.project_id = target.project_id AND agent.id = target.agent_id AND agent.state = 'active'
+JOIN projects project ON project.id = target.project_id AND project.deleted_at IS NULL
+JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
+JOIN integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
+    AND integration.deleted_at IS NULL AND integration.state = 'active'
+WHERE target.project_id = $1 AND target.agent_id = $2
+  AND target.deleted_at IS NULL AND target.launch_key IS NOT NULL
+  AND EXISTS (
+    SELECT 1
+    FROM model_call_contexts context
+    JOIN agent_inputs input ON input.project_id = context.project_id AND input.agent_id = context.agent_id
+        AND input.id = ANY(context.opening_input_ids)
+    WHERE context.agent_id = target.agent_id AND context.project_id = target.project_id
+      AND context.turn_id = $3 AND input.integration_target_id = target.id
+  )
+ORDER BY target.id
+`
+
+type ListTurnInputLaunchOwnersParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	TurnID    uuid.UUID
+}
+
+type ListTurnInputLaunchOwnersRow struct {
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeRef      string
+	ScopeKind     string
+	DisplayName   string
+	LaunchKey     *string
+	DeletedAt     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+func (q *Queries) ListTurnInputLaunchOwners(ctx context.Context, arg ListTurnInputLaunchOwnersParams) ([]ListTurnInputLaunchOwnersRow, error) {
+	rows, err := q.db.Query(ctx, listTurnInputLaunchOwners, arg.ProjectID, arg.AgentID, arg.TurnID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTurnInputLaunchOwnersRow{}
+	for rows.Next() {
+		var i ListTurnInputLaunchOwnersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.IntegrationID,
+			&i.ScopeRef,
+			&i.ScopeKind,
+			&i.DisplayName,
+			&i.LaunchKey,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockIntegrationConversation = `-- name: LockIntegrationConversation :exec
 SELECT pg_advisory_xact_lock(hashtextextended(
     'integration_conversation:' || jsonb_build_array($1::uuid, $2::uuid,
@@ -377,5 +385,21 @@ func (q *Queries) LockIntegrationConversation(ctx context.Context, arg LockInteg
 		arg.Kind,
 		arg.Ref,
 	)
+	return err
+}
+
+const promoteIntegrationConversationTarget = `-- name: PromoteIntegrationConversationTarget :exec
+UPDATE integration_targets SET launch_key = $1::text, updated_at = transaction_timestamp()
+WHERE project_id = $2 AND id = $3 AND launch_key IS NULL AND deleted_at IS NULL
+`
+
+type PromoteIntegrationConversationTargetParams struct {
+	LaunchKey string
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) PromoteIntegrationConversationTarget(ctx context.Context, arg PromoteIntegrationConversationTargetParams) error {
+	_, err := q.db.Exec(ctx, promoteIntegrationConversationTarget, arg.LaunchKey, arg.ProjectID, arg.ID)
 	return err
 }

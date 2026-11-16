@@ -140,14 +140,17 @@ tools:
     permission: {mode: always_ask}
   int__reviews__resolve_thread:
     permission: {mode: always_ask}
+  int__reviews__assign_pull_request: {}
 ```
 
-The GitHub launcher assigns one pull request to the agent. Every tool operates on
+The GitHub launcher assigns one pull request to the agent. Every other tool operates on
 that PR, so the model supplies neither repository nor PR identifiers. Adding these
-tools to an agent without an assigned PR is insufficient; calls fail before
-contacting GitHub. Subscriptions independently control incoming events and do not
-assign or change the tools' PR. Machine Git authentication uses the separate
-`git_credentials` capability described below.
+tools to an agent without an assigned PR is insufficient unless it calls
+`assign_pull_request`; calls fail before contacting GitHub. Subscriptions
+independently control incoming events and do not assign or change the tools' PR.
+Machine Git authentication uses the separate `git_credentials` capability described below.
+
+`assign_pull_request` changes the agent's PR to `repository_id` and `pull_request`.
 
 `read` returns PR details by default. Its `section` can select `diff`, `files`,
 `discussion_comments`, `review_comments`, `reviews`, `review`, `pending_review` or
@@ -274,6 +277,9 @@ The integration forwards PR conversation comments, inline review comments,
 submitted reviews and commits from PR synchronization events. PR-open events only
 trigger launches; they are not forwarded through subscriptions. Use **Stop forwarding**
 on the integration page to remove a subscription.
+
+An agent can also attach itself to a PR with [`assign_pull_request`](#select-pr-tools).
+Later mentions on that PR reach the same agent.
 
 For PR-open and mention launches through the API, update the saved integration with
 `PUT /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}`:

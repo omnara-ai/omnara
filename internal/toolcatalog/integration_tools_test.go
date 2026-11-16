@@ -17,6 +17,14 @@ func TestConversationBoundIntegrationToolActionSchemas(t *testing.T) {
 		for _, tool := range IntegrationTools(integrationKind) {
 			operation := tool.Operation
 			t.Run(string(integrationKind)+"/"+operation, func(t *testing.T) {
+				if operation == IntegrationOperationAssignPullRequest {
+					require.Equal(t, IntegrationToolScopeIntegration, tool.Scope)
+					entry, err := tool.Prepare(IntegrationToolName("engineering-team", operation))
+					require.NoError(t, err)
+					require.NoError(t, jsonschema.Validate(entry.InputSchema, []byte(`{"repository_id":1,"pull_request":2}`)))
+					require.Error(t, jsonschema.Validate(entry.InputSchema, []byte(`{"repository_id":1}`)))
+					return
+				}
 				require.Equal(t, IntegrationToolScopeConversation, tool.Scope)
 				action := `{}`
 				switch operation {

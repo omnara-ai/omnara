@@ -9,9 +9,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -60,6 +62,9 @@ func runGitHubTool(
 	record executionstore.ToolCallRecord,
 	access integrationToolAccess,
 ) (asyncPhaseResult, error) {
+	if access.Authority.Definition.Operation == toolcatalog.IntegrationOperationAssignPullRequest {
+		return runGitHubAssignPullRequest(ctx, call, record, access)
+	}
 	address := access.Conversation.GitHub
 	if address == nil {
 		return integrationToolFailure(errors.New("integration conversation does not match GitHub"))
@@ -184,6 +189,59 @@ func runGitHubTool(
 		return integrationToolFailure(err)
 	}
 	content, err := structuredToolResultContent(result)
+	if err != nil {
+		return nil, err
+	}
+	return completeAsynchronously(content), nil
+}
+
+func runGitHubAssignPullRequest(
+	ctx context.Context,
+	call asyncToolContext,
+	record executionstore.ToolCallRecord,
+	access integrationToolAccess,
+) (asyncPhaseResult, error) {
+	var input integrationdefinition.GitHubScope
+	if err := decodeSingleStrictJSON(record.Input, &input, "GitHub assign pull request"); err != nil {
+		return integrationToolFailure(err)
+	}
+	client, err := call.Executor.githubToolClient(call.Turn, record, access)
+	if err != nil {
+		return integrationToolFailure(err)
+	}
+	pull, err := client.GetPullRequest(ctx, github.Scope{RepositoryID: input.RepositoryID, PullRequest: input.PullRequest})
+	if err != nil {
+		return integrationToolFailure(err)
+	}
+	_, err = call.Executor.Store.Integrations().CreateAssignedIntegrationSubscription(ctx,
+		integrationstore.CreateAssignedIntegrationSubscriptionInput{
+			CreateIntegrationSubscriptionInput: integrationstore.CreateIntegrationSubscriptionInput{
+				OrgID: call.Turn.OrgID, ProjectID: call.Turn.ProjectID, IntegrationID: access.Integration.ID,
+				AgentID: call.Turn.AgentID, Conversation: record.Input,
+			},
+			DisplayName:      fmt.Sprintf("%s#%d", pull.Base.Repo.FullName, pull.Number),
+			ExpectedConfigID: access.CurrentConfigID,
+			RuntimeLockID:    call.Turn.RuntimeLockID,
+		})
+	if errors.Is(err, storeerr.ErrRuntimeLockInactive) {
+		return nil, err
+	}
+	if errors.Is(err, integrationstore.ErrAgentConfigChanged) {
+		return integrationToolFailure(
+			fmt.Errorf("%w: agent config changed; submit a new call", ErrToolAuthorizationInvalidated))
+	}
+	if errors.Is(err, storeerr.ErrUnauthorized) {
+		return integrationToolFailure(
+			fmt.Errorf("%w: integration access changed; submit a new call", ErrToolAuthorizationInvalidated))
+	}
+	if err != nil {
+		return integrationToolFailure(err)
+	}
+	content, err := structuredToolResultContent(struct {
+		RepositoryID int64  `json:"repository_id"`
+		PullRequest  int    `json:"pull_request"`
+		URL          string `json:"url"`
+	}{input.RepositoryID, input.PullRequest, pull.HTMLURL})
 	if err != nil {
 		return nil, err
 	}

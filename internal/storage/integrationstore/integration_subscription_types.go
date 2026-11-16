@@ -34,6 +34,13 @@ type CreateIntegrationSubscriptionInput struct {
 	Conversation                             json.RawMessage
 }
 
+type CreateAssignedIntegrationSubscriptionInput struct {
+	CreateIntegrationSubscriptionInput
+	DisplayName      string
+	ExpectedConfigID uuid.UUID
+	RuntimeLockID    uuid.UUID
+}
+
 type ListIntegrationSubscriptionsInput struct {
 	ProjectID, IntegrationID uuid.UUID
 	After                    listing.KeysetCursor

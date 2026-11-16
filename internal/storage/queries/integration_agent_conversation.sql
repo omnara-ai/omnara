@@ -1,10 +1,12 @@
--- name: InsertAgentIntegrationConversation :execrows
+-- name: UpsertAgentIntegrationConversation :execrows
 INSERT INTO integration_states(project_id, integration_id, kind, key, data)
 SELECT agent.project_id, integration.id, sqlc.arg(kind), agent.id::text, sqlc.arg(data)
 FROM agents agent
 JOIN integrations integration ON integration.project_id = agent.project_id AND integration.id = sqlc.arg(integration_id)
 WHERE agent.project_id = sqlc.arg(project_id) AND agent.id = sqlc.arg(agent_id)
-  AND agent.state = 'active' AND integration.state = 'active' AND integration.deleted_at IS NULL;
+  AND agent.state = 'active' AND integration.state = 'active' AND integration.deleted_at IS NULL
+ON CONFLICT (project_id, integration_id, kind, key) DO UPDATE
+SET data = excluded.data, revision = integration_states.revision + 1, updated_at = statement_timestamp();
 
 -- name: GetAssignedIntegrationConversationTarget :one
 SELECT target.id
@@ -14,3 +16,13 @@ WHERE target.project_id = sqlc.arg(project_id) AND target.agent_id = sqlc.arg(ag
   AND target.integration_id = sqlc.arg(integration_id) AND target.scope_kind = sqlc.arg(kind)
   AND target.scope_ref = sqlc.arg(ref) AND target.deleted_at IS NULL
   AND integration.deleted_at IS NULL AND integration.state = 'active';
+
+-- name: GetAgentAssignmentAuthority :one
+SELECT agent.current_config_id = sqlc.arg(config_id)::uuid AS config_current,
+       EXISTS (
+         SELECT 1 FROM agent_runtime_locks runtime_lock
+         WHERE runtime_lock.agent_id = agent.id AND runtime_lock.id = sqlc.arg(runtime_lock_id)::uuid
+           AND runtime_lock.cancel_requested_at IS NULL AND runtime_lock.lease_expires_at > statement_timestamp()
+       ) AS runtime_active
+FROM agents agent
+WHERE agent.project_id = sqlc.arg(project_id) AND agent.id = sqlc.arg(agent_id);

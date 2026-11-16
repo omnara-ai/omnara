@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,7 +41,7 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 				destinationFields = []string{"repository_id", "pull_request"}
 				operations = []string{
 					"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
-					"resolve_thread",
+					"resolve_thread", "assign_pull_request",
 				}
 			default:
 				t.Fatalf("unexpected integration %q", definition.IntegrationKind)
@@ -50,6 +51,12 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 				require.NotEmpty(t, tool.Description)
 				properties, ok := tool.InputSchema["properties"].(map[string]any)
 				require.True(t, ok)
+				kind := integrationdefinition.Kind(definition.IntegrationKind)
+				catalogTool, ok := toolcatalog.LookupIntegrationTool(kind, operation)
+				require.True(t, ok)
+				if catalogTool.Scope == toolcatalog.IntegrationToolScopeIntegration {
+					continue
+				}
 				for _, field := range destinationFields {
 					require.NotContains(t, properties, field, operation)
 				}

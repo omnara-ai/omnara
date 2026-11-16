@@ -841,7 +841,7 @@ func TestAgentExecutorStopsManagedCompactionAfterAdmissionCloses(t *testing.T) {
 		"resp_managed_context_window",
 	)
 	notices := 0
-	journey.executor.OnModelFailure = func(ctx context.Context, _, _, _ uuid.UUID) error {
+	journey.executor.OnModelFailure = func(ctx context.Context, _, _, _, _ uuid.UUID) error {
 		assertDurableModelErrorForKernelTest(t, ctx, journey.fixture, journey.agentID, journey.turn.TurnID,
 			string(modelprotocol.ErrorKindRuntime), storeerr.ManagedWorkAdmissionDeniedCode)
 		notices++
@@ -902,7 +902,7 @@ func TestAgentExecutorStopsManagedCompactionRetryAfterAdmissionCloses(t *testing
 	ctx := context.Background()
 	journey := newManagedCompactionAdmissionJourney(t, ctx, "")
 	notices := 0
-	journey.executor.OnModelFailure = func(ctx context.Context, _, _, _ uuid.UUID) error {
+	journey.executor.OnModelFailure = func(ctx context.Context, _, _, _, _ uuid.UUID) error {
 		assertDurableModelErrorForKernelTest(t, ctx, journey.fixture, journey.agentID, journey.turn.TurnID,
 			string(modelprotocol.ErrorKindRuntime), storeerr.ManagedWorkAdmissionDeniedCode)
 		notices++
@@ -1630,7 +1630,7 @@ func TestAgentExecutorRecordsErrorWhenModelGrantDisappearsBeforeCompaction(t *te
 		ModelResolver: liveTestModelResolver(fixture.Store, retryModel),
 		ToolExecutor:  tools.Executor{Store: fixture.Store},
 		Now:           func() time.Time { return fixture.Now.Add(4 * time.Second) },
-		OnModelFailure: func(ctx context.Context, _, _, _ uuid.UUID) error {
+		OnModelFailure: func(ctx context.Context, _, _, _, _ uuid.UUID) error {
 			assertDurableModelErrorForKernelTest(t, ctx, fixture, agentID, retryTurn.TurnID,
 				string(modelprotocol.ErrorKindAuth), "model_grant_unavailable")
 			notices++

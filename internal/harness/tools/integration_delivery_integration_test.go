@@ -153,10 +153,11 @@ func TestRuntimeFailureUsesLaunchConversationWithoutSelectedHandler(t *testing.T
 	notifier := integrationruntime.RuntimeFailureNotifier{
 		Store: fixture.Store, HTTPClient: integrationProviderTestClient(server),
 	}
-	require.NoError(t, notifier.Notify(ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID))
+	turnID := runtimeFailureTurnID(t, fixture)
+	require.NoError(t, notifier.Notify(ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID, turnID))
 	require.Zero(t, postCount, "a selected handler and tool assignment do not establish launch ownership")
 	markRuntimeLaunchOwner(t, fixture)
-	require.NoError(t, notifier.Notify(ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID))
+	require.NoError(t, notifier.Notify(ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID, turnID))
 	if postCount != 1 {
 		t.Fatalf("post count = %d, want 1", postCount)
 	}
@@ -164,7 +165,7 @@ func TestRuntimeFailureUsesLaunchConversationWithoutSelectedHandler(t *testing.T
 	selection, err := fixture.Store.Execution().GetInteractionSelection(ctx, toolsTestProjectID, fixture.Agent.ID)
 	require.NoError(t, err)
 	require.Empty(t, selection.HandlerKey)
-	require.NoError(t, notifier.Notify(ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID))
+	require.NoError(t, notifier.Notify(ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID, turnID))
 	require.Equal(t, 2, postCount, "clearing the interaction handler must not clear the launch destination")
 }
 
@@ -1285,7 +1286,7 @@ tools:
 		}
 		for _, operation := range []string{
 			"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
-			"resolve_thread",
+			"resolve_thread", "assign_pull_request",
 		} {
 			sourceYAML += "  int__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n"
 		}

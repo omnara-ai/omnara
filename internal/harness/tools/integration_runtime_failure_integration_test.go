@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
-	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,80 +25,88 @@ func markRuntimeLaunchOwner(t *testing.T, f integrationToolFixture) {
 	require.NoError(t, err)
 }
 
-func TestRuntimeFailureIgnoresPinnedInteractionDestination(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	f := newInteractionToolFixture(t, ctx, "runtime-pinned-handler", "chat", "overlap")
-	markRuntimeLaunchOwner(t, f)
-	overlap, err := f.Store.Integrations().GetIntegrationByName(ctx, f.Agent.ProjectID, "overlap")
-	require.NoError(t, err)
-	_, err = f.Pool.Exec(ctx, `UPDATE integration_targets SET scope_ref='COTHER:333.444'
-		WHERE project_id=$1 AND agent_id=$2 AND integration_id=$3`, f.Agent.ProjectID, f.Agent.ID, overlap.ID)
-	require.NoError(t, err)
-	_, err = f.Pool.Exec(ctx, `UPDATE integration_states SET data='{"kind":"thread","ref":"COTHER:333.444"}'
-		WHERE project_id=$1 AND integration_id=$2 AND kind='agent_conversation' AND key=$3`,
-		f.Agent.ProjectID, overlap.ID, f.Agent.ID.String())
-	require.NoError(t, err)
-	call := f.recordToolCall(t, ctx, "pin", toolcatalog.ToolNameSetInteractionHandler,
-		`{"handler":"overlap","args":{},"auto_select":false}`, f.Now)
-	dispatchInteractionHandler(t, ctx, f, interactionToolTurn(f, toolpermission.ModeAlwaysAllow), call)
-	before, err := f.Store.Execution().GetInteractionSelection(ctx, f.Agent.ProjectID, f.Agent.ID)
-	require.NoError(t, err)
-	require.Equal(t, "overlap", before.HandlerKey)
-	require.False(t, before.AutoSelect)
-	var posts atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if serveSlackToolIdentity(w, r) {
-			return
-		}
-		var body struct {
-			Channel  string `json:"channel"`
-			ThreadTS string `json:"thread_ts"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Error(err)
-		}
-		if r.URL.Path != "/chat.postMessage" || body.Channel != "C123" || body.ThreadTS != "111.222" {
-			t.Errorf("runtime notice followed pinned handler: path=%s payload=%+v", r.URL.Path, body)
-		}
-		posts.Add(1)
-		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
-	}))
-	defer server.Close()
-	notifier := integrationruntime.RuntimeFailureNotifier{
-		Store: f.Store, HTTPClient: integrationProviderTestClient(server),
-	}
-	require.NoError(t, notifier.Notify(ctx, f.Agent.ProjectID, f.Agent.ID, f.Lock.ID))
-	require.EqualValues(t, 1, posts.Load())
-	after, err := f.Store.Execution().GetInteractionSelection(ctx, f.Agent.ProjectID, f.Agent.ID)
-	require.NoError(t, err)
-	require.Equal(t, before, after, "runtime feedback must not change the interaction selection")
+func runtimeFailureTurnID(t *testing.T, f integrationToolFixture) uuid.UUID {
+	t.Helper()
+	var turnID uuid.UUID
+	require.NoError(t, f.Pool.QueryRow(t.Context(), `SELECT turn_id FROM model_call_contexts WHERE id=$1`,
+		f.ModelCallContextID).Scan(&turnID))
+	return turnID
 }
 
-func TestRuntimeFailureRequiresMatchingAssignment(t *testing.T) {
+func TestTurnInputLaunchOwnerLookup(t *testing.T) {
 	t.Parallel()
-	for _, scenario := range []string{"missing", "mismatched"} {
+	for _, scenario := range []string{
+		"active", "attribution only", "other project", "other agent", "other turn", "target deleted",
+		"integration disconnected", "integration deleted", "agent archived", "project deleted", "org deleted",
+	} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
-			f := newIntegrationToolFixture(t, t.Context(), "runtime-assignment")
-			markRuntimeLaunchOwner(t, f)
-			query := `DELETE FROM integration_states
-				WHERE project_id=$1 AND integration_id=$2 AND kind='agent_conversation' AND key=$3`
-			if scenario == "mismatched" {
-				query = `UPDATE integration_states SET data='{"kind":"thread","ref":"COTHER:333.444"}'
-					WHERE project_id=$1 AND integration_id=$2 AND kind='agent_conversation' AND key=$3`
+			ctx := t.Context()
+			f := newIntegrationToolFixture(t, ctx, "turn-owner-lookup")
+			if scenario != "attribution only" {
+				markRuntimeLaunchOwner(t, f)
 			}
-			_, err := f.Pool.Exec(t.Context(), query, f.Agent.ProjectID, f.Install.ID, f.Agent.ID.String())
+			project, agent, turn := f.Agent.ProjectID, f.Agent.ID, runtimeFailureTurnID(t, f)
+			exec := func(query string, id uuid.UUID) {
+				_, err := f.Pool.Exec(ctx, query, id)
+				require.NoError(t, err)
+			}
+			switch scenario {
+			case "other project":
+				project = uuid.New()
+			case "other agent":
+				agent = uuid.New()
+			case "other turn":
+				turn = uuid.New()
+			case "target deleted":
+				exec(`UPDATE integration_targets SET deleted_at=now() WHERE id=$1`, f.Target.ID)
+			case "integration disconnected":
+				exec(`UPDATE integrations SET state='disconnected' WHERE id=$1`, f.Install.ID)
+			case "integration deleted":
+				exec(`UPDATE integrations SET deleted_at=now() WHERE id=$1`, f.Install.ID)
+			case "agent archived":
+				_, _, err := f.Store.Execution().ArchiveAgent(ctx, project, agent, toolsTestUserPrincipal(f.User.ID))
+				require.NoError(t, err)
+			case "project deleted":
+				exec(`UPDATE projects SET deleted_at=now() WHERE id=$1`, project)
+			case "org deleted":
+				exec(`UPDATE orgs SET deleted_at=now() WHERE id=$1`, f.Agent.OrgID)
+			}
+			owners, err := f.Store.Integrations().ListTurnInputLaunchOwners(ctx, project, agent, turn)
 			require.NoError(t, err)
+			if scenario != "active" {
+				require.Empty(t, owners)
+				return
+			}
+			require.Len(t, owners, 1)
+			require.Equal(t, f.Target.ID, owners[0].ID)
+			require.Equal(t, "default", owners[0].LaunchKey)
+		})
+	}
+}
+
+func TestRuntimeFailureRequiresTurnInputFromOwnedConversation(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{"omnara input", "other turn"} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
+			f := newIntegrationToolFixtureWithOptions(t, t.Context(), "runtime-turn-input", toolFixtureOptions{
+				withToolContext: scenario == "omnara input",
+			})
+			markRuntimeLaunchOwner(t, f)
+			turnID := runtimeFailureTurnID(t, f)
+			if scenario == "other turn" {
+				turnID = uuid.New()
+			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				t.Errorf("invalid assignment must prevent provider I/O: %s", r.URL.Path)
+				t.Errorf("a turn without input from the owned conversation must not notify: %s", r.URL.Path)
 				w.WriteHeader(http.StatusInternalServerError)
 			}))
 			defer server.Close()
 			notifier := integrationruntime.RuntimeFailureNotifier{
 				Store: f.Store, HTTPClient: integrationProviderTestClient(server),
 			}
-			require.ErrorIs(t, notifier.Notify(t.Context(), f.Agent.ProjectID, f.Agent.ID, f.Lock.ID), storeerr.ErrUnauthorized)
+			require.NoError(t, notifier.Notify(t.Context(), f.Agent.ProjectID, f.Agent.ID, f.Lock.ID, turnID))
 		})
 	}
 }
@@ -116,7 +124,7 @@ func TestRuntimeFailureGitHubRechecksLeaseBeforeSend(t *testing.T) {
 func testRuntimeFailureGitHub(t *testing.T, loseLease bool) {
 	t.Helper()
 	f := newIntegrationToolFixtureWithOptions(t, t.Context(), "github-runtime-failure", toolFixtureOptions{
-		withGitHubIntegration: true, withToolContext: true,
+		withGitHubIntegration: true,
 	})
 	markRuntimeLaunchOwner(t, f)
 	selection, err := f.Store.Execution().GetInteractionSelection(t.Context(), f.Agent.ProjectID, f.Agent.ID)
@@ -168,10 +176,16 @@ func testRuntimeFailureGitHub(t *testing.T, loseLease bool) {
 		}
 	}))
 	defer server.Close()
+	tx, err := f.Pool.Begin(t.Context())
+	require.NoError(t, err)
+	reassigned := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#8"}
+	require.NoError(t, f.Store.Integrations().AssignAgentIntegrationConversationTx(t.Context(), tx,
+		f.Agent.ProjectID, f.Agent.ID, f.Install.ID, reassigned))
+	require.NoError(t, tx.Commit(t.Context()))
 	notifier := integrationruntime.RuntimeFailureNotifier{
 		Store: f.Store, HTTPClient: integrationProviderTestClient(server),
 	}
-	err = notifier.Notify(t.Context(), f.Agent.ProjectID, f.Agent.ID, f.Lock.ID)
+	err = notifier.Notify(t.Context(), f.Agent.ProjectID, f.Agent.ID, f.Lock.ID, runtimeFailureTurnID(t, f))
 	if loseLease {
 		require.ErrorIs(t, err, storeerr.ErrRuntimeLockInactive)
 		require.Zero(t, posts.Load(), "lease loss after PR validation must prevent posting")
@@ -225,7 +239,7 @@ func TestRuntimeFailureRechecksAuthorityBeforeSend(t *testing.T) {
 			notifier := integrationruntime.RuntimeFailureNotifier{
 				Store: f.Store, HTTPClient: integrationProviderTestClient(server),
 			}
-			require.Error(t, notifier.Notify(t.Context(), f.Agent.ProjectID, f.Agent.ID, f.Lock.ID))
+			require.Error(t, notifier.Notify(t.Context(), f.Agent.ProjectID, f.Agent.ID, f.Lock.ID, runtimeFailureTurnID(t, f)))
 			require.Zero(t, posts.Load(), "changed authority must prevent provider mutation")
 		})
 	}

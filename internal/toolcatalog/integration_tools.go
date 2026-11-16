@@ -17,6 +17,7 @@ const (
 	IntegrationOperationDiscardReview     = "discard_review"
 	IntegrationOperationReply             = "reply"
 	IntegrationOperationResolveThread     = "resolve_thread"
+	IntegrationOperationAssignPullRequest = "assign_pull_request"
 )
 
 type IntegrationToolScope string
@@ -227,6 +228,16 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 				"Requires the GitHub App's Pull requests and Contents: Read & write permissions.",
 			required:   []string{"review_thread_id"},
 			properties: map[string]any{"review_thread_id": text()},
+		},
+		{
+			Operation:       IntegrationOperationAssignPullRequest,
+			IntegrationKind: integrationdefinition.GitHubPR,
+			Scope:           IntegrationToolScopeIntegration,
+			Description: "Assign a GitHub pull request to this agent; the other GitHub tools then act on it " +
+				"and its events reach this agent. " +
+				"Find repository_id with gh api repos/OWNER/REPO --jq .id.",
+			required:   []string{"repository_id", "pull_request"},
+			properties: map[string]any{"repository_id": positive(), "pull_request": positive()},
 		},
 		{
 			Operation:       IntegrationOperationRead,

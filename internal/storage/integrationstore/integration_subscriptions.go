@@ -2,6 +2,7 @@ package integrationstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/google/uuid"
@@ -13,8 +14,85 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+var ErrAgentConfigChanged = errors.New("agent config changed")
+
 func (s *Store) CreateIntegrationSubscription(
 	ctx context.Context, input CreateIntegrationSubscriptionInput,
+) (IntegrationSubscriptionRecord, error) {
+	return s.createIntegrationSubscription(ctx, input, nil)
+}
+
+func (s *Store) CreateAssignedIntegrationSubscription(
+	ctx context.Context, input CreateAssignedIntegrationSubscriptionInput,
+) (IntegrationSubscriptionRecord, error) {
+	subscription := input.CreateIntegrationSubscriptionInput
+	return s.createIntegrationSubscription(ctx, subscription, func(tx pgx.Tx, address ConversationAddress) error {
+		q := dbsqlc.New(tx)
+		authority, err := q.GetAgentAssignmentAuthority(ctx, dbsqlc.GetAgentAssignmentAuthorityParams{
+			ConfigID: input.ExpectedConfigID, RuntimeLockID: input.RuntimeLockID,
+			ProjectID: subscription.ProjectID, AgentID: subscription.AgentID,
+		})
+		if err != nil {
+			return err
+		}
+		if !authority.RuntimeActive {
+			return storeerr.ErrRuntimeLockInactive
+		}
+		if !authority.ConfigCurrent {
+			return ErrAgentConfigChanged
+		}
+		if err := s.claimConversationOwnershipTx(ctx, tx, subscription, address, input.DisplayName); err != nil {
+			return err
+		}
+		return s.AssignAgentIntegrationConversationTx(
+			ctx, tx, subscription.ProjectID, subscription.AgentID, subscription.IntegrationID, address,
+		)
+	})
+}
+
+func (s *Store) claimConversationOwnershipTx(
+	ctx context.Context, tx pgx.Tx, input CreateIntegrationSubscriptionInput,
+	address ConversationAddress, displayName string,
+) error {
+	q := dbsqlc.New(tx)
+	claim, err := json.Marshal(integrationLaunchIdentity{IntegrationID: input.IntegrationID, Address: address})
+	if err != nil {
+		return err
+	}
+	reserved, err := q.FindInboxLaunchClaims(ctx, dbsqlc.FindInboxLaunchClaimsParams{
+		ProjectID: input.ProjectID, IntegrationID: input.IntegrationID, ReceiptID: uuid.Nil, LaunchClaim: claim,
+	})
+	if err != nil || len(reserved) != 0 {
+		return err
+	}
+	owners, err := q.ListConversationLaunchOwners(ctx, dbsqlc.ListConversationLaunchOwnersParams{
+		ProjectID: input.ProjectID, IntegrationID: input.IntegrationID, Kind: address.Kind, Ref: address.Ref,
+	})
+	if err != nil || len(owners) != 0 {
+		return err
+	}
+	existing, err := q.GetAgentConversationTarget(ctx, dbsqlc.GetAgentConversationTargetParams{
+		ProjectID: input.ProjectID, AgentID: input.AgentID, IntegrationID: input.IntegrationID,
+		Kind: address.Kind, Ref: address.Ref,
+	})
+	if err == nil {
+		return q.PromoteIntegrationConversationTarget(ctx, dbsqlc.PromoteIntegrationConversationTargetParams{
+			LaunchKey: integrationdefinition.ProfileLaunchKey, ProjectID: input.ProjectID, ID: existing.ID,
+		})
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	_, err = s.EnsureConversationTargetTx(ctx, tx, EnsureConversationTargetInput{
+		ProjectID: input.ProjectID, AgentID: input.AgentID, IntegrationID: input.IntegrationID,
+		Address: address, DisplayName: displayName, LaunchKey: integrationdefinition.ProfileLaunchKey,
+	})
+	return err
+}
+
+func (s *Store) createIntegrationSubscription(
+	ctx context.Context, input CreateIntegrationSubscriptionInput,
+	assign func(pgx.Tx, ConversationAddress) error,
 ) (IntegrationSubscriptionRecord, error) {
 	if input.OrgID == uuid.Nil || input.ProjectID == uuid.Nil ||
 		input.IntegrationID == uuid.Nil || input.AgentID == uuid.Nil {
@@ -32,6 +110,11 @@ func (s *Store) CreateIntegrationSubscription(
 	}
 	if err := LockIntegrationsTx(ctx, tx, input.ProjectID, nil, input.IntegrationID); err != nil {
 		return IntegrationSubscriptionRecord{}, err
+	}
+	if assign != nil {
+		if err := LockIntegrationCredentialAccessTx(ctx, tx, input.ProjectID, input.IntegrationID); err != nil {
+			return IntegrationSubscriptionRecord{}, err
+		}
 	}
 	prepared, err := PrepareIntegrationSubscriptionTx(ctx, tx, input.ProjectID, IntegrationSubscriptionAttachment{
 		IntegrationID: input.IntegrationID, Conversation: input.Conversation,
@@ -51,6 +134,11 @@ func (s *Store) CreateIntegrationSubscription(
 	record, err := RegisterIntegrationSubscriptionTx(ctx, tx, prepared)
 	if err != nil {
 		return IntegrationSubscriptionRecord{}, err
+	}
+	if assign != nil {
+		if err := assign(tx, prepared.Address); err != nil {
+			return IntegrationSubscriptionRecord{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return IntegrationSubscriptionRecord{}, err

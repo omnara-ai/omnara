@@ -31,7 +31,7 @@ func TestAgentExecutorFailedPersistenceDoesNotNotify(t *testing.T) {
 			notices := 0
 			executor := AgentExecutor{
 				Store: f.Store, ModelResolver: liveTestModelResolver(f.Store, client),
-				OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+				OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) error {
 					notices++
 					return nil
 				},
@@ -64,7 +64,7 @@ func TestAgentExecutorFailedCompactionPersistenceDoesNotNotify(t *testing.T) {
 	}
 	executor := AgentExecutor{
 		Store: f.Store, ModelResolver: liveTestModelResolver(f.Store, client),
-		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
+		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) error {
 			t.Error("an uncommitted compaction failure must not notify")
 			return nil
 		},
