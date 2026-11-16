@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -26,7 +25,6 @@ const (
 	launcherLockPath     = "/tmp/omnara-launcher.lock"
 	installationLabel    = "omnara-installation"
 	machineLabel         = "omnara-machine"
-	machineTokenLabel    = "omnara-machine-token"
 )
 
 type provider struct {
@@ -125,32 +123,31 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return result, err
 	}
-	env, err := providers.BuildManagedMachineEnv(p.omnaraAPIURL, machineToken, options.StartupScript, machineEnv)
+	host, err := providers.MachineTokenProxyHost(p.omnaraAPIURL)
+	if err != nil {
+		return result, err
+	}
+	rules := map[string][]networkRule{host: {{Transform: networkTransform{
+		Headers: map[string]string{daemonprotocol.MachineTokenHeader: machineToken},
+	}}}}
+	env, err := providers.BuildManagedMachineEnv(
+		p.omnaraAPIURL,
+		daemonprotocol.ProviderInjectedMachineToken,
+		options.StartupScript,
+		machineEnv,
+	)
 	if err != nil {
 		return result, err
 	}
 	env[providers.ManagedBootstrapScriptEnvVar] = providers.ManagedBootScriptPayload()
 	if firstAttempt && !p.createAttempted {
 		p.createAttempted = true
-		request := createSandboxRequest{
+		created, err := p.api.CreateSandbox(ctx, createSandboxRequest{
 			TemplateID: options.Template,
 			Timeout:    createTimeoutSeconds,
 			Metadata:   metadata,
-			Network:    networkConfig{AllowPublicTraffic: false},
-		}
-		if host, ok := providers.MachineTokenProxyHost(p.omnaraAPIURL); ok {
-			request.Metadata = maps.Clone(metadata)
-			request.Metadata[machineTokenLabel] = daemonprotocol.ProviderInjectedMachineToken
-			request.Network.Rules = map[string][]networkRule{host: {{Transform: networkTransform{
-				Headers: map[string]string{daemonprotocol.MachineTokenHeader: machineToken},
-			}}}}
-		}
-		created, err := p.api.CreateSandbox(ctx, request)
-		if request.Network.Rules != nil && apiStatusCode(err) == http.StatusBadRequest {
-			request.Metadata = metadata
-			request.Network.Rules = nil
-			created, err = p.api.CreateSandbox(ctx, request)
-		}
+			Network:    networkConfig{AllowPublicTraffic: false, Rules: rules},
+		})
 		if err != nil {
 			status := apiStatusCode(err)
 			if status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable || isDialError(err) {
@@ -205,9 +202,6 @@ func (p *provider) ProvisionMachine(
 	}
 	if slices.ContainsFunc(processes, func(current process) bool { return current.Tag == daemonProcessTag }) {
 		return result, nil
-	}
-	if target.Metadata[machineTokenLabel] == daemonprotocol.ProviderInjectedMachineToken {
-		env[providers.MachineTokenEnvVar] = daemonprotocol.ProviderInjectedMachineToken
 	}
 	launcher := daemonLauncherArgs()
 	return result, p.api.StartProcess(ctx, target, startProcessRequest{

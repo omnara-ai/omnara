@@ -108,16 +108,14 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	startupScript := options.StartupScript
-	network := machineTokenNetwork(p.omnaraAPIURL, machineToken)
-	if network != nil {
-		machineToken = daemonprotocol.ProviderInjectedMachineToken
-		startupScript = providers.StartupScriptWithoutProxyEnv(startupScript)
+	network, err := machineTokenNetwork(p.omnaraAPIURL, machineToken)
+	if err != nil {
+		return providers.ProvisionMachineResult{}, err
 	}
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
-		machineToken,
-		startupScript,
+		daemonprotocol.ProviderInjectedMachineToken,
+		providers.StartupScriptWithoutProxyEnv(options.StartupScript),
 		machineEnv,
 	)
 	if err != nil {
@@ -239,17 +237,20 @@ func (p *provider) ProvisionMachine(
 	return result, nil
 }
 
-func machineTokenNetwork(apiURL, machineToken string) *sandboxNetwork {
-	host, ok := providers.MachineTokenProxyHost(apiURL)
-	if !ok {
-		return nil
+func machineTokenNetwork(apiURL, machineToken string) (*sandboxNetwork, error) {
+	host, err := providers.MachineTokenProxyHost(apiURL)
+	if err != nil {
+		return nil, err
 	}
+	// Blaxel also fills {{SECRET:name}} in request bodies sent by sandbox code, so the name stays random and secret
+	// to keep that code from pulling the real token into a body.
+	// See https://docs.blaxel.ai/Sandboxes/Proxy-secrets-injection#secret-interpolation.
 	secretName := "omnara-machine-token-" + strings.ToLower(cryptorand.Text())
 	return &sandboxNetwork{Proxy: sandboxProxy{Routing: []sandboxProxyRoute{{
 		Destinations: []string{host},
 		Headers:      map[string]string{daemonprotocol.MachineTokenHeader: "{{SECRET:" + secretName + "}}"},
 		Secrets:      map[string]string{secretName: machineToken},
-	}}}}
+	}}}}, nil
 }
 
 func ensureDaemonProcess(

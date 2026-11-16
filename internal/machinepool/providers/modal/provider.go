@@ -106,18 +106,17 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	var outboundPolicy *modalsdk.ExperimentalOutboundPolicy
-	if host, ok := providers.MachineTokenProxyHost(p.omnaraAPIURL); ok {
-		policy := modalsdk.NewExperimentalOutboundPolicy(modalsdk.ExperimentalOutboundPolicyHeaderReplacement{
-			Domain:  host,
-			Headers: map[string]string{daemonprotocol.MachineTokenHeader: machineToken},
-		})
-		outboundPolicy = &policy
-		machineToken = daemonprotocol.ProviderInjectedMachineToken
+	host, err := providers.MachineTokenProxyHost(p.omnaraAPIURL)
+	if err != nil {
+		return providers.ProvisionMachineResult{}, err
 	}
+	outboundPolicy := modalsdk.NewExperimentalOutboundPolicy(modalsdk.ExperimentalOutboundPolicyHeaderReplacement{
+		Domain:  host,
+		Headers: map[string]string{daemonprotocol.MachineTokenHeader: machineToken},
+	})
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
-		machineToken,
+		daemonprotocol.ProviderInjectedMachineToken,
 		options.StartupScript,
 		machineEnv,
 	)
@@ -153,7 +152,7 @@ func (p *provider) ProvisionMachine(
 			Regions:                    regions,
 			Name:                       name,
 			Tags:                       tags,
-			ExperimentalOutboundPolicy: outboundPolicy,
+			ExperimentalOutboundPolicy: &outboundPolicy,
 		},
 	)
 	if err != nil {

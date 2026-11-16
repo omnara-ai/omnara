@@ -143,26 +143,20 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	secrets, createdSecret, err := p.machineTokenSecrets(ctx, name, machineToken)
+	createdSecret, err := p.createMachineTokenSecret(ctx, name, machineToken)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
-	}
-	startupScript := options.StartupScript
-	if secrets != nil {
-		startupScript = providers.StartupScriptWithoutProxyEnv(startupScript)
 	}
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
 		machineToken,
-		startupScript,
+		providers.StartupScriptWithoutProxyEnv(options.StartupScript),
 		machineEnv,
 	)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	if secrets != nil {
-		delete(env, providers.MachineTokenEnvVar)
-	}
+	delete(env, providers.MachineTokenEnvVar)
 	request := createSandboxRequest{
 		Name:               name,
 		Snapshot:           options.Snapshot,
@@ -171,7 +165,7 @@ func (p *provider) ProvisionMachine(
 		Labels:             map[string]string{"omnara-machine": name},
 		AutoStopInterval:   0,
 		AutoDeleteInterval: -1,
-		Secrets:            secrets,
+		Secrets:            []map[string]string{{providers.MachineTokenEnvVar: name}},
 	}
 	api := p.api
 	target, err := api.CreateSandbox(ctx, request)
@@ -248,22 +242,23 @@ func (p *provider) ProvisionMachine(
 	return result, nil
 }
 
-func (p *provider) machineTokenSecrets(
-	ctx context.Context,
-	name, machineToken string,
-) ([]map[string]string, bool, error) {
-	host, ok := providers.MachineTokenProxyHost(p.omnaraAPIURL)
-	if !ok {
-		return nil, false, nil
+func (p *provider) createMachineTokenSecret(ctx context.Context, name, machineToken string) (bool, error) {
+	host, err := providers.MachineTokenProxyHost(p.omnaraAPIURL)
+	if err != nil {
+		return false, err
 	}
-	err := p.api.CreateSecret(ctx, createSecretRequest{Name: name, Value: machineToken, Hosts: []string{host}})
+	err = p.api.CreateSecret(ctx, createSecretRequest{Name: name, Value: machineToken, Hosts: []string{host}})
 	switch {
 	case err == nil || isConflict(err):
-		return []map[string]string{{providers.MachineTokenEnvVar: name}}, err == nil, nil
+		return err == nil, nil
 	case isForbidden(err):
-		return nil, false, nil
+		return false, fmt.Errorf(
+			"daytona API key needs the manage:secrets permission to inject the machine token: %w: %w",
+			err,
+			providers.ErrPermanent,
+		)
 	default:
-		return nil, false, fmt.Errorf("create daytona machine token secret: %w", err)
+		return false, fmt.Errorf("create daytona machine token secret: %w", err)
 	}
 }
 

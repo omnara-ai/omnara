@@ -2,6 +2,7 @@ package omnarad
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -262,9 +263,17 @@ func Run(
 			_, _ = fmt.Fprintln(stderr, "file transfer requires a result pipe")
 			return 1
 		}
+		var connection machinedaemon.FileTransferConnection
+		connectionFile := os.NewFile(4, "file-transfer-connection")
+		err := json.NewDecoder(connectionFile).Decode(&connection)
+		_ = connectionFile.Close()
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "file transfer requires its connection:", err)
+			return 1
+		}
 		if err := runFileTransfer(
 			ctx, processcmd.FileTransferDirection(command.FileTransfer.Direction),
-			command.FileTransfer.ProcessID, command.FileTransfer.LocalPath, result,
+			command.FileTransfer.ProcessID, command.FileTransfer.LocalPath, connection, result,
 		); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1

@@ -1,7 +1,6 @@
 package machinedaemon
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -77,23 +76,16 @@ func (subprocessRunnerLauncher) Prepare(
 	}
 	c.prepareGitCredentials(&assignment, supervisorToken)
 	if assignment.Process.ExecutionSpec.Kind == processcmd.KindFileTransfer {
-		env := maps.Clone(assignment.Env)
-		if env == nil {
-			env = map[string]string{}
+		connection, err := c.fileTransferConnection()
+		if err != nil {
+			return nil, err
 		}
-		for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"} {
-			maps.DeleteFunc(env, func(key, _ string) bool { return strings.EqualFold(key, name) })
-			if value := cmp.Or(os.Getenv(name), os.Getenv(strings.ToLower(name))); value != "" {
-				env[name] = value
-			}
+		assignment.FileTransferConnection = &connection
+		home, hasHome := assignment.Env["HOME"]
+		assignment.Env = nil
+		if hasHome {
+			assignment.Env = map[string]string{"HOME": home}
 		}
-		for _, name := range []string{"SSL_CERT_FILE", "SSL_CERT_DIR"} {
-			maps.DeleteFunc(env, func(key, _ string) bool { return strings.EqualFold(key, name) })
-			if value, ok := os.LookupEnv(name); ok {
-				env[name] = value
-			}
-		}
-		assignment.Env = env
 	}
 	stateStore, err := c.stateStore(ctx)
 	if err != nil {

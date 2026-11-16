@@ -202,7 +202,7 @@ func TestBlaxelProviderProvisionIncludesMachineEnv(t *testing.T) {
 	}
 }
 
-func TestBlaxelProviderProvisionKeepsTokenInEnvWithoutHTTPSHostname(t *testing.T) {
+func TestBlaxelProviderProvisionRejectsAnAPIURLThatCannotBeInjected(t *testing.T) {
 	for _, apiURL := range []string{"http://api.omnara.test/v1", "https://203.0.113.10/v1"} {
 		api := newFakeAPI()
 		provider := newTestProvider(api)
@@ -217,14 +217,9 @@ func TestBlaxelProviderProvisionKeepsTokenInEnvWithoutHTTPSHostname(t *testing.T
 			nil,
 			true,
 		)
-		if err != nil {
-			t.Fatalf("provision blaxel machine with %s: %v", apiURL, err)
-		}
-		create := api.createRequests[0]
-		env := sandboxEnvMap(create.Spec.Runtime.Envs)
-		if create.Spec.Network != nil || env["OMNARA_MACHINE_TOKEN"] != "machine-token" ||
-			env[testStartupScriptEnvVar] != base64.StdEncoding.EncodeToString([]byte("echo ready\n")) {
-			t.Fatalf("api url %s: network = %+v, env = %+v", apiURL, create.Spec.Network, env)
+		if !errors.Is(err, providers.ErrPermanent) || len(api.createRequests) != 0 {
+			t.Fatalf("api url %s: error = %v creates = %d, want a permanent error before any sandbox",
+				apiURL, err, len(api.createRequests))
 		}
 	}
 }

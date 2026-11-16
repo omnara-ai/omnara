@@ -127,18 +127,15 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	host, injectToken := providers.MachineTokenProxyHost(p.omnaraAPIURL)
-	startupScript := options.StartupScript
-	if injectToken {
-		startupScript = providers.StartupScriptWithoutProxyEnv(startupScript)
-	}
-	env, err := p.daemonEnv(startupScript, machineToken, machineEnv)
+	host, err := providers.MachineTokenProxyHost(p.omnaraAPIURL)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	if injectToken {
-		delete(env, providers.MachineTokenEnvVar)
+	env, err := p.daemonEnv(providers.StartupScriptWithoutProxyEnv(options.StartupScript), machineToken, machineEnv)
+	if err != nil {
+		return providers.ProvisionMachineResult{}, err
 	}
+	delete(env, providers.MachineTokenEnvVar)
 	var target sandbox
 	if firstAttempt && !p.createAttempted {
 		p.createAttempted = true
@@ -183,10 +180,8 @@ func (p *provider) ProvisionMachine(
 	if err := validateSandboxResources(target, machineProvisioning); err != nil {
 		return result, fmt.Errorf("%w: %w", err, providers.ErrPermanent)
 	}
-	if injectToken {
-		if err := p.attachMachineToken(ctx, target.ID, name, host, machineToken); err != nil {
-			return result, err
-		}
+	if err := p.attachMachineToken(ctx, target.ID, name, host, machineToken); err != nil {
+		return result, err
 	}
 	if err := p.ensureDaemon(ctx, target, env); err != nil {
 		return result, err

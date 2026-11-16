@@ -85,30 +85,16 @@ func TestDaytonaProviderProvisionIncludesMachineEnv(t *testing.T) {
 	}
 }
 
-func TestDaytonaProviderProvisionFallsBackToThePlainTokenWithoutSecretAccess(t *testing.T) {
-	for name, configure := range map[string]func(*fakeAPI, *provider){
-		"key without manage:secrets": func(api *fakeAPI, _ *provider) {
-			api.secretErr = apiError{StatusCode: http.StatusForbidden}
-		},
-		"no https API host": func(_ *fakeAPI, provider *provider) {
-			provider.omnaraAPIURL = "http://localhost:8080"
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			api := newFakeAPI()
-			provider := newTestProvider(api)
-			configure(api, provider)
-			_, err := provider.ProvisionMachine(
-				context.Background(), uuid.New(), uuid.New(),
-				testMachineProvisioning(t, "team-snapshot", "us", "echo ready"), "machine-token", nil, true,
-			)
-			require.NoError(t, err)
-			require.Equal(t, "machine-token", api.createRequest.Env["OMNARA_MACHINE_TOKEN"])
-			require.Nil(t, api.createRequest.Secrets)
-			require.Equal(t, base64.StdEncoding.EncodeToString([]byte("echo ready")),
-				api.createRequest.Env[testStartupScriptEnvVar])
-		})
-	}
+func TestDaytonaProviderProvisionRejectsAnAPIURLThatCannotBeInjected(t *testing.T) {
+	api := newFakeAPI()
+	provider := newTestProvider(api)
+	provider.omnaraAPIURL = "http://localhost:8080"
+	_, err := provider.ProvisionMachine(
+		context.Background(), uuid.New(), uuid.New(),
+		testMachineProvisioning(t, "team-snapshot", "us", "echo ready"), "machine-token", nil, true,
+	)
+	require.ErrorIs(t, err, providers.ErrPermanent)
+	require.Empty(t, api.calls)
 }
 
 func TestDaytonaProviderProvisionHandlesMachineTokenSecretFailures(t *testing.T) {
@@ -128,6 +114,16 @@ func TestDaytonaProviderProvisionHandlesMachineTokenSecretFailures(t *testing.T)
 		testMachineProvisioning(t, "team-snapshot", "us", ""), "machine-token", nil, true,
 	)
 	require.Error(t, err)
+	require.Equal(t, []string{"create-secret"}, api.calls)
+
+	api = newFakeAPI()
+	api.secretErr = apiError{StatusCode: http.StatusForbidden}
+	_, err = newTestProvider(api).ProvisionMachine(
+		context.Background(), uuid.New(), uuid.New(),
+		testMachineProvisioning(t, "team-snapshot", "us", ""), "machine-token", nil, true,
+	)
+	require.ErrorIs(t, err, providers.ErrPermanent)
+	require.ErrorContains(t, err, "manage:secrets")
 	require.Equal(t, []string{"create-secret"}, api.calls)
 }
 

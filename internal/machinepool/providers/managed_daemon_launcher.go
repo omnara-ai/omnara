@@ -75,13 +75,17 @@ func BuildManagedMachineEnv(
 	return env, nil
 }
 
-func MachineTokenProxyHost(apiURL string) (string, bool) {
+func MachineTokenProxyHost(apiURL string) (string, error) {
 	parsed, err := url.Parse(apiURL)
 	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || net.ParseIP(parsed.Hostname()) != nil ||
 		(parsed.Port() != "" && parsed.Port() != "443") {
-		return "", false
+		return "", fmt.Errorf(
+			"machine token injection needs an https API URL with a hostname on port 443, not %q: %w",
+			apiURL,
+			ErrPermanent,
+		)
 	}
-	return parsed.Hostname(), true
+	return parsed.Hostname(), nil
 }
 
 func StartupScriptWithoutProxyEnv(startupScript string) string {

@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/machinedaemon"
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
@@ -23,7 +24,7 @@ func TestFileTransferUploadRejectsFIFOWithoutBlocking(t *testing.T) {
 	err := runFileTransfer(context.Background(),
 		processcmd.FileTransferUpload,
 		fileTransferTestPublicID(t, publicid.KindProcess),
-		path, io.Discard)
+		path, machinedaemon.FileTransferConnection{}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("fifo error = %v", err)
 	}

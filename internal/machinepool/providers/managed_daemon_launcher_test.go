@@ -2,6 +2,7 @@ package providers
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -377,9 +378,9 @@ func TestMachineTokenProxyHost(t *testing.T) {
 		"":                            "",
 		"://bad":                      "",
 	} {
-		host, ok := MachineTokenProxyHost(apiURL)
-		if host != want || ok != (want != "") {
-			t.Fatalf("MachineTokenProxyHost(%q) = %q, %v; want %q", apiURL, host, ok, want)
+		host, err := MachineTokenProxyHost(apiURL)
+		if host != want || (err == nil) != (want != "") || err != nil && !errors.Is(err, ErrPermanent) {
+			t.Fatalf("MachineTokenProxyHost(%q) = %q, %v; want %q", apiURL, host, err, want)
 		}
 	}
 }

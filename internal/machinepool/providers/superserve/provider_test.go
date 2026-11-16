@@ -251,25 +251,17 @@ func TestSuperserveProvisionMachineStartsTheDaemonOnlyOnceTheTokenIsBound(t *tes
 	}
 }
 
-func TestSuperserveProvisionMachineKeepsThePlainTokenWithoutAnHTTPSAPIHost(t *testing.T) {
+func TestSuperserveProvisionMachineRejectsAnAPIURLThatCannotBeInjected(t *testing.T) {
 	api := newFakeAPI()
 	provider := newTestProvider(api)
 	provider.omnaraAPIURL = "http://localhost:8080"
-	startupScript := "echo ready\n"
 	_, err := provider.ProvisionMachine(
-		context.Background(), uuid.New(), uuid.New(), testMachineProvisioning(t, "", startupScript),
+		context.Background(), uuid.New(), uuid.New(), testMachineProvisioning(t, "", "echo ready\n"),
 		"machine-token", nil, true,
 	)
-	if err != nil {
-		t.Fatalf("provision machine: %v", err)
-	}
-	env := api.execRequests[0].Env
-	if env["OMNARA_MACHINE_TOKEN"] != "machine-token" || len(api.secretRequests) != 0 || len(api.attachRequests) != 0 {
-		t.Fatalf("token = %q secrets = %d attaches = %d, want the plain token only",
-			env["OMNARA_MACHINE_TOKEN"], len(api.secretRequests), len(api.attachRequests))
-	}
-	if env[testStartupScriptEnvVar] != base64.StdEncoding.EncodeToString([]byte(startupScript)) {
-		t.Fatalf("startup payload = %q, want the unmodified startup script", env[testStartupScriptEnvVar])
+	if !errors.Is(err, providers.ErrPermanent) || api.createCalls != 0 || len(api.secretRequests) != 0 {
+		t.Fatalf("error = %v creates = %d secrets = %d, want a permanent error before any sandbox",
+			err, api.createCalls, len(api.secretRequests))
 	}
 }
 

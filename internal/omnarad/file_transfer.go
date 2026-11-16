@@ -3,6 +3,8 @@ package omnarad
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,9 +25,9 @@ const maxFileTransferErrorBytes = 1024
 
 func runFileTransfer(
 	ctx context.Context, direction processcmd.FileTransferDirection,
-	processID, localPath string, resultWriter io.Writer,
+	processID, localPath string, connection machinedaemon.FileTransferConnection, resultWriter io.Writer,
 ) error {
-	result, err := transferFile(ctx, direction, processID, localPath)
+	result, err := transferFile(ctx, direction, processID, localPath, connection)
 	if err != nil {
 		failure := daemonprotocol.FileTransferError{Code: "file_transfer_failed", Message: err.Error()}
 		var apiErr *daemonprotocol.FileTransferError
@@ -43,6 +45,7 @@ func runFileTransfer(
 
 func transferFile(
 	ctx context.Context, direction processcmd.FileTransferDirection, processID, localPath string,
+	connection machinedaemon.FileTransferConnection,
 ) (daemonprotocol.FileTransferResult, error) {
 	if direction != processcmd.FileTransferUpload && direction != processcmd.FileTransferDownload {
 		return daemonprotocol.FileTransferResult{}, errors.New("invalid file transfer direction")
@@ -55,12 +58,14 @@ func transferFile(
 		return daemonprotocol.FileTransferResult{}, fmt.Errorf("resolve user home: %w", err)
 	}
 	if direction == processcmd.FileTransferUpload {
-		return uploadFile(ctx, processID, path)
+		return uploadFile(ctx, connection, processID, path)
 	}
-	return downloadFile(ctx, processID, path)
+	return downloadFile(ctx, connection, processID, path)
 }
 
-func uploadFile(ctx context.Context, processID, path string) (daemonprotocol.FileTransferResult, error) {
+func uploadFile(
+	ctx context.Context, connection machinedaemon.FileTransferConnection, processID, path string,
+) (daemonprotocol.FileTransferResult, error) {
 	file, err := openTransferFile(path)
 	if err != nil {
 		return daemonprotocol.FileTransferResult{}, fmt.Errorf("open file: %w", err)
@@ -81,7 +86,7 @@ func uploadFile(ctx context.Context, processID, path string) (daemonprotocol.Fil
 		newBody = func() io.Reader { return io.NewSectionReader(file, 0, info.Size()) }
 	}
 	query := "?filename=" + url.QueryEscape(filepath.Base(path))
-	response, err := requestFileTransfer(ctx, processID, query, http.MethodPost, newBody, info.Size())
+	response, err := requestFileTransfer(ctx, connection, processID, query, http.MethodPost, newBody, info.Size())
 	if err != nil {
 		return daemonprotocol.FileTransferResult{}, err
 	}
@@ -97,7 +102,9 @@ func uploadFile(ctx context.Context, processID, path string) (daemonprotocol.Fil
 	return result, nil
 }
 
-func downloadFile(ctx context.Context, processID, path string) (daemonprotocol.FileTransferResult, error) {
+func downloadFile(
+	ctx context.Context, connection machinedaemon.FileTransferConnection, processID, path string,
+) (daemonprotocol.FileTransferResult, error) {
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".omnara-file-*")
 	if err != nil {
 		return daemonprotocol.FileTransferResult{}, fmt.Errorf("create temporary file: %w", err)
@@ -106,7 +113,7 @@ func downloadFile(ctx context.Context, processID, path string) (daemonprotocol.F
 		_ = temporary.Close()
 		_ = os.Remove(temporary.Name())
 	}()
-	response, err := requestFileTransfer(ctx, processID, "", http.MethodGet, nil, 0)
+	response, err := requestFileTransfer(ctx, connection, processID, "", http.MethodGet, nil, 0)
 	if err != nil {
 		return daemonprotocol.FileTransferResult{}, err
 	}
@@ -122,13 +129,14 @@ func downloadFile(ctx context.Context, processID, path string) (daemonprotocol.F
 }
 
 func requestFileTransfer(
-	ctx context.Context, processID, query, method string, newBody func() io.Reader, size int64,
+	ctx context.Context, connection machinedaemon.FileTransferConnection,
+	processID, query, method string, newBody func() io.Reader, size int64,
 ) (*http.Response, error) {
-	config, _, _, err := loadRuntimeConfig(false)
+	transport, err := fileTransferTransport(connection)
 	if err != nil {
-		return nil, fmt.Errorf("load daemon config: %w", err)
+		return nil, err
 	}
-	endpoint := strings.TrimRight(config.APIURL, "/") + "/daemon/processes/" +
+	endpoint := strings.TrimRight(connection.APIURL, "/") + "/daemon/processes/" +
 		url.PathEscape(processID) + "/file" + query
 	request, err := http.NewRequestWithContext(ctx, method, endpoint, nil)
 	if err != nil {
@@ -139,14 +147,14 @@ func requestFileTransfer(
 		request.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(newBody()), nil }
 	}
 	request.ContentLength = size
-	request.Header.Set("Authorization", "Bearer "+config.MachineToken)
+	request.Header.Set("Authorization", "Bearer "+connection.MachineToken)
 	request.Header.Set("Accept", "application/octet-stream")
 	if method == http.MethodPost {
 		request.Header.Set("Content-Type", "application/octet-stream")
 		request.Header.Set("Accept", "application/json")
 	}
 	client := &http.Client{
-		Transport:     machinedaemon.NewRetryAfterTransport(nil),
+		Transport:     machinedaemon.NewRetryAfterTransport(transport),
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	response, err := client.Do(request)
@@ -211,4 +219,44 @@ func writeDownloadedFile(path string, temporary *os.File, body io.Reader, digest
 		return fmt.Errorf("replace destination: %w", err)
 	}
 	return nil
+}
+
+func fileTransferTransport(connection machinedaemon.FileTransferConnection) (*http.Transport, error) {
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errors.New("default HTTP transport is not configurable")
+	}
+	transport := defaultTransport.Clone()
+	transport.Proxy = nil
+	if connection.ProxyURL != "" {
+		proxyURL, err := url.Parse(connection.ProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("parse file transfer proxy URL: %w", err)
+		}
+		transport.Proxy = http.ProxyURL(proxyURL)
+	}
+	if connection.SSLCertFile == "" && connection.SSLCertDir == "" {
+		return transport, nil
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		roots = x509.NewCertPool()
+	}
+	var paths []string
+	if connection.SSLCertFile != "" {
+		paths = append(paths, connection.SSLCertFile)
+	}
+	for _, dir := range filepath.SplitList(connection.SSLCertDir) {
+		entries, _ := os.ReadDir(dir)
+		for _, entry := range entries {
+			paths = append(paths, filepath.Join(dir, entry.Name()))
+		}
+	}
+	for _, path := range paths {
+		if pem, err := os.ReadFile(path); err == nil {
+			roots.AppendCertsFromPEM(pem)
+		}
+	}
+	transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	return transport, nil
 }

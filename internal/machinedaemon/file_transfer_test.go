@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"strconv"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,10 +17,16 @@ import (
 
 const (
 	fileTransferTestProcessID = "prc_aaaaaaaaaaaaaaaaaaaaaaaaae"
+	fileTransferTestAPIURL    = "https://api.omnara.test/v1"
 	fileTransferTestProxy     = "http://127.0.0.1:9"
-	fileTransferTestHTTPProxy = "http://127.0.0.1:10"
-	fileTransferTestNoProxy   = "internal.example"
+	fileTransferTestHome      = "/home/omnara-file-transfer-test"
 )
+
+type fileTransferProbeKnobs struct {
+	Result   string `json:"result"`
+	ExitCode int    `json:"exit_code"`
+	Wait     bool   `json:"wait"`
+}
 
 func runFileTransferProbe() int {
 	if len(os.Args) != 6 || os.Args[2] != "--" || os.Args[3] != "upload" ||
@@ -30,28 +36,37 @@ func runFileTransferProbe() int {
 	if os.Getenv(gitCredentialCapabilityEnv) != "" {
 		return 3
 	}
-	if os.Getenv("HTTPS_PROXY") != fileTransferTestProxy || os.Getenv("HTTP_PROXY") != fileTransferTestHTTPProxy ||
-		os.Getenv("NO_PROXY") != fileTransferTestNoProxy {
+	var connection FileTransferConnection
+	if err := json.NewDecoder(os.NewFile(4, "file-transfer-connection")).Decode(&connection); err != nil ||
+		connection != (FileTransferConnection{
+			APIURL: fileTransferTestAPIURL, MachineToken: "machine-token", ProxyURL: fileTransferTestProxy,
+		}) {
 		return 4
+	}
+	if os.Getenv("HOME") != fileTransferTestHome || os.Getenv("SSL_CERT_FILE") != "" ||
+		os.Getenv("WORKLOAD_SETTING") != "" {
+		return 5
+	}
+	var knobs fileTransferProbeKnobs
+	if raw, err := os.ReadFile(os.Args[5]); err != nil || json.Unmarshal(raw, &knobs) != nil {
+		return 6
 	}
 	result := os.NewFile(3, "file-transfer-result")
 	defer func() { _ = result.Close() }()
 	_, _ = os.Stdout.WriteString("stdout warning\n")
 	_, _ = os.Stderr.WriteString("stderr warning\n")
-	_, _ = io.WriteString(result, os.Getenv("FILE_TRANSFER_TEST_RESULT"))
-	if os.Getenv("FILE_TRANSFER_TEST_WAIT") == "1" {
+	_, _ = io.WriteString(result, knobs.Result)
+	if knobs.Wait {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 	}
-	code, _ := strconv.Atoi(os.Getenv("FILE_TRANSFER_TEST_EXIT_CODE"))
-	return code
+	return knobs.ExitCode
 }
 
 func TestDetachedSupervisorFileTransfer(t *testing.T) {
 	t.Setenv("HTTPS_PROXY", fileTransferTestProxy)
-	t.Setenv("HTTP_PROXY", "")
-	t.Setenv("http_proxy", fileTransferTestHTTPProxy)
-	t.Setenv("NO_PROXY", fileTransferTestNoProxy)
-	t.Setenv("no_proxy", "lowercase.example")
+	t.Setenv("NO_PROXY", "internal.example")
+	t.Setenv("SSL_CERT_FILE", "")
+	t.Setenv("SSL_CERT_DIR", "")
 	metadata := `{"path":"/memory/team/note.md","digest":"sha256:` + strings.Repeat("a", 64) + `"}`
 	failure := `{"error":{"code":"file_content_conflict","error":"file changed","current_digest":"sha256:` +
 		strings.Repeat("b", 64) + `"}}`
@@ -108,24 +123,29 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
+			cwd := t.TempDir()
+			knobs, err := json.Marshal(fileTransferProbeKnobs{Result: tc.result, ExitCode: tc.exitCode, Wait: tc.wait})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(cwd, "a file;$(false).md"), knobs, 0o600))
 			env := map[string]string{
-				"FILE_TRANSFER_TEST_RESULT": tc.result, "FILE_TRANSFER_TEST_EXIT_CODE": strconv.Itoa(tc.exitCode),
-				"https_proxy": "",
+				"HOME": fileTransferTestHome, "SSL_CERT_FILE": "/workload/bundle.pem", "WORKLOAD_SETTING": "leaked",
 			}
 			timeoutSeconds := 10
 			if tc.wait {
-				env["FILE_TRANSFER_TEST_WAIT"] = "1"
 				timeoutSeconds = 1
 			}
 			fixture := newDetachedSupervisorTestFixtureWithConfig(t, ctx,
-				Config{GitCredentialsDisabled: tc.gitCredentialsDisabled}, ProcessAssignment{
+				Config{
+					APIURL: fileTransferTestAPIURL, MachineToken: "machine-token",
+					GitCredentialsDisabled: tc.gitCredentialsDisabled,
+				}, ProcessAssignment{
 					ID: fileTransferTestProcessID, GitCredentials: tc.gitCredentialsDisabled,
 					Process: Process{
 						ExecutionSpec: processcmd.ForFileTransfer(processcmd.FileTransfer{
 							Direction: processcmd.FileTransferUpload, LocalPath: "a file;$(false).md",
 							Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
 						}),
-						Cwd: t.TempDir(),
+						Cwd: cwd,
 					},
 					Env: env, WaitMs: 20, TimeoutSeconds: timeoutSeconds,
 				})
