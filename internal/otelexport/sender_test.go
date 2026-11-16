@@ -22,7 +22,7 @@ import (
 type fakeStore struct {
 	destination    executionstore.OtelExportDestination
 	destinationErr error
-	turns          map[int64]oteltrace.Turn
+	turns          map[uuid.UUID]oteltrace.Turn
 	loads          int
 	completed      []uuid.UUID
 	retried        []uuid.UUID
@@ -48,16 +48,16 @@ func (s *fakeStore) GetOtelExportDestination(
 	return s.destination, s.destinationErr
 }
 
-func (s *fakeStore) LoadTurnTraceForEvent(_ context.Context, _ uuid.UUID, sequence int64) (oteltrace.Turn, error) {
+func (s *fakeStore) LoadTurnTraceForExport(_ context.Context, _, turnID uuid.UUID) (oteltrace.Turn, error) {
 	s.loads++
-	turn, ok := s.turns[sequence]
+	turn, ok := s.turns[turnID]
 	if !ok {
 		return oteltrace.Turn{}, storeerr.ErrNotFound
 	}
 	return turn, nil
 }
 
-// testTurn is a finished turn: one model output (event 2) that ends it.
+// testTurn is a finished turn: one model output that ends it.
 func testTurn() oteltrace.Turn {
 	start := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 	call := uuid.New()
@@ -86,23 +86,23 @@ func newTestSender(t *testing.T, store *fakeStore, handler http.HandlerFunc) *Se
 	return New(store, slog.New(slog.DiscardHandler), nil, allowlist)
 }
 
-func testBatch(sequences ...int64) executionstore.OtelExportBatch {
+func testBatch(turnIDs ...uuid.UUID) executionstore.OtelExportBatch {
 	batch := executionstore.OtelExportBatch{ClaimToken: uuid.New(), OrgID: uuid.New(), ExporterID: uuid.New()}
-	for _, sequence := range sequences {
+	for _, turnID := range turnIDs {
 		batch.Deliveries = append(batch.Deliveries, executionstore.OtelExportDelivery{
-			ID: uuid.New(), EventSequence: sequence, AttemptCount: 1,
+			ID: uuid.New(), TurnID: turnID, AttemptCount: 1,
 		})
 	}
 	return batch
 }
 
 func TestSenderExportsBatchInOneRequest(t *testing.T) {
-	turn := testTurn()
+	turn, other := testTurn(), testTurn()
 	store := &fakeStore{
 		destination: executionstore.OtelExportDestination{
 			Variant: oteltrace.VariantLangfuse, Headers: map[string]string{"Authorization": "Bearer key"},
 		},
-		turns: map[int64]oteltrace.Turn{2: turn},
+		turns: map[uuid.UUID]oteltrace.Turn{turn.TurnID: turn, other.TurnID: other},
 	}
 	var requests int
 	var path, contentType, authorization string
@@ -112,9 +112,8 @@ func TestSenderExportsBatchInOneRequest(t *testing.T) {
 		path, contentType, authorization = r.URL.Path, r.Header.Get("Content-Type"), r.Header.Get("Authorization")
 		body, _ = io.ReadAll(r.Body)
 	})
-	// Event 2 appears twice and event 99 belongs to no turn: the request
-	// still carries each span once.
-	batch := testBatch(2, 2, 99)
+	// Two turns and one that no longer exists: one request, two whole traces.
+	batch := testBatch(turn.TurnID, other.TurnID, uuid.New())
 	sender.deliver(t.Context(), batch)
 
 	require.Equal(t, 1, requests)
@@ -123,14 +122,15 @@ func TestSenderExportsBatchInOneRequest(t *testing.T) {
 	require.Equal(t, "Bearer key", authorization)
 	var export oteltrace.Export
 	require.NoError(t, json.Unmarshal(body, &export))
-	require.Equal(t, 2, store.loads, "a turn is loaded once per batch")
+	require.Equal(t, 3, store.loads)
 	require.Equal(t, []uuid.UUID{batch.ClaimToken}, store.completed)
 	require.Empty(t, store.retried)
 	spans := export.ResourceSpans[0].ScopeSpans[0].Spans
-	require.Len(t, spans, 2)
+	require.Len(t, spans, 4)
 	require.Equal(t, "invoke_agent researcher", spans[0].Name)
 	require.Equal(t, "chat claude", spans[1].Name)
 	require.Equal(t, oteltrace.TraceID(turn.TurnID), spans[1].TraceID)
+	require.Equal(t, oteltrace.TraceID(other.TurnID), spans[2].TraceID)
 }
 
 func TestSenderRetriesOrDropsByResponse(t *testing.T) {
@@ -145,11 +145,12 @@ func TestSenderRetriesOrDropsByResponse(t *testing.T) {
 		{"malformed payload", http.StatusBadRequest, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			store := &fakeStore{turns: map[int64]oteltrace.Turn{2: testTurn()}}
+			turn := testTurn()
+			store := &fakeStore{turns: map[uuid.UUID]oteltrace.Turn{turn.TurnID: turn}}
 			sender := newTestSender(t, store, func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(test.status)
 			})
-			batch := testBatch(2)
+			batch := testBatch(turn.TurnID)
 			sender.deliver(t.Context(), batch)
 			if test.expectedRetry {
 				require.Equal(t, []uuid.UUID{batch.ClaimToken}, store.retried)
@@ -169,14 +170,14 @@ func TestSenderSkipsRequestWithoutSpansOrExporter(t *testing.T) {
 		retry bool
 	}{
 		{"deleted exporter", &fakeStore{destinationErr: storeerr.ErrNotFound}, false},
-		{"no spans", &fakeStore{turns: map[int64]oteltrace.Turn{}}, false},
+		{"missing turn", &fakeStore{turns: map[uuid.UUID]oteltrace.Turn{}}, false},
 		{"misconfigured exporter", &fakeStore{destinationErr: executionstore.ErrOtelExporterMisconfigured}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			sender := newTestSender(t, test.store, func(http.ResponseWriter, *http.Request) {
 				t.Error("no request expected")
 			})
-			batch := testBatch(2)
+			batch := testBatch(uuid.New())
 			sender.deliver(t.Context(), batch)
 			if test.retry {
 				require.Equal(t, []uuid.UUID{batch.ClaimToken}, test.store.retried)

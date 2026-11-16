@@ -41,21 +41,23 @@ AS $$
 $$;
 -- +goose StatementEnd
 
--- One row per (exporter, agent event) whose spans still have to be exported.
--- The worker claims many rows for one exporter at a time and sends them as a
--- single OTLP request.
+-- One row per (exporter, turn) whose trace still has to be exported. A turn is
+-- one trace. The worker claims many rows for one exporter at a time and sends
+-- their traces as a single OTLP request.
 CREATE TABLE otel_export_deliveries (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     org_id uuid NOT NULL REFERENCES orgs(id),
     exporter_id uuid NOT NULL,
     agent_id uuid NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    event_sequence bigint NOT NULL CHECK (event_sequence > 0),
+    turn_id uuid NOT NULL,
     attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
     next_attempt_at timestamptz NOT NULL DEFAULT statement_timestamp(),
     claim_token uuid,
     claim_expires_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
     FOREIGN KEY (org_id, exporter_id) REFERENCES otel_exporters(org_id, id),
+    FOREIGN KEY (agent_id, turn_id) REFERENCES agent_turns(agent_id, id),
+    UNIQUE (exporter_id, turn_id),
     CHECK ((claim_token IS NULL) = (claim_expires_at IS NULL))
 );
 

@@ -77,14 +77,6 @@ type Event struct {
 	CreatedAt     time.Time
 }
 
-// SourcedSpan is a span plus the agent event whose arrival completes it.
-// EventSequence is zero for spans no event completes yet, such as the root
-// span of a turn that is still running.
-type SourcedSpan struct {
-	Span          Span
-	EventSequence int64
-}
-
 // TraceID is the turn ID: both are 16 bytes, so a trace can be found from a
 // turn and back without any stored mapping.
 func TraceID(turnID uuid.UUID) string {
@@ -104,7 +96,7 @@ func spanID(kind string, id uuid.UUID) string {
 
 // Build renders the turn's spans: one invoke_agent root, one chat span per
 // model call attempt, and one execute_tool span per completed tool call.
-func Build(turn Turn, variant Variant) []SourcedSpan {
+func Build(turn Turn, variant Variant) []Span {
 	traceID := TraceID(turn.TurnID)
 	rootID := spanID("turn", turn.TurnID)
 	common := turn.commonAttributes()
@@ -139,7 +131,7 @@ func Build(turn Turn, variant Variant) []SourcedSpan {
 		}
 	}
 
-	spans := make([]SourcedSpan, 0, 1+len(turn.ModelCalls)+len(turn.ToolCalls))
+	spans := make([]Span, 0, 1+len(turn.ModelCalls)+len(turn.ToolCalls))
 	root := Span{
 		TraceID: traceID, SpanID: rootID, Kind: SpanKindInternal,
 		Name:              strings.TrimSpace("invoke_agent " + turn.AgentName),
@@ -155,20 +147,15 @@ func Build(turn Turn, variant Variant) []SourcedSpan {
 	if opening != nil {
 		rootContent.input = []message{{Role: "user", Parts: parseParts(opening.ContentBlocks, providerCallIDs)}}
 	}
-	var closingSequence int64
 	if closing != nil {
-		closingSequence = closing.Sequence
 		rootContent.output = []message{{Role: "assistant", Parts: parseParts(closing.ContentBlocks, providerCallIDs)}}
 		if closing.StopReason == "error" {
 			root.Status = &Status{Code: StatusCodeError}
 		}
 	}
 	root.Attributes = append(root.Attributes, variant.attributes(spanRoleAgent, turn, rootContent, "")...)
-	spans = append(spans, SourcedSpan{Span: root, EventSequence: closingSequence})
+	spans = append(spans, root)
 
-	// Attempts that failed without a model output event are exported with the
-	// next attempt that produced one.
-	pending := len(spans)
 	for _, call := range turn.ModelCalls {
 		span := Span{
 			TraceID: traceID, SpanID: spanID("model_call", call.ID), ParentSpanID: rootID, Kind: SpanKindClient,
@@ -180,19 +167,11 @@ func Build(turn Turn, variant Variant) []SourcedSpan {
 			span.Status = &Status{Code: StatusCodeError, Message: call.ErrorMessage}
 		}
 		content := spanContent{}
-		output, hasEvent := outputs[call.ID]
-		if hasEvent {
+		if output, ok := outputs[call.ID]; ok {
 			content.output = []message{{Role: "assistant", Parts: parseParts(output.ContentBlocks, providerCallIDs)}}
 		}
 		span.Attributes = append(span.Attributes, variant.attributes(spanRoleModel, turn, content, call.CostUSD)...)
-		spans = append(spans, SourcedSpan{Span: span, EventSequence: output.Sequence})
-		if hasEvent {
-			for ; pending < len(spans); pending++ {
-				if spans[pending].EventSequence == 0 {
-					spans[pending].EventSequence = output.Sequence
-				}
-			}
-		}
+		spans = append(spans, span)
 	}
 
 	for _, call := range turn.ToolCalls {
@@ -225,16 +204,7 @@ func Build(turn Turn, variant Variant) []SourcedSpan {
 			span.Status = &Status{Code: StatusCodeError, Message: content.toolResult}
 		}
 		span.Attributes = append(span.Attributes, variant.attributes(spanRoleTool, turn, content, "")...)
-		spans = append(spans, SourcedSpan{Span: span, EventSequence: result.Sequence})
-	}
-	return spans
-}
-
-// Spans drops the event bookkeeping from built spans.
-func Spans(sourced []SourcedSpan) []Span {
-	spans := make([]Span, len(sourced))
-	for i := range sourced {
-		spans[i] = sourced[i].Span
+		spans = append(spans, span)
 	}
 	return spans
 }

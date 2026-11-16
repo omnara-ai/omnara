@@ -45,12 +45,16 @@ UPDATE otel_exporters SET deleted_at = statement_timestamp(), updated_at = state
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL;
 
 -- name: EnqueueOtelExportDeliveries :exec
--- Matches every active exporter whose scope covers the agent, applies the
--- exporter's trace sampling, and queues one delivery per span-producing event.
-INSERT INTO otel_export_deliveries (org_id, exporter_id, agent_id, event_sequence, next_attempt_at)
-SELECT exporter.org_id, exporter.id, event.agent_id, event.sequence,
+-- Queues one trace export per (exporter, turn) when a model output closes the
+-- turn, meaning it did not ask for tools. Matches every active exporter whose
+-- scope covers the agent and applies the exporter's trace sampling. A turn
+-- that closes again while its delivery is pending or in flight is re-armed, so
+-- the later, complete trace is the one exported.
+INSERT INTO otel_export_deliveries (org_id, exporter_id, agent_id, turn_id, next_attempt_at)
+SELECT DISTINCT exporter.org_id, exporter.id, event.agent_id, event.turn_id,
        statement_timestamp() + sqlc.arg(batch_delay_seconds)::double precision * interval '1 second'
 FROM agent_events event
+JOIN model_outputs output ON output.agent_id = event.agent_id AND output.id = event.model_output_id
 JOIN agents agent ON agent.id = event.agent_id
 JOIN projects project ON project.id = agent.project_id
 JOIN orgs org ON org.id = project.org_id
@@ -59,11 +63,14 @@ JOIN otel_exporters exporter ON exporter.org_id = agent.org_id
     AND (exporter.agent_id IS NULL OR exporter.agent_id = agent.id)
 WHERE event.agent_id = sqlc.arg(agent_id)
   AND event.sequence = ANY(sqlc.arg(event_sequences)::bigint[])
-  AND event.event_kind IN ('model_output', 'tool_result')
+  AND event.event_kind = 'model_output'
+  AND output.stop_reason <> 'tool_use'
   AND exporter.deleted_at IS NULL
   AND project.deleted_at IS NULL
   AND org.deleted_at IS NULL
-  AND otel_trace_sampled(event.turn_id, exporter.sample_basis_points);
+  AND otel_trace_sampled(event.turn_id, exporter.sample_basis_points)
+ON CONFLICT (exporter_id, turn_id) DO UPDATE
+SET next_attempt_at = excluded.next_attempt_at, claim_token = NULL, claim_expires_at = NULL;
 
 -- name: ClaimOtelExportDeliveries :many
 -- Claims up to batch_limit due deliveries for the exporter that owns the
@@ -105,7 +112,7 @@ SET attempt_count = attempt_count + 1,
     claim_expires_at = statement_timestamp() + sqlc.arg(claim_seconds)::double precision * interval '1 second'
 FROM candidates
 WHERE delivery.id = candidates.id
-RETURNING delivery.id, delivery.org_id, delivery.exporter_id, delivery.agent_id, delivery.event_sequence,
+RETURNING delivery.id, delivery.org_id, delivery.exporter_id, delivery.agent_id, delivery.turn_id,
     delivery.attempt_count, delivery.created_at;
 
 -- name: CompleteOtelExportDeliveries :execrows
@@ -131,19 +138,13 @@ DELETE FROM otel_export_deliveries delivery
 USING candidates
 WHERE delivery.id = candidates.id;
 
--- name: GetOtelExportDeliveryTurn :one
-SELECT agent.project_id, event.turn_id
-FROM agent_events event
-JOIN agents agent ON agent.id = event.agent_id
-WHERE event.agent_id = sqlc.arg(agent_id) AND event.sequence = sqlc.arg(event_sequence);
-
 -- name: GetTurnTraceContext :one
 SELECT agent.org_id, agent.project_id, agent.id AS agent_id, agent.name AS agent_name,
        agent.agent_profile_id, agent.parent_agent_id, agent.root_agent_id,
        turn.id AS turn_id, turn.turn_sequence
 FROM agent_turns turn
 JOIN agents agent ON agent.id = turn.agent_id
-WHERE agent.project_id = sqlc.arg(project_id)
+WHERE (sqlc.narg(project_id)::uuid IS NULL OR agent.project_id = sqlc.narg(project_id)::uuid)
   AND turn.agent_id = sqlc.arg(agent_id)
   AND turn.id = sqlc.arg(turn_id);
 

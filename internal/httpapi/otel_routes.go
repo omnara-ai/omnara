@@ -36,7 +36,7 @@ func (s strictOpenAPIServer) GetTurnTrace(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	encoded, err := json.Marshal(oteltrace.NewExport(oteltrace.Spans(oteltrace.Build(turn, variant))))
+	encoded, err := json.Marshal(oteltrace.NewExport(oteltrace.Build(turn, variant)))
 	if err != nil {
 		return nil, err
 	}

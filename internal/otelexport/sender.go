@@ -1,7 +1,8 @@
-// Package otelexport delivers queued agent trace spans to customer OTLP/HTTP
-// endpoints. It follows the event webhook sender: a transactional outbox
-// claimed with a lease, bounded concurrency, and jittered retries. Unlike
-// webhooks, one request carries a batch of spans for one exporter.
+// Package otelexport delivers queued agent traces to customer OTLP/HTTP
+// endpoints. One delivery is one finished turn, exported as one whole trace.
+// It follows the event webhook sender: a transactional outbox claimed with a
+// lease, bounded concurrency, and jittered retries. Unlike webhooks, one
+// request carries a batch of traces for one exporter.
 package otelexport
 
 import (
@@ -33,8 +34,8 @@ const (
 	// PerOrgLimit is a soft cap on concurrent export requests per organization
 	// across workers.
 	PerOrgLimit = 4
-	// BatchLimit is the most deliveries one export request covers.
-	BatchLimit = 100
+	// BatchLimit is the most turns one export request covers.
+	BatchLimit = 25
 
 	attemptTimeout     = 30 * time.Second
 	buildTimeout       = 30 * time.Second
@@ -50,7 +51,7 @@ type Store interface {
 	GetOtelExportDestination(
 		ctx context.Context, orgID, exporterID uuid.UUID,
 	) (executionstore.OtelExportDestination, error)
-	LoadTurnTraceForEvent(ctx context.Context, agentID uuid.UUID, eventSequence int64) (oteltrace.Turn, error)
+	LoadTurnTraceForExport(ctx context.Context, agentID, turnID uuid.UUID) (oteltrace.Turn, error)
 }
 
 type Sender struct {
@@ -211,47 +212,20 @@ func retryableStatus(status int) bool {
 	return status >= http.StatusInternalServerError
 }
 
-type builtTurn struct {
-	sequences map[int64]bool
-	spans     []oteltrace.SourcedSpan
-}
-
-// collect gathers the spans each delivery's event completes. A turn is loaded
-// and rendered once however many of its events are in the batch.
+// collect renders the whole trace of each delivery's turn.
 func (s *Sender) collect(
 	ctx context.Context, deliveries []executionstore.OtelExportDelivery, variant oteltrace.Variant,
 ) ([]oteltrace.Span, error) {
-	turnsByAgent := make(map[uuid.UUID][]*builtTurn)
-	sent := make(map[string]bool)
 	var spans []oteltrace.Span
 	for _, delivery := range deliveries {
-		var built *builtTurn
-		for _, candidate := range turnsByAgent[delivery.AgentID] {
-			if candidate.sequences[delivery.EventSequence] {
-				built = candidate
-				break
-			}
+		turn, err := s.store.LoadTurnTraceForExport(ctx, delivery.AgentID, delivery.TurnID)
+		if errors.Is(err, storeerr.ErrNotFound) {
+			continue
 		}
-		if built == nil {
-			turn, err := s.store.LoadTurnTraceForEvent(ctx, delivery.AgentID, delivery.EventSequence)
-			if errors.Is(err, storeerr.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			built = &builtTurn{sequences: make(map[int64]bool, len(turn.Events)), spans: oteltrace.Build(turn, variant)}
-			for _, event := range turn.Events {
-				built.sequences[event.Sequence] = true
-			}
-			turnsByAgent[delivery.AgentID] = append(turnsByAgent[delivery.AgentID], built)
+		if err != nil {
+			return nil, err
 		}
-		for _, span := range built.spans {
-			if span.EventSequence == delivery.EventSequence && !sent[span.Span.SpanID] {
-				sent[span.Span.SpanID] = true
-				spans = append(spans, span.Span)
-			}
-		}
+		spans = append(spans, oteltrace.Build(turn, variant)...)
 	}
 	return spans, nil
 }

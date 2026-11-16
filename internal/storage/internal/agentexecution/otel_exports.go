@@ -8,11 +8,12 @@ import (
 )
 
 // otelExportBatchDelaySeconds holds new deliveries back briefly so the worker
-// can send the spans of one burst of activity in a single OTLP request.
+// can send several finished turns in a single OTLP request.
 const otelExportBatchDelaySeconds = 5
 
-// enqueueOtelExports queues a trace export for every committed agent event
-// that completes a span. Exporter matching and sampling happen in the query.
+// enqueueOtelExports queues a trace export for each turn a committed model
+// output closes. Which outputs close a turn, exporter matching, and sampling
+// are all decided in the query.
 func (u *Unit) enqueueOtelExports(ctx context.Context) error {
 	pending := u.notifications
 	if pending == nil || len(pending.AgentEvents()) == 0 {
@@ -22,7 +23,7 @@ func (u *Unit) enqueueOtelExports(ctx context.Context) error {
 	for agentID, events := range pending.AgentEvents() {
 		sequences := make([]int64, 0, len(events))
 		for _, event := range events {
-			if event.Kind == "model_output" || event.Kind == "tool_result" {
+			if event.Kind == "model_output" {
 				sequences = append(sequences, event.Sequence)
 			}
 		}
