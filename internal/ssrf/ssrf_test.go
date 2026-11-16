@@ -85,6 +85,8 @@ func TestIsAllowedIPBlocksSpecialUseRanges(t *testing.T) {
 		{name: "documentation ipv6 2024", ip: "3fff::1"},
 		{name: "segment routing ipv6", ip: "5f00::1"},
 		{name: "reserved ipv6 outside global unicast", ip: "4000::1"},
+		{name: "ecs service connect ipv6", ip: "2600:f0f0::1"},
+		{name: "public ipv6 beside ecs service connect", ip: "2600:f0f0:0:100::1", want: true},
 		{name: "ipv4 mapped private", ip: "::ffff:10.0.0.1"},
 		{name: "ipv4 mapped public", ip: "::ffff:8.8.8.8", want: true},
 		{name: "ipv4-compatible metadata", ip: "::169.254.169.254"},
