@@ -30,15 +30,14 @@ func TestOtelExporterRoutes(t *testing.T) {
 	for _, scope := range scopes {
 		body := integrationHTTPJSON(t, map[string]any{
 			"scope": scope, "endpoint": "https://otel.example.com/v1/traces", "variant": "langfuse",
-			"headers": map[string]any{"x-langfuse-ingestion-version": "4"}, "sample_percent": 12.5,
+			"headers": map[string]any{"x-langfuse-ingestion-version": "4"}, "sample_percent": 12.345,
 		})
-		// Exporters send agent content off-platform, so only organization admins manage them.
 		requestJSONWithHeaders(t, f.handler, http.MethodPost, endpoint, body, "", http.StatusForbidden, operator)
 		created := requestJSONWithHeaders(t, f.handler, http.MethodPost, endpoint, body, "", http.StatusCreated, admin)
 		require.Equal(t, scope, created["scope"])
 		require.Equal(t, "langfuse", created["variant"])
 		require.Equal(t, "json", created["encoding"])
-		require.Equal(t, 12.5, created["sample_percent"])
+		require.Equal(t, 12.345, created["sample_percent"])
 		require.Equal(t, map[string]any{"x-langfuse-ingestion-version": "4"}, created["headers"])
 		require.Equal(t, map[string]any{}, created["secret_headers"])
 		requestJSONWithHeaders(t, f.handler, http.MethodPost, endpoint, body, "", http.StatusConflict, admin)
@@ -67,8 +66,6 @@ func TestOtelExporterRoutes(t *testing.T) {
 
 	listed := requestJSONWithHeaders(t, f.handler, http.MethodGet, endpoint, "", "", http.StatusOK, admin)
 	require.Len(t, testutil.RequireType[[]any](t, listed["data"]), 4)
-	// An explicit scope matches exactly: the project filter leaves out the
-	// project's agent-scoped exporter.
 	projectQuery := "&project_id=" + f.project.ProjectID
 	for query, expected := range map[string][]string{
 		"?scope_type=org":                                           {ids[0], testutil.RequireType[string](t, defaults["id"])},

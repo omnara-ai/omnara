@@ -36,8 +36,6 @@ func otelDeliveryTurns(t *testing.T, fixture processDaemonFixture, exporterID uu
 	return turns
 }
 
-// closeTurnForOtelTest commits a model output event notification the way the
-// execution unit does, after marking that output as the turn's final answer.
 func closeTurnForOtelTest(t *testing.T, fixture processDaemonFixture, sequence int64) {
 	t.Helper()
 	ctx := t.Context()
@@ -92,8 +90,6 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	})
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 
-	// A model output that calls a tool, then the tool's result: the turn is
-	// still open, so nothing is queued.
 	toolID := createToolCallForProcessTestWithPermission(t, ctx, fixture, "otel-export", "ask_question", true)
 	ownedCompleteTool(t, ctx, fixture, toolID)
 	var outputSequence int64
@@ -105,8 +101,6 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	closeTurnForOtelTest(t, fixture, outputSequence)
 	require.Empty(t, otelDeliveryTurns(t, fixture, orgWide.ID))
 
-	// An output that does not ask for tools closes the turn: one delivery per
-	// sampled exporter, however many times the turn closes while it is queued.
 	for _, statement := range []string{
 		`ALTER TABLE model_outputs DISABLE TRIGGER USER`,
 		`UPDATE model_outputs SET stop_reason = 'end_turn' WHERE agent_id = '` + fixture.AgentID.String() + `'`,
@@ -121,7 +115,6 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, project.ID))
 	require.Empty(t, otelDeliveryTurns(t, fixture, unsampled.ID))
 
-	// New deliveries wait out the batching delay before they can be claimed.
 	_, err = store.ClaimOtelExportDeliveries(ctx, 4, 100)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	_, err = fixture.Store.pool.Exec(ctx,
@@ -176,12 +169,9 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	require.NoError(t, store.CompleteOtelExportDeliveries(ctx, orgBatch.ClaimToken))
 	require.Empty(t, otelDeliveryTurns(t, fixture, orgWide.ID))
 
-	// A turn that closes again while its export is in flight is re-armed: the
-	// in-flight claim no longer owns the row, so completing it deletes nothing.
 	closeTurnForOtelTest(t, fixture, outputSequence)
 	require.NoError(t, store.CompleteOtelExportDeliveries(ctx, projectBatch.ClaimToken))
 	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, project.ID))
-	// Closing again also queued the organization exporter afresh; set it aside.
 	require.Equal(t, []uuid.UUID{turnID}, otelDeliveryTurns(t, fixture, orgWide.ID))
 	_, err = fixture.Store.pool.Exec(ctx, `DELETE FROM otel_export_deliveries WHERE exporter_id = $1`, orgWide.ID)
 	require.NoError(t, err)
@@ -197,12 +187,12 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	require.Len(t, retried.Deliveries, 1)
 	require.EqualValues(t, 3, retried.Deliveries[0].AttemptCount)
 
-	sampleRate := 25.5
+	sampleRate := 12.345
 	updated, err := store.UpdateOtelExporter(ctx, executionstore.UpdateOtelExporterInput{
 		OrgID: testOrgID, ExporterID: orgWide.ID, SamplePercent: &sampleRate, SecretHeaders: map[string]uuid.UUID{},
 	})
 	require.NoError(t, err)
-	require.InDelta(t, 25.5, updated.Settings.SamplePercent, 0)
+	require.InDelta(t, 12.345, updated.Settings.SamplePercent, 0)
 	require.Empty(t, updated.Settings.SecretHeaders)
 	require.Equal(t, map[string]string{"x-langfuse-ingestion-version": "4"}, updated.Settings.Headers)
 
@@ -217,7 +207,6 @@ func TestOtelExportersQueueSampledSpansAndDeliverInBatches(t *testing.T) {
 	require.Len(t, listed.Exporters, 1)
 	require.Equal(t, project.ID, listed.Exporters[0].ID)
 
-	// Queued deliveries of a deleted exporter have no destination left.
 	require.NoError(t, store.DeleteOtelExporter(ctx, testOrgID, project.ID))
 	_, err = store.GetOtelExportDestination(ctx, testOrgID, project.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
@@ -229,7 +218,7 @@ func TestOtelTraceSamplingMatchesGoDecision(t *testing.T) {
 	fixture := newProcessDaemonFixture(t, ctx, "otel_sampling")
 	for range 200 {
 		turnID := uuid.New()
-		for _, percent := range []float64{0, 0.01, 25, 33.33, 99.99, 100} {
+		for _, percent := range []float64{0, 0.001, 25, 33.333, 99.999, 100} {
 			var sampled bool
 			require.NoError(t, fixture.Store.pool.QueryRow(ctx,
 				`SELECT otel_trace_sampled($1, $2::numeric)`, turnID, percent).Scan(&sampled))

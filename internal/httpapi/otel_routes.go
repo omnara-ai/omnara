@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"math"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -75,8 +74,6 @@ func parseOtelExporterScope(input openapi.OtelExporterScope) (executionstore.Ote
 	return parseOtelExporterScopeIDs(scope.Type, projectID, agentID)
 }
 
-// parseOtelExporterScopeIDs builds a scope from its type and the IDs that
-// type requires; it rejects missing and surplus IDs alike.
 func parseOtelExporterScopeIDs(
 	scopeType executionstore.OtelExporterScopeType, projectID, agentID *string,
 ) (executionstore.OtelExporterScope, error) {
@@ -137,12 +134,6 @@ func parseOtelExporterSecretHeaders(input openapi.OtelExporterSecretHeaders) (ma
 	return result, nil
 }
 
-// otelSamplePercent widens the API's float32 without carrying its binary
-// noise (33.33 would otherwise become 33.33000183...).
-func otelSamplePercent(percent openapi.OtelExporterSamplePercent) float64 {
-	return math.Round(float64(percent)*100) / 100
-}
-
 func otelExporterResponseFromRecord(record executionstore.OtelExporterRecord) (openapi.OtelExporter, error) {
 	id, err := publicID(publicid.KindOtelExporter, record.ID)
 	if err != nil {
@@ -162,7 +153,7 @@ func otelExporterResponseFromRecord(record executionstore.OtelExporterRecord) (o
 		Encoding:      openapi.OtelExporterEncoding(record.Settings.Encoding),
 		Headers:       openapi.OtelExporterHeaders{},
 		SecretHeaders: openapi.OtelExporterSecretHeaders{},
-		SamplePercent: float32(record.Settings.SamplePercent),
+		SamplePercent: record.Settings.SamplePercent,
 		CreatedAt:     record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
 	for name, value := range record.Settings.Headers {
@@ -209,7 +200,7 @@ func (s strictOpenAPIServer) CreateOtelExporter(
 		}
 	}
 	if request.Body.SamplePercent != nil {
-		settings.SamplePercent = otelSamplePercent(*request.Body.SamplePercent)
+		settings.SamplePercent = *request.Body.SamplePercent
 	}
 	record, err := s.server.store.Execution().CreateOtelExporter(ctx, executionstore.CreateOtelExporterInput{
 		OrgID: org.ID, Scope: scope, Settings: settings,
@@ -328,8 +319,7 @@ func (s strictOpenAPIServer) UpdateOtelExporter(
 		}
 	}
 	if request.Body.SamplePercent != nil {
-		samplePercent := otelSamplePercent(*request.Body.SamplePercent)
-		input.SamplePercent = &samplePercent
+		input.SamplePercent = request.Body.SamplePercent
 	}
 	record, err := s.server.store.Execution().UpdateOtelExporter(ctx, input)
 	if err != nil {

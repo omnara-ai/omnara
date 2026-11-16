@@ -14,15 +14,10 @@ import (
 )
 
 const (
-	// otelExportDeliveryWindow is how long a delivery is retried before the
-	// maintenance job drops it.
 	otelExportDeliveryWindow = time.Hour
-	// otelExportClaimDuration must exceed the sender's whole attempt: loading
-	// every trace in the batch plus one HTTP request.
-	otelExportClaimDuration = 2 * time.Minute
+	otelExportClaimDuration  = 2 * time.Minute
 )
 
-// OtelExportDelivery is one turn's trace awaiting export to one exporter.
 type OtelExportDelivery struct {
 	ID           uuid.UUID
 	AgentID      uuid.UUID
@@ -31,7 +26,6 @@ type OtelExportDelivery struct {
 	CreatedAt    time.Time
 }
 
-// OtelExportBatch is a set of deliveries for one exporter claimed together.
 type OtelExportBatch struct {
 	ClaimToken uuid.UUID
 	OrgID      uuid.UUID
@@ -39,8 +33,6 @@ type OtelExportBatch struct {
 	Deliveries []OtelExportDelivery
 }
 
-// OtelExportDestination is an exporter resolved for sending: Headers holds the
-// plain headers and the decrypted secret headers.
 type OtelExportDestination struct {
 	Endpoint string
 	Variant  oteltrace.Variant
@@ -90,9 +82,6 @@ func (s *Store) DeleteExpiredOtelExportDeliveries(ctx context.Context, limit int
 	})
 }
 
-// GetOtelExportDestination resolves an exporter for sending. It returns
-// storeerr.ErrNotFound when the exporter was deleted, and an error wrapping
-// ErrOtelExporterMisconfigured when a secret header can no longer be read.
 func (s *Store) GetOtelExportDestination(
 	ctx context.Context, orgID, exporterID uuid.UUID,
 ) (OtelExportDestination, error) {
@@ -126,8 +115,6 @@ func (s *Store) GetOtelExportDestination(
 
 var ErrOtelExporterMisconfigured = errors.New("otel exporter is misconfigured")
 
-// LoadTurnTraceForExport loads a queued delivery's turn. The delivery row,
-// not a caller, vouches for the agent and turn, so no project is required.
 func (s *Store) LoadTurnTraceForExport(ctx context.Context, agentID, turnID uuid.UUID) (oteltrace.Turn, error) {
 	return s.loadTurnTrace(ctx, nil, agentID, turnID)
 }

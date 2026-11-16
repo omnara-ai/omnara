@@ -48,11 +48,8 @@ UPDATE otel_exporters SET deleted_at = statement_timestamp(), updated_at = state
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL;
 
 -- name: EnqueueOtelExportDeliveries :exec
--- Queues one trace export per (exporter, turn) when a model output closes the
--- turn, meaning it did not ask for tools. Matches every active exporter whose
--- scope covers the agent and applies the exporter's trace sampling. A turn
--- that closes again while its delivery is pending or in flight is re-armed, so
--- the later, complete trace is the one exported.
+-- A turn that closes again while its delivery is claimed is re-armed, so the
+-- in-flight claim no longer owns the row.
 INSERT INTO otel_export_deliveries (org_id, exporter_id, agent_id, turn_id, next_attempt_at)
 SELECT DISTINCT exporter.org_id, exporter.id, event.agent_id, event.turn_id,
        statement_timestamp() + sqlc.arg(batch_delay_seconds)::double precision * interval '1 second'
@@ -76,8 +73,6 @@ ON CONFLICT (exporter_id, turn_id) DO UPDATE
 SET next_attempt_at = excluded.next_attempt_at, claim_token = NULL, claim_expires_at = NULL;
 
 -- name: ClaimOtelExportDeliveries :many
--- Claims up to batch_limit due deliveries for the exporter that owns the
--- oldest due delivery, under one caller-supplied claim token.
 WITH saturated_orgs AS MATERIALIZED (
     SELECT claims.org_id
     FROM (
@@ -152,8 +147,6 @@ WHERE (sqlc.narg(project_id)::uuid IS NULL OR agent.project_id = sqlc.narg(proje
   AND turn.id = sqlc.arg(turn_id);
 
 -- name: ListTurnTraceModelCalls :many
--- Every finished model call attempt of one turn, including failed attempts
--- that never produced a model output event.
 SELECT context.id, context.operation_kind, context.attempt_number, context.state, context.api_format,
        coalesce(context.provider_response_id, '')::text AS provider_response_id,
        coalesce(context.provider_reported_cost_usd::text, '')::text AS provider_reported_cost_usd,

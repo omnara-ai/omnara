@@ -32,8 +32,6 @@ const (
 	OtelExporterScopeAgent   OtelExporterScopeType = "agent"
 )
 
-// OtelExporterScope selects whose traces an exporter receives: every agent in
-// the organization, every agent in one project, or one agent.
 type OtelExporterScope struct {
 	Type      OtelExporterScopeType
 	ProjectID uuid.UUID
@@ -85,7 +83,6 @@ type CreateOtelExporterInput struct {
 
 type ListOtelExportersInput struct {
 	OrgID uuid.UUID
-	// Scope, when set, returns only exporters with exactly that scope.
 	Scope *OtelExporterScope
 	Limit int
 	After listing.KeysetCursor
@@ -125,8 +122,6 @@ func otelExporterRecordFromSQLC(row dbsqlc.OtelExporter) (OtelExporterRecord, er
 	return record, nil
 }
 
-// readOtelExporterSecret reads one secret header value. Exporters use
-// organization-owned generic secrets at every scope.
 func (s *Store) readOtelExporterSecret(ctx context.Context, orgID, secretID uuid.UUID) (string, error) {
 	if s.secrets == nil {
 		return "", errors.New("secret store is required")
@@ -296,8 +291,6 @@ func (s *Store) GetOtelExporter(ctx context.Context, orgID, id uuid.UUID) (OtelE
 	return otelExporterRecordFromSQLC(row)
 }
 
-// UpdateOtelExporter changes an exporter's destination settings. Its scope is
-// fixed at creation.
 func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporterInput) (OtelExporterRecord, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -308,8 +301,6 @@ func (s *Store) UpdateOtelExporter(ctx context.Context, input UpdateOtelExporter
 		return OtelExporterRecord{}, err
 	}
 	q := dbsqlc.New(tx)
-	// Share the creation lock so partial updates and duplicate checks observe
-	// the latest committed exporter.
 	if err := lockResourceCreation(ctx, q, "otel_exporters", input.OrgID.String()); err != nil {
 		return OtelExporterRecord{}, err
 	}

@@ -2,10 +2,6 @@ package oteltrace
 
 import "encoding/json"
 
-// Variant selects which vendor-specific attributes are added on top of the
-// GenAI semantic conventions. Every variant is still a valid OTLP payload;
-// a variant only adds the attribute names one backend reads for fields the
-// shared conventions do not cover (span type, session, input and output).
 type Variant string
 
 const (
@@ -39,8 +35,6 @@ type spanContent struct {
 	toolArguments, toolResult string
 }
 
-// inputText and outputText give the plain-text form vendors show in their
-// trace lists; tool spans use their arguments and result.
 func (content spanContent) inputText() string {
 	if content.toolArguments != "" {
 		return content.toolArguments
@@ -126,8 +120,6 @@ func jsonObject(value map[string]any) string {
 	return string(encoded)
 }
 
-// jsonValue re-encodes text as a JSON document: text that already is JSON
-// (tool arguments) passes through, anything else becomes a JSON string.
 func jsonValue(text string) string {
 	if json.Valid([]byte(text)) {
 		return text

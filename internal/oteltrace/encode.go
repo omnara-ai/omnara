@@ -12,7 +12,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Encoding is the OTLP/HTTP body encoding of an export request.
 type Encoding string
 
 const (
@@ -31,7 +30,6 @@ func ParseEncoding(value string) (Encoding, bool) {
 	}
 }
 
-// Encode renders an export request body and its Content-Type.
 func (export Export) Encode(encoding Encoding) (body []byte, contentType string, err error) {
 	switch encoding {
 	case EncodingProtobuf:
@@ -45,9 +43,8 @@ func (export Export) Encode(encoding Encoding) (body []byte, contentType string,
 	}
 }
 
-// marshalProto encodes the export as TracesData, which the OTLP protocol
-// defines as wire-compatible with ExportTraceServiceRequest. Using it keeps
-// the gRPC service stubs out of the build.
+// TracesData is wire-compatible with ExportTraceServiceRequest and avoids
+// pulling in the gRPC service stubs.
 func (export Export) marshalProto() ([]byte, error) {
 	data := &tracepb.TracesData{ResourceSpans: make([]*tracepb.ResourceSpans, 0, len(export.ResourceSpans))}
 	for _, resourceSpans := range export.ResourceSpans {
@@ -113,7 +110,6 @@ func protoValue(value AnyValue) *commonpb.AnyValue {
 	case value.StringValue != nil:
 		return &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: *value.StringValue}}
 	case value.IntValue != nil:
-		// intAttr is the only writer of IntValue and always formats an int64.
 		parsed, _ := strconv.ParseInt(*value.IntValue, 10, 64)
 		return &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: parsed}}
 	case value.ArrayValue != nil:

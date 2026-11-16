@@ -44,8 +44,6 @@ func ValidateURL(raw string, endpointAllowlist *ssrf.Allowlist) (string, error) 
 	return ValidateEndpointURL(raw, endpointAllowlist, "event webhook URL")
 }
 
-// ValidateEndpointURL applies the outbound endpoint policy shared by every
-// customer-configured delivery target. Label names the field in errors.
 func ValidateEndpointURL(raw string, endpointAllowlist *ssrf.Allowlist, label string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Hostname() == "" || parsed.Opaque != "" || (parsed.Scheme != "https" &&
