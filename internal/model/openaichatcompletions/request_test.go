@@ -1498,3 +1498,61 @@ func TestPrepareSendsSafetyIdentifierPerRoute(t *testing.T) {
 		})
 	}
 }
+
+func TestPrepareDropsTopLevelSchemaCompositionsOnlyForClaude(t *testing.T) {
+	spec := modelcontext.ToolSpec{
+		Name:        "mcp__omnara__agents_launch",
+		Description: "Launches an agent.",
+		InputSchema: json.RawMessage(
+			`{"type":"object","properties":{"profile":{"type":"string"},"config":{"type":"string"}},` +
+				`"anyOf":[{"required":["profile"]},{"required":["config"]}]}`,
+		),
+	}
+	cases := []struct {
+		name      string
+		slug      string
+		options   json.RawMessage
+		wantsDrop bool
+	}{
+		{name: "claude", slug: "anthropic/claude-opus-5.5", wantsDrop: true},
+		{name: "claude fallback", slug: "openai/gpt-5-mini", options: json.RawMessage(`{"models":["anthropic/claude-sonnet-4"]}`), wantsDrop: true},
+		{name: "not claude", slug: "openai/gpt-5-mini"},
+	}
+	for _, tc := range cases {
+		client := Client{EndpointPath: testEndpointPath,
+			ProviderModelSlug: tc.slug,
+			APIVariant:        modelprotocol.APIVariantOpenRouter,
+			APIVariantOptions: tc.options,
+		}
+		prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+			Context: modelcontext.Bundle{
+				Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
+					Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
+				}},
+				ToolSpecs: []modelcontext.ToolSpec{spec},
+			},
+		})
+		if err != nil {
+			t.Fatalf("%s: prepare: %v", tc.name, err)
+		}
+		var payload struct {
+			Tools []struct {
+				Function struct {
+					Description string          `json:"description"`
+					Parameters  json.RawMessage `json:"parameters"`
+				} `json:"function"`
+			} `json:"tools"`
+		}
+		if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+			t.Fatalf("%s: decode payload: %v", tc.name, err)
+		}
+		function := payload.Tools[0].Function
+		if dropped := !strings.Contains(string(function.Parameters), "anyOf"); dropped != tc.wantsDrop {
+			t.Fatalf("%s: anyOf dropped = %v, want %v: %s", tc.name, dropped, tc.wantsDrop, function.Parameters)
+		}
+		described := strings.HasSuffix(function.Description, "Provide at least one of: profile; config.")
+		if described != tc.wantsDrop {
+			t.Fatalf("%s: description = %q", tc.name, function.Description)
+		}
+	}
+}

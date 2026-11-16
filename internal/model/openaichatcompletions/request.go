@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
@@ -42,10 +43,14 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 		return nil, err
 	}
 	compat := c.compat()
+	toolSpecs := input.Context.ToolSpecs
+	if slices.ContainsFunc(c.modelCandidates(compat), isClaudeModelSlug) {
+		toolSpecs = model.ClaudeCompatibleToolSpecs(toolSpecs)
+	}
 	payload := chatCompletionsRequest{
 		Model:    providerModelSlug,
 		Messages: messages,
-		Tools:    buildTools(input.Context.ToolSpecs, compat),
+		Tools:    buildTools(toolSpecs, compat),
 		N:        1,
 	}
 	if compat.sendsStoreFalse {
