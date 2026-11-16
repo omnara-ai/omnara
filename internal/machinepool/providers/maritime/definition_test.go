@@ -66,6 +66,7 @@ func TestMaritimeDefinitionValidatesOptions(t *testing.T) {
 		"large disk":          {"disk_gb": json.RawMessage(`501`)},
 		"unknown option":      {"image": json.RawMessage(`"ubuntu"`)},
 		"long script":         {"startup_script": mustRawJSON(t, strings.Repeat("x", 64*1024+1))},
+		"script over env cap": {"startup_script": mustRawJSON(t, strings.Repeat("x", maxStartupScriptBytes+1))},
 	} {
 		config := testMachineProvisioning(t, "", "")
 		config.ProviderOptions = options
@@ -77,6 +78,11 @@ func TestMaritimeDefinitionValidatesOptions(t *testing.T) {
 	config.ProviderOptions["disk_gb"] = json.RawMessage(`20`)
 	if err := definition.ValidateMachineProvisioning(policy, config); err != nil {
 		t.Fatalf("validate disk_gb: %v", err)
+	}
+	config = testMachineProvisioning(t, "", "")
+	config.ProviderOptions["startup_script"] = mustRawJSON(t, strings.Repeat("x", maxStartupScriptBytes))
+	if err := definition.ValidateMachineProvisioning(policy, config); err != nil {
+		t.Fatalf("validate startup_script at the cap: %v", err)
 	}
 }
 

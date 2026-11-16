@@ -202,8 +202,8 @@ func TestMaritimeProvisionReportsAnEndedSandboxAsReplaced(t *testing.T) {
 	result, err := newTestProvider(api).ProvisionMachine(
 		context.Background(), uuid.New(), uuid.New(), testMachineProvisioning(t, "", ""), "token", nil, true,
 	)
-	if !errors.Is(err, providers.ErrResourceReplaced) || result.ProviderResourceID != "sbx-abc123" {
-		t.Fatalf("provision = %+v, %v; want ErrResourceReplaced with the observed id", result, err)
+	if !errors.Is(err, providers.ErrResourceReplaced) || result.ProviderResourceID != "" {
+		t.Fatalf("provision = %+v, %v; want ErrResourceReplaced without the dead sandbox's id", result, err)
 	}
 }
 

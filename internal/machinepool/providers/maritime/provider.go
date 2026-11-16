@@ -159,6 +159,10 @@ func (p *provider) ProvisionMachine(
 		return result, fmt.Errorf("%w: %w", err, providers.ErrPermanent)
 	}
 	target, err = p.awaitUsable(ctx, target)
+	if errors.Is(err, providers.ErrResourceReplaced) {
+		// The sandbox is gone; drop its id so the retry can record the replacement.
+		return providers.ProvisionMachineResult{}, err
+	}
 	if err != nil {
 		return result, err
 	}

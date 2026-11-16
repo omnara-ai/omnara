@@ -20,6 +20,9 @@ const (
 	maxMemoryMiB    = 65536
 	minDiskGiB      = 5
 	maxDiskGiB      = 500
+	// The script reaches the machine base64-encoded in one env value, which
+	// Maritime caps at 32 KiB, so the raw script must fit in 24 KiB.
+	maxStartupScriptBytes = 24 * 1024
 )
 
 // templatePattern accepts Maritime snapshot and template names and public OCI
@@ -237,6 +240,12 @@ func parseProviderOptions(rawOptions map[string]json.RawMessage) (providerOption
 			"maritime machine config disk_gb must be between %d and %d",
 			minDiskGiB,
 			maxDiskGiB,
+		)
+	}
+	if len(options.StartupScript) > maxStartupScriptBytes {
+		return providerOptions{}, fmt.Errorf(
+			"maritime machine config startup_script must be at most %d bytes",
+			maxStartupScriptBytes,
 		)
 	}
 	return options, providers.ValidateManagedStartupScript("maritime machine config", options.StartupScript)
