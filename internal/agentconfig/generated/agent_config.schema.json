@@ -383,7 +383,7 @@
           "type": "integer"
         },
         "default_max_output_tokens": {
-          "description": "Maximum output tokens per request. Overrides the model's default.",
+          "description": "Default output allowance per request. Overrides the model's default; max_output_tokens is the cap.",
           "minimum": 1,
           "type": "integer"
         },
@@ -538,7 +538,7 @@
           "type": "integer"
         },
         "default_max_output_tokens": {
-          "description": "Overrides the base model's output token limit.",
+          "description": "Overrides the base model's default output allowance.",
           "minimum": 1,
           "type": "integer"
         },

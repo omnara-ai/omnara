@@ -262,7 +262,7 @@ export type AgentConfigDefinitionModel = {
      */
     context_window_tokens?: number;
     /**
-     * Maximum output tokens per request. Overrides the model's default.
+     * Default output allowance per request. Overrides the model's default; max_output_tokens is the cap.
      */
     default_max_output_tokens?: number;
     /**
@@ -334,7 +334,7 @@ export type AgentConfigDefinitionSubagentModel = {
      */
     context_window_tokens?: number;
     /**
-     * Overrides the base model's output token limit.
+     * Overrides the base model's default output allowance.
      */
     default_max_output_tokens?: number;
     /**
@@ -1139,7 +1139,7 @@ export type CreateProjectModelGrantRequest = {
      */
     max_output_tokens?: number;
     /**
-     * Maximum output tokens per request for this project. Omit to inherit the configured model's.
+     * Default output allowance per request for this project; agents can raise it up to max_output_tokens. Omit to inherit the configured model's.
      */
     default_max_output_tokens?: number;
     default_cache_retention?: ModelCacheRetention;
@@ -1182,7 +1182,7 @@ export type UpdateProjectModelGrantRequest = {
      */
     max_output_tokens?: number | null;
     /**
-     * Maximum output tokens per request for this project. Null inherits the configured model's.
+     * Default output allowance per request for this project; agents can raise it up to max_output_tokens. Null inherits the configured model's.
      */
     default_max_output_tokens?: number | null;
     /**

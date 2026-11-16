@@ -10006,7 +10006,7 @@ components:
           maximum: 2147483647
           description: Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         default_max_output_tokens:
-          description: Maximum output tokens per request. Overrides the model's default.
+          description: Default output allowance per request. Overrides the model's default; max_output_tokens is the cap.
           type: integer
           minimum: 1
         name:
@@ -10104,7 +10104,7 @@ components:
           maximum: 2147483647
           description: Context budget for input and output tokens. Triggers compaction when estimated input exceeds the remaining budget after output and safety reserves. The turn fails if compaction cannot make it fit.
         default_max_output_tokens:
-          description: Overrides the base model's output token limit.
+          description: Overrides the base model's default output allowance.
           type: integer
           minimum: 1
         name:
@@ -11244,7 +11244,7 @@ components:
           type: integer
           minimum: 1
           maximum: 2147483647
-          description: Maximum output tokens per request for this project. Omit to inherit the configured model's.
+          description: Default output allowance per request for this project; agents can raise it up to max_output_tokens. Omit to inherit the configured model's.
         default_cache_retention:
           $ref: '#/components/schemas/ModelCacheRetention'
         supports_tools:
@@ -11292,7 +11292,7 @@ components:
         default_max_output_tokens:
           type: [integer, "null"]
           minimum: 1
-          description: Maximum output tokens per request for this project. Null inherits the configured model's.
+          description: Default output allowance per request for this project; agents can raise it up to max_output_tokens. Null inherits the configured model's.
         default_cache_retention:
           description: Overrides the model's prompt caching for this project. Null inherits it.
           anyOf:

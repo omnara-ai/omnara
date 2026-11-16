@@ -10,9 +10,8 @@ import (
 )
 
 var emptyOutputSchema = map[string]any{
-	"type":                 openapi3.TypeObject,
-	"description":          "Empty on success: the operation returns no data.",
-	"additionalProperties": false,
+	"type":        openapi3.TypeObject,
+	"description": "Empty on success: the operation returns no data.",
 }
 
 func outputSchemaFor(spec *openapi3.T, op *openapi3.Operation) (schema map[string]any, empty bool, _ error) {
@@ -84,37 +83,50 @@ func withDefinitions(spec *openapi3.T, encoded json.RawMessage) (map[string]any,
 	if err := json.Unmarshal(encodedSchema, &decoded); err != nil {
 		return nil, err
 	}
-	stripExtensions(decoded)
+	stripSchemaKeys(decoded, isOutputOnlyNoise)
 	return decoded, nil
 }
 
 var schemaMapKeywords = []string{"properties", "patternProperties", "dependentSchemas", definitionsKey}
 
+func isExtension(key string, _ any) bool {
+	return strings.HasPrefix(key, "x-")
+}
+
+func isOutputOnlyNoise(key string, value any) bool {
+	closed := (key == "additionalProperties" || key == "unevaluatedProperties") && value == false
+	return closed || isExtension(key, value)
+}
+
 func stripExtensions(schema map[string]any) {
+	stripSchemaKeys(schema, isExtension)
+}
+
+func stripSchemaKeys(schema map[string]any, drop func(key string, value any) bool) {
 	for key, child := range schema {
-		if strings.HasPrefix(key, "x-") {
+		if drop(key, child) {
 			delete(schema, key)
 			continue
 		}
 		if slices.Contains(schemaMapKeywords, key) {
 			if named, ok := child.(map[string]any); ok {
 				for _, value := range named {
-					stripExtensionsIn(value)
+					stripSchemaKeysIn(value, drop)
 				}
 			}
 			continue
 		}
-		stripExtensionsIn(child)
+		stripSchemaKeysIn(child, drop)
 	}
 }
 
-func stripExtensionsIn(value any) {
+func stripSchemaKeysIn(value any, drop func(key string, value any) bool) {
 	switch typed := value.(type) {
 	case map[string]any:
-		stripExtensions(typed)
+		stripSchemaKeys(typed, drop)
 	case []any:
 		for _, item := range typed {
-			stripExtensionsIn(item)
+			stripSchemaKeysIn(item, drop)
 		}
 	}
 }

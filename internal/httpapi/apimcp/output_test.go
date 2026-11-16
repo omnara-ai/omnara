@@ -46,8 +46,13 @@ func TestEveryToolDeclaresAnObjectOutputSchema(t *testing.T) {
 		if _, err := compiler.Compile("output.json"); err != nil {
 			t.Errorf("%s output schema does not compile: %v", tool.Name, err)
 		}
+		for _, closed := range []string{`"additionalProperties":false`, `"unevaluatedProperties":false`} {
+			if strings.Contains(string(encoded), closed) {
+				t.Errorf("%s output schema rejects new response fields with %s", tool.Name, closed)
+			}
+		}
 		if operations[operationKey(tool.OperationID)].method == http.MethodDelete {
-			if schema["additionalProperties"] != false || schema["properties"] != nil {
+			if schema["properties"] != nil {
 				t.Errorf("%s returns no body, want the empty object schema: %v", tool.Name, schema)
 			}
 		}
