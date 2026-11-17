@@ -52,16 +52,19 @@ func TestRESTClientUsesE2BEndpoints(t *testing.T) {
 			_, _ = w.Write([]byte(`{"templateID":"t1","public":false}`))
 		case "GET api.e2b.test/templates/aliases/base":
 			w.WriteHeader(http.StatusForbidden)
-		case "GET api.e2b.test/unstable/templates/search":
-			assert.Equal(t, "claude", r.URL.Query().Get("search"))
+		case "GET api.e2b.test/v2/templates":
 			assert.Equal(t, "100", r.URL.Query().Get("limit"))
-			if r.URL.Query().Get("cursor") == "" {
-				_, _ = w.Write([]byte(`{"data":[{"templateID":"t1","aliases":["claude"],"names":["claude"],` +
-					`"cpuCount":2,"memoryMB":2048,"isDefault":true}],"nextCursor":"next"}`))
+			if r.URL.Query().Get("nextToken") == "" {
+				w.Header().Set("X-Next-Token", "next")
+				_, _ = w.Write([]byte(`[{"templateID":"t1","aliases":["claude"],"names":["acme/claude"],` +
+					`"cpuCount":2,"memoryMB":2048}]`))
 				return
 			}
-			assert.Equal(t, "next", r.URL.Query().Get("cursor"))
-			_, _ = w.Write([]byte(`{"data":[],"nextCursor":null}`))
+			assert.Equal(t, "next", r.URL.Query().Get("nextToken"))
+			_, _ = w.Write([]byte(`[]`))
+		case "GET api.e2b.test/default-templates":
+			_, _ = w.Write([]byte(`[{"templateID":"base1","names":["base","e2b/base"],"cpuCount":2,"memoryMB":512,` +
+				`"isDefault":true}]`))
 		case "POST api.e2b.test/v2/sandboxes":
 			var body map[string]any
 			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
@@ -111,14 +114,17 @@ func TestRESTClientUsesE2BEndpoints(t *testing.T) {
 	require.Equal(t, "t1", templateID)
 	_, err = client.ResolveTemplateAlias(ctx, "base")
 	require.Equal(t, http.StatusForbidden, apiStatusCode(err))
-	page, next, err := client.ListTemplates(ctx, "claude", "")
+	page, next, err := client.ListTemplates(ctx, "")
 	require.NoError(t, err)
 	require.Equal(t, "next", next)
-	require.Equal(t, []template{{TemplateID: "t1", Names: []string{"claude"}, CPUCount: 2, MemoryMB: 2048,
-		IsDefault: true}}, page)
-	_, next, err = client.ListTemplates(ctx, "claude", "next")
+	require.Equal(t, []template{{TemplateID: "t1", Names: []string{"acme/claude"}, CPUCount: 2, MemoryMB: 2048}}, page)
+	_, next, err = client.ListTemplates(ctx, "next")
 	require.NoError(t, err)
 	require.Empty(t, next)
+	defaults, err := client.DefaultTemplates(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []template{{TemplateID: "base1", Names: []string{"base", "e2b/base"}, CPUCount: 2, MemoryMB: 512,
+		IsDefault: true}}, defaults)
 
 	created, err := client.CreateSandbox(ctx, createSandboxRequest{
 		TemplateID: "claude",

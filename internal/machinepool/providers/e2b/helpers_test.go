@@ -14,6 +14,8 @@ import (
 )
 
 type fakeAPI struct {
+	defaults      []template
+	defaultsErr   error
 	templatePages [][]template
 	repeatCursor  bool
 	templateErr   error
@@ -35,7 +37,12 @@ type fakeAPI struct {
 	deleted       []string
 }
 
-func (f *fakeAPI) ListTemplates(_ context.Context, _ string, cursor string) ([]template, string, error) {
+func (f *fakeAPI) DefaultTemplates(context.Context) ([]template, error) {
+	f.templateCalls++
+	return f.defaults, f.defaultsErr
+}
+
+func (f *fakeAPI) ListTemplates(_ context.Context, cursor string) ([]template, string, error) {
 	f.templateCalls++
 	if f.templateErr != nil {
 		return nil, "", f.templateErr
@@ -60,11 +67,9 @@ func (f *fakeAPI) ResolveTemplateAlias(_ context.Context, alias string) (string,
 	if templateID, ok := f.teamAliases[alias]; ok {
 		return templateID, nil
 	}
-	for _, page := range f.templatePages {
-		for _, current := range page {
-			if current.IsDefault && (slices.Contains(current.Names, alias) || current.TemplateID == alias) {
-				return "", apiError{StatusCode: http.StatusForbidden}
-			}
+	for _, current := range f.defaults {
+		if slices.Contains(current.Names, alias) || current.TemplateID == alias {
+			return "", apiError{StatusCode: http.StatusForbidden}
 		}
 	}
 	return "", apiError{StatusCode: http.StatusNotFound}

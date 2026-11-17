@@ -54,7 +54,9 @@ func TestPrepareProvisioningResolvesTemplatesLikeE2B(t *testing.T) {
 		{ref: "acme/claude", cpu: 4},
 		{ref: "old-acme/claude", cpu: 8},
 	} {
-		a := &fakeAPI{templatePages: [][]template{{public, historical}, {current}}, teamAliases: test.teamAliases}
+		a := &fakeAPI{
+			defaults: []template{public}, templatePages: [][]template{{historical}, {current}}, teamAliases: test.teamAliases,
+		}
 		facts, err := testProvider(a).PrepareProvisioning(
 			t.Context(),
 			executionstore.MachineProvisioningConfig{ProviderOptions: testOptions(t, test.ref)},
@@ -93,7 +95,9 @@ func TestPrepareProvisioningReportsUnusableTemplates(t *testing.T) {
 			want: "HTTP 401"},
 		{name: "alias lookup down", api: &fakeAPI{resolveErr: unavailable}, ref: "claude", want: "HTTP 503",
 			unavailable: true},
-		{name: "template list down", api: &fakeAPI{templateErr: unavailable}, ref: "acme/claude", want: "HTTP 503",
+		{name: "public template list down", api: &fakeAPI{defaultsErr: unavailable}, ref: "acme/claude", want: "HTTP 503",
+			unavailable: true},
+		{name: "team template list down", api: &fakeAPI{templateErr: unavailable}, ref: "acme/claude", want: "HTTP 503",
 			unavailable: true},
 	} {
 		_, err := testProvider(test.api).PrepareProvisioning(

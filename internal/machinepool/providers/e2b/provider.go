@@ -63,6 +63,12 @@ func (p *provider) PrepareProvisioning(
 
 func (p *provider) findTemplate(ctx context.Context, ref string) (template, error) {
 	notFound := errors.New("not found among your team's templates or E2B's public templates")
+	failed := func(err error) error {
+		if transientAPIError(err) {
+			return fmt.Errorf("%w: %w", storeerr.ErrMachineProviderUnavailable, err)
+		}
+		return err
+	}
 	matches := func(t template) bool { return slices.Contains(t.Names, ref) }
 	if !strings.Contains(ref, "/") {
 		teamTemplateID, err := p.api.ResolveTemplateAlias(ctx, ref)
@@ -73,20 +79,22 @@ func (p *provider) findTemplate(ctx context.Context, ref string) (template, erro
 			matches = func(t template) bool { return t.IsDefault && (slices.Contains(t.Names, ref) || t.TemplateID == ref) }
 		case isNotFound(err):
 			return template{}, notFound
-		case transientAPIError(err):
-			return template{}, fmt.Errorf("%w: %w", storeerr.ErrMachineProviderUnavailable, err)
 		default:
-			return template{}, err
+			return template{}, failed(err)
 		}
+	}
+	defaults, err := p.api.DefaultTemplates(ctx)
+	if err != nil {
+		return template{}, failed(err)
+	}
+	if index := slices.IndexFunc(defaults, matches); index >= 0 {
+		return defaults[index], nil
 	}
 	seen := map[string]bool{}
 	for cursor := ""; ; {
-		page, next, err := p.api.ListTemplates(ctx, ref, cursor)
+		page, next, err := p.api.ListTemplates(ctx, cursor)
 		if err != nil {
-			if transientAPIError(err) {
-				return template{}, fmt.Errorf("%w: %w", storeerr.ErrMachineProviderUnavailable, err)
-			}
-			return template{}, err
+			return template{}, failed(err)
 		}
 		if index := slices.IndexFunc(page, matches); index >= 0 {
 			return page[index], nil

@@ -5,7 +5,9 @@ package e2e
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -24,8 +27,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 const liveMachineDaemonVersion = "999.0.0"
@@ -129,6 +134,7 @@ func TestServiceE2ELiveMachineProviders(t *testing.T) {
 		worker:      env.startWorker(t, ctx, "", serviceWorkerOptions{}),
 		maintenance: env.startMaintenance(t, ctx),
 	}
+	requireLiveMachineTunnelOnlyServesDaemonRoutes(t, ctx, env)
 	for _, provider := range providers {
 		t.Run(provider.name, func(t *testing.T) {
 			t.Parallel()
@@ -349,6 +355,38 @@ FROM machines machine WHERE machine.machine_pool_id = $1`, poolUUID).Scan(&state
 	}
 }
 
+func requireLiveMachineTunnelOnlyServesDaemonRoutes(t *testing.T, ctx context.Context, env *serviceE2EEnvironment) {
+	t.Helper()
+	project := env.bootstrapProjectViaAPI(t, ctx, "live-machines-tunnel", "openai-prod", "service-e2e-local")
+	secrets := "/orgs/" + project.orgID + "/secrets"
+	admin := map[string]string{"Authorization": "Bearer " + project.adminToken}
+	for _, check := range []struct {
+		method, path string
+		headers      map[string]string
+		want         int
+	}{
+		{http.MethodGet, "/api/v1" + secrets, admin, http.StatusNotFound},
+		{http.MethodGet, "/api/v1" + secrets, map[string]string{
+			"Cookie": httpauth.BrowserSessionHostCookieName + "=" + project.adminSession,
+		}, http.StatusNotFound},
+		{http.MethodGet, "/api/v1/daemon/%2e%2e" + secrets, admin, http.StatusNotFound},
+		{http.MethodPost, "/api/v1/daemon/bootstrap", nil, http.StatusUnauthorized},
+		{http.MethodPost, "/api/v1/daemon/bootstrap", map[string]string{
+			"Authorization": "Bearer invalid-machine-token",
+		}, http.StatusUnauthorized},
+	} {
+		request, err := http.NewRequestWithContext(ctx, check.method, env.publicURL+check.path, nil)
+		require.NoError(t, err)
+		for name, value := range check.headers {
+			request.Header.Set(name, value)
+		}
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err, "%s %s", check.method, check.path)
+		_ = response.Body.Close()
+		require.Equal(t, check.want, response.StatusCode, "%s %s through the tunnel", check.method, check.path)
+	}
+}
+
 func exposeLiveMachineAPI(t *testing.T, ctx context.Context, env *serviceE2EEnvironment) {
 	t.Helper()
 	cloudflared, err := exec.LookPath("cloudflared")
@@ -384,8 +422,16 @@ func exposeLiveMachineAPI(t *testing.T, ctx context.Context, env *serviceE2EEnvi
 	if err != nil {
 		t.Fatal(err)
 	}
-	mux.Handle("/", httputil.NewSingleHostReverseProxy(apiURL))
-	front := httptest.NewServer(mux)
+	proxy := httputil.NewSingleHostReverseProxy(apiURL)
+	mux.Handle("/api/v1/daemon/", proxy)
+	mux.Handle("GET /install/omnarad.sh", proxy)
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawPath != "" || path.Clean(r.URL.Path) != r.URL.Path {
+			http.NotFound(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}))
 	t.Cleanup(front.Close)
 
 	tunnel := exec.Command(cloudflared, "tunnel", "--no-autoupdate", "--url", front.URL)
@@ -436,6 +482,12 @@ func exposeLiveMachineAPI(t *testing.T, ctx context.Context, env *serviceE2EEnvi
 	})
 	env.publicURL = tunnelURL
 	env.publicURLHost = strings.TrimPrefix(tunnelURL, "https://")
+	env.apiListenAddr = strings.TrimPrefix(env.apiURL, "http://")
+	env.apiMetricsListenAddr = strings.TrimPrefix(env.apiMetricsURL, "http://")
+	env.maintenanceListenAddr = strings.TrimPrefix(env.maintenanceURL, "http://")
+	secretEncryptionKey := make([]byte, 32)
+	_, _ = rand.Read(secretEncryptionKey)
+	env.secretEncryptionKey = base64.StdEncoding.EncodeToString(secretEncryptionKey)
 	t.Setenv("OMNARA_PUBLIC_URL", tunnelURL)
 	t.Setenv("OMNARA_PUBLIC_API_URL", tunnelURL+"/api/v1")
 	t.Setenv("OMNARA_DAEMON_RELEASE_URL", tunnelURL+"/omnarad-releases")

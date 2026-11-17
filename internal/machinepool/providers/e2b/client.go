@@ -25,7 +25,8 @@ const (
 )
 
 type apiClient interface {
-	ListTemplates(ctx context.Context, search, cursor string) ([]template, string, error)
+	ListTemplates(ctx context.Context, nextToken string) ([]template, string, error)
+	DefaultTemplates(ctx context.Context) ([]template, error)
 	ResolveTemplateAlias(ctx context.Context, alias string) (string, error)
 	CreateSandbox(context.Context, createSandboxRequest) (sandbox, error)
 	FindSandboxes(ctx context.Context, metadata map[string]string) ([]sandbox, error)
@@ -100,22 +101,20 @@ func newRESTClient(domain, token string, client *http.Client) *restClient {
 	return &restClient{domain: domain, token: token, httpClient: client}
 }
 
-func (c *restClient) ListTemplates(ctx context.Context, search, cursor string) ([]template, string, error) {
-	values := url.Values{"search": {search}, "limit": {"100"}}
-	if cursor != "" {
-		values.Set("cursor", cursor)
+func (c *restClient) ListTemplates(ctx context.Context, nextToken string) ([]template, string, error) {
+	values := url.Values{"limit": {"100"}}
+	if nextToken != "" {
+		values.Set("nextToken", nextToken)
 	}
-	var out struct {
-		Data       []template `json:"data"`
-		NextCursor *string    `json:"nextCursor"`
-	}
-	requestURL := c.apiURL("/unstable/templates/search?" + values.Encode())
-	err := c.do(ctx, http.MethodGet, requestURL, c.apiKey(), nil, &out)
-	next := ""
-	if out.NextCursor != nil {
-		next = *out.NextCursor
-	}
-	return out.Data, next, err
+	var out []template
+	header, err := c.doWithHeader(ctx, http.MethodGet, c.apiURL("/v2/templates?"+values.Encode()), c.apiKey(), nil, &out)
+	return out, header.Get("X-Next-Token"), err
+}
+
+func (c *restClient) DefaultTemplates(ctx context.Context) ([]template, error) {
+	var out []template
+	err := c.do(ctx, http.MethodGet, c.apiURL("/default-templates"), c.apiKey(), nil, &out)
+	return out, err
 }
 
 func (c *restClient) ResolveTemplateAlias(ctx context.Context, alias string) (string, error) {
@@ -265,20 +264,29 @@ func (c *restClient) do(
 	headers map[string]string,
 	body, out any,
 ) error {
+	_, err := c.doWithHeader(ctx, method, requestURL, headers, body, out)
+	return err
+}
+
+func (c *restClient) doWithHeader(
+	ctx context.Context,
+	method, requestURL string,
+	headers map[string]string,
+	body, out any,
+) (http.Header, error) {
 	response, err := providers.DoHTTPResponse(ctx, c.httpClient, providers.E2B, method, requestURL, headers, body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return providers.WithResponse(apiError{StatusCode: response.StatusCode}, response)
+		return nil, providers.WithResponse(apiError{StatusCode: response.StatusCode}, response)
 	}
-	if out == nil || len(response.Body) == 0 {
-		return nil
+	if out != nil && len(response.Body) > 0 {
+		if err := json.Unmarshal(response.Body, out); err != nil {
+			return nil, fmt.Errorf("decode e2b response: %w", err)
+		}
 	}
-	if err := json.Unmarshal(response.Body, out); err != nil {
-		return fmt.Errorf("decode e2b response: %w", err)
-	}
-	return nil
+	return response.Header, nil
 }
 
 func (c *restClient) apiKey() map[string]string {
