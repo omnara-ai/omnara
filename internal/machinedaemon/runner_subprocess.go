@@ -75,6 +75,18 @@ func (subprocessRunnerLauncher) Prepare(
 		return nil, err
 	}
 	c.prepareGitCredentials(&assignment, supervisorToken)
+	if assignment.Process.ExecutionSpec.Kind == processcmd.KindFileTransfer {
+		connection, err := c.fileTransferConnection()
+		if err != nil {
+			return nil, err
+		}
+		assignment.FileTransferConnection = &connection
+		home, hasHome := assignment.Env["HOME"]
+		assignment.Env = nil
+		if hasHome {
+			assignment.Env = map[string]string{"HOME": home}
+		}
+	}
 	stateStore, err := c.stateStore(ctx)
 	if err != nil {
 		return nil, err

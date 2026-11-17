@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
@@ -12,6 +14,54 @@ import (
 )
 
 const maxFileTransferResultBytes = 8 * 1024
+
+type FileTransferConnection struct {
+	APIURL       string `json:"api_url"`
+	MachineToken string `json:"machine_token"`
+	ProxyURL     string `json:"proxy_url,omitempty"`
+	SSLCertFile  string `json:"ssl_cert_file,omitempty"`
+	SSLCertDir   string `json:"ssl_cert_dir,omitempty"`
+}
+
+func (c *Client) fileTransferConnection() (FileTransferConnection, error) {
+	apiURL, err := url.Parse(c.cfg.APIURL)
+	if err != nil {
+		return FileTransferConnection{}, fmt.Errorf("parse file transfer API URL: %w", err)
+	}
+	proxyURL, err := http.ProxyFromEnvironment(&http.Request{URL: apiURL})
+	if err != nil {
+		return FileTransferConnection{}, fmt.Errorf("resolve file transfer proxy: %w", err)
+	}
+	connection := FileTransferConnection{
+		APIURL:       c.cfg.APIURL,
+		MachineToken: c.cfg.MachineToken,
+		SSLCertFile:  os.Getenv("SSL_CERT_FILE"),
+		SSLCertDir:   os.Getenv("SSL_CERT_DIR"),
+	}
+	if proxyURL != nil {
+		connection.ProxyURL = proxyURL.String()
+	}
+	return connection, nil
+}
+
+func fileTransferConnectionPipe(connection *FileTransferConnection) (*os.File, error) {
+	if connection == nil {
+		return nil, errors.New("file transfer connection is missing")
+	}
+	body, err := json.Marshal(connection)
+	if err != nil {
+		return nil, fmt.Errorf("encode file transfer connection: %w", err)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("create file transfer connection pipe: %w", err)
+	}
+	go func() {
+		_, _ = writer.Write(body)
+		_ = writer.Close()
+	}()
+	return reader, nil
+}
 
 type fileTransferOutcome struct {
 	result *daemonprotocol.FileTransferResult

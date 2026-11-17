@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
-	"strconv"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +18,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const fileTransferTestProcessID = "prc_aaaaaaaaaaaaaaaaaaaaaaaaae"
+const (
+	fileTransferTestProcessID = "prc_aaaaaaaaaaaaaaaaaaaaaaaaae"
+	fileTransferTestAPIURL    = "https://api.omnara.test/v1"
+	fileTransferTestHome      = "/home/omnara-file-transfer-test"
+)
+
+type fileTransferProbeKnobs struct {
+	Result     string                 `json:"result"`
+	ExitCode   int                    `json:"exit_code"`
+	Wait       bool                   `json:"wait"`
+	Connection FileTransferConnection `json:"connection"`
+}
 
 func runFileTransferProbe() int {
 	if len(os.Args) != 6 || os.Args[2] != "--" || os.Args[3] != "upload" ||
@@ -25,19 +39,41 @@ func runFileTransferProbe() int {
 	if os.Getenv(gitCredentialCapabilityEnv) != "" {
 		return 3
 	}
+	var knobs fileTransferProbeKnobs
+	if raw, err := os.ReadFile(os.Args[5]); err != nil || json.Unmarshal(raw, &knobs) != nil {
+		return 4
+	}
+	var connection FileTransferConnection
+	if err := json.NewDecoder(os.NewFile(4, "file-transfer-connection")).Decode(&connection); err != nil ||
+		connection != knobs.Connection {
+		return 5
+	}
+	if os.Getenv("HOME") != fileTransferTestHome || os.Getenv("SSL_CERT_FILE") != "" ||
+		os.Getenv("WORKLOAD_SETTING") != "" {
+		return 6
+	}
 	result := os.NewFile(3, "file-transfer-result")
 	defer func() { _ = result.Close() }()
 	_, _ = os.Stdout.WriteString("stdout warning\n")
 	_, _ = os.Stderr.WriteString("stderr warning\n")
-	_, _ = io.WriteString(result, os.Getenv("FILE_TRANSFER_TEST_RESULT"))
-	if os.Getenv("FILE_TRANSFER_TEST_WAIT") == "1" {
+	_, _ = io.WriteString(result, knobs.Result)
+	if knobs.Wait {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 	}
-	code, _ := strconv.Atoi(os.Getenv("FILE_TRANSFER_TEST_EXIT_CODE"))
-	return code
+	return knobs.ExitCode
 }
 
 func TestDetachedSupervisorFileTransfer(t *testing.T) {
+	t.Setenv("SSL_CERT_FILE", "")
+	t.Setenv("SSL_CERT_DIR", "")
+	apiURL, err := url.Parse(fileTransferTestAPIURL)
+	require.NoError(t, err)
+	proxyURL, err := http.ProxyFromEnvironment(&http.Request{URL: apiURL})
+	require.NoError(t, err)
+	connection := FileTransferConnection{APIURL: fileTransferTestAPIURL, MachineToken: strings.Repeat("t", 256*1024)}
+	if proxyURL != nil {
+		connection.ProxyURL = proxyURL.String()
+	}
 	metadata := `{"path":"/memory/team/note.md","digest":"sha256:` + strings.Repeat("a", 64) + `"}`
 	failure := `{"error":{"code":"file_content_conflict","error":"file changed","current_digest":"sha256:` +
 		strings.Repeat("b", 64) + `"}}`
@@ -94,23 +130,31 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
+			cwd := t.TempDir()
+			knobs, err := json.Marshal(fileTransferProbeKnobs{
+				Result: tc.result, ExitCode: tc.exitCode, Wait: tc.wait, Connection: connection,
+			})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(cwd, "a file;$(false).md"), knobs, 0o600))
 			env := map[string]string{
-				"FILE_TRANSFER_TEST_RESULT": tc.result, "FILE_TRANSFER_TEST_EXIT_CODE": strconv.Itoa(tc.exitCode),
+				"HOME": fileTransferTestHome, "SSL_CERT_FILE": "/workload/bundle.pem", "WORKLOAD_SETTING": "leaked",
 			}
 			timeoutSeconds := 10
 			if tc.wait {
-				env["FILE_TRANSFER_TEST_WAIT"] = "1"
 				timeoutSeconds = 1
 			}
 			fixture := newDetachedSupervisorTestFixtureWithConfig(t, ctx,
-				Config{GitCredentialsDisabled: tc.gitCredentialsDisabled}, ProcessAssignment{
+				Config{
+					APIURL: fileTransferTestAPIURL, MachineToken: connection.MachineToken,
+					GitCredentialsDisabled: tc.gitCredentialsDisabled,
+				}, ProcessAssignment{
 					ID: fileTransferTestProcessID, GitCredentials: tc.gitCredentialsDisabled,
 					Process: Process{
 						ExecutionSpec: processcmd.ForFileTransfer(processcmd.FileTransfer{
 							Direction: processcmd.FileTransferUpload, LocalPath: "a file;$(false).md",
 							Target: processcmd.FileTarget{Artifact: &processcmd.ArtifactTarget{}},
 						}),
-						Cwd: t.TempDir(),
+						Cwd: cwd,
 					},
 					Env: env, WaitMs: 20, TimeoutSeconds: timeoutSeconds,
 				})
@@ -143,6 +187,25 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFileTransferConnectionUsesTheDaemonProxy(t *testing.T) {
+	apiURL, err := url.Parse(fileTransferTestAPIURL)
+	require.NoError(t, err)
+	if os.Getenv("OMNARA_TEST_FILE_TRANSFER_PROXY") == "1" {
+		connection, err := (&Client{cfg: Config{APIURL: fileTransferTestAPIURL}}).fileTransferConnection()
+		require.NoError(t, err)
+		want, err := http.ProxyFromEnvironment(&http.Request{URL: apiURL})
+		require.NoError(t, err)
+		require.NotNil(t, want)
+		require.Equal(t, want.String(), connection.ProxyURL)
+		return
+	}
+	command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestFileTransferConnectionUsesTheDaemonProxy$")
+	command.Env = append(os.Environ(), "OMNARA_TEST_FILE_TRANSFER_PROXY=1",
+		"HTTPS_PROXY=http://uppercase.invalid:1", "https_proxy=http://lowercase.invalid:2", "NO_PROXY=", "no_proxy=")
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, "%s", output)
 }
 
 func TestStorageReadTransferResultEscapedPath(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -105,9 +106,17 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
+	host, err := providers.MachineTokenProxyHost(p.omnaraAPIURL)
+	if err != nil {
+		return providers.ProvisionMachineResult{}, err
+	}
+	outboundPolicy := modalsdk.NewExperimentalOutboundPolicy(modalsdk.ExperimentalOutboundPolicyHeaderReplacement{
+		Domain:  host,
+		Headers: map[string]string{daemonprotocol.MachineTokenHeader: machineToken},
+	})
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
-		machineToken,
+		daemonprotocol.ProviderInjectedMachineToken,
 		options.StartupScript,
 		machineEnv,
 	)
@@ -133,16 +142,17 @@ func (p *provider) ProvisionMachine(
 		app,
 		client.Images.FromRegistry(options.Image, nil),
 		&modalsdk.SandboxCreateParams{
-			CPU:            cpu,
-			CPULimit:       cpu,
-			MemoryMiB:      *machineProvisioning.MemoryMB,
-			MemoryLimitMiB: *machineProvisioning.MemoryMB,
-			Timeout:        sandboxTimeout,
-			Command:        providers.ManagedDaemonLauncherArgs(),
-			Env:            env,
-			Regions:        regions,
-			Name:           name,
-			Tags:           tags,
+			CPU:                        cpu,
+			CPULimit:                   cpu,
+			MemoryMiB:                  *machineProvisioning.MemoryMB,
+			MemoryLimitMiB:             *machineProvisioning.MemoryMB,
+			Timeout:                    sandboxTimeout,
+			Command:                    providers.ManagedDaemonLauncherArgs(),
+			Env:                        env,
+			Regions:                    regions,
+			Name:                       name,
+			Tags:                       tags,
+			ExperimentalOutboundPolicy: &outboundPolicy,
 		},
 	)
 	if err != nil {

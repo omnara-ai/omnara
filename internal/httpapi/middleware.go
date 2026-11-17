@@ -176,6 +176,19 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		if s.store != nil {
 			if strings.HasPrefix(header, prefix) {
 				token := strings.TrimPrefix(header, prefix)
+				if token == daemonprotocol.ProviderInjectedMachineToken {
+					token = r.Header.Get(daemonprotocol.MachineTokenHeader)
+					if token == "" {
+						logent.AuthFailed(
+							r.Context(),
+							logent.AuthSchemeBearer,
+							logent.TokenKindMachineDaemon,
+							logent.AuthResultUnavailable,
+						)
+						apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
+						return
+					}
+				}
 				principal, kind, err := s.authenticateBearerToken(r.Context(), r, token)
 				if err == nil {
 					logent.Authenticated(r.Context(), principal)

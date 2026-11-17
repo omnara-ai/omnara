@@ -75,12 +75,35 @@ type sandbox struct {
 	Metadata    map[string]string `json:"metadata"`
 	AccessToken string            `json:"access_token"`
 	RoutingHint string            `json:"routing_hint"`
+	Secrets     []sandboxSecret   `json:"secrets"`
+}
+
+type sandboxSecret struct {
+	EnvKey     string `json:"env_key"`
+	SecretName string `json:"secret_name"`
+	Revoked    bool   `json:"revoked"`
 }
 
 type createSandboxRequest struct {
 	Name         string            `json:"name"`
 	FromTemplate string            `json:"from_template,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
+}
+
+type createSecretRequest struct {
+	Name  string     `json:"name"`
+	Value string     `json:"value"`
+	Hosts []string   `json:"hosts"`
+	Auth  secretAuth `json:"auth"`
+}
+
+type secretAuth struct {
+	Type string `json:"type"`
+}
+
+type attachSecretRequest struct {
+	EnvKey     string `json:"env_key"`
+	SecretName string `json:"secret_name"`
 }
 
 type execSession struct {
@@ -108,6 +131,9 @@ type apiClient interface {
 	GetSandbox(context.Context, string) (sandbox, bool, error)
 	ActivateSandbox(context.Context, string) (sandbox, error)
 	DeleteSandbox(context.Context, string) error
+	CreateSecret(context.Context, createSecretRequest) error
+	AttachSecret(context.Context, string, attachSecretRequest) error
+	DeleteSecret(context.Context, string) error
 	Exec(context.Context, execSession, execRequest) (execResult, error)
 }
 
@@ -171,6 +197,22 @@ func (c *restClient) ActivateSandbox(ctx context.Context, id string) (sandbox, e
 
 func (c *restClient) DeleteSandbox(ctx context.Context, id string) error {
 	err := c.control(ctx, http.MethodDelete, "/sandboxes/"+url.PathEscape(id), nil, nil)
+	if isNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+func (c *restClient) CreateSecret(ctx context.Context, request createSecretRequest) error {
+	return c.control(ctx, http.MethodPost, "/secrets", request, nil)
+}
+
+func (c *restClient) AttachSecret(ctx context.Context, sandboxID string, request attachSecretRequest) error {
+	return c.control(ctx, http.MethodPost, "/sandboxes/"+url.PathEscape(sandboxID)+"/secrets", request, nil)
+}
+
+func (c *restClient) DeleteSecret(ctx context.Context, name string) error {
+	err := c.control(ctx, http.MethodDelete, "/secrets/"+url.PathEscape(name), nil, nil)
 	if isNotFound(err) {
 		return nil
 	}

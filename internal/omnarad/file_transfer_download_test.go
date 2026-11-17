@@ -32,7 +32,7 @@ func TestFileTransferDownloadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) 
 		_, _ = io.WriteString(w, "artifact bytes")
 	}))
 	defer server.Close()
-	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
+	connection := testFileTransferConnection(server.URL)
 
 	absoluteDir := t.TempDir()
 	absolutePath := filepath.Join(absoluteDir, "absolute.txt")
@@ -71,7 +71,7 @@ func TestFileTransferDownloadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) 
 			err := runFileTransfer(context.Background(),
 				processcmd.FileTransferDownload,
 				processID,
-				test.path, io.Discard)
+				test.path, connection, io.Discard)
 			if err != nil {
 				t.Fatalf("download artifact: %v", err)
 			}
@@ -102,12 +102,12 @@ func TestFileTransferDownloadAcceptsSizeLimit(t *testing.T) {
 		_, _ = io.WriteString(w, content)
 	}))
 	defer server.Close()
-	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
+	connection := testFileTransferConnection(server.URL)
 	destination := filepath.Join(t.TempDir(), "large-artifact.txt")
 	err := runFileTransfer(context.Background(),
 		processcmd.FileTransferDownload,
 		processID,
-		destination, io.Discard)
+		destination, connection, io.Discard)
 	if err != nil {
 		t.Fatalf("download at size limit: %v", err)
 	}
@@ -175,11 +175,11 @@ func TestFileTransferDownloadPreservesDestinationOnFailures(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(test.handler)
 			defer server.Close()
-			setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
+			connection := testFileTransferConnection(server.URL)
 			err := runFileTransfer(context.Background(),
 				processcmd.FileTransferDownload,
 				processID,
-				destination, io.Discard)
+				destination, connection, io.Discard)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
@@ -206,12 +206,12 @@ func TestFileTransferDownloadDoesNotCreateParentDirectory(t *testing.T) {
 		_, _ = io.WriteString(w, "artifact bytes")
 	}))
 	defer server.Close()
-	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
+	connection := testFileTransferConnection(server.URL)
 	destination := filepath.Join(t.TempDir(), "missing", "artifact.bin")
 	err := runFileTransfer(context.Background(),
 		processcmd.FileTransferDownload,
 		processID,
-		destination, io.Discard)
+		destination, connection, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "create temporary file") {
 		t.Fatalf("error = %v", err)
 	}

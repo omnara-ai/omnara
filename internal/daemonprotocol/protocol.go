@@ -43,6 +43,9 @@ const (
 	MaxFileDownloadBytes = 48 * 1024 * 1024
 	FileDigestHeader     = "X-Omnara-File-Digest"
 
+	ProviderInjectedMachineToken = "provider-injected"
+	MachineTokenHeader           = "X-Omnara-Machine-Token"
+
 	AckStatusCommitted       AckStatus = "committed"
 	AckStatusCleanupOnly     AckStatus = "cleanup_only"
 	AckStatusPermanentReject AckStatus = "permanent_reject"

@@ -19,8 +19,11 @@ import (
 )
 
 const (
-	provisioningTimeout = time.Minute
-	wakeSessionIdx      = 1
+	provisioningTimeout      = time.Minute
+	wakeSessionIdx           = 1
+	machineTokenSecret       = "OMNARA_MACHINE_TOKEN"
+	machineTokenRuleID       = "omnara-machine-token"
+	machineTokenRulePriority = 1000000
 )
 
 var (
@@ -37,12 +40,13 @@ var (
 )
 
 type provider struct {
-	api          *restClient
-	apiToken     string
-	apiBaseURL   string
-	omnaraAPIURL string
-	httpRecorder *metrics.HTTPClientRecorder
-	httpClient   *http.Client
+	api           *restClient
+	apiToken      string
+	apiBaseURL    string
+	omnaraAPIURL  string
+	httpRecorder  *metrics.HTTPClientRecorder
+	httpClient    *http.Client
+	forkAttempted bool
 }
 
 func (p *provider) regionBaseURL(region string) string {
@@ -91,7 +95,7 @@ func (p *provider) ProvisionMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
-	_ bool,
+	firstAttempt bool,
 ) (providers.ProvisionMachineResult, error) {
 	options, err := providerOptionsFromProvisioning(machineProvisioning)
 	if err != nil {
@@ -101,9 +105,23 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
+	baseURL := p.regionBaseURL(options.Region)
+	api := p.apiFor(baseURL)
+	host, err := providers.MachineTokenProxyHost(p.omnaraAPIURL)
+	if err != nil {
+		return providers.ProvisionMachineResult{}, err
+	}
+	var target vm
+	found := false
+	if !firstAttempt || p.forkAttempted {
+		if target, found, err = api.GetVM(ctx, name); err != nil {
+			return providers.ProvisionMachineResult{}, err
+		}
+	}
+	p.forkAttempted = true
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
-		machineToken,
+		daemonprotocol.ProviderInjectedMachineToken,
 		options.StartupScript,
 		machineEnv,
 	)
@@ -120,18 +138,33 @@ func (p *provider) ProvisionMachine(
 		env[daemonprotocol.SleepPlatformEnvVar] = daemonprotocol.SleepPlatformArker
 		command = sleepBootCommand
 	}
-	baseURL := p.regionBaseURL(options.Region)
-	api := p.apiFor(baseURL)
-	target, err := api.Fork(ctx, forkRequest{
-		SourceVMName: options.Source,
-		Name:         name,
-		Resources: resources{
-			VCPU:      *machineProvisioning.CPU,
-			MemoryMiB: *machineProvisioning.MemoryMB,
-		},
-	}, name)
-	if err != nil {
-		return providers.ProvisionMachineResult{}, err
+	if !found {
+		target, err = api.Fork(ctx, forkRequest{
+			SourceVMName: options.Source,
+			Name:         name,
+			Resources: resources{
+				VCPU:      *machineProvisioning.CPU,
+				MemoryMiB: *machineProvisioning.MemoryMB,
+			},
+			Policies: &forkPolicies{
+				Rules: map[string]policyRule{machineTokenRuleID: {
+					Type:     "outbound",
+					Priority: machineTokenRulePriority,
+					Match: policyMatch{
+						Hosts:   []string{host},
+						Ports:   []int{443},
+						Headers: map[string][]string{"authorization": {"Bearer " + daemonprotocol.ProviderInjectedMachineToken}},
+					},
+					Action: policyAction{Rewrite: policyRewrite{Headers: map[string]string{
+						"authorization": "Bearer ${secret:" + machineTokenSecret + "}",
+					}}},
+				}},
+				Secrets: map[string]string{machineTokenSecret: machineToken},
+			},
+		}, name)
+		if err != nil {
+			return providers.ProvisionMachineResult{}, err
+		}
 	}
 	if target.ID == "" {
 		return providers.ProvisionMachineResult{}, errors.New("arker fork response is missing vm id")

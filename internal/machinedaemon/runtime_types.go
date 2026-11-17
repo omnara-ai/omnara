@@ -122,15 +122,16 @@ type daemonBootstrap struct {
 type daemonReportedEvent = daemonprotocol.ReportedEvent
 
 type ProcessAssignment struct {
-	GitCredentials      bool                 `json:"git_credentials,omitempty"`
-	GitCredentialHelper *gitCredentialHelper `json:"git_credential_helper,omitempty"`
-	Process             Process              `json:"process"`
-	ID                  string               `json:"process_id"`
-	Env                 map[string]string    `json:"env,omitempty"`
-	PreparationError    string               `json:"preparation_error,omitempty"`
-	WaitMs              int                  `json:"wait_ms,omitempty"`
-	TimeoutSeconds      int                  `json:"timeout_seconds"`
-	OutputBytes         int                  `json:"output_bytes,omitempty"`
+	GitCredentials         bool                    `json:"git_credentials,omitempty"`
+	GitCredentialHelper    *gitCredentialHelper    `json:"git_credential_helper,omitempty"`
+	FileTransferConnection *FileTransferConnection `json:"file_transfer_connection,omitempty"`
+	Process                Process                 `json:"process"`
+	ID                     string                  `json:"process_id"`
+	Env                    map[string]string       `json:"env,omitempty"`
+	PreparationError       string                  `json:"preparation_error,omitempty"`
+	WaitMs                 int                     `json:"wait_ms,omitempty"`
+	TimeoutSeconds         int                     `json:"timeout_seconds"`
+	OutputBytes            int                     `json:"output_bytes,omitempty"`
 	processaction.OutputWait
 }
 
@@ -215,23 +216,24 @@ type processRuntime struct {
 }
 
 type localProcessRunner struct {
-	fileTransfer        *processcmd.FileTransfer
-	transferReader      *os.File
-	transferResult      chan fileTransferOutcome
-	cmd                 *exec.Cmd
-	startErr            error
-	containment         atomic.Pointer[processContainment]
-	startedAt           time.Time
-	stdin               *os.File
-	stdinMu             sync.Mutex
-	stdinOK             bool
-	noStdin             bool
-	ptyMode             bool
-	output              processOutput
-	outputDone          chan struct{}
-	outputErr           error
-	terminalResultReady chan struct{}
-	terminalResultOnce  sync.Once
+	fileTransfer           *processcmd.FileTransfer
+	fileTransferConnection *FileTransferConnection
+	transferReader         *os.File
+	transferResult         chan fileTransferOutcome
+	cmd                    *exec.Cmd
+	startErr               error
+	containment            atomic.Pointer[processContainment]
+	startedAt              time.Time
+	stdin                  *os.File
+	stdinMu                sync.Mutex
+	stdinOK                bool
+	noStdin                bool
+	ptyMode                bool
+	output                 processOutput
+	outputDone             chan struct{}
+	outputErr              error
+	terminalResultReady    chan struct{}
+	terminalResultOnce     sync.Once
 
 	errMu sync.Mutex
 	exit  processRunnerExit

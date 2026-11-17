@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -126,10 +127,15 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	env, err := p.daemonEnv(options, machineToken, machineEnv)
+	host, err := providers.MachineTokenProxyHost(p.omnaraAPIURL)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
+	env, err := p.daemonEnv(providers.StartupScriptWithoutProxyEnv(options.StartupScript), machineToken, machineEnv)
+	if err != nil {
+		return providers.ProvisionMachineResult{}, err
+	}
+	delete(env, providers.MachineTokenEnvVar)
 	var target sandbox
 	if firstAttempt && !p.createAttempted {
 		p.createAttempted = true
@@ -174,10 +180,37 @@ func (p *provider) ProvisionMachine(
 	if err := validateSandboxResources(target, machineProvisioning); err != nil {
 		return result, fmt.Errorf("%w: %w", err, providers.ErrPermanent)
 	}
+	if err := p.attachMachineToken(ctx, target.ID, name, host, machineToken); err != nil {
+		return result, err
+	}
 	if err := p.ensureDaemon(ctx, target, env); err != nil {
 		return result, err
 	}
 	return result, nil
+}
+
+func (p *provider) attachMachineToken(ctx context.Context, sandboxID, name, host, machineToken string) error {
+	err := p.api.CreateSecret(ctx, createSecretRequest{
+		Name:  name,
+		Value: machineToken,
+		Hosts: []string{host},
+		Auth:  secretAuth{Type: "bearer"},
+	})
+	if err != nil && apiStatusCode(err) != http.StatusConflict {
+		return fmt.Errorf("create superserve machine token secret: %w", err)
+	}
+	err = p.api.AttachSecret(ctx, sandboxID, attachSecretRequest{EnvKey: providers.MachineTokenEnvVar, SecretName: name})
+	if err != nil && !p.machineTokenBound(ctx, sandboxID, name) {
+		return fmt.Errorf("attach superserve machine token secret: %w", err)
+	}
+	return nil
+}
+
+func (p *provider) machineTokenBound(ctx context.Context, sandboxID, name string) bool {
+	current, found, err := p.api.GetSandbox(ctx, sandboxID)
+	return err == nil && found && slices.ContainsFunc(current.Secrets, func(binding sandboxSecret) bool {
+		return binding.EnvKey == providers.MachineTokenEnvVar && binding.SecretName == name && !binding.Revoked
+	})
 }
 
 func (p *provider) awaitActive(ctx context.Context, target sandbox) (sandbox, error) {
@@ -307,11 +340,11 @@ func tail(output string) string {
 }
 
 func (p *provider) daemonEnv(
-	options providerOptions,
+	startupScript string,
 	machineToken string,
 	machineEnv map[string]string,
 ) (map[string]string, error) {
-	env, err := providers.BuildManagedMachineEnv(p.omnaraAPIURL, machineToken, options.StartupScript, machineEnv)
+	env, err := providers.BuildManagedMachineEnv(p.omnaraAPIURL, machineToken, startupScript, machineEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -416,6 +449,10 @@ func (p *provider) DeleteMachine(
 	if providerResourceID == "" {
 		return errors.New("provider resource id is required")
 	}
+	name, err := providers.MachineAllocationName(installationID, machineID)
+	if err != nil {
+		return err
+	}
 	resourceID, found, err := p.InspectMachine(
 		ctx,
 		installationID,
@@ -426,10 +463,15 @@ func (p *provider) DeleteMachine(
 	if err == nil && !found {
 		resourceID, found, err = p.InspectMachine(ctx, installationID, machineID, machineProvisioning, "")
 	}
-	if err != nil || !found {
+	if err != nil {
 		return err
 	}
-	return p.api.DeleteSandbox(ctx, resourceID)
+	if found {
+		if err := p.api.DeleteSandbox(ctx, resourceID); err != nil {
+			return err
+		}
+	}
+	return p.api.DeleteSecret(ctx, name)
 }
 
 func rejectedBeforeCreate(err error) bool {

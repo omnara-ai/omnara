@@ -21,7 +21,7 @@ services:
   redis:
     image: valkey/valkey:9-alpine
     ports:
-      - "${REDIS_HOST_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 2s
@@ -35,7 +35,7 @@ services:
       POSTGRES_PASSWORD: omnara
       POSTGRES_DB: omnara
     ports:
-      - "${POSTGRES_HOST_PORT:-55432}:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-55432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U omnara -d omnara"]
       interval: 2s

@@ -74,7 +74,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	test-service-e2e test-worker-image install-chroot-sandbox \
 	web-install web-generate web-generate-check build-sdk build-web build-api build-api-from-dist build-omnarad build-sandbox web-lint web-doctor web-check web-static-check web-build-check web-check-all web-e2e run-web \
 	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
-	test-live-api-format-switching test-live-sandbox-providers test-live \
+	test-live-api-format-switching test-live-sandbox-providers test-live-machine-providers test-live \
 	docs-openapi docs-openapi-check
 
 help:
@@ -556,7 +556,11 @@ test-live-sandbox-providers:
 		./internal/machinepool/providers/unikraft \
 		-run '^Test(Agent37|Arker|Blaxel|Boxd|CreateOS|Daytona|E2B|Freestyle|Modal|Superserve|Tenki|Unikraft)ProviderLiveSmoke$$'
 
-test-live: test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers
+test-live-machine-providers:
+	@$(LOAD_DOTENV); \
+	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=20m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveMachineProviders$$'
+
+test-live: test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers test-live-machine-providers
 
 # Black-box API suite against a deployed control plane.
 # The -timeout must stay comfortably above the suite's worst-case waits (~9m of

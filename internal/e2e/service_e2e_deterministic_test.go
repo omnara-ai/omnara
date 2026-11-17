@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -1076,8 +1077,8 @@ func (e *serviceE2EEnvironment) bootstrapProjectViaAPIWithSourceAndModelOptions(
 		t.Fatalf("create e2e owner pat: %v", err)
 	}
 	adminToken := adminPAT.Token
-	adminSession := seed + "-admin-session"
-	adminCSRF := seed + "-admin-csrf"
+	adminSession := rand.Text()
+	adminCSRF := rand.Text()
 	if _, err := store.Identity().CreateBrowserSession(
 		ctx,
 		identitystore.CreateBrowserSessionInput{
