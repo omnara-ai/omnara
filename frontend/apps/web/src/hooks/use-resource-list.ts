@@ -96,6 +96,7 @@ export function useTypeaheadSearch() {
   return {
     search,
     setSearch,
+    debouncing: search.trim() !== debouncedSearch,
     name,
     /** Ready-to-spread list filters: `{ name }` while searching, `{}` otherwise. */
     filters: name === undefined ? {} : { name },

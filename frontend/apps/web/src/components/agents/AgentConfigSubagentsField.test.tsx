@@ -1,7 +1,7 @@
 /** @vitest-environment happy-dom */
 
 import { OmnaraClientProvider } from '@omnara/react'
-import { createOmnaraClient } from '@omnara/sdk'
+import { type AgentProfileSummary, createOmnaraClient } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,
@@ -16,8 +16,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vite
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
 import { AgentConfigSubagentsField } from '@/components/agents/AgentConfigSubagentsField'
 import { ActiveOrgContext } from '@/lib/active-org-context'
-import { fakeApi, jsonResponse } from '@/test/fake-api'
-import { currentUserOrg, fakeId } from '@/test/fixtures'
+import { fakeApi, type FakeRoute, jsonResponse } from '@/test/fake-api'
+import { agentConfigModel, currentUserOrg, fakeId } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 
 const TestContentContext = createContext<ReactNode>(null)
@@ -46,6 +46,27 @@ const clone: BasicSubagent = {
     context_window_tokens: 64000,
   },
 }
+const now = '2026-11-01T00:00:00Z'
+function profile(letter: string, name: string): AgentProfileSummary {
+  return {
+    id: `aprf_${letter.repeat(26)}`,
+    name,
+    org_id: activeOrg.id,
+    project_id: fakeId('proj'),
+    current_generation: 1,
+    current_config_id: fakeId('acfg'),
+    current_config: {
+      id: fakeId('acfg'),
+      org_id: activeOrg.id,
+      project_id: fakeId('proj'),
+      model: agentConfigModel(),
+      effective_definition_hash: 'hash',
+      created_at: now,
+    },
+    created_at: now,
+    updated_at: now,
+  }
+}
 
 let container: HTMLDivElement
 let root: Root
@@ -70,7 +91,11 @@ afterEach(() => {
   container.remove()
 })
 
-async function renderField(onSubagentsChange: (subagents: BasicSubagent[]) => void) {
+async function renderField(
+  onSubagentsChange: (subagents: BasicSubagent[]) => void,
+  subagents: BasicSubagent[] = [clone],
+  routes: FakeRoute[] = [],
+) {
   const client = createOmnaraClient({
     baseUrl: 'https://omnara.test/api/v1',
     fetch: fakeApi([
@@ -79,6 +104,7 @@ async function renderField(onSubagentsChange: (subagents: BasicSubagent[]) => vo
         path: `/api/v1/orgs/${activeOrg.id}/projects`,
         respond: () => jsonResponse({ data: [], next_cursor: null }),
       },
+      ...routes,
     ]).fetch,
   })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -86,7 +112,7 @@ async function renderField(onSubagentsChange: (subagents: BasicSubagent[]) => vo
     <AgentConfigSubagentsField
       orgId={activeOrg.id}
       projectId={fakeId('proj')}
-      subagents={[clone]}
+      subagents={subagents}
       parentReasoningEffort=""
       maxSubagents=""
       maxDepth=""
@@ -142,4 +168,59 @@ it('keeps the model override when the type changes', async () => {
   clickTab('Agent profile')
 
   expect(onSubagentsChange).toHaveBeenLastCalledWith([{ ...clone, type: 'profile' }])
+})
+
+it('selects a typed agent profile with Enter once search results load', async () => {
+  const onSubagentsChange = vi.fn()
+  const extractor: BasicSubagent = {
+    id: 'extractor',
+    key: 'extractor',
+    type: 'profile',
+    profileName: '',
+    description: '',
+    instructionAppend: '',
+    maxInstances: '',
+    archiveAfterIdleMinutes: '',
+  }
+  const profiles = [profile('a', 'Alpha Planner'), profile('b', 'Extract Calendar Events')]
+  await renderField(
+    onSubagentsChange,
+    [extractor],
+    [
+      {
+        method: 'GET',
+        path: `/api/v1/orgs/${activeOrg.id}/projects/${fakeId('proj')}/agent-profiles`,
+        respond: () => Response.json({ data: profiles, next_cursor: null }),
+      },
+    ],
+  )
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+  try {
+    await act(async () => {
+      container.querySelector<HTMLElement>('#agent-config-subagent-extractor-profile')?.click()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Search agent profiles…"]',
+    )
+    if (!input) throw new Error('Missing profile search')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        input,
+        'Extract',
+      )
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
+      await vi.advanceTimersByTimeAsync(300)
+    })
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+
+    expect(onSubagentsChange).toHaveBeenLastCalledWith([
+      { ...extractor, profileName: 'Extract Calendar Events' },
+    ])
+  } finally {
+    vi.useRealTimers()
+  }
 })

@@ -5,6 +5,7 @@ import { AgentConfigBasicForm } from '@/components/agents/AgentConfigBasicForm'
 import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { yamlDiverged } from '@/components/agents/agentConfigModeMachine'
+import { configProblems } from '@/components/agents/agentConfigProblems'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
 import { AgentTemplateMenu } from '@/components/agents/AgentTemplateMenu'
 import type { AgentTemplate } from '@/components/agents/agentTemplates'
@@ -16,11 +17,12 @@ import {
   type SubmitAction,
   useCreateAgentSubmission,
 } from '@/components/agents/useCreateAgentSubmission'
+import { useSubmitCheck } from '@/components/agents/useSubmitCheck'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import { resourceNameValid } from '@/lib/resource-name'
+import { resourceNameError } from '@/lib/resource-name'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
@@ -40,6 +42,7 @@ export function CreateAgentFormView({
   const { activeOrg, project, projectId } = useProjectPage()
   const {
     submit: submitAgent,
+    clearErrors,
     status,
     pendingAction,
     launchError,
@@ -59,19 +62,23 @@ export function CreateAgentFormView({
     projectId,
   })
 
-  if (project == null) return null
-
   const showBuilder = mode.mode === 'builder'
   const isSubmitting = status.phase === 'submitting'
   const yaml = mode.editorYaml ?? form.yaml
-  const canSubmit =
-    !isSubmitting &&
-    resourceNameValid(name) &&
-    yaml.trim() !== '' &&
-    !(form.blocked && (showBuilder || !yamlDiverged(mode)))
+  const nameError = resourceNameError(name)
+  const submitCheck = useSubmitCheck([
+    ...(nameError === undefined ? [] : [nameError]),
+    ...configProblems(yaml, showBuilder || !yamlDiverged(mode) ? form.problems : []),
+  ])
+
+  if (project == null) return null
 
   async function submit(action: SubmitAction) {
-    if (!canSubmit) return
+    if (isSubmitting) return
+    if (!submitCheck.check()) {
+      clearErrors()
+      return
+    }
     await submitAgent(name, yaml, action)
   }
 
@@ -175,7 +182,7 @@ export function CreateAgentFormView({
         status={status}
         pendingAction={pendingAction}
         launchError={launchError}
-        canSubmit={canSubmit}
+        problems={submitCheck.problems}
         onCreateProfile={() => {
           void submit('profile')
         }}

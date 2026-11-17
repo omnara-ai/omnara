@@ -6,12 +6,14 @@ import {
   initialAgentConfigModeState,
   yamlDiverged,
 } from '@/components/agents/agentConfigModeMachine'
+import { configProblems } from '@/components/agents/agentConfigProblems'
 import { takeMcpBuilderOAuthRestore } from '@/components/agents/pendingMcpBuilderOAuth'
 import {
   createBasicConfigSession,
   useAgentBuilderForm,
 } from '@/components/agents/useAgentBuilderForm'
 import { useAgentUnsavedChangesWarning } from '@/components/agents/useAgentUnsavedChangesWarning'
+import { useSubmitCheck } from '@/components/agents/useSubmitCheck'
 
 export type AgentConfigEditorState = ReturnType<typeof useAgentConfigEditor>
 
@@ -60,9 +62,11 @@ export function useAgentConfigEditor({
   const yaml = showBuilder ? builderYaml : editorYaml
   const dirty = yaml !== source
   const suppressUnsavedChangesWarning = useAgentUnsavedChangesWarning(dirty)
-  const saveBlocked =
-    yaml.trim() === '' ||
-    (builderSession != null && form.blocked && (showBuilder || !yamlDiverged(mode)))
+  const problems = configProblems(
+    yaml,
+    builderSession != null && (showBuilder || !yamlDiverged(mode)) ? form.problems : [],
+  )
+  const saveCheck = useSubmitCheck(problems, !dirty)
 
   useEffect(() => {
     onModeChange(mode.mode)
@@ -85,7 +89,7 @@ export function useAgentConfigEditor({
     yaml,
     dirty,
     suppressUnsavedChangesWarning,
-    saveBlocked,
+    saveCheck,
     showBuilder,
   }
 }
