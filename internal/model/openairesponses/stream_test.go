@@ -293,8 +293,22 @@ func TestOpenAIConsumeStreamTruncatedIsError(t *testing.T) {
 		t.Fatalf("truncated stream = %T %v, want ambiguous outcome", err, err)
 	}
 	if resp.ID != "resp_partial" || resp.ServedProviderModelSlug != "gpt-partial" ||
-		resp.Usage.InputTokens != 23 || resp.Usage.OutputTokens != 2 {
+		resp.Usage.InputTokens != 23 || resp.Usage.OutputTokens != 2 || !resp.Usage.Incomplete {
 		t.Fatalf("truncated stream evidence = %+v", resp)
+	}
+}
+
+func TestOpenAIConsumeStreamErrorEventKeepsUsageIncomplete(t *testing.T) {
+	stream := openAISSE(
+		[2]string{
+			"response.created",
+			`{"response":{"id":"resp_partial","status":"in_progress","usage":{"input_tokens":23,"output_tokens":2}}}`,
+		},
+		[2]string{"error", `{"type":"error","code":"server_error","message":"upstream unavailable"}`},
+	)
+	resp, err := consumeOpenAIStream(t, stream, &recordingSink{})
+	if err == nil || resp.Usage.InputTokens != 23 || !resp.Usage.Incomplete {
+		t.Fatalf("error event evidence = %+v err=%v", resp.Usage, err)
 	}
 }
 

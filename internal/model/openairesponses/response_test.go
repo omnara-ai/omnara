@@ -432,12 +432,16 @@ func TestRespondTreatsNonTerminalStatusAsAmbiguous(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Request-ID", "req_in_progress")
 		_, _ = w.Write([]byte(
-			`{"id":"resp_in_progress","status":"in_progress","request_id":"req_in_progress","output":[]}`,
+			`{"id":"resp_in_progress","status":"in_progress","request_id":"req_in_progress","output":[],` +
+				`"usage":{"input_tokens":7,"output_tokens":1}}`,
 		))
 	}))
 	defer server.Close()
 	client := testRespondClient(server)
-	_, err := client.Respond(context.Background(), model.Request{ProviderRequest: json.RawMessage(`{"input":"x"}`)})
+	resp, err := client.Respond(context.Background(), model.Request{ProviderRequest: json.RawMessage(`{"input":"x"}`)})
+	if resp.Usage.InputTokens != 7 || !resp.Usage.Incomplete {
+		t.Fatalf("nonterminal response usage = %+v", resp.Usage)
+	}
 	providerErr, ok := model.ClassifyError(err)
 	if !ok || providerErr.Kind != model.ErrorKindTransient || providerErr.Code != "in_progress" ||
 		providerErr.RequestID != "req_in_progress" {

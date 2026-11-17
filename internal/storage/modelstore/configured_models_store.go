@@ -2,6 +2,7 @@ package modelstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -148,6 +149,7 @@ func (s *Store) createConfiguredModelTx(
 			InputModalities:           input.InputModalities,
 			OutputModalities:          input.OutputModalities,
 			ApiVariantOptions:         input.APIVariantOptions,
+			Pricing:                   input.Pricing,
 		},
 	)
 	if err != nil {
@@ -355,6 +357,7 @@ func updateConfiguredModelTx(
 			InputModalities:           input.InputModalities,
 			OutputModalities:          input.OutputModalities,
 			ApiVariantOptions:         input.APIVariantOptions,
+			Pricing:                   input.Pricing,
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -422,6 +425,7 @@ func updateConfiguredModelInputFromCurrent(current ConfiguredModelRecord) config
 		InputModalities:           append([]string(nil), current.InputModalities...),
 		OutputModalities:          append([]string(nil), current.OutputModalities...),
 		APIVariantOptions:         storeutil.NormalizeJSON(current.APIVariantOptions),
+		Pricing:                   current.Pricing,
 	}
 }
 
@@ -462,6 +466,9 @@ func applyConfiguredModelPatch(update *configuredModelUpdate, patch PatchConfigu
 	if patch.APIVariantOptions != nil {
 		update.APIVariantOptions = *patch.APIVariantOptions
 	}
+	if patch.Pricing.Set {
+		update.Pricing = patch.Pricing.Value
+	}
 }
 
 func configuredModelBehaviorChanged(current ConfiguredModelRecord, update configuredModelUpdate) bool {
@@ -479,7 +486,15 @@ func configuredModelBehaviorChanged(current ConfiguredModelRecord, update config
 		!jsoncanonical.Equal(
 			storeutil.NormalizeJSON(current.APIVariantOptions),
 			storeutil.NormalizeJSON(update.APIVariantOptions),
-		)
+		) ||
+		!samePricing(current.Pricing, update.Pricing)
+}
+
+func samePricing(left, right *json.RawMessage) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return jsoncanonical.Equal(*left, *right)
 }
 
 func applyNullableIntPatch(target **int, value patch.NullableInt) {
@@ -671,6 +686,7 @@ func configuredModelRecordFromInsertSQLC(row dbsqlc.InsertConfiguredModelRow) Co
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -698,6 +714,7 @@ func configuredModelRecordFromGetSQLC(row dbsqlc.GetConfiguredModelRow) Configur
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -725,6 +742,7 @@ func configuredModelRecordFromLockForUseSQLC(row dbsqlc.LockConfiguredModelForUs
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -752,6 +770,7 @@ func configuredModelRecordFromDisplaySQLC(row dbsqlc.GetConfiguredModelDisplayRo
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -779,6 +798,7 @@ func configuredModelRecordFromGetByNameSQLC(row dbsqlc.GetConfiguredModelByNameR
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -806,6 +826,7 @@ func configuredModelRecordFromListSQLC(row dbsqlc.ListConfiguredModelsRow) Confi
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -833,6 +854,7 @@ func configuredModelRecordFromUpdateSQLC(row dbsqlc.UpdateConfiguredModelRow) Co
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -860,6 +882,7 @@ func configuredModelRecordFromRenameSQLC(row dbsqlc.RenameConfiguredModelRow) Co
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		DeletedAt:                 row.DeletedAt,
 		CreatedAt:                 row.CreatedAt,
 		UpdatedAt:                 row.UpdatedAt,
@@ -890,6 +913,7 @@ func configuredModelRecordFromLockedConfiguredModelAndRevisionSQLC(
 		InputModalities:           append([]string(nil), revision.InputModalities...),
 		OutputModalities:          append([]string(nil), revision.OutputModalities...),
 		APIVariantOptions:         storeutil.NormalizeJSON(revision.APIVariantOptions),
+		Pricing:                   revision.Pricing,
 		DeletedAt:                 configuredModel.DeletedAt,
 		CreatedAt:                 configuredModel.CreatedAt,
 		UpdatedAt:                 configuredModel.UpdatedAt,
@@ -915,6 +939,7 @@ func configuredModelRevisionRecordFromSQLC(row dbsqlc.ConfiguredModelRevision) C
 		InputModalities:           nonNilStringSlice(row.InputModalities),
 		OutputModalities:          nonNilStringSlice(row.OutputModalities),
 		APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+		Pricing:                   row.Pricing,
 		CreatedAt:                 row.CreatedAt,
 	}
 }
@@ -940,6 +965,7 @@ func configuredModelRevisionDisplayRecordFromSQLC(
 			InputModalities:           nonNilStringSlice(row.InputModalities),
 			OutputModalities:          nonNilStringSlice(row.OutputModalities),
 			APIVariantOptions:         storeutil.NormalizeJSON(row.ApiVariantOptions),
+			Pricing:                   row.Pricing,
 			CreatedAt:                 row.CreatedAt,
 		},
 		ConfiguredModelName: row.ConfiguredModelName,

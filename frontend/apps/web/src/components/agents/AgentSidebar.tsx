@@ -27,7 +27,8 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { ReportedCost } from '@/components/usage/ReportedCost'
+import { BudgetCard } from '@/components/usage/BudgetCard'
+import { UsageCost } from '@/components/usage/UsageCost'
 import { formatCompactCount, formatCount, formatDateTime } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
@@ -59,6 +60,7 @@ export function AgentSidebar({
   mcpConnections,
   profile,
   canManage,
+  canManageBudget,
 }: {
   orgId: string
   projectId: string
@@ -67,6 +69,7 @@ export function AgentSidebar({
   mcpConnections: AgentMcpConnection[]
   profile?: AgentProfile
   canManage: boolean
+  canManageBudget: boolean
 }) {
   const [addCronOpen, setAddCronOpen] = useState(false)
   return (
@@ -114,6 +117,13 @@ export function AgentSidebar({
           <AgentSubagentsGroup orgId={orgId} projectId={projectId} agentId={agent.id} />
           <AgentMcpGroup connections={mcpConnections} />
           <AgentUsageGroup orgId={orgId} projectId={projectId} agentId={agent.id} />
+          {canManageBudget && !agent.parent_agent_id && (
+            <BudgetCard
+              orgId={orgId}
+              scope={{ type: 'agent', project_id: projectId, agent_id: agent.id }}
+              variant="sidebar"
+            />
+          )}
           <AgentCronGroup
             orgId={orgId}
             projectId={projectId}
@@ -302,7 +312,7 @@ function AgentUsageDetails({ report }: { report: UsageReport }) {
           aria-label={expanded ? 'Hide usage details' : 'Show usage details'}
         >
           <span className="truncate tabular-nums">
-            <ReportedCost modelCalls={report.totals.model_calls} cost={report.totals.cost} />
+            <UsageCost modelCalls={report.totals.model_calls} cost={report.totals.cost} />
             <span className="text-muted-foreground">
               {' · '}
               {formatCompactCount(report.totals.tokens.input_tokens_total)} in
@@ -351,7 +361,7 @@ function AgentUsageDetails({ report }: { report: UsageReport }) {
                 <span className="text-muted-foreground shrink-0 tabular-nums">
                   {formatCompactCount(row.tokens.input_tokens_total)} in ·{' '}
                   {formatCompactCount(row.tokens.output_tokens_total)} out ·{' '}
-                  <ReportedCost modelCalls={row.model_calls} cost={row.cost} />
+                  <UsageCost modelCalls={row.model_calls} cost={row.cost} />
                 </span>
               </SidebarMenuItem>
             ))}

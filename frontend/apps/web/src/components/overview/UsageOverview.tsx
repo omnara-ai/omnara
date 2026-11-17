@@ -5,9 +5,9 @@ import type { Blob } from '@/components/aurora/aurora'
 import { AuroraPanel } from '@/components/aurora/AuroraPanel'
 import { DitherBackdrop } from '@/components/aurora/DitherBackdrop'
 import { OverviewSectionHeader } from '@/components/overview/OverviewSectionHeader'
-import { ReportedCost } from '@/components/usage/ReportedCost'
 import { formatUsageValue, usageMeasureValue } from '@/components/usage/usage-chart-data'
 import { lastDaysUsageWindow } from '@/components/usage/usage-date-range'
+import { UsageCost } from '@/components/usage/UsageCost'
 import { UsageStats } from '@/components/usage/UsageStats'
 import {
   UsageTimeseriesPanel,
@@ -73,7 +73,7 @@ function UsageFigures({ timeseries }: { timeseries: UsageTimeseries }) {
         {
           label: 'Cost',
           value: (
-            <ReportedCost
+            <UsageCost
               modelCalls={totals.model_calls}
               cost={totals.cost}
               format={(decimal) => formatUsageValue('cost', Number(decimal))}

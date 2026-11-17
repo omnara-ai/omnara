@@ -279,7 +279,7 @@ func TestIntegrationHTTPLauncherReferencesResolveAtRuntime(t *testing.T) {
 			"settings preserve public IDs; resources are authorized at launch")
 	}
 	ownID := mustPublicHTTPID(t, publicid.KindAgentProfile, testutil.RequireType[string](t, own["id"]))
-	require.NoError(t, project.Store.Execution().DeleteAgentProfile(t.Context(), project.ProjectUUID, ownID))
+	require.NoError(t, project.Store.Execution().DeleteAgentProfile(t.Context(), project.ProjectUUID, ownID, true))
 }
 
 func TestIntegrationHTTPDiscordLaunchesAcrossServers(t *testing.T) {

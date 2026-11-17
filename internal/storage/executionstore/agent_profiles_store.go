@@ -94,6 +94,11 @@ func (s *Store) CreateAgentProfile(
 		)
 	}
 
+	if err := identitystore.CreateBudgetsTx(ctx, tx, identitystore.CreateBudgetInput{
+		OrgID: input.OrgID, ProjectID: &input.ProjectID, AgentProfileID: &record.ID,
+	}, input.Budgets); err != nil {
+		return AgentProfileRecord{}, err
+	}
 	record.CurrentConfig = config
 	if err := tx.Commit(ctx); err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("commit create agent profile: %w", err)
@@ -514,7 +519,7 @@ func (s *Store) ListProjectLastActivity(
 	return activity, nil
 }
 
-func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID) error {
+func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID, canDeleteBudgets bool) error {
 	if projectID == uuid.Nil || id == uuid.Nil {
 		return errors.New("project and agent profile are required")
 	}
@@ -533,6 +538,15 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID)
 	}
 	if _, err := lockAgentProfileTx(ctx, qtx, projectID, id); err != nil {
 		return err
+	}
+	budgets, err := qtx.DeleteBudgetsForAgentProfile(ctx, dbsqlc.DeleteBudgetsForAgentProfileParams{
+		OrgID: project.OrgID, ProjectID: projectID, AgentProfileID: id,
+	})
+	if err != nil {
+		return fmt.Errorf("delete agent profile budgets: %w", err)
+	}
+	if budgets > 0 && !canDeleteBudgets {
+		return storeerr.Tag(storeerr.ErrConflict, errors.New("only an org admin can delete a profile that has budgets"))
 	}
 	rows, err := qtx.DeleteAgentProfile(
 		ctx,
@@ -571,6 +585,7 @@ type CreateAgentProfileInput struct {
 	Name            string
 	CurrentConfigID uuid.UUID
 	IdempotencyKey  string
+	Budgets         []identitystore.BudgetAttachment
 }
 
 type AgentProfileRecord struct {

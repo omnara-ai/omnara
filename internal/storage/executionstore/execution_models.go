@@ -35,7 +35,8 @@ func prepareExecutionModel(
 func executionFailure(input RecordRecoverableModelCallFailureInput) agentexecution.ModelFailure {
 	failure := executionFailureDetails(input.ModelCallContextID, input.RuntimeLockID,
 		input.ErrorKind, input.ErrorCode, input.ErrorMessage, input.ErrorDetails,
-		executionEvidence(input.APIFormat, input.APIVariant, input.ProviderRequestID, input.ProviderResponseID,
+		executionEvidence(input.APIFormat, input.APIVariant, input.ProviderBaseURL, input.ServedProviderModelSlug,
+			input.ProviderRequestID, input.ProviderResponseID,
 			input.Usage, input.ProviderReportedCostUSD, input.ProviderMetadata))
 	failure.Recovery = agentexecution.RecoveryKind(input.RecoveryKind)
 	failure.RetryDelay = input.RetryDelay
@@ -64,7 +65,8 @@ func executionClaim(
 func executionTerminalFailure(input RecordModelCallErrorAndCompleteContextInput) agentexecution.ModelFailure {
 	failure := executionFailureDetails(input.ModelCallContextID, input.RuntimeLockID,
 		input.ErrorKind, input.ErrorCode, input.ErrorMessage, input.ErrorDetails,
-		executionEvidence(input.APIFormat, input.APIVariant, input.ProviderRequestID, input.ProviderResponseID,
+		executionEvidence(input.APIFormat, input.APIVariant, input.ProviderBaseURL, input.ServedProviderModelSlug,
+			input.ProviderRequestID, input.ProviderResponseID,
 			input.Usage, input.ProviderReportedCostUSD, input.ProviderMetadata))
 	failure.ServedModel = input.ServedProviderModelSlug
 	return failure
@@ -78,9 +80,9 @@ func executionFailureDetails(contextID, runtimeID uuid.UUID, kind modelprotocol.
 	}
 }
 
-func executionEvidence(format modelprotocol.APIFormat, variant modelprotocol.APIVariant,
+func executionEvidence(format modelprotocol.APIFormat, variant modelprotocol.APIVariant, baseURL, servedModel,
 	requestID, responseID string, usage modelenvelope.Usage, cost modelenvelope.ProviderReportedCostUSD,
 	metadata modelenvelope.ProviderMetadata) agentexecution.ModelEvidence {
-	return agentexecution.ModelEvidence{APIFormat: format, APIVariant: variant, RequestID: requestID,
-		ResponseID: responseID, Usage: usage, Cost: cost, Metadata: metadata}
+	return agentexecution.ModelEvidence{APIFormat: format, APIVariant: variant, BaseURL: baseURL, ServedModel: servedModel,
+		RequestID: requestID, ResponseID: responseID, Usage: usage, Cost: cost, Metadata: metadata}
 }

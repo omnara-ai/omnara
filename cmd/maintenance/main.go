@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/maintenance"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
@@ -118,6 +119,13 @@ func main() {
 	githubHTTPClient := metrics.NewObservedHTTPClient(
 		outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{Timeout: github.OperationTimeout}), httpRecorder,
 	)
+	var modelPrices *modelprice.Source
+	if cfg.ModelPricesRefreshEnabled {
+		modelPrices = &modelprice.Source{
+			URL:    cfg.ModelPricesURL,
+			Client: metrics.NewObservedHTTPClient(&http.Client{Timeout: modelprice.FetchTimeout}, httpRecorder),
+		}
+	}
 	var defaultModelProvider *defaultprovider.Runner
 	if cfg.DefaultModelProvider != nil {
 		hostedHTTPClient := metrics.NewObservedHTTPClient(
@@ -151,6 +159,7 @@ func main() {
 			PublicURL:            cfg.PublicURL,
 			GitHubHTTPClient:     githubHTTPClient,
 			DefaultModelProvider: defaultModelProvider,
+			ModelPrices:          modelPrices,
 		})
 	}()
 	exitCode := 0

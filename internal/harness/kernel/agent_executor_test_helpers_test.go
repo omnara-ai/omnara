@@ -99,9 +99,10 @@ type kernelFixture struct {
 type kernelConfiguredModelOptions struct {
 	ContextWindowTokens *int
 	MaxOutputTokens     *int
+	Pricing             *json.RawMessage
 }
 
-func newKernelFixture(t *testing.T, ctx context.Context) kernelFixture {
+func newKernelFixture(t *testing.T, ctx context.Context, opts ...storage.Option) kernelFixture {
 	t.Helper()
 	pool := integrationdb.OpenMigratedPool(t, ctx, "../../../migrations")
 	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
@@ -125,10 +126,12 @@ func newKernelFixture(t *testing.T, ctx context.Context) kernelFixture {
 	}
 	store := storage.NewStore(
 		pool,
-		storage.WithSecretKeyWrapper(kernelTestKeyWrapper(t)),
-		storage.WithBlobStore(integrationblob.MustOpen(t, ctx)),
-		storage.WithMachinePoolProviders(kernelTestMachinePoolProviders{}),
-		storage.WithModelCallRetryBackoff(func(int, string) time.Duration { return 0 }),
+		append([]storage.Option{
+			storage.WithSecretKeyWrapper(kernelTestKeyWrapper(t)),
+			storage.WithBlobStore(integrationblob.MustOpen(t, ctx)),
+			storage.WithMachinePoolProviders(kernelTestMachinePoolProviders{}),
+			storage.WithModelCallRetryBackoff(func(int, string) time.Duration { return 0 }),
+		}, opts...)...,
 	)
 	if _, err := store.Identity().AddOrgMembership(
 		ctx,
@@ -383,6 +386,7 @@ func (f kernelFixture) ensureModelSelection(
 	if options.MaxOutputTokens != nil {
 		input.MaxOutputTokens = options.MaxOutputTokens
 	}
+	input.Pricing = options.Pricing
 	configuredModel := storagefixture.EnsureModelAccess(t, ctx, f.Store.Models(), kernelTestProjectID, input)
 	if options.ContextWindowTokens != nil {
 		require.Equal(t, *options.ContextWindowTokens, configuredModel.ContextWindowTokens)

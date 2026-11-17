@@ -149,8 +149,29 @@ func anthropicResponseEvidence(response messagesResponse) model.Response {
 	return model.Response{
 		ID:                      response.ID,
 		ServedProviderModelSlug: response.Model,
+		ProviderMetadata:        modelenvelope.ProviderMetadata{Anthropic: rateClassFromUsage(response.Usage)},
 		Usage:                   usageFromResponse(response.Usage),
 	}
+}
+
+func rateClassFromUsage(value usage) modelenvelope.AnthropicMetadata {
+	out := modelenvelope.AnthropicMetadata{}
+	if value.Speed != "standard" {
+		out.Speed = value.Speed
+	}
+	if value.InferenceGeo != "global" && value.InferenceGeo != "not_available" {
+		out.InferenceGeo = value.InferenceGeo
+	}
+	if value.ServiceTier != "standard" {
+		out.ServiceTier = value.ServiceTier
+	}
+	if value.CacheCreation != nil && value.CacheCreationInputTokens > 0 &&
+		value.CacheCreation.Ephemeral1hInputTokens >= 0 &&
+		value.CacheCreation.Ephemeral1hInputTokens <= value.CacheCreationInputTokens {
+		oneHour := value.CacheCreation.Ephemeral1hInputTokens
+		out.CacheWrite1hInputTokens = &oneHour
+	}
+	return out
 }
 
 type messagesResponse struct {
@@ -180,6 +201,15 @@ type usage struct {
 	OutputTokens             int                         `json:"output_tokens"`
 	CacheCreationInputTokens int                         `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     modelenvelope.ReportedCount `json:"cache_read_input_tokens,omitzero"`
+	CacheCreation            *cacheCreation              `json:"cache_creation,omitempty"`
+	Speed                    string                      `json:"speed,omitempty"`
+	InferenceGeo             string                      `json:"inference_geo,omitempty"`
+	ServiceTier              string                      `json:"service_tier,omitempty"`
+}
+
+type cacheCreation struct {
+	Ephemeral5mInputTokens int `json:"ephemeral_5m_input_tokens"`
+	Ephemeral1hInputTokens int `json:"ephemeral_1h_input_tokens"`
 }
 
 func mapStopReason(reason string) modelenvelope.StopReason {

@@ -218,6 +218,7 @@ type ConfiguredModelRevision struct {
 	OutputModalities          []string
 	ApiVariantOptions         json.RawMessage
 	CreatedAt                 time.Time
+	Pricing                   *json.RawMessage
 }
 
 type EffectiveResourceLimit struct {

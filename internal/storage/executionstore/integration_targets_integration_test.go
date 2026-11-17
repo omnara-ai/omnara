@@ -222,7 +222,7 @@ func TestIntegrationAuthorizationAndIndependentIdentityAcrossProjects(t *testing
 		"T_SCOPE",
 	)
 	first := mustCreateIntegration(t, ctx, store, identity)
-	if err := store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID); err != nil {
+	if err := store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID, true); err != nil {
 		t.Fatalf("integration setup should not own a profile: %v", err)
 	}
 	otherProject, err := store.Identity().CreateProjectForPrincipal(ctx, identitystore.CreateProjectForPrincipalInput{

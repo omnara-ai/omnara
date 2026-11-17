@@ -171,21 +171,29 @@ func (s *Server) authorizeProject(
 }
 
 func (s *Server) authorizeOrgManage(ctx context.Context, orgID uuid.UUID) error {
+	allowed, err := s.canManageOrg(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	}
+	return nil
+}
+
+func (s *Server) canManageOrg(ctx context.Context, orgID uuid.UUID) (bool, error) {
 	principal, ok := principalFromContext(ctx)
 	if !ok || !identitystore.IsAccountPrincipal(principal) {
-		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+		return false, nil
 	}
 	allowed, err := s.store.Identity().AuthorizeOrg(
 		ctx,
 		identitystore.AuthorizeOrgInput{Principal: principal, OrgID: orgID, Action: identitystore.OrgActionManage},
 	)
 	if err != nil {
-		return authorizationAPIError(ctx, err)
+		return false, authorizationAPIError(ctx, err)
 	}
-	if !allowed {
-		return apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
-	}
-	return nil
+	return allowed, nil
 }
 
 func (s *Server) machineScope(

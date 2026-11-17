@@ -91,6 +91,10 @@ func (s strictOpenAPIServer) CreateOrganization(
 		}
 	}
 
+	budgets, err := budgetAttachments(request.Body.Budgets)
+	if err != nil {
+		return nil, err
+	}
 	orgID, err := newProposedOrganizationID(principal.ID, idempotencyKey)
 	if err != nil {
 		return nil, createOrganizationStorageError(ctx, "generate organization id", err)
@@ -102,6 +106,7 @@ func (s strictOpenAPIServer) CreateOrganization(
 		IdempotencyKey:                idempotencyKey,
 		DefaultMachinePools:           s.server.defaultPools,
 		ProvisionDefaultModelProvider: s.server.defaultModelProvider != nil,
+		Budgets:                       budgets,
 	}
 	record, err := s.server.store.Organizations().CreateOrgForUser(ctx, input)
 	if err != nil {

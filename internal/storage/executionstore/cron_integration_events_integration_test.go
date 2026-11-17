@@ -277,7 +277,7 @@ func TestCronIntegrationEventLifecycle(t *testing.T) {
 					f.store.Integrations().DeleteIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID),
 				)
 			case "delete_profile":
-				require.NoError(t, f.store.Execution().DeleteAgentProfile(f.ctx, testProjectID, f.profile.ID))
+				require.NoError(t, f.store.Execution().DeleteAgentProfile(f.ctx, testProjectID, f.profile.ID, true))
 			}
 			queued, err := f.store.Execution().CreateCronTriggerIntegrationEvent(f.ctx, claimed)
 			require.NoError(t, err)

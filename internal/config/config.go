@@ -121,6 +121,8 @@ type Config struct {
 	HostedAPIURL                      string
 	HostedAPIToken                    string
 	MCPRegistrySnapshotPath           string
+	ModelPricesURL                    string
+	ModelPricesRefreshEnabled         bool
 }
 
 type AuthConnectorConfig struct {
@@ -215,6 +217,10 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	smtpRequireTLS, err := getenvBool("OMNARA_SMTP_REQUIRE_TLS", true)
+	if err != nil {
+		return Config{}, err
+	}
+	modelPricesRefreshEnabled, err := getenvBool("OMNARA_MODEL_PRICES_REFRESH_ENABLED", true)
 	if err != nil {
 		return Config{}, err
 	}
@@ -346,6 +352,8 @@ func Load() (Config, error) {
 		HostedAPIURL:                      getenv("OMNARA_HOSTED_API_URL", ""),
 		HostedAPIToken:                    getenv("OMNARA_HOSTED_API_TOKEN", ""),
 		MCPRegistrySnapshotPath:           getenv("OMNARA_MCP_REGISTRY_SNAPSHOT_PATH", "/app/mcp-registry/mcp-registry.json"),
+		ModelPricesURL:                    strings.TrimSpace(getenv("OMNARA_MODEL_PRICES_URL", "")),
+		ModelPricesRefreshEnabled:         modelPricesRefreshEnabled,
 	}
 	cfg.EndpointAllowlist, err = ssrf.ParseAllowlist(getenvCSV("OMNARA_PRIVATE_ENDPOINT_CIDRS"))
 	if err != nil {
@@ -856,6 +864,11 @@ func (cfg Config) ValidateMaintenance() error {
 	}
 	if cfg.MaintenanceInterval <= 0 {
 		return fmt.Errorf("OMNARA_MAINTENANCE_INTERVAL must be positive")
+	}
+	if cfg.ModelPricesRefreshEnabled && cfg.ModelPricesURL != "" {
+		if err := validateHTTPURL("OMNARA_MODEL_PRICES_URL", cfg.ModelPricesURL); err != nil {
+			return err
+		}
 	}
 	if !filepath.IsAbs(cfg.MemoryDir) {
 		return errors.New("OMNARA_MEMORY_DIR must be an absolute path")
