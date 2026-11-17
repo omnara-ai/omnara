@@ -15,6 +15,7 @@ ALTER TABLE model_call_contexts
             effective_cost_kind NOT IN ('custom', 'estimated')
             OR input_tokens_total IS NOT NULL
             OR output_tokens_total IS NOT NULL
+            OR (effective_cost_kind = 'custom' AND effective_cost_usd = 0)
         )
     ) NOT VALID;
 
@@ -51,7 +52,7 @@ CREATE TABLE daily_model_costs (
     agent_profile_id uuid,
     agent_id uuid,
     day date NOT NULL,
-    effective_cost_usd numeric(30, 15) NOT NULL,
+    effective_cost_usd numeric NOT NULL,
     CHECK (effective_cost_usd <> 'NaN'::numeric AND effective_cost_usd >= 0),
     CHECK (num_nonnulls(agent_profile_id, agent_id) <= 1),
     CHECK (project_id IS NOT NULL OR num_nonnulls(agent_profile_id, agent_id) = 0),

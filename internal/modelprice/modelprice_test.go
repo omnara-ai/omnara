@@ -420,9 +420,12 @@ func TestRefreshStoresOnlyNewValidPriceData(t *testing.T) {
 	source := Source{URL: server.URL, Client: server.Client()}
 	stored, storedData, saves := "", []byte(nil), 0
 	current := func(context.Context) (string, []byte, error) { return stored, storedData, nil }
-	save := func(_ context.Context, data []byte, version string) error {
+	save := func(_ context.Context, data []byte, version, expected string) (bool, error) {
+		if expected != stored {
+			return false, nil
+		}
 		stored, storedData, saves = version, data, saves+1
-		return nil
+		return true, nil
 	}
 	version, pricedModels, err := source.Refresh(ctx, current, save)
 	require.NoError(t, err)
@@ -440,6 +443,17 @@ func TestRefreshStoresOnlyNewValidPriceData(t *testing.T) {
 	version, _, err = source.Refresh(ctx, current, save)
 	require.NoError(t, err)
 	require.NotEmpty(t, version, "a stored copy that can't be counted leaves only the minimum check")
+	require.Equal(t, 2, saves)
+
+	stored = "older"
+	racing := func(context.Context) (string, []byte, error) {
+		read, readData := stored, storedData
+		stored = "concurrent"
+		return read, readData, nil
+	}
+	version, _, err = source.Refresh(ctx, racing, save)
+	require.NoError(t, err)
+	require.Empty(t, version, "a refresh that loses to a concurrent one stores nothing")
 	require.Equal(t, 2, saves)
 }
 

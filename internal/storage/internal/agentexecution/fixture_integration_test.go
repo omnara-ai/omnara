@@ -23,13 +23,17 @@ func migratedExecutionFixture(t *testing.T) executionFixture {
 	return seedExecutionFixture(
 		t,
 		integrationdb.OpenMigratedPool(t, t.Context(), "../../../../migrations"),
-		func(store *storage.Store, ids storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID) {
-			config := storagefixture.SeedAgentConfig(
-				t, t.Context(), store.Models(), store.Execution(), ids.OrgID, ids.ProjectID, executionFixtureSource,
-			)
-			return config.ID, config.ConfiguredModelID
-		},
+		seedExecutionFixtureConfig(t),
 	)
+}
+
+func seedExecutionFixtureConfig(t *testing.T) func(*storage.Store, storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID) {
+	return func(store *storage.Store, ids storagefixture.ProjectIDs) (uuid.UUID, uuid.UUID) {
+		config := storagefixture.SeedAgentConfig(
+			t, t.Context(), store.Models(), store.Execution(), ids.OrgID, ids.ProjectID, executionFixtureSource,
+		)
+		return config.ID, config.ConfiguredModelID
+	}
 }
 
 // seedSchema52AgentConfig writes the model and config in the shape released

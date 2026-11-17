@@ -264,3 +264,60 @@ SELECT coalesce(agent_profile_id::text,''),agent_id::text FROM pending_model_cos
 	require.Equal(t, int64(3), merged)
 	expectSpend("merging moves spend into scope totals without changing it")
 }
+
+func TestMergeKeepsDrainingOtherOrgsWhenOneOrgsTotalsOutgrowACallsCost(t *testing.T) {
+	ctx := t.Context()
+	large := migratedExecutionFixture(t)
+	_, err := large.pool.Exec(ctx, `UPDATE orgs SET idempotency_key='idem-large-org' WHERE id=$1`, large.org)
+	require.NoError(t, err)
+	other := seedExecutionFixture(t, large.pool, seedExecutionFixtureConfig(t))
+	maxCost := "999999999999999.999999999999999"
+	type call struct {
+		f     executionFixture
+		agent uuid.UUID
+		cost  string
+	}
+	calls := []call{
+		{large, large.create(t, uuid.New(), uuid.Nil), maxCost},
+		{large, large.create(t, uuid.New(), uuid.Nil), maxCost},
+		{other, other.create(t, uuid.New(), uuid.Nil), "1"},
+	}
+	openings := make([][2]uuid.UUID, len(calls))
+	for i, c := range calls {
+		turn, input := c.f.opening(t, c.agent, 1, uuid.Nil, "content")
+		openings[i] = [2]uuid.UUID{turn, input}
+	}
+	tx, err := large.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	for i, c := range calls {
+		id := uuid.New()
+		_, err = tx.Exec(ctx, `
+INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,turn_id,operation_kind,attempt_number,
+agent_config_id,configured_model_revision_id,input_event_sequence,runtime_lock_id,created_at,
+opening_input_ids,opening_event_sequence)
+VALUES($1,$2,$3,$4,$5,'normal',1,$6,$7,1,$8,now(),ARRAY[$9::uuid],1)`,
+			id, c.f.org, c.f.project, c.agent, openings[i][0], c.f.config, c.f.revision, uuid.New(), openings[i][1])
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `
+UPDATE model_call_contexts SET state='succeeded',api_format='openai-chat-completions',api_variant='default',
+input_tokens_total=10,uncached_input_tokens=10,effective_cost_usd=$2::numeric,effective_cost_kind='estimated',
+completed_at=now() WHERE id=$1`, id, c.cost)
+		require.NoError(t, err)
+	}
+
+	merged, err := dbsqlc.New(tx).MergeDailyModelCosts(ctx, dbsqlc.MergeDailyModelCostsParams{LimitCount: 100})
+	require.NoError(t, err)
+	require.Equal(t, int64(3), merged)
+	for org, want := range map[uuid.UUID]string{
+		large.org: "1999999999999999.999999999999998",
+		other.org: "1.000000000000000",
+	} {
+		var spent, pending string
+		require.NoError(t, tx.QueryRow(ctx, `
+SELECT (SELECT effective_cost_usd::text FROM budget_interval_cost($1,NULL,NULL,NULL,'lifetime')),
+       (SELECT count(*)::text FROM pending_model_costs WHERE org_id=$1)`, org).Scan(&spent, &pending))
+		require.Equal(t, want, spent)
+		require.Equal(t, "0", pending, "every org's pending costs merge")
+	}
+}

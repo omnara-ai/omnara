@@ -40,19 +40,24 @@ func (q *Queries) GetModelPriceCatalog(ctx context.Context) (GetModelPriceCatalo
 	return i, err
 }
 
-const saveModelPriceCatalog = `-- name: SaveModelPriceCatalog :exec
+const saveModelPriceCatalog = `-- name: SaveModelPriceCatalog :execrows
 INSERT INTO model_price_catalog (data, version)
 VALUES ($1, $2)
 ON CONFLICT (singleton_key) DO UPDATE
 SET data = EXCLUDED.data, version = EXCLUDED.version
+WHERE model_price_catalog.version = $3
 `
 
 type SaveModelPriceCatalogParams struct {
-	Data    []byte
-	Version string
+	Data            []byte
+	Version         string
+	ExpectedVersion string
 }
 
-func (q *Queries) SaveModelPriceCatalog(ctx context.Context, arg SaveModelPriceCatalogParams) error {
-	_, err := q.db.Exec(ctx, saveModelPriceCatalog, arg.Data, arg.Version)
-	return err
+func (q *Queries) SaveModelPriceCatalog(ctx context.Context, arg SaveModelPriceCatalogParams) (int64, error) {
+	result, err := q.db.Exec(ctx, saveModelPriceCatalog, arg.Data, arg.Version, arg.ExpectedVersion)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

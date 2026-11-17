@@ -393,6 +393,15 @@ func TestAgentExecutorBudgetLetsModelsPricedAtZeroRun(t *testing.T) {
 	denied := runBudgetTurn(t, ctx, f, agentID, userID, "denied", f.Now.Add(2*time.Minute),
 		budgetResponse("resp_denied", ""), nil)
 	require.Zero(t, denied.responded, "paid models in the project still stop")
+	incomplete := budgetResponse("resp_free_incomplete", "1")
+	incomplete.Usage.Incomplete = true
+	unmetered := budgetResponse("resp_free_unmetered", "1")
+	unmetered.Usage = model.Usage{}
+	for i, response := range []model.Response{incomplete, unmetered} {
+		turn := runBudgetTurn(t, ctx, f, freeAgentID, userID, response.ID,
+			f.Now.Add(time.Duration(3+i)*time.Minute), response, nil)
+		require.Equal(t, 1, turn.responded, response.ID)
+	}
 	require.Equal(t, "2.000000000000000", dailyModelCostForKernelTest(t, ctx, f), "calls priced at 0 add no spend")
 }
 

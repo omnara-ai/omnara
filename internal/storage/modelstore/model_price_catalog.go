@@ -27,6 +27,9 @@ func (s *Store) ChangedModelPriceCatalog(ctx context.Context, version string) ([
 	return data, err
 }
 
-func (s *Store) SaveModelPriceCatalog(ctx context.Context, data []byte, version string) error {
-	return s.q.SaveModelPriceCatalog(ctx, dbsqlc.SaveModelPriceCatalogParams{Data: data, Version: version})
+func (s *Store) SaveModelPriceCatalog(ctx context.Context, data []byte, version, expectedVersion string) (bool, error) {
+	saved, err := s.q.SaveModelPriceCatalog(ctx, dbsqlc.SaveModelPriceCatalogParams{
+		Data: data, Version: version, ExpectedVersion: expectedVersion,
+	})
+	return saved == 1, err
 }
