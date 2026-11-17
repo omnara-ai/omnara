@@ -25,9 +25,8 @@ const (
 )
 
 type apiClient interface {
-	ListTemplates(ctx context.Context, nextToken string) ([]template, string, error)
+	GetTemplate(ctx context.Context, ref string) (template, error)
 	DefaultTemplates(ctx context.Context) ([]template, error)
-	ResolveTemplateAlias(ctx context.Context, alias string) (string, error)
 	CreateSandbox(context.Context, createSandboxRequest) (sandbox, error)
 	FindSandboxes(ctx context.Context, metadata map[string]string) ([]sandbox, error)
 	GetSandbox(ctx context.Context, id string) (sandbox, bool, error)
@@ -42,7 +41,6 @@ type template struct {
 	Names      []string `json:"names"`
 	CPUCount   int      `json:"cpuCount"`
 	MemoryMB   int      `json:"memoryMB"`
-	IsDefault  bool     `json:"isDefault"`
 }
 
 type sandbox struct {
@@ -101,28 +99,21 @@ func newRESTClient(domain, token string, client *http.Client) *restClient {
 	return &restClient{domain: domain, token: token, httpClient: client}
 }
 
-func (c *restClient) ListTemplates(ctx context.Context, nextToken string) ([]template, string, error) {
-	values := url.Values{"limit": {"100"}}
-	if nextToken != "" {
-		values.Set("nextToken", nextToken)
+func (c *restClient) GetTemplate(ctx context.Context, ref string) (template, error) {
+	var out struct {
+		DefaultBuild struct {
+			CPUCount int `json:"cpuCount"`
+			MemoryMB int `json:"memoryMB"`
+		} `json:"defaultBuild"`
 	}
-	var out []template
-	header, err := c.doWithHeader(ctx, http.MethodGet, c.apiURL("/v2/templates?"+values.Encode()), c.apiKey(), nil, &out)
-	return out, header.Get("X-Next-Token"), err
+	err := c.do(ctx, http.MethodGet, c.apiURL("/v2/templates/"+url.PathEscape(ref)), c.apiKey(), nil, &out)
+	return template{CPUCount: out.DefaultBuild.CPUCount, MemoryMB: out.DefaultBuild.MemoryMB}, err
 }
 
 func (c *restClient) DefaultTemplates(ctx context.Context) ([]template, error) {
 	var out []template
 	err := c.do(ctx, http.MethodGet, c.apiURL("/default-templates"), c.apiKey(), nil, &out)
 	return out, err
-}
-
-func (c *restClient) ResolveTemplateAlias(ctx context.Context, alias string) (string, error) {
-	var out struct {
-		TemplateID string `json:"templateID"`
-	}
-	err := c.do(ctx, http.MethodGet, c.apiURL("/templates/aliases/"+url.PathEscape(alias)), c.apiKey(), nil, &out)
-	return out.TemplateID, err
 }
 
 func (c *restClient) CreateSandbox(ctx context.Context, input createSandboxRequest) (sandbox, error) {
@@ -264,29 +255,20 @@ func (c *restClient) do(
 	headers map[string]string,
 	body, out any,
 ) error {
-	_, err := c.doWithHeader(ctx, method, requestURL, headers, body, out)
-	return err
-}
-
-func (c *restClient) doWithHeader(
-	ctx context.Context,
-	method, requestURL string,
-	headers map[string]string,
-	body, out any,
-) (http.Header, error) {
 	response, err := providers.DoHTTPResponse(ctx, c.httpClient, providers.E2B, method, requestURL, headers, body)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, providers.WithResponse(apiError{StatusCode: response.StatusCode}, response)
+		return providers.WithResponse(apiError{StatusCode: response.StatusCode}, response)
 	}
-	if out != nil && len(response.Body) > 0 {
-		if err := json.Unmarshal(response.Body, out); err != nil {
-			return nil, fmt.Errorf("decode e2b response: %w", err)
-		}
+	if out == nil || len(response.Body) == 0 {
+		return nil
 	}
-	return response.Header, nil
+	if err := json.Unmarshal(response.Body, out); err != nil {
+		return fmt.Errorf("decode e2b response: %w", err)
+	}
+	return nil
 }
 
 func (c *restClient) apiKey() map[string]string {
