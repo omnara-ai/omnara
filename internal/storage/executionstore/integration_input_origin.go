@@ -109,6 +109,7 @@ func (s *Store) admitOriginContentTx(
 		return InboxInputResult{}, err
 	}
 	input.IntegrationTargetID = target.ID
+	input.Source = AgentInputSourceIntegration
 	input.PreparedArtifacts = artifacts
 	created, err := createAgentContentInputTx(ctx, unit, dbsqlc.New(tx), input, blocks)
 	if err != nil {

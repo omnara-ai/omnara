@@ -316,7 +316,7 @@ SELECT block.text_content
 FROM agent_inputs input
 JOIN content_blocks block ON block.agent_id = input.agent_id AND block.owner_agent_input_id = input.id
 WHERE input.project_id = $1 AND input.agent_id = $2 AND input.idempotency_scope = 'process_notification'
-  AND input.delivery_mode = 'steering' AND input.state <> 'canceled'
+  AND input.delivery_mode = 'steering' AND input.state <> 'canceled' AND input.source = 'process'
 ORDER BY input.queued_at`, testProjectID, fixture.AgentID)
 	if err != nil {
 		t.Fatalf("query process notifications: %v", err)

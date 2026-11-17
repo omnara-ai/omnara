@@ -224,7 +224,7 @@ func createAgentContentInputTx(
 	received, err := h.ReceiveContent(ctx, agentexecution.ReceiveContentInput{
 		ActorID: actorID, IntegrationTargetID: input.IntegrationTargetID,
 		DeliveryMode: string(input.DeliveryMode), IdempotencyScope: input.IdempotencyScope,
-		IdempotencyKey: input.IdempotencyKey, Metadata: input.Metadata, Content: parts,
+		IdempotencyKey: input.IdempotencyKey, Metadata: input.Metadata, Source: string(input.Source), Content: parts,
 	})
 	if err != nil {
 		return createAgentContentInputTxResult{}, err
@@ -299,6 +299,7 @@ type CreateAgentContentInputInput struct {
 	Origin                 *AgentInputOrigin                `json:"origin,omitempty"`
 	ContentBlocks          json.RawMessage                  `json:"content_blocks"`
 	Metadata               json.RawMessage                  `json:"metadata,omitempty"`
+	Source                 AgentInputSource                 `json:"-"`
 	DeliveryMode           AgentInputDeliveryMode           `json:"delivery_mode,omitempty"`
 	IdempotencyScope       string                           `json:"idempotency_scope,omitempty"`
 	IdempotencyKey         string                           `json:"idempotency_key,omitempty"`

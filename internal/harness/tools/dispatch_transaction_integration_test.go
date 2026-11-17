@@ -160,6 +160,17 @@ func TestSpawnAgentDispatchUsesOneDatabaseConnection(t *testing.T) {
 	if len(subagents) != 1 || subagents[0].Name != "worker" || subagents[0].Key != "fork" {
 		t.Fatalf("subagents after spawn = %+v, want one worker spawned from fork", subagents)
 	}
+	var source string
+	if err := fixture.Pool.QueryRow(
+		ctx,
+		`SELECT coalesce(source, '') FROM agent_inputs WHERE agent_id = $1 AND input_kind = 'content'`,
+		subagents[0].AgentID,
+	).Scan(&source); err != nil {
+		t.Fatalf("load spawned task input: %v", err)
+	}
+	if source != string(executionstore.AgentInputSourceSubagent) {
+		t.Fatalf("spawned task input source = %q, want subagent", source)
+	}
 }
 
 func TestSpawnAgentDispatchReturnsUnsupportedModelToolFailure(t *testing.T) {

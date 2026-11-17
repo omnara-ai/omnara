@@ -21,6 +21,7 @@ type ReceiveContentInput struct {
 	IdempotencyScope    string
 	IdempotencyKey      string
 	Metadata            json.RawMessage
+	Source              string
 	Content             []Content
 }
 
@@ -86,7 +87,8 @@ func (h *Handle) ReceiveContent(ctx context.Context, input ReceiveContentInput) 
 			TargetID: storeutil.IDFromNil(
 				input.IntegrationTargetID,
 			), Mode: input.DeliveryMode, Kind: "content", Metadata: metadata,
-			Scope: storeutil.TextFromEmpty(input.IdempotencyScope), Key: storeutil.TextFromEmpty(input.IdempotencyKey)})
+			Scope: storeutil.TextFromEmpty(input.IdempotencyScope), Key: storeutil.TextFromEmpty(input.IdempotencyKey),
+			Source: storeutil.TextFromEmpty(input.Source)})
 		if err != nil {
 			return ReceivedContent{}, err
 		}

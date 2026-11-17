@@ -32,6 +32,7 @@ type LaunchAgentInput struct {
 	// is derived from LaunchedBy, which must then be a user or org API key
 	// principal.
 	MessageActor            *ActorParams
+	InputSource             AgentInputSource
 	IdempotencyKey          string
 	ArchiveAfterIdleMinutes *int
 	DerivedConfig           *CreateAgentConfigInput

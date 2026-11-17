@@ -392,6 +392,7 @@ func (s strictOpenAPIServer) createAgentInput(
 			Actor:                  actor,
 			ContentBlocks:          inputBlocks,
 			PreparedArtifacts:      artifacts,
+			Source:                 requestInputSource(ctx),
 			DeliveryMode:           deliveryMode,
 			IdempotencyKey:         idempotencyKey,
 			CancelOpenInteractions: cancelOpenInteractions,
