@@ -507,6 +507,8 @@ test('edits a profile with the Builder', async ({ page }) => {
   await instruction.fill('Updated instruction.')
   await page.getByRole('button', { name: 'Add subagent' }).click()
   await page.getByRole('textbox', { name: 'Subagent name' }).fill('helper')
+  await page.getByRole('button', { name: 'Save revision' }).click()
+  await expect(page.getByText('Subagent “helper”: Choose an agent profile.')).toBeVisible()
   await page.getByRole('combobox').filter({ hasText: 'Search agent profiles…' }).click()
   const profileResults = page.waitForResponse(
     (response) => new URL(response.url()).searchParams.get('name') === `*${helperName}*`,
@@ -515,7 +517,7 @@ test('edits a profile with the Builder', async ({ page }) => {
   await profileResults
   await expect(page.getByRole('option', { name: helperName })).toBeVisible()
   await page.getByPlaceholder('Search agent profiles…').press('Enter')
-  await expect(page.getByRole('combobox').filter({ hasText: helperName })).toBeVisible()
+  await expect(page.getByText('Subagent “helper”: Choose an agent profile.')).toHaveCount(0)
   await page.getByRole('button', { name: 'Save revision' }).click()
   await expect(page.getByText('Version 2', { exact: true })).toBeVisible()
 
