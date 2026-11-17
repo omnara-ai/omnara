@@ -70,6 +70,78 @@ func (q *Queries) GetAgentConversationTarget(ctx context.Context, arg GetAgentCo
 	return i, err
 }
 
+const getAgentIntegrationLaunchOwners = `-- name: GetAgentIntegrationLaunchOwners :many
+SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_id, target.scope_ref,
+       target.scope_kind, target.display_name, target.launch_key, target.deleted_at, target.created_at, target.updated_at
+FROM integration_targets target
+JOIN agents agent ON agent.project_id = target.project_id AND agent.id = target.agent_id AND agent.state = 'active'
+JOIN projects project ON project.id = target.project_id AND project.deleted_at IS NULL
+JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
+JOIN integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
+    AND integration.deleted_at IS NULL AND integration.state = 'active'
+JOIN integration_states assignment ON assignment.project_id = target.project_id
+    AND assignment.integration_id = target.integration_id AND assignment.kind = 'agent_conversation'
+    AND assignment.key = target.agent_id::text
+    AND assignment.data->>'kind' = target.scope_kind AND assignment.data->>'ref' = target.scope_ref
+WHERE target.project_id = $1 AND target.agent_id = $2
+  AND target.deleted_at IS NULL AND target.launch_key IS NOT NULL
+ORDER BY target.id
+LIMIT 2
+`
+
+type GetAgentIntegrationLaunchOwnersParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+type GetAgentIntegrationLaunchOwnersRow struct {
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeRef      string
+	ScopeKind     string
+	DisplayName   string
+	LaunchKey     *string
+	DeletedAt     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+func (q *Queries) GetAgentIntegrationLaunchOwners(ctx context.Context, arg GetAgentIntegrationLaunchOwnersParams) ([]GetAgentIntegrationLaunchOwnersRow, error) {
+	rows, err := q.db.Query(ctx, getAgentIntegrationLaunchOwners, arg.ProjectID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetAgentIntegrationLaunchOwnersRow{}
+	for rows.Next() {
+		var i GetAgentIntegrationLaunchOwnersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.IntegrationID,
+			&i.ScopeRef,
+			&i.ScopeKind,
+			&i.DisplayName,
+			&i.LaunchKey,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getConversationDisplayName = `-- name: GetConversationDisplayName :one
 SELECT display_name
 FROM integration_targets
@@ -268,102 +340,6 @@ func (q *Queries) ListConversationLaunchOwners(ctx context.Context, arg ListConv
 		var i ListConversationLaunchOwnersRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.ProjectID,
-			&i.AgentID,
-			&i.IntegrationID,
-			&i.ScopeRef,
-			&i.ScopeKind,
-			&i.DisplayName,
-			&i.LaunchKey,
-			&i.DeletedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listTurnInputLaunchOwners = `-- name: ListTurnInputLaunchOwners :many
-WITH RECURSIVE work_turns(turn_id) AS (
-    SELECT $3::uuid
-    UNION
-    SELECT origin.turn_id
-    FROM work_turns
-    JOIN model_call_contexts context ON context.project_id = $1
-        AND context.agent_id = $2 AND context.turn_id = work_turns.turn_id
-    JOIN agent_inputs input ON input.project_id = context.project_id AND input.agent_id = context.agent_id
-        AND input.id = ANY(context.opening_input_ids)
-    JOIN processes process ON process.project_id = input.project_id AND process.agent_id = input.agent_id
-    JOIN tool_call_read_projection origin ON origin.agent_id = process.agent_id AND origin.id = process.tool_call_id
-    WHERE (input.idempotency_scope = 'process_notification' AND input.input_idempotency_key = 'exit:' || process.id::text)
-        OR EXISTS (
-            SELECT 1
-            FROM process_watch_reports report
-            JOIN process_actions action ON action.id = report.watch_action_id
-            WHERE report.agent_input_id = input.id AND action.process_id = process.id
-        )
-)
-SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_id, target.scope_ref,
-       target.scope_kind, target.display_name, target.launch_key, target.deleted_at, target.created_at, target.updated_at
-FROM integration_targets target
-JOIN agents agent ON agent.project_id = target.project_id AND agent.id = target.agent_id AND agent.state = 'active'
-JOIN projects project ON project.id = target.project_id AND project.deleted_at IS NULL
-JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
-JOIN integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
-    AND integration.deleted_at IS NULL AND integration.state = 'active'
-WHERE target.project_id = $1 AND target.agent_id = $2
-  AND target.deleted_at IS NULL AND target.launch_key IS NOT NULL
-  AND EXISTS (
-    SELECT 1
-    FROM work_turns
-    JOIN model_call_contexts context ON context.agent_id = target.agent_id AND context.project_id = target.project_id
-        AND context.turn_id = work_turns.turn_id
-    JOIN agent_inputs input ON input.project_id = context.project_id AND input.agent_id = context.agent_id
-        AND input.id = ANY(context.opening_input_ids)
-    WHERE input.integration_target_id = target.id
-  )
-ORDER BY target.id
-`
-
-type ListTurnInputLaunchOwnersParams struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	TurnID    uuid.UUID
-}
-
-type ListTurnInputLaunchOwnersRow struct {
-	ID            uuid.UUID
-	OrgID         uuid.UUID
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-	IntegrationID uuid.UUID
-	ScopeRef      string
-	ScopeKind     string
-	DisplayName   string
-	LaunchKey     *string
-	DeletedAt     *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-}
-
-func (q *Queries) ListTurnInputLaunchOwners(ctx context.Context, arg ListTurnInputLaunchOwnersParams) ([]ListTurnInputLaunchOwnersRow, error) {
-	rows, err := q.db.Query(ctx, listTurnInputLaunchOwners, arg.ProjectID, arg.AgentID, arg.TurnID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListTurnInputLaunchOwnersRow{}
-	for rows.Next() {
-		var i ListTurnInputLaunchOwnersRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
 			&i.ProjectID,
 			&i.AgentID,
 			&i.IntegrationID,

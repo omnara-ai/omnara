@@ -12,12 +12,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
-	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -251,60 +249,6 @@ func TestGitHubAssignPullRequestMustBeCalledAlone(t *testing.T) {
 			if test.calls[0].ID == comment.ID || test.calls[1].ID == comment.ID {
 				require.EqualValues(t, 1, posts.Load(), "the comment must post on the assigned PR")
 			}
-		})
-	}
-}
-
-func TestGitHubToolApprovalRejectsChangedAssignment(t *testing.T) {
-	for _, reassign := range []bool{false, true} {
-		t.Run(fmt.Sprintf("reassign=%t", reassign), func(t *testing.T) {
-			ctx := t.Context()
-			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-assign-approval", toolFixtureOptions{
-				withGitHubIntegration: true, withToolContext: true, githubPermission: toolpermission.ModeAlwaysAsk,
-			})
-			call := f.recordPendingToolCall(t, ctx, "comment",
-				toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationDiscussionComment),
-				`{"body":"Ready"}`, f.Now)
-			var posts atomic.Int32
-			server := githubToolTestServer(t, "write", func(w http.ResponseWriter, r *http.Request) {
-				posts.Add(1)
-				assert.Equal(t, "/repos/octo/renamed/issues/7/comments", r.URL.Path)
-				writeToolTestJSON(w, map[string]any{"id": 501, "html_url": "https://github.com/octo/renamed/pull/7#c"})
-			})
-			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
-			turn := f.turn()
-			require.NoError(t, executor.PrepareToolCallPermission(ctx, turn, call))
-			permission := integrationToolInteraction(t, ctx, f, f.toolCallID(t, ctx, call.ID),
-				executionstore.AgentInteractionKindPermission)
-			actor, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(f.User.ID))
-			require.NoError(t, err)
-			_, err = f.Store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
-				ProjectID: f.Agent.ProjectID, AgentID: f.Agent.ID, ID: permission.ID, Actor: actor,
-				Resolution: interactionform.Resolution{
-					Answers: []interactionform.Answer{{OptionIndices: []int{toolpermission.AllowOptionIndex}}},
-				},
-			})
-			require.NoError(t, err)
-			require.NoError(t, executor.PrepareToolCallPermission(ctx, turn, call))
-			if reassign {
-				tx, err := f.Pool.Begin(ctx)
-				require.NoError(t, err)
-				require.NoError(t, f.Store.Integrations().AssignAgentIntegrationConversationTx(ctx, tx,
-					f.Agent.ProjectID, f.Agent.ID, f.Install.ID,
-					integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#8"}))
-				require.NoError(t, tx.Commit(ctx))
-			}
-			_, err = dispatchAsyncToolToTerminal(t, ctx, executor, turn, call)
-			require.NoError(t, err)
-			record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
-			require.NoError(t, err)
-			if reassign {
-				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
-				require.Zero(t, posts.Load(), "an approval for one pull request must not post to another")
-				return
-			}
-			require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
-			require.EqualValues(t, 1, posts.Load())
 		})
 	}
 }

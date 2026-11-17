@@ -251,32 +251,28 @@ func newCapturedHTTPFixtureWithDismiss(
 		project.AdminToken,
 		201,
 	)
+	launched := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/agents",
+		integrationHTTPJSON(
+			t,
+			map[string]any{"profile": profile["id"], "config": configID},
+		),
+		"launch",
+		201,
+		authHeaders(project.AdminToken),
+	)
+	agentID := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent"])["id"])
+	agentUUID := mustPublicHTTPID(t, publicid.KindAgent, agentID)
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
 	address := integrationstore.ConversationAddress{Kind: "thread", Ref: ref}
 	if provider == integrationdefinition.ProviderSlack && opts.slackDM {
 		address.Kind = "dm"
 	}
-	sender, err := executionstore.IntegrationActorParams(integration, "U_SENDER", nil)
-	require.NoError(t, err)
-	launch, err := project.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
-		ProjectID:      project.ProjectUUID,
-		ProfileID:      mustPublicHTTPID(t, publicid.KindAgentProfile, testutil.RequireType[string](t, profile["id"])),
-		AgentConfigID:  mustPublicHTTPID(t, publicid.KindAgentConfig, configID),
-		LaunchedBy:     httpUserPrincipal(project.AdminUserUUID),
-		IdempotencyKey: "captured-launch",
-		InitialInput: &executionstore.LaunchInitialInput{
-			ContentBlocks:    json.RawMessage(`[{"type":"text","text":"Please respond"}]`),
-			SemanticEventKey: "captured-input",
-			Actor:            &sender,
-			Origin:           &executionstore.AgentInputOrigin{IntegrationID: integration.ID, Address: address},
-		},
-	})
-	require.NoError(t, err)
-	agentUUID := launch.Agent.ID
-	origin := launch.IntegrationTarget
-	origin.LaunchKey = "default"
-	tx, err := pool.Begin(ctx)
-	require.NoError(t, err)
-	defer func() { _ = tx.Rollback(ctx) }()
 	require.NoError(t, integrationstore.LockIntegrationsTx(ctx, tx, project.ProjectUUID, nil, integration.ID))
 	require.NoError(t, integrationstore.LockConversationTx(ctx, tx, project.ProjectUUID, integration.ID, address))
 	_, err = tx.Exec(ctx, "SELECT id FROM agents WHERE id=$1 FOR UPDATE", agentUUID)
@@ -284,7 +280,11 @@ func newCapturedHTTPFixtureWithDismiss(
 	require.NoError(t, project.Store.Integrations().AssignAgentIntegrationConversationTx(
 		ctx, tx, project.ProjectUUID, agentUUID, integration.ID, address,
 	))
-	_, err = tx.Exec(ctx, `UPDATE integration_targets SET launch_key=$2 WHERE id=$1`, origin.ID, origin.LaunchKey)
+	origin, err := project.Store.Integrations().
+		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
+			ProjectID: project.ProjectUUID, AgentID: agentUUID, IntegrationID: integration.ID,
+			Address: address, LaunchKey: "default",
+		})
 	require.NoError(t, err)
 	changed, err := tx.Exec(ctx, `UPDATE agents
 		SET interaction_target_id=$3, interaction_handler_key='support', interaction_auto_select=true
@@ -293,12 +293,24 @@ func newCapturedHTTPFixtureWithDismiss(
 	require.NoError(t, err)
 	require.EqualValues(t, 1, changed.RowsAffected())
 	require.NoError(t, tx.Commit(ctx))
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		project.ProjectPath+"/agents/"+agentID+"/inputs",
+		integrationHTTPJSON(t, map[string]any{
+			"content_blocks": []any{map[string]any{"type": "text", "text": "Please respond"}},
+		}),
+		"input",
+		201,
+		authHeaders(project.AdminToken),
+	)
 	record := createInteractionForAgent(
 		t,
 		ctx,
 		project.Store,
 		project,
-		agentUUID,
+		mustPublicHTTPID(t, publicid.KindAgent, agentID),
 		"captured",
 		kind,
 		model.ToolCall{
@@ -1076,15 +1088,6 @@ func (f capturedHTTPFixture) runtimeLockID(t *testing.T) uuid.UUID {
 	return id
 }
 
-func (f capturedHTTPFixture) turnID(t *testing.T) uuid.UUID {
-	t.Helper()
-	var id uuid.UUID
-	require.NoError(t, f.pool.QueryRow(t.Context(),
-		`SELECT turn_id FROM model_call_contexts WHERE agent_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1`,
-		f.record.AgentID).Scan(&id))
-	return id
-}
-
 func TestCapturedDiscordThreadGuardsPromptAndRuntimeMessage(t *testing.T) {
 	for _, operation := range []string{"prompt", "runtime"} {
 		for _, resource := range []struct {
@@ -1118,7 +1121,7 @@ func TestCapturedDiscordThreadGuardsPromptAndRuntimeMessage(t *testing.T) {
 					err = p.Present(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 				} else {
 					err = (integrationruntime.RuntimeFailureNotifier{Store: f.project.Store, HTTPClient: f.client}).
-						Notify(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t), f.turnID(t))
+						Notify(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t))
 				}
 				var providerErr *discord.APIError
 				require.ErrorAs(t, err, &providerErr)
@@ -1323,7 +1326,7 @@ func TestCapturedSlackRotatedTokenIdentityBeforeProviderIO(t *testing.T) {
 					err = p.Dismiss(t.Context(), closed)
 				case "runtime":
 					err = (integrationruntime.RuntimeFailureNotifier{Store: f.project.Store, HTTPClient: f.client}).
-						Notify(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t), f.turnID(t))
+						Notify(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t))
 				}
 				if identity == "same" {
 					require.NoError(t, err)
@@ -1363,7 +1366,7 @@ func TestCapturedDiscordRuntimeMessageWithoutInteractionKey(t *testing.T) {
 	)
 	require.Zero(t, requests.Load(), "a missing callback key must reject prompts before any provider request")
 	require.NoError(t, (integrationruntime.RuntimeFailureNotifier{Store: f.project.Store, HTTPClient: f.client}).
-		Notify(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t), f.turnID(t)))
+		Notify(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t)))
 	require.EqualValues(t, 1, sends.Load(), "plain text needs bot authority, not a callback verification key")
 	payload := <-f.prompts
 	require.Equal(t, integrationruntime.AgentRequestFailureMessage, payload["content"])

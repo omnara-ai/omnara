@@ -41,20 +41,22 @@ func (s *Store) GetIntegrationTarget(
 	return getIntegrationTarget(ctx, s.q, projectID, id)
 }
 
-func (s *Store) ListTurnInputLaunchOwners(
-	ctx context.Context, projectID, agentID, turnID uuid.UUID,
-) ([]IntegrationTargetRecord, error) {
-	rows, err := s.q.ListTurnInputLaunchOwners(ctx, dbsqlc.ListTurnInputLaunchOwnersParams{
-		ProjectID: projectID, AgentID: agentID, TurnID: turnID,
+func (s *Store) GetAgentIntegrationLaunchOwner(
+	ctx context.Context, projectID, agentID uuid.UUID,
+) (IntegrationTargetRecord, bool, error) {
+	rows, err := s.q.GetAgentIntegrationLaunchOwners(ctx, dbsqlc.GetAgentIntegrationLaunchOwnersParams{
+		ProjectID: projectID, AgentID: agentID,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list turn input launch owners: %w", err)
+		return IntegrationTargetRecord{}, false, fmt.Errorf("get agent integration launch owner: %w", err)
 	}
-	targets := make([]IntegrationTargetRecord, 0, len(rows))
-	for _, row := range rows {
-		targets = append(targets, integrationTargetRecordFromGetSQLC(dbsqlc.GetIntegrationTargetRow(row)))
+	if len(rows) == 0 {
+		return IntegrationTargetRecord{}, false, nil
 	}
-	return targets, nil
+	if len(rows) != 1 {
+		return IntegrationTargetRecord{}, false, storeerr.ErrConflict
+	}
+	return integrationTargetRecordFromGetSQLC(dbsqlc.GetIntegrationTargetRow(rows[0])), true, nil
 }
 
 func (s *Store) GetIntegrationTargetTx(

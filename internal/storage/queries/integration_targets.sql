@@ -42,26 +42,7 @@ WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integratio
 ORDER BY updated_at DESC, id DESC
 LIMIT 1;
 
--- name: ListTurnInputLaunchOwners :many
-WITH RECURSIVE work_turns(turn_id) AS (
-    SELECT sqlc.arg(turn_id)::uuid
-    UNION
-    SELECT origin.turn_id
-    FROM work_turns
-    JOIN model_call_contexts context ON context.project_id = sqlc.arg(project_id)
-        AND context.agent_id = sqlc.arg(agent_id) AND context.turn_id = work_turns.turn_id
-    JOIN agent_inputs input ON input.project_id = context.project_id AND input.agent_id = context.agent_id
-        AND input.id = ANY(context.opening_input_ids)
-    JOIN processes process ON process.project_id = input.project_id AND process.agent_id = input.agent_id
-    JOIN tool_call_read_projection origin ON origin.agent_id = process.agent_id AND origin.id = process.tool_call_id
-    WHERE (input.idempotency_scope = 'process_notification' AND input.input_idempotency_key = 'exit:' || process.id::text)
-        OR EXISTS (
-            SELECT 1
-            FROM process_watch_reports report
-            JOIN process_actions action ON action.id = report.watch_action_id
-            WHERE report.agent_input_id = input.id AND action.process_id = process.id
-        )
-)
+-- name: GetAgentIntegrationLaunchOwners :many
 SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_id, target.scope_ref,
        target.scope_kind, target.display_name, target.launch_key, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
@@ -70,18 +51,14 @@ JOIN projects project ON project.id = target.project_id AND project.deleted_at I
 JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
 JOIN integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
     AND integration.deleted_at IS NULL AND integration.state = 'active'
+JOIN integration_states assignment ON assignment.project_id = target.project_id
+    AND assignment.integration_id = target.integration_id AND assignment.kind = 'agent_conversation'
+    AND assignment.key = target.agent_id::text
+    AND assignment.data->>'kind' = target.scope_kind AND assignment.data->>'ref' = target.scope_ref
 WHERE target.project_id = sqlc.arg(project_id) AND target.agent_id = sqlc.arg(agent_id)
   AND target.deleted_at IS NULL AND target.launch_key IS NOT NULL
-  AND EXISTS (
-    SELECT 1
-    FROM work_turns
-    JOIN model_call_contexts context ON context.agent_id = target.agent_id AND context.project_id = target.project_id
-        AND context.turn_id = work_turns.turn_id
-    JOIN agent_inputs input ON input.project_id = context.project_id AND input.agent_id = context.agent_id
-        AND input.id = ANY(context.opening_input_ids)
-    WHERE input.integration_target_id = target.id
-  )
-ORDER BY target.id;
+ORDER BY target.id
+LIMIT 2;
 
 -- name: PromoteIntegrationConversationTarget :exec
 UPDATE integration_targets SET launch_key = sqlc.arg(launch_key)::text, updated_at = transaction_timestamp()

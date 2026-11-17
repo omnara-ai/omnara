@@ -219,7 +219,7 @@ func TestAgentExecutorUncommittedErrorDoesNotNotify(t *testing.T) {
 	}
 	executor := AgentExecutor{
 		Store: storage.NewStore(nil),
-		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) error {
+		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
 			t.Fatal("an uncommitted configuration failure must not send a terminal notice")
 			return nil
 		},
@@ -230,12 +230,12 @@ func TestAgentExecutorUncommittedErrorDoesNotNotify(t *testing.T) {
 }
 
 func TestAgentExecutorFailureCallbackIsOptionalAndBounded(t *testing.T) {
-	input := ModelWorkExecution{ProjectID: uuid.New(), AgentID: uuid.New(), RuntimeLockID: uuid.New(), TurnID: uuid.New()}
+	input := ModelWorkExecution{ProjectID: uuid.New(), AgentID: uuid.New(), RuntimeLockID: uuid.New()}
 	(AgentExecutor{}).notifyModelFailure(t.Context(), input)
 	calls := 0
-	executor := AgentExecutor{OnModelFailure: func(ctx context.Context, project, agent, runtime, turn uuid.UUID) error {
+	executor := AgentExecutor{OnModelFailure: func(ctx context.Context, project, agent, runtime uuid.UUID) error {
 		calls++
-		if project != input.ProjectID || agent != input.AgentID || runtime != input.RuntimeLockID || turn != input.TurnID {
+		if project != input.ProjectID || agent != input.AgentID || runtime != input.RuntimeLockID {
 			t.Fatal("failure callback lost runtime authority")
 		}
 		deadline, ok := ctx.Deadline()

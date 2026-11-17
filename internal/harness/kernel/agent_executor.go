@@ -33,7 +33,7 @@ type AgentExecutor struct {
 	StreamLog                *slog.Logger
 	MCPInitializationBackoff func(attempt int) time.Duration
 	ModelRetryDelay          func(time.Duration) time.Duration
-	OnModelFailure           func(ctx context.Context, projectID, agentID, runtimeLockID, turnID uuid.UUID) error
+	OnModelFailure           func(ctx context.Context, projectID, agentID, runtimeLockID uuid.UUID) error
 }
 
 func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExecution) error {
@@ -105,7 +105,7 @@ func (e AgentExecutor) notifyModelFailure(ctx context.Context, input ModelWorkEx
 	}
 	postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	if err := e.OnModelFailure(postCtx, input.ProjectID, input.AgentID, input.RuntimeLockID, input.TurnID); err != nil {
+	if err := e.OnModelFailure(postCtx, input.ProjectID, input.AgentID, input.RuntimeLockID); err != nil {
 		log := e.StreamLog
 		if log == nil {
 			log = slog.Default()

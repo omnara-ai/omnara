@@ -584,7 +584,7 @@ func TestAgentExecutorConfigChangePreemptsSmallerCompactionCreatedFromTruncatedS
 		}},
 		ToolExecutor: tools.Executor{Store: fixture.Store},
 		Now:          func() time.Time { return currentNow },
-		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) error {
+		OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
 			t.Error("compaction preempted by a config change must not notify failure")
 			return nil
 		},

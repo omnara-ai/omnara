@@ -115,7 +115,7 @@ func TestDiscordPresenterRechecksRotatedCredentialIdentity(t *testing.T) {
 			presenter := integrationruntime.InteractionPresenter{Store: f.Store, HTTPClient: client}
 			markRuntimeLaunchOwner(t, f)
 			err = (integrationruntime.RuntimeFailureNotifier{Store: f.Store, HTTPClient: client}).
-				Notify(ctx, toolsTestProjectID, f.Agent.ID, f.Lock.ID, runtimeFailureTurnID(t, f))
+				Notify(ctx, toolsTestProjectID, f.Agent.ID, f.Lock.ID)
 			var apiErr *discord.APIError
 			require.ErrorAs(t, err, &apiErr)
 			require.Equal(t, discord.ScopeMismatch, apiErr.Code)

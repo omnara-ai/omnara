@@ -27,25 +27,12 @@ func authorizeToolExecution(
 	if err != nil {
 		return err
 	}
-	existing, found, err := reader.GetAgentInteractionByToolCallKind(
+	if existing, found, err := reader.GetAgentInteractionByToolCallKind(
 		ctx,
 		executionstore.AgentInteractionKindPermission,
-	)
-	if err != nil {
+	); err != nil {
 		return err
-	}
-	return authorizeRecordedToolExecution(turn, call, toolCall.ID, existing, found, authorizationInput)
-}
-
-func authorizeRecordedToolExecution(
-	turn Turn,
-	call model.ToolCall,
-	toolCallID uuid.UUID,
-	existing executionstore.AgentInteractionRecord,
-	found bool,
-	authorizationInput json.RawMessage,
-) error {
-	if found {
+	} else if found {
 		if existing.State != executionstore.AgentInteractionStateResolved {
 			return storeerr.ErrIdempotencyConflict
 		}
@@ -53,7 +40,7 @@ func authorizeRecordedToolExecution(
 		if toolCallAuthorizationMatches(
 			existing,
 			call,
-			toolCallID,
+			toolCall.ID,
 			selection,
 			authorizationInput,
 		) {

@@ -83,7 +83,7 @@ func TestAgentExecutorCompactionTriggersShareRetryAndCompletionFlow(t *testing.T
 			executor := AgentExecutor{
 				Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
 				ModelRetryDelay: immediateKernelModelRetryDelay,
-				OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) error {
+				OnModelFailure: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error {
 					t.Error("retryable compaction must not notify failure")
 					return nil
 				},
