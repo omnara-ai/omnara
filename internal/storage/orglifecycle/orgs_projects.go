@@ -24,6 +24,7 @@ type CreateOrgForUserInput struct {
 	IdempotencyKey                string
 	DefaultMachinePools           []executionstore.DefaultMachinePoolTemplate
 	ProvisionDefaultModelProvider bool
+	Budgets                       []identitystore.BudgetAttachment
 }
 
 func (s *Service) CreateOrgForUser(
@@ -66,6 +67,11 @@ func (s *Service) CreateOrgForUser(
 		return identitystore.CreateOrgForUserRecord{}, err
 	}
 	if record.Created {
+		if err := identitystore.CreateBudgetsTx(
+			ctx, tx, identitystore.CreateBudgetInput{OrgID: record.Org.ID}, input.Budgets,
+		); err != nil {
+			return identitystore.CreateOrgForUserRecord{}, err
+		}
 		if err := s.execution.ProvisionOrganizationDefaultsTx(
 			ctx,
 			tx,

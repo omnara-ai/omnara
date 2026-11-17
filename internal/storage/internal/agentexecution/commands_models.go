@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/modelprice"
+	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/internal/agentexecution/internal/executiondb"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -262,8 +264,11 @@ func (h *Handle) admissionDenial(
 	if !revision.Allowed {
 		return storeerr.ManagedWorkAdmissionDeniedCode, storeerr.InsufficientOmnaraCreditsMessage, nil
 	}
-	if !revision.Budgeted {
+	if !revision.Budgeted || (revision.Pricing != nil && modelprice.FreePricing(*revision.Pricing)) {
 		return "", "", nil
+	}
+	if !modelPriced(h.unit.cell.costEstimator, revision) {
+		return storeerr.BudgetModelUnpricedCode, storeerr.BudgetModelUnpricedMessage, nil
 	}
 	reached, err := q.ExecutionBudgetReached(ctx, h.unit.DB(), executiondb.ExecutionBudgetReachedParams{
 		OrgID: revision.OrgID, ProjectID: h.route.ProjectID,
@@ -276,6 +281,18 @@ func (h *Handle) admissionDenial(
 		return "", "", err
 	}
 	return storeerr.BudgetReachedCode, storeerr.BudgetReachedMessage(reached.Scope, reached.Interval), nil
+}
+
+func modelPriced(estimator modelprice.Estimator, revision executiondb.ExecutionModelRevisionRow) bool {
+	if revision.Pricing != nil || revision.ApiVariant == string(modelprotocol.APIVariantOpenRouter) {
+		return true
+	}
+	return estimator != nil && estimator.Prices(modelprice.Input{
+		BaseURL:         revision.BaseUrl,
+		APIFormat:       modelprotocol.APIFormat(revision.ApiFormat),
+		APIVariant:      modelprotocol.APIVariant(revision.ApiVariant),
+		ConfiguredModel: revision.ProviderModelSlug,
+	}, revision.ApiVariantOptions)
 }
 
 type PrepareNormalInput struct {

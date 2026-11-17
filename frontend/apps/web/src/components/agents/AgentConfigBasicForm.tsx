@@ -1,4 +1,5 @@
 import { useToolCatalog } from '@omnara/react'
+import type { ReactNode } from 'react'
 
 import { AgentConfigGitCredentialsField } from '@/components/agents/AgentConfigGitCredentialsField'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
@@ -14,6 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
+import type { BudgetDraft } from '@/components/usage/budget-form'
 
 export function AgentConfigBasicForm({
   orgId,
@@ -21,12 +23,16 @@ export function AgentConfigBasicForm({
   form,
   agentName,
   onBeforeOAuthRedirect,
+  budget,
+  advanced,
 }: {
   orgId: string
   projectId: string
   form: AgentBuilderForm
   agentName?: string
   onBeforeOAuthRedirect?: () => void
+  budget?: BudgetDraft
+  advanced?: ReactNode
 }) {
   const toolCatalog = useToolCatalog()
 
@@ -113,6 +119,7 @@ export function AgentConfigBasicForm({
             onServersChange={form.setMcpServers}
             builderDraft={form.draft}
             agentName={agentName}
+            budget={budget}
             onBeforeOAuthRedirect={onBeforeOAuthRedirect}
           />
           <AgentConfigMemoryField
@@ -130,6 +137,7 @@ export function AgentConfigBasicForm({
               forceMount
               className="flex flex-col gap-3 pt-4 data-[state=closed]:hidden"
             >
+              {advanced}
               <AgentConfigGitCredentialsField
                 orgId={orgId}
                 projectId={projectId}

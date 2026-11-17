@@ -4,6 +4,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,13 +18,25 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 )
+
+type listedModels struct{}
+
+func (listedModels) Estimate(context.Context, modelprice.Input) modelenvelope.ProviderReportedCostUSD {
+	return ""
+}
+
+func (listedModels) Prices(modelprice.Input, json.RawMessage) bool {
+	return true
+}
 
 func TestBudgetRoutes(t *testing.T) {
 	t.Parallel()
@@ -270,7 +283,9 @@ func TestBudgetsApplyAcrossProjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
-	handler := newIntegrationServer(pool)
+	handler := newIntegrationServerWithStoreOptions(
+		pool, []storage.Option{storage.WithModelCostEstimator(listedModels{})},
+	)
 	store := integrationStoreForHandler(t, handler)
 	first := bootstrapPublicHTTPProject(t, handler, "budget-projects")
 	admin := authHeaders(first.AdminToken)
@@ -329,7 +344,9 @@ func TestBudgetsForProfilesAndAgents(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
-	handler := newIntegrationServer(pool)
+	handler := newIntegrationServerWithStoreOptions(
+		pool, []storage.Option{storage.WithModelCostEstimator(listedModels{})},
+	)
 	store := integrationStoreForHandler(t, handler)
 	project := bootstrapPublicHTTPProject(t, handler, "budget-profile-agent")
 	admin := authHeaders(project.AdminToken)
@@ -386,6 +403,11 @@ func TestBudgetsForProfilesAndAgents(t *testing.T) {
 		LaunchedBy: httpUserPrincipal(project.AdminUserUUID), IdempotencyKey: "budget-sibling",
 	})
 	require.NoError(t, err)
+	siblingBudget := create(map[string]any{
+		"type": "agent", "project_id": project.ProjectID, "agent_id": encode(publicid.KindAgent, sibling.Agent.ID),
+	}, "month", http.StatusCreated)
+	require.Equal(t, map[string]any{"amount_usd": "0"}, get(siblingBudget["id"], http.StatusOK)["usage"],
+		"an agent budget counts only that agent's spend")
 	require.Equal(t, storeerr.BudgetReachedMessage("profile", "month"), denial(sibling.Agent),
 		"another agent from the profile hits the profile budget, not the first agent's own budget")
 
@@ -424,4 +446,61 @@ func TestBudgetsForProfilesAndAgents(t *testing.T) {
 	get(agentBudget["id"], http.StatusOK)
 	require.Equal(t, storeerr.BudgetReachedMessage("agent", "lifetime"), denial(spawn("second-child")),
 		"a subagent hits its top-level agent's budget")
+}
+
+func TestBudgetsCreatedWithTheirResources(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	store := integrationStoreForHandler(t, handler)
+	project := bootstrapPublicHTTPProject(t, handler, "budget-inline")
+	admin := authHeaders(project.AdminToken)
+	developer := authHeaders(createHTTPProjectMemberToken(t, ctx, pool, project, "inline-developer", "developer"))
+	monthly := []any{map[string]any{"interval": "month", "amount_usd": "5"}}
+	post := func(path string, body map[string]any, key string, status int, headers map[string]string) map[string]any {
+		return requestJSONWithHeaders(t, handler, http.MethodPost, path, integrationHTTPJSON(t, body), key, status, headers)
+	}
+	budgets := func(orgID, query string) int {
+		page := requestJSONWithHeaders(t, handler, http.MethodGet, "/api/v1/orgs/"+orgID+"/budgets?"+query, "", "",
+			http.StatusOK, admin)
+		return len(testutil.RequireType[[]any](t, page["data"]))
+	}
+	id := func(response map[string]any, field string) string {
+		if field != "" {
+			response = testutil.RequireType[map[string]any](t, response[field])
+		}
+		return testutil.RequireType[string](t, response["id"])
+	}
+
+	org := post("/api/v1/orgs", map[string]any{"name": "Budgeted Org", "budgets": monthly}, "", http.StatusCreated, admin)
+	require.Equal(t, 1, budgets(id(org, "org"), "scope_type=org"))
+
+	projectsPath := "/api/v1/orgs/" + project.OrgID + "/projects"
+	projectBody := map[string]any{"name": "Budgeted Project", "budgets": monthly}
+	created := post(projectsPath, projectBody, "budgeted-project", http.StatusCreated, admin)
+	post(projectsPath, projectBody, "budgeted-project", http.StatusOK, admin)
+	require.Equal(t, 1, budgets(project.OrgID, "scope_type=project&project_id="+id(created, "")),
+		"a replayed create must not add budgets")
+	post(projectsPath, map[string]any{"name": "Twice", "budgets": []any{
+		map[string]any{"interval": "month", "amount_usd": "1"}, map[string]any{"interval": "month", "amount_usd": "2"},
+	}}, "", http.StatusBadRequest, admin)
+
+	agent := createHTTPRuntimeAgent(t, ctx, store, project.OrgUUID, project.ProjectUUID, project.AdminUserUUID,
+		"budget-inline").Agent
+	config, err := publicid.Encode(publicid.KindAgentConfig, agent.CurrentConfigID)
+	require.NoError(t, err)
+	profileBody := map[string]any{"name": "Budgeted Profile", "config": config, "budgets": monthly}
+	post(project.ProjectPath+"/agent-profiles", profileBody, "", http.StatusForbidden, developer)
+	profileID := id(post(project.ProjectPath+"/agent-profiles", profileBody, "", http.StatusCreated, admin), "")
+	require.Equal(t, 1, budgets(project.OrgID,
+		"scope_type=profile&project_id="+project.ProjectID+"&agent_profile_id="+profileID))
+
+	launchBody := map[string]any{"profile": profileID, "budgets": monthly}
+	post(project.ProjectPath+"/agents", launchBody, "", http.StatusForbidden, developer)
+	launched := post(project.ProjectPath+"/agents", launchBody, "budgeted-launch", http.StatusCreated, admin)
+	post(project.ProjectPath+"/agents", launchBody, "budgeted-launch", http.StatusOK, admin)
+	require.Equal(t, 1, budgets(project.OrgID,
+		"scope_type=agent&project_id="+project.ProjectID+"&agent_id="+id(launched, "agent")),
+		"a replayed launch must not add budgets")
 }

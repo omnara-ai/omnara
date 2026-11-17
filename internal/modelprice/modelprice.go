@@ -25,9 +25,7 @@ import (
 )
 
 const (
-	Off             = "off"
-	refreshInterval = time.Hour
-	fetchTimeout    = 30 * time.Second
+	FetchTimeout    = 30 * time.Second
 	maxDataBytes    = 16 * 1024 * 1024
 	builtinSource   = "builtin"
 	minPricedModels = 50
@@ -56,6 +54,7 @@ type Input struct {
 
 type Estimator interface {
 	Estimate(ctx context.Context, input Input) modelenvelope.ProviderReportedCostUSD
+	Prices(input Input, requestOptions json.RawMessage) bool
 }
 
 type Result struct {
@@ -77,79 +76,96 @@ type snapshot struct {
 }
 
 type Pricer struct {
-	url     string
-	client  *http.Client
 	current atomic.Pointer[snapshot]
 }
 
-func New(dataURL string) (*Pricer, error) {
+func New() (*Pricer, error) {
 	calculator, err := genai.NewCalculator()
 	if err != nil {
 		return nil, fmt.Errorf("load built-in model prices: %w", err)
 	}
-	if dataURL == "" {
-		dataURL = genai.RemoteDataURL
-	}
-	pricer := &Pricer{url: dataURL, client: &http.Client{Timeout: fetchTimeout}}
+	pricer := &Pricer{}
 	pricer.current.Store(&snapshot{calculator: calculator, source: builtinSource})
 	return pricer, nil
 }
 
-func (p *Pricer) Run(ctx context.Context) {
-	if p.url == Off {
-		return
-	}
-	ticker := time.NewTicker(refreshInterval)
-	defer ticker.Stop()
-	for {
-		event := log.NewEvent(ctx, "model_prices.refresh", log.Fields{"model_prices.url": p.url})
-		err := p.refresh(ctx)
-		if ctx.Err() == nil {
-			event.Attach(log.Fields{"model_prices.price_data": p.current.Load().source})
-			if err != nil {
-				event.Level(log.WarnLevel)
-				event.Error(err)
-			} else {
-				event.Level(log.DebugLevel)
-			}
-			event.Done(ctx)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
+func (p *Pricer) Version() string {
+	return p.current.Load().source
 }
 
-func (p *Pricer) refresh(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxDataBytes+1))
-	if err != nil {
-		return err
-	}
-	if len(data) > maxDataBytes {
-		return fmt.Errorf("price data exceeds %d bytes", maxDataBytes)
-	}
-	next, err := parseSnapshot(data, p.current.Load().pricedModels)
+func (p *Pricer) Load(data []byte) error {
+	next, err := parseSnapshot(data, 0)
 	if err != nil {
 		return err
 	}
 	p.current.Store(next)
 	return nil
+}
+
+type Source struct {
+	URL    string
+	Client *http.Client
+}
+
+func (s Source) fetch(ctx context.Context) ([]byte, error) {
+	dataURL := s.URL
+	if dataURL == "" {
+		dataURL = genai.RemoteDataURL
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dataURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxDataBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxDataBytes {
+		return nil, fmt.Errorf("price data exceeds %d bytes", maxDataBytes)
+	}
+	return data, nil
+}
+
+func (s Source) Refresh(
+	ctx context.Context,
+	current func(context.Context) (string, []byte, error),
+	save func(context.Context, []byte, string) error,
+) (string, int, error) {
+	stored, storedData, err := current(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	data, err := s.fetch(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	previousPricedModels := 0
+	if storedData != nil {
+		if _, count, err := validate(storedData, 0); err == nil {
+			previousPricedModels = count
+		}
+	}
+	version, pricedModels, err := validate(data, previousPricedModels)
+	if err != nil || version == stored {
+		return "", 0, err
+	}
+	return version, pricedModels, save(ctx, data, version)
+}
+
+func validate(data []byte, previousPricedModels int) (version string, pricedModels int, err error) {
+	next, err := parseSnapshot(data, previousPricedModels)
+	if err != nil {
+		return "", 0, err
+	}
+	return next.source, next.pricedModels, nil
 }
 
 func parseSnapshot(data []byte, previousPricedModels int) (next *snapshot, err error) {
@@ -217,6 +233,44 @@ func (p *Pricer) Estimate(ctx context.Context, input Input) modelenvelope.Provid
 	}
 	log.Attach(ctx, fields)
 	return result.CostUSD
+}
+
+func (p *Pricer) Prices(input Input, requestOptions json.RawMessage) bool {
+	input.Metadata = requestedRateClass(input.APIFormat, requestOptions)
+	input.Usage = modelenvelope.Usage{InputTokens: 1_000_000, UncachedInputTokens: 1_000_000, OutputTokens: 1_000_000}
+	input.CreatedAt = time.Now()
+	return estimate(p.current.Load().calculator, input).CostUSD != ""
+}
+
+func requestedRateClass(format modelprotocol.APIFormat, requestOptions json.RawMessage) modelenvelope.ProviderMetadata {
+	var requested struct {
+		Speed              string `json:"speed"`
+		InferenceGeo       string `json:"inference_geo"`
+		ServiceTier        string `json:"service_tier"`
+		PromptCacheOptions struct {
+			TTL string `json:"ttl"`
+		} `json:"prompt_cache_options"`
+	}
+	_ = json.Unmarshal(requestOptions, &requested)
+	if format == modelprotocol.APIFormatAnthropicMessages {
+		var metadata modelenvelope.AnthropicMetadata
+		if requested.Speed != "standard" {
+			metadata.Speed = requested.Speed
+		}
+		if requested.InferenceGeo != "global" {
+			metadata.InferenceGeo = requested.InferenceGeo
+		}
+		return modelenvelope.ProviderMetadata{Anthropic: metadata}
+	}
+	tier := requested.ServiceTier
+	if tier == "auto" {
+		tier = ""
+	}
+	cacheWrite12hTokens := 0
+	if format == modelprotocol.APIFormatOpenAIResponses && requested.PromptCacheOptions.TTL == "12h" {
+		cacheWrite12hTokens = 1
+	}
+	return modelenvelope.ProviderMetadata{OpenAI: modelenvelope.OpenAIRateClass(tier, cacheWrite12hTokens)}
 }
 
 func estimate(calculator priceCalculator, input Input) (result Result) {

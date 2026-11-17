@@ -6,6 +6,7 @@ import { AgentConfigIssueList } from '@/components/agents/AgentConfigIssueList'
 import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
 import { yamlDiverged } from '@/components/agents/agentConfigModeMachine'
 import { AgentConfigYamlField } from '@/components/agents/AgentConfigYamlField'
+import { AgentProfileBudgetField } from '@/components/agents/AgentProfileBudgetField'
 import { AgentTemplateMenu } from '@/components/agents/AgentTemplateMenu'
 import type { AgentTemplate } from '@/components/agents/agentTemplates'
 import { ConfirmDiscardYamlDialog } from '@/components/agents/ConfirmDiscardYamlDialog'
@@ -16,6 +17,7 @@ import {
   type SubmitAction,
   useCreateAgentSubmission,
 } from '@/components/agents/useCreateAgentSubmission'
+import { useProfileBudget } from '@/components/agents/useProfileBudget'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -44,6 +46,7 @@ export function CreateAgentFormView({
     pendingAction,
     launchError,
     issues,
+    profileCreated,
   } = useCreateAgentSubmission(activeOrg.id, projectId)
   const {
     name,
@@ -58,6 +61,7 @@ export function CreateAgentFormView({
     orgId: activeOrg.id,
     projectId,
   })
+  const budget = useProfileBudget(activeOrg.role)
 
   if (project == null) return null
 
@@ -67,12 +71,13 @@ export function CreateAgentFormView({
   const canSubmit =
     !isSubmitting &&
     resourceNameValid(name) &&
+    budget.valid &&
     yaml.trim() !== '' &&
     !(form.blocked && (showBuilder || !yamlDiverged(mode)))
 
   async function submit(action: SubmitAction) {
     if (!canSubmit) return
-    await submitAgent(name, yaml, action)
+    await submitAgent(name, yaml, action, budget.budgets)
   }
 
   return (
@@ -153,19 +158,38 @@ export function CreateAgentFormView({
                 form={form}
                 agentName={name}
                 onBeforeOAuthRedirect={suppressUnsavedChangesWarning}
+                budget={budget.draft}
+                advanced={
+                  <AgentProfileBudgetField
+                    budget={budget}
+                    submitting={isSubmitting}
+                    saved={profileCreated}
+                  />
+                }
               />
               <AgentConfigIssueList issues={issues} />
             </div>
             {!showBuilder && (
-              <AgentConfigYamlField
-                id="agent-yaml"
-                value={yaml}
-                className="h-auto min-h-[24rem] flex-1"
-                issues={issues}
-                onChange={(value) => {
-                  dispatchMode({ type: 'editor-yaml-changed', yaml: value, builderYaml: form.yaml })
-                }}
-              />
+              <>
+                <AgentConfigYamlField
+                  id="agent-yaml"
+                  value={yaml}
+                  className="h-auto min-h-[24rem] flex-1"
+                  issues={issues}
+                  onChange={(value) => {
+                    dispatchMode({
+                      type: 'editor-yaml-changed',
+                      yaml: value,
+                      builderYaml: form.yaml,
+                    })
+                  }}
+                />
+                <AgentProfileBudgetField
+                  budget={budget}
+                  submitting={isSubmitting}
+                  saved={profileCreated}
+                />
+              </>
             )}
           </FieldGroup>
         </div>

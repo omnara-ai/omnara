@@ -44,6 +44,7 @@ describe('takeMcpBuilderOAuthRestore', () => {
       returnPath: '/projects/p1/agents/new',
       serverId: 'server_1',
       agentName: 'Builder agent',
+      budget: { interval: 'week', amount: '40' },
       draft,
     })
     visit('/projects/p1/agents/new', '?mcp_oauth=success&secret_id=sec_a')
@@ -52,6 +53,7 @@ describe('takeMcpBuilderOAuthRestore', () => {
     const restored = takeMcpBuilderOAuthRestore()
     expect(restored).toEqual({
       agentName: 'Builder agent',
+      budget: { interval: 'week', amount: '40' },
       draft: { ...draft, mcpServers: [{ ...draft.mcpServers[0], secretId: 'sec_a' }] },
     })
     expect(window.sessionStorage.length).toBe(0)
@@ -63,11 +65,27 @@ describe('takeMcpBuilderOAuthRestore', () => {
       returnPath: '/projects/p1/agents/new',
       serverId: 'server_1',
       agentName: null,
+      budget: null,
       draft,
     })
     visit('/projects/p1/agents/new', '?mcp_oauth_error=access_denied&r=1')
 
-    expect(takeMcpBuilderOAuthRestore()).toEqual({ agentName: null, draft })
+    expect(takeMcpBuilderOAuthRestore()).toEqual({ agentName: null, budget: null, draft })
+  })
+
+  it('restores records saved without a budget', () => {
+    window.sessionStorage.setItem(
+      'omnara:pending-mcp-builder-oauth',
+      JSON.stringify({
+        returnPath: '/projects/p1/agents/new',
+        serverId: 'server_1',
+        agentName: null,
+        draft,
+      }),
+    )
+    visit('/projects/p1/agents/new', '?mcp_oauth_error=access_denied&r=3')
+
+    expect(takeMcpBuilderOAuthRestore()).toEqual({ agentName: null, budget: null, draft })
   })
 
   it('ignores records saved for a different page', () => {
@@ -75,6 +93,7 @@ describe('takeMcpBuilderOAuthRestore', () => {
       returnPath: '/projects/p1/agents/new',
       serverId: 'server_1',
       agentName: null,
+      budget: null,
       draft,
     })
     visit('/projects/p2/agents/new', '?mcp_oauth=success&secret_id=sec_b')
@@ -88,6 +107,7 @@ describe('takeMcpBuilderOAuthRestore', () => {
       returnPath: '/projects/p1/agents/new',
       serverId: 'server_1',
       agentName: null,
+      budget: null,
       draft,
     })
     visit('/projects/p1/agents/new', '?r=2')

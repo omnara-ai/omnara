@@ -62,21 +62,33 @@ WHERE org_id = sqlc.arg(org_id) AND project_id = sqlc.arg(project_id)::uuid
 UPDATE budgets SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE org_id = sqlc.arg(org_id) AND deleted_at IS NULL;
 
--- name: MergeDailyModelCosts :exec
-WITH pending AS (
-    SELECT cost.org_id, cost.model_call_context_id
-    FROM model_call_contexts c JOIN daily_model_costs cost
-        ON cost.org_id = c.org_id AND cost.model_call_context_id IS NOT NULL
-    WHERE c.agent_id = sqlc.arg(agent_id) AND c.id = sqlc.arg(id)
-      AND pg_try_advisory_xact_lock(hashtextextended('daily_model_costs:' || c.org_id::text, 0))
-    LIMIT 1000
+-- name: MergeDailyModelCosts :one
+WITH lock AS MATERIALIZED (
+    SELECT pg_try_advisory_xact_lock(hashtextextended('daily_model_costs', 0)) AS held
+), pending AS (
+    SELECT pending.model_call_context_id
+    FROM pending_model_costs pending CROSS JOIN lock
+    WHERE lock.held
+    ORDER BY pending.model_call_context_id
+    LIMIT sqlc.arg(limit_count)
 ), calls AS (
-    DELETE FROM daily_model_costs cost USING pending
-    WHERE cost.org_id = pending.org_id AND cost.model_call_context_id = pending.model_call_context_id
-    RETURNING cost.org_id, cost.day, cost.project_id, cost.agent_profile_id, cost.effective_cost_usd
+    DELETE FROM pending_model_costs cost USING pending
+    WHERE cost.model_call_context_id = pending.model_call_context_id
+    RETURNING cost.org_id, cost.project_id, cost.agent_profile_id, cost.agent_id, cost.day, cost.effective_cost_usd
+), merged AS (
+    INSERT INTO daily_model_costs(org_id, project_id, agent_profile_id, agent_id, day, effective_cost_usd)
+    SELECT calls.org_id, scope.project_id, scope.agent_profile_id, scope.agent_id, calls.day,
+           sum(calls.effective_cost_usd)
+    FROM calls
+    CROSS JOIN LATERAL (VALUES
+        (NULL::uuid, NULL::uuid, NULL::uuid, true),
+        (calls.project_id, NULL, NULL, true),
+        (calls.project_id, calls.agent_profile_id, NULL, calls.agent_profile_id IS NOT NULL),
+        (calls.project_id, NULL, calls.agent_id, true)
+    ) scope(project_id, agent_profile_id, agent_id, applies)
+    WHERE scope.applies
+    GROUP BY calls.org_id, scope.project_id, scope.agent_profile_id, scope.agent_id, calls.day
+    ON CONFLICT (org_id, project_id, agent_profile_id, agent_id, day) DO UPDATE
+    SET effective_cost_usd = daily_model_costs.effective_cost_usd + EXCLUDED.effective_cost_usd
 )
-INSERT INTO daily_model_costs(org_id, day, project_id, agent_profile_id, effective_cost_usd)
-SELECT org_id, day, project_id, agent_profile_id, sum(effective_cost_usd)
-FROM calls GROUP BY org_id, day, project_id, agent_profile_id
-ON CONFLICT (org_id, day, project_id, agent_profile_id, model_call_context_id) DO UPDATE
-SET effective_cost_usd = daily_model_costs.effective_cost_usd + EXCLUDED.effective_cost_usd;
+SELECT count(*)::bigint FROM calls;

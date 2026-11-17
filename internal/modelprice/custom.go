@@ -2,12 +2,33 @@ package modelprice
 
 import (
 	"encoding/json"
+	"math"
 	"math/big"
 
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 )
 
 var tokensPerPrice = big.NewRat(1_000_000, 1)
+
+func FreePricing(pricing json.RawMessage) bool {
+	return CustomCost(pricing, modelenvelope.Usage{
+		UncachedInputTokens: math.MaxInt32, CacheReadTokens: math.MaxInt32,
+		CacheWriteTokens: math.MaxInt32, OutputTokens: math.MaxInt32,
+	}) == "0"
+}
+
+func PricingFits(pricing json.RawMessage) bool {
+	for _, usage := range []modelenvelope.Usage{
+		{UncachedInputTokens: math.MaxInt32, OutputTokens: math.MaxInt32},
+		{CacheReadTokens: math.MaxInt32, OutputTokens: math.MaxInt32},
+		{CacheWriteTokens: math.MaxInt32, OutputTokens: math.MaxInt32},
+	} {
+		if CustomCost(pricing, usage) == "" {
+			return false
+		}
+	}
+	return true
+}
 
 func CustomCost(pricing json.RawMessage, usage modelenvelope.Usage) modelenvelope.ProviderReportedCostUSD {
 	var prices struct {

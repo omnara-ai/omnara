@@ -1480,4 +1480,8 @@ func TestConfiguredModelPricing(t *testing.T) {
 	request(http.MethodPut, modelPath,
 		`{"pricing":{"input_usd_per_million":"0.123456789012345678901234567890","output_usd_per_million":"15"}}`,
 		http.StatusBadRequest)
+	tooLarge := `{"input_usd_per_million":"1000000000000","output_usd_per_million":"15"}`
+	request(http.MethodPut, modelPath, `{"pricing":`+tooLarge+`}`, http.StatusBadRequest)
+	request(http.MethodPost, modelsPath, `{"name":"too-large","provider_model_slug":"too-large",`+
+		`"context_window_tokens":128000,"pricing":`+tooLarge+`}`, http.StatusBadRequest)
 }

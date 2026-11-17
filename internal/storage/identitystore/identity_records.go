@@ -41,6 +41,7 @@ type CreateProjectForPrincipalInput struct {
 	Creator        PrincipalRecord
 	Name           string
 	IdempotencyKey string
+	Budgets        []BudgetAttachment
 }
 
 type ProjectRecord struct {

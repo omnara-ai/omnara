@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -160,9 +161,9 @@ INSERT INTO projects(org_id,name,created_at,updated_at)
 SELECT $1,'budget-plan-'||n,now(),now() FROM generate_series(1,20) n`, f.org)
 	require.NoError(t, err)
 	_, err = tx.Exec(ctx, `
-INSERT INTO daily_model_costs(org_id,day,project_id,effective_cost_usd)
-SELECT $1,day,p.id,1 FROM generate_series(current_date-1095,current_date,interval '1 day') day
-CROSS JOIN projects p WHERE p.org_id=$1`, f.org)
+INSERT INTO daily_model_costs(org_id,project_id,day,effective_cost_usd)
+SELECT $1,scope.id,day,1 FROM generate_series(current_date-1095,current_date,interval '1 day') day
+CROSS JOIN (SELECT id FROM projects WHERE org_id=$1 UNION ALL SELECT NULL::uuid) scope`, f.org)
 	require.NoError(t, err)
 	_, err = tx.Exec(ctx, `
 INSERT INTO budgets(org_id,project_id,interval,amount_usd) VALUES
@@ -178,11 +179,14 @@ SET LOCAL plan_cache_mode=force_generic_plan`)
 	require.NoError(t, tx.QueryRow(ctx, "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) "+query, f.org, f.project, nil,
 		uuid.New()).Scan(&raw))
 	t.Logf("budget check plan=%s", raw)
+	usesScopeIndex := false
 	integrationdb.ReadPlan(t, raw).Walk(func(node integrationdb.PlanNode) {
 		if node.Relation == "daily_model_costs" {
-			require.Equal(t, "daily_model_costs_day_call_idx", node.Index, "%s", raw)
+			require.NotEqual(t, "Seq Scan", node.Type, "%s", raw)
 		}
+		usesScopeIndex = usesScopeIndex || node.Index == "daily_model_costs_scope_day_idx"
 	})
+	require.True(t, usesScopeIndex, "%s", raw)
 	require.LessOrEqual(t, integrationdb.PlanBuffers(t, raw), 40)
 }
 
@@ -201,15 +205,16 @@ VALUES($4,$2,$1,1,$5,now())`, id, f.project, name, version, f.config)
 	rootProfile, childProfile := profile("budget-root"), profile("budget-child")
 	root := f.createWithProfile(t, uuid.New(), uuid.Nil, rootProfile)
 	child := f.createWithProfile(t, uuid.New(), root, childProfile)
+	loner := f.create(t, uuid.New(), uuid.Nil)
 	openings := map[uuid.UUID][2]uuid.UUID{}
-	for _, agent := range []uuid.UUID{root, child} {
+	for _, agent := range []uuid.UUID{root, child, loner} {
 		turn, input := f.opening(t, agent, 1, uuid.Nil, "content")
 		openings[agent] = [2]uuid.UUID{turn, input}
 	}
 	tx, err := f.pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
-	for agent, cost := range map[uuid.UUID]string{root: "1", child: "2"} {
+	for agent, cost := range map[uuid.UUID]string{root: "1", child: "2", loner: "4"} {
 		id := uuid.New()
 		_, err = tx.Exec(ctx, `
 INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,turn_id,operation_kind,attempt_number,
@@ -224,26 +229,38 @@ input_tokens_total=10,uncached_input_tokens=10,effective_cost_usd=$2::numeric,ef
 completed_at=now() WHERE id=$1`, id, cost)
 		require.NoError(t, err)
 	}
-	var profiles []uuid.UUID
-	rows, err := tx.Query(ctx, `SELECT agent_profile_id FROM daily_model_costs WHERE org_id=$1`, f.org)
+	pending := map[[2]string]int{}
+	rows, err := tx.Query(ctx, `
+SELECT coalesce(agent_profile_id::text,''),agent_id::text FROM pending_model_costs WHERE org_id=$1 AND project_id=$2`,
+		f.org, f.project)
 	require.NoError(t, err)
 	for rows.Next() {
-		var id uuid.UUID
-		require.NoError(t, rows.Scan(&id))
-		profiles = append(profiles, id)
+		var call [2]string
+		require.NoError(t, rows.Scan(&call[0], &call[1]))
+		pending[call]++
 	}
 	require.NoError(t, rows.Err())
-	require.Equal(t, []uuid.UUID{rootProfile, rootProfile}, profiles,
-		"a subagent's spend counts toward its root's profile")
-	spent := func(profileID, agentID any) string {
+	require.Equal(t, map[[2]string]int{{rootProfile.String(), root.String()}: 2, {"", loner.String()}: 1}, pending,
+		"a subagent's spend counts toward its top-level agent and that agent's profile")
+	spent := func(projectID, profileID, agentID any) string {
 		var cost string
 		require.NoError(t, tx.QueryRow(ctx,
 			`SELECT effective_cost_usd::text FROM budget_interval_cost($1,$2,$3,$4,'lifetime')`,
-			f.org, f.project, profileID, agentID).Scan(&cost))
+			f.org, projectID, profileID, agentID).Scan(&cost))
 		return cost
 	}
-	require.Equal(t, "3.000000000000000", spent(rootProfile, nil))
-	require.Equal(t, "0", spent(childProfile, nil))
-	require.Equal(t, "3.000000000000000", spent(nil, root), "an agent budget covers its subagents")
-	require.Equal(t, "0", spent(nil, child), "only top-level agents have budgets")
+	expectSpend := func(message string) {
+		require.Equal(t, "7.000000000000000", spent(nil, nil, nil), message)
+		require.Equal(t, "7.000000000000000", spent(f.project, nil, nil), message)
+		require.Equal(t, "3.000000000000000", spent(f.project, rootProfile, nil), message)
+		require.Equal(t, "0", spent(f.project, childProfile, nil), message)
+		require.Equal(t, "3.000000000000000", spent(f.project, nil, root), message)
+		require.Equal(t, "0", spent(f.project, nil, child), message)
+		require.Equal(t, "4.000000000000000", spent(f.project, nil, loner), message)
+	}
+	expectSpend("pending calls count before they merge")
+	merged, err := dbsqlc.New(tx).MergeDailyModelCosts(ctx, dbsqlc.MergeDailyModelCostsParams{LimitCount: 100})
+	require.NoError(t, err)
+	require.Equal(t, int64(3), merged)
+	expectSpend("merging moves spend into scope totals without changing it")
 }

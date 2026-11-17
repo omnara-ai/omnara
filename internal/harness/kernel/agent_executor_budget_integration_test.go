@@ -26,9 +26,14 @@ import (
 )
 
 type fixedCostEstimator struct {
-	mu     sync.Mutex
-	cost   modelenvelope.ProviderReportedCostUSD
-	inputs []modelprice.Input
+	mu       sync.Mutex
+	cost     modelenvelope.ProviderReportedCostUSD
+	unpriced bool
+	inputs   []modelprice.Input
+}
+
+func (e *fixedCostEstimator) Prices(modelprice.Input, json.RawMessage) bool {
+	return !e.unpriced
 }
 
 func (e *fixedCostEstimator) Estimate(_ context.Context, input modelprice.Input) modelenvelope.ProviderReportedCostUSD {
@@ -150,7 +155,7 @@ func createBudgetForKernelTest(
 func TestAgentExecutorBudgetDenialNotifiesWithoutProviderRequest(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	f := newKernelFixture(t, ctx)
+	f := newKernelFixture(t, ctx, storage.WithModelCostEstimator(&fixedCostEstimator{}))
 	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
 	first := runBudgetTurn(t, ctx, f, agentID, userID, "spend", f.Now.Add(time.Second),
 		budgetResponse("resp_spend", "2"), nil)
@@ -334,19 +339,61 @@ func TestAgentExecutorBudgetScopes(t *testing.T) {
 func TestAgentExecutorProfileAndAgentBudgetsOnlyStopTheirOwnAgents(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	f := newKernelFixture(t, ctx)
+	f := newKernelFixture(t, ctx, storage.WithModelCostEstimator(&fixedCostEstimator{}))
 	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
 	otherID, _ := f.createNamedAgentWithModelOptions(t, ctx, "Other", "openai/budget-model", f.Now.Add(time.Hour),
 		kernelConfiguredModelOptions{})
 	runBudgetTurn(t, ctx, f, agentID, userID, "spend", f.Now.Add(time.Second), budgetResponse("resp_spend", "2"), nil)
 	createBudgetForKernelTest(t, ctx, f, agentID, kernelTestBudget{agent: true, interval: "month", amount: "2"})
 	createBudgetForKernelTest(t, ctx, f, agentID, kernelTestBudget{profile: true, interval: "month", amount: "2"})
+	createBudgetForKernelTest(t, ctx, f, otherID, kernelTestBudget{agent: true, interval: "month", amount: "2"})
+	createBudgetForKernelTest(t, ctx, f, otherID, kernelTestBudget{profile: true, interval: "month", amount: "2"})
 	other := runBudgetTurn(t, ctx, f, otherID, userID, "other", f.Now.Add(2*time.Hour),
 		budgetResponse("resp_other", "0"), nil)
-	require.Equal(t, 1, other.responded, "another agent from another profile must keep running")
+	require.Equal(t, 1, other.responded, "another agent's budgets count only its own spend")
 	denied := runBudgetTurn(t, ctx, f, agentID, userID, "denied", f.Now.Add(3*time.Hour),
 		budgetResponse("resp_denied", "0"), nil)
 	require.Zero(t, denied.responded)
+}
+
+func TestAgentExecutorBudgetRefusesUnpricedModels(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newKernelFixture(t, ctx, storage.WithModelCostEstimator(&fixedCostEstimator{unpriced: true}))
+	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
+	pricing := json.RawMessage(budgetTestPricing)
+	pricedAgentID, _ := f.createNamedAgentWithModelOptions(t, ctx, "Priced", "priced/budget-model",
+		f.Now, kernelConfiguredModelOptions{Pricing: &pricing})
+	createBudgetForKernelTest(t, ctx, f, agentID, kernelTestBudget{project: true, interval: "month", amount: "100"})
+
+	denied := runBudgetTurn(t, ctx, f, agentID, userID, "unpriced", f.Now.Add(time.Second),
+		budgetResponse("resp_unpriced", ""), nil)
+	require.Zero(t, denied.responded, "an unpriced model must not run while a budget applies")
+	assertDurableModelErrorForKernelTest(t, ctx, f, agentID, denied.turnID,
+		string(modelprotocol.ErrorKindRuntime), storeerr.BudgetModelUnpricedCode)
+	priced := runBudgetTurn(t, ctx, f, pricedAgentID, userID, "priced", f.Now.Add(time.Minute),
+		budgetResponse("resp_priced", ""), nil)
+	require.Equal(t, 1, priced.responded, "a model with its own prices keeps running")
+}
+
+func TestAgentExecutorBudgetLetsModelsPricedAtZeroRun(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newKernelFixture(t, ctx, storage.WithModelCostEstimator(&fixedCostEstimator{}))
+	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
+	free := json.RawMessage(`{"input_usd_per_million":"0","output_usd_per_million":"0"}`)
+	freeAgentID, _ := f.createNamedAgentWithModelOptions(t, ctx, "Free", "priced/budget-model",
+		f.Now, kernelConfiguredModelOptions{Pricing: &free})
+	runBudgetTurn(t, ctx, f, agentID, userID, "spend", f.Now.Add(time.Second), budgetResponse("resp_spend", "2"), nil)
+	createBudgetForKernelTest(t, ctx, f, agentID, kernelTestBudget{project: true, interval: "month", amount: "2"})
+
+	freeTurn := runBudgetTurn(t, ctx, f, freeAgentID, userID, "free", f.Now.Add(time.Minute),
+		budgetResponse("resp_free", "1"), nil)
+	require.Equal(t, 1, freeTurn.responded, "a model priced at 0 keeps running after the budget is reached")
+	denied := runBudgetTurn(t, ctx, f, agentID, userID, "denied", f.Now.Add(2*time.Minute),
+		budgetResponse("resp_denied", ""), nil)
+	require.Zero(t, denied.responded, "paid models in the project still stop")
+	require.Equal(t, "2.000000000000000", dailyModelCostForKernelTest(t, ctx, f), "calls priced at 0 add no spend")
 }
 
 func TestAgentExecutorRecordsEffectiveCosts(t *testing.T) {
@@ -513,7 +560,7 @@ func TestAgentExecutorPassesServedModelThroughCompaction(t *testing.T) {
 func TestAgentExecutorBudgetStopsCompactionAfterCrossingCall(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	f := newKernelFixture(t, ctx)
+	f := newKernelFixture(t, ctx, storage.WithModelCostEstimator(&fixedCostEstimator{}))
 	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now, "run_command")
 	runBudgetTurn(t, ctx, f, agentID, userID, "seed history before overflow", f.Now.Add(time.Second),
 		budgetResponse("resp_seed", "0"), nil)
@@ -554,8 +601,8 @@ FROM model_call_contexts WHERE project_id = $1 AND agent_id = $2`,
 func dailyModelCostForKernelTest(t *testing.T, ctx context.Context, f kernelFixture) string {
 	t.Helper()
 	var cost string
-	require.NoError(t, f.Pool.QueryRow(ctx, `
-SELECT coalesce(sum(effective_cost_usd), 0)::text FROM daily_model_costs WHERE org_id = $1`,
+	require.NoError(t, f.Pool.QueryRow(ctx,
+		`SELECT effective_cost_usd::text FROM budget_interval_cost($1, NULL, NULL, NULL, 'lifetime')`,
 		kernelTestOrgID).Scan(&cost))
 	return cost
 }
@@ -583,34 +630,47 @@ func TestDailyModelCostsAddEachFinishedCallOnce(t *testing.T) {
 SELECT coalesce(sum(effective_cost_usd), 0)::text FROM model_call_contexts WHERE project_id = $1`,
 		kernelTestProjectID).Scan(&raw))
 	require.Equal(t, raw, cost)
+	mergeDailyModelCostsForKernelTest(t, ctx, f)
 	require.Equal(t, [2]int{1, 0}, dailyModelCostRowsForKernelTest(t, ctx, f))
+	require.Equal(t, cost, dailyModelCostForKernelTest(t, ctx, f))
 }
 
 func TestDailyModelCostsMergeInBatches(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newKernelFixture(t, ctx)
-	_, err := f.Pool.Exec(ctx, `
-INSERT INTO daily_model_costs(org_id, day, project_id, model_call_context_id, effective_cost_usd)
-SELECT $1, (statement_timestamp() AT TIME ZONE 'UTC')::date, $2, gen_random_uuid(), 1
-FROM generate_series(1, 1500)`, kernelTestOrgID, uuid.New())
-	require.NoError(t, err)
 	agentID, userID := f.createAgent(t, ctx, "openai/budget-model", f.Now)
-	runBudgetTurn(t, ctx, f, agentID, userID, "first", f.Now.Add(time.Second), budgetResponse("resp_first", "1"), nil)
-	require.Equal(t, 501, dailyModelCostRowsForKernelTest(t, ctx, f)[1])
-	createBudgetForKernelTest(t, ctx, f, agentID, kernelTestBudget{project: true, interval: "day", amount: "1"})
-	denied := runBudgetTurn(t, ctx, f, agentID, userID, "denied", f.Now.Add(time.Minute),
-		budgetResponse("resp_denied", "1"), nil)
-	require.Zero(t, denied.responded)
-	require.Zero(t, dailyModelCostRowsForKernelTest(t, ctx, f)[1], "a denied call must still drain pending costs")
-	require.Equal(t, "1501.000000000000000", dailyModelCostForKernelTest(t, ctx, f))
+	for index := range 3 {
+		id := fmt.Sprintf("resp_batch_%d", index)
+		runBudgetTurn(t, ctx, f, agentID, userID, id, f.Now.Add(time.Duration(index+1)*time.Second),
+			budgetResponse(id, "1"), nil)
+	}
+	merge := func() int64 {
+		merged, err := f.Store.Identity().MergeDailyModelCosts(ctx, 2)
+		require.NoError(t, err)
+		return merged
+	}
+	require.Equal(t, [2]int{0, 3}, dailyModelCostRowsForKernelTest(t, ctx, f))
+	require.Equal(t, int64(2), merge())
+	require.Equal(t, [2]int{1, 1}, dailyModelCostRowsForKernelTest(t, ctx, f))
+	require.Equal(t, int64(1), merge())
+	require.Equal(t, [2]int{1, 0}, dailyModelCostRowsForKernelTest(t, ctx, f))
+	require.Equal(t, "3.000000000000000", dailyModelCostForKernelTest(t, ctx, f))
+}
+
+func mergeDailyModelCostsForKernelTest(t *testing.T, ctx context.Context, f kernelFixture) int64 {
+	t.Helper()
+	merged, err := f.Store.Identity().MergeDailyModelCosts(ctx, 10_000)
+	require.NoError(t, err)
+	return merged
 }
 
 func dailyModelCostRowsForKernelTest(t *testing.T, ctx context.Context, f kernelFixture) [2]int {
 	t.Helper()
 	var rows [2]int
 	require.NoError(t, f.Pool.QueryRow(ctx, `
-SELECT count(*), count(model_call_context_id) FROM daily_model_costs WHERE org_id = $1`,
+SELECT (SELECT count(*) FROM daily_model_costs WHERE org_id = $1 AND project_id IS NULL),
+       (SELECT count(*) FROM pending_model_costs WHERE org_id = $1)`,
 		kernelTestOrgID).Scan(&rows[0], &rows[1]))
 	return rows
 }
@@ -621,8 +681,8 @@ func TestDailyModelCostsRejectInvalidRows(t *testing.T) {
 	f := newKernelFixture(t, ctx)
 	for _, cost := range []string{"NaN", "-1"} {
 		_, err := f.Pool.Exec(ctx, `
-INSERT INTO daily_model_costs(org_id, day, project_id, effective_cost_usd)
-VALUES ($1, current_date, $2, $3::numeric)`, kernelTestOrgID, kernelTestProjectID, cost)
+INSERT INTO daily_model_costs(org_id, day, effective_cost_usd)
+VALUES ($1, current_date, $2::numeric)`, kernelTestOrgID, cost)
 		require.Error(t, err, cost)
 	}
 }
@@ -632,19 +692,19 @@ func TestDailyModelCostsSumConcurrentFinishes(t *testing.T) {
 	ctx := t.Context()
 	f := newKernelFixture(t, ctx)
 	_, err := f.Pool.Exec(ctx, `
-INSERT INTO daily_model_costs(org_id, day, project_id, effective_cost_usd)
-VALUES ($1, (statement_timestamp() AT TIME ZONE 'UTC')::date, $2, 0)`, kernelTestOrgID, kernelTestProjectID)
+INSERT INTO daily_model_costs(org_id, day, effective_cost_usd)
+VALUES ($1, (statement_timestamp() AT TIME ZONE 'UTC')::date, 0)`, kernelTestOrgID)
 	require.NoError(t, err)
 	day, err := f.Pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = day.Rollback(ctx) }()
-	_, err = day.Exec(ctx, `SELECT 1 FROM daily_model_costs WHERE project_id = $1 FOR UPDATE`, kernelTestProjectID)
+	_, err = day.Exec(ctx, `SELECT 1 FROM daily_model_costs WHERE org_id = $1 AND project_id IS NULL FOR UPDATE`,
+		kernelTestOrgID)
 	require.NoError(t, err)
 	merging, err := f.Pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = merging.Rollback(ctx) }()
-	_, err = merging.Exec(ctx,
-		`SELECT pg_advisory_xact_lock(hashtextextended('daily_model_costs:' || $1::text, 0))`, kernelTestOrgID)
+	_, err = merging.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('daily_model_costs', 0))`)
 	require.NoError(t, err)
 	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -682,23 +742,21 @@ VALUES ($1, (statement_timestamp() AT TIME ZONE 'UTC')::date, $2, 0)`, kernelTes
 	for err := range errs {
 		require.NoError(t, err, "a finishing call must not wait on the day's merged row")
 	}
-	require.Equal(t, [2]int{1 + agents, agents}, dailyModelCostRowsForKernelTest(t, ctx, f))
+	require.Equal(t, [2]int{1, agents}, dailyModelCostRowsForKernelTest(t, ctx, f))
 	require.NoError(t, day.Rollback(ctx))
-	at := f.Now.Add(time.Minute)
-	agentID, userID := f.createNamedAgentWithModelOptions(
-		t, ctx, "Budget merge", "openai/budget-model", at, kernelConfiguredModelOptions{},
-	)
-	runBudgetTurn(t, ctx, f, agentID, userID, "skipped", at, budgetResponse("resp_skipped", "1"), nil)
-	require.Equal(t, [2]int{2 + agents, 1 + agents}, dailyModelCostRowsForKernelTest(t, ctx, f),
-		"a merge must skip while another merge holds the org")
+	require.Zero(t, mergeDailyModelCostsForKernelTest(t, ctx, f), "a merge must skip while another merge runs")
 	require.NoError(t, merging.Rollback(ctx))
 	_, err = f.Pool.Exec(ctx, `
-INSERT INTO daily_model_costs(org_id, day, project_id, model_call_context_id, effective_cost_usd)
-VALUES ($1, (statement_timestamp() AT TIME ZONE 'UTC')::date - 1, $2, $3, 1)`,
-		kernelTestOrgID, kernelTestProjectID, uuid.New())
+UPDATE pending_model_costs SET day = day - 1
+WHERE model_call_context_id = (SELECT model_call_context_id FROM pending_model_costs WHERE org_id = $1 LIMIT 1)`,
+		kernelTestOrgID)
 	require.NoError(t, err)
-	runBudgetTurn(t, ctx, f, agentID, userID, "merge", at.Add(time.Second), budgetResponse("resp_merge", "1"), nil)
-	require.Equal(t, [2]int{agents + 3, 0}, dailyModelCostRowsForKernelTest(t, ctx, f),
-		"a merge must fold leftovers from earlier days into their own day, one row per agent profile")
-	require.Equal(t, "9.000000000000000", dailyModelCostForKernelTest(t, ctx, f))
+	require.Equal(t, int64(agents), mergeDailyModelCostsForKernelTest(t, ctx, f))
+	require.Equal(t, [2]int{2, 0}, dailyModelCostRowsForKernelTest(t, ctx, f),
+		"a merge must fold leftovers from earlier days into their own day")
+	var buckets int
+	require.NoError(t, f.Pool.QueryRow(ctx, `SELECT count(*) FROM daily_model_costs WHERE org_id = $1`,
+		kernelTestOrgID).Scan(&buckets))
+	require.Equal(t, 4+2*agents, buckets, "each call adds to its org, project, profile, and agent totals")
+	require.Equal(t, "6.000000000000000", dailyModelCostForKernelTest(t, ctx, f))
 }

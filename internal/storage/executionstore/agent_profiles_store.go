@@ -94,6 +94,11 @@ func (s *Store) CreateAgentProfile(
 		)
 	}
 
+	if err := identitystore.CreateBudgetsTx(ctx, tx, identitystore.CreateBudgetInput{
+		OrgID: input.OrgID, ProjectID: &input.ProjectID, AgentProfileID: &record.ID,
+	}, input.Budgets); err != nil {
+		return AgentProfileRecord{}, err
+	}
 	record.CurrentConfig = config
 	if err := tx.Commit(ctx); err != nil {
 		return AgentProfileRecord{}, fmt.Errorf("commit create agent profile: %w", err)
@@ -580,6 +585,7 @@ type CreateAgentProfileInput struct {
 	Name            string
 	CurrentConfigID uuid.UUID
 	IdempotencyKey  string
+	Budgets         []identitystore.BudgetAttachment
 }
 
 type AgentProfileRecord struct {

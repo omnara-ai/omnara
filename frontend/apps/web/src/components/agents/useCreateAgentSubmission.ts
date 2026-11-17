@@ -4,7 +4,7 @@ import {
   useCreateAgentProfile,
   useUpdateAgentProfile,
 } from '@omnara/react'
-import type { AgentConfigErrorIssue, ApiError } from '@omnara/sdk'
+import type { AgentConfigErrorIssue, ApiError, BudgetAttachment } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
 import { useRef, useState } from 'react'
 
@@ -32,9 +32,15 @@ export function useCreateAgentSubmission(orgId: string, projectId: string) {
   const [pendingAction, setPendingAction] = useState<SubmitAction | null>(null)
   const [launchError, setLaunchError] = useState<ApiError>()
   const [issues, setIssues] = useState<AgentConfigErrorIssue[]>([])
+  const [profileCreated, setProfileCreated] = useState(false)
   const savedProfile = useRef<SavedProfile | null>(null)
 
-  async function submit(name: string, yaml: string, action: SubmitAction) {
+  async function submit(
+    name: string,
+    yaml: string,
+    action: SubmitAction,
+    budgets: BudgetAttachment[],
+  ) {
     setLaunchError(undefined)
     setIssues([])
     setStatus(submitting)
@@ -51,8 +57,13 @@ export function useCreateAgentSubmission(orgId: string, projectId: string) {
           })
           profile = { ...profile, yaml, configId: config.id }
         } else {
-          const created = await createAgentProfile.mutateAsync({ name, config: config.id })
+          const created = await createAgentProfile.mutateAsync({
+            name,
+            config: config.id,
+            budgets,
+          })
           profile = { name, yaml, profileId: created.id, configId: config.id }
+          setProfileCreated(true)
         }
         savedProfile.current = profile
       }
@@ -92,5 +103,5 @@ export function useCreateAgentSubmission(orgId: string, projectId: string) {
     }
   }
 
-  return { submit, status, pendingAction, launchError, issues }
+  return { submit, status, pendingAction, launchError, issues, profileCreated }
 }

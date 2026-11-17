@@ -951,9 +951,21 @@ export type DiscoveredProviderModel = {
  * Prices in USD per million tokens, as exact decimal strings. Cache prices are omitted when not set.
  */
 export type DiscoveredModelPricing = {
+    /**
+     * USD per million input tokens.
+     */
     input_usd_per_million: string;
+    /**
+     * USD per million input tokens read from the prompt cache.
+     */
     cache_read_input_usd_per_million?: string;
+    /**
+     * USD per million input tokens written to the prompt cache.
+     */
     cache_write_input_usd_per_million?: string;
+    /**
+     * USD per million output tokens.
+     */
     output_usd_per_million: string;
 };
 
@@ -2296,6 +2308,10 @@ export type AgentConfigGeneratedSource = {
 export type CreateAgentProfileRequest = {
     name: ResourceName;
     config: AgentConfigId;
+    /**
+     * Budgets for the new profile, created atomically with it, one per interval. Requires organization management permission. Replay never adds budgets.
+     */
+    budgets?: Array<BudgetAttachment>;
 };
 
 export type UpdateAgentProfileRequest = {
@@ -2551,6 +2567,10 @@ export type CreateAgentRequest = ({
      * Integration-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
      */
     subscriptions?: Array<IntegrationSubscriptionAttachment>;
+    /**
+     * Budgets for the new agent, created atomically with launch, one per interval. Requires organization management permission. Launch replay never adds budgets.
+     */
+    budgets?: Array<BudgetAttachment>;
     /**
      * Additional integration interaction handlers, keyed by immutable integration name with empty object values. Slack and Discord handlers require an assigned conversation and accept empty runtime args. Adding a handler does not assign a conversation. Existing entries win unchanged. Requires project management permission.
      */
@@ -4013,6 +4033,10 @@ export type ListSecretGrantsResponse = {
 
 export type CreateOrganizationRequest = {
     name: ResourceName;
+    /**
+     * Budgets for the new organization, created atomically with it, one per interval. Replay never adds budgets.
+     */
+    budgets?: Array<BudgetAttachment>;
 };
 
 export type CreateOrganizationResponse = {
@@ -5222,6 +5246,10 @@ export type BootstrapDaemonResponse = {
 
 export type CreateProjectRequest = {
     name: ResourceName;
+    /**
+     * Budgets for the new project, created atomically with it, one per interval. Replay never adds budgets.
+     */
+    budgets?: Array<BudgetAttachment>;
 };
 
 export type UpdateProjectRequest = {
@@ -5352,6 +5380,17 @@ export type BudgetScope = ({
 } & AgentProfileBudgetScope) | ({
     type: 'agent';
 } & AgentBudgetScope);
+
+export type BudgetAttachment = {
+    /**
+     * How often the budget resets.
+     */
+    interval: BudgetInterval;
+    /**
+     * Spend limit in US dollars for each interval.
+     */
+    amount_usd: BudgetAmount;
+};
 
 /**
  * How often spend resets, in UTC: day at midnight, week on Monday, month on the 1st. lifetime never resets and counts spend recorded since budgets became available.

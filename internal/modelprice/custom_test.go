@@ -75,3 +75,53 @@ func TestCustomCost(t *testing.T) {
 		})
 	}
 }
+
+func TestPricingFits(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		pricing string
+		fits    bool
+	}{
+		{
+			name:    "fits at the largest stored token counts",
+			pricing: `{"input_usd_per_million":"232830643762","output_usd_per_million":"232830643762"}`,
+			fits:    true,
+		},
+		{
+			name:    "overflows at the largest stored token counts",
+			pricing: `{"input_usd_per_million":"232830643763","output_usd_per_million":"232830643763"}`,
+		},
+		{
+			name: "input tokens fill one input price at a time",
+			pricing: `{"input_usd_per_million":"300000000000","cache_read_input_usd_per_million":"300000000000",` +
+				`"cache_write_input_usd_per_million":"300000000000","output_usd_per_million":"0"}`,
+			fits: true,
+		},
+		{
+			name: "the priciest input price decides",
+			pricing: `{"input_usd_per_million":"1","cache_write_input_usd_per_million":"500000000000",` +
+				`"output_usd_per_million":"0"}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.fits, PricingFits(json.RawMessage(test.pricing)))
+		})
+	}
+}
+
+func TestFreePricing(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		pricing string
+		free    bool
+	}{
+		{name: "every price is 0", pricing: `{"input_usd_per_million":"0","output_usd_per_million":"0.000"}`, free: true},
+		{name: "a paid cache price", pricing: `{"input_usd_per_million":"0",` +
+			`"cache_write_input_usd_per_million":"1.25","output_usd_per_million":"0"}`},
+		{name: "a paid output price", pricing: `{"input_usd_per_million":"0","output_usd_per_million":"1"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.free, FreePricing(json.RawMessage(test.pricing)))
+		})
+	}
+}
