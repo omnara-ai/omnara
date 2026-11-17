@@ -194,37 +194,50 @@ func TestFileTransferArtifactRoundTrip(t *testing.T) {
 	}
 }
 
-func TestFileTransferUsesTheConnectionProxyAndCertificates(t *testing.T) {
-	processID := fileTransferTestPublicID(t, publicid.KindProcess)
-	content := []byte("provider proxied")
-	serve := func(w http.ResponseWriter, _ *http.Request) {
+func serveFileTransferContent(content []byte) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("X-Omnara-File-Digest", fmt.Sprintf("sha256:%x", sha256.Sum256(content)))
 		_, _ = w.Write(content)
 	}
+}
+
+func TestFileTransferUsesTheConnectionProxy(t *testing.T) {
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
+	serve := serveFileTransferContent([]byte("provider proxied"))
 	var proxied atomic.Value
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		proxied.Store(r.URL.String())
 		serve(w, r)
 	}))
 	defer proxy.Close()
-	download := func(connection machinedaemon.FileTransferConnection) error {
-		path := filepath.Join(t.TempDir(), "file.txt")
-		return runFileTransfer(context.Background(), processcmd.FileTransferDownload, processID, path, connection, io.Discard)
-	}
-	require.NoError(t, download(machinedaemon.FileTransferConnection{
-		APIURL: "http://api.omnara.invalid/api/v1", MachineToken: "token-a", ProxyURL: proxy.URL,
-	}))
+	require.NoError(t, runFileTransfer(context.Background(), processcmd.FileTransferDownload, processID,
+		filepath.Join(t.TempDir(), "file.txt"), machinedaemon.FileTransferConnection{
+			APIURL: "http://api.omnara.invalid/api/v1", MachineToken: "token-a", ProxyURL: proxy.URL,
+		}, io.Discard))
 	require.Equal(t, "http://api.omnara.invalid/api/v1/daemon/processes/"+processID+"/file", proxied.Load())
+}
 
-	api := httptest.NewTLSServer(http.HandlerFunc(serve))
+func TestFileTransferTrustsOnlyTheConnectionCertificates(t *testing.T) {
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
+	api := httptest.NewTLSServer(serveFileTransferContent([]byte("provider certificate")))
 	defer api.Close()
 	caDir := t.TempDir()
 	caFile := filepath.Join(caDir, "provider-ca.pem")
 	require.NoError(t, os.WriteFile(caFile,
 		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: api.Certificate().Raw}), 0o600))
+	t.Setenv("SSL_CERT_FILE", caFile)
+	t.Setenv("SSL_CERT_DIR", "")
+	download := func(connection machinedaemon.FileTransferConnection) error {
+		_, err := runFileTransferTestCommand(t, []string{
+			"__omnara_file_transfer", "download", processID, filepath.Join(t.TempDir(), "file.txt"),
+		}, connection, &bytes.Buffer{})
+		return err
+	}
 	connection := testFileTransferConnection(api.URL)
 	require.ErrorContains(t, download(connection), "certificate")
-	connection.SSLCertFile = caFile
+	connection.SSLCertDir = t.TempDir()
+	require.ErrorContains(t, download(connection), "certificate")
+	connection.SSLCertFile, connection.SSLCertDir = caFile, ""
 	require.NoError(t, download(connection))
 	connection.SSLCertFile, connection.SSLCertDir = "", caDir
 	require.NoError(t, download(connection))

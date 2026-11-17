@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processcmd"
-	"golang.org/x/net/http/httpproxy"
 )
 
 const maxFileTransferResultBytes = 8 * 1024
@@ -28,7 +28,7 @@ func (c *Client) fileTransferConnection() (FileTransferConnection, error) {
 	if err != nil {
 		return FileTransferConnection{}, fmt.Errorf("parse file transfer API URL: %w", err)
 	}
-	proxyURL, err := httpproxy.FromEnvironment().ProxyFunc()(apiURL)
+	proxyURL, err := http.ProxyFromEnvironment(&http.Request{URL: apiURL})
 	if err != nil {
 		return FileTransferConnection{}, fmt.Errorf("resolve file transfer proxy: %w", err)
 	}
@@ -48,14 +48,18 @@ func fileTransferConnectionPipe(connection *FileTransferConnection) (*os.File, e
 	if connection == nil {
 		return nil, errors.New("file transfer connection is missing")
 	}
+	body, err := json.Marshal(connection)
+	if err != nil {
+		return nil, fmt.Errorf("encode file transfer connection: %w", err)
+	}
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		return nil, fmt.Errorf("create file transfer connection pipe: %w", err)
 	}
-	if err := errors.Join(json.NewEncoder(writer).Encode(connection), writer.Close()); err != nil {
-		_ = reader.Close()
-		return nil, fmt.Errorf("write file transfer connection: %w", err)
-	}
+	go func() {
+		_, _ = writer.Write(body)
+		_ = writer.Close()
+	}()
 	return reader, nil
 }
 

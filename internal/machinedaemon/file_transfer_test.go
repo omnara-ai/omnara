@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,14 +21,14 @@ import (
 const (
 	fileTransferTestProcessID = "prc_aaaaaaaaaaaaaaaaaaaaaaaaae"
 	fileTransferTestAPIURL    = "https://api.omnara.test/v1"
-	fileTransferTestProxy     = "http://127.0.0.1:9"
 	fileTransferTestHome      = "/home/omnara-file-transfer-test"
 )
 
 type fileTransferProbeKnobs struct {
-	Result   string `json:"result"`
-	ExitCode int    `json:"exit_code"`
-	Wait     bool   `json:"wait"`
+	Result     string                 `json:"result"`
+	ExitCode   int                    `json:"exit_code"`
+	Wait       bool                   `json:"wait"`
+	Connection FileTransferConnection `json:"connection"`
 }
 
 func runFileTransferProbe() int {
@@ -36,19 +39,17 @@ func runFileTransferProbe() int {
 	if os.Getenv(gitCredentialCapabilityEnv) != "" {
 		return 3
 	}
+	var knobs fileTransferProbeKnobs
+	if raw, err := os.ReadFile(os.Args[5]); err != nil || json.Unmarshal(raw, &knobs) != nil {
+		return 4
+	}
 	var connection FileTransferConnection
 	if err := json.NewDecoder(os.NewFile(4, "file-transfer-connection")).Decode(&connection); err != nil ||
-		connection != (FileTransferConnection{
-			APIURL: fileTransferTestAPIURL, MachineToken: "machine-token", ProxyURL: fileTransferTestProxy,
-		}) {
-		return 4
+		connection != knobs.Connection {
+		return 5
 	}
 	if os.Getenv("HOME") != fileTransferTestHome || os.Getenv("SSL_CERT_FILE") != "" ||
 		os.Getenv("WORKLOAD_SETTING") != "" {
-		return 5
-	}
-	var knobs fileTransferProbeKnobs
-	if raw, err := os.ReadFile(os.Args[5]); err != nil || json.Unmarshal(raw, &knobs) != nil {
 		return 6
 	}
 	result := os.NewFile(3, "file-transfer-result")
@@ -63,10 +64,16 @@ func runFileTransferProbe() int {
 }
 
 func TestDetachedSupervisorFileTransfer(t *testing.T) {
-	t.Setenv("HTTPS_PROXY", fileTransferTestProxy)
-	t.Setenv("NO_PROXY", "internal.example")
 	t.Setenv("SSL_CERT_FILE", "")
 	t.Setenv("SSL_CERT_DIR", "")
+	apiURL, err := url.Parse(fileTransferTestAPIURL)
+	require.NoError(t, err)
+	proxyURL, err := http.ProxyFromEnvironment(&http.Request{URL: apiURL})
+	require.NoError(t, err)
+	connection := FileTransferConnection{APIURL: fileTransferTestAPIURL, MachineToken: strings.Repeat("t", 256*1024)}
+	if proxyURL != nil {
+		connection.ProxyURL = proxyURL.String()
+	}
 	metadata := `{"path":"/memory/team/note.md","digest":"sha256:` + strings.Repeat("a", 64) + `"}`
 	failure := `{"error":{"code":"file_content_conflict","error":"file changed","current_digest":"sha256:` +
 		strings.Repeat("b", 64) + `"}}`
@@ -124,7 +131,9 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			cwd := t.TempDir()
-			knobs, err := json.Marshal(fileTransferProbeKnobs{Result: tc.result, ExitCode: tc.exitCode, Wait: tc.wait})
+			knobs, err := json.Marshal(fileTransferProbeKnobs{
+				Result: tc.result, ExitCode: tc.exitCode, Wait: tc.wait, Connection: connection,
+			})
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(filepath.Join(cwd, "a file;$(false).md"), knobs, 0o600))
 			env := map[string]string{
@@ -136,7 +145,7 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 			}
 			fixture := newDetachedSupervisorTestFixtureWithConfig(t, ctx,
 				Config{
-					APIURL: fileTransferTestAPIURL, MachineToken: "machine-token",
+					APIURL: fileTransferTestAPIURL, MachineToken: connection.MachineToken,
 					GitCredentialsDisabled: tc.gitCredentialsDisabled,
 				}, ProcessAssignment{
 					ID: fileTransferTestProcessID, GitCredentials: tc.gitCredentialsDisabled,
@@ -178,6 +187,25 @@ func TestDetachedSupervisorFileTransfer(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFileTransferConnectionUsesTheDaemonProxy(t *testing.T) {
+	apiURL, err := url.Parse(fileTransferTestAPIURL)
+	require.NoError(t, err)
+	if os.Getenv("OMNARA_TEST_FILE_TRANSFER_PROXY") == "1" {
+		connection, err := (&Client{cfg: Config{APIURL: fileTransferTestAPIURL}}).fileTransferConnection()
+		require.NoError(t, err)
+		want, err := http.ProxyFromEnvironment(&http.Request{URL: apiURL})
+		require.NoError(t, err)
+		require.NotNil(t, want)
+		require.Equal(t, want.String(), connection.ProxyURL)
+		return
+	}
+	command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestFileTransferConnectionUsesTheDaemonProxy$")
+	command.Env = append(os.Environ(), "OMNARA_TEST_FILE_TRANSFER_PROXY=1",
+		"HTTPS_PROXY=http://uppercase.invalid:1", "https_proxy=http://lowercase.invalid:2", "NO_PROXY=", "no_proxy=")
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, "%s", output)
 }
 
 func TestStorageReadTransferResultEscapedPath(t *testing.T) {

@@ -267,6 +267,11 @@ func Run(
 		connectionFile := os.NewFile(4, "file-transfer-connection")
 		err := json.NewDecoder(connectionFile).Decode(&connection)
 		_ = connectionFile.Close()
+		if err == nil {
+			err = errors.Join(
+				os.Setenv("SSL_CERT_FILE", connection.SSLCertFile), os.Setenv("SSL_CERT_DIR", connection.SSLCertDir),
+			)
+		}
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, "file transfer requires its connection:", err)
 			return 1

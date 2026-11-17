@@ -97,6 +97,17 @@ func TestDaytonaProviderProvisionRejectsAnAPIURLThatCannotBeInjected(t *testing.
 	require.Empty(t, api.calls)
 }
 
+func TestDaytonaProviderProvisionValidatesTheEnvBeforeCreatingTheSecret(t *testing.T) {
+	api := newFakeAPI()
+	_, err := newTestProvider(api).ProvisionMachine(
+		context.Background(), uuid.New(), uuid.New(),
+		testMachineProvisioning(t, "team-snapshot", "us", ""), "machine-token",
+		map[string]string{"OMNARA_RESERVED": "value"}, true,
+	)
+	require.ErrorContains(t, err, "reserved")
+	require.Empty(t, api.calls)
+}
+
 func TestDaytonaProviderProvisionHandlesMachineTokenSecretFailures(t *testing.T) {
 	api := newFakeAPI()
 	api.secretErr = apiError{StatusCode: http.StatusConflict}

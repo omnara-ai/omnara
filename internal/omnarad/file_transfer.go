@@ -3,8 +3,6 @@ package omnarad
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -235,28 +233,5 @@ func fileTransferTransport(connection machinedaemon.FileTransferConnection) (*ht
 		}
 		transport.Proxy = http.ProxyURL(proxyURL)
 	}
-	if connection.SSLCertFile == "" && connection.SSLCertDir == "" {
-		return transport, nil
-	}
-	roots, err := x509.SystemCertPool()
-	if err != nil {
-		roots = x509.NewCertPool()
-	}
-	var paths []string
-	if connection.SSLCertFile != "" {
-		paths = append(paths, connection.SSLCertFile)
-	}
-	for _, dir := range filepath.SplitList(connection.SSLCertDir) {
-		entries, _ := os.ReadDir(dir)
-		for _, entry := range entries {
-			paths = append(paths, filepath.Join(dir, entry.Name()))
-		}
-	}
-	for _, path := range paths {
-		if pem, err := os.ReadFile(path); err == nil {
-			roots.AppendCertsFromPEM(pem)
-		}
-	}
-	transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
 	return transport, nil
 }

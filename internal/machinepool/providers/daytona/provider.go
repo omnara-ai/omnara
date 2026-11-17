@@ -143,10 +143,6 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	createdSecret, err := p.createMachineTokenSecret(ctx, name, machineToken)
-	if err != nil {
-		return providers.ProvisionMachineResult{}, err
-	}
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
 		machineToken,
@@ -157,6 +153,10 @@ func (p *provider) ProvisionMachine(
 		return providers.ProvisionMachineResult{}, err
 	}
 	delete(env, providers.MachineTokenEnvVar)
+	createdSecret, err := p.createMachineTokenSecret(ctx, name, machineToken)
+	if err != nil {
+		return providers.ProvisionMachineResult{}, err
+	}
 	request := createSandboxRequest{
 		Name:               name,
 		Snapshot:           options.Snapshot,
