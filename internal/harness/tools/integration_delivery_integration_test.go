@@ -893,6 +893,7 @@ type toolFixtureOptions struct {
 	withToolContext        bool
 	toolContextAddress     integrationstore.ConversationAddress
 	slackPermission        string
+	githubAssignTool       string
 }
 
 func newIntegrationToolFixtureWithOptions(
@@ -960,9 +961,12 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	if fixtureOptions.withDiscordIntegration {
 		install = createDiscordToolIntegration(t, ctx, store, user.ID)
 	} else if fixtureOptions.withGitHubIntegration {
-		install = createGitHubToolIntegration(t, ctx, store, user.ID)
+		install = createGitHubToolIntegration(t, ctx, store, user.ID, "chat")
 	} else {
 		install = createSlackToolIntegration(t, ctx, store, user.ID, "chat", label)
+	}
+	if fixtureOptions.githubAssignTool != "" {
+		createGitHubToolIntegration(t, ctx, store, user.ID, fixtureOptions.githubAssignTool)
 	}
 	profile := createIntegrationToolProfile(t, ctx, store, user.ID, label, fixtureOptions)
 	address := integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
@@ -1289,6 +1293,9 @@ tools:
 		} {
 			sourceYAML += "  int__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n"
 		}
+	}
+	if fixtureOptions.githubAssignTool != "" {
+		sourceYAML += "  int__" + fixtureOptions.githubAssignTool + "__assign_pull_request: {}\n"
 	}
 	if fixtureOptions.gitCredentials != "" {
 		sourceYAML += "git_credentials: " + fixtureOptions.gitCredentials + "\n"

@@ -9,14 +9,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAgentIntegrationLaunchOwnerLookup(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{
-		"active", "attribution only", "unassigned", "reassigned", "other project", "other agent", "ambiguous",
+		"active", "attribution only", "unassigned", "reassigned", "other project", "other agent", "two integrations",
 		"target deleted",
 		"integration disconnected", "integration deleted", "agent archived", "project deleted", "org deleted",
 	} {
@@ -46,7 +45,7 @@ func TestAgentIntegrationLaunchOwnerLookup(t *testing.T) {
 				project = uuid.New()
 			case "other agent":
 				agent = uuid.New()
-			case "ambiguous":
+			case "two integrations":
 				input.IntegrationID = f.addIntegration(t, "another-launch", nil).ID
 				_, err := f.ensureConversationTarget(input)
 				require.NoError(t, err)
@@ -67,18 +66,18 @@ func TestAgentIntegrationLaunchOwnerLookup(t *testing.T) {
 			case "org deleted":
 				f.exec(t, `UPDATE orgs SET deleted_at=now() WHERE id=$1`, f.org)
 			}
-			got, found, err := f.store.GetAgentIntegrationLaunchOwner(f.ctx, project, agent)
-			if scenario == "ambiguous" {
-				require.ErrorIs(t, err, storeerr.ErrConflict)
-				require.False(t, found, "ambiguous ownership must not pick or broadcast to an arbitrary destination")
-				return
-			}
+			owners, err := f.store.ListAgentIntegrationLaunchOwners(f.ctx, project, agent)
 			require.NoError(t, err)
-			require.Equal(t, scenario == "active" || scenario == "reassigned", found)
-			if found {
-				require.Equal(t, target.ID, got.ID)
-				require.Equal(t, target.AgentID, got.AgentID)
-				require.Equal(t, target.LaunchKey, got.LaunchKey)
+			switch scenario {
+			case "active", "reassigned":
+				require.Len(t, owners, 1)
+				require.Equal(t, target.ID, owners[0].ID)
+				require.Equal(t, target.AgentID, owners[0].AgentID)
+				require.Equal(t, target.LaunchKey, owners[0].LaunchKey)
+			case "two integrations":
+				require.Len(t, owners, 2, "each integration's assigned conversation is a destination")
+			default:
+				require.Empty(t, owners)
 			}
 		})
 	}

@@ -3,7 +3,10 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -11,11 +14,15 @@ import (
 	"time"
 
 	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -99,6 +106,88 @@ func TestRuntimeFailureRequiresMatchingAssignment(t *testing.T) {
 				Store: f.Store, HTTPClient: integrationProviderTestClient(server),
 			}
 			require.NoError(t, notifier.Notify(t.Context(), f.Agent.ProjectID, f.Agent.ID, f.Lock.ID))
+		})
+	}
+}
+
+func TestRuntimeFailureNotifiesEachIntegrationsAssignedConversation(t *testing.T) {
+	t.Parallel()
+	for _, slackStalled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("slack stalled=%t", slackStalled), func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "runtime-each-integration", toolFixtureOptions{
+				githubAssignTool: "reviews",
+			})
+			f.Target = seedToolContext(t, ctx, f.Pool, f.Store, f.Agent, f.Install,
+				integrationstore.ConversationAddress{Kind: f.Target.ScopeKind, Ref: f.Target.ScopeRef})
+			markRuntimeLaunchOwner(t, f)
+			assign := model.ToolCall{
+				ID:    "assign",
+				Name:  toolcatalog.IntegrationToolName("reviews", toolcatalog.IntegrationOperationAssignPullRequest),
+				Input: json.RawMessage(`{"repository_id":123,"pull_request":8}`),
+			}
+			f.recordToolCalls(t, ctx, []model.ToolCall{assign}, f.Now)
+			turn := f.turn()
+			turn.Tools[assign.Name] = ToolSpec{Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow)}
+			lookup := githubToolTestServer(t, "read", func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/repos/octo/renamed/pulls/8", r.URL.Path)
+				writeToolTestJSON(w, githubAssignTestPullRequest(8))
+			})
+			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(lookup)}
+			_, err := dispatchAsyncToolToTerminal(t, ctx, executor, turn, assign)
+			require.NoError(t, err)
+			record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, assign.ID))
+			require.NoError(t, err)
+			require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
+
+			var slackPosts, githubPosts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSlackToolIdentity(w, r) {
+					return
+				}
+				switch r.URL.Path {
+				case "/chat.postMessage":
+					if slackStalled {
+						_, _ = io.Copy(io.Discard, r.Body)
+						<-r.Context().Done()
+						return
+					}
+					slackPosts.Add(1)
+					writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
+				case "/app/installations/22/access_tokens":
+					writeToolTestJSON(w, map[string]any{"token": "runtime-token", "expires_at": time.Now().Add(time.Hour)})
+				case "/installation/repositories":
+					writeToolTestJSON(w, map[string]any{"total_count": 1, "repositories": []any{map[string]any{
+						"id": 123, "name": "repo", "owner": map[string]any{"login": "owner"},
+					}}})
+				case "/repos/owner/repo/pulls/8":
+					writeToolTestJSON(w, map[string]any{
+						"id": 708, "number": 8, "base": map[string]any{"repo": map[string]any{"id": 123}},
+					})
+				case "/repos/owner/repo/issues/8/comments":
+					githubPosts.Add(1)
+					writeToolTestJSON(w, map[string]any{"id": 800})
+				default:
+					t.Errorf("unexpected provider request %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			notifier := integrationruntime.RuntimeFailureNotifier{
+				Store: f.Store, HTTPClient: integrationProviderTestClient(server),
+			}
+			notifyCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			err = notifier.Notify(notifyCtx, f.Agent.ProjectID, f.Agent.ID, f.Lock.ID)
+			require.EqualValues(t, 1, githubPosts.Load(), "the pull request the agent assigned itself")
+			if slackStalled {
+				require.Error(t, err)
+				require.Zero(t, slackPosts.Load())
+				return
+			}
+			require.NoError(t, err)
+			require.EqualValues(t, 1, slackPosts.Load(), "the Slack thread the agent was launched from")
 		})
 	}
 }

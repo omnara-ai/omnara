@@ -86,7 +86,6 @@ JOIN integration_states assignment ON assignment.project_id = target.project_id
 WHERE target.project_id = $1 AND target.agent_id = $2
   AND target.deleted_at IS NULL AND target.launch_key IS NOT NULL
 ORDER BY target.id
-LIMIT 2
 `
 
 type GetAgentIntegrationLaunchOwnersParams struct {

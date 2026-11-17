@@ -279,7 +279,8 @@ trigger launches; they are not forwarded through subscriptions. Use **Stop forwa
 on the integration page to remove a subscription.
 
 An agent can also attach itself to a PR with [`assign_pull_request`](#select-pr-tools).
-Later mentions on that PR reach the same agent.
+Later mentions on that PR reach the same agent, and the PR stays attached after the agent
+assigns another one.
 
 For PR-open and mention launches through the API, update the saved integration with
 `PUT /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}`:

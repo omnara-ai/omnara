@@ -57,8 +57,7 @@ JOIN integration_states assignment ON assignment.project_id = target.project_id
     AND assignment.data->>'kind' = target.scope_kind AND assignment.data->>'ref' = target.scope_ref
 WHERE target.project_id = sqlc.arg(project_id) AND target.agent_id = sqlc.arg(agent_id)
   AND target.deleted_at IS NULL AND target.launch_key IS NOT NULL
-ORDER BY target.id
-LIMIT 2;
+ORDER BY target.id;
 
 -- name: PromoteIntegrationConversationTarget :exec
 UPDATE integration_targets SET launch_key = sqlc.arg(launch_key)::text, updated_at = transaction_timestamp()
