@@ -183,9 +183,14 @@ func (s *Server) auth(next http.Handler) http.Handler {
 							r.Context(),
 							logent.AuthSchemeBearer,
 							logent.TokenKindMachineDaemon,
-							logent.AuthResultUnavailable,
+							logent.AuthResultMissingInjectedMachineToken,
 						)
-						apierror.Write(w, openapi.ErrorCodeAuthenticationUnavailable)
+						apierror.Write(
+							w,
+							openapi.ErrorCodeUnprocessable,
+							daemonprotocol.ProviderInjectedMachineToken+" is a placeholder, not a credential; "+
+								"calling the Omnara API with it from agent commands is not supported",
+						)
 						return
 					}
 				}

@@ -30,9 +30,10 @@ const (
 type AuthResult string
 
 const (
-	AuthResultUnauthorized AuthResult = "unauthorized"
-	AuthResultUnavailable  AuthResult = "unavailable"
-	AuthResultCSRFFailed   AuthResult = "csrf_failed"
+	AuthResultUnauthorized                AuthResult = "unauthorized"
+	AuthResultUnavailable                 AuthResult = "unavailable"
+	AuthResultCSRFFailed                  AuthResult = "csrf_failed"
+	AuthResultMissingInjectedMachineToken AuthResult = "missing_injected_machine_token"
 )
 
 type ProjectAuthResult string

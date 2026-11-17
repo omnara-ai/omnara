@@ -170,7 +170,7 @@ func TestMachineFailureRoute(t *testing.T) {
 	marker := daemonprotocol.ProviderInjectedMachineToken
 	machineToken := provisioning.DaemonToken.Token
 	requestFailure("bogus", 7, 0, "tail", tokenHeaders(marker, machineToken), http.StatusBadRequest)
-	requestFailure("bogus", 7, 0, "tail", tokenHeaders(marker, ""), http.StatusServiceUnavailable)
+	requestFailure("bogus", 7, 0, "tail", tokenHeaders(marker, ""), http.StatusUnprocessableEntity)
 	requestFailure("bogus", 7, 0, "tail", tokenHeaders(marker, "invalid-machine-token"), http.StatusUnauthorized)
 	requestFailure("daemon_install", 9, 0, "", tokenHeaders(project.AdminToken, machineToken), http.StatusForbidden)
 	unknownPAT, err := bearertoken.Generate(bearertoken.KindPersonalAccess)
