@@ -57,115 +57,202 @@ func seedOtherGitHubOwner(t *testing.T, f integrationToolFixture, ref string) uu
 	return other.Agent.ID
 }
 
+func seedGitHubAssignment(t *testing.T, f integrationToolFixture, pullRequest int) {
+	t.Helper()
+	_, err := f.Store.Integrations().CreateAssignedIntegrationSubscription(t.Context(),
+		integrationstore.CreateAssignedIntegrationSubscriptionInput{
+			CreateIntegrationSubscriptionInput: integrationstore.CreateIntegrationSubscriptionInput{
+				OrgID: f.Agent.OrgID, ProjectID: f.Agent.ProjectID, IntegrationID: f.Install.ID, AgentID: f.Agent.ID,
+				Conversation: json.RawMessage(fmt.Sprintf(`{"repository_id":123,"pull_request":%d}`, pullRequest)),
+			},
+			ExpectedConfigID: f.AgentConfig.ID, RuntimeLockID: f.Lock.ID,
+		})
+	require.NoError(t, err)
+}
+
+func githubAssignedPullRequest(t *testing.T, f integrationToolFixture) string {
+	t.Helper()
+	address, found, err := f.Store.Integrations().
+		GetAgentIntegrationConversation(t.Context(), f.Agent.ProjectID, f.Agent.ID, f.Install.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	return address.Ref
+}
+
+func githubSubscribedPullRequests(t *testing.T, f integrationToolFixture) []string {
+	t.Helper()
+	var refs []string
+	for _, subscription := range integrationToolSubscriptions(t, f) {
+		require.Equal(t, f.Agent.ID, subscription.AgentID)
+		refs = append(refs, subscription.Address.Ref)
+	}
+	return refs
+}
+
+func githubPullRequestOwner(t *testing.T, f integrationToolFixture, ref string) uuid.UUID {
+	t.Helper()
+	var agentID uuid.UUID
+	err := f.Pool.QueryRow(t.Context(), `SELECT agent_id FROM integration_targets
+		WHERE integration_id=$1 AND scope_ref=$2 AND launch_key='default'`, f.Install.ID, ref).Scan(&agentID)
+	if err != nil {
+		return uuid.Nil
+	}
+	return agentID
+}
+
 func TestGitHubAssignPullRequest(t *testing.T) {
-	ctx := t.Context()
-	f := newIntegrationToolFixtureWithOptions(t, ctx, "github-assign", toolFixtureOptions{
-		withGitHubIntegration: true, withToolContext: true,
-	})
-	otherOwner := seedOtherGitHubOwner(t, f, "123#10")
-	var reservation uuid.UUID
-	require.NoError(t, f.Pool.QueryRow(ctx, `INSERT INTO integration_inbox
-		(project_id, integration_id, receipt_key, payload, state, plan)
-		VALUES ($1, $2, 'planned-launch', 'x'::bytea, 'queued', jsonb_build_object('recipients', jsonb_build_object(
-			'launch', jsonb_build_object('launch_claim', jsonb_build_object('integration_id', $3::text,
-				'launch_key', 'default', 'address', jsonb_build_object('kind', 'pull_request', 'ref', '123#11'))))))
-		RETURNING id`, f.Agent.ProjectID, f.Install.ID, f.Install.ID.String()).Scan(&reservation))
-	server := githubToolTestServer(t, "read", func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/repos/octo/renamed/pulls/8":
-			writeToolTestJSON(w, githubAssignTestPullRequest(8))
-		case "/repos/octo/renamed/pulls/9":
-			writeToolTestJSON(w, githubAssignTestPullRequest(9))
-		case "/repos/octo/renamed/pulls/10":
-			writeToolTestJSON(w, githubAssignTestPullRequest(10))
-		case "/repos/octo/renamed/pulls/11":
-			writeToolTestJSON(w, githubAssignTestPullRequest(11))
-		default:
-			t.Errorf("unexpected GitHub request %s %s", r.Method, r.URL.Path)
-			w.WriteHeader(http.StatusNotFound)
-		}
-	})
-	executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
-	calls := []model.ToolCall{
-		githubAssignTestCall("human", 9),
-		githubAssignTestCall("bot", 8),
-		githubAssignTestCall("repeat", 8),
-		githubAssignTestCall("already-attached", 7),
-		githubAssignTestCall("other-owner", 10),
-		githubAssignTestCall("planned-launch", 11),
+	for _, test := range []struct {
+		name        string
+		pullRequest int
+		seed        func(*testing.T, integrationToolFixture) uuid.UUID
+		check       func(*testing.T, integrationToolFixture, uuid.UUID)
+	}{
+		{
+			name: "assigns and owns a reachable pull request", pullRequest: 9,
+			check: func(t *testing.T, f integrationToolFixture, _ uuid.UUID) {
+				require.Equal(t, []string{"123#9"}, githubSubscribedPullRequests(t, f))
+				require.Equal(t, f.Agent.ID, githubPullRequestOwner(t, f, "123#9"))
+			},
+		},
+		{
+			name: "earlier pull requests stay attached", pullRequest: 8,
+			seed: func(t *testing.T, f integrationToolFixture) uuid.UUID {
+				seedGitHubAssignment(t, f, 9)
+				return uuid.Nil
+			},
+			check: func(t *testing.T, f integrationToolFixture, _ uuid.UUID) {
+				require.ElementsMatch(t, []string{"123#8", "123#9"}, githubSubscribedPullRequests(t, f))
+				require.Equal(t, f.Agent.ID, githubPullRequestOwner(t, f, "123#8"))
+				require.Equal(t, f.Agent.ID, githubPullRequestOwner(t, f, "123#9"))
+			},
+		},
+		{
+			name: "assigning again does not duplicate", pullRequest: 8,
+			seed: func(t *testing.T, f integrationToolFixture) uuid.UUID {
+				seedGitHubAssignment(t, f, 8)
+				return uuid.Nil
+			},
+			check: func(t *testing.T, f integrationToolFixture, _ uuid.UUID) {
+				require.Equal(t, []string{"123#8"}, githubSubscribedPullRequests(t, f))
+			},
+		},
+		{
+			name: "an existing attachment becomes the owner", pullRequest: 7,
+			check: func(t *testing.T, f integrationToolFixture, _ uuid.UUID) {
+				require.Equal(t, f.Agent.ID, githubPullRequestOwner(t, f, "123#7"))
+			},
+		},
+		{
+			name: "another agent keeps its pull request", pullRequest: 10,
+			seed: func(t *testing.T, f integrationToolFixture) uuid.UUID {
+				return seedOtherGitHubOwner(t, f, "123#10")
+			},
+			check: func(t *testing.T, f integrationToolFixture, other uuid.UUID) {
+				require.Equal(t, []string{"123#10"}, githubSubscribedPullRequests(t, f))
+				require.Equal(t, other, githubPullRequestOwner(t, f, "123#10"))
+			},
+		},
+		{
+			name: "a planned launch keeps its reservation", pullRequest: 11,
+			seed: func(t *testing.T, f integrationToolFixture) uuid.UUID {
+				var reservation uuid.UUID
+				require.NoError(t, f.Pool.QueryRow(t.Context(), `INSERT INTO integration_inbox
+					(project_id, integration_id, receipt_key, payload, state, plan)
+					VALUES ($1, $2, 'planned-launch', 'x'::bytea, 'queued', jsonb_build_object('recipients',
+						jsonb_build_object('launch', jsonb_build_object('launch_claim', jsonb_build_object(
+							'integration_id', $3::text, 'launch_key', 'default',
+							'address', jsonb_build_object('kind', 'pull_request', 'ref', '123#11'))))))
+					RETURNING id`, f.Agent.ProjectID, f.Install.ID, f.Install.ID.String()).Scan(&reservation))
+				return reservation
+			},
+			check: func(t *testing.T, f integrationToolFixture, reservation uuid.UUID) {
+				require.Equal(t, uuid.Nil, githubPullRequestOwner(t, f, "123#11"))
+				var state string
+				require.NoError(t, f.Pool.QueryRow(t.Context(),
+					`SELECT state FROM integration_inbox WHERE id=$1`, reservation).Scan(&state))
+				require.Equal(t, "queued", state)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-assign", toolFixtureOptions{
+				withGitHubIntegration: true, withToolContext: true,
+			})
+			var seeded uuid.UUID
+			if test.seed != nil {
+				seeded = test.seed(t, f)
+			}
+			path := fmt.Sprintf("/repos/octo/renamed/pulls/%d", test.pullRequest)
+			server := githubToolTestServer(t, "read", func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, path, r.URL.Path)
+				writeToolTestJSON(w, githubAssignTestPullRequest(test.pullRequest))
+			})
+			call := githubAssignTestCall("assign", test.pullRequest)
+			f.recordToolCalls(t, ctx, []model.ToolCall{call}, f.Now)
+			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
+			require.NoError(t, err)
+			record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+			require.NoError(t, err)
+			require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
+			want := map[string]any{"repository_id": float64(123), "pull_request": float64(test.pullRequest)}
+			if test.pullRequest != 7 {
+				want["url"] = fmt.Sprintf("https://github.com/octo/renamed/pull/%d", test.pullRequest)
+			}
+			require.Subset(t, toolResultMapFromTestParts(t, result.ContentParts), want)
+			require.Equal(t, fmt.Sprintf("123#%d", test.pullRequest), githubAssignedPullRequest(t, f))
+			test.check(t, f, seeded)
+		})
 	}
-	f.recordToolCalls(t, ctx, calls, f.Now)
-	run := func(call model.ToolCall) map[string]any {
-		t.Helper()
-		result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
-		require.NoError(t, err)
-		record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
-		require.NoError(t, err)
-		require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome, call.ID)
-		return toolResultMapFromTestParts(t, result.ContentParts)
+}
+
+func TestGitHubAssignPullRequestMustBeCalledAlone(t *testing.T) {
+	comment := model.ToolCall{
+		ID: "comment", Name: toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationDiscussionComment),
+		Input: json.RawMessage(`{"body":"Ready"}`),
 	}
-	assigned := func() string {
-		t.Helper()
-		address, found, err := f.Store.Integrations().
-			GetAgentIntegrationConversation(ctx, f.Agent.ProjectID, f.Agent.ID, f.Install.ID)
-		require.NoError(t, err)
-		require.True(t, found)
-		return address.Ref
+	for _, test := range []struct {
+		name  string
+		calls []model.ToolCall
+	}{
+		{"comment then assign", []model.ToolCall{comment, githubAssignTestCall("assign", 8)}},
+		{"assign then comment", []model.ToolCall{githubAssignTestCall("assign", 8), comment}},
+		{"two assignments", []model.ToolCall{githubAssignTestCall("assign", 8), githubAssignTestCall("assign-again", 9)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-assign-alone", toolFixtureOptions{
+				withGitHubIntegration: true, withToolContext: true,
+			})
+			var posts atomic.Int32
+			server := githubToolTestServer(t, "", func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/repos/octo/renamed/issues/7/comments", r.URL.Path)
+				posts.Add(1)
+				writeToolTestJSON(w, map[string]any{"id": 501, "html_url": "https://github.com/octo/renamed/pull/7#c"})
+			})
+			f.recordToolCalls(t, ctx, test.calls, f.Now)
+			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+			for _, call := range test.calls {
+				result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
+				require.NoError(t, err)
+				record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+				require.NoError(t, err)
+				if call.ID == comment.ID {
+					require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
+					continue
+				}
+				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+				require.Contains(t, toolResultMapFromTestParts(t, result.ContentParts)["message"],
+					"without other chat tool calls in the same response")
+			}
+			require.Equal(t, "123#7", githubAssignedPullRequest(t, f), "a rejected assignment must not move the PR")
+			require.Empty(t, integrationToolSubscriptions(t, f))
+			if test.calls[0].ID == comment.ID || test.calls[1].ID == comment.ID {
+				require.EqualValues(t, 1, posts.Load(), "the comment must post on the assigned PR")
+			}
+		})
 	}
-	subscribed := func() []string {
-		t.Helper()
-		var refs []string
-		for _, subscription := range integrationToolSubscriptions(t, f) {
-			require.Equal(t, f.Agent.ID, subscription.AgentID)
-			refs = append(refs, subscription.Address.Ref)
-		}
-		return refs
-	}
-	owner := func(ref string) uuid.UUID {
-		t.Helper()
-		var agentID uuid.UUID
-		err := f.Pool.QueryRow(ctx, `SELECT agent_id FROM integration_targets
-			WHERE integration_id=$1 AND scope_ref=$2 AND launch_key='default'`, f.Install.ID, ref).Scan(&agentID)
-		if err != nil {
-			return uuid.Nil
-		}
-		return agentID
-	}
-
-	run(calls[0])
-	require.Equal(t, "123#9", assigned(), "a pull request opened by a person can be assigned")
-	require.Equal(t, []string{"123#9"}, subscribed())
-	require.Equal(t, f.Agent.ID, owner("123#9"))
-
-	body := run(calls[1])
-	require.Equal(t, map[string]any{
-		"repository_id": float64(123), "pull_request": float64(8), "url": "https://github.com/octo/renamed/pull/8",
-	}, body)
-	require.Equal(t, "123#8", assigned())
-	require.ElementsMatch(t, []string{"123#8", "123#9"}, subscribed(), "earlier pull requests keep their subscription")
-	require.Equal(t, f.Agent.ID, owner("123#8"))
-	require.Equal(t, f.Agent.ID, owner("123#9"), "earlier pull requests keep their owner")
-
-	run(calls[2])
-	require.ElementsMatch(t, []string{"123#8", "123#9"}, subscribed(), "assigning again must not duplicate it")
-
-	run(calls[3])
-	require.Equal(t, "123#7", assigned(), "a pull request attached another way can still be assigned")
-	require.ElementsMatch(t, []string{"123#7", "123#8", "123#9"}, subscribed())
-	require.Equal(t, f.Agent.ID, owner("123#7"), "an existing attachment becomes the owner")
-
-	run(calls[4])
-	require.Equal(t, "123#10", assigned(), "a pull request owned by another agent can still be assigned")
-	require.ElementsMatch(t, []string{"123#7", "123#8", "123#9", "123#10"}, subscribed())
-	require.Equal(t, otherOwner, owner("123#10"), "assignment must not take over another agent's pull request")
-
-	run(calls[5])
-	require.Equal(t, "123#11", assigned())
-	require.Contains(t, subscribed(), "123#11")
-	require.Equal(t, uuid.Nil, owner("123#11"), "a planned launch keeps its ownership reservation")
-	var state string
-	require.NoError(t, f.Pool.QueryRow(ctx, `SELECT state FROM integration_inbox WHERE id=$1`, reservation).Scan(&state))
-	require.Equal(t, "queued", state)
 }
 
 func TestGitHubToolApprovalRejectsChangedAssignment(t *testing.T) {

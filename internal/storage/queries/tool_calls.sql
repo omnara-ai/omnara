@@ -246,3 +246,11 @@ LEFT JOIN LATERAL (
 WHERE tool_result_event.sequence > sqlc.arg(after_event_sequence)
   AND tool_result_event.sequence <= sqlc.arg(max_event_sequence)
 ORDER BY tc.source_event_sequence, call_block.ordinal, tc.created_at, tc.id;
+
+-- name: ListSiblingToolCallNames :many
+SELECT sibling.name
+FROM tool_calls call
+JOIN tool_calls sibling ON sibling.agent_id = call.agent_id AND sibling.model_output_id = call.model_output_id
+  AND sibling.id <> call.id
+WHERE call.project_id = sqlc.arg(project_id) AND call.agent_id = sqlc.arg(agent_id) AND call.id = sqlc.arg(id)
+ORDER BY sibling.id;

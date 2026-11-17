@@ -205,6 +205,17 @@ func runGitHubAssignPullRequest(
 	if err := decodeSingleStrictJSON(record.Input, &input, "GitHub assign pull request"); err != nil {
 		return integrationToolFailure(err)
 	}
+	siblings, err := call.Executor.Store.Execution().
+		ListSiblingToolCallNames(ctx, call.Turn.ProjectID, call.Turn.AgentID, record.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range siblings {
+		if integration, _, ok := toolcatalog.SplitIntegrationToolName(name); ok && integration == access.Integration.Name {
+			return integrationToolFailure(fmt.Errorf(
+				"call %s without other %s tool calls in the same response", record.Name, integration))
+		}
+	}
 	client, err := call.Executor.githubToolClient(call.Turn, record, access)
 	if err != nil {
 		return integrationToolFailure(err)

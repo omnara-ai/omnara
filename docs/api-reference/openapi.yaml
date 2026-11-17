@@ -18233,7 +18233,7 @@ components:
         input_schema:
           type: object
           additionalProperties: true
-          description: Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Shipped interaction handlers use the assigned conversation and accept empty arguments.
+          description: Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and, except standalone tools, use the agent's assigned conversation; execution fails if no conversation is assigned. Shipped interaction handlers use the assigned conversation and accept empty arguments.
     IntegrationSubscriptionID:
       type: string
       pattern: '^isub_[a-z2-7]{26}$'

@@ -296,7 +296,8 @@ For PR-open and mention launches through the API, update the saved integration w
 ```
 
 The launcher derives the PR tools and Git credentials, adding missing capabilities
-and preserving explicit entries from the profile. It attaches a subscription for
+and preserving explicit entries from the profile. It doesn't add `assign_pull_request`;
+list it in the profile to let launched agents change their PR. It attaches a subscription for
 the triggering PR. An unrestricted launcher applies to repositories granted to this installation. Set
 `launcher.repository_id` to a numeric repository ID string to narrow it. Use
 `trigger: "mention"` for mention-only launches, or `"pull_request_opened"` for
