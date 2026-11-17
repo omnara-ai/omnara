@@ -13,6 +13,9 @@ const (
 	ManagedWorkAdmissionDeniedCode   = "managed_work_admission_denied"
 	InsufficientOmnaraCreditsMessage = "Insufficient Omnara credits."
 	BudgetReachedCode                = "budget_reached"
+	BudgetModelUnpricedCode          = "budget_model_unpriced"
+	BudgetModelUnpricedMessage       = "This model has no price, so it can't run while a budget applies. " +
+		"An org admin can set its prices under Advanced in the model's Edit dialog."
 )
 
 func BudgetReachedMessage(scope, interval string) string {

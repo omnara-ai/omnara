@@ -32,6 +32,16 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 		}
 		input.InitialInput = initial
 	}
+	budgets, err := budgetAttachments(body.Budgets)
+	if err != nil {
+		return input, err
+	}
+	if len(budgets) > 0 {
+		if err := s.server.authorizeOrgManage(ctx, project.OrgID); err != nil {
+			return input, err
+		}
+		input.Budgets = budgets
+	}
 	additions := agentconfig.IntegrationCapabilitiesSource{}
 	if body.Tools != nil {
 		additions.Tools = *body.Tools

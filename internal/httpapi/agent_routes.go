@@ -177,11 +177,21 @@ func (s strictOpenAPIServer) createAgentProfile(
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
 	}
+	budgets, err := budgetAttachments(request.Body.Budgets)
+	if err != nil {
+		return nil, err
+	}
+	if len(budgets) > 0 {
+		if err := s.server.authorizeOrgManage(ctx, project.OrgID); err != nil {
+			return nil, err
+		}
+	}
 	profile, err := s.server.store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		ProjectID:       project.ID,
 		Name:            request.Body.Name,
 		CurrentConfigID: configID,
 		IdempotencyKey:  idempotencyKey,
+		Budgets:         budgets,
 	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)

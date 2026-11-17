@@ -150,11 +150,16 @@ func (s strictOpenAPIServer) createProject(
 	if params.IdempotencyKey != nil {
 		idempotencyKey = *params.IdempotencyKey
 	}
+	budgets, err := budgetAttachments(body.Budgets)
+	if err != nil {
+		return nil, err
+	}
 	project, err := s.server.store.Identity().CreateProjectForPrincipal(ctx, identitystore.CreateProjectForPrincipalInput{
 		OrgID:          org.ID,
 		Creator:        principal,
 		Name:           body.Name,
 		IdempotencyKey: idempotencyKey,
+		Budgets:        budgets,
 	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)

@@ -37,12 +37,14 @@ WHERE c.agent_id=sqlc.arg(agent_id) AND c.id=sqlc.arg(id);
 -- @sqlc-vet-disable model-provider-configs-deleted-at
 SELECT m.current_revision_id,CASE WHEN p.management_kind='cluster' THEN coalesce(w.new_managed_work_allowed,true)
  ELSE true END::boolean AS allowed,c.org_id,root.agent_profile_id AS root_agent_profile_id,
+ r.provider_model_slug,r.pricing,r.api_variant_options,p.base_url,p.api_format,p.api_variant,
  EXISTS(SELECT 1 FROM budgets b WHERE b.org_id=c.org_id AND (b.project_id IS NULL OR b.project_id=c.project_id)
  AND (b.agent_profile_id IS NULL OR b.agent_profile_id=root.agent_profile_id)
  AND (b.agent_id IS NULL OR b.agent_id=root.id) AND b.deleted_at IS NULL)::boolean AS budgeted
 FROM agent_configs c JOIN agents root ON root.project_id=c.project_id AND root.id=sqlc.arg(root_agent_id)
 JOIN agent_config_definitions d ON d.project_id=c.project_id AND d.id=c.definition_id
 JOIN configured_models m ON m.org_id=d.org_id AND m.id=d.configured_model_id
+JOIN configured_model_revisions r ON r.org_id=m.org_id AND r.id=m.current_revision_id
 JOIN model_provider_configs p ON p.org_id=m.org_id AND p.id=m.model_provider_config_id
 LEFT JOIN org_managed_work_admission w ON w.org_id=c.org_id
 WHERE c.project_id=sqlc.arg(project_id) AND c.id=sqlc.arg(config_id);

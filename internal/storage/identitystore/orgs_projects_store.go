@@ -302,6 +302,10 @@ func (s *Store) CreateProjectForPrincipal(
 		); err != nil {
 			return ProjectRecord{}, fmt.Errorf("create project creator membership: %w", err)
 		}
+		scope := CreateBudgetInput{OrgID: input.OrgID, ProjectID: &record.ID}
+		if err := CreateBudgetsTx(ctx, tx, scope, input.Budgets); err != nil {
+			return ProjectRecord{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ProjectRecord{}, fmt.Errorf("commit create project: %w", err)

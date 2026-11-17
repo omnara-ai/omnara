@@ -1374,11 +1374,6 @@ export const zAgentConfigGeneratedSource = z.object({
     source: z.string()
 });
 
-export const zCreateAgentProfileRequest = z.object({
-    name: zResourceName,
-    config: zAgentConfigId
-});
-
 export const zUpdateAgentProfileRequest = z.object({
     config: zAgentConfigId,
     expected_current_config_id: zAgentConfigId
@@ -2436,10 +2431,6 @@ export const zSecretGrant = z.object({
     created_at: zTimestamp
 });
 
-export const zCreateOrganizationRequest = z.object({
-    name: zResourceName
-});
-
 export const zOrganization = z.object({
     id: zOrganizationId,
     name: zResourceName,
@@ -3065,10 +3056,6 @@ export const zBootstrapDaemonResponse = z.object({
     machine_id: zMachineId
 });
 
-export const zCreateProjectRequest = z.object({
-    name: zResourceName
-});
-
 export const zUpdateProjectRequest = z.object({
     name: zResourceName
 });
@@ -3196,6 +3183,27 @@ export const zBudgetInterval = z.enum([
  * Amount in USD as a positive decimal string.
  */
 export const zBudgetAmount = z.string().regex(/^(0|[1-9][0-9]{0,14})(\.[0-9]{1,15})?$/);
+
+export const zBudgetAttachment = z.object({
+    interval: zBudgetInterval,
+    amount_usd: zBudgetAmount
+});
+
+export const zCreateAgentProfileRequest = z.object({
+    name: zResourceName,
+    config: zAgentConfigId,
+    budgets: z.array(zBudgetAttachment).max(4).optional()
+});
+
+export const zCreateOrganizationRequest = z.object({
+    name: zResourceName,
+    budgets: z.array(zBudgetAttachment).max(4).optional()
+});
+
+export const zCreateProjectRequest = z.object({
+    name: zResourceName,
+    budgets: z.array(zBudgetAttachment).max(4).optional()
+});
 
 export const zBudgetUsage = z.object({
     amount_usd: z.string().regex(/^(0|[1-9][0-9]*)(\.[0-9]+)?$/)
@@ -3768,6 +3776,7 @@ export const zCreateAgentRequest = z.intersection(z.union([
     message: z.string().optional(),
     tools: z.record(z.string(), zAgentConfigDefinitionTool).optional(),
     subscriptions: z.array(zIntegrationSubscriptionAttachment).max(16).optional(),
+    budgets: z.array(zBudgetAttachment).max(4).optional(),
     interaction_handlers: z.record(z.string(), zAgentConfigDefinitionInteractionHandler).optional(),
     initial_input: zAgentLaunchInitialInput.optional()
 }));

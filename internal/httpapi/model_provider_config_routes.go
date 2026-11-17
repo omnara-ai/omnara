@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	openapigen "github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
+	"github.com/omnara-ai/omnara/internal/modelprice"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -183,6 +184,9 @@ func modelPricingJSON(pricing openapigen.DiscoveredModelPricing) (*json.RawMessa
 		return nil, err
 	}
 	value := json.RawMessage(raw)
+	if !modelprice.PricingFits(value) {
+		return nil, errors.New("prices are too large to compute a call's cost")
+	}
 	return &value, nil
 }
 
@@ -618,7 +622,7 @@ func (s strictOpenAPIServer) CreateConfiguredModel(
 	}
 	input, err := createConfiguredModelInputFromOpenAPI(org.ID, configID, *request.Body)
 	if err != nil {
-		return nil, err
+		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, err.Error())
 	}
 	record, err := s.server.store.Models().CreateConfiguredModel(ctx, input)
 	if err != nil {

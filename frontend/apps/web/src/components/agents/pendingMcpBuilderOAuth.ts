@@ -1,7 +1,9 @@
+import { zBudgetInterval } from '@omnara/sdk/zod'
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
 
 import type { BasicConfig } from '@/components/agents/useAgentBuilderForm'
+import type { BudgetDraft } from '@/components/usage/budget-form'
 
 const STORAGE_KEY = 'omnara:pending-mcp-builder-oauth'
 
@@ -17,6 +19,7 @@ const pendingRecord = z.object({
   returnPath: z.string(),
   serverId: z.string(),
   agentName: z.string().nullable(),
+  budget: z.object({ interval: zBudgetInterval, amount: z.string() }).nullable().catch(null),
   draft: basicConfig,
 })
 
@@ -24,12 +27,14 @@ export interface PendingMcpBuilderOAuth {
   returnPath: string
   serverId: string
   agentName: string | null
+  budget: BudgetDraft | null
   draft: BasicConfig
 }
 
 export interface McpBuilderOAuthRestore {
   draft: BasicConfig
   agentName: string | null
+  budget: BudgetDraft | null
 }
 
 export function savePendingMcpBuilderOAuth(record: PendingMcpBuilderOAuth) {
@@ -70,10 +75,11 @@ function readRestore(search: string): McpBuilderOAuthRestore | null {
   const record = parseRecord(stored)
   if (record?.returnPath !== window.location.pathname) return null
   if (outcome.kind === 'error') {
-    return { draft: record.draft, agentName: record.agentName }
+    return { draft: record.draft, agentName: record.agentName, budget: record.budget }
   }
   return {
     agentName: record.agentName,
+    budget: record.budget,
     draft: {
       ...record.draft,
       mcpServers: record.draft.mcpServers.map((server) =>

@@ -1,6 +1,5 @@
 import { useBudgets, useCreateBudget, useDeleteBudget, useUpdateBudget } from '@omnara/react'
 import type { Budget, BudgetInterval, BudgetScope } from '@omnara/sdk'
-import { zBudgetAmount } from '@omnara/sdk/zod'
 import { type ReactNode, type SyntheticEvent, useState } from 'react'
 
 import { PlusIcon } from '@/components/icons'
@@ -15,27 +14,19 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel } from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  budgetAmountValid,
+  budgetIntervalLabel,
+  budgetIntervals,
+} from '@/components/usage/budget-form'
 import { spendReachesBudget } from '@/components/usage/budget-spend'
+import { BudgetIntervalSelect } from '@/components/usage/BudgetIntervalSelect'
 import { formatUsd } from '@/lib/format'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError, submitting } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
-
-const intervals: { value: BudgetInterval; label: string }[] = [
-  { value: 'day', label: 'Daily' },
-  { value: 'week', label: 'Weekly' },
-  { value: 'month', label: 'Monthly' },
-  { value: 'lifetime', label: 'Lifetime' },
-]
 
 const stoppedCalls: Record<BudgetScope['type'], string> = {
   org: 'New model calls in this organization',
@@ -64,11 +55,11 @@ export function BudgetCard({
   const budgets = useBudgets(orgId, scope)
   const [editing, setEditing] = useState<Budget | 'new' | null>(null)
   const byInterval = new Map((budgets.data?.data ?? []).map((budget) => [budget.interval, budget]))
-  const available = intervals.filter(({ value }) => !byInterval.has(value))
+  const available = budgetIntervals.filter(({ value }) => !byInterval.has(value))
   const view: BudgetsView = {
     status: budgets.isError ? 'error' : budgets.data ? 'ready' : 'loading',
     empty: byInterval.size === 0,
-    rows: intervals.map(({ value, label }) => {
+    rows: budgetIntervals.map(({ value, label }) => {
       const budget = byInterval.get(value)
       return (
         budget && (
@@ -260,7 +251,7 @@ function BudgetDialog({
   orgId: string
   scope: BudgetScope
   budget: Budget | undefined
-  available: typeof intervals
+  available: typeof budgetIntervals
   onClose: () => void
 }) {
   const create = useCreateBudget(orgId)
@@ -275,8 +266,8 @@ function BudgetDialog({
   const isSubmitting = status.phase === 'submitting'
   const errorMessage = statusError(status)
   const trimmed = value.trim()
-  const valid = zBudgetAmount.safeParse(trimmed).success && Number(trimmed) > 0
-  const label = intervals.find((option) => option.value === interval)?.label ?? interval
+  const valid = budgetAmountValid(trimmed)
+  const label = budgetIntervalLabel(interval)
 
   async function run(action: () => Promise<void>, fallback: string) {
     setStatus(submitting)
@@ -326,24 +317,12 @@ function BudgetDialog({
             {!budget && (
               <Field>
                 <FieldLabel htmlFor="budget-interval">Interval</FieldLabel>
-                <Select
+                <BudgetIntervalSelect
+                  id="budget-interval"
                   value={interval}
-                  onValueChange={(next) => {
-                    const option = available.find((item) => item.value === next)
-                    if (option) setBudgetInterval(option.value)
-                  }}
-                >
-                  <SelectTrigger id="budget-interval" className="w-full">
-                    <SelectValue>{label}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {available.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={available}
+                  onChange={setBudgetInterval}
+                />
               </Field>
             )}
             <Field>

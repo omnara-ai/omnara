@@ -3,6 +3,7 @@ package identitystore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -172,6 +173,33 @@ func (s *Store) DeleteBudget(ctx context.Context, orgID, id uuid.UUID) error {
 	}
 	if count == 0 {
 		return storeerr.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) MergeDailyModelCosts(ctx context.Context, limit int32) (int64, error) {
+	return s.q.MergeDailyModelCosts(ctx, dbsqlc.MergeDailyModelCostsParams{LimitCount: limit})
+}
+
+type BudgetAttachment struct {
+	Interval  string
+	AmountUSD string
+}
+
+func CreateBudgetsTx(
+	ctx context.Context,
+	tx dbsqlc.DBTX,
+	scope CreateBudgetInput,
+	attachments []BudgetAttachment,
+) error {
+	q := dbsqlc.New(tx)
+	for _, attachment := range attachments {
+		if _, err := q.InsertBudget(ctx, dbsqlc.InsertBudgetParams{
+			OrgID: scope.OrgID, ProjectID: scope.ProjectID, AgentProfileID: scope.AgentProfileID,
+			AgentID: scope.AgentID, Interval: attachment.Interval, AmountUsd: attachment.AmountUSD,
+		}); err != nil {
+			return fmt.Errorf("create budget: %w", err)
+		}
 	}
 	return nil
 }

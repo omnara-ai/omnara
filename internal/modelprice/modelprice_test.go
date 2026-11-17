@@ -360,18 +360,29 @@ func gpt4oCost(t *testing.T, pricer *Pricer) modelenvelope.ProviderReportedCostU
 	})
 }
 
-func TestRefreshSwapsInValidPriceData(t *testing.T) {
-	server, _ := priceServer(t, http.StatusOK, priceData(t, minPricedModels, usdPerMTok(1)))
-	pricer, err := New(server.URL)
-	require.NoError(t, err)
-	require.Equal(t, modelenvelope.ProviderReportedCostUSD("12.5"), gpt4oCost(t, pricer))
-
-	require.NoError(t, pricer.refresh(context.Background()))
-	require.Equal(t, modelenvelope.ProviderReportedCostUSD("2"), gpt4oCost(t, pricer))
-	require.NotEqual(t, builtinSource, pricer.current.Load().source)
+func fetchPriceData(t *testing.T, status int, body []byte) ([]byte, error) {
+	t.Helper()
+	server, _ := priceServer(t, status, body)
+	return Source{URL: server.URL, Client: server.Client()}.fetch(context.Background())
 }
 
-func TestRefreshKeepsCurrentPricesForUnusableData(t *testing.T) {
+func TestLoadSwapsInValidPriceData(t *testing.T) {
+	data, err := fetchPriceData(t, http.StatusOK, priceData(t, minPricedModels, usdPerMTok(1)))
+	require.NoError(t, err)
+	version, pricedModels, err := validate(data, 0)
+	require.NoError(t, err)
+	require.Equal(t, minPricedModels, pricedModels)
+
+	pricer, err := New()
+	require.NoError(t, err)
+	require.Equal(t, builtinSource, pricer.Version())
+	require.Equal(t, modelenvelope.ProviderReportedCostUSD("12.5"), gpt4oCost(t, pricer))
+	require.NoError(t, pricer.Load(data))
+	require.Equal(t, modelenvelope.ProviderReportedCostUSD("2"), gpt4oCost(t, pricer))
+	require.Equal(t, version, pricer.Version())
+}
+
+func TestUnusablePriceDataIsRejected(t *testing.T) {
 	tests := []struct {
 		name   string
 		status int
@@ -389,58 +400,103 @@ func TestRefreshKeepsCurrentPricesForUnusableData(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			server, _ := priceServer(t, test.status, test.body)
-			pricer, err := New(server.URL)
-			require.NoError(t, err)
-			require.Error(t, pricer.refresh(context.Background()))
-			require.Equal(t, builtinSource, pricer.current.Load().source)
-			require.Equal(t, modelenvelope.ProviderReportedCostUSD("12.5"), gpt4oCost(t, pricer))
+			data, err := fetchPriceData(t, test.status, test.body)
+			if err == nil {
+				_, _, err = validate(data, 0)
+				pricer, newErr := New()
+				require.NoError(t, newErr)
+				require.Error(t, pricer.Load(data))
+				require.Equal(t, builtinSource, pricer.Version())
+				require.Equal(t, modelenvelope.ProviderReportedCostUSD("12.5"), gpt4oCost(t, pricer))
+			}
+			require.Error(t, err)
 		})
 	}
 }
 
-func TestRefreshRejectsPriceDataThatShrinksByMoreThanHalf(t *testing.T) {
-	full, _ := priceServer(t, http.StatusOK, priceData(t, 200, usdPerMTok(1)))
-	pricer, err := New(full.URL)
+func TestRefreshStoresOnlyNewValidPriceData(t *testing.T) {
+	ctx := context.Background()
+	server, _ := priceServer(t, http.StatusOK, priceData(t, minPricedModels, usdPerMTok(1)))
+	source := Source{URL: server.URL, Client: server.Client()}
+	stored, storedData, saves := "", []byte(nil), 0
+	current := func(context.Context) (string, []byte, error) { return stored, storedData, nil }
+	save := func(_ context.Context, data []byte, version string) error {
+		stored, storedData, saves = version, data, saves+1
+		return nil
+	}
+	version, pricedModels, err := source.Refresh(ctx, current, save)
 	require.NoError(t, err)
-	require.NoError(t, pricer.refresh(context.Background()))
-	require.Equal(t, modelenvelope.ProviderReportedCostUSD("2"), gpt4oCost(t, pricer))
+	require.NotEmpty(t, version)
+	require.Equal(t, minPricedModels, pricedModels)
+	version, _, err = source.Refresh(ctx, current, save)
+	require.NoError(t, err)
+	require.Empty(t, version, "unchanged price data is not saved again")
+	require.Equal(t, 1, saves)
 
-	gutted, _ := priceServer(t, http.StatusOK, priceData(t, 99, usdPerMTok(5)))
-	pricer.url = gutted.URL
-	require.ErrorContains(t, pricer.refresh(context.Background()), "shrank from 200 to 99")
-	require.Equal(t, modelenvelope.ProviderReportedCostUSD("2"), gpt4oCost(t, pricer))
-
-	half, _ := priceServer(t, http.StatusOK, priceData(t, 100, usdPerMTok(3)))
-	pricer.url = half.URL
-	require.NoError(t, pricer.refresh(context.Background()))
-	require.Equal(t, modelenvelope.ProviderReportedCostUSD("6"), gpt4oCost(t, pricer))
+	stored, storedData = "larger", priceData(t, 200, usdPerMTok(1))
+	_, _, err = source.Refresh(ctx, current, save)
+	require.ErrorContains(t, err, "shrank from 200 to 50", "the stored copy guards against shrinking data")
+	stored, storedData = "unreadable", []byte(`{"not":`)
+	version, _, err = source.Refresh(ctx, current, save)
+	require.NoError(t, err)
+	require.NotEmpty(t, version, "a stored copy that can't be counted leaves only the minimum check")
+	require.Equal(t, 2, saves)
 }
 
-func TestRunNeverFetchesWhenOff(t *testing.T) {
-	pricer, err := New(Off)
+func TestValidateRejectsPriceDataThatShrinksByMoreThanHalf(t *testing.T) {
+	_, _, err := validate(priceData(t, 99, usdPerMTok(5)), 200)
+	require.ErrorContains(t, err, "shrank from 200 to 99")
+	_, pricedModels, err := validate(priceData(t, 100, usdPerMTok(3)), 200)
 	require.NoError(t, err)
-	done := make(chan struct{})
-	go func() {
-		pricer.Run(context.Background())
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return when prices are off")
+	require.Equal(t, 100, pricedModels)
+}
+
+func TestPricesReportsWhetherTheCatalogPricesAModel(t *testing.T) {
+	pricer, err := New()
+	require.NoError(t, err)
+	require.True(t, pricer.Prices(Input{BaseURL: openAIURL, ConfiguredModel: "gpt-4o"}, nil))
+	require.False(t, pricer.Prices(Input{BaseURL: openAIURL, ConfiguredModel: "self-hosted-model"}, nil))
+	require.False(t, pricer.Prices(Input{BaseURL: "https://models.example.test/v1", ConfiguredModel: "gpt-4o"}, nil))
+}
+
+func TestPricesAppliesTheRequestedRateClass(t *testing.T) {
+	pricer, err := New()
+	require.NoError(t, err)
+	claude := Input{BaseURL: anthropicURL, APIFormat: modelprotocol.APIFormatAnthropicMessages,
+		ConfiguredModel: "claude-sonnet-4-5"}
+	gpt := Input{BaseURL: openAIURL, APIFormat: modelprotocol.APIFormatOpenAIResponses, ConfiguredModel: "gpt-4o"}
+	gptChat := Input{BaseURL: openAIURL, APIFormat: modelprotocol.APIFormatOpenAIChatCompletions,
+		ConfiguredModel: "gpt-4o"}
+	for _, test := range []struct {
+		input   Input
+		options string
+		priced  bool
+	}{
+		{claude, `{}`, true},
+		{claude, `{"speed":"standard","inference_geo":"global","service_tier":"auto"}`, true},
+		{claude, `{"speed":"fast"}`, false},
+		{claude, `{"inference_geo":"us"}`, false},
+		{gpt, `{"service_tier":"auto"}`, true},
+		{gpt, `{"service_tier":"default"}`, true},
+		{gpt, `{"service_tier":"scale"}`, false},
+		{gpt, `{"prompt_cache_options":{"ttl":"30m"}}`, true},
+		{gpt, `{"prompt_cache_options":{"ttl":"12h"}}`, false},
+		{gpt, `{"service_tier":"auto","prompt_cache_options":{"ttl":"12h"}}`, false},
+		{gptChat, `{"prompt_cache_options":{"ttl":"12h"}}`, true},
+	} {
+		require.Equal(t, test.priced, pricer.Prices(test.input, json.RawMessage(test.options)), test.options)
 	}
 }
 
-func TestRefreshRacesWithEstimates(t *testing.T) {
-	server, _ := priceServer(t, http.StatusOK, priceData(t, minPricedModels, usdPerMTok(1)))
-	pricer, err := New(server.URL)
+func TestLoadRacesWithEstimates(t *testing.T) {
+	data := priceData(t, minPricedModels, usdPerMTok(1))
+	pricer, err := New()
 	require.NoError(t, err)
 	var wg sync.WaitGroup
 	for range 4 {
 		wg.Go(func() {
 			for range 20 {
-				_ = pricer.refresh(context.Background())
+				require.NoError(t, pricer.Load(data))
 			}
 		})
 		wg.Go(func() {

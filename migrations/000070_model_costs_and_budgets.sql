@@ -46,21 +46,36 @@ CREATE UNIQUE INDEX budgets_active_scope_interval_idx
     NULLS NOT DISTINCT WHERE deleted_at IS NULL;
 
 CREATE TABLE daily_model_costs (
-    org_id uuid NOT NULL,
+    org_id uuid NOT NULL REFERENCES orgs(id),
+    project_id uuid,
+    agent_profile_id uuid,
+    agent_id uuid,
     day date NOT NULL,
+    effective_cost_usd numeric(30, 15) NOT NULL,
+    CHECK (effective_cost_usd <> 'NaN'::numeric AND effective_cost_usd >= 0),
+    CHECK (num_nonnulls(agent_profile_id, agent_id) <= 1),
+    CHECK (project_id IS NOT NULL OR num_nonnulls(agent_profile_id, agent_id) = 0),
+    FOREIGN KEY (org_id, project_id) REFERENCES projects(org_id, id),
+    FOREIGN KEY (project_id, agent_profile_id) REFERENCES agent_profiles(project_id, id),
+    FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id)
+);
+
+CREATE UNIQUE INDEX daily_model_costs_scope_day_idx
+    ON daily_model_costs(org_id, project_id, agent_profile_id, agent_id, day)
+    NULLS NOT DISTINCT;
+
+CREATE TABLE pending_model_costs (
+    model_call_context_id uuid PRIMARY KEY REFERENCES model_call_contexts(id),
+    org_id uuid NOT NULL,
     project_id uuid NOT NULL,
     agent_profile_id uuid,
-    model_call_context_id uuid,
+    agent_id uuid NOT NULL,
+    day date NOT NULL,
     effective_cost_usd numeric(30, 15) NOT NULL,
     CHECK (effective_cost_usd <> 'NaN'::numeric AND effective_cost_usd >= 0)
 );
 
-CREATE UNIQUE INDEX daily_model_costs_day_call_idx
-    ON daily_model_costs(org_id, day, project_id, agent_profile_id, model_call_context_id)
-    NULLS NOT DISTINCT;
-
-CREATE INDEX daily_model_costs_unmerged_idx
-    ON daily_model_costs(org_id, model_call_context_id) WHERE model_call_context_id IS NOT NULL;
+CREATE INDEX pending_model_costs_org_idx ON pending_model_costs(org_id);
 
 -- +goose StatementBegin
 CREATE FUNCTION budget_interval_cost(
@@ -69,57 +84,64 @@ CREATE FUNCTION budget_interval_cost(
 RETURNS TABLE (effective_cost_usd numeric)
 LANGUAGE sql STABLE PARALLEL SAFE
 AS $$
-    SELECT coalesce(CASE WHEN p_agent_id IS NULL THEN (
-        SELECT sum(cost.effective_cost_usd)
-        FROM daily_model_costs cost
-        WHERE cost.org_id = p_org_id
-          AND (p_project_id IS NULL OR cost.project_id = p_project_id)
-          AND (p_agent_profile_id IS NULL OR cost.agent_profile_id = p_agent_profile_id)
-          AND cost.day >= (bounds.since AT TIME ZONE 'UTC')::date
-    ) ELSE (
-        SELECT sum(call.effective_cost_usd)
-        FROM agents agent
-        JOIN model_call_contexts call ON call.project_id = agent.project_id AND call.agent_id = agent.id
-        WHERE agent.project_id = p_project_id
-          AND agent.root_agent_id = p_agent_id
-          AND call.effective_cost_usd IS NOT NULL
-          AND call.created_at >= bounds.since
-    ) END, 0)
+    SELECT coalesce(CASE
+        WHEN p_agent_id IS NOT NULL THEN (
+            SELECT sum(cost.effective_cost_usd) FROM daily_model_costs cost
+            WHERE cost.org_id = p_org_id AND cost.project_id = p_project_id
+              AND cost.agent_profile_id IS NULL AND cost.agent_id = p_agent_id AND cost.day >= bounds.since
+        )
+        WHEN p_agent_profile_id IS NOT NULL THEN (
+            SELECT sum(cost.effective_cost_usd) FROM daily_model_costs cost
+            WHERE cost.org_id = p_org_id AND cost.project_id = p_project_id
+              AND cost.agent_profile_id = p_agent_profile_id AND cost.agent_id IS NULL
+              AND cost.day >= bounds.since
+        )
+        WHEN p_project_id IS NOT NULL THEN (
+            SELECT sum(cost.effective_cost_usd) FROM daily_model_costs cost
+            WHERE cost.org_id = p_org_id AND cost.project_id = p_project_id
+              AND cost.agent_profile_id IS NULL AND cost.agent_id IS NULL AND cost.day >= bounds.since
+        )
+        ELSE (
+            SELECT sum(cost.effective_cost_usd) FROM daily_model_costs cost
+            WHERE cost.org_id = p_org_id AND cost.project_id IS NULL
+              AND cost.agent_profile_id IS NULL AND cost.agent_id IS NULL AND cost.day >= bounds.since
+        )
+    END, 0) + coalesce((
+        SELECT sum(pending.effective_cost_usd) FROM pending_model_costs pending
+        WHERE pending.org_id = p_org_id
+          AND (p_project_id IS NULL OR pending.project_id = p_project_id)
+          AND (p_agent_profile_id IS NULL OR pending.agent_profile_id = p_agent_profile_id)
+          AND (p_agent_id IS NULL OR pending.agent_id = p_agent_id)
+          AND pending.day >= bounds.since
+    ), 0)
     FROM (
         SELECT CASE p_interval
-            WHEN 'day' THEN date_trunc('day', statement_timestamp(), 'UTC')
-            WHEN 'week' THEN date_trunc('week', statement_timestamp(), 'UTC')
-            WHEN 'month' THEN date_trunc('month', statement_timestamp(), 'UTC')
-            ELSE '-infinity'::timestamptz
+            WHEN 'day' THEN (statement_timestamp() AT TIME ZONE 'UTC')::date
+            WHEN 'week' THEN (date_trunc('week', statement_timestamp(), 'UTC') AT TIME ZONE 'UTC')::date
+            WHEN 'month' THEN (date_trunc('month', statement_timestamp(), 'UTC') AT TIME ZONE 'UTC')::date
+            ELSE '-infinity'::date
         END AS since
     ) bounds
 $$;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-CREATE FUNCTION sync_daily_model_cost_from_model_call_context() RETURNS trigger AS $$
+CREATE FUNCTION insert_pending_model_cost_from_model_call_context() RETURNS trigger AS $$
 BEGIN
-    INSERT INTO daily_model_costs(
-        org_id, day, project_id, agent_profile_id, model_call_context_id, effective_cost_usd
-    ) VALUES (
-        NEW.org_id,
-        (NEW.created_at AT TIME ZONE 'UTC')::date,
-        NEW.project_id,
-        (
-            SELECT root.agent_profile_id
-            FROM agents agent
-            JOIN agents root ON root.project_id = agent.project_id AND root.id = agent.root_agent_id
-            WHERE agent.project_id = NEW.project_id AND agent.id = NEW.agent_id
-        ),
-        NEW.id,
-        NEW.effective_cost_usd
-    );
+    INSERT INTO pending_model_costs(
+        model_call_context_id, org_id, project_id, agent_profile_id, agent_id, day, effective_cost_usd
+    )
+    SELECT NEW.id, NEW.org_id, NEW.project_id, root.agent_profile_id, root.id,
+           (NEW.created_at AT TIME ZONE 'UTC')::date, NEW.effective_cost_usd
+    FROM agents agent
+    JOIN agents root ON root.project_id = agent.project_id AND root.id = agent.root_agent_id
+    WHERE agent.project_id = NEW.project_id AND agent.id = NEW.agent_id;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 -- +goose StatementEnd
 
-CREATE TRIGGER model_call_contexts_insert_daily_model_cost
+CREATE TRIGGER model_call_contexts_insert_pending_model_cost
     AFTER UPDATE OF state
     ON model_call_contexts
     FOR EACH ROW
@@ -128,4 +150,11 @@ CREATE TRIGGER model_call_contexts_insert_daily_model_cost
         AND NEW.state <> 'started'
         AND NEW.effective_cost_usd IS NOT NULL
     )
-    EXECUTE FUNCTION sync_daily_model_cost_from_model_call_context();
+    EXECUTE FUNCTION insert_pending_model_cost_from_model_call_context();
+
+CREATE TABLE model_price_catalog (
+    singleton_key smallint PRIMARY KEY DEFAULT 1,
+    data bytea NOT NULL CHECK (octet_length(data) BETWEEN 1 AND 16777216),
+    version text NOT NULL CHECK (version <> ''),
+    CHECK (singleton_key = 1)
+);

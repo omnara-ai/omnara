@@ -11231,18 +11231,22 @@ components:
       required: [input_usd_per_million, output_usd_per_million]
       properties:
         input_usd_per_million:
+          description: USD per million input tokens.
           type: string
           maxLength: 31
           pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
         cache_read_input_usd_per_million:
+          description: USD per million input tokens read from the prompt cache.
           type: string
           maxLength: 31
           pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
         cache_write_input_usd_per_million:
+          description: USD per million input tokens written to the prompt cache.
           type: string
           maxLength: 31
           pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
         output_usd_per_million:
+          description: USD per million output tokens.
           type: string
           maxLength: 31
           pattern: '^(0|[1-9][0-9]*)(\.[0-9]+)?$'
@@ -13382,6 +13386,12 @@ components:
           $ref: '#/components/schemas/ResourceName'
         config:
           $ref: '#/components/schemas/AgentConfigID'
+        budgets:
+          type: array
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/BudgetAttachment'
+          description: Budgets for the new profile, created atomically with it, one per interval. Requires organization management permission. Replay never adds budgets.
     UpdateAgentProfileRequest:
       type: object
       additionalProperties: false
@@ -13761,6 +13771,12 @@ components:
           items:
             $ref: '#/components/schemas/IntegrationSubscriptionAttachment'
           description: Integration-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
+        budgets:
+          type: array
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/BudgetAttachment'
+          description: Budgets for the new agent, created atomically with launch, one per interval. Requires organization management permission. Launch replay never adds budgets.
         interaction_handlers:
           type: object
           additionalProperties:
@@ -16028,6 +16044,12 @@ components:
       properties:
         name:
           $ref: '#/components/schemas/ResourceName'
+        budgets:
+          type: array
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/BudgetAttachment'
+          description: Budgets for the new organization, created atomically with it, one per interval. Replay never adds budgets.
     CreateOrganizationResponse:
       type: object
       additionalProperties: false
@@ -17784,6 +17806,12 @@ components:
       properties:
         name:
           $ref: '#/components/schemas/ResourceName'
+        budgets:
+          type: array
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/BudgetAttachment'
+          description: Budgets for the new project, created atomically with it, one per interval. Replay never adds budgets.
     UpdateProjectRequest:
       type: object
       additionalProperties: false
@@ -17987,6 +18015,17 @@ components:
           project: '#/components/schemas/ProjectBudgetScope'
           profile: '#/components/schemas/AgentProfileBudgetScope'
           agent: '#/components/schemas/AgentBudgetScope'
+    BudgetAttachment:
+      type: object
+      additionalProperties: false
+      required: [interval, amount_usd]
+      properties:
+        interval:
+          description: How often the budget resets.
+          $ref: '#/components/schemas/BudgetInterval'
+        amount_usd:
+          description: Spend limit in US dollars for each interval.
+          $ref: '#/components/schemas/BudgetAmount'
     BudgetInterval:
       type: string
       description: >-

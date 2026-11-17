@@ -262,6 +262,28 @@ func parseBudgetScopeIDs(
 	return ids, nil
 }
 
+func budgetAttachments(items *[]openapi.BudgetAttachment) ([]identitystore.BudgetAttachment, error) {
+	if items == nil {
+		return nil, nil
+	}
+	attachments := make([]identitystore.BudgetAttachment, 0, len(*items))
+	seen := map[openapi.BudgetInterval]bool{}
+	for _, item := range *items {
+		if seen[item.Interval] {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "budgets can have one budget per interval")
+		}
+		seen[item.Interval] = true
+		amount, err := budgetAmountFromRequest(item.AmountUsd)
+		if err != nil {
+			return nil, err
+		}
+		attachments = append(attachments, identitystore.BudgetAttachment{
+			Interval: string(item.Interval), AmountUSD: amount,
+		})
+	}
+	return attachments, nil
+}
+
 func budgetAmountFromRequest(raw string) (string, error) {
 	amount, ok := modelenvelope.ParseProviderReportedCostUSD(raw)
 	if !ok || amount == "0" {
