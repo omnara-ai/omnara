@@ -279,6 +279,33 @@ WHERE project_id = $1 AND input_tokens_total IS NOT NULL`, project.ProjectUUID)
 	require.Equal(t, totals["cost"], testutil.RequireType[map[string]any](t, series["totals"])["cost"])
 }
 
+func TestBudgetsReportSpendBeyondOneCallsRange(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	project := bootstrapPublicHTTPProject(t, handler, "budget-large-spend")
+	admin := authHeaders(project.AdminToken)
+	endpoint := "/api/v1/orgs/" + project.OrgID + "/budgets"
+	created := requestJSONWithHeaders(t, handler, http.MethodPost, endpoint,
+		`{"scope":{"type":"org"},"interval":"lifetime","amount_usd":"1"}`, "", http.StatusCreated, admin)
+	path := endpoint + "/" + testutil.RequireType[string](t, created["id"])
+	_, err := pool.Exec(ctx, `
+INSERT INTO daily_model_costs(org_id, day, effective_cost_usd)
+VALUES ($1, current_date, 1999999999999999.999999999999998)`, project.OrgUUID)
+	require.NoError(t, err)
+	spend := map[string]any{"amount_usd": "1999999999999999.999999999999998"}
+
+	got := requestJSONWithHeaders(t, handler, http.MethodGet, path, "", "", http.StatusOK, admin)
+	require.Equal(t, spend, got["usage"])
+	listed := requestJSONWithHeaders(t, handler, http.MethodGet, endpoint, "", "", http.StatusOK, admin)
+	budgets := testutil.RequireType[[]any](t, listed["data"])
+	require.Len(t, budgets, 1)
+	require.Equal(t, spend, testutil.RequireType[map[string]any](t, budgets[0])["usage"])
+	requestJSONWithHeaders(t, handler, http.MethodPatch, path, `{"amount_usd":"999999999999999"}`, "",
+		http.StatusOK, admin)
+}
+
 func TestBudgetsApplyAcrossProjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

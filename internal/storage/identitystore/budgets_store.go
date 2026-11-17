@@ -245,7 +245,7 @@ func enterBudgetScope(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, projectID
 }
 
 func budgetRecordWithUsage(row dbsqlc.ListBudgetsRow) (BudgetRecord, error) {
-	spent, ok := modelenvelope.ParseProviderReportedCostUSD(row.SpentUsd)
+	spent, ok := modelenvelope.ParseCostTotalUSD(row.SpentUsd)
 	if !ok {
 		return BudgetRecord{}, errors.New("invalid budget spend")
 	}

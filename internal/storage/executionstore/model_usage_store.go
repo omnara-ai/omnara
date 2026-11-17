@@ -220,11 +220,11 @@ func sumModelUsageTotals(items []ModelUsageTotals) (ModelUsageTotals, error) {
 		costs = append(costs, string(item.ProviderReportedCostUSD))
 		effectiveCosts = append(effectiveCosts, string(item.EffectiveCostUSD))
 	}
-	cost, ok := modelenvelope.SumProviderReportedCostUSD(costs...)
+	cost, ok := modelenvelope.SumCostTotalsUSD(costs...)
 	if !ok {
 		return ModelUsageTotals{}, errors.New("sum model usage: invalid cost totals")
 	}
-	effective, ok := modelenvelope.SumProviderReportedCostUSD(effectiveCosts...)
+	effective, ok := modelenvelope.SumCostTotalsUSD(effectiveCosts...)
 	if !ok {
 		return ModelUsageTotals{}, errors.New("sum model usage: invalid effective cost totals")
 	}
@@ -238,11 +238,11 @@ func usageCosts(reported, effective string) (
 	modelenvelope.ProviderReportedCostUSD,
 	bool,
 ) {
-	reportedCost, ok := modelenvelope.ParseProviderReportedCostUSD(reported)
+	reportedCost, ok := modelenvelope.ParseCostTotalUSD(reported)
 	if !ok {
 		return "", "", false
 	}
-	effectiveCost, ok := modelenvelope.ParseProviderReportedCostUSD(effective)
+	effectiveCost, ok := modelenvelope.ParseCostTotalUSD(effective)
 	return reportedCost, effectiveCost, ok
 }
 

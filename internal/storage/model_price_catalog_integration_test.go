@@ -21,7 +21,13 @@ func TestModelPriceCatalogKeepsOneSharedCopy(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, data, "workers keep the bundled prices until maintenance stores a copy")
 
-	require.NoError(t, models.SaveModelPriceCatalog(ctx, []byte(`["first"]`), "v1"))
+	save := func(data, version, expected string) bool {
+		saved, err := models.SaveModelPriceCatalog(ctx, []byte(data), version, expected)
+		require.NoError(t, err)
+		return saved
+	}
+	require.True(t, save(`["first"]`, "v1", ""))
+	require.False(t, save(`["late first"]`, "v0", ""), "a second first save loses to the one already stored")
 	data, err = models.ChangedModelPriceCatalog(ctx, "builtin")
 	require.NoError(t, err)
 	require.Equal(t, []byte(`["first"]`), data)
@@ -29,7 +35,8 @@ func TestModelPriceCatalogKeepsOneSharedCopy(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, data, "a worker on the stored version gets nothing back")
 
-	require.NoError(t, models.SaveModelPriceCatalog(ctx, []byte(`["second"]`), "v2"))
+	require.True(t, save(`["second"]`, "v2", "v1"))
+	require.False(t, save(`["stale"]`, "v3", "v1"), "a save validated against an older copy changes nothing")
 	version, data, err = models.ModelPriceCatalog(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "v2", version)

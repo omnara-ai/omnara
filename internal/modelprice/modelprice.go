@@ -137,7 +137,7 @@ func (s Source) fetch(ctx context.Context) ([]byte, error) {
 func (s Source) Refresh(
 	ctx context.Context,
 	current func(context.Context) (string, []byte, error),
-	save func(context.Context, []byte, string) error,
+	save func(ctx context.Context, data []byte, version, expectedVersion string) (bool, error),
 ) (string, int, error) {
 	stored, storedData, err := current(ctx)
 	if err != nil {
@@ -157,7 +157,11 @@ func (s Source) Refresh(
 	if err != nil || version == stored {
 		return "", 0, err
 	}
-	return version, pricedModels, save(ctx, data, version)
+	saved, err := save(ctx, data, version, stored)
+	if err != nil || !saved {
+		return "", 0, err
+	}
+	return version, pricedModels, nil
 }
 
 func validate(data []byte, previousPricedModels int) (version string, pricedModels int, err error) {
