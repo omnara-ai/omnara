@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"github.com/omnara-ai/omnara/internal/cronschedule"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +35,10 @@ func TestResolveCreateScheduledMessageRequest(t *testing.T) {
 		"unknown field":  `{"message":"check","delay_seconds":5,"mode":"steering"}`,
 		"fractional":     `{"message":"check","delay_seconds":1.5}`,
 		"not a datetime": `{"message":"check","timestamp":"tomorrow"}`,
+		"cron and delay": `{"message":"check","cron":"0 9 * * *","delay_seconds":5}`,
+		"bad cron":       `{"message":"check","cron":"every day"}`,
+		"bad timezone":   `{"message":"check","cron":"0 9 * * *","timezone":"Mars/Olympus"}`,
+		"stray timezone": `{"message":"check","delay_seconds":5,"timezone":"UTC"}`,
 	} {
 		_, err := resolveCreateScheduledMessageRequest(json.RawMessage(raw))
 		require.Error(t, err, name)
@@ -56,4 +61,28 @@ func TestResolveDeleteScheduledMessageRequest(t *testing.T) {
 	require.Equal(t, "ain_abc", input.ID)
 	_, err = resolveDeleteScheduledMessageRequest(json.RawMessage(`{"id":""}`))
 	require.Error(t, err)
+}
+
+func TestResolveCreateScheduledMessageRequestWithCron(t *testing.T) {
+	t.Parallel()
+	recurring, err := resolveCreateScheduledMessageRequest(
+		json.RawMessage(`{"message":"Summarize {{.trigger.name}} today.","cron":" 0 9 * * 1-5 ","timezone":"America/New_York"}`),
+	)
+	require.NoError(t, err)
+	require.Equal(t, "0 9 * * 1-5", recurring.cron)
+	require.Equal(t, "America/New_York", recurring.timezone)
+	require.Zero(t, recurring.delay)
+	require.Nil(t, recurring.scheduledFor)
+
+	firedAt := time.Date(2026, 11, 18, 14, 0, 0, 0, time.UTC)
+	rendered, err := cronschedule.RenderMessage(
+		scheduleMessageTemplate(recurring), cronschedule.MessageData("agent-schedule", firedAt, nil),
+	)
+	require.NoError(t, err)
+	require.Equal(t, "Scheduled message: your recurring schedule 0 9 * * 1-5 (America/New_York) fired at "+
+		"2026-11-18T14:00:00Z.\n\nSummarize {{.trigger.name}} today.", rendered)
+
+	utc, err := resolveCreateScheduledMessageRequest(json.RawMessage(`{"message":"check","cron":"*/5 * * * *"}`))
+	require.NoError(t, err)
+	require.Equal(t, "UTC", utc.timezone)
 }

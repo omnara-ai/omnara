@@ -264,3 +264,57 @@ func (t *toolCallTransaction) cancelOwnScheduledMessage(ctx context.Context, inp
 	}
 	return nil
 }
+
+// MaxAgentSchedulesListed bounds how many of an agent's cron schedules the scheduling tools list.
+const MaxAgentSchedulesListed = 100
+
+// AgentSchedule is a cron trigger that delivers a recurring message to an agent.
+type AgentSchedule struct {
+	ID              uuid.UUID
+	Name            string
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	Enabled         bool
+	LastFiredAt     *time.Time
+	NextFireAfter   *time.Time
+	CreatedAt       time.Time
+}
+
+// ListAgentSchedules returns every cron trigger that targets the calling
+// agent, whoever created it, oldest first.
+func (r *ToolCallReader) ListAgentSchedules(ctx context.Context) ([]AgentSchedule, error) {
+	t := r.transaction
+	rows, err := t.q.ListCronTriggersForAgent(ctx, dbsqlc.ListCronTriggersForAgentParams{
+		ProjectID: t.input.ProjectID, AgentID: t.input.AgentID, RowLimit: MaxAgentSchedulesListed,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list agent schedules: %w", err)
+	}
+	schedules := make([]AgentSchedule, 0, len(rows))
+	for _, row := range rows {
+		schedules = append(schedules, AgentSchedule{
+			ID: row.ID, Name: row.Name, CronExpression: row.CronExpression, Timezone: row.Timezone,
+			MessageTemplate: row.MessageTemplate, Enabled: row.Enabled, LastFiredAt: row.LastFiredAt,
+			NextFireAfter: row.NextFireAfter, CreatedAt: row.CreatedAt,
+		})
+	}
+	return schedules, nil
+}
+
+// DeleteCronTriggerForAgent deletes a cron trigger only if it targets the given agent.
+func (s *Store) DeleteCronTriggerForAgent(ctx context.Context, projectID, agentID, id uuid.UUID) error {
+	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
+		return errors.New("project, agent, and cron trigger are required")
+	}
+	rows, err := s.q.DeleteCronTriggerForAgent(ctx, dbsqlc.DeleteCronTriggerForAgentParams{
+		ProjectID: projectID, AgentID: agentID, ID: id,
+	})
+	if err != nil {
+		return fmt.Errorf("delete agent cron trigger: %w", err)
+	}
+	if rows == 0 {
+		return storeerr.ErrNotFound
+	}
+	return nil
+}

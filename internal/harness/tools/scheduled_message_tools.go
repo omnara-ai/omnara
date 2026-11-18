@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/cronschedule"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -18,12 +19,30 @@ type createScheduledMessageRequest struct {
 	Message      string  `json:"message"`
 	Timestamp    *string `json:"timestamp,omitempty"`
 	DelaySeconds *int64  `json:"delay_seconds,omitempty"`
+	Cron         *string `json:"cron,omitempty"`
+	Timezone     *string `json:"timezone,omitempty"`
 }
 
 type resolvedScheduledMessageRequest struct {
 	message      string
 	scheduledFor *time.Time
 	delay        time.Duration
+	// cron is set for a recurring schedule, which is stored as a cron trigger
+	// targeting the agent instead of a one-time scheduled input.
+	cron     string
+	timezone string
+}
+
+type scheduleSummary struct {
+	ID        string `json:"id"`
+	Cron      string `json:"cron"`
+	Timezone  string `json:"timezone"`
+	Enabled   bool   `json:"enabled"`
+	NextRunAt string `json:"next_run_at,omitempty"`
+	LastRunAt string `json:"last_run_at,omitempty"`
+	CreatedAt string `json:"created_at"`
+	Name      string `json:"name"`
+	Message   string `json:"message"`
 }
 
 type deleteScheduledMessageRequest struct {
@@ -66,10 +85,35 @@ func resolveCreateScheduledMessageRequest(raw json.RawMessage) (resolvedSchedule
 	if resolved.message == "" {
 		return resolvedScheduledMessageRequest{}, errors.New("create_scheduled_message message is required")
 	}
-	if (input.Timestamp == nil) == (input.DelaySeconds == nil) {
+	times := 0
+	for _, set := range []bool{input.Timestamp != nil, input.DelaySeconds != nil, input.Cron != nil} {
+		if set {
+			times++
+		}
+	}
+	if times != 1 {
 		return resolvedScheduledMessageRequest{}, errors.New(
-			"create_scheduled_message requires exactly one of timestamp or delay_seconds",
+			"create_scheduled_message requires exactly one of timestamp, delay_seconds, or cron",
 		)
+	}
+	if input.Timezone != nil && input.Cron == nil {
+		return resolvedScheduledMessageRequest{}, errors.New(
+			"create_scheduled_message timezone is only valid with cron",
+		)
+	}
+	if input.Cron != nil {
+		resolved.cron = strings.TrimSpace(*input.Cron)
+		resolved.timezone = "UTC"
+		if input.Timezone != nil && strings.TrimSpace(*input.Timezone) != "" {
+			resolved.timezone = strings.TrimSpace(*input.Timezone)
+		}
+		if err := cronschedule.Validate(resolved.cron, resolved.timezone); err != nil {
+			return resolvedScheduledMessageRequest{}, fmt.Errorf("create_scheduled_message cron: %w", err)
+		}
+		if err := cronschedule.ValidateMessageTemplate(scheduleMessageTemplate(resolved)); err != nil {
+			return resolvedScheduledMessageRequest{}, fmt.Errorf("create_scheduled_message message: %w", err)
+		}
+		return resolved, nil
 	}
 	if input.DelaySeconds != nil {
 		if *input.DelaySeconds < 1 || *input.DelaySeconds > toolcatalog.ScheduledMessageMaxDelaySeconds {
@@ -117,6 +161,34 @@ func scheduledMessageText(message string, createdAt, scheduledFor time.Time) str
 	)
 }
 
+// scheduleMessageTemplate is the cron trigger template for a recurring
+// schedule: a preset note with the firing time, then the agent's text with
+// template delimiters escaped so it is delivered verbatim.
+func scheduleMessageTemplate(input resolvedScheduledMessageRequest) string {
+	literal := func(text string) string { return strings.ReplaceAll(text, "{{", `{{"{{"}}`) }
+	return "Scheduled message: your recurring schedule " + literal(input.cron) + " (" + literal(input.timezone) +
+		") fired at {{.trigger.fired_at}}.\n\n" + literal(input.message)
+}
+
+func scheduleSummaryFromRecord(schedule executionstore.AgentSchedule) (scheduleSummary, error) {
+	id, err := publicid.Encode(publicid.KindCronTrigger, schedule.ID)
+	if err != nil {
+		return scheduleSummary{}, fmt.Errorf("encode schedule id: %w", err)
+	}
+	summary := scheduleSummary{
+		ID: id, Cron: schedule.CronExpression, Timezone: schedule.Timezone, Enabled: schedule.Enabled,
+		CreatedAt: formatScheduledMessageTime(schedule.CreatedAt), Name: schedule.Name,
+		Message: schedule.MessageTemplate,
+	}
+	if schedule.NextFireAfter != nil {
+		summary.NextRunAt = formatScheduledMessageTime(*schedule.NextFireAfter)
+	}
+	if schedule.LastFiredAt != nil {
+		summary.LastRunAt = formatScheduledMessageTime(*schedule.LastFiredAt)
+	}
+	return summary, nil
+}
+
 func scheduledMessageSummaryFromRecord(message executionstore.ScheduledMessage) (scheduledMessageSummary, error) {
 	id, err := publicid.Encode(publicid.KindAgentInput, message.ID)
 	if err != nil {
@@ -130,24 +202,46 @@ func scheduledMessageSummaryFromRecord(message executionstore.ScheduledMessage) 
 	}, nil
 }
 
-func failScheduledMessageTransaction(code string, cause error) (transactionalPhaseResult, error) {
+// scheduledMessageFailureContent maps a storage error the agent can act on to
+// a tool failure. It reports false for errors that should fail the dispatch.
+func scheduledMessageFailureContent(code string, cause error) (toolResultContent, bool, error) {
 	message := cause.Error()
 	switch {
 	case errors.Is(cause, storeerr.ErrAgentBacklogFull):
 		code = storeerr.AgentBacklogFullCode
 		message = storeerr.ErrAgentBacklogFull.Error()
 	case errors.Is(cause, storeerr.ErrNotFound):
-		message = "No scheduled message of yours has that id. It may already have been delivered or deleted; " +
-			"use get_scheduled_messages to list them."
-	case errors.Is(cause, storeerr.ErrInvalidRequest), errors.Is(cause, storeerr.ErrStateTransitionConflict):
+		message = "No scheduled message or schedule of yours has that id. It may already have been delivered or " +
+			"deleted; use get_scheduled_messages to list them."
+	case errors.Is(cause, storeerr.ErrInvalidRequest), errors.Is(cause, storeerr.ErrStateTransitionConflict),
+		errors.Is(cause, storeerr.ErrConflict):
 	default:
-		return nil, cause
+		return toolResultContent{}, false, nil
 	}
 	content, err := toolFailureContent(code, message, false)
+	return content, err == nil, err
+}
+
+func failScheduledMessageTransaction(code string, cause error) (transactionalPhaseResult, error) {
+	content, handled, err := scheduledMessageFailureContent(code, cause)
 	if err != nil {
 		return nil, err
 	}
+	if !handled {
+		return nil, cause
+	}
 	return failInTransaction(content, cause), nil
+}
+
+func failScheduledMessageAsync(code string, cause error) (asyncPhaseResult, error) {
+	content, handled, err := scheduledMessageFailureContent(code, cause)
+	if err != nil {
+		return nil, err
+	}
+	if !handled {
+		return nil, cause
+	}
+	return failAsynchronously(content, cause), nil
 }
 
 func getCurrentTime(ctx context.Context, call transactionalToolContext) (transactionalPhaseResult, error) {
@@ -181,7 +275,22 @@ func getScheduledMessages(ctx context.Context, call transactionalToolContext) (t
 		}
 		summaries = append(summaries, summary)
 	}
-	content, err := structuredToolResultContent(map[string]any{"scheduled_messages": summaries})
+	schedules, err := call.Reader.ListAgentSchedules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scheduleSummaries := make([]scheduleSummary, 0, len(schedules))
+	for _, schedule := range schedules {
+		summary, err := scheduleSummaryFromRecord(schedule)
+		if err != nil {
+			return nil, err
+		}
+		scheduleSummaries = append(scheduleSummaries, summary)
+	}
+	content, err := structuredToolResultContent(map[string]any{
+		"scheduled_messages": summaries,
+		"schedules":          scheduleSummaries,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +301,10 @@ func createScheduledMessage(_ context.Context, call transactionalToolContext) (t
 	input, err := resolveCreateScheduledMessageRequest(call.Call.Input)
 	if err != nil {
 		return nil, err
+	}
+	if input.cron != "" {
+		// A recurring schedule is a cron trigger, created outside the tool transaction.
+		return continueAsync(), nil
 	}
 	command := executionstore.CreateScheduledMessageForToolCall(
 		executionstore.CreateScheduledMessageInput{
@@ -228,6 +341,10 @@ func deleteScheduledMessage(_ context.Context, call transactionalToolContext) (t
 	if err != nil {
 		return nil, err
 	}
+	if _, err := publicid.Decode(publicid.KindCronTrigger, input.ID); err == nil {
+		// Recurring schedules are cron triggers, deleted outside the tool transaction.
+		return continueAsync(), nil
+	}
 	inputID, err := publicid.Decode(publicid.KindAgentInput, input.ID)
 	if err != nil {
 		return failScheduledMessageTransaction("delete_scheduled_message_failed", storeerr.ErrNotFound)
@@ -244,4 +361,71 @@ func deleteScheduledMessage(_ context.Context, call transactionalToolContext) (t
 	return executeInTransaction(command, func(err error) (transactionalPhaseResult, error) {
 		return failScheduledMessageTransaction("delete_scheduled_message_failed", err)
 	}), nil
+}
+
+// createSchedule creates the cron trigger for a create_scheduled_message call
+// that asked for a recurring schedule. The tool call id makes a retried
+// dispatch return the same trigger.
+func createSchedule(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
+	input, err := resolveCreateScheduledMessageRequest(call.Call.Input)
+	if err != nil {
+		return nil, err
+	}
+	if input.cron == "" {
+		return nil, errors.New("create_scheduled_message reached the schedule phase without a cron expression")
+	}
+	trigger, err := call.Executor.Store.Execution().CreateCronTrigger(ctx, executionstore.CreateCronTriggerInput{
+		ProjectID: call.Turn.ProjectID,
+		Name:      "agent-schedule-" + call.ToolCallID.String(),
+		Target: executionstore.CronTriggerTarget{
+			Kind:         executionstore.CronTriggerTargetAgent,
+			ID:           call.Turn.AgentID,
+			DeliveryMode: executionstore.CronTriggerDeliveryModeQueued,
+		},
+		CronExpression:  input.cron,
+		Timezone:        input.timezone,
+		MessageTemplate: scheduleMessageTemplate(input),
+		Enabled:         true,
+		IdempotencyKey:  "tool_call:" + call.ToolCallID.String(),
+	})
+	if err != nil {
+		return failScheduledMessageAsync("create_scheduled_message_failed", err)
+	}
+	id, err := publicid.Encode(publicid.KindCronTrigger, trigger.ID)
+	if err != nil {
+		return nil, fmt.Errorf("encode schedule id: %w", err)
+	}
+	result := map[string]any{
+		"id": id, "cron": trigger.CronExpression, "timezone": trigger.Timezone, "scheduled": true, "recurring": true,
+	}
+	if trigger.NextFireAfter != nil {
+		result["next_run_at"] = formatScheduledMessageTime(*trigger.NextFireAfter)
+	}
+	content, err := structuredToolResultContent(result)
+	if err != nil {
+		return nil, err
+	}
+	return completeAsynchronously(content), nil
+}
+
+// deleteSchedule deletes a cron trigger that targets the calling agent,
+// whoever created it. Triggers for other agents are reported as missing.
+func deleteSchedule(ctx context.Context, call asyncToolContext) (asyncPhaseResult, error) {
+	input, err := resolveDeleteScheduledMessageRequest(call.Call.Input)
+	if err != nil {
+		return nil, err
+	}
+	triggerID, err := publicid.Decode(publicid.KindCronTrigger, input.ID)
+	if err != nil {
+		return nil, errors.New("delete_scheduled_message reached the schedule phase without a schedule id")
+	}
+	err = call.Executor.Store.Execution().DeleteCronTriggerForAgent(ctx, call.Turn.ProjectID, call.Turn.AgentID, triggerID)
+	if err != nil {
+		return failScheduledMessageAsync("delete_scheduled_message_failed", err)
+	}
+	content, err := structuredToolResultContent(map[string]any{"id": input.ID, "deleted": true, "recurring": true})
+	if err != nil {
+		return nil, err
+	}
+	return completeAsynchronously(content), nil
 }

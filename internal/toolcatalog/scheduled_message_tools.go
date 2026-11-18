@@ -12,17 +12,19 @@ const (
 
 	getCurrentTimeToolDescription = "Get the current date and time in UTC. Use it before scheduling a message " +
 		"for a specific time; do not guess the current time."
-	getScheduledMessagesToolDescription = "List the messages you have scheduled for yourself with " +
-		"create_scheduled_message that have not been delivered yet, soonest first. Messages scheduled by anyone " +
-		"else are not listed."
-	createScheduledMessageToolDescription = "Schedule a message to yourself for a later time, to remind yourself " +
-		"to check on something or continue work. Provide exactly one of `timestamp` or `delay_seconds`. At that " +
-		"time the message is added to your queue and starts a new turn once you are free; delivery can lag the " +
-		"scheduled time by about a minute. The delivered message is prefixed with a note that you scheduled it " +
-		"and when, so write `message` as complete instructions to your future self. Scheduled messages count " +
-		"toward your pending-message limit."
-	deleteScheduledMessageToolDescription = "Delete a message you scheduled for yourself that has not been " +
-		"delivered yet. Only messages returned by get_scheduled_messages can be deleted."
+	getScheduledMessagesToolDescription = "List what is scheduled for you. `scheduled_messages` holds the " +
+		"one-time messages you scheduled for yourself that have not been delivered yet, soonest first; one-time " +
+		"messages scheduled by anyone else are not listed. `schedules` holds every recurring cron schedule that " +
+		"messages you, including ones you did not create."
+	createScheduledMessageToolDescription = "Schedule a message to yourself, to remind yourself to check on " +
+		"something or continue work. Provide exactly one of `timestamp` or `delay_seconds` for a one-time " +
+		"message, or `cron` for a recurring schedule that keeps messaging you until it is deleted. When a " +
+		"message is due it is added to your queue and starts a new turn once you are free; delivery can lag by " +
+		"about a minute. The delivered message is prefixed with a note about the schedule, so write `message` " +
+		"as complete instructions to your future self. One-time scheduled messages count toward your " +
+		"pending-message limit."
+	deleteScheduledMessageToolDescription = "Delete a one-time message you scheduled for yourself that has not " +
+		"been delivered yet, or any recurring schedule that messages you, by the id from get_scheduled_messages."
 )
 
 // ScheduledMessageToolNames lists the tools that let an agent schedule messages to itself.
@@ -66,6 +68,16 @@ func createScheduledMessageTool() (Entry, error) {
 				"maximum":     ScheduledMessageMaxDelaySeconds,
 				"description": "Deliver this many seconds from now.",
 			},
+			"cron": map[string]any{
+				"type":      "string",
+				"minLength": 1,
+				"description": "Five-field cron expression (minute hour day-of-month month day-of-week) for a " +
+					"recurring schedule, such as `0 9 * * 1-5` for 09:00 on weekdays.",
+			},
+			"timezone": map[string]any{
+				"type":        "string",
+				"description": "IANA time zone the cron expression is evaluated in, such as America/New_York. Only valid with `cron`. Defaults to UTC.",
+			},
 		},
 	)
 }
@@ -79,7 +91,7 @@ func deleteScheduledMessageTool() (Entry, error) {
 			"id": map[string]any{
 				"type":        "string",
 				"minLength":   1,
-				"description": "The scheduled message's id (ain_...) from create_scheduled_message or get_scheduled_messages.",
+				"description": "The id from create_scheduled_message or get_scheduled_messages: a one-time message (ain_...) or a recurring schedule (cron_...).",
 			},
 		},
 	)

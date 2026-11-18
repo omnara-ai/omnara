@@ -55,7 +55,14 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		[]string{"read_agent", "send_agent_message", "list_agents", "tool_search"},
 		expectedTopology{transactional: true},
 	)
-	add(toolcatalog.ScheduledMessageToolNames(), expectedTopology{transactional: true})
+	add(
+		[]string{toolcatalog.ToolNameGetCurrentTime, toolcatalog.ToolNameGetScheduledMessages},
+		expectedTopology{transactional: true},
+	)
+	add(
+		[]string{toolcatalog.ToolNameCreateScheduledMessage, toolcatalog.ToolNameDeleteScheduledMessage},
+		expectedTopology{transactional: true, async: true},
+	)
 	add(
 		[]string{
 			"web_search", "web_fetch", "skill", "list_github_repositories",

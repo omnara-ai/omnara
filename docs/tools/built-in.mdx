@@ -61,7 +61,11 @@ Asks a person one or more multiple-choice questions. The agent pauses until the 
 
 ## Scheduling
 
-These tools let an agent schedule a message to itself, for example to check on a deploy in an hour. They are not included by default; add each one you want under `tools:`. A scheduled message is a [scheduled input](/events/sending-input#schedule-a-message) attributed to the agent's own actor, so it appears in the waiting list and counts toward the agent's pending-message limit. The agent can only list and delete messages it scheduled itself, not ones scheduled through the API.
+These tools let an agent schedule messages to itself, for example to check on a deploy in an hour or to post a summary every weekday. They are not included by default; add each one you want under `tools:`.
+
+A one-time message is a [scheduled input](/events/sending-input#schedule-a-message) attributed to the agent's own actor, so it appears in the waiting list and counts toward the agent's pending-message limit. The agent can only list and delete one-time messages it scheduled itself, not ones scheduled through the API.
+
+A recurring message is a cron schedule that targets the agent, the same kind you create in the dashboard or API. The agent can list and delete every schedule that targets it, including ones it did not create. Its messages are attributed to the schedule.
 
 ### `get_current_time`
 
@@ -69,27 +73,29 @@ Returns the current UTC time as `current_time` (RFC 3339), `unix_seconds`, and `
 
 ### `create_scheduled_message`
 
-Schedules a message to the agent itself. When the time comes, the message joins the agent's queue and starts a new turn once the agent is free. The delivered text starts with a note that the agent scheduled it, and when, followed by `message`. Returns the scheduled message's `id` and `scheduled_for`.
+Schedules a message to the agent itself, once or on a cron schedule. When a message is due, it joins the agent's queue and starts a new turn once the agent is free. The delivered text starts with a note about the schedule, followed by `message`. Returns the `id` with `scheduled_for` for a one-time message, or with `cron`, `timezone`, and `next_run_at` for a recurring schedule.
 
 | Input | Type | Notes |
 | --- | --- | --- |
 | `message`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Up to 20,000 characters |
 | `timestamp` | string | RFC 3339 with a UTC offset; in the future, at most 366 days away |
 | `delay_seconds` | integer | 1–31,622,400 |
+| `cron` | string | Five-field cron expression for a recurring schedule, such as `0 9 * * 1-5` |
+| `timezone` | string | IANA time zone for `cron`; default `UTC`. Only valid with `cron` |
 
-Provide exactly one of `timestamp` or `delay_seconds`.
+Provide exactly one of `timestamp`, `delay_seconds`, or `cron`.
 
 ### `get_scheduled_messages`
 
-Lists the agent's own undelivered scheduled messages, soonest first, with each one's `id`, `scheduled_for`, `created_at`, and `message`. It takes no inputs.
+Returns `scheduled_messages`, the agent's own undelivered one-time messages, soonest first, with each one's `id`, `scheduled_for`, `created_at`, and `message`. It also returns `schedules`, every cron schedule that targets the agent, with each one's `id`, `cron`, `timezone`, `enabled`, `next_run_at`, and `message`. It takes no inputs.
 
 ### `delete_scheduled_message`
 
-Deletes one of the agent's own undelivered scheduled messages.
+Deletes one of the agent's own undelivered one-time messages, or any cron schedule that targets the agent.
 
 | Input | Type | Notes |
 | --- | --- | --- |
-| `id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Scheduled message ID (`ain_…`) |
+| `id`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | One-time message ID (`ain_…`) or schedule ID (`cron_…`) |
 
 ## Commands
 

@@ -340,13 +340,13 @@ func builtInToolRegistrations() []toolRegistration {
 		{
 			name:                   toolcatalog.ToolNameCreateScheduledMessage,
 			semanticInputValidator: validateCreateScheduledMessageInput,
-			handler:                toolHandler{Transactional: createScheduledMessage},
+			handler:                toolHandler{Transactional: createScheduledMessage, Async: createSchedule},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameDeleteScheduledMessage,
 			semanticInputValidator: validateDeleteScheduledMessageInput,
-			handler:                toolHandler{Transactional: deleteScheduledMessage},
+			handler:                toolHandler{Transactional: deleteScheduledMessage, Async: deleteSchedule},
 			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{

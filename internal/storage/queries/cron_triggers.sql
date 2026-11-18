@@ -282,3 +282,23 @@ UPDATE cron_triggers
 SET last_integration_receipt_id = sqlc.arg(receipt_id), updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND claim_token = sqlc.arg(claim_token) AND claimed_until > statement_timestamp() AND deleted_at IS NULL;
+
+-- name: ListCronTriggersForAgent :many
+SELECT trigger.id, trigger.name, trigger.cron_expression, trigger.timezone,
+       coalesce(trigger.message_template, '')::text AS message_template,
+       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after, trigger.created_at
+FROM cron_triggers trigger
+WHERE trigger.project_id = sqlc.arg(project_id)
+  AND trigger.agent_id = sqlc.arg(agent_id)::uuid
+  AND trigger.deleted_at IS NULL
+ORDER BY trigger.created_at ASC, trigger.id ASC
+LIMIT sqlc.arg(row_limit)::bigint;
+
+-- name: DeleteCronTriggerForAgent :execrows
+UPDATE cron_triggers
+SET deleted_at = statement_timestamp(),
+    updated_at = statement_timestamp()
+WHERE project_id = sqlc.arg(project_id)
+  AND agent_id = sqlc.arg(agent_id)::uuid
+  AND id = sqlc.arg(id)
+  AND deleted_at IS NULL;

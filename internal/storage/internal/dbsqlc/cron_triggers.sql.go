@@ -142,6 +142,30 @@ func (q *Queries) DeleteCronTrigger(ctx context.Context, arg DeleteCronTriggerPa
 	return result.RowsAffected(), nil
 }
 
+const deleteCronTriggerForAgent = `-- name: DeleteCronTriggerForAgent :execrows
+UPDATE cron_triggers
+SET deleted_at = statement_timestamp(),
+    updated_at = statement_timestamp()
+WHERE project_id = $1
+  AND agent_id = $2::uuid
+  AND id = $3
+  AND deleted_at IS NULL
+`
+
+type DeleteCronTriggerForAgentParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) DeleteCronTriggerForAgent(ctx context.Context, arg DeleteCronTriggerForAgentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCronTriggerForAgent, arg.ProjectID, arg.AgentID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteCronTriggersForAgent = `-- name: DeleteCronTriggersForAgent :execrows
 UPDATE cron_triggers
 SET deleted_at = statement_timestamp(),
@@ -576,6 +600,66 @@ func (q *Queries) InsertCronTrigger(ctx context.Context, arg InsertCronTriggerPa
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listCronTriggersForAgent = `-- name: ListCronTriggersForAgent :many
+SELECT trigger.id, trigger.name, trigger.cron_expression, trigger.timezone,
+       coalesce(trigger.message_template, '')::text AS message_template,
+       trigger.enabled, trigger.last_fired_at, trigger.next_fire_after, trigger.created_at
+FROM cron_triggers trigger
+WHERE trigger.project_id = $1
+  AND trigger.agent_id = $2::uuid
+  AND trigger.deleted_at IS NULL
+ORDER BY trigger.created_at ASC, trigger.id ASC
+LIMIT $3::bigint
+`
+
+type ListCronTriggersForAgentParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	RowLimit  int64
+}
+
+type ListCronTriggersForAgentRow struct {
+	ID              uuid.UUID
+	Name            string
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	Enabled         bool
+	LastFiredAt     *time.Time
+	NextFireAfter   *time.Time
+	CreatedAt       time.Time
+}
+
+func (q *Queries) ListCronTriggersForAgent(ctx context.Context, arg ListCronTriggersForAgentParams) ([]ListCronTriggersForAgentRow, error) {
+	rows, err := q.db.Query(ctx, listCronTriggersForAgent, arg.ProjectID, arg.AgentID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCronTriggersForAgentRow{}
+	for rows.Next() {
+		var i ListCronTriggersForAgentRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.CronExpression,
+			&i.Timezone,
+			&i.MessageTemplate,
+			&i.Enabled,
+			&i.LastFiredAt,
+			&i.NextFireAfter,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCronTriggersForProject = `-- name: ListCronTriggersForProject :many

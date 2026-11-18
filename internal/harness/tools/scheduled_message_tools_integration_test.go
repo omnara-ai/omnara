@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -176,4 +177,76 @@ func TestDeleteScheduledMessageToolCancelsTheAgentsOwnMessage(t *testing.T) {
 
 	again := dispatchScheduledMessageTool(t, ctx, &fixture, turn, calls[2])
 	require.Equal(t, "delete_scheduled_message_failed", again["error_code"])
+}
+
+func TestScheduledMessageToolsManageCronSchedulesForTheAgent(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixture(t, ctx, "scheduled-message-cron")
+	// A schedule created through the API for this agent is visible to, and removable by, the agent.
+	existing, err := fixture.Store.Execution().CreateCronTrigger(ctx, executionstore.CreateCronTriggerInput{
+		ProjectID: toolsTestProjectID, Name: "api-made",
+		Target:         executionstore.CronTriggerTarget{Kind: executionstore.CronTriggerTargetAgent, ID: fixture.Agent.ID},
+		CronExpression: "0 12 * * *", Timezone: "UTC", MessageTemplate: "Midday check.", Enabled: true,
+	})
+	require.NoError(t, err)
+	existingID, err := publicid.Encode(publicid.KindCronTrigger, existing.ID)
+	require.NoError(t, err)
+	missingID, err := publicid.Encode(publicid.KindCronTrigger, uuid.New())
+	require.NoError(t, err)
+
+	calls := []model.ToolCall{
+		{ID: "call_cron", Name: toolcatalog.ToolNameCreateScheduledMessage,
+			Input: json.RawMessage(`{"message":"Post the summary.","cron":"0 9 * * 1-5","timezone":"America/New_York"}`)},
+		{ID: "call_list_cron", Name: toolcatalog.ToolNameGetScheduledMessages, Input: json.RawMessage(`{}`)},
+		{ID: "call_delete_existing", Name: toolcatalog.ToolNameDeleteScheduledMessage,
+			Input: json.RawMessage(`{"id":"` + existingID + `"}`)},
+		{ID: "call_delete_missing", Name: toolcatalog.ToolNameDeleteScheduledMessage,
+			Input: json.RawMessage(`{"id":"` + missingID + `"}`)},
+	}
+	fixture.recordToolCalls(t, ctx, calls, fixture.Now.Add(20*time.Second))
+	turn := scheduledMessageToolTurn(&fixture)
+	executor := Executor{Store: fixture.Store}
+	dispatchAsync := func(call model.ToolCall) map[string]any {
+		t.Helper()
+		result, err := dispatchAsyncToolToTerminal(t, ctx, executor, turn, call)
+		require.NoError(t, err)
+		require.Equal(t, DispatchCompleted, result.Disposition)
+		return toolResultMapFromTestParts(t, result.ContentParts)
+	}
+
+	created := dispatchAsync(calls[0])
+	require.Equal(t, true, created["recurring"])
+	require.Equal(t, "0 9 * * 1-5", created["cron"])
+	require.Equal(t, "America/New_York", created["timezone"])
+	require.NotEmpty(t, created["next_run_at"])
+	createdID, err := publicid.Decode(publicid.KindCronTrigger, testutil.RequireType[string](t, created["id"]))
+	require.NoError(t, err)
+	trigger, err := fixture.Store.Execution().GetCronTrigger(ctx, toolsTestProjectID, createdID)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.CronTriggerTargetAgent, trigger.Target.Kind)
+	require.Equal(t, fixture.Agent.ID, trigger.Target.ID)
+	require.Equal(t, executionstore.CronTriggerDeliveryModeQueued, trigger.Target.DeliveryMode)
+	require.True(t, trigger.Enabled)
+	require.Contains(t, trigger.MessageTemplate, "fired at {{.trigger.fired_at}}.\n\nPost the summary.")
+
+	listed := dispatchScheduledMessageTool(t, ctx, &fixture, turn, calls[1])
+	require.Empty(t, listed["scheduled_messages"])
+	schedules := testutil.RequireType[[]any](t, listed["schedules"])
+	require.Len(t, schedules, 2)
+	first := testutil.RequireType[map[string]any](t, schedules[0])
+	second := testutil.RequireType[map[string]any](t, schedules[1])
+	require.Equal(t, existingID, first["id"])
+	require.Equal(t, "Midday check.", first["message"])
+	require.Equal(t, created["id"], second["id"])
+	require.Equal(t, "0 9 * * 1-5", second["cron"])
+
+	deleted := dispatchAsync(calls[2])
+	require.Equal(t, true, deleted["deleted"])
+	_, err = fixture.Store.Execution().GetCronTrigger(ctx, toolsTestProjectID, existing.ID)
+	require.ErrorIs(t, err, storeerr.ErrNotFound)
+	_, err = fixture.Store.Execution().GetCronTrigger(ctx, toolsTestProjectID, createdID)
+	require.NoError(t, err)
+
+	missing := dispatchAsync(calls[3])
+	require.Equal(t, "delete_scheduled_message_failed", missing["error_code"])
 }
