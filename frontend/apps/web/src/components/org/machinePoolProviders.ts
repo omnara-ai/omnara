@@ -4,6 +4,7 @@ import { providerOptionStrings } from '@/lib/provider-options'
 
 interface MachinePoolProviderDefinition {
   label: string
+  apiOnly?: boolean
   resource: {
     optional?: boolean
     key: string
@@ -316,10 +317,31 @@ const agent37: MachinePoolProviderDefinition = {
   },
 }
 
+const docker: MachinePoolProviderDefinition = {
+  label: 'Docker',
+  apiOnly: true,
+  resource: {
+    key: 'image',
+    label: 'Image',
+    placeholder: 'omnara/agent-sandbox',
+    description: 'A public registry image, or any image already on the Docker host.',
+    descriptionHref: 'https://docs.omnara.com/machines/providers/docker',
+  },
+  credential: {
+    label: 'Docker TLS certificates',
+    placeholder: 'Search secrets for your Docker TLS certificates…',
+    emptyDescription: 'No secrets yet — use New secret to store your Docker TLS certificates.',
+    defaultSecretName: 'docker-tls-certificates',
+    secretValuePlaceholder: '{"ca":"-----BEGIN CERTIFICATE-----...","cert":"...","key":"..."}',
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
   daytona,
+  docker,
   modal,
   freestyle,
   tenki,

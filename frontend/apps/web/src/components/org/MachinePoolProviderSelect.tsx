@@ -7,7 +7,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-import { machinePoolProviderLabel, machinePoolProviders } from './MachinePoolDialogState'
+import { machinePoolCreatableProviders, machinePoolProviderLabel } from './MachinePoolDialogState'
 import { MachinePoolProviderLogo } from './MachinePoolProviderLogo'
 
 export function MachinePoolProviderSelect({
@@ -29,7 +29,7 @@ export function MachinePoolProviderSelect({
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {machinePoolProviders.map((option) => (
+          {machinePoolCreatableProviders.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               <ProviderOption provider={option.value} label={option.label} />
             </SelectItem>

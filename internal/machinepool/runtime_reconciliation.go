@@ -827,6 +827,7 @@ func (m Manager) providerForRuntimeScope(
 		ProviderAuthToken: credential.Token,
 		HTTPRecorder:      m.HTTPRecorder,
 		HTTPClient:        m.ProviderHTTPClient,
+		EndpointAllowlist: m.EndpointAllowlist,
 	})
 	if err != nil {
 		return nil, err

@@ -3,6 +3,7 @@ package ssrf
 import (
 	"cmp"
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"slices"
@@ -27,6 +28,7 @@ type TransportOptions struct {
 	ResponseHeaderTimeout        time.Duration
 	DisableResponseHeaderTimeout bool
 	IdleConnTimeout              time.Duration
+	TLSClientConfig              *tls.Config
 }
 
 func NewTransport(opts TransportOptions) http.RoundTripper {
@@ -47,6 +49,7 @@ func NewTransport(opts TransportOptions) http.RoundTripper {
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return dial(ctx, dialer, network, addr, opts.AllowLoopback, opts.Allowlist)
 		},
+		TLSClientConfig:       opts.TLSClientConfig,
 		TLSHandshakeTimeout:   opts.TLSHandshakeTimeout,
 		ResponseHeaderTimeout: opts.ResponseHeaderTimeout,
 		IdleConnTimeout:       opts.IdleConnTimeout,

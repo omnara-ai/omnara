@@ -41,8 +41,16 @@ import {
 } from './machinePoolValidation'
 
 export const machinePoolProviders = Object.entries(machinePoolProviderDefinitions)
-  .map(([value, definition]) => ({ value, label: definition.label }))
+  .map(([value, definition]) => ({
+    value,
+    label: definition.label,
+    apiOnly: definition.apiOnly === true,
+  }))
   .sort((a, b) => a.label.localeCompare(b.label))
+
+export const machinePoolCreatableProviders = machinePoolProviders.filter(
+  (option) => !option.apiOnly,
+)
 
 export function machinePoolProviderLabel(provider: string) {
   return machinePoolProviders.find((option) => option.value === provider)?.label ?? provider
@@ -178,6 +186,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
   switch (values.provider) {
     case 'agent37':
     case 'arker':
+    case 'docker':
     case 'freestyle':
     case 'modal':
     case 'tenki':
@@ -345,6 +354,7 @@ export function machinePoolUpdateRequest(
   switch (values.provider) {
     case 'agent37':
     case 'arker':
+    case 'docker':
     case 'freestyle':
     case 'modal':
     case 'tenki':
@@ -440,6 +450,7 @@ function clusterMachinePoolUpdateRequest(
   switch (values.provider) {
     case 'agent37':
     case 'arker':
+    case 'docker':
     case 'freestyle':
     case 'modal':
     case 'tenki':
