@@ -10,6 +10,7 @@ updates:
       day: monday
       time: "05:00"
       timezone: America/Los_Angeles
+    open-pull-requests-limit: 100
     groups:
       shared-docker-images:
         group-by: dependency-name
@@ -31,6 +32,7 @@ updates:
       day: monday
       time: "05:00"
       timezone: America/Los_Angeles
+    open-pull-requests-limit: 100
     ignore:
       - dependency-name: postgres
         update-types:
@@ -71,7 +73,7 @@ updates:
       day: monday
       time: "05:00"
       timezone: America/Los_Angeles
-    open-pull-requests-limit: 20
+    open-pull-requests-limit: 100
     allow:
       - dependency-type: direct
       # Dependabot skips Go tool dependencies: dependabot/dependabot-core#12050.
@@ -118,6 +120,7 @@ updates:
       day: monday
       time: "05:00"
       timezone: America/Los_Angeles
+    open-pull-requests-limit: 100
     groups:
       # Dependency-type filters can drop transitive fixes: dependabot/dependabot-core#16250.
       npm-security-updates:
