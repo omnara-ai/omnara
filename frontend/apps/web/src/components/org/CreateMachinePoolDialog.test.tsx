@@ -140,6 +140,8 @@ async function render(
 ) {
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClient.setQueryDefaults(['web-config'], { enabled: false })
+  queryClient.setQueryData(['web-config'], {})
   await interact(() => {
     root.render(
       <OmnaraClientProvider client={client}>

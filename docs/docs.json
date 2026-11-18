@@ -159,7 +159,6 @@
                   "machines/providers/boxd",
                   "machines/providers/createos",
                   "machines/providers/daytona",
-                  "machines/providers/docker",
                   "machines/providers/e2b",
                   "machines/providers/freestyle",
                   "machines/providers/modal",

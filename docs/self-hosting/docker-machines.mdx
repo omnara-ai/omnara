@@ -1,16 +1,14 @@
 ---
-title: Docker
-description: Run each machine as a container on Docker hosts you operate
-icon: "/logo/providers/docker.svg"
+title: Docker machines
+description: Run each machine as a container on a Docker host you operate
+icon: "docker"
 ---
 
-A Docker pool runs each machine as a container on a [Docker](https://www.docker.com) host you operate. Omnara connects to the host's Docker API over TLS, with a client certificate that proves it's allowed in.
+On a self-hosted deployment, a Docker pool runs each machine as a container on a [Docker](https://www.docker.com) host you operate. Omnara connects to the host's Docker API over TLS, with a client certificate that proves it's allowed in.
 
-## Why Docker
-
-- **Machines stay on your infrastructure.** Containers run on hosts you control.
-- **Any image.** Use any public registry image, or a private image you've pulled onto the host.
-- **A private network for each machine.** Every machine gets its own Docker network, so machines can't reach each other.
+<Warning>
+  Docker pools are for demos and testing only. Machines are containers that share the host's kernel, so they're much less isolated than on the VM and sandbox providers, and code that escapes a container has root on the host. Don't use them for production or untrusted work.
+</Warning>
 
 ## How Docker machines differ
 
@@ -52,15 +50,17 @@ Other providers run machines on infrastructure they manage. Docker machines are 
     Pull private images, and large ones that take more than a couple of minutes to download, on the host yourself with `docker pull`.
   </Step>
   <Step title="Create the pool">
-    If the Docker host has a private address, add it with the port to `OMNARA_PRIVATE_ENDPOINT_CIDRS` on the API, worker, and maintenance services, for example `10.0.5.21:2376`, and restart them.
+    Docker pools are off by default. Set `OMNARA_DOCKER_POOLS_ENABLED=1` on the API service. If the Docker host has a private address, also add it with the port to `OMNARA_PRIVATE_ENDPOINT_CIDRS` on the API, worker, and maintenance services, for example `10.0.5.21:2376`. Restart the services after changing these.
 
-    Docker pools are created through the API. Call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields).
+    Machines can't reach `localhost`. If `OMNARA_PUBLIC_URL` is on `localhost`, also set `OMNARA_PUBLIC_API_URL` on those services to the host's IP address, for example `http://10.0.5.21:8000/api/v1`. This needs `OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1`, which compose sets by default.
+
+    On the **Machines** page, click **New pool** and choose **Docker**. Enter the Docker API URL, the credential, image, CPU and memory, and capacity limits. To set `runtime` or `allowed_images`, or to use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields).
   </Step>
 </Steps>
 
 ## API fields
 
-Send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
 
 ```jsonc
 {

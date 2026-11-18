@@ -4,7 +4,6 @@ import { providerOptionStrings } from '@/lib/provider-options'
 
 interface MachinePoolProviderDefinition {
   label: string
-  apiOnly?: boolean
   resource: {
     optional?: boolean
     key: string
@@ -319,13 +318,19 @@ const agent37: MachinePoolProviderDefinition = {
 
 const docker: MachinePoolProviderDefinition = {
   label: 'Docker',
-  apiOnly: true,
   resource: {
     key: 'image',
     label: 'Image',
     placeholder: 'omnara/agent-sandbox',
     description: 'A public registry image, or any image already on the Docker host.',
-    descriptionHref: 'https://docs.omnara.com/machines/providers/docker',
+    descriptionHref: 'https://docs.omnara.com/self-hosting/docker-machines',
+  },
+  scope: {
+    key: 'api_base_url',
+    label: 'Docker API URL',
+    placeholder: 'https://docker-host:2376',
+    required: true,
+    description: "The Docker host's TLS address. Docker pools are for demos and testing only.",
   },
   credential: {
     label: 'Docker TLS certificates',

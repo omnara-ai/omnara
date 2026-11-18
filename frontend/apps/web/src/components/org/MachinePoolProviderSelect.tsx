@@ -1,3 +1,5 @@
+import { useQuery } from '@tanstack/react-query'
+
 import { Field, FieldLabel } from '@/components/ui/field'
 import {
   Select,
@@ -6,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { webConfigQuery } from '@/lib/web-config'
 
 import { machinePoolCreatableProviders, machinePoolProviderLabel } from './MachinePoolDialogState'
 import { MachinePoolProviderLogo } from './MachinePoolProviderLogo'
@@ -19,6 +22,7 @@ export function MachinePoolProviderSelect({
   disabled?: boolean
   onValueChange: (provider: string) => void
 }) {
+  const { data: webConfig } = useQuery(webConfigQuery)
   return (
     <Field>
       <FieldLabel htmlFor="mpool-provider">Provider</FieldLabel>
@@ -29,7 +33,7 @@ export function MachinePoolProviderSelect({
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {machinePoolCreatableProviders.map((option) => (
+          {machinePoolCreatableProviders(webConfig?.dockerPoolsEnabled === true).map((option) => (
             <SelectItem key={option.value} value={option.value}>
               <ProviderOption provider={option.value} label={option.label} />
             </SelectItem>

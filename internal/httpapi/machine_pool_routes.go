@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
@@ -156,6 +157,13 @@ func (s strictOpenAPIServer) CreateMachinePool(
 
 const machinePoolConnectionChecksPerMinute = 10
 
+func (s *Server) checkProviderEnabled(provider string) error {
+	if !s.dockerPoolsEnabled && provider == providers.Docker {
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "Docker machine pools are turned off on this deployment")
+	}
+	return nil
+}
+
 func (s strictOpenAPIServer) CheckMachinePoolConnection(
 	ctx context.Context,
 	request openapi.CheckMachinePoolConnectionRequestObject,
@@ -166,6 +174,9 @@ func (s strictOpenAPIServer) CheckMachinePoolConnection(
 	}
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	if err := s.server.checkProviderEnabled(request.Body.Provider); err != nil {
+		return nil, err
 	}
 	if s.server.machinePoolManager == nil || s.server.authLimiter == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "machine pool connection checks unavailable")
@@ -234,6 +245,9 @@ func (s strictOpenAPIServer) createMachinePool(
 ) (openapi.CreateMachinePoolResponseObject, error) {
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	if err := s.server.checkProviderEnabled(request.Body.Provider); err != nil {
+		return nil, err
 	}
 	canonicalName, err := resourcename.CanonicalizeRequired("machine pool name", request.Body.Name)
 	if err != nil {

@@ -2,6 +2,7 @@ x-app-env: &app-env
   OMNARA_DATABASE_URL: postgres://omnara:omnara@postgres:5432/omnara?sslmode=disable
   OMNARA_REDIS_URL: redis://redis:6379/0
   OMNARA_PUBLIC_URL: ${OMNARA_PUBLIC_URL:-http://localhost:8000}
+  OMNARA_PUBLIC_API_URL: ${OMNARA_PUBLIC_API_URL:-}
   OMNARA_LOG_LEVEL: ${OMNARA_LOG_LEVEL:-info}
   OMNARA_ALLOW_INSECURE_DEV_DEFAULTS: ${OMNARA_ALLOW_INSECURE_DEV_DEFAULTS:-1}
   OMNARA_SECRET_ENCRYPTION_KEYS: ${OMNARA_SECRET_ENCRYPTION_KEYS:-}
@@ -110,6 +111,7 @@ services:
       OMNARA_API_RATE_LIMIT_BURST: ${OMNARA_API_RATE_LIMIT_BURST:-}
       OMNARA_BILLING_URL: ${OMNARA_BILLING_URL:-}
       OMNARA_DAEMON_RELEASE_URL: ${OMNARA_DAEMON_RELEASE_URL:-https://github.com/omnara-ai/omnara/releases/download/omnarad-stable}
+      OMNARA_DOCKER_POOLS_ENABLED: ${OMNARA_DOCKER_POOLS_ENABLED:-0}
     volumes:
       - memory-data:/var/lib/omnara/memory
     depends_on:
